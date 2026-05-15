@@ -381,8 +381,7 @@ You can compare strings, but only for similarity, using `==` and `!=`:
 ### Operator Precedence
 Comparison operators have lower precedence than arithmetic. Math happens first, then comparisons:
 ```apex
-result = 5 + 3 > 7      // (5 + 3) > 7        true
-result = 10 - 2 == 8    // (10 - 2) == 8      true
+result = 10 - 2 == 8    // true
 ```
 ## 2.3 Logical Operators
 Logical operators combine boolean values (`true` or `false`) to create more complex conditions.
@@ -413,15 +412,6 @@ can_walk = not is_raining        // true
 ```
 ### Operator Precedence
 Logical operators have their own order. `not` happens first, then `and`, then `or`.
-```apex
-result = not true and false or true
-// Step by step:
-// 1. not true = false
-// 2. false and false = false
-// 3. false or true = true
-// Use parentheses to control order:
-result = not (true and false) or true    // different result!
-```
 
 Full precedence order (highest to lowest):
 1. `()` — parentheses
@@ -783,20 +773,17 @@ Functions can have no parameters.
 Some functions just do something — like `os.output()` prints text. Other functions calculate something and give it back to you.
 
 Return value is what the function sends back after it finishes. You use the `return` keyword.
-
-```apex
-function add(a, b)
-    return a + b
-```
-
-This function doesn't print anything. It gives back the sum.
-
 ```apex
 import os
+
+function add(a, b)
+    return a + b
 
 result = add(5, 3)
 os.output(result)    // Prints: 8
 ```
+
+This function doesn't print anything. It gives back the sum.
 
 Think of it like a vending machine:
 - You put money in (parameters)
@@ -985,7 +972,7 @@ dns_lookup(hostname)
 
 ip_is_valid(ip)
 ## 9.5 UI Library (ui)
-
+TODO
 # Conclusion
 ## What's Next?
 You've learned the core of Apex: variables, conditions, loops, functions, and imports. Now you can:
