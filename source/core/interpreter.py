@@ -201,7 +201,7 @@ class Interpreter:
                     raw_tokens = tokenizer.tokenize()
 
                     # Конвертируем токены в формат парсера (как в main.py)
-                    from source.core.parser import Token as ParserToken, TokenType as ParserTokenType
+                    from source.core.parser_main import Token as ParserToken, TokenType as ParserTokenType
                     parser_tokens = [
                         ParserToken(
                             type=ParserTokenType[t.type.name],
@@ -213,7 +213,7 @@ class Interpreter:
                     ]
 
                     # Парсим
-                    from source.core.parser import Parser
+                    from source.core.parser_main import Parser
                     parser = Parser(parser_tokens, str(found_file))
                     ast = parser.parse()
                     

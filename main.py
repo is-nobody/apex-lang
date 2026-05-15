@@ -1,4 +1,4 @@
-# main.py (измененная часть)
+# main.py
 import sys
 import os
 import json
@@ -7,7 +7,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from source.core.tokenizer import Tokenizer
-from source.core.parser import Parser, read_tokens_from_file, fixup_tokens, TokenType, Token as ParserToken
+from source.core.parser_main import Parser, parse_file
+from source.core.parser.token_type import TokenType
+from source.core.parser.token import Token as ParserToken
 from source.core.interpreter import Interpreter
 
 def find_apex_file(filename: str) -> Path | None:
@@ -43,6 +45,7 @@ def main():
         source = f.read()
     
     # Токенизация
+    from source.core.tokenizer import Tokenizer
     tokenizer = Tokenizer(source, str(filepath))
     tokens = tokenizer.tokenize()
     
@@ -87,4 +90,5 @@ def main():
         print(e)
         sys.exit(1)
 
-main()
+if __name__ == "__main__":
+    main()
