@@ -1,7 +1,8 @@
 # Apex language
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Apex Version](https://img.shields.io/badge/Apex-v26.06-blue)](https://apex.org/apex-lang)
+[![Apex Version](https://img.shields.io/badge/Apex-v26.06-blue)](https://github.com/is-nobody/apex-lang)
+![Avalaible](https://img.shields.io/badge/Avalaible-Windows%20%7C%20macOS%20%7C%20Linux-red)
 
 **Apex** — a simple and modern programming language with built-in libraries. 
 Write once, build native binaries for Windows, macOS and Linux from a single codebase.
@@ -9,9 +10,6 @@ Write once, build native binaries for Windows, macOS and Linux from a single cod
 Created and maintained by one person. MIT Licensed.
 
 ## Quick Start
-### Prerequisites
-- Apex v26.06
-
 ### Install Apex
 1. Download the installer from [GitHub releases](https://github.com/is-nobody/apex-lang/releases)
 2. Run the installer for your OS.
@@ -21,9 +19,9 @@ Created and maintained by one person. MIT Licensed.
 apex
 ```
 
-Expected output: `Apex v26.06` or higher.
+Expected output: `Apex v26.06`.
 
-### Run Your First Program
+### Run Script
 Create your own file with `main.apex` name:
 
 ```apex
@@ -38,41 +36,11 @@ Execute it:
 apex main.apex
 ```
 
-## Building for Distribution
-Build native binaries for all enabled platforms:
-
-```bash
-apex build main.apex
-```
-
-Binaries appear in the `build/` folder.
-
-### Configure Target Platforms
-```bash
-apex settings
-```
-
-This opens an interactive REPL. Type `platforms` to see available targets:
-
-```
-Available platforms:
-Windows     - Y
-macOS       - Y
-Linux       - Y
-```
-
-Toggle platforms by typing their name. Type `exit` to save and quit.
-
 ## Documentation
 - **[Apex Reference Manual for Beginners](resources/RM_fBeginners.md)** — variables, data types, operators, control flow, functions, imports, built-in libraries (`os`, `math`, `string`, `network`, `ui`).
 
 ## Contributing
-We welcome contributions. Before submitting a pull request, please read:
+We welcome contributions. Please read:
 
 1. **[Code of Conduct](code_of_conduct.md)**
-2. **[Contributing Guide](resources/contributing.md)** — dev setup, code style, testing, PR process.
-
-## Support
-**[Make a donation](https://example.com)** — funds go to Apex Community Awards for top contributors.
-
-[Learn more about the Apex Community Awards](https://example.com/awards)
+2. **[Contributing Guide](resources/contributing.md)**

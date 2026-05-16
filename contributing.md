@@ -1,4 +1,12 @@
 # Contributing to Apex
+
+[![GitHub](https://img.shields.io/badge/Platform-GitHub-green)](https://github.com/is-nobody/apex-lang)
+[![Apex Version](https://img.shields.io/badge/Apex-lang-blue)](https://github.com/is-nobody/apex-lang)
+
+![Last Commit](https://img.shields.io/github/last-commit/is-nobody/apex-lang)
+![Issues](https://img.shields.io/github/issues/is-nobody/apex-lang)
+![Pull Requests](https://img.shields.io/github/issues-pr/is-nobody/apex-lang)
+
 Thank you for your interest in contributing to the Apex programming language! This guide will help you understand our development process and how to submit changes effectively. Whether you're fixing a typo or adding a major feature, your contribution matters.
 
 Please note that by participating in this project, you agree to abide by our [Code of Conduct](code_of_conduct.md). We expect all contributors to help us maintain a welcoming and respectful community.
@@ -37,7 +45,7 @@ Verify the installation:
 apex
 ```
 
-*Should show: Apex 26.06+*
+Expected output: `Apex v26.06`.
 
 ### Set Up Your Workspace
 Create your own copy of the project:
@@ -115,7 +123,7 @@ Rules to follow:
 4. **Keywords:** Lowercase (`function`, `if`, `for`, `return`)
 5. **Operators:** Add spaces around them (`a + b`, not `a+b`)
 6. **Parentheses:** No space after function name (`greet(name)`, not `greet (name)`)
-7. **Comments:** Explain *why* not only *what*
+7. **Comments:** Explain *why* not *what* only
 
 ### Commit Messages
 Write clear, descriptive commit messages in the present tense:

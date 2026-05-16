@@ -64,14 +64,12 @@ This manual is written with step-by-step learning in mind and strives to be mini
 
 # Introduction
 ## About the Project
-Apex is a programming language designed for simplicity and cross-platform development with powerful built-in libraries. Apex is designed to be approachable for beginners while remaining powerful for professional developers. Apex is under the MIT License. All created by one person.
+Apex is a programming language designed for simplicity and cross-platform development with built-in libraries. Apex is designed to be approachable for beginners while remaining powerful for professional developers. Apex is under the MIT License. All created by one person.
 
 ## Installation
 We'll be using Apex Code - Apex pre-installed here.
 
-Go to the official Apex Code URL: [https://apex.org/apex-code](https://apex.org/apex-code) and navigate to the Download section and select the appropriate file for your operating system. Download it. After download, run it.
-
-If you prefer not to install anything locally, you can try Apex in your browser: [https://apex.org/apex/try](https://apex.org/apex/try)
+Go to the [GitHub releases](https://github.com/is-nobody/apex-lang/releases), navigate to the Download section and select the appropriate file for your operating system. Download it. After download, run it.
 
 ## Your First Code
 When you run Apex Code for the first time, you already have a file with this code, but if not, copy it:

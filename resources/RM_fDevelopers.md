@@ -3,9 +3,8 @@ This manual is minimalistic. Each section builds on the previous ones. For the b
 
 ## Table of Contents
 ### Introduction
-- [Do you need this?](#do-you-need-this)
 - [About the Project](#about-the-project)
-- [Setting up workspace](#installation)
+- [Setting up workspace](#setting-up-workspace)
 
 ### 1. Variables & Data Types
 - [1.1 None](#11-none)
@@ -68,9 +67,7 @@ Apex is a programming language designed for simplicity and cross-platform develo
 
 ## Setting up workspace
 ### Installing
-Go to the official Apex URL: [https://apex.org/apex-lang](https://apex.org/apex-lang) and search the Download section. Download it for your OS.
-
-If you prefer not to install anything locally, you can try Apex in your browser: [https://apex.org/apex/try](https://apex.org/apex/try)
+Go to the [GitHub releases](https://github.com/is-nobody/apex-lang/releases) and search the Download section. Download it for your OS.
 
 ### Checking Workability
 When Apex installed, check it:
@@ -78,6 +75,8 @@ When Apex installed, check it:
 ```bash
 apex
 ```
+
+Expected output: `Apex v26.06`.
 
 # 1. Data Types
 Apex determines the type automatically. Main data types in language:
