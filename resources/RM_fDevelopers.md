@@ -1,28 +1,34 @@
 # Apex Language Reference Manual for Beginners
 This manual is minimalistic. Each section builds on the previous ones. For the best experience, follow the order.
+
 ## Table of Contents
 ### Introduction
 - [Do you need this?](#do-you-need-this)
 - [About the Project](#about-the-project)
 - [Setting up workspace](#installation)
+
 ### 1. Variables & Data Types
 - [1.1 None](#11-none)
 - [1.2 Numbers](#12-numbers)
 - [1.3 Booleans](#13-booleans)
 - [1.4 Strings](#14-strings)
 - [1.5 Tables](#15-tables)
+
 ### 2. Operators
 - [2.1 Arithmetic Operators](#21-arithmetic-operators)
 - [2.2 Comparison Operators](#22-comparison-operators)
 - [2.3 Logical Operators](#23-logical-operators)
+
 ### 3. If Statements
 - [3.1 If Statement](#31-if-statement)
 - [3.2 Elif Statement](#32-elif-statement)
 - [3.3 Else Statement](#33-else-statement)
+
 ### 4. While Loops
 - [4.1 While Statement](#41-while-statement)
 - [4.2 Break](#42-break)
 - [4.3 Continue](#43-continue)
+
 ### 5. For Loops
 - [5.1 For Statement](#51-for-statement)
 - [5.2 In Operator](#52-in-operator)
@@ -30,43 +36,52 @@ This manual is minimalistic. Each section builds on the previous ones. For the b
 - [5.4 Range](#54-range)
 - [5.5 Break](#55-break)
 - [5.6 Continue](#56-continue)
+
 ### 6. Error Handling
 - [6.1 Try Statement](#61-try-statement)
 - [6.2 Failure Statement](#62-failure-statement)
 - [6.3 Always Statement](#63-always-statement)
+
 ### 7. Functions
 - [7.1 Function Statement](#71-function-statement)
 - [7.2 Parameters](#72-parameters)
 - [7.3 Return Value](#73-return-value)
 - [7.4 Call](#74-call)
+
 ### 8. Imports
 - [8.1 Import Module](#81-import-module)
 - [8.2 From Import](#82-from-import)
+
 ### 9. Built-In Libraries
 - [9.1 OS Library (os)](#91-os-library-os)
 - [9.2 Math Library (math)](#92-math-library-math)
 - [9.3 String Library (string)](#93-string-library-string)
 - [9.4 Network Library (network)](#94-network-library-network)
 - [9.5 UI Library (ui)](#96-ui-library-ui)
+
 ### Conclusion
 - [What's Next?](#whats-next)
 
 # Introduction
 ## About the Project
 Apex is a programming language designed for simplicity and cross-platform development. Apex is under the MIT License. All created by one person.
+
 ## Setting up workspace
 ### Installing
 Go to the official Apex URL: [https://apex.org/apex-lang](https://apex.org/apex-lang) and search the Download section. Download it for your OS.
 
 If you prefer not to install anything locally, you can try Apex in your browser: [https://apex.org/apex/try](https://apex.org/apex/try)
+
 ### Checking Workability
-When Apex installed, check workability:
-```apex
-import os
-os.output("Hello, Friend")
+When Apex installed, check it:
+
+```bash
+apex
 ```
+
 # 1. Data Types
 Apex determines the type automatically. Main data types in language:
+
 | Type | Description | Example |
 |------|-------------|---------|
 | `None` | Nothing, no value | `x = none` |
@@ -78,96 +93,111 @@ Apex determines the type automatically. Main data types in language:
 For `none`, `true`, and `false`, case doesn't matter.
 
 `//` means a comment.
+
 ## 1.1 None
 None represents nothing — no value, empty, undefined.
+
 ```apex
 x = none        // x exists but has no value
 y = 10          // y had a value
 y = none        // now y empty
 ```
+
 ## 1.2 Numbers
 In Apex, you don't need to worry about whether a number is a whole number or a decimal. Apex figures out the rest. There is no limit to numbers.
+
 ### Whole Numbers
 Whole numbers are written without any other symbols. They can be positive or negative.
+
 ```apex
 year = 2024
 temperature = -5
 ```
+
 ### Decimal Numbers
 Decimals are written with a dot `.`.
+
 ```apex
 weight = 71.5
 height = 1.8
 ```
-Apex uses a dot, not a comma. Commas separate items in table lists.
+
 ### Declaring with Arithmetic
 You can declare variables and do math with them at the same time. Once a variable holds a number, you can use it in calculations just like a regular number.
+
 ```apex
 x = 10
 y = 3.5
 sum = x + y
 ```
+
 ## 1.3 Booleans
 Booleans represent one of two possible values: `true` or `false`. You can create booleans in two ways: directly or through comparisons.
 
 Direct assignment:
+
 ```apex
 is_active = true
 has_permission = false
 is_logged_in = true
 ```
+
 Through comparisons:
+
 ```apex
 age = 25
 is_adult = age > 18        // true — because 25 is greater than 18
 ```
-Whenever you use comparison operators (`==`, `!=`, `<`, `>`, `<=`, `>=`), the result is always a boolean. Booleans also come from logical operations that combine values:
-```apex
-is_weekend = true
-is_holiday = false
-can_sleep_in = is_weekend or is_holiday    // true
-```
+
+Whenever you use comparison operators (`==`, `!=`, `<`, `>`, `<=`, `>=`), the result is always a boolean. Booleans also come from logical operations that combine values.
+
 ## 1.4 Strings
 A string can be one character long, a thousand characters long, or even empty.
+
 ### Creating Strings
 In Apex, strings are written inside double quotes `" "`:
+
 ```apex
 name = "Alice"
 message = "Hello, Friend"
 empty = ""
 ```
+
 If you need double quotes inside them, just do it, Apex will take them calmly, since they are already inside the main double quotes:
+
 ```apex
 inside = "He say: "I hate donuts!""
 ```
+
 ### String Interpolation
 Apex have only one way for gluing a string with a variable — string interpolation.
-```apex
-name = "Alice"
-greeting = "Hello, {name}"                    // "Hello, Alice"
-```
-This works with any value, not just strings:
+
 ```apex
 score = 95
 price = 19.99
 is_active = true
 
 result = "Score: {score}, Price: {price}, Active: {is_active}"
-// "Score: 95, Price: 19.99, Active: true"
 ```
+
 Apex automatically converts numbers and other values to text when you put them inside `{}`. Inside them, you can only specify the name of the variable, but not the expression.
+
 ## 1.5 Tables
 A table is Apex's universal container. Tables are flexible — they work as ordered lists and key-value pairs. You can even mix both styles in the same table.
+
 ### Creating Tables
 Tables are written inside parentheses `( )`. Values are separated by commas.
+
 ```apex
 empty = ()                               // empty table — nothing inside
 fruits = ("apple", "banana", "orange")   // three items
 numbers = (10, 20, 30, 40)               // four numbers
 mixed = (42, "hello", true)              // different types together
 ```
+
 ### Ordered Lists
 When you list values without keys, you create an ordered list. Each value has a position — starting from 1.
+
 ```apex
 colors = ("red", "green", "blue")
 // Access by position
@@ -175,8 +205,10 @@ first_color = colors.1      // "red"
 second_color = colors.2     // "green"
 third_color = colors.3      // "blue"
 ```
+
 ### Key-Value Pairs
 When you want to label each value with a name, use keys. Keys and values are connected with `=`. You can't use numbers as keys, because numbers are reserved and using for calling items without keys.
+
 ```apex
 user = (
     name = "Alice",
@@ -184,14 +216,18 @@ user = (
     active = true
 )
 ```
+
 Keys are written without quotes. Apex recognizes them as names, not strings. Now you can access values by their key:
+
 ```apex
 user_name = user.name         // "Alice"
 user_age = user.age           // 30
 user_active = user.active     // true
 ```
+
 ### Working with Keys
 Once a table exists, you can working with keys:
+
 ```apex
 user = (name = "Alice")
 // Add a new key
@@ -201,9 +237,12 @@ user.active = true
 // Now user has four keys
 // (name = "Alice", age = 30, city = "Dubai", active = true)
 ```
+
 Updating a value works the same way — just assign a new value to an existing key or position. If you access a non-existent key, you will get none. If you want to remove an item from a table, you need to assign it the value `none`. If you need the `0` item, you will get a `none` value.
+
 ### Mixed Tables
 Tables can combine ordered items and key-value pairs in the same table. Ordered items come first, then key-value pairs:
+
 ```apex
 person = ("Alice", "Manager", department = "Engineering", years = 5)
 // Access ordered items by position
@@ -213,8 +252,10 @@ role = person.2
 dept = person.department
 experience = person.years
 ```
+
 ### Tables Inside Tables
 Tables can contain other tables. This lets you build complex data structures:
+
 ```apex
 company = (
     name = "Apex",
@@ -229,9 +270,11 @@ company_name = company.name
 first_employee = company.employees.1
 city = company.address.city
 ```
+
 # 2. Operators
 ## 2.1 Arithmetic Operators
 Arithmetic operators work with numbers. They do exactly what you learned in math class.
+
 | Operator | Name | Example | Result |
 |----------|------|---------|--------|
 | `+` | Addition | `5 + 3` | `8` |
@@ -241,17 +284,10 @@ Arithmetic operators work with numbers. They do exactly what you learned in math
 | `%` | Modulo (remainder) | `15 % 4` | `3` |
 
 Arithmetic only works with the numbers data type, you cannot add number with string, none with boolean, etc. When you perform an arithmetic operation between an whole and a decimal, the result also becomes a decimal.
-### Operator Precedence
-Just like in math, multiplication and division happen before addition and subtraction:
-```apex
-result = 2 + 3 * 4      // 14, not 20
-```
-To change the order, use parentheses:
-```apex
-result = (2 + 3) * 4    // 20, because parentheses happen first
-```
+
 ## 2.2 Comparison Operators
 Comparison operators compare two values and give you a boolean result: either `true` or `false`. They can return only a Boolean value.
+
 | Operator | Name | Example | Result |
 |----------|------|---------|--------|
 | `==` | Equal to | `5 == 5` | `true` |
@@ -262,48 +298,29 @@ Comparison operators compare two values and give you a boolean result: either `t
 | `>=` | Greater than or equal | `5 >= 5` | `true` |
 
 Comparison results are booleans — you can store them in variables.
+
 ### String Comparisons
 You can compare strings, but only for similarity, using `==` and `!=`:
+
 ```apex
 "Bob" == "Bob"     // true
 "Bob" != "Bob"     // false
 ```
-### Operator Precedence
-Comparison operators have lower precedence than arithmetic. Math happens first, then comparisons:
-```apex
-result = 10 - 2 == 8
-```
+
 ## 2.3 Logical Operators
 Logical operators combine boolean values (`true` or `false`) to create more complex conditions.
+
 | Operator | Name | What It Does | Example | Result |
 |----------|------|--------------|---------|--------|
 | `and` | AND | Both sides must be true | `true and true` | `true` |
 | `or` | OR | At least one side must be true | `true or false` | `true` |
 | `not` | NOT | Reverses the value | `not true` | `false` |
-### AND (`and`)
-Both conditions must be true for the result to be true.
-```apex
-age = 25
-has_license = true
-can_drive = age >= 18 and has_license     // true
-```
-### OR (`or`)
-At least one condition must be true for the result to be true.
-```apex
-day = "Saturday"
-is_holiday = false
-can_relax = day == "Saturday" or is_holiday     // true
-```
-### NOT (`not`)
-Reverses a boolean value.
-```apex
-is_raining = false
-can_walk = not is_raining        // true
-```
+
 ### Operator Precedence
 Logical operators have their own order. `not` happens first, then `and`, then `or`.
 
 Full precedence order (highest to lowest):
+
 1. `()` — parentheses
 2. `*`, `/`, `%` — multiplication, division, modulo
 3. `+`, `-` — addition, subtraction
@@ -312,8 +329,10 @@ Full precedence order (highest to lowest):
 6. `not` — logical NOT
 7. `and` — logical AND
 8. `or` — logical OR
+
 # 3. If Statements
 If statements are how you tell Apex to make decisions.
+
 | Statement | When It Runs |
 |-----------|---------------|
 | `if` | Condition is `true` |
@@ -321,16 +340,20 @@ If statements are how you tell Apex to make decisions.
 | `else` | All previous conditions were `false` |
 
 Apex does not treat `none` as `false`. Always compare with `== none` or `!= none`.
+
 ## 3.1 If Statement
 If user doesn't exist, then display output about him. But if we have user, we does nothing and moves on.
+
 ```apex
 import os
 user = none
 if user == none
     os.output("No user found")
 ```
+
 ## 3.2 Elif Statement
 Sometimes one condition isn't enough. Use `elif` — short for "else if".
+
 ```apex
 import os
 score = 85
@@ -339,9 +362,12 @@ if score >= 90
 elif score >= 80
     os.output("Grade: B")
 ```
-Apex checks conditions in order from top to bottom. As soon as one condition is `true`, it runs that block and skips the rest. The remaining elif blocks are never checked
+
+Apex checks conditions in order from top to bottom. As soon as one condition is `true`, it runs that block and skips the rest. The remaining elif blocks are never checked.
+
 ## 3.3 Else Statement
 `else` catches everything that wasn't caught by `if` or `elif`. It runs when no other condition was `true`.
+
 ```apex
 import os
 score = 55
@@ -350,10 +376,13 @@ if score >= 60
 else
     os.output("You failed.")
 ```
+
 # 4. While Loops
 ## 4.1 While Statement
 As long as condition is `true`, Apex keeps running the code inside. When condition becomes `false`, Apex exits the loop and continues with the rest of the program. Simple Example:
+
 Count from 1 to 5:
+
 ```apex
 import os
 counter = 1
@@ -361,8 +390,10 @@ while counter <= 5
     os.output(counter)
     counter = counter + 1
 ```
+
 ### 4.2 Break
 `break` immediately exits the loop, no matter what the condition says. Use it when you need to stop early.
+
 ```apex
 import os
 x = 1
@@ -372,9 +403,12 @@ while x <= 10
     os.output(x)
     x = x + 1
 ```
+
 Nothing after `break` runs for that iteration.
+
 ### 4.3 Continue
 `continue` skips the rest of the current iteration and jumps to the next check of the condition.
+
 ```apex
 import os
 x = 0
@@ -384,47 +418,47 @@ while x < 10
         continue
     os.output(x)
 ```
+
 When `x` is even, `continue` skips `os.output(x)` and goes back to check the condition again.
+
 # 5. For Loops
 ## 5.1 For Statement
 A `for` loop repeats code a specific number of times. You give it a counter variable, a start value, and an end value.
-```apex
-import os
-for counter = 1 to 5
-    os.output(counter)
-```
+
 ## 5.2 In Operator
 The `in` keyword lets you loop through items in a table. The loop runs once for each item.
+
 ```apex
 import os
 colors = ("red", "green", "blue")
 for color in colors
     os.output(color)
 ```
+
 Each time the loop runs, `color` holds the next value from the table.
-```apex
-import os
-shopping_list = ("milk", "eggs", "bread")
-for item in shopping_list
-    os.output("Buy: {item}")
-```
+
 ## 5.3 To Operator
 The `to` keyword creates a number range. Apex counts from start to end. Counting up:
+
 ```apex
 import os
 for i = 1 to 3
     os.output("Number {i}")
 ```
+
 Apex automatically figures out whether to count up or down based on the start and end values.
 ## 5.4 Range
 Sometimes you need to skip numbers. The `range` keyword lets you set the step size. Even numbers from 0 to 10:
+
 ```apex
 import os
 for i = 0 to 10 range 2
     os.output(i)
 ```
+
 ## 5.5 Break
 `break` exits the loop immediately — same as in `while`.
+
 ```apex
 import os
 for i = 1 to 10
@@ -432,8 +466,10 @@ for i = 1 to 10
         break
     os.output(i)
 ```
+
 ## 5.6 Continue
 `continue` skips the rest of the current iteration and moves to the next number.
+
 ```apex
 import os
 for i = 1 to 5
@@ -441,10 +477,13 @@ for i = 1 to 5
         continue
     os.output(i)
 ```
+
 # 6. Error Handling
 Error handling allows your program to attempt risky operations and recover gracefully when they fail, instead of crashing.
+
 ## 6.1 Try Statement
 Use `try` to wrap code that might fail. If something goes wrong, the program jumps to the `failure` block instead of crashing.
+
 ```apex
 import os
 try
@@ -457,6 +496,7 @@ failure
 
 ## 6.2 Failure Statement
 The `failure` block only runs when an error occurs. It's your safety net.
+
 ```apex
 function divide_safe(a, b)
     try
@@ -488,14 +528,17 @@ always
 # 7. Functions
 ## 7.1 Function Statement
 To create a function, use the `function` keyword, then the function name, then parentheses `( )`, then the code block.
+
 ```apex
 import os
 
 function say_hello()
     os.output("Hello!")
 ```
+
 ## 7.2 Parameters
 Sometimes a function needs information to do its job. You put them inside the parentheses.
+
 ```apex
 import os
 
@@ -503,23 +546,11 @@ function greet(name)
     os.output("Hello, {name}!")
 ```
 
-You can have multiple parameters, separated by commas:
-```apex
-function introduce(first_name, last_name, age)
-    introduce("Alice", "Smith", 30)
-    os.output("My name is {first_name} {last_name} and I am {age} years old")
-// Prints: My name is Alice Smith and I am 30 years old
-```
-Order matters. The first value goes to the first parameter, the second value to the second parameter, and so on.
-```apex
-function divide(a, b)
-    os.output(a / b)
-divide(10, 2)    // Prints: 5 — a is 10, b is 2
-divide(2, 10)    // Prints: 0.2 — a is 2, b is 10
-```
-Functions can have no parameters.
+You can have multiple parameters, separated by commas. Order matters. The first value goes to the first parameter, the second value to the second parameter, and so on.
+
 ## 7.3 Return Value
 Return value is what the function sends back after it finishes. You use the `return` keyword.
+
 ```apex
 import os
 
@@ -530,15 +561,7 @@ result = add(5, 3)
 os.output(result)    // Prints: 8
 ```
 
-Functions without `return` return `none` automatically.
-```apex
-import os
-
-function just_print()
-    os.output("Hello")
-value = just_print()   // value is none
-```
-Once `return` happens, the function exits. Nothing after it runs.
+Functions without `return` return `none` automatically. Once `return` happens, the function exits. Nothing after it runs.
 ### 7.4 Call
 Using a function is called calling it. You write the function name followed by parentheses.
 ```apex
@@ -549,7 +572,9 @@ greet("Alice")
 // Store the return value
 total = add(10, 5)
 ```
+
 Direct call:
+
 ```apex
 import os
 
@@ -557,13 +582,17 @@ function show_message()
     os.output("Function called!")
 show_message()    // Prints: Function called!
 ```
+
 Call in expressions:
+
 ```apex
 function triple(x)
     return x * 3
 result = triple(4) + 10    // 12 + 10 = 22
 ```
+
 Nested calls (call a function inside another call):
+
 ```apex
 function add(a, b)
     return a + b
@@ -572,7 +601,9 @@ function multiply(a, b)
 // Nested — multiply happens first, then add
 result = add(5, multiply(2, 3))        // add(5, 6) = 11
 ```
+
 Calling a function that calls another function:
+
 ```apex
 function get_discount(price)
     return price * 0.9
@@ -581,10 +612,13 @@ function calculate_total(price, quantity)
     return get_discount(total)   // Calls another function
 final_price = calculate_total(100, 3)   // 100 * 3 = 300, then 300 * 0.9 = 270
 ```
+
 # 8. Imports
 Imports give you the ability to use code from other files. Every import path is relative to the main file — the file you run with `apex filename.apex`.
+
 ## 8.1 Importing an Entire File
 To import everything from a file in the same folder:
+
 ```apex
 import database
 import config
@@ -593,9 +627,12 @@ import config
 database.connect()
 os.output(config.APP_NAME)
 ```
+
 When you import a file, you must use the filename as a prefix to access its contents.
+
 ### Importing from Sub-folders
 Use dots (`.`) to navigate into folders:
+
 ```
 my_project/
 ├── main.apex
@@ -603,12 +640,16 @@ my_project/
 │   ├── math.apex
 └── └── string.apex
 ```
+
 ```apex
 import utils.math
 ```
+
 Each dot in imports means "go inside this folder." `utils.math` looks for `utils/math.apex`.
+
 ### Importing from One Sub-folder into Another
 You have this structure:
+
 ```
 my_project/
 ├── main.apex
@@ -617,38 +658,52 @@ my_project/
 └── features/
     └── calculator.apex
 ```
+
 You want to use `math.apex` inside `calculator.apex`. What path do you use? Always write the path as if you were importing from `main.apex`.
+
 ```apex
 // Inside features/calculator.apex
 import helpers.math         // Same as you would in main.apex!
 ```
+
 Apex always starts looking from the main file's folder. This keeps your imports consistent — no matter how deep your folder structure gets, you always know exactly how to import any file.
+
 ### What Gets Imported
 When you import a file, you get everything from it:
+
 - All functions
 - All variables
+
 ## 8.2 Importing Specific Items Only
 Sometimes you don't want to import everything, or you want to avoid typing the filename prefix. Use `:` to import only what you need:
+
 ```apex
 // Import only specific items
 import os: output
 // Use them directly without the filename prefix
 output("Hello, Friend")
 ```
+
 Using a prefix is not ​​mandatory even in this case, you can just use output without os.
 
 You can also import specific items from sub-folders:
+
 ```apex
 import utils.math: add, multiply
 result = utils.math.add(5, 3)        // 8
 ```
+
 Always use the full filename prefix to tell Apex which item you mean.
+
 ### What Gets Imported
 When you importing a file with specific items only, you get only functions & variables specified after the colon.
+
 # 9. Built-in Libraries
 What is this?
+
 ## 9.1 OS Library (os)
 Functions for interacting with the operating system.
+
 ### os.output()
 Prints text to the terminal.
 ```apex
@@ -662,10 +717,13 @@ import os
 name = os.input()
 os.output("Hello, {name}")
 ```
+
 ## 9.2 Math Library (math)
 math: abs, floor, ceil, round, sqrt, sin, cos, tan, pi, random.
+
 ## 9.3 String Library (string)
 string: len, lower, upper, sub, split, join, trim, find, replace.
+
 ## 9.4 Network Library (network)
 url_encode(str)
 url_decode(str)
@@ -692,5 +750,6 @@ ws.on_message
 dns_lookup(hostname)
 
 ip_is_valid(ip)
+
 ## 9.5 UI Library (ui)
 TODO
