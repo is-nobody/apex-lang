@@ -1,0 +1,62 @@
+# execute.py
+import sys
+from pathlib import Path
+
+def execute_file(filepath):
+    """Execute an Apex file using tokenizer, parser, and interpreter"""
+    if not Path(filepath).exists():
+        print(f"Error: File {filepath} not found")
+        return False
+    
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            source = f.read()
+        
+        from source.core.tokenizer import Tokenizer
+        tokenizer = Tokenizer(source, filepath)
+        tokens = tokenizer.tokenize()
+        
+        from source.core.parser_main import Parser
+        from source.core.parser.token import Token as ParserToken
+        from source.core.parser.token_type import TokenType
+        
+        parser_tokens = []
+        for t in tokens:
+            parser_tokens.append(ParserToken(
+                type=TokenType[t.type.name],
+                value=t.value,
+                line=t.line,
+                column=t.column
+            ))
+        
+        parser = Parser(parser_tokens, filepath)
+        ast = parser.parse()
+        
+        if ast is None:
+            return False
+        
+        from source.core.interpreter_main import Interpreter
+        interpreter = Interpreter(filepath)
+        
+        from source.libraries import BUILTIN_MODULES
+        for name, module in BUILTIN_MODULES.items():
+            interpreter.global_env.define(name, module)
+        
+        interpreter.evaluate(ast.to_dict())
+        return True
+        
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
+
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: python3 execute.py <filename.apex>")
+        sys.exit(1)
+    
+    filepath = sys.argv[1]
+    success = execute_file(filepath)
+    sys.exit(0 if success else 1)
+
+if __name__ == "__main__":
+    main()
