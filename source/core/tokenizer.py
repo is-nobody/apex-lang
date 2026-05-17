@@ -105,7 +105,7 @@ class Tokenizer:
         self.tokens = []
     
     def error(self, message: str):
-        raise SyntaxError(f"{self.filename}:{self.line}:{self.column}: {message}")
+        raise SyntaxError(f"in {self.filename} on line {self.line}: {message}")
     
     def peek(self, offset: int = 0) -> str:
         index = self.pos + offset
@@ -131,8 +131,8 @@ class Tokenizer:
             self.advance()
     
     def skip_comment(self):
-        self.advance()  # first /
-        self.advance()  # second /
+        self.advance()
+        self.advance()
         
         while self.peek() and self.peek() != '\n':
             self.advance()
@@ -140,23 +140,17 @@ class Tokenizer:
     def read_string(self) -> str:
         start_line = self.line
         start_col = self.column
-        self.advance()  # Skip opening quote
+        self.advance()
         
         string_content = ""
         while self.peek():
             if self.peek() == '"':
                 self.advance()  # Skip this quote
                 next_char = self.peek()
-                
-                # Конец строки только если после кавычки:
-                # - конец файла
-                # - перевод строки  
-                # - оператор сравнения
-                # - закрывающая скобка или запятая
+
                 if next_char == '' or next_char == '\n' or next_char == ')' or next_char == ',':
                     break
                 
-                # В любом другом случае кавычка внутри строки
                 string_content += '"'
             else:
                 string_content += self.advance()
@@ -267,8 +261,8 @@ class Tokenizer:
                 self.advance()
                 self.add_token(single_char_tokens[char], char, line, col)
                 continue
-            
-            self.advance()
+
+            self.error(f"Unexpected character: '{char}'")
         
         self.add_token(TokenType.EOF, '', self.line, self.column)
         return self.tokens

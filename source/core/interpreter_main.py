@@ -27,4 +27,4 @@ class Interpreter(
     
     def error(self, message: str, node: dict):
         line = node.get('line', self.current_line)
-        raise RuntimeError(f"Runtime Error in {self.filename} on line {line}: {message}")
+        raise RuntimeError(f"in {self.filename} on line {line}: {message}")

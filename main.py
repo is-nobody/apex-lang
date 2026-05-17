@@ -1,93 +1,80 @@
 # main.py
 import sys
-import os
-import json
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-
-from source.core.tokenizer import Tokenizer
-from source.core.parser_main import Parser, parse_file
-from source.core.parser.token_type import TokenType
-from source.core.parser.token import Token as ParserToken
-from source.core.interpreter import Interpreter
-
-def find_apex_file(filename: str) -> Path | None:
-    filename = filename.replace('\\', '/')
+def print_error(error: Exception, filename: str = None):
+    if isinstance(error, SyntaxError):
+        print(f"Error: {error}")
+        return
     
-    if filename.endswith('.apex'):
-        path = Path(filename)
-        if path.exists():
-            return path
-        return None
+    if isinstance(error, RuntimeError):
+        print(f"Error: {error}")
+        return
     
-    path = Path(filename + '.apex')
-    if path.exists():
-        return path
-    
-    return None
+    if filename:
+        print(f"Error in {filename}: {error}")
+    else:
+        print(f"Error: {error}")
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python main.py <filename>")
-        print("Example: python main.py test")
+    if len(sys.argv) != 2:
+        print("Usage: python3 main.py <filename.apex>")
         sys.exit(1)
     
-    filename = sys.argv[1]
-    filepath = find_apex_file(filename)
+    filepath = sys.argv[1]
     
-    if filepath is None:
-        print(f"Error: File '{filename}.apex' not found")
+    if not Path(filepath).exists():
+        print(f"Error: File {filepath} not found")
         sys.exit(1)
     
-    # Читаем исходник
-    with open(filepath, 'r', encoding='utf-8') as f:
-        source = f.read()
-    
-    # Токенизация
-    from source.core.tokenizer import Tokenizer
-    tokenizer = Tokenizer(source, str(filepath))
-    tokens = tokenizer.tokenize()
-    
-    # Конвертируем токены в формат парсера
-    parser_tokens = [
-        ParserToken(
-            type=TokenType[t.type.name],
-            value=t.value,
-            line=t.line,
-            column=t.column
-        )
-        for t in tokens
-    ]
-    
-    # Парсинг
-    parser = Parser(parser_tokens, str(filepath))
-    ast = parser.parse()
-    
-    if ast is None:
-        sys.exit(1)
-    
-    ast_dict = ast.to_dict()
-    
-    # Сохраняем AST в .cache
-    cache_dir = Path('.cache')
-    cache_dir.mkdir(exist_ok=True)
-    cache_file = cache_dir / f"{filepath.stem}.apexc"
-    
-    with open(cache_file, 'w', encoding='utf-8') as f:
-        json.dump(ast_dict, f, indent=2, ensure_ascii=False)
-    
-    # Интерпретация
-    interpreter = Interpreter(str(filepath))
     try:
-        interpreter.evaluate(ast_dict)
-    except KeyboardInterrupt:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            source = f.read()
+        
+        from source.core.tokenizer import Tokenizer
+        tokenizer = Tokenizer(source, filepath)
+        tokens = tokenizer.tokenize()
+        
+        from source.core.parser_main import Parser, read_tokens_from_file, fixup_tokens
+        from source.core.parser.token import Token as ParserToken
+        from source.core.parser.token_type import TokenType
+        
+        parser_tokens = []
+        for t in tokens:
+            parser_tokens.append(ParserToken(
+                type=TokenType[t.type.name],
+                value=t.value,
+                line=t.line,
+                column=t.column
+            ))
+        
+        parser = Parser(parser_tokens, filepath)
+        ast = parser.parse()
+        
+        if ast is None:
+            sys.exit(1)
+        
+        from source.core.interpreter_main import Interpreter
+        interpreter = Interpreter(filepath)
+        
+        from source.libraries import BUILTIN_MODULES
+        for name, module in BUILTIN_MODULES.items():
+            interpreter.global_env.define(name, module)
+        
+        interpreter.evaluate(ast.to_dict())
+        
+    except SyntaxError as e:
+        print(f"Syntax Error {e}")
         sys.exit(1)
     except RuntimeError as e:
-        print(e)
+        print(f"Runtime Error {e}")
         sys.exit(1)
     except Exception as e:
-        print(e)
+        error_msg = str(e)
+        if error_msg:
+            print(f"Error {error_msg}")
+        else:
+            print(f"Error {type(e).__name__}")
         sys.exit(1)
 
 if __name__ == "__main__":

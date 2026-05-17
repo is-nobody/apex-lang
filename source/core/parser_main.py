@@ -26,16 +26,16 @@ class Parser(ParserImportsMixin, ParserStatementsMixin, ParserExpressionsMixin):
         
     def fatal_error(self, message: str, line: int = 0, column: int = 0):
         if line > 0:
-            error_msg = f"Syntax Error in {self.filename} on line {line}: {message}"
+            error_msg = f"in {self.filename} on line {line}: {message}"
         else:
-            error_msg = f"Syntax Error in {self.filename}: {message}"
+            error_msg = f"in {self.filename}: {message}"
         self.errors.append(error_msg)
         raise SyntaxError(error_msg)
     
     def syntax_error(self, message: str, token: Token = None):
         if token is None:
             token = self.peek()
-        error_msg = f"Syntax Error in {self.filename} on line {token.line}: {message}"
+        error_msg = f"in {self.filename} on line {token.line}: {message}"
         self.errors.append(error_msg)
         raise SyntaxError(error_msg)
     
@@ -73,20 +73,16 @@ class Parser(ParserImportsMixin, ParserStatementsMixin, ParserExpressionsMixin):
         return self.peek().type in token_types
     
     def _validate_top_level_expression(self, node: ASTNode):
-        """Проверяет, что выражение на верхнем уровне имеет смысл"""
         if node.type == ASTNodeType.IDENTIFIER:
             self.fatal_error(
                 f"Name '{node.value}' is not defined",
                 node.line, node.column
             )
         elif node.type == ASTNodeType.ASSIGNMENT_EXPR:
-            # Присваивание ок (x = 5), но проверим левую часть
             target = node.children[0]
             if target.type == ASTNodeType.IDENTIFIER:
-                # Ок, создание переменной
                 pass
             elif target.type == ASTNodeType.MEMBER_EXPR:
-                # Ок, table.field = value
                 pass
             else:
                 self.fatal_error(
@@ -94,7 +90,6 @@ class Parser(ParserImportsMixin, ParserStatementsMixin, ParserExpressionsMixin):
                     target.line, target.column
                 )
         elif node.type == ASTNodeType.CALL_EXPR:
-            # Вызов функции ок, но проверим существование
             callee = node.children[0]
             if callee.type == ASTNodeType.IDENTIFIER:
                 if callee.value not in self.functions:
@@ -103,7 +98,6 @@ class Parser(ParserImportsMixin, ParserStatementsMixin, ParserExpressionsMixin):
                         callee.line, callee.column
                     )
         elif node.type in (ASTNodeType.BINARY_EXPR, ASTNodeType.UNARY_EXPR):
-            # Арифметика без присваивания бесполезна
             self.fatal_error(
                 "Expression result is not used (did you mean to assign it?)",
                 node.line, node.column
