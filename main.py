@@ -3,8 +3,10 @@ import sys
 from pathlib import Path
 from source.utils.repl import main as repl_main
 from source.utils.execute import execute_file
+import source.utils.add_to_path
 
 def main():
+    source.utils.add_to_path.main()
     if len(sys.argv) == 1:
         # No arguments - start REPL
         repl_main()
