@@ -75,7 +75,7 @@ def add_to_path_linux(script_path):
     else:
         add_to_path_unix(script_path, '.bashrc')
 
-def main():
+def path():
     script_path = get_script_path()
     if not script_path.exists():
         sys.exit(1)
@@ -90,4 +90,4 @@ def main():
         sys.exit(1)
 
 if __name__ == "__main__":
-    main()
+    path()

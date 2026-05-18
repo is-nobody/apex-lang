@@ -6,7 +6,7 @@ from enum import Enum, auto
 from dataclasses import dataclass
 
 class TokenType(Enum):
-    # Keywords
+    # keywords
     FUNCTION = auto()
     IF = auto()
     ELIF = auto()
@@ -27,7 +27,7 @@ class TokenType(Enum):
     OR = auto()
     NOT = auto()
     
-    # Literals
+    # literals
     NONE = auto()
     TRUE = auto()
     FALSE = auto()
@@ -35,7 +35,7 @@ class TokenType(Enum):
     STRING = auto()
     IDENTIFIER = auto()
     
-    # Operators
+    # operators
     PLUS = auto()
     MINUS = auto()
     STAR = auto()
@@ -49,7 +49,7 @@ class TokenType(Enum):
     LESS_EQUAL = auto()
     GREATER_EQUAL = auto()
     
-    # Delimiters
+    # delimiters
     LPAREN = auto()
     RPAREN = auto()
     COMMA = auto()
@@ -57,7 +57,7 @@ class TokenType(Enum):
     COLON = auto()
     NEWLINE = auto()
     
-    # Special
+    # special
     EOF = auto()
 
 @dataclass

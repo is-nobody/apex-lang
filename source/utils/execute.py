@@ -1,9 +1,14 @@
 # execute.py
 import sys
 from pathlib import Path
+from source.core.tokenizer import Tokenizer
+from source.core.parser_main import Parser
+from source.core.parser.token import Token as ParserToken
+from source.core.parser.token_type import TokenType
+from source.core.interpreter_main import Interpreter
+from source.libraries import BUILTIN_MODULES
 
 def execute_file(filepath):
-    """Execute an Apex file using tokenizer, parser, and interpreter"""
     if not Path(filepath).exists():
         print(f"Error: File {filepath} not found")
         return False
@@ -12,14 +17,9 @@ def execute_file(filepath):
         with open(filepath, 'r', encoding='utf-8') as f:
             source = f.read()
         
-        from source.core.tokenizer import Tokenizer
         tokenizer = Tokenizer(source, filepath)
         tokens = tokenizer.tokenize()
-        
-        from source.core.parser_main import Parser
-        from source.core.parser.token import Token as ParserToken
-        from source.core.parser.token_type import TokenType
-        
+
         parser_tokens = []
         for t in tokens:
             parser_tokens.append(ParserToken(
@@ -35,10 +35,8 @@ def execute_file(filepath):
         if ast is None:
             return False
         
-        from source.core.interpreter_main import Interpreter
         interpreter = Interpreter(filepath)
         
-        from source.libraries import BUILTIN_MODULES
         for name, module in BUILTIN_MODULES.items():
             interpreter.global_env.define(name, module)
         
@@ -51,7 +49,6 @@ def execute_file(filepath):
 
 def main():
     if len(sys.argv) != 2:
-        print("Usage: python3 execute.py <filename.apex>")
         sys.exit(1)
     
     filepath = sys.argv[1]
