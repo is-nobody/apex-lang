@@ -5,23 +5,17 @@
 ![Avalaible](https://img.shields.io/badge/Avalaible-Windows%20%7C%20macOS%20%7C%20Linux-red)
 
 **Apex** — a simple and modern programming language with built-in libraries. 
-Write once, build native binaries for Windows, macOS and Linux from a single codebase.
 
 Created and maintained by one person. MIT Licensed.
 
-## Quick Start
+## Getting Started
 ### Install Apex
-1. Download the installer from [GitHub releases](https://github.com/is-nobody/apex-lang/releases)
-2. Run the installer for your OS.
-3. Verify installation:
+1. Download the interpreter from [GitHub releases](https://github.com/is-nobody/apex-lang/releases)
+2. Run the interpreter for your OS.
 
-```bash
-apex
-```
+Now you're in REPL!
 
-Expected output: `Apex v26.06`.
-
-### Run Script
+### Testing the interpreter
 Create your own file with `main.apex` name:
 
 ```apex
@@ -30,17 +24,13 @@ import os
 os.output("Hello, Friend")
 ```
 
-Execute it:
+Execute it via REPL in current directory:
 
 ```bash
-apex main.apex
+main.apex
 ```
 
 ## Documentation
-- **[Apex Reference Manual for Beginners](resources/RM_fBeginners.md)** — variables, data types, operators, control flow, functions, imports, built-in libraries (`os`, `math`, `string`, `network`, `ui`).
-
-## Contributing
-We welcome contributions. Please read:
-
-1. **[Code of Conduct](code_of_conduct.md)**
-2. **[Contributing Guide](resources/contributing.md)**
+Each of the documentations explains variables, data types, operators, control flow, functions, imports, built-in libraries (`os`, `math`, `string`, `network`).
+- **[Apex Reference Manual for Beginners](resources/RM_fBeginners.md)**  — excellent for beginners in programming, a detailed explanation of each topic.
+- **[Apex Reference Manual for Developers](resources/RM_fDevelopers.md)** — excellent for developers, minimal and clear coverage of each topic.
