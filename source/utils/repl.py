@@ -7,7 +7,7 @@ def print_apex_info():
     print(f"Apex v26.06 on {system_info}")
     print("Write filename for execute it")
 
-def repl():
+def repl_main():
     print_apex_info()
     
     while True:
@@ -23,4 +23,4 @@ def repl():
             break
 
 if __name__ == "__main__":
-    repl()
+    repl_main()

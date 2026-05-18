@@ -103,8 +103,6 @@ class Parser(ParserImportsMixin, ParserStatementsMixin, ParserExpressionsMixin):
                 node.line, node.column
             )
     
-    # ========== Entry Point ==========
-        
     def parse(self) -> Optional[ASTNode]:
         program = ASTNode(ASTNodeType.PROGRAM, line=1, column=1)
         
@@ -129,7 +127,6 @@ class Parser(ParserImportsMixin, ParserStatementsMixin, ParserExpressionsMixin):
         return program
     
     def synchronize(self):
-        """Skip tokens until we find a safe recovery point"""
         max_iterations = 1000
         iterations = 0
         
@@ -159,52 +156,47 @@ class Parser(ParserImportsMixin, ParserStatementsMixin, ParserExpressionsMixin):
             
             self.advance()
 
-
-# ============= Main function for standalone execution =============
-
 def main():
-    cache_dir = Path('.cache')
-    
-    if not cache_dir.exists():
-        print("Error: .cache directory not found. Run tokenizer first.")
+    if len(sys.argv) != 2:
+        print("Usage: python parser.py <filename.apex>")
         sys.exit(1)
     
-    if len(sys.argv) > 1:
-        filename = sys.argv[1]
-        base_name = Path(filename).stem
-        token_file = cache_dir / f"{base_name}.apexc"
-        
-        if not token_file.exists():
-            print(f"Error: {token_file} not found. Run tokenizer first.")
-            sys.exit(1)
-        
-        files = [(token_file, filename)]  # (technical_path, display_name)
-    else:
-        apex_files = list(Path('.').glob("*.apex"))
-        files = []
-        for apex_file in apex_files:
-            token_file = cache_dir / f"{apex_file.stem}.apexc"
-            if token_file.exists():
-                files.append((token_file, str(apex_file)))
-        
-        if not files:
-            print("No .apex files with cached tokens found.")
-            sys.exit(1)
+    filename = sys.argv[1]
     
-    success = 0
-    errors = 0
-
-    for filepath, display_name in files:
-        ast = parse_file(str(filepath), display_name)
+    if not Path(filename).exists():
+        print(f"Error: File {filename} not found")
+        sys.exit(1)
+    
+    try:
+        with open(filename, 'r', encoding='utf-8') as f:
+            source = f.read()
+        
+        from source.core.tokenizer import Tokenizer
+        tokenizer = Tokenizer(source, filename)
+        tokens_raw = tokenizer.tokenize()
+        
+        tokens = []
+        for t in tokens_raw:
+            tokens.append(Token(
+                type=TokenType[t.type.name],
+                value=t.value,
+                line=t.line,
+                column=t.column
+            ))
+        
+        parser = Parser(tokens, filename)
+        ast = parser.parse()
         
         if ast is not None:
-            with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(ast, f, indent=2, ensure_ascii=False)
-            success += 1
-        else:
-            errors += 1
-
-    if errors > 0:
+            # output ast as json to stdout or a file
+            output = ast.to_dict()
+            print(json.dumps(output, indent=2))
+            
+    except SyntaxError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

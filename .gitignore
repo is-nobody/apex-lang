@@ -1,7 +1,5 @@
 # Ignore cache directories
 __pycache__/
-.cache/
 
 # Ignore compiled files
 *.pyc
-*.apexc
