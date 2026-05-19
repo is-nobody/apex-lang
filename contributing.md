@@ -3,10 +3,6 @@
 [![GitHub](https://img.shields.io/badge/Platform-GitHub-green)](https://github.com/is-nobody/apex-lang)
 [![Apex Version](https://img.shields.io/badge/Apex-lang-blue)](https://github.com/is-nobody/apex-lang)
 
-![Last Commit](https://img.shields.io/github/last-commit/is-nobody/apex-lang)
-![Issues](https://img.shields.io/github/issues/is-nobody/apex-lang)
-![Pull Requests](https://img.shields.io/github/issues-pr/is-nobody/apex-lang)
-
 Thank you for your interest in contributing to the Apex programming language! This guide will help you understand our development process and how to submit changes effectively. Whether you're fixing a typo or adding a major feature, your contribution matters.
 
 Please note that by participating in this project, you agree to abide by our [Code of Conduct](code_of_conduct.md). We expect all contributors to help us maintain a welcoming and respectful community.
@@ -126,17 +122,24 @@ Rules to follow:
 7. **Comments:** Explain *why* not *what* only
 
 ### Commit Messages
-Write clear, descriptive commit messages in the present tense:
+Write clear, descriptive commit messages in the present tense. Each commit message must include a type prefix:
+
+| Type | Description | Example |
+|------|-------------|---------|
+| `feature` | New feature or functionality | `feature: add division-by-zero check in calculator` |
+| `fix` | Bug fix | `fix: resolve parser crash on empty input` |
+| `docs` | Documentation updates | `docs: update installation guide for macOS` |
+| `refactor` | Code restructuring (no behavior change) | `refactor: simplify tokenizer loop logic` |
+| `test` | Adding or updating tests | `test: add coverage for edge cases in string library` |
+| `chore` | Build, tooling, or maintenance tasks | `chore: update .gitignore for temp files` |
+
+Format:
 
 ```
-add division-by-zero check in calculator
-
-fix parser crash on empty input
-
-update installation guide for macOS
+<type>: <description in present tense>
 ```
 
-Keep commits focused: one logical change per commit.
+Keep commits focused: one logical change per commit with its type prefix.
 
 ## Making Changes
 ### Step-by-Step Process
