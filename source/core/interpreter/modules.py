@@ -10,20 +10,12 @@ from source.core.interpreter.helpers import add_filename_to_functions
 
 class ModulesMixin:
     """Mixin for evaluating import statements and loading modules"""
-    
+        
     def eval_import(self, node: dict, env) -> None:
         module_path = node.get('value', '')
-        self._load_module(module_path, None, env, node)
+        self._load_module(module_path, env, node)
 
-    def eval_import_specific(self, node: dict, env) -> None:
-        module_path = node.get('value', '')
-        imports = node.get('properties', {}).get('imports', [])
-        self._load_module(module_path, imports, env, node)
-
-    def _load_module(self, module_path: str, specific_imports: Optional[list], 
-                    env, node: dict):
-        """Загружает модуль — встроенный или пользовательский"""
-        
+    def _load_module(self, module_path: str, env, node: dict):
         if not hasattr(self, '_loading_modules'):
             self._loading_modules = set()
         
@@ -35,18 +27,7 @@ class ModulesMixin:
         try:
             if module_path in BUILTIN_MODULES:
                 module = BUILTIN_MODULES[module_path]
-                
-                if specific_imports:
-                    for name in specific_imports:
-                        try:
-                            env.define(name, module.get(name))
-                        except AttributeError:
-                            self.error(
-                                f"Module '{module_path}' has no member '{name}'", 
-                                node
-                            )
-                else:
-                    env.define(module_path, module)
+                env.define(module_path, module)
                 return
             
             module_file = Path(module_path.replace('.', '/') + '.apex')
@@ -63,10 +44,7 @@ class ModulesMixin:
                     break
             
             if found_file is None:
-                self.error(
-                    f"Module '{module_path}' not found.",
-                    node
-                )
+                self.error(f"Module '{module_path}' not found.", node)
             
             cache_key = str(found_file.resolve())
             if cache_key in self.loaded_modules:
@@ -125,18 +103,7 @@ class ModulesMixin:
                 except Exception as e:
                     self.error(f"Error loading module '{module_path}': {e}", node)
             
-            if specific_imports:
-                for name in specific_imports:
-                    try:
-                        value = module_env.get(name)
-                        env.define(name, value)
-                    except NameError:
-                        self.error(
-                            f"Module '{module_path}' does not export '{name}'",
-                            node
-                        )
-            else:
-                env.define(module_path.split('.')[0], module_env)
+            env.define(module_path.split('.')[0], module_env)
         
         finally:
             self._loading_modules.discard(module_path)

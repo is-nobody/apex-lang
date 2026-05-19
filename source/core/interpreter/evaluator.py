@@ -16,7 +16,6 @@ class EvaluatorMixin:
         handlers = {
             'PROGRAM': self.eval_program,
             'IMPORT': self.eval_import,
-            'IMPORT_SPECIFIC': self.eval_import_specific,
             'VARIABLE_DECL': self.eval_variable_decl,
             'FUNCTION_DECL': self.eval_function_decl,
             'EXPRESSION_STMT': self.eval_expression_stmt,

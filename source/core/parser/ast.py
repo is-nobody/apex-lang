@@ -6,7 +6,6 @@ from typing import Any
 class ASTNodeType(Enum):
     PROGRAM = auto()
     IMPORT = auto()
-    IMPORT_SPECIFIC = auto()
     VARIABLE_DECL = auto()
     FUNCTION_DECL = auto()
     EXPRESSION_STMT = auto()
