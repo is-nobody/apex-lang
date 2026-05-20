@@ -30,6 +30,21 @@ Execute it via REPL in current directory:
 main.apex
 ```
 
+### Build binaries
+Run in the terminal:
+
+```bash
+pip install pyinstaller
+```
+
+After installing PyInstaller:
+
+```bash
+pyinstaller build.spec
+```
+
+This will create a binary file for your current platform.
+
 ## Documentation
 Each of the documentations explains variables, data types, operators, control flow, functions, imports, built-in libraries (`os`, `math`, `string`, `network`).
 - **[Apex Reference Manual for Beginners](resources/RM_fBeginners.md)**  — excellent for beginners in programming, a detailed explanation of each topic.
