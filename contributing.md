@@ -1,13 +1,14 @@
 # Contributing to Apex
 
 [![GitHub](https://img.shields.io/badge/Platform-GitHub-green)](https://github.com/is-nobody/apex-lang)
-[![Apex Version](https://img.shields.io/badge/Apex-lang-blue)](https://github.com/is-nobody/apex-lang)
+[![Apex Version](https://img.shields.io/badge/Apex-Lang-blue)](https://github.com/is-nobody/apex-lang)
 
 Thank you for your interest in contributing to the Apex programming language! This guide will help you understand our development process and how to submit changes effectively. Whether you're fixing a typo or adding a major feature, your contribution matters.
 
 Please note that by participating in this project, you agree to abide by our [Code of Conduct](code_of_conduct.md). We expect all contributors to help us maintain a welcoming and respectful community.
 
 ## Table of Contents
+- [License](#license)
 - [Development Setup](#development-setup)
 - [Understanding the Project](#understanding-the-project)
 - [Finding a Task](#finding-a-task)
@@ -20,28 +21,19 @@ Please note that by participating in this project, you agree to abide by our [Co
 - [What Makes a Good Contribution](#what-makes-a-good-contribution)
 
 ## License
-By contributing to Apex, you agree that your contributions will be licensed under the [MIT License](license). You retain the copyright to your work, but grant the project a perpetual, worldwide, non-exclusive license to use, modify, and distribute your contributions as part of the project.
+By contributing to Apex, you agree that your contributions will be licensed under the [MIT License](license). You still own your code. However, you allow the project to use, modify, and distribute it forever, anywhere in the world, without excluding anyone else from using it too.
 
 ## Development Setup
 ### Prerequisites
-- **Apex v26.06+** - The language itself (bootstrapping)
+- **Apex v26.06** - The language itself
 - **Git** - For version control
 
 ### Install Apex
 If you haven't installed Apex yet:
 
 1. Go to the [GitHub releases](https://github.com/is-nobody/apex-lang/releases)
-2. Navigate to the Download section
-3. Select the appropriate file for your operating system
-4. Download and run the installer
-
-Verify the installation:
-
-```bash
-apex
-```
-
-Expected output: `Apex v26.06`.
+2. Download the appropriate file for your operating system
+3. Run the downloaded file.
 
 ### Set Up Your Workspace
 Create your own copy of the project:
@@ -76,19 +68,12 @@ Branch naming examples:
 ### Project Structure
 | Location | Description |
 |----------|-------------|
-| [`main.apex`](main.apex) | Main entry point of the interpreter |
+| [`main.apex`](main.apex) | Main entry point |
 | [`source/`](source/) | Source code |
 | [`source/core`](source/core/) | Core components |
 | [`source/libraries/`](source/libraries/) | Built-in libraries |
 | [`source/tests/`](source/tests/) | Test suite |
 | [`resources/`](resources/) | Resources of the project |
-
-### How the Pieces Connect
-1. **main.apex** → reads source file
-2. **Tokenizer** → converts source code into tokens
-3. **Parser** → builds an Abstract Syntax Tree (AST) from tokens
-4. **Interpreter** → executes the AST
-5. **Built-in libraries** → provide OS, math, string, network and UI functions
 
 ## Finding a Task
 Before making changes, check these places:
@@ -119,19 +104,18 @@ Rules to follow:
 4. **Keywords:** Lowercase (`function`, `if`, `for`, `return`)
 5. **Operators:** Add spaces around them (`a + b`, not `a+b`)
 6. **Parentheses:** No space after function name (`greet(name)`, not `greet (name)`)
-7. **Comments:** Explain *why* not *what* only
+7. **Comments:** Explain *why*, not only *what*
 
 ### Commit Messages
-Write clear, descriptive commit messages in the present tense. Each commit message must include a type prefix:
+Write clear, descriptive commit messages. Each commit message must include a type prefix:
 
 | Type | Description | Example |
 |------|-------------|---------|
-| `feature` | New feature or functionality | `feature: add division-by-zero check in calculator` |
+| `feature` | New feature or functionality | `feature: add division-by-zero check to the calculator` |
 | `fix` | Bug fix | `fix: resolve parser crash on empty input` |
 | `docs` | Documentation updates | `docs: update installation guide for macOS` |
 | `refactor` | Code restructuring (no behavior change) | `refactor: simplify tokenizer loop logic` |
 | `test` | Adding or updating tests | `test: add coverage for edge cases in string library` |
-| `chore` | Build, tooling, or maintenance tasks | `chore: update .gitignore for temp files` |
 
 Format:
 
@@ -175,13 +159,13 @@ When adding features or fixing bugs, include or update tests.
 **Test requirements:**
 - All new features must include tests
 - Bug fixes must include regression tests
-- Changes must not break existing tests
+- Changes should not break existing tests
 
 ## Submitting Changes
 ### 1. Save Your Changes
 ```bash
 git add .
-git commit -m "description of your change"
+git commit -m "fix: description of your change"
 git push origin feature/your-feature-name
 ```
 
@@ -208,12 +192,13 @@ Closes #(issue number)
 ```
 
 ## Review Process
-1. Automated checks will run (tests, formatting)
-2. Maintainers will review your code:
-   - They may suggest changes - this is normal and helpful!
-   - Address feedback by updating your branch
-   - Push additional commits to the same branch
-3. Once approved, your changes will be merged
+Maintainers will review your code:
+
+- They may suggest changes — this is normal and helpful!
+- Address feedback by updating your branch
+- Push additional commits to the same branch
+
+Once approved, your changes will be merged
 
 ### Review Timeline
 - First review within 3-5 days
@@ -239,7 +224,7 @@ Closes #(issue number)
 - Be patient and respectful
 
 ## What Makes a Good Contribution
-### Small Wins (Great for Beginners)
+### Small Contributions
 - Fix typos in documentation
 - Improve error messages
 - Add helpful comments
@@ -253,69 +238,7 @@ Closes #(issue number)
 - Add better documentation and examples
 - Implement missing language features
 
-### Best Practices
-| Do | Don't |
-|----|-------|
-| One change per PR | Multiple unrelated fixes in one PR |
-| Write clear commit messages | Vague messages like "fix" or "update" |
-| Test your changes | Assume your code works without testing |
-| Update documentation | Change behavior without updating docs |
-| Ask questions when unsure | Guess and hope it's right |
-
-## Troubleshooting Common Issues
-### "Apex command not found"
-- Reinstall Apex from [GitHub releases](https://github.com/is-nobody/apex-lang/releases)
-- Check that Apex is in your PATH
-
-### Tests failing after your change
-- Run only the failing test to isolate the issue:
-
-```bash
-apex source/tests/specific_test.apex
-```
-
-- Use `os.output()` to debug values at key points in your code
-- Compare your output against the expected behavior documented in the test
-- Check that you haven't accidentally modified shared test utilities
-
-### Merge conflicts
-If your branch has fallen behind `main` and conflicts arise:
-
-```bash
-git checkout main
-git pull upstream main
-git checkout your-feature-branch
-git rebase main
-```
-
-If conflicts occur during rebase:
-1. Open the conflicting files and look for `<<<<<<<`, `=======`, `>>>>>>>` markers
-2. Resolve each conflict manually
-3. Stage the resolved files: `git add <filename>`
-4. Continue the rebase: `git rebase --continue`
-
-After rebase, force-push your updated branch:
-
-```bash
-git push --force-with-lease origin your-feature-branch
-```
-
-**Note:** Use `--force-with-lease` instead of `--force` — it's safer and won't overwrite changes others may have made to your branch.
-
-If you're uncomfortable with rebasing, you can also merge instead:
-
-```bash
-git checkout main
-git pull upstream main
-git checkout your-feature-branch
-git merge main
-# Resolve conflicts, then:
-git add .
-git commit -m "merge main into feature branch"
-git push origin your-feature-branch
-```
-
-## Thank You!
+### Thank You!
 Your contributions make Apex better for everyone.
 
 Remember:
