@@ -1,5 +1,6 @@
-# apex_repl.py
 import platform
+import sys
+import os
 from source.utils.execute import execute_file
 
 def print_apex_info():
@@ -19,8 +20,10 @@ def repl_main():
             print()
             break
         except KeyboardInterrupt:
-            print("")
-            break
+            os._exit(0)
 
 if __name__ == "__main__":
-    repl_main()
+    try:
+        repl_main()
+    except KeyboardInterrupt:
+        os._exit(0)
