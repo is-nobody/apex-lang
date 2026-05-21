@@ -30,11 +30,9 @@ This manual is minimalistic. Each section builds on the previous ones. For the b
 
 ### 5. For Loops
 - [5.1 For Statement](#51-for-statement)
-- [5.2 In Operator](#52-in-operator)
-- [5.3 To Operator](#53-to-operator)
-- [5.4 Range](#54-range)
-- [5.5 Break](#55-break)
-- [5.6 Continue](#56-continue)
+- [5.2 Range](#52-range)
+- [5.3 Break](#53-break)
+- [5.4 Continue](#54-continue)
 
 ### 6. Error Handling
 - [6.1 Try Statement](#61-try-statement)
@@ -48,15 +46,15 @@ This manual is minimalistic. Each section builds on the previous ones. For the b
 - [7.4 Call](#74-call)
 
 ### 8. Imports
-- [8.1 Import Module](#81-import-module)
-- [8.2 From Import](#82-from-import)
+- [8.1 Importing an Entire File](#81-importing-an-entire-file)
+- [8.2 Importing from Sub-folders](#82-importing-from-sub-folders)
+- [8.3 Importing from One Sub-folder into Another](#83-importing-from-one-sub-folder-into-another)
 
 ### 9. Built-In Libraries
 - [9.1 OS Library (os)](#91-os-library-os)
 - [9.2 Math Library (math)](#92-math-library-math)
 - [9.3 String Library (string)](#93-string-library-string)
 - [9.4 Network Library (network)](#94-network-library-network)
-- [9.5 UI Library (ui)](#96-ui-library-ui)
 
 ### Conclusion
 - [What's Next?](#whats-next)
@@ -67,16 +65,25 @@ Apex is a programming language designed for simplicity and cross-platform develo
 
 ## Setting up workspace
 ### Installing
-Go to the [GitHub releases](https://github.com/is-nobody/apex-lang/releases) and search the Download section. Download it for your OS.
+1. Download the interpreter from [GitHub releases](https://github.com/is-nobody/apex-lang/releases)
+2. Run the interpreter for your OS.
 
-### Checking Workability
-When Apex installed, check it:
+Now you're in REPL!
 
-```bash
-apex
+### Testing the interpreter
+Create your own file with `main.apex` name:
+
+```apex
+// main.apex
+import os
+os.output("Hello, Friend")
 ```
 
-Expected output: `Apex v26.06`.
+Execute it via REPL in current directory:
+
+```bash
+main.apex
+```
 
 # 1. Data Types
 Apex determines the type automatically. Main data types in language:
@@ -282,7 +289,7 @@ Arithmetic operators work with numbers. They do exactly what you learned in math
 | `/` | Division | `15 / 4` | `3.75` |
 | `%` | Modulo (remainder) | `15 % 4` | `3` |
 
-Arithmetic only works with the numbers data type, you cannot add number with string, none with boolean, etc. When you perform an arithmetic operation between an whole and a decimal, the result also becomes a decimal.
+Arithmetic only works with the numbers data type, you cannot add number with string, none with boolean, etc. When you perform an arithmetic operation between a whole and a decimal, the result also becomes a decimal.
 
 ## 2.2 Comparison Operators
 Comparison operators compare two values and give you a boolean result: either `true` or `false`. They can return only a Boolean value.
@@ -422,56 +429,58 @@ When `x` is even, `continue` skips `os.output(x)` and goes back to check the con
 
 # 5. For Loops
 ## 5.1 For Statement
-A `for` loop repeats code a specific number of times. You give it a counter variable, a start value, and an end value.
+A `for` loop repeats code once for each item in a collection. You give it a variable and a table. The loop runs once per item, and each time the variable holds the next value.
 
-## 5.2 In Operator
-The `in` keyword lets you loop through items in a table. The loop runs once for each item.
-
-```apex
-import os
-colors = ("red", "green", "blue")
-for color in colors
-    os.output(color)
-```
-
-Each time the loop runs, `color` holds the next value from the table.
-
-## 5.3 To Operator
-The `to` keyword creates a number range. Apex counts from start to end. Counting up:
+## 5.2 Range
+The `range()` function creates a table with numbers.
 
 ```apex
 import os
-for i = 1 to 3
-    os.output("Number {i}")
-```
-
-Apex automatically figures out whether to count up or down based on the start and end values.
-## 5.4 Range
-Sometimes you need to skip numbers. The `range` keyword lets you set the step size. Even numbers from 0 to 10:
-
-```apex
-import os
-for i = 0 to 10 range 2
+for i in range(1, 6)
     os.output(i)
 ```
 
-## 5.5 Break
+`range(1, 6)` creates the table `(1, 2, 3, 4, 5)`.
+
+### Range with Step
+Add a third parameter to skip numbers — the step size.
+
+```apex
+import os
+for i in range(0, 11, 2)
+    os.output(i)
+```
+
+This prints even numbers: 0, 2, 4, 6, 8, 10. `range(0, 11, 2)` creates `(0, 2, 4, 6, 8, 10)`.
+
+### Counting Down
+Use a negative step to count backward.
+
+```apex
+import os
+for i in range(5, 0, -1)
+    os.output(i)
+```
+
+This prints 5, 4, 3, 2, 1.
+
+## 5.3 Break
 `break` exits the loop immediately — same as in `while`.
 
 ```apex
 import os
-for i = 1 to 10
+for i in range(1, 11)
     if i == 5
         break
     os.output(i)
 ```
 
-## 5.6 Continue
-`continue` skips the rest of the current iteration and moves to the next number.
+## 5.4 Continue
+`continue` skips the rest of the current iteration and moves to the next item.
 
 ```apex
 import os
-for i = 1 to 5
+for i in range(1, 6)
     if i == 3
         continue
     os.output(i)
@@ -497,31 +506,38 @@ failure
 The `failure` block only runs when an error occurs. It's your safety net.
 
 ```apex
-function divide_safe(a, b)
-    try
-        return a / b
-    failure
-        os.output("Warning: division by zero attempted")
-        return 0
+import os
 
-result = divide_safe(10, 0)   // No crash — returns 0
-result = divide_safe(10, 5)   // Returns 2 normally
+file_content = none
+
+try
+    file_content = os.read("data.txt")
+    os.output("File loaded: {file_content}")
+failure
+    os.output("Could not read file — using default value")
+    file_content = "default content"
+
+// Program continues either way
+os.output("Final content: {file_content}")
 ```
 
 ## 6.3 Always Statement
-Sometimes you need code that runs whether an error happened or not. That's what `always` is for — cleanup tasks like closing files, releasing resources, or logging.
+Sometimes you need code that runs whether an error happened or not.
 
 ```apex
+import os
+
+file_content = none
+
 try
-    connection = database.connect()
-    connection.query("UPDATE users SET active = true")
+    file_content = os.read("data.txt")
+    os.output("File loaded successfully")
 failure
-    os.output("Database error occurred")
+    os.output("Could not read file — using default value instead")
+    file_content = "default content"
 always
-    // This runs no matter what
-    if connection != none
-        connection.close()
-        os.output("Connection closed")
+    // This runs no matter what — success or failure
+    os.output("Done. Content ready: {file_content}")
 ```
 
 # 7. Functions
@@ -619,17 +635,17 @@ Imports give you the ability to use code from other files. Every import path is 
 To import everything from a file in the same folder:
 
 ```apex
+import os
 import database
-import config
 
 // Use items with the filename as a prefix
 database.connect()
-os.output(config.APP_NAME)
+os.output(database.APP_NAME)
 ```
 
 When you import a file, you must use the filename as a prefix to access its contents.
 
-### Importing from Sub-folders
+## 8.2 Importing from Sub-folders
 Use dots (`.`) to navigate into folders:
 
 ```
@@ -646,7 +662,7 @@ import utils.math
 
 Each dot in imports means "go inside this folder." `utils.math` looks for `utils/math.apex`.
 
-### Importing from One Sub-folder into Another
+## 8.3 Importing from One Sub-folder into Another
 You have this structure:
 
 ```
@@ -658,44 +674,13 @@ my_project/
     └── calculator.apex
 ```
 
-You want to use `math.apex` inside `calculator.apex`. What path do you use? Always write the path as if you were importing from `main.apex`.
-
-```apex
-// Inside features/calculator.apex
-import helpers.math         // Same as you would in main.apex!
-```
-
-Apex always starts looking from the main file's folder. This keeps your imports consistent — no matter how deep your folder structure gets, you always know exactly how to import any file.
+You want to use `math.apex` inside `calculator.apex`. Always write the path as if you were importing from `main.apex`. Apex always starts looking from the main file's folder. This keeps your imports consistent — no matter how deep your folder structure gets, you always know exactly how to import any file.
 
 ### What Gets Imported
 When you import a file, you get everything from it:
 
 - All functions
 - All variables
-
-## 8.2 Importing Specific Items Only
-Sometimes you don't want to import everything, or you want to avoid typing the filename prefix. Use `:` to import only what you need:
-
-```apex
-// Import only specific items
-import os: output
-// Use them directly without the filename prefix
-output("Hello, Friend")
-```
-
-Using a prefix is not ​​mandatory even in this case, you can just use output without os.
-
-You can also import specific items from sub-folders:
-
-```apex
-import utils.math: add, multiply
-result = utils.math.add(5, 3)        // 8
-```
-
-Always use the full filename prefix to tell Apex which item you mean.
-
-### What Gets Imported
-When you importing a file with specific items only, you get only functions & variables specified after the colon.
 
 # 9. Built-in Libraries
 What is this?
@@ -749,6 +734,3 @@ ws.on_message
 dns_lookup(hostname)
 
 ip_is_valid(ip)
-
-## 9.5 UI Library (ui)
-TODO

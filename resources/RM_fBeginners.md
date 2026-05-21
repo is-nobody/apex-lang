@@ -31,11 +31,9 @@ This manual is written with step-by-step learning in mind and strives to be mini
 
 ### 5. For Loops
 - [5.1 For Statement](#51-for-statement)
-- [5.2 In Operator](#52-in-operator)
-- [5.3 To Operator](#53-to-operator)
-- [5.4 Range](#54-range)
-- [5.5 Break](#55-break)
-- [5.6 Continue](#56-continue)
+- [5.2 Range](#52-range)
+- [5.3 Break](#53-break)
+- [5.4 Continue](#54-continue)
 
 ### 6. Error Handling
 - [6.1 Try Statement](#61-try-statement)
@@ -49,15 +47,15 @@ This manual is written with step-by-step learning in mind and strives to be mini
 - [7.4 Call](#74-call)
 
 ### 8. Imports
-- [8.1 Import Module](#81-import-module)
-- [8.2 From Import](#82-from-import)
+- [8.1 Importing an Entire File](#81-importing-an-entire-file)
+- [8.2 Importing from Sub-folders](#82-importing-from-sub-folders)
+- [8.3 Importing from One Sub-folder into Another](#83-importing-from-one-sub-folder-into-another)
 
 ### 9. Built-In Libraries
 - [9.1 OS Library (os)](#91-os-library-os)
 - [9.2 Math Library (math)](#92-math-library-math)
 - [9.3 String Library (string)](#93-string-library-string)
 - [9.4 Network Library (network)](#94-network-library-network)
-- [9.5 UI Library (ui)](#96-ui-library-ui)
 
 ### Conclusion
 - [What's Next?](#whats-next)
@@ -66,26 +64,32 @@ This manual is written with step-by-step learning in mind and strives to be mini
 ## About the Project
 Apex is a programming language designed for simplicity and cross-platform development with built-in libraries. Apex is designed to be approachable for beginners while remaining powerful for professional developers. Apex is under the MIT License. All created by one person.
 
-## Installation
-We'll be using Apex Code - Apex pre-installed here.
+### Installing
+Go to the [GitHub releases](https://github.com/is-nobody/apex-lang/releases) page and find the Download section. Select the file for your operating system, download it, and run it.
 
-Go to the [GitHub releases](https://github.com/is-nobody/apex-lang/releases), navigate to the Download section and select the appropriate file for your operating system. Download it. After download, run it.
+After running, you'll see the Apex REPL — an interactive environment where you can type file name for executing. REPL stands for Read, Evaluate, Print, Loop. You type something, Apex runs it, shows the result, and waits for more.
 
-## Your First Code
-When you run Apex Code for the first time, you already have a file with this code, but if not, copy it:
+### Your First Code
+Create a new file named `main.apex` in your current directory. Open it and write:
 
 ```apex
 import os
 os.output("Hello, Friend")
 ```
 
-After that, on the right side, find & click the run button. You'll see the output in terminal:
+Save the file. In the REPL, type the filename to run it:
 
-```apex
+```bash
+main.apex
+```
+
+You'll see the output:
+
+```
 Hello, Friend
 ```
 
-Congratulations! You've successfully run your first code.
+Congratulations! You've successfully written and run your first Apex program.
 
 ### Code Breakdown: "Hello, Friend"
 `import os` — imports the built-in OS (Operating System) library. This library provides functions for interacting with the system, such as outputting text. You can learn more about available functions in the section [9.1 OS Library](#91-os-library-os).
@@ -353,7 +357,7 @@ Arithmetic operators work with numbers. They do exactly what you learned in math
 | `/` | Division | `15 / 4` | `3.75` |
 | `%` | Modulo (remainder) | `15 % 4` | `3` |
 
-Arithmetic only works with the numbers data type, you cannot add number with string, none with boolean, etc. When you perform an arithmetic operation between an whole and a decimal, the result also becomes a decimal.
+Arithmetic only works with the numbers data type, you cannot add number with string, none with boolean, etc. When you perform an arithmetic operation between a whole and a decimal, the result also becomes a decimal.
 
 ### Addition (`+`)
 Adds two numbers together.
@@ -658,14 +662,14 @@ while x < 10
 When `x` is even, `continue` skips `os.output(x)` and goes back to check the condition again.
 
 # 5. For Loops
-A `while` loop is great when you don't know how many times you need to repeat. But sometimes you know exactly how many times — "print 'Hello' 10 times" or "show all items in a list of 5 things". For these situations, Apex gives you the for loop. It's a cleaner way to count through a range of values.
+A `while` loop is great when you don't know how many times you need to repeat. But sometimes you know exactly how many times — "print 'Hello' 10 times" or "show all items in a list of 5 things". For these situations, Apex gives you the for loop. A `for` loop repeats code once for each item in a collection. You give it a variable and a table. The loop runs once per item, and each time the variable holds the next value.
 
-| Situation | What to Use | Why |
-|-----------|-------------|-----|
-| "Repeat 10 times" | `for` | You know the exact count |
-| "Loop through items 1 to 5" | `for` | You know the range |
-| "Keep asking until user says quit" | `while` | You don't know when |
-| "Wait for file to load" | `while` | Condition is unpredictable |
+| Situation | Use | Why |
+|-----------|-----|-----|
+| Loop through items in a table | `for item in table` | Natural — one item at a time |
+| Repeat N times | `for i in range(1, N+1)` | You know the exact count |
+| Keep asking until valid input | `while` | Don't know when user will respond |
+| Wait for a file to load | `while` | Condition is unpredictable |
 
 Think of it this way:
 
@@ -673,76 +677,81 @@ Think of it this way:
 - For: "Take for 10 bites" — you know exactly how many
 
 ## 5.1 For Statement
-A `for` loop repeats code a specific number of times. You give it a counter variable, a start value, and an end value.
+The `for` statement loops through every item in a table. Use it when you have a collection of things to process — names, prices, users, or any list of values.
 
 ```apex
 import os
-for counter = 1 to 5
-    os.output(counter)
+shopping_list = ("milk", "bread", "eggs")
+for item in shopping_list
+    os.output(item)
 ```
 
-What happens:
+Each time the loop runs, the variable (`item`) takes the next value from the table. The loop automatically stops when there are no more items.
 
-1. `counter = 1` — start here
-2. Is counter ≤ 5? True — run the code and print `1`
-3. Move to next number (2) — repeat
-4. When counter becomes 6, stop
-
-## 5.2 In Operator
-The `in` keyword lets you loop through items in a table. The loop runs once for each item.
-```apex
-import os
-colors = ("red", "green", "blue")
-for color in colors
-    os.output(color)
-```
-
-Each time the loop runs, `color` holds the next value from the table.
-
-## 5.3 To Operator
-The `to` keyword creates a number range. Apex counts from start to end. Counting up:
+## 5.2 Range
+Need to repeat code a specific number of times? Use `range()`. The `range()` function creates a table with numbers.
 
 ```apex
 import os
-for i = 1 to 3
-    os.output("Number {i}")
-```
-
-Apex automatically figures out whether to count up or down based on the start and end values.
-
-## 5.4 Range
-Sometimes you need to skip numbers. The `range` keyword lets you set the step size. Even numbers from 0 to 10:
-
-```apex
-import os
-for i = 0 to 10 range 2
+for i in range(1, 6)
     os.output(i)
 ```
 
-## 5.5 Break
+This prints numbers 1 through 5. `range(1, 6)` creates the table `(1, 2, 3, 4, 5)`.
+
+**Why 6?** `range(start, end)` goes up to but **not including** `end`. So `range(1, 6)` gives you 1,2,3,4,5 — exactly five numbers.
+
+### Range with Step
+Add a third parameter to skip numbers — the step size.
+
+```apex
+import os
+for i in range(0, 11, 2)
+    os.output(i)
+```
+
+This prints even numbers: 0, 2, 4, 6, 8, 10. `range(0, 11, 2)` creates `(0, 2, 4, 6, 8, 10)`.
+
+### Counting Down
+Use a negative step to count backward.
+
+```apex
+import os
+for i in range(5, 0, -1)
+    os.output(i)
+```
+
+This prints 5, 4, 3, 2, 1.
+
+## 5.3 Break
 `break` exits the loop immediately — same as in `while`.
 
 ```apex
 import os
-for i = 1 to 10
+for i in range(1, 11)
     if i == 5
         break
     os.output(i)
 ```
 
-When `i` becomes 5, `break` stops the loop. Nothing after it runs.
-## 5.6 Continue
-`continue` skips the rest of the current iteration and moves to the next number.
+This prints 1, 2, 3, 4. When `i` becomes 5, `break` stops the loop entirely. Nothing after it runs for that iteration.
+
+Use `break` when you found what you were looking for and don't need to continue.
+
+## 5.4 Continue
+`continue` skips the rest of the current iteration and moves to the next item.
 
 ```apex
 import os
-for i = 1 to 5
+for i in range(1, 6)
     if i == 3
         continue
     os.output(i)
 ```
 
-When `i` is 3, `continue` jumps to `i = 4` without output.
+This prints 1, 2, 4, 5. When `i` is 3, `continue` jumps to the next item (`4`) without running the `os.output()`.
+
+Use `continue` when you want to skip certain items but keep looping through the rest.
 
 # 6. Error Handling
 Imagine you're building a program that reads a file from the user's computer. What happens if the file doesn't exist? Or if you're dividing by zero based on user input? Without error handling, your entire program crashes. You need a way to try something risky, and catch the problem without crashing. That's exactly what error handling gives you.
@@ -767,35 +776,64 @@ In this example:
 - Your program keeps going either way
 
 ## 6.2 Failure Statement
-The `failure` block only runs when an error occurs. It's your safety net.
+The `failure` block only runs when an error occurs. It's your safety net — the program takes a different path instead of crashing.
+
+Think of it like a backup plan. You *try* to do something risky. If it works, great. If it fails, the `failure` block catches you.
 
 ```apex
-function divide_safe(a, b)
-    try
-        return a / b
-    failure
-        os.output("Warning: division by zero attempted")
-        return 0
+import os
 
-result = divide_safe(10, 0)   // No crash — returns 0
-result = divide_safe(10, 5)   // Returns 2 normally
+file_content = none
+
+try
+    file_content = os.read("data.txt")
+    os.output("File loaded: {file_content}")
+failure
+    os.output("Could not read file — using default value")
+    file_content = "default content"
+
+// Program continues either way
+os.output("Final content: {file_content}")
 ```
+
+What happens in each scenario:
+
+| File `data.txt` exists? | What runs | Output |
+|--------------------------|-----------|--------|
+| Yes | `try` block | `File loaded: (contents)` then `Final content: (contents)` |
+| No | `failure` block | `Could not read file — using default value` then `Final content: default content` |
+
+Notice the key difference from crashing: the variable `file_content` always gets a value, and the program keeps running to the `os.output` at the end. No crash, no sudden stop — just a safe fallback.
 
 ## 6.3 Always Statement
-Sometimes you need code that runs whether an error happened or not. That's what `always` is for — cleanup tasks like closing files, releasing resources, or logging.
+Sometimes you need code that runs whether an error happened or not. That's what `always` is for — cleanup tasks, resetting values, or letting the user know the operation finished.
+
+Imagine you're trying to read a file and display its contents. Whether the file exists or not, you want to tell the user "Done." The `always` block guarantees that message appears.
 
 ```apex
+import os
+
+file_content = none
+
 try
-    connection = database.connect()
-    connection.query("UPDATE users SET active = true")
+    file_content = os.read("data.txt")
+    os.output("File loaded successfully")
 failure
-    os.output("Database error occurred")
+    os.output("Could not read file — using default value instead")
+    file_content = "default content"
 always
-    // This runs no matter what
-    if connection != none
-        connection.close()
-        os.output("Connection closed")
+    // This runs no matter what — success or failure
+    os.output("Done. Content ready: {file_content}")
 ```
+
+What happens in each scenario:
+
+| File exists? | `try` runs? | `failure` runs? | `always` runs? |
+|-----|-----|-----|-----|
+| Yes | ✓ | ✗ | ✓ |
+| No | ✗ | ✓ | ✓ |
+
+The `always` block is your guarantee. Use it when something absolutely must happen — no matter what went wrong or right before it.
 
 # 7. Functions
 Imagine you have a recipe for making a sandwich. You follow the same steps every time: take two slices of bread, spread butter on one, spread jam on the other, put them together. Now imagine you had to write out those steps every single time you wanted a sandwich. That would be tedious. Instead, you give the recipe a name — `make_sandwich` — and whenever you want a sandwich, you just say that name. That's exactly what a function is: a named block of code that you can use whenever you need it.
@@ -840,13 +878,13 @@ How it works:
 
 You can have multiple parameters, separated by commas:
 
-```apex
+```
 import os
 
 function introduce(first_name, last_name, age)
-    introduce("Alice", "Smith", 30)
     os.output("My name is {first_name} {last_name} and I am {age} years old")
-// Prints: My name is Alice Smith and I am 30 years old
+
+introduce("Alice", "Smith", 30)
 ```
 
 Order matters. The first value goes to the first parameter, the second value to the second parameter, and so on.
@@ -975,16 +1013,17 @@ Every import path is relative to the main file — the file you run with `apex f
 To import everything from a file in the same folder:
 
 ```apex
+import os
 import database
-import config
 
 // Use items with the filename as a prefix
 database.connect()
-os.output(config.APP_NAME)
+os.output(database.APP_NAME)
 ```
 
 When you import a file, you must use the filename as a prefix to access its contents.
-### Importing from Sub-folders
+
+## 8.2 Importing from Sub-folders
 Use dots (`.`) to navigate into folders:
 
 ```
@@ -1001,7 +1040,7 @@ import utils.math
 
 Each dot in imports means "go inside this folder." `utils.math` looks for `utils/math.apex`.
 
-### Importing from One Sub-folder into Another
+## 8.3 Importing from One Sub-folder into Another
 Here's where beginners often get confused. You have this structure:
 
 ```
@@ -1027,30 +1066,6 @@ When you import a file, you get everything from it:
 
 - All functions
 - All variables
-
-## 8.2 Importing Specific Items Only
-Sometimes you don't want to import everything, or you want to avoid typing the filename prefix. Use `:` to import only what you need:
-
-```apex
-// Import only specific items
-import os: output
-// Use them directly without the filename prefix
-output("Hello, Friend")
-```
-
-Using a prefix is not ​​mandatory even in this case, you can just use output without os.
-
-You can also import specific items from sub-folders:
-
-```apex
-import utils.math: add, multiply
-result = utils.math.add(5, 3)        // 8
-```
-
-Always use the full filename prefix to tell Apex which item you mean.
-
-### What Gets Imported
-When you importing a file with specific items only, you get only functions & variables specified after the colon.
 
 # 9. Built-in Libraries
 Apex comes with several built-in libraries. These are ready-to-use tools that solve common tasks: working with files, math, strings, networking, and more. You don't need to write everything from scratch — just import the library you need and use it.
@@ -1112,16 +1127,6 @@ dns_lookup(hostname)
 
 ip_is_valid(ip)
 
-## 9.5 UI Library (ui)
-TODO
-
 # Conclusion
 ## What's Next?
-You've learned the core of Apex: variables, conditions, loops, functions, and imports. Now you can:
-
-- **Build scripts** — automate your computer with the OS library
-- **Create applications** — explore the UI library
-- **Make games** — explore the Apex Engine
-- **Share your code** — others can import your files
-
-The best way to learn more is to start building. Open Apex Code, try something small, and when you get stuck — come back here. The [Built-In Libraries](#9-built-in-libraries) section is your main helper.
+You've learned the core of Apex: variables, conditions, loops, functions, and imports. The best way to learn more is to start building. Try something small, and when you get stuck — come back here.
