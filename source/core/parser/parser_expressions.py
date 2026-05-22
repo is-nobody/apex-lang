@@ -249,7 +249,10 @@ class ParserExpressionsMixin:
             return ASTNode(ASTNodeType.NONE_LITERAL, 
                         line=token.line, 
                         column=token.column)
-        
+            
+        if token.type == TokenType.RANGE:  # ADD THIS BLOCK
+            return self.parse_range_expr()
+
         if token.type == TokenType.IDENTIFIER:
             self.advance()
             return ASTNode(ASTNodeType.IDENTIFIER, 
@@ -259,7 +262,7 @@ class ParserExpressionsMixin:
         
         # Ключевые слова как идентификаторы (имена модулей, переменных)
         if token.type in (TokenType.IF, TokenType.ELIF, TokenType.ELSE,
-                        TokenType.WHILE, TokenType.FOR, TokenType.IN, TokenType.TO,
+                        TokenType.WHILE, TokenType.FOR, TokenType.IN,
                         TokenType.RANGE, TokenType.BREAK, TokenType.CONTINUE,
                         TokenType.RETURN, TokenType.IMPORT, TokenType.TRY,
                         TokenType.FAILURE, TokenType.ALWAYS,
@@ -393,3 +396,41 @@ class ParserExpressionsMixin:
         elif node.type == ASTNodeType.CALL_EXPR:
             return 'unknown'
         return 'unknown'
+    
+    def parse_range_expr(self) -> ASTNode:
+        """Parse range(stop) or range(start, stop) or range(start, stop, step)"""
+        token = self.advance()  # consume 'range'
+        self.expect(TokenType.LPAREN, "Expected '(' after range")
+        
+        # Parse first argument
+        first_arg = self.parse_expression()
+        
+        # Check if there's a comma (2 or 3 arguments)
+        if self.check(TokenType.COMMA):
+            self.advance()  # consume comma
+            second_arg = self.parse_expression()
+            
+            # Check for step (3 arguments)
+            step = None
+            if self.check(TokenType.COMMA):
+                self.advance()  # consume comma
+                step = self.parse_expression()
+            
+            self.expect(TokenType.RPAREN, "Expected ')' after range arguments")
+            
+            node = ASTNode(ASTNodeType.RANGE_EXPR, line=token.line, column=token.column)
+            node.children.append(first_arg)  # start
+            node.children.append(second_arg)  # end
+            if step:
+                node.children.append(step)  # step
+            
+            return node
+        else:
+            # Single argument: range(stop) -> 0 to stop-1
+            self.expect(TokenType.RPAREN, "Expected ')' after range argument")
+            
+            node = ASTNode(ASTNodeType.RANGE_EXPR, line=token.line, column=token.column)
+            # Special marker for single argument
+            node.properties['single_arg'] = True
+            node.children.append(first_arg)  # stop
+            return node

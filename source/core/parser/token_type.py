@@ -10,7 +10,6 @@ class TokenType(Enum):
     WHILE = auto()
     FOR = auto()
     IN = auto()
-    TO = auto()
     RANGE = auto()
     BREAK = auto()
     CONTINUE = auto()

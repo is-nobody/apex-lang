@@ -129,3 +129,69 @@ class ExpressionsMixin:
                 pass
         
         self.error(f"Cannot access member '{member}' of {type(obj).__name__}", node)
+
+    def eval_range_expr(self, node: dict, env) -> Any:
+        """Evaluate range(stop) or range(start, stop) or range(start, stop, step)"""
+        from source.core.interpreter.tables import Table
+        
+        children = node.get('children', [])
+        is_single_arg = node.get('properties', {}).get('single_arg', False)
+        
+        if is_single_arg:
+            # range(stop) -> 0 to stop-1
+            stop = self.evaluate(children[0], env)
+            
+            try:
+                stop = int(stop)
+            except (TypeError, ValueError):
+                self.error("range argument must be a number", node)
+            
+            result = Table()
+            index = 1
+            current = 0
+            while current < stop:
+                result.set(index, current)
+                current += 1
+                index += 1
+            
+            return result
+        
+        # Two or three arguments
+        if len(children) < 2:
+            self.error("range requires at least 1 argument", node)
+        
+        start = self.evaluate(children[0], env)
+        end = self.evaluate(children[1], env)
+        
+        step = 1
+        if len(children) >= 3:
+            step = self.evaluate(children[2], env)
+        
+        # Convert to numbers
+        try:
+            start = int(start)
+            end = int(end)
+            step = int(step)
+        except (TypeError, ValueError):
+            self.error("range arguments must be numbers", node)
+        
+        if step == 0:
+            self.error("range step cannot be zero", node)
+        
+        result = Table()
+        index = 1
+        
+        if step > 0:
+            current = start
+            while current < end:
+                result.set(index, current)
+                current += step
+                index += 1
+        else:
+            current = start
+            while current > end:
+                result.set(index, current)
+                current += step
+                index += 1
+        
+        return result

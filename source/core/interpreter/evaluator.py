@@ -33,6 +33,7 @@ class EvaluatorMixin:
             'CALL_EXPR': self.eval_call_expr,
             'MEMBER_EXPR': self.eval_member_expr,
             'ASSIGNMENT_EXPR': self.eval_assignment_expr,
+            'RANGE_EXPR': self.eval_range_expr,
             'LOGICAL_EXPR': self.eval_logical_expr,
             'NUMBER_LITERAL': self.eval_number_literal,
             'STRING_LITERAL': self.eval_string_literal,

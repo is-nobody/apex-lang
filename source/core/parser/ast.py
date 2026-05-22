@@ -24,6 +24,7 @@ class ASTNodeType(Enum):
     MEMBER_EXPR = auto()
     ASSIGNMENT_EXPR = auto()
     LOGICAL_EXPR = auto()
+    RANGE_EXPR = auto()
     NUMBER_LITERAL = auto()
     STRING_LITERAL = auto()
     BOOLEAN_LITERAL = auto()

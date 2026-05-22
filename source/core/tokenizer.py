@@ -14,7 +14,6 @@ class TokenType(Enum):
     WHILE = auto()
     FOR = auto()
     IN = auto()
-    TO = auto()
     RANGE = auto()
     BREAK = auto()
     CONTINUE = auto()
@@ -78,7 +77,6 @@ KEYWORDS = {
     'while': TokenType.WHILE,
     'for': TokenType.FOR,
     'in': TokenType.IN,
-    'to': TokenType.TO,
     'range': TokenType.RANGE,
     'break': TokenType.BREAK,
     'continue': TokenType.CONTINUE,

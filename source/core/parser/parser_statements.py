@@ -22,7 +22,7 @@ class ParserStatementsMixin:
             return self.parse_import()
         
         if token.type in (TokenType.IF, TokenType.ELIF, TokenType.ELSE,
-                        TokenType.WHILE, TokenType.FOR, TokenType.IN, TokenType.TO,
+                        TokenType.WHILE, TokenType.FOR, TokenType.IN,
                         TokenType.RANGE, TokenType.BREAK, TokenType.CONTINUE,
                         TokenType.RETURN, TokenType.TRY,
                         TokenType.FAILURE, TokenType.ALWAYS,
@@ -149,46 +149,26 @@ class ParserStatementsMixin:
         node.children.append(body)
         
         return node
-    
+
     def parse_for(self) -> ASTNode:
+        """Parse for statement: for i in range(1, 10)"""
         token = self.advance()
         var_name = self.expect(TokenType.IDENTIFIER, "Expected variable name").value
         
-        if self.check(TokenType.IN):
-            self.advance()
-            collection = self.parse_expression()
-            
-            node = ASTNode(ASTNodeType.FOR_IN_STMT, line=token.line, column=token.column)
-            node.properties['variable'] = var_name
-            node.children.append(collection)
-            
-            body = self.parse_block(parent_column=token.column)
-            node.children.append(body)
-            return node
+        self.expect(TokenType.IN, "Expected 'in' after for variable")
         
-        if self.check(TokenType.EQUAL):
-            self.advance()
-            start = self.parse_expression()
-            
-            self.expect(TokenType.TO, "Expected 'to' in for loop")
-            end = self.parse_expression()
-            
-            node = ASTNode(ASTNodeType.FOR_STMT, line=token.line, column=token.column)
-            node.properties['variable'] = var_name
-            node.children.append(start)
-            node.children.append(end)
-            
-            if self.check(TokenType.RANGE):
-                self.advance()
-                step = self.parse_expression()
-                node.children.append(step)
-            
-            body = self.parse_block(parent_column=token.column)
-            node.children.append(body)
-            return node
+        # Parse collection - could be range expression or table
+        collection = self.parse_expression()
         
-        self.syntax_error("Expected 'in' or '=' after for variable", token)
-    
+        node = ASTNode(ASTNodeType.FOR_IN_STMT, line=token.line, column=token.column)
+        node.properties['variable'] = var_name
+        node.children.append(collection)
+        
+        body = self.parse_block(parent_column=token.column)
+        node.children.append(body)
+        
+        return node
+
     def parse_return(self) -> ASTNode:
         token = self.advance()
         node = ASTNode(ASTNodeType.RETURN_STMT, line=token.line, column=token.column)

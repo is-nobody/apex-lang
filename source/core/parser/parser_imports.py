@@ -11,7 +11,7 @@ class ParserImportsMixin:
         
         if self.check(TokenType.IDENTIFIER, 
                     TokenType.IF, TokenType.ELIF, TokenType.ELSE,
-                    TokenType.WHILE, TokenType.FOR, TokenType.IN, TokenType.TO,
+                    TokenType.WHILE, TokenType.FOR, TokenType.IN,
                     TokenType.RANGE, TokenType.BREAK, TokenType.CONTINUE, 
                     TokenType.RETURN, TokenType.IMPORT, TokenType.TRY, 
                     TokenType.FAILURE, TokenType.ALWAYS,
@@ -26,7 +26,7 @@ class ParserImportsMixin:
             self.advance()
             if self.check(TokenType.IDENTIFIER,
                         TokenType.IF, TokenType.ELIF, TokenType.ELSE,
-                        TokenType.WHILE, TokenType.FOR, TokenType.IN, TokenType.TO,
+                        TokenType.WHILE, TokenType.FOR, TokenType.IN,
                         TokenType.RANGE, TokenType.BREAK, TokenType.CONTINUE,
                         TokenType.RETURN, TokenType.IMPORT, TokenType.TRY,
                         TokenType.FAILURE, TokenType.ALWAYS,
