@@ -1,9 +1,5 @@
 # source/core/interpreter/modules.py
-import sys
-import json
 from pathlib import Path
-from typing import Any, Optional
-
 from source.libraries import BUILTIN_MODULES
 from source.core.interpreter.environment import Environment
 from source.core.interpreter.helpers import add_filename_to_functions
