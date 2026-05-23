@@ -186,7 +186,15 @@ is_active = true
 result = "Score: {score}, Price: {price}, Active: {is_active}"
 ```
 
-Apex automatically converts numbers and other values to text when you put them inside `{}`. Inside them, you can only specify the name of the variable, but not the expression.
+Apex automatically converts numbers and other values to strings when you put them inside `{}`. 
+
+Inside the braces, you can also use numeric expressions — they are evaluated first, and then the result is converted to a string:
+
+```apex
+import os
+count = 5
+os.output("Total: {count * 2}")
+```
 
 ## 1.5 Tables
 A table is Apex's universal container. Tables are flexible — they work as ordered lists and key-value pairs. You can even mix both styles in the same table.

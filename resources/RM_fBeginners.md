@@ -239,18 +239,15 @@ greeting = "Hello, {name}"                    // "Hello, Alice"
 message = "{name} is {age} years old"         // "Alice is 30 years old"
 ```
 
-This works with any value, not just strings:
+Apex automatically converts numbers and other values to strings when you put them inside `{}`. 
+
+Inside the braces, you can also use numeric expressions — they are evaluated first, and then the result is converted to a string:
 
 ```apex
-score = 95
-price = 19.99
-is_active = true
-
-result = "Score: {score}, Price: {price}, Active: {is_active}"
-// "Score: 95, Price: 19.99, Active: true"
+import os
+count = 5
+os.output("Total: {count * 2}")
 ```
-
-Apex automatically converts numbers and other values to text when you put them inside `{}`. Inside them, you can only specify the name of the variable, but not the expression.
 
 More advanced operations — like finding words, changing case, or splitting text — are available through [9.3 String Library](#93-string-library-string). You'll learn it later.
 
