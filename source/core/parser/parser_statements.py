@@ -216,9 +216,32 @@ class ParserStatementsMixin:
         self.expect(TokenType.LPAREN, "Expected '(' after function name")
         
         params = []
+        param_types = {}
         param_names = set()
+        
+        # Parse parameters if any
         if not self.check(TokenType.RPAREN):
+            # Parse first parameter
             param = self.expect(TokenType.IDENTIFIER, "Expected parameter name").value
+            
+            # Check for type annotation
+            param_type = None
+            if self.check(TokenType.EQUAL_EQUAL):
+                self.advance()  # consume '=='
+                # Type name can be identifier or keyword (none, true, false)
+                if self.check(TokenType.IDENTIFIER, TokenType.NONE, TokenType.TRUE, TokenType.FALSE):
+                    type_token = self.advance()
+                    param_type = type_token.value.lower()
+                    
+                    # Validate type
+                    valid_types = {'none', 'number', 'string', 'boolean', 'table'}
+                    if param_type not in valid_types:
+                        self.fatal_error(
+                            f"Invalid type '{param_type}'. Expected: none, number, string, boolean, table",
+                            type_token.line, type_token.column
+                        )
+                else:
+                    self.syntax_error("Expected type name after '=='", self.peek())
             
             # Check duplicate parameter
             if param in param_names:
@@ -228,11 +251,35 @@ class ParserStatementsMixin:
                 )
             param_names.add(param)
             params.append(param)
+            if param_type:
+                param_types[param] = param_type
             
+            # Parse remaining parameters
             while self.check(TokenType.COMMA):
-                self.advance()
+                self.advance()  # consume ','
+                
                 param = self.expect(TokenType.IDENTIFIER, "Expected parameter name").value
                 
+                # Check for type annotation
+                param_type = None
+                if self.check(TokenType.EQUAL_EQUAL):
+                    self.advance()  # consume '=='
+                    # Type name can be identifier or keyword
+                    if self.check(TokenType.IDENTIFIER, TokenType.NONE, TokenType.TRUE, TokenType.FALSE):
+                        type_token = self.advance()
+                        param_type = type_token.value.lower()
+                        
+                        # Validate type
+                        valid_types = {'none', 'number', 'string', 'boolean', 'table'}
+                        if param_type not in valid_types:
+                            self.fatal_error(
+                                f"Invalid type '{param_type}'. Expected: none, number, string, boolean, table",
+                                type_token.line, type_token.column
+                            )
+                    else:
+                        self.syntax_error("Expected type name after '=='", self.peek())
+                
+                # Check duplicate parameter
                 if param in param_names:
                     self.fatal_error(
                         f"Duplicate parameter '{param}' in function '{name}'",
@@ -240,25 +287,32 @@ class ParserStatementsMixin:
                     )
                 param_names.add(param)
                 params.append(param)
+                if param_type:
+                    param_types[param] = param_type
         
         self.expect(TokenType.RPAREN, "Expected ')' after parameters")
         
+        # Store function info for arity checking
         self.functions[name] = {
             'params': params,
             'param_count': len(params),
+            'param_types': param_types,
             'line': token.line
         }
         
+        # Create AST node
         node = ASTNode(ASTNodeType.FUNCTION_DECL, 
                     value=name,
                     line=token.line, 
                     column=token.column)
         node.properties['params'] = params
+        node.properties['param_types'] = param_types
         
-        # Save context
+        # Save context for return checking
         old_function = self.current_function
         self.current_function = name
         
+        # Parse function body
         body = self.parse_block(parent_column=token.column)
         node.children.append(body)
         

@@ -1,6 +1,6 @@
 # source/core/interpreter/functions.py
 from source.core.interpreter.environment import Environment, Return
-from source.core.interpreter.helpers import add_filename_to_functions
+from source.core.interpreter.tables import Table
 from typing import Any
 
 class FunctionsMixin:
@@ -36,6 +36,22 @@ class FunctionsMixin:
             closure_env = env
         
         params = func_node.get('properties', {}).get('params', [])
+        param_types = func_node.get('properties', {}).get('param_types', {})
+        
+        # Type checking
+        for i, param_name in enumerate(params):
+            if i < len(args):
+                arg_value = args[i]
+                expected_type = param_types.get(param_name)
+                
+                if expected_type:
+                    if not self._check_type(arg_value, expected_type):
+                        func_name = func_node.get('value', 'anonymous')
+                        actual_type = self._get_type_name(arg_value)
+                        self.error(
+                            f"Parameter '{param_name}' expected {expected_type}, got {actual_type}",
+                            func_node
+                        )
         
         call_env = Environment(closure_env)
         
@@ -57,6 +73,36 @@ class FunctionsMixin:
             return ret.value
         finally:
             self.filename = old_filename
+
+    def _check_type(self, value: Any, expected_type: str) -> bool:
+        """Check if value matches expected type"""
+        if expected_type == 'none':
+            return value is None
+        elif expected_type == 'number':
+            return isinstance(value, (int, float))
+        elif expected_type == 'string':
+            return isinstance(value, str)
+        elif expected_type == 'boolean':
+            return isinstance(value, bool)
+        elif expected_type == 'table':
+            from source.core.interpreter.tables import Table
+            return isinstance(value, Table)
+        return True
+
+    def _get_type_name(self, value: Any) -> str:
+        """Get type name as string for error messages"""
+        if value is None:
+            return 'none'
+        elif isinstance(value, bool):
+            return 'boolean'
+        elif isinstance(value, (int, float)):
+            return 'number'
+        elif isinstance(value, str):
+            return 'string'
+        elif isinstance(value, Table):
+            return 'table'
+        else:
+            return type(value).__name__.lower()
     
     def eval_call_expr(self, node: dict, env) -> Any:
         callee = self.evaluate(node['children'][0], env)

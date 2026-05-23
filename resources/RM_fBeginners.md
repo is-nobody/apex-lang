@@ -886,11 +886,14 @@ introduce("Alice", "Smith", 30)
 
 Order matters. The first value goes to the first parameter, the second value to the second parameter, and so on.
 
+Sometimes you need a function to accept a specific data type of a variable. For this, you need to use `==` and specify the type (avalaible is: `none`, `number`, `boolean`, `string`, `table`):
+
 ```apex
-function divide(a, b)
-    os.output(a / b)
-divide(10, 2)    // Prints: 5 — a is 10, b is 2
-divide(2, 10)    // Prints: 0.2 — a is 2, b is 10
+import os
+
+function add(a == number, b == number)
+    os.output(a + b)
+add(5, 6)
 ```
 
 ## 7.3 Return Value

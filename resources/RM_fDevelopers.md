@@ -567,9 +567,21 @@ import os
 
 function greet(name)
     os.output("Hello, {name}!")
+
+greet("Friend")
 ```
 
 You can have multiple parameters, separated by commas. Order matters. The first value goes to the first parameter, the second value to the second parameter, and so on.
+
+Sometimes you need a function to accept a specific data type of a variable. For this, you need to use `==` and specify the type:
+
+```apex
+import os
+
+function add(a == number, b == number)
+    os.output(a + b)
+add(5, 6)
+```
 
 ## 7.3 Return Value
 Return value is what the function sends back after it finishes. You use the `return` keyword.
