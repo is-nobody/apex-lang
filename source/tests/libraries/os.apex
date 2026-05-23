@@ -56,11 +56,11 @@ os.output("   Created: {e1}")
 os.output("   Removed: {e2}")
 os.output("")
 
-// 9. mkfile/remove
-os.output("9. mkfile/remove:")
+// 9. mkfile/rmfile
+os.output("9. mkfile/rmfile:")
 os.mkfile("test.txt")
 e1 = os.exists("test.txt")
-os.remove("test.txt")
+os.rmfile("test.txt")
 e2 = os.exists("test.txt")
 os.output("   Created: {e1}")
 os.output("   Removed: {e2}")
@@ -72,7 +72,7 @@ os.mkfile("data.txt")
 os.write("data.txt", "Hello Apex")
 content = os.read("data.txt")
 os.output("   Content: {content}")
-os.remove("data.txt")
+os.rmfile("data.txt")
 os.output("")
 
 // 11. rename
@@ -83,7 +83,7 @@ e1 = os.exists("old.txt")
 e2 = os.exists("new.txt")
 os.output("   Old exists: {e1}")
 os.output("   New exists: {e2}")
-os.remove("new.txt")
+os.rmfile("new.txt")
 os.output("")
 
 // 12. system

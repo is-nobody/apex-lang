@@ -21,7 +21,7 @@ class OS(BuiltinModule):
             "isfile": self.isfile,
             "isdir": self.isdir,
             "rename": self.rename,
-            "remove": self.remove,
+            "rmfile": self.rmfile,
             "mkfile": self.mkfile,
             "listdir": self.listdir,
 
@@ -121,7 +121,7 @@ class OS(BuiltinModule):
             return False
     
     @staticmethod
-    def remove(path: str) -> bool:
+    def rmfile(path: str) -> bool:
         try:
             _os.remove(path)
             return True
