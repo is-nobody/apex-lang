@@ -6,7 +6,6 @@ from source.core.parser_main import Parser
 from source.core.parser.token import Token as ParserToken
 from source.core.parser.token_type import TokenType
 from source.core.interpreter_main import Interpreter
-from source.libraries import BUILTIN_MODULES
 
 def execute_file(filepath):
     if not Path(filepath).exists():
@@ -36,9 +35,6 @@ def execute_file(filepath):
             return False
         
         interpreter = Interpreter(filepath)
-        
-        for name, module in BUILTIN_MODULES.items():
-            interpreter.global_env.define(name, module)
         
         interpreter.evaluate(ast.to_dict())
         return True

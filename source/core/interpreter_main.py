@@ -24,18 +24,6 @@ class Interpreter(
         self.current_line = 0
         self.loaded_modules: dict[str, Any] = {}
         self._loading_modules: set = set()
-        self._register_native_functions()
-    
-    def _register_native_functions(self):
-        """Register native type conversion functions in global environment"""
-        native_funcs = self._get_native_functions()
-        for name, func in native_funcs.items():
-            # Store as a callable wrapper that the interpreter can recognize
-            self.global_env.define(name, {
-                'native': True,
-                'func': func,
-                'name': name
-            })
 
     def error(self, message: str, node: dict):
         line = node.get('line', self.current_line)
