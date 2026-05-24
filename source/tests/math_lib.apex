@@ -22,7 +22,7 @@ function divide(a, b)
 function power(base, exp)
     result = 1
     i = 0
-    for i = 1 to exp
+    for i in range(exp)
         result = result * base
     return result
 

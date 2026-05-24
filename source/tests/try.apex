@@ -1,75 +1,75 @@
 import os
 
-os.output("Testing Try-Failure with All Error Types")
-os.output("")
+errors = 0
 
-// 1. Division by zero
-os.output("1. Testing division by zero:")
+// division by zero
 try
     x = 10 / 0
 failure
-    os.output("Error: {error}")
-    if error == "division_by_zero"
-        os.output("OK: division_by_zero")
-    else
-        os.output("FAIL: wrong error type")
+    if error != "division_by_zero"
+        errors = errors + 1
+        os.output("  ERROR: division by zero test failed, got {error}, expected division_by_zero")
 always
-    os.output("Always block executed")
-os.output("")
+    // silent
 
-// 2. Name error
-os.output("2. Testing name error:")
+// name error
 try
     x = undefined_variable
 failure
-    os.output("Error: {error}")
-    if error == "name_error"
-        os.output("OK: name_error")
-    else
-        os.output("FAIL: wrong error type")
+    if error != "name_error"
+        errors = errors + 1
+        os.output("  ERROR: name error test failed, got {error}, expected name_error")
 always
-    os.output("Always block executed")
-os.output("")
+    // silent
 
-// 3. Custom error with os.read
-os.output("3. Testing with os.read:")
+// custom error with os.read
 try
     content = os.read("nonexistent_file.xyz")
     x = 10 / 0
 failure
-    os.output("Error: {error}")
+    // silent - just checking it doesn't crash
 always
-    os.output("Always block executed")
-os.output("")
+    // silent
 
-// 4. Conditional error handling
-os.output("4. Testing conditional handling:")
+// conditional error handling
 try
     x = 10 / 0
 failure
-    if error == "division_by_zero"
-        os.output("Handling division by zero")
-        x = 0
-    else
-        os.output("Other error: {error}")
+    if error != "division_by_zero"
+        errors = errors + 1
+        os.output("  ERROR: conditional handling test failed, got {error}, expected division_by_zero")
 always
-    os.output("Cleanup completed")
-os.output("")
+    // silent
 
-// 5. Nested try blocks
-os.output("5. Testing nested try blocks:")
+// nested try blocks
 try
-    os.output("Outer try block")
     try
         x = 10 / 0
     failure
-        os.output("Inner error: {error}")
+        if error != "division_by_zero"
+            errors = errors + 1
+            os.output("  ERROR: nested try inner test failed, got {error}, expected division_by_zero")
     always
-        os.output("Inner always")
+        // silent
 failure
-    os.output("Outer error: {error}")
+    errors = errors + 1
+    os.output("  ERROR: nested try outer test failed, outer should not catch")
 always
-    os.output("Outer always")
-os.output("")
+    // silent
 
-os.output("All tests completed!")
+// no error (should not enter failure)
+try
+    x = 10 + 5
+failure
+    errors = errors + 1
+    os.output("  ERROR: no error test failed, failure block ran when it shouldn't")
+always
+    // silent
+
+// final summary
+os.output("Total errors in try.apex: {errors}")
+
+if errors == 0
+    os.output("All tests in try.apex passed!")
+else
+    os.output("{errors} test(s) failed in try.apex.")

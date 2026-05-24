@@ -2,74 +2,92 @@ import os
 
 errors = 0
 
-// ========================================
 // number() tests
-// ========================================
-if number("42") != 42
+result = number("42")
+expected = 42
+if result != expected
     errors = errors + 1
-    os.output("FAIL: number('42') should be 42")
+    os.output("  ERROR: number('42') expected {expected}, got {result}")
 
-if number("3.14") != 3.14
+result = number("3.14")
+expected = 3.14
+if result != expected
     errors = errors + 1
-    os.output("FAIL: number('3.14') should be 3.14")
+    os.output("  ERROR: number('3.14') expected {expected}, got {result}")
 
-if number(true) != 1
+result = number(true)
+expected = 1
+if result != expected
     errors = errors + 1
-    os.output("FAIL: number(true) should be 1")
+    os.output("  ERROR: number(true) expected {expected}, got {result}")
 
-if number(false) != 0
+result = number(false)
+expected = 0
+if result != expected
     errors = errors + 1
-    os.output("FAIL: number(false) should be 0")
+    os.output("  ERROR: number(false) expected {expected}, got {result}")
 
-if number("hello") != none
+result = number("hello")
+expected = none
+if result != expected
     errors = errors + 1
-    os.output("FAIL: number('hello') should be none")
+    os.output("  ERROR: number('hello') expected {expected}, got {result}")
 
-if number(none) != none
+result = number(none)
+expected = none
+if result != expected
     errors = errors + 1
-    os.output("FAIL: number(none) should be none")
+    os.output("  ERROR: number(none) expected {expected}, got {result}")
 
-// ========================================
 // string() tests
-// ========================================
-if string(42) != "42"
+result = string(42)
+expected = "42"
+if result != expected
     errors = errors + 1
-    os.output("FAIL: string(42) should be '42'")
+    os.output("  ERROR: string(42) expected '{expected}', got '{result}'")
 
-if string(3.14) != "3.14"
+result = string(3.14)
+expected = "3.14"
+if result != expected
     errors = errors + 1
-    os.output("FAIL: string(3.14) should be '3.14'")
+    os.output("  ERROR: string(3.14) expected '{expected}', got '{result}'")
 
-if string(true) != "true"
+result = string(true)
+expected = "true"
+if result != expected
     errors = errors + 1
-    os.output("FAIL: string(true) should be 'true'")
+    os.output("  ERROR: string(true) expected '{expected}', got '{result}'")
 
-if string(false) != "false"
+result = string(false)
+expected = "false"
+if result != expected
     errors = errors + 1
-    os.output("FAIL: string(false) should be 'false'")
+    os.output("  ERROR: string(false) expected '{expected}', got '{result}'")
 
-if string(none) != "none"
+result = string(none)
+expected = "none"
+if result != expected
     errors = errors + 1
-    os.output("FAIL: string(none) should be 'none'")
+    os.output("  ERROR: string(none) expected '{expected}', got '{result}'")
 
-// ========================================
-// Type-checked function parameters
-// ========================================
+// type-checked function parameters
 function add(a == number, b == number)
     return a + b
 
 result = add(5, 6)
-if result != 11
+expected = 11
+if result != expected
     errors = errors + 1
-    os.output("FAIL: add(5, 6) should be 11")
+    os.output("  ERROR: add(5, 6) expected {expected}, got {result}")
 
 function greet(name == string)
     return "Hello, {name}"
 
-message = greet("Friend")
-if message != "Hello, Friend"
+result = greet("Friend")
+expected = "Hello, Friend"
+if result != expected
     errors = errors + 1
-    os.output("FAIL: greet('Friend') failed")
+    os.output("  ERROR: greet('Friend') expected '{expected}', got '{result}'")
 
 function process_status(active == boolean)
     if active
@@ -77,13 +95,17 @@ function process_status(active == boolean)
     else
         return "Status: INACTIVE"
 
-if process_status(true) != "Status: ACTIVE"
+result = process_status(true)
+expected = "Status: ACTIVE"
+if result != expected
     errors = errors + 1
-    os.output("FAIL: process_status(true)")
+    os.output("  ERROR: process_status(true) expected '{expected}', got '{result}'")
 
-if process_status(false) != "Status: INACTIVE"
+result = process_status(false)
+expected = "Status: INACTIVE"
+if result != expected
     errors = errors + 1
-    os.output("FAIL: process_status(false)")
+    os.output("  ERROR: process_status(false) expected '{expected}', got '{result}'")
 
 function check_presence(value)
     if value == none
@@ -91,34 +113,38 @@ function check_presence(value)
     else
         return "has_value"
 
-if check_presence(none) != "empty"
+result = check_presence(none)
+expected = "empty"
+if result != expected
     errors = errors + 1
-    os.output("FAIL: check_presence(none) should be 'empty'")
+    os.output("  ERROR: check_presence(none) expected '{expected}', got '{result}'")
 
-if check_presence("something") != "has_value"
+result = check_presence("something")
+expected = "has_value"
+if result != expected
     errors = errors + 1
-    os.output("FAIL: check_presence('something') should be 'has_value'")
+    os.output("  ERROR: check_presence('something') expected '{expected}', got '{result}'")
 
-// ========================================
-// Practical usage
-// ========================================
+// practical usage
 num1 = number("42")
 num2 = number("58")
-sum = num1 + num2
-if sum != 100
+result = num1 + num2
+expected = 100
+if result != expected
     errors = errors + 1
-    os.output("FAIL: 42 + 58 should be 100")
+    os.output("  ERROR: 42 + 58 expected {expected}, got {result}")
 
 age = 25
-text = string(age)
-if text != "25"
+result = string(age)
+expected = "25"
+if result != expected
     errors = errors + 1
-    os.output("FAIL: string(25) should be '25'")
+    os.output("  ERROR: string(25) expected '{expected}', got '{result}'")
 
-// ========================================
-// Result
-// ========================================
+// final result
+os.output("Total errors in type_conversion.apex: {errors}")
+
 if errors == 0
-    os.output("All type conversion tests passed!")
+    os.output("Tests in type_conversion.apex passed!")
 else
-    os.output("{errors} test(s) failed")
+    os.output("{errors} test(s) failed in type_conversion.apex.")
