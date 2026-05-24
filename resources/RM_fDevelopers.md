@@ -12,6 +12,7 @@ This manual is minimalistic. Each section builds on the previous ones. For the b
 - [1.3 Booleans](#13-booleans)
 - [1.4 Strings](#14-strings)
 - [1.5 Tables](#15-tables)
+- [1.6 Type Conversion](#16-table-conversion)
 
 ### 2. Operators
 - [2.1 Arithmetic Operators](#21-arithmetic-operators)
@@ -285,6 +286,48 @@ first_employee = company.employees.1
 city = company.address.city
 ```
 
+## 1.6 Type Conversion
+Apex provides two built-in functions for explicit type conversion:
+
+| Function | Converts to | Failure behavior |
+|----------|-------------|------------------|
+| `number(x)` | number | Returns `none` on invalid input |
+| `string(x)` | string | Never fails |
+
+### number(x)
+Converts a value to number.
+
+| Input | Output |
+|-------|--------|
+| `"42"`, `"3.14"` | Parsed number |
+| `true` / `false` | `1` / `0` |
+| `none` | `none` |
+| Invalid string | `none` |
+
+```apex
+number("42")       // 42
+number("3.14")     // 3.14
+number(true)       // 1
+number("hello")    // none
+number(none)       // none
+```
+
+### string(x)
+Converts any value to its string representation.
+
+| Input | Output |
+|-------|--------|
+| `42` | `"42"` |
+| `3.14` | `"3.14"` |
+| `true` / `false` | `"true"` / `"false"` |
+| `none` | `"none"` |
+
+```apex
+string(42)      // "42"
+string(true)    // "true"
+string(none)    // "none"
+```
+
 # 2. Operators
 ## 2.1 Arithmetic Operators
 Arithmetic operators work with numbers. They do exactly what you learned in math class.
@@ -405,7 +448,7 @@ while counter <= 5
     counter = counter + 1
 ```
 
-### 4.2 Break
+## 4.2 Break
 `break` immediately exits the loop, no matter what the condition says. Use it when you need to stop early.
 
 ```apex
@@ -420,7 +463,7 @@ while x <= 10
 
 Nothing after `break` runs for that iteration.
 
-### 4.3 Continue
+## 4.3 Continue
 `continue` skips the rest of the current iteration and jumps to the next check of the condition.
 
 ```apex

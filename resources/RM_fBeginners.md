@@ -13,6 +13,7 @@ This manual is written with step-by-step learning in mind and strives to be mini
 - [1.3 Booleans](#13-booleans)
 - [1.4 Strings](#14-strings)
 - [1.5 Tables](#15-tables)
+- [1.6 Type Conversion](#16-table-conversion)
 
 ### 2. Operators
 - [2.1 Arithmetic Operators](#21-arithmetic-operators)
@@ -340,6 +341,53 @@ first_employee = company.employees.1            // "Alice"
 city = company.address.city                     // "Dubai"
 ```
 
+## 1.6 Type Conversion
+Sometimes you have a value of one type but need it in another.
+`os.input()` always returns a string — even if the user types `42`.
+To do math with it, convert to number first.
+
+Apex provides two conversion functions:
+
+| Function | What it does | Example |
+|----------|--------------|---------|
+| `number(x)` | Converts to number | `number("42")` → `42` |
+| `string(x)` | Converts to string | `string(42)` → `"42"` |
+
+### number()
+Converts a value to number. Returns `none` if conversion fails.
+
+```apex
+number("42")       // 42
+number("3.14")     // 3.14
+number(true)       // 1
+number(false)      // 0
+number("hello")    // none — not a number
+number(none)       // none
+```
+
+Always check the result before calculations:
+
+```apex
+import os
+value = number(os.input("Enter a number: "))
+
+if value == none
+    os.output("That's not a valid number!")
+else
+    os.output("Double is {value * 2}")
+```
+
+*More details about Comparison operators & If Statements in section 2.2 & 3*
+
+### string()
+Converts any value to its string representation.
+
+```apex
+string(42)      // "42"
+string(true)    // "true"
+string(none)    // "none"
+```
+
 # 2. Operators
 Operators are symbols that tell Apex to perform specific actions on values. Think of them like verbs in a sentence — they make things happen.
 
@@ -628,7 +676,7 @@ while x <= 10
     x = x + 1   // Now x increases — loop will end
 ```
 
-### 4.2 Break
+## 4.2 Break
 `break` immediately exits the loop, no matter what the condition says. Use it when you need to stop early.
 
 ```apex
@@ -643,7 +691,7 @@ while x <= 10
 
 When `x` becomes 5, `break` fires and the loop ends immediately. Nothing after `break` runs for that iteration.
 
-### 4.3 Continue
+## 4.3 Continue
 `continue` skips the rest of the current iteration and jumps to the next check of the condition.
 
 ```apex
