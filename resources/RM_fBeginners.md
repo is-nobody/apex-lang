@@ -934,7 +934,7 @@ introduce("Alice", "Smith", 30)
 
 Order matters. The first value goes to the first parameter, the second value to the second parameter, and so on.
 
-Sometimes you need a function to accept a specific data type of a variable. For this, you need to use `==` and specify the type (avalaible is: `none`, `number`, `boolean`, `string`, `table`):
+Sometimes you need a function to accept a specific data type of a variable. For this, you need to use `==` and specify the type (available is: `none`, `number`, `boolean`, `string`, `table`):
 
 ```apex
 import os
@@ -1119,62 +1119,769 @@ When you import a file, you get everything from it:
 Apex comes with several built-in libraries. These are ready-to-use tools that solve common tasks: working with files, math, strings, networking, and more. You don't need to write everything from scratch — just import the library you need and use it.
 
 ## 9.1 OS Library (os)
-The OS library lets you interact with the operating system. You can print text, read files, create folders and more.
+The OS library lets you interact with the operating system. You can print text, read files, create folders, and more. Import it with `import os`.
 
-### os.output()
-Prints text to the terminal.
+### os.output(value)
+Prints a value to the terminal. If no value is given, it prints `none`.
 
 ```apex
 import os
-os.output("Hello")
+os.output("Hello, Friend")     // Hello, Friend
+os.output(42)                  // 42
+os.output(true)                // true
+os.output()                    // none
 ```
 
-### os.input()
-Reads a line from the user.
+### os.input(prompt)
+Waits for the user to type something and press Enter. Returns what they typed as a string. You can provide an optional prompt message.
 
 ```apex
 import os
-name = os.input()
+name = os.input("What is your name? ")
 os.output("Hello, {name}")
 ```
 
+If the user types `Alice`, the output is `Hello, Alice`. The value from `os.input()` is always a string — even if the user types numbers. Use `number()` to convert it if you need to do math.
+
+### os.read(filename)
+Reads the entire contents of a file and returns it as a string. Returns `none` if the file doesn't exist or can't be read.
+
+```apex
+import os
+content = os.read("story.txt")
+if content == none
+    os.output("Could not read the file")
+else
+    os.output(content)
+```
+
+### os.write(filename, content)
+Writes content to a file. Creates the file if it doesn't exist, overwrites it if it does. Returns `true` on success, `false` on failure.
+
+```apex
+import os
+success = os.write("notes.txt", "Today I learned Apex!")
+if success
+    os.output("File saved!")
+```
+
+### os.close(filename)
+Closes an open file. If no filename is given, closes all open files. You normally don't need to call this — files close automatically. Use it only if you're working with many files and want to free resources.
+
+```apex
+os.close("data.txt")    // Close specific file
+os.close()              // Close all open files
+```
+
+### os.exists(path)
+Returns `true` if the file or folder at `path` exists, `false` otherwise.
+
+```apex
+import os
+if os.exists("config.apex")
+    os.output("Config file found")
+else
+    os.output("No config file")
+```
+
+### os.isfile(path)
+Returns `true` if the path points to a file specifically (not a folder).
+
+```apex
+os.isfile("data.txt")       // true if it's a file
+os.isfile("my_folder")      // false — it's a folder, not a file
+```
+
+### os.isdir(path)
+Returns `true` if the path points to a folder specifically.
+
+```apex
+os.isdir("my_folder")       // true if it's a folder
+os.isdir("data.txt")        // false — it's a file, not a folder
+```
+
+### os.rename(old_name, new_name)
+Renames a file or folder. Returns `true` on success, `false` on failure.
+
+```apex
+os.rename("old_name.txt", "new_name.txt")
+```
+
+### os.rmfile(path)
+Deletes a file permanently. Returns `true` if deleted, `false` if the file doesn't exist or can't be deleted.
+
+```apex
+import os
+if os.rmfile("temp.txt")
+    os.output("File deleted")
+else
+    os.output("Could not delete file")
+```
+
+### os.mkfile(filename)
+Creates an empty file. Returns `true` on success, `false` on failure.
+
+```apex
+os.mkfile("new_file.txt")   // Creates empty file
+```
+
+### os.listdir(path)
+Returns a table of names — all files and folders inside the given folder. If no path is given, lists the current folder. Returns an empty table on failure.
+
+```apex
+import os
+items = os.listdir(".")           // List current folder
+for item in items
+    os.output(item)
+```
+
+### os.getcwd()
+Returns the current working directory as a string — where your program is running from.
+
+```apex
+import os
+current_folder = os.getcwd()
+os.output("Running from: {current_folder}")
+```
+
+### os.chdir(path)
+Changes the current working directory. Returns `true` on success, `false` on failure.
+
+```apex
+os.chdir("/home/user/projects")   // Move to another folder
+os.chdir("..")                    // Go up one folder
+```
+
+### os.mkdir(path)
+Creates a new folder. Returns `true` on success, `false` if the folder already exists or can't be created.
+
+```apex
+import os
+if os.mkdir("my_project")
+    os.output("Folder created")
+else
+    os.output("Folder already exists or can't be created")
+```
+
+### os.rmdir(path)
+Removes an empty folder. Returns `true` on success, `false` if the folder isn't empty or doesn't exist. This only works on empty folders — use `os.rmfile()` to delete files inside first.
+
+```apex
+os.rmdir("old_folder")
+```
+
+### os.stat(path)
+Returns a table with information about a file or folder. The table contains these keys:
+- `size` — file size in bytes
+- `mtime` — last modification time (timestamp)
+- `ctime` — creation time (timestamp)
+- `isdir` — `true` if it's a folder, `false` if it's a file
+
+Returns `none` if the path doesn't exist.
+
+```apex
+import os
+info = os.stat("data.txt")
+if info != none
+    os.output("Size: {info.size} bytes")
+    os.output("Is folder: {info.isdir}")
+```
+
+### os.exit(code)
+Exits the program immediately. The `code` is optional — `0` means success, other numbers mean an error. If no code is given, uses `0`.
+
+```apex
+import os
+if os.exists("critical_file.txt") == false
+    os.output("Critical file missing — exiting")
+    os.exit(1)              // Exit with error code
+```
+
+### os.wait(seconds)
+Pauses the program for the given number of seconds. You can use decimals for fractions of a second. Negative values are treated as `0`.
+
+```apex
+import os
+os.output("Starting...")
+os.wait(2.5)                // Pause for 2.5 seconds
+os.output("Done waiting")
+```
+
+### os.time()
+Returns the current time as a number — seconds since January 1, 1970. Useful for measuring how long something takes.
+
+```apex
+import os
+start = os.time()
+// ... do something slow ...
+elapsed = os.time() - start
+os.output("Took {elapsed} seconds")
+```
+
+### os.system(command)
+Runs a system command as if you typed it in the terminal. Returns the command's exit code. Available commands depend on your operating system.
+
+```apex
+import os
+os.system("echo Hello from terminal")     // Works on Linux/macOS
+os.system("dir")                          // Windows — list files
+os.system("ls")                           // Linux/macOS — list files
+```
+
+### os.platform()
+Returns a string identifying your operating system: `"Windows"`, `"macOS"`, `"Linux"`, or `"Unknown OS"`.
+
+```apex
+import os
+system = os.platform()
+os.output("You're running on {system}")
+```
+
 ## 9.2 Math Library (math)
-The Math library provides mathematical functions. Use it for calculations beyond basic arithmetic.
+The Math library provides mathematical functions beyond basic arithmetic. Import it with `import math`.
+
+### math.abs(x)
+Returns the absolute value of a number — how far it is from zero, ignoring the sign.
+
+```apex
+import math
+math.abs(5)        // 5
+math.abs(-5)       // 5
+math.abs(-3.14)    // 3.14
+```
+
+### math.floor(x)
+Rounds a number down to the nearest whole number. Think of it as "cut off the decimal part, go lower."
+
+```apex
+import math
+math.floor(3.7)     // 3
+math.floor(3.1)     // 3
+math.floor(-2.3)    // -3 (goes down, so more negative)
+```
+
+### math.ceil(x)
+Rounds a number up to the nearest whole number. Think of it as "push up to the next integer."
+
+```apex
+import math
+math.ceil(3.1)      // 4
+math.ceil(3.7)      // 4
+math.ceil(-2.3)     // -2 (goes up toward zero)
+```
+
+### math.round(x, digits)
+Rounds a number to the nearest whole number, or to a specific number of decimal places. The `digits` parameter is optional — without it, rounds to a whole number.
+
+```apex
+import math
+math.round(3.4)         // 3
+math.round(3.6)         // 4
+math.round(3.5)         // 4 (rounds up at .5)
+math.round(3.14159, 2)  // 3.14
+math.round(3.14159, 3)  // 3.142
+```
+
+### math.sqrt(x)
+Returns the square root of a number. Returns `none` for negative numbers — you can't take the square root of a negative in real numbers.
+
+```apex
+import math
+math.sqrt(25)      // 5
+math.sqrt(2)       // 1.4142135623730951
+math.sqrt(-1)      // none
+```
+
+### math.exp(x)
+Returns `e` raised to the power of `x`. `e` is Euler's number (approximately 2.71828), used in growth rates, compound interest, and natural processes.
+
+```apex
+import math
+math.exp(1)        // 2.718281828459045
+math.exp(0)        // 1
+math.exp(2)        // 7.38905609893065
+```
+
+### math.log(x, base)
+Returns the logarithm of `x`. Without a base, uses the natural logarithm (base `e`). With a base, calculates the logarithm with that base. Returns `none` if `x` is zero or negative — logarithms aren't defined for those values.
+
+```apex
+import math
+math.log(2.71828)       // ~1 (natural log of e)
+math.log(100, 10)       // 2 (10² = 100)
+math.log(8, 2)          // 3 (2³ = 8)
+math.log(0)             // none
+math.log(-5)            // none
+```
+
+### Trigonometry
+All trigonometric functions work with **radians**, not degrees. Radians are another way to measure angles — a full circle is 2π radians, which equals 360 degrees.
+
+If you have degrees and need radians: multiply by `math.pi` and divide by 180. Apex doesn't have a built-in `math.pi` constant, but you can create one:
+
+```apex
+import math
+pi = math.asin(1) * 2    // 3.141592653589793
+degrees = 90
+radians = degrees * pi / 180
+```
+
+### math.sin(x)
+Returns the sine of `x` radians.
+
+```apex
+import math
+math.sin(0)              // 0
+math.sin(math.asin(1))   // ~1 (sine of π/2 is 1)
+```
+
+### math.cos(x)
+Returns the cosine of `x` radians.
+
+```apex
+import math
+math.cos(0)              // 1
+math.cos(math.asin(1))   // ~0 (cosine of π/2 is 0)
+```
+
+### math.tan(x)
+Returns the tangent of `x` radians.
+
+```apex
+import math
+math.tan(0)              // 0
+math.tan(math.asin(1)/4) // ~1 (tangent of π/4 is 1)
+```
+
+### math.asin(x)
+Returns the arcsine of `x` in radians — the angle whose sine is `x`. Input must be between -1 and 1. Returns `none` if outside that range.
+
+```apex
+import math
+math.asin(0)             // 0
+math.asin(1)             // 1.5707963267948966 (π/2)
+math.asin(2)             // none
+```
+
+### math.acos(x)
+Returns the arccosine of `x` in radians — the angle whose cosine is `x`. Input must be between -1 and 1. Returns `none` if outside that range.
+
+```apex
+import math
+math.acos(1)             // 0
+math.acos(0)             // 1.5707963267948966 (π/2)
+math.acos(2)             // none
+```
+
+### math.atan(x)
+Returns the arctangent of `x` in radians — the angle whose tangent is `x`.
+
+```apex
+import math
+math.atan(0)             // 0
+math.atan(1)             // 0.7853981633974483 (π/4)
+```
+
+Here's the String Library section for the manual:
 
 ## 9.3 String Library (string)
-The String library helps you work with text. You can measure length, change case, find words, and more.
+The String library helps you work with text — measure length, change case, find words, split and combine strings, and more. Import it with `import string`.
 
-string: len, lower, upper, sub, split, join, trim, find, replace.
+### string.len(s)
+Returns the number of characters in a string. Spaces and punctuation count as characters too.
+
+```apex
+import string
+string.len("hello")        // 5
+string.len("")             // 0
+string.len("hi there")     // 8 (space counts)
+string.len("Apex!")        // 5
+```
+
+### string.lower(s)
+Converts every character in the string to lowercase. Useful when you want to compare text without worrying about capitalization.
+
+```apex
+import string
+string.lower("HELLO")      // "hello"
+string.lower("Hello")      // "hello"
+string.lower("Apex 123")   // "apex 123"
+```
+
+### string.upper(s)
+Converts every character in the string to uppercase.
+
+```apex
+import string
+string.upper("hello")      // "HELLO"
+string.upper("Hello")      // "HELLO"
+string.upper("apex 123")   // "APEX 123"
+```
+
+### string.sub(s, start, end)
+Extracts a portion of a string — from `start` to `end`, but not including `end`. Think of it as "give me characters from position start up to just before end."
+
+Positions start counting from `0`, not `1`. The first character is at position 0.
+
+```apex
+import string
+text = "Hello, World"
+string.sub(text, 0, 5)     // "Hello"
+string.sub(text, 7, 12)    // "World"
+string.sub(text, 0, 1)     // "H" (first character only)
+```
+
+If `start` is negative, it's treated as `0`. If `end` is larger than the string length, it stops at the end.
+
+```apex
+string.sub("Apex", 1, 10)  // "pex" (end is bigger than string, stops at end)
+```
+
+### string.split(s, separator)
+Splits a string into a table of substrings. The separator is the character (or characters) where the split happens. If no separator is given, splits on whitespace.
+
+```apex
+import string
+string.split("apple,banana,orange", ",")     // ("apple", "banana", "orange")
+string.split("hello world apex", " ")        // ("hello", "world", "apex")
+string.split("one two three")                // ("one", "two", "three")
+string.split("word")                         // ("word",)
+```
+
+Practical example — processing user input:
+
+```apex
+import string
+import os
+user_input = os.input("Enter three numbers separated by commas: ")
+parts = string.split(user_input, ",")
+os.output("First number: {parts.1}")
+os.output("Second number: {parts.2}")
+os.output("Third number: {parts.3}")
+```
+
+### string.join(parts, separator)
+Does the opposite of `split` — takes a table of strings and joins them into one string with a separator between each. The separator is optional — if not given, nothing is placed between parts.
+
+```apex
+import string
+words = ("Hello", "World")
+string.join(words, " ")       // "Hello World"
+string.join(words, "-")       // "Hello-World"
+string.join(words)            // "HelloWorld" (no separator)
+
+// Join with commas
+tags = ("apex", "programming", "language")
+string.join(tags, ", ")       // "apex, programming, language"
+```
+
+### string.trim(s)
+Removes whitespace (spaces, tabs, newlines) from the beginning and end of a string. The middle spaces are left alone.
+
+```apex
+import string
+string.trim("  hello  ")      // "hello"
+string.trim("   apex   lang   ")  // "apex   lang" (inner spaces kept)
+string.trim("\n  text \n")    // "text"
+```
+
+Very useful when cleaning user input — users often accidentally type extra spaces:
+
+```apex
+import string
+import os
+name = os.input("Enter your name: ")
+name = string.trim(name)      // Remove accidental spaces
+os.output("Hello, {name}")
+```
+
+### string.find(s, search)
+Searches for `search` inside `s` and returns the position of the first match. Returns `-1` if not found. Position starts from `0`.
+
+```apex
+import string
+text = "Hello, World"
+string.find(text, "World")    // 7
+string.find(text, "o")        // 4 (first 'o' is at position 4)
+string.find(text, "Apex")     // -1 (not found)
+```
+
+You can use the result to check if something exists in a string:
+
+```apex
+import string
+email = "alice@example.com"
+if string.find(email, "@") != -1
+    os.output("Valid email format")
+else
+    os.output("Missing @ symbol")
+```
+
+### string.replace(s, old, new)
+Replaces every occurrence of `old` with `new` in the string. If `old` isn't found, returns the original string unchanged.
+
+```apex
+import string
+string.replace("Hello World", "World", "Apex")    // "Hello Apex"
+string.replace("banana", "a", "o")                // "bonono"
+string.replace("hello", "x", "y")                 // "hello" (nothing changed)
+
+// Remove something by replacing with empty string
+string.replace("remove-this", "-this", "")        // "remove"
+```
 
 ## 9.4 Network Library (network)
-The Network library lets your program communicate over the internet. You can make HTTP requests, work with URLs, and use TCP sockets.
+The Network library lets your program communicate over the internet. You can make HTTP requests, work with URLs, create TCP connections, and more. Import it with `import network`.
 
-url_encode(str)
-url_decode(str)
-parse_url(url)
+### network.url_encode(s)
+Converts a string into a URL-safe format by replacing special characters with percent-encoded versions. Use this when building URLs with user input that might contain spaces or symbols.
 
-http_get(url, headers)
-http_post(url, body, headers)
-http_set_timeout(seconds)
+```apex
+import network
+network.url_encode("hello world")        // "hello%20world"
+network.url_encode("name=Alice&age=30")  // "name%3DAlice%26age%3D30"
+```
 
-tcp_connect(host, port)
-socket.send(data)
-socket.receive(bytes)
-socket.close()
-socket.set_timeout(seconds)
+### network.url_decode(s)
+Does the opposite of `url_encode` — converts percent-encoded characters back to their original form.
 
-tcp_listen(port)
-server.accept()
-server.close()
+```apex
+import network
+network.url_decode("hello%20world")       // "hello world"
+network.url_decode("name%3DAlice%26age%3D30")  // "name=Alice&age=30"
+```
 
-websocket_connect(url)
-ws.send(data)
-ws.on_message
+### network.parse_url(url)
+Breaks a URL into its components and returns them as a table. The table contains these keys:
 
-dns_lookup(hostname)
+- `scheme` — the protocol (`http`, `https`, etc.)
+- `host` — the domain name or IP address
+- `port` — the port number (if specified in the URL)
+- `path` — the path after the domain
+- `query` — everything after `?` in the URL
+- `fragment` — everything after `#` in the URL
 
-ip_is_valid(ip)
+Returns `none` if the URL can't be parsed.
+
+```apex
+import network
+url = "https://example.com:8080/search?q=apex&lang=en#results"
+parsed = network.parse_url(url)
+
+if parsed != none
+    os.output("Scheme: {parsed.scheme}")      // "https"
+    os.output("Host: {parsed.host}")          // "example.com"
+    os.output("Port: {parsed.port}")          // 8080
+    os.output("Path: {parsed.path}")          // "/search"
+    os.output("Query: {parsed.query}")        // "q=apex&lang=en"
+    os.output("Fragment: {parsed.fragment}")  // "results"
+```
+
+### network.http_get(url, headers)
+Sends an HTTP GET request to a URL and returns the response body as a string. The `headers` parameter is optional — you can pass a table of header key-value pairs.
+
+```apex
+import network
+import os
+
+// Simple request
+response = network.http_get("https://api.example.com/data")
+os.output(response)
+
+// Request with headers
+headers = (
+    Authorization = "Bearer token123",
+    Accept = "application/json"
+)
+response = network.http_get("https://api.example.com/protected", headers)
+os.output(response)
+```
+
+If the request fails, the function returns an error message string starting with `HTTP Error:`, `URL Error:`, or `Error:` instead of crashing your program.
+
+### network.http_post(url, body, headers)
+Sends an HTTP POST request with a body. The `body` can be a string, a table (which gets converted to JSON), or `none`. The `headers` parameter is optional.
+
+```apex
+import network
+import os
+
+// POST with string body
+response = network.http_post(
+    "https://api.example.com/submit",
+    "name=Alice&age=30"
+)
+
+// POST with JSON body (pass a table)
+data = (name = "Alice", age = 30, active = true)
+response = network.http_post(
+    "https://api.example.com/users",
+    data,
+    (Authorization = "Bearer token123")
+)
+os.output(response)
+```
+
+### network.http_set_timeout(seconds)
+Sets how long HTTP requests wait before giving up. The default is 30 seconds. This affects all future HTTP requests.
+
+```apex
+import network
+network.http_set_timeout(10)    // Wait at most 10 seconds
+response = network.http_get("https://slow-server.example.com")
+```
+
+### network.tcp_connect(host, port)
+Creates a TCP connection to a server. Returns a table with connection info, or `none` if the connection fails. The returned table has these keys:
+
+- `id` — a unique number identifying this socket (you'll need it for other socket functions)
+- `connected` — `true` if connected successfully
+- `host` — the host you connected to
+- `port` — the port you connected to
+
+```apex
+import network
+import os
+
+socket = network.tcp_connect("example.com", 80)
+if socket != none
+    os.output("Connected! Socket ID: {socket.id}")
+else
+    os.output("Connection failed")
+```
+
+### network.socket_send(socket_id, data)
+Sends data through a connected socket. Returns `true` on success, `false` on failure.
+
+```apex
+import network
+socket = network.tcp_connect("example.com", 80)
+if socket != none
+    network.socket_send(socket.id, "Hello, server!")
+```
+
+### network.socket_receive(socket_id, bytes_count)
+Receives data from a socket. The `bytes_count` parameter is optional — if not given, reads up to 4096 bytes. Returns the received data as a string, or `none` if nothing was received or an error occurred.
+
+```apex
+import network
+socket = network.tcp_connect("example.com", 80)
+if socket != none
+    network.socket_send(socket.id, "GET / HTTP/1.0\r\n\r\n")
+    response = network.socket_receive(socket.id)
+    os.output(response)
+```
+
+### network.socket_close(socket_id)
+Closes a socket connection. If no ID is given, closes all open sockets.
+
+```apex
+import network
+socket = network.tcp_connect("example.com", 80)
+// ... do something with the socket ...
+network.socket_close(socket.id)      // Close specific socket
+network.socket_close()               // Close all sockets
+```
+
+### network.socket_set_timeout(seconds)
+Sets the timeout for all socket operations. If a socket doesn't respond within this time, it gives up instead of waiting forever.
+
+```apex
+import network
+network.socket_set_timeout(5)    // 5-second timeout for socket operations
+```
+
+### network.tcp_listen(port, backlog)
+Creates a TCP server that listens for incoming connections on the given port. The `backlog` parameter is optional (default is 5) — it's the maximum number of waiting connections. Returns a table with server info, or `none` on failure.
+
+The returned table contains:
+- `id` — a unique number identifying this server (you'll need it for `server_accept`)
+- `port` — the port the server is listening on
+- `listening` — `true` if the server started successfully
+
+```apex
+import network
+import os
+
+server = network.tcp_listen(8080)
+if server != none
+    os.output("Server listening on port {server.port}")
+else
+    os.output("Failed to start server")
+```
+
+### network.server_accept(server_id)
+Waits for a client to connect to your server. When someone connects, returns a table with info about the new connection. Returns `none` if no one connected within the timeout period.
+
+The returned table contains:
+- `id` — a socket ID for communicating with this client
+- `address` — the client's address as a string like `"192.168.1.5:54321"`
+- `host` — the client's IP address
+- `port` — the client's port
+
+```apex
+import network
+import os
+
+server = network.tcp_listen(8080)
+if server != none
+    os.output("Waiting for connection...")
+    client = network.server_accept(server.id)
+    if client != none
+        os.output("Client connected from {client.address}")
+        
+        // Receive data from client
+        data = network.socket_receive(client.id)
+        os.output("Received: {data}")
+        
+        // Send response
+        network.socket_send(client.id, "Message received!")
+        
+        network.socket_close(client.id)
+    
+    network.server_close(server.id)
+```
+
+### network.server_close(server_id)
+Stops a server and closes it. If no ID is given, closes all servers.
+
+```apex
+network.server_close(123)    // Close specific server
+network.server_close()       // Close all servers
+```
+
+### network.dns_lookup(hostname)
+Converts a domain name (like `"google.com"`) into an IP address (like `"142.250.185.46"`). Returns `none` if the hostname can't be resolved.
+
+```apex
+import network
+ip = network.dns_lookup("github.com")
+os.output("GitHub IP: {ip}")    // Something like "140.82.121.3"
+```
+
+### network.ip_is_valid(ip)
+Checks whether a string is a valid IPv4 or IPv6 address. Returns `true` if valid, `false` if not.
+
+```apex
+import network
+network.ip_is_valid("192.168.1.1")                              // true
+network.ip_is_valid("256.1.1.1")                                // false (256 is out of range)
+network.ip_is_valid("2001:0db8:85a3:0000:0000:8a2e:0370:7334")  // true
+network.ip_is_valid("not an ip")                                // false
+```
 
 # Conclusion
 ## What's Next?
-You've learned the core of Apex: variables, conditions, loops, functions, and imports. The best way to learn more is to start building. Try something small, and when you get stuck — come back here.
+Now you know the basics of Apex! You have all the tools necessary to create real programs: variables for storing data, operators for manipulating them, conditional statements and loops for controlling execution flow, functions for organizing code, and imports for structuring it.
+
+Here are a few ideas for what to do next:
+
+1. **Practice** — Write a calculator program, a password generator, or a simple game (like guess the number).
+
+2. **Explore the built-in libraries** — Experiment with `os`, `math`, `string`, and `network`. Try reading a file from disk, making an HTTP request to an API, or creating a simple TCP chat.
+
+3. **Build a project** — Combine everything you've learned. For example: a program that fetches data from an API, saves it to a file, and displays a nicely formatted report to the user.
+
+4. **Read other people's Apex programs** — Search GitHub for Apex projects. Reading someone else's code is a great way to learn.
+
+Remember: Apex is designed to be simple, but it's also powerful. Don't be afraid to experiment and make mistakes — that's the best way to learn. Happy coding in Apex!

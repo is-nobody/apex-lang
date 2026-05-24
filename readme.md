@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Apex Version](https://img.shields.io/badge/Apex-v26.06-blue)](https://github.com/is-nobody/apex-lang)
-![Avalaible](https://img.shields.io/badge/Avalaible-Windows%20%7C%20macOS%20%7C%20Linux-red)
+![Available](https://img.shields.io/badge/Available-Windows%20%7C%20macOS%20%7C%20Linux-red)
 
 **Apex** — a simple and modern programming language with built-in libraries. 
 
