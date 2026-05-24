@@ -92,4 +92,10 @@ code = os.system("echo test")
 os.output("   Exit code: {code}")
 os.output("")
 
+// 13. platform
+os.output("13. platform:")
+p = os.platform()
+os.output("   OS: {p}")
+os.output("")
+
 os.output("=== DONE ===")

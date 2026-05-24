@@ -1,6 +1,7 @@
 # source/libraries/os_module.py
 import time
-import os as _os  # используем псевдоним, чтобы не конфликтовать с именем класса
+import os as _os 
+import platform
 from source.libraries.builtin_module import BuiltinModule
 
 class OS(BuiltinModule):
@@ -38,9 +39,9 @@ class OS(BuiltinModule):
             "exit": self.exit,
             "wait": self.wait,
             "time": self.time,
-            "system": self.system,  # добавлен в _funcs
+            "system": self.system,
+            "platform": self.platform,
         }
-        # Словарь для хранения открытых файлов (ключ — имя файла, значение — file object)
         self._open_files = {}
 
     # ========== Ввод-вывод ==========
@@ -214,3 +215,16 @@ class OS(BuiltinModule):
     @staticmethod
     def system(cmd: str) -> int:
         return _os.system(cmd)
+
+    @staticmethod
+    def platform() -> str:
+        system = platform.system()
+        
+        if system == "Windows":
+            return "Windows"
+        elif system == "Darwin":
+            return "macOS"
+        elif system == "Linux":
+            return "Linux"
+        else:
+            return "Unknown OS"
