@@ -545,50 +545,84 @@ Use `try` to wrap code that might fail. If something goes wrong, the program jum
 
 ```apex
 import os
+
 try
-    file_content = os.read("data.txt")
-    os.output("File loaded successfully")
+    x = 10 / 0
+    os.output("This won't run")
 failure
-    os.output("Could not read file — using default values")
-    file_content = none
+    os.output("Something went wrong")
 ```
 
+If the code inside `try` runs without errors, the `failure` block is skipped entirely.
+
 ## 6.2 Failure Statement
-The `failure` block only runs when an error occurs. It's your safety net.
+The `failure` block only runs when an error occurs. It's your safety net — the program takes a different path instead of crashing.
+
+Think of it like a backup plan. You *try* to do something risky. If it works, great. If it fails, the `failure` block catches you.
 
 ```apex
 import os
 
-file_content = none
+try
+    x = 10 / 0
+failure
+    os.output("Error: {error}")
+```
+
+What happens in this scenario:
+
+1. The program enters `try` and tries `10 / 0`
+2. Division by zero fails — jumps to `failure`
+3. `error` variable is set to `"division_by_zero"`
+4. Prints: `Error: division_by_zero`
+5. Program continues, no crash
+
+If no error occurred, `failure` would be skipped, but `always` still runs.
+
+### Error Variable
+When an error occurs inside a `try` block, Apex automatically creates the `error` variable. This variable is only available inside the `failure` block and contains a short identifier describing what went wrong.
+
+| Error | What It Means | Example |
+|-------|---------------|---------|
+| `division_by_zero` | Division by zero | `x = 10 / 0` |
+| `name_error` | Using an undefined variable | `x = unknown_var` |
+| `type_error` | Wrong data type operation | `x = "hello" + 5` |
+| `value_error` | Invalid value conversion | `x = number("abc")` |
+| `index_error` | Table index out of bounds | `x = arr.10` |
+| `key_error` | Accessing non-existent key | `x = table.missing_key` |
+| `attribute_error` | Accessing non-existent attribute | `x = 42.some_method` |
+
+You can check that if the error is of a specific type:
+
+```apex
+import os
 
 try
-    file_content = os.read("data.txt")
-    os.output("File loaded: {file_content}")
+    x = 10 / 0
 failure
-    os.output("Could not read file — using default value")
-    file_content = "default content"
-
-// Program continues either way
-os.output("Final content: {file_content}")
+    if error == "division_by_zero"
+        os.output("Cannot divide by zero")
+    else
+        os.output("Other error: {error}")
 ```
 
 ## 6.3 Always Statement
-Sometimes you need code that runs whether an error happened or not.
+Sometimes you need code that runs whether an error happened or not. That's what `always` is for — cleanup tasks, resetting values, or letting the user know the operation finished.
+
+Imagine you're doing some math that might fail. Whether the division works or not, you want to tell the user "Done." The `always` block guarantees that message appears.
 
 ```apex
 import os
 
-file_content = none
-
 try
-    file_content = os.read("data.txt")
-    os.output("File loaded successfully")
+    x = 10 / 0
 failure
-    os.output("Could not read file — using default value instead")
-    file_content = "default content"
+    if error == "division_by_zero"
+        os.output("Cannot divide by zero")
+    else
+        os.output("Other error: {error}")
 always
-    // This runs no matter what — success or failure
-    os.output("Done. Content ready: {file_content}")
+    os.output("Operation completed")
 ```
 
 # 7. Functions

@@ -137,7 +137,9 @@ class StatementsMixin:
                 result = self.evaluate(try_body, env)
         except Exception as e:
             if failure_body:
-                env.define("error", str(e))
+                error_message = self._format_error_message(e)
+                env.define("error", error_message)
+                
                 result = self.evaluate(failure_body, env)
             else:
                 raise
@@ -149,3 +151,29 @@ class StatementsMixin:
                     pass
         
         return result
+
+    def _format_error_message(self, error: Exception) -> str:
+        error_type = type(error).__name__
+        error_msg = str(error)
+        
+        if isinstance(error, ZeroDivisionError):
+            return "division_by_zero"
+        elif isinstance(error, TypeError):
+            return "type_error"
+        elif isinstance(error, ValueError):
+            return "value_error"
+        elif isinstance(error, NameError):
+            return "name_error"
+        elif isinstance(error, AttributeError):
+            return "attribute_error"
+        elif isinstance(error, IndexError):
+            return "index_error"
+        elif isinstance(error, KeyError):
+            return "key_error"
+        elif isinstance(error, RuntimeError):
+            if "is not defined" in error_msg.lower():
+                return "name_error"
+            return error_msg.lower().replace(" ", "_")
+        else:
+            snake_case = ''.join(['_' + c.lower() if c.isupper() else c for c in error_type]).lstrip('_')
+            return snake_case if snake_case.endswith('_error') else snake_case + "_error"

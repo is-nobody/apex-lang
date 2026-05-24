@@ -1,41 +1,75 @@
-// Пример 1: Обработка всех исключений
+import os
+
+os.output("Testing Try-Failure with All Error Types")
+os.output("")
+
+// 1. Division by zero
+os.output("1. Testing division by zero:")
 try
     x = 10 / 0
 failure
-    os.output("Ошибка: {error}")
-
-// Пример 2: Обработка конкретного типа
-try
-    arr = (1, 2, 3)
-    value = arr.5  // IndexError
-failure zerodivision
-    os.output("Деление на ноль")
-failure index
-    os.output("Выход за границы массива: {error}")
-failure
-    os.output("Другая ошибка: {error_type} - {error}")
-
-// Пример 3: С вложенными обработчиками
-try
-    try
-        file = open("nonexistent.txt")
-        data = file.read()
-    failure filenotfound
-        os.output("Файл не найден!")
-    failure permission
-        os.output("Нет прав доступа!")
-failure io
-    os.output("Ошибка ввода-вывода")
-
-// Пример 4: С always блоком
-try
-    counter = 0
-    while counter < 10
-        counter = counter + 1
-        if counter == 5
-            break
-    os.output("Цикл завершен")
-failure keyboardinterrupt
-    os.output("Программа прервана пользователем")
+    os.output("Error: {error}")
+    if error == "division_by_zero"
+        os.output("OK: division_by_zero")
+    else
+        os.output("FAIL: wrong error type")
 always
-    os.output("Это выполнится всегда")
+    os.output("Always block executed")
+os.output("")
+
+// 2. Name error
+os.output("2. Testing name error:")
+try
+    x = undefined_variable
+failure
+    os.output("Error: {error}")
+    if error == "name_error"
+        os.output("OK: name_error")
+    else
+        os.output("FAIL: wrong error type")
+always
+    os.output("Always block executed")
+os.output("")
+
+// 3. Custom error with os.read
+os.output("3. Testing with os.read:")
+try
+    content = os.read("nonexistent_file.xyz")
+    x = 10 / 0
+failure
+    os.output("Error: {error}")
+always
+    os.output("Always block executed")
+os.output("")
+
+// 4. Conditional error handling
+os.output("4. Testing conditional handling:")
+try
+    x = 10 / 0
+failure
+    if error == "division_by_zero"
+        os.output("Handling division by zero")
+        x = 0
+    else
+        os.output("Other error: {error}")
+always
+    os.output("Cleanup completed")
+os.output("")
+
+// 5. Nested try blocks
+os.output("5. Testing nested try blocks:")
+try
+    os.output("Outer try block")
+    try
+        x = 10 / 0
+    failure
+        os.output("Inner error: {error}")
+    always
+        os.output("Inner always")
+failure
+    os.output("Outer error: {error}")
+always
+    os.output("Outer always")
+os.output("")
+
+os.output("All tests completed!")
