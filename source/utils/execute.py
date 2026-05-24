@@ -39,6 +39,8 @@ def execute_file(filepath):
         interpreter.evaluate(ast.to_dict())
         return True
         
+    except KeyboardInterrupt:
+        return False
     except Exception as e:
         print(f"Error: {e}")
         return False
