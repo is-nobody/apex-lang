@@ -205,6 +205,60 @@ if result != ""
     errors = errors + 1
 
 // ==========================================
+// SECTION 8: Nested Interpolation (Table.field inside braces)
+// ==========================================
+
+// Basic nested interpolation
+person = (name = "John", field = "name")
+result = "Name: {person.{person.field}}"
+if result != "Name: John"
+    os.output("  ERROR: expected 'Name: John', got '{result}'")
+    errors = errors + 1
+
+// Two-level nested interpolation
+data = (profile = (user = (username = "alice")), level1 = "profile", level2 = "user")
+result = "Username: {data.{data.level1}.{data.level2}.username}"
+if result != "Username: alice"
+    os.output("  ERROR: expected 'Username: alice', got '{result}'")
+    errors = errors + 1
+
+// Mixed with math in nested braces
+item = (value = 10, multiplier = "value")
+result = "Value: {item.{item.multiplier} * 2}"
+if result != "Value: 20"
+    os.output("  ERROR: expected 'Value: 20', got '{result}'")
+    errors = errors + 1
+
+// Nested with arithmetic inside inner braces
+config = (factor = 3, target = "factor")
+result = "Result: {5 + config.{config.target}}"
+if result != "Result: 8"
+    os.output("  ERROR: expected 'Result: 8', got '{result}'")
+    errors = errors + 1
+
+// Triple nesting
+deep = (a = (b = (c = "hello")), path1 = "a", path2 = "b")
+result = "{deep.{deep.path1}.{deep.path2}.c}"
+if result != "hello"
+    os.output("  ERROR: expected 'hello', got '{result}'")
+    errors = errors + 1
+
+// Nested with index access
+list = (10, 20, 30)
+index = 2
+result = "Value: {list.{index}}"
+if result != "Value: 20"
+    os.output("  ERROR: expected 'Value: 20', got '{result}'")
+    errors = errors + 1
+
+// Complex nested expression
+math = (x = 5, y = 3, op = "x", op2 = "y")
+result = "Sum: {math.{math.op} + math.{math.op2}}"
+if result != "Sum: 8"
+    os.output("  ERROR: expected 'Sum: 8', got '{result}'")
+    errors = errors + 1
+
+// ==========================================
 // Final Results
 // ==========================================
 

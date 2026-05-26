@@ -24,13 +24,47 @@ def is_truthy(value: Any) -> bool:
 def evaluate_interpolation_expr(expr: str, env: Environment, interpreter: 'Interpreter') -> Any:
     """
     Evaluate arithmetic expressions in interpolation.
+    Supports nested {} expressions.
     Supports: +, -, *, /, %, parentheses, and variable/field access.
     """
     import re
     
     expr = expr.strip()
     
-    # First, extract variables and field accesses and replace them with placeholders
+    # First, evaluate nested {} expressions recursively
+    def evaluate_nested(expression: str) -> str:
+        result_parts = []
+        i = 0
+        length = len(expression)
+        
+        while i < length:
+            if expression[i] == '{':
+                # Find matching closing brace
+                brace_count = 1
+                j = i + 1
+                while j < length and brace_count > 0:
+                    if expression[j] == '{':
+                        brace_count += 1
+                    elif expression[j] == '}':
+                        brace_count -= 1
+                    j += 1
+                
+                if brace_count == 0:
+                    nested = expression[i+1:j-1]
+                    nested_value = evaluate_interpolation_expr(nested, env, interpreter)
+                    result_parts.append(str(nested_value) if nested_value is not None else 'none')
+                    i = j
+                    continue
+            
+            result_parts.append(expression[i])
+            i += 1
+        
+        return ''.join(result_parts)
+    
+    # Evaluate all nested interpolations first
+    expr_without_nested = evaluate_nested(expr)
+    
+    # Now extract variables and field accesses and replace them with placeholders
     var_pattern = r'[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)*'
     
     variables = {}
@@ -77,16 +111,14 @@ def evaluate_interpolation_expr(expr: str, env: Environment, interpreter: 'Inter
         return placeholder
     
     # Replace variables with placeholders
-    processed_expr = re.sub(var_pattern, replace_var, expr)
+    processed_expr = re.sub(var_pattern, replace_var, expr_without_nested)
     
     # Now evaluate the arithmetic expression with placeholders
-    # First, replace placeholders with their actual values (as Python literals)
     eval_expr = processed_expr
     for placeholder, value in variables.items():
         if value is None:
             eval_expr = eval_expr.replace(placeholder, 'None')
         elif isinstance(value, str):
-            # Escape special characters in string
             escaped = value.replace('\\', '\\\\').replace('"', '\\"')
             eval_expr = eval_expr.replace(placeholder, f'"{escaped}"')
         elif isinstance(value, bool):
@@ -96,47 +128,91 @@ def evaluate_interpolation_expr(expr: str, env: Environment, interpreter: 'Inter
     
     # Safely evaluate the expression
     try:
-        # Use eval with restricted globals/locals
         result = eval(eval_expr, {"__builtins__": {}}, {})
         return result
     except Exception as e:
         interpreter.error(f"Error evaluating interpolation expression '{expr}': {e}", {"line": interpreter.current_line})
 
-
 def is_valid_interpolation(expr: str) -> bool:
     """
     Check if the expression inside {} is valid for interpolation.
-    Now supports arithmetic expressions.
+    Supports nested braces like {table.{field}}.
     """
     if not expr or expr.isspace():
         return False
     
-    # Allowed tokens in arithmetic expressions
+    # First, extract nested interpolations and replace them with placeholders
+    # This allows checking the outer structure while ignoring inner braces
+    
+    def extract_nested(expression: str) -> tuple[str, list[str]]:
+        """Replace nested {} with placeholders and return list of nested expressions"""
+        placeholders = []
+        result_parts = []
+        i = 0
+        length = len(expression)
+        placeholder_counter = 0
+        
+        while i < length:
+            if expression[i] == '{':
+                # Find matching closing brace
+                brace_count = 1
+                j = i + 1
+                while j < length and brace_count > 0:
+                    if expression[j] == '{':
+                        brace_count += 1
+                    elif expression[j] == '}':
+                        brace_count -= 1
+                    j += 1
+                
+                if brace_count == 0:
+                    # Found nested interpolation
+                    nested = expression[i+1:j-1]
+                    placeholder = f"__NESTED_{placeholder_counter}__"
+                    placeholders.append(nested)
+                    result_parts.append(placeholder)
+                    placeholder_counter += 1
+                    i = j
+                    continue
+            
+            result_parts.append(expression[i])
+            i += 1
+        
+        return ''.join(result_parts), placeholders
+    
+    # Extract nested braces
+    processed_expr, nested_exprs = extract_nested(expr)
+    
+    # Recursively validate nested expressions
+    for nested in nested_exprs:
+        if not is_valid_interpolation(nested):
+            return False
+    
+    # Allowed tokens in arithmetic expressions (without braces now)
     import re
     
     # Pattern for valid arithmetic expression with variable/field access
-    # Allows: numbers, operators + - * / % ( ), spaces, variable names with optional field access
     var_pattern = r'[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)*'
     number_pattern = r'\d+(?:\.\d+)?'
     operator_pattern = r'[+\-*/%()]'
     whitespace_pattern = r'\s+'
+    placeholder_pattern = r'__NESTED_\d+__'
     
-    # Combined pattern to match valid tokens
+    # Combined pattern to match valid tokens including placeholders
     token_pattern = re.compile(
-        f'({var_pattern}|{number_pattern}|{operator_pattern}|{whitespace_pattern})'
+        f'({var_pattern}|{number_pattern}|{operator_pattern}|{whitespace_pattern}|{placeholder_pattern})'
     )
     
     # Check if the entire expression consists of allowed tokens
     pos = 0
-    while pos < len(expr):
-        match = token_pattern.match(expr, pos)
+    while pos < len(processed_expr):
+        match = token_pattern.match(processed_expr, pos)
         if not match:
             return False
         pos = match.end()
     
-    # Check for balanced parentheses
+    # Check for balanced parentheses (ignoring nested braces which are replaced)
     paren_count = 0
-    for ch in expr:
+    for ch in processed_expr:
         if ch == '(':
             paren_count += 1
         elif ch == ')':
@@ -147,9 +223,11 @@ def is_valid_interpolation(expr: str) -> bool:
     if paren_count != 0:
         return False
     
-    # Check for forbidden patterns
-    forbidden = {'=', '!', '<', '>', '&', '|', '^', '~', '[', ']', '{', '}', ',', ';', ':'}
-    for ch in expr:
+    # Check for forbidden patterns (excluding placeholders)
+    forbidden = {'=', '!', '<', '>', '&', '|', '^', '~', '[', ']', ',', ';', ':'}
+    # Remove placeholders for forbidden check
+    check_expr = re.sub(r'__NESTED_\d+__', 'X', processed_expr)
+    for ch in check_expr:
         if ch in forbidden:
             return False
     
@@ -160,7 +238,7 @@ def is_valid_interpolation(expr: str) -> bool:
                 'failure', 'always'}
     
     # Extract variable names (not including field access parts)
-    for match in re.finditer(var_pattern, expr):
+    for match in re.finditer(var_pattern, processed_expr):
         var_name = match.group(0).split('.')[0]
         if var_name in keywords:
             return False
@@ -168,20 +246,29 @@ def is_valid_interpolation(expr: str) -> bool:
     return True
 
 def interpolate_string(s: str, env: Environment, interpreter: 'Interpreter') -> str:
-    """
-    Replace {variable}, {table.field}, and {arithmetic expressions} with evaluated values.
-    """
     result = ""
     i = 0
-    while i < len(s):
+    length = len(s)
+    
+    while i < length:
         if s[i] == '{' and (i == 0 or s[i-1] != '\\'):
-            end = s.find('}', i)
-            if end != -1:
-                expr = s[i+1:end].strip()
+            # find matching closing brace considering nesting
+            brace_count = 1
+            j = i + 1
+            while j < length and brace_count > 0:
+                if s[j] == '{' and (j == 0 or s[j-1] != '\\'):
+                    brace_count += 1
+                elif s[j] == '}' and (j == 0 or s[j-1] != '\\'):
+                    brace_count -= 1
+                j += 1
+            
+            if brace_count == 0:
+                # found matching closing brace
+                expr = s[i+1:j-1].strip()
                 
                 if not expr:
                     result += '{}'
-                    i = end + 1
+                    i = j
                     continue
                 
                 if not is_valid_interpolation(expr):
@@ -191,19 +278,24 @@ def interpolate_string(s: str, env: Environment, interpreter: 'Interpreter') -> 
                         {"line": interpreter.current_line}
                     )
                 
-                # Evaluate the expression
+                # evaluate the expression
                 try:
                     value = evaluate_interpolation_expr(expr, env, interpreter)
                     result += str(value) if value is not None else 'none'
                 except Exception as e:
                     result += '{' + expr + '}'
                 
-                i = end + 1
+                i = j
                 continue
-        result += s[i]
-        i += 1
+            else:
+                # unmatched braces, treat as literal
+                result += s[i]
+                i += 1
+        else:
+            result += s[i]
+            i += 1
+    
     return result
-
 
 def add_filename_to_functions(node: dict, filename: str):
     """Recursively add filename to all function declarations in AST"""
