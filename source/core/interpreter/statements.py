@@ -1,5 +1,5 @@
 # source/core/interpreter/statements.py
-from source.core.interpreter.environment import Return, Break, Continue
+from source.core.interpreter.environment import Break, Continue
 from source.core.interpreter.helpers import is_truthy
 from source.core.interpreter.tables import Table
 from typing import Any
@@ -138,7 +138,8 @@ class StatementsMixin:
         except Exception as e:
             if failure_body:
                 error_message = self._format_error_message(e)
-                env.define("error", error_message)
+                # Define as constant (read-only)
+                env.define("error", error_message, is_constant=True)
                 
                 result = self.evaluate(failure_body, env)
             else:
