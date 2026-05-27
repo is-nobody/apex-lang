@@ -1,5 +1,4 @@
 # source/core/parser_expressions.py
-from typing import Optional
 from source.core.parser.ast import ASTNode, ASTNodeType
 from source.core.parser.token_type import TokenType
 

@@ -83,7 +83,6 @@ class String(BuiltinModule):
     
     @staticmethod
     def find(s: str, sub: str) -> int:
-        """Returns index of first occurrence of sub, or -1 if not found"""
         try:
             return s.find(sub)
         except Exception:
@@ -91,7 +90,6 @@ class String(BuiltinModule):
     
     @staticmethod
     def replace(s: str, old: str, new: str) -> str:
-        """Replaces all occurrences of old with new"""
         try:
             return s.replace(old, new)
         except Exception:

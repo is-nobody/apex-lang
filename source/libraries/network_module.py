@@ -4,9 +4,7 @@ import urllib.request
 import urllib.error
 import socket
 import json
-import select
 from .builtin_module import BuiltinModule
-
 
 class Network(BuiltinModule):
     def __init__(self):

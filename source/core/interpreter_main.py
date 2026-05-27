@@ -1,5 +1,5 @@
 # source/core/interpreter/interpreter.py
-from typing import Any, Optional
+from typing import Any
 
 from source.core.interpreter.environment import Environment
 from source.core.interpreter.evaluator import EvaluatorMixin

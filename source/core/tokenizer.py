@@ -1,7 +1,4 @@
 # source/core/tokenizer.py
-import sys
-import os
-from pathlib import Path
 from enum import Enum, auto
 from dataclasses import dataclass
 
