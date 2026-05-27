@@ -1,0 +1,13 @@
+import os
+
+function decimal_less_than_true()
+    errors = 0
+    
+    result = 3.5 < 5.5
+    if result != true
+        errors = errors + 1
+    
+    if errors != 0
+        os.output("{errors} failed in decimal_less_than_true.apex.")
+
+decimal_less_than_true()
