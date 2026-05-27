@@ -133,20 +133,17 @@ class Tokenizer:
             self.advance()
     
     def read_string(self) -> str:
-        start_line = self.line
-        start_col = self.column
         self.advance()
         
         string_content = ""
         while self.peek():
             if self.peek() == '"':
-                self.advance()  # Skip this quote
-                next_char = self.peek()
-
-                if next_char == '' or next_char == '\n' or next_char == ')' or next_char == ',':
+                self.advance()
+                if self.peek() == '"':
+                    self.advance()
+                    string_content += '"'
+                else:
                     break
-                
-                string_content += '"'
             else:
                 string_content += self.advance()
         
