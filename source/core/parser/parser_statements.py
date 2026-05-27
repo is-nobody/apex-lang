@@ -206,7 +206,6 @@ class ParserStatementsMixin:
         token = self.advance()
         name = self.expect(TokenType.IDENTIFIER, "Expected function name").value
         
-        # Check duplicate function definition
         if name in self.functions:
             self.fatal_error(
                 f"Function '{name}' already defined on line {self.functions[name]['line']}",
@@ -219,22 +218,24 @@ class ParserStatementsMixin:
         param_types = {}
         param_names = set()
         
-        # Parse parameters if any
-        if not self.check(TokenType.RPAREN):
-            # Parse first parameter
+        def parse_param():
             param = self.expect(TokenType.IDENTIFIER, "Expected parameter name").value
             
-            # Check for type annotation
+            if param in param_names:
+                self.fatal_error(
+                    f"Duplicate parameter '{param}' in function '{name}'",
+                    self.peek().line, self.peek().column
+                )
+            param_names.add(param)
+            params.append(param)
+            
             param_type = None
             if self.check(TokenType.EQUAL_EQUAL):
-                self.advance()  # consume '=='
-                # Type name can be identifier or keyword (none, true, false)
+                self.advance()
+                valid_types = {'none', 'number', 'string', 'boolean', 'table'}
                 if self.check(TokenType.IDENTIFIER, TokenType.NONE, TokenType.TRUE, TokenType.FALSE):
                     type_token = self.advance()
                     param_type = type_token.value.lower()
-                    
-                    # Validate type
-                    valid_types = {'none', 'number', 'string', 'boolean', 'table'}
                     if param_type not in valid_types:
                         self.fatal_error(
                             f"Invalid type '{param_type}'. Expected: none, number, string, boolean, table",
@@ -243,56 +244,17 @@ class ParserStatementsMixin:
                 else:
                     self.syntax_error("Expected type name after '=='", self.peek())
             
-            # Check duplicate parameter
-            if param in param_names:
-                self.fatal_error(
-                    f"Duplicate parameter '{param}' in function '{name}'",
-                    self.peek().line, self.peek().column
-                )
-            param_names.add(param)
-            params.append(param)
             if param_type:
                 param_types[param] = param_type
-            
-            # Parse remaining parameters
+        
+        if not self.check(TokenType.RPAREN):
+            parse_param()
             while self.check(TokenType.COMMA):
-                self.advance()  # consume ','
-                
-                param = self.expect(TokenType.IDENTIFIER, "Expected parameter name").value
-                
-                # Check for type annotation
-                param_type = None
-                if self.check(TokenType.EQUAL_EQUAL):
-                    self.advance()  # consume '=='
-                    # Type name can be identifier or keyword
-                    if self.check(TokenType.IDENTIFIER, TokenType.NONE, TokenType.TRUE, TokenType.FALSE):
-                        type_token = self.advance()
-                        param_type = type_token.value.lower()
-                        
-                        # Validate type
-                        valid_types = {'none', 'number', 'string', 'boolean', 'table'}
-                        if param_type not in valid_types:
-                            self.fatal_error(
-                                f"Invalid type '{param_type}'. Expected: none, number, string, boolean, table",
-                                type_token.line, type_token.column
-                            )
-                    else:
-                        self.syntax_error("Expected type name after '=='", self.peek())
-                
-                # Check duplicate parameter
-                if param in param_names:
-                    self.fatal_error(
-                        f"Duplicate parameter '{param}' in function '{name}'",
-                        self.peek().line, self.peek().column
-                    )
-                param_names.add(param)
-                params.append(param)
-                if param_type:
-                    param_types[param] = param_type
+                self.advance()
+                parse_param()
         
         self.expect(TokenType.RPAREN, "Expected ')' after parameters")
         
-        # Store function info for arity checking
         self.functions[name] = {
             'params': params,
             'param_count': len(params),
@@ -300,7 +262,6 @@ class ParserStatementsMixin:
             'line': token.line
         }
         
-        # Create AST node
         node = ASTNode(ASTNodeType.FUNCTION_DECL, 
                     value=name,
                     line=token.line, 
@@ -308,15 +269,12 @@ class ParserStatementsMixin:
         node.properties['params'] = params
         node.properties['param_types'] = param_types
         
-        # Save context for return checking
         old_function = self.current_function
         self.current_function = name
         
-        # Parse function body
         body = self.parse_block(parent_column=token.column)
         node.children.append(body)
         
-        # Restore context
         self.current_function = old_function
         
         return node

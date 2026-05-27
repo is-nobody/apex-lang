@@ -160,17 +160,17 @@ class ParserExpressionsMixin:
             if self.check(TokenType.DOT):
                 token = self.advance()
                 
-                if self.check(TokenType.IDENTIFIER):
+                # Все что может быть идентификатором после точки
+                if self.check(TokenType.IDENTIFIER, TokenType.NUMBER,
+                            TokenType.NONE, TokenType.TRUE, TokenType.FALSE,
+                            TokenType.IF, TokenType.ELIF, TokenType.ELSE,
+                            TokenType.WHILE, TokenType.FOR, TokenType.IN,
+                            TokenType.RANGE, TokenType.BREAK, TokenType.CONTINUE,
+                            TokenType.RETURN, TokenType.IMPORT, TokenType.TRY,
+                            TokenType.FAILURE, TokenType.ALWAYS,
+                            TokenType.AND, TokenType.OR, TokenType.NOT,
+                            TokenType.FUNCTION):
                     member = self.advance()
-                    node = ASTNode(ASTNodeType.MEMBER_EXPR, 
-                                  value=member.value,
-                                  line=token.line, 
-                                  column=token.column)
-                    node.children.append(expr)
-                    expr = node
-                elif self.check(TokenType.NUMBER):
-                    member = self.advance()
-                    
                     node = ASTNode(ASTNodeType.MEMBER_EXPR, 
                                 value=member.value,
                                 line=token.line, 
