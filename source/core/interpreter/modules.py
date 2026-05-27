@@ -99,7 +99,18 @@ class ModulesMixin:
                 except Exception as e:
                     self.error(f"Error loading module '{module_path}': {e}", node)
             
-            env.define(module_path.split('.')[0], module_env)
+            parts = module_path.split('.')
+            current_env = env
+
+            for part in parts[:-1]:
+                try:
+                    current_env = current_env.get(part)
+                except NameError:
+                    new_env = Environment(self.global_env)
+                    current_env.define(part, new_env)
+                    current_env = new_env
+
+            current_env.define(parts[-1], module_env)
         
         finally:
             self._loading_modules.discard(module_path)
