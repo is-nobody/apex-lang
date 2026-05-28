@@ -13,10 +13,8 @@ class FunctionsMixin:
             'string': self._native_string,
         }
     
-    def _native_number(self, value: Any = None) -> int | float:
+    def _native_number(self, value: Any) -> int | float:
         """Convert value to number"""
-        if value is None:
-            return None
         if isinstance(value, bool):
             return 1 if value else 0
         if isinstance(value, (int, float)):
@@ -27,15 +25,13 @@ class FunctionsMixin:
                     return float(value)
                 return int(value)
             except ValueError:
-                return None
+                raise TypeError(f"Cannot convert string '{value}' to number")
         if isinstance(value, Table):
             return len(value)
         return None
     
-    def _native_string(self, value: Any = None) -> str:
+    def _native_string(self, value: Any) -> str:
         """Convert value to string"""
-        if value is None:
-            return "none"
         if isinstance(value, bool):
             return "true" if value else "false"
         if isinstance(value, (int, float)):
@@ -140,9 +136,7 @@ class FunctionsMixin:
 
     def _check_type(self, value: Any, expected_type: str) -> bool:
         """Check if value matches expected type"""
-        if expected_type == 'none':
-            return value is None
-        elif expected_type == 'number':
+        if expected_type == 'number':
             return isinstance(value, (int, float))
         elif expected_type == 'string':
             return isinstance(value, str)
@@ -155,9 +149,7 @@ class FunctionsMixin:
 
     def _get_type_name(self, value: Any) -> str:
         """Get type name as string for error messages"""
-        if value is None:
-            return 'none'
-        elif isinstance(value, bool):
+        if isinstance(value, bool):
             return 'boolean'
         elif isinstance(value, (int, float)):
             return 'number'

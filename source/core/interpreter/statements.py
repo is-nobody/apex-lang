@@ -179,8 +179,6 @@ class StatementsMixin:
         elif isinstance(error, KeyError):
             return "key_error"
         elif isinstance(error, RuntimeError):
-            if "is not defined" in error_msg.lower():
-                return "name_error"
             return error_msg.lower().replace(" ", "_")
         else:
             snake_case = ''.join(['_' + c.lower() if c.isupper() else c for c in error_type]).lstrip('_')

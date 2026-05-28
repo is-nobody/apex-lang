@@ -38,7 +38,6 @@ class EvaluatorMixin:
             'NUMBER_LITERAL': self.eval_number_literal,
             'STRING_LITERAL': self.eval_string_literal,
             'BOOLEAN_LITERAL': self.eval_boolean_literal,
-            'NONE_LITERAL': self.eval_none_literal,
             'IDENTIFIER': self.eval_identifier,
             'TABLE_LITERAL': self.eval_table_literal,
             'TABLE_ENTRY': self.eval_table_entry,

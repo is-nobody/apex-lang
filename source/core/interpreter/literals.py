@@ -15,9 +15,6 @@ class LiteralsMixin:
     
     def eval_boolean_literal(self, node: dict, env) -> bool:
         return node.get('value', False)
-    
-    def eval_none_literal(self, node: dict, env) -> None:
-        return None
         
     def eval_identifier(self, node: dict, env) -> Any:
         name = node.get('value', '')

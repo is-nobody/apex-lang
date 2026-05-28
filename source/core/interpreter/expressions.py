@@ -108,11 +108,14 @@ class ExpressionsMixin:
         
         if isinstance(obj, Table):
             try:
-                index = int(member)
-                return obj.get(index)
-            except ValueError:
-                pass
-            return obj.get(member)
+                try:
+                    index = int(member)
+                    return obj.get(index)
+                except ValueError:
+                    pass
+                return obj.get(member)
+            except KeyError as e:
+                self.error(str(e), node)
         
         if isinstance(obj, str):
             if member == 'length':

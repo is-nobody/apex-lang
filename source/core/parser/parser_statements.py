@@ -232,8 +232,8 @@ class ParserStatementsMixin:
             param_type = None
             if self.check(TokenType.EQUAL_EQUAL):
                 self.advance()
-                valid_types = {'none', 'number', 'string', 'boolean', 'table'}
-                if self.check(TokenType.IDENTIFIER, TokenType.NONE, TokenType.TRUE, TokenType.FALSE):
+                valid_types = {'number', 'string', 'boolean', 'table'}
+                if self.check(TokenType.IDENTIFIER, TokenType.TRUE, TokenType.FALSE):
                     type_token = self.advance()
                     param_type = type_token.value.lower()
                     if param_type not in valid_types:

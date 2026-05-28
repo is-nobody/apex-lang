@@ -86,11 +86,6 @@ import conditionals.comparisons.boolean.boolean_equal_false
 import conditionals.comparisons.boolean.boolean_not_equal_false
 import conditionals.comparisons.boolean.boolean_not_equal_true
 
-import conditionals.comparisons.none.none_equal_true
-import conditionals.comparisons.none.none_equal_false
-import conditionals.comparisons.none.none_not_equal_false
-import conditionals.comparisons.none.none_not_equal_true
-
 // LOGICAL IMPORTS
 import conditionals.logical.and.and_true_true
 import conditionals.logical.and.and_true_false
@@ -195,12 +190,6 @@ conditionals.comparisons.boolean.boolean_equal_true.boolean_equal_true()
 conditionals.comparisons.boolean.boolean_equal_false.boolean_equal_false()
 conditionals.comparisons.boolean.boolean_not_equal_false.boolean_not_equal_false()
 conditionals.comparisons.boolean.boolean_not_equal_true.boolean_not_equal_true()
-
-// COMPARISONS NONE RUN
-conditionals.comparisons.none.none_equal_true.none_equal_true()
-conditionals.comparisons.none.none_equal_false.none_equal_false()
-conditionals.comparisons.none.none_not_equal_false.none_not_equal_false()
-conditionals.comparisons.none.none_not_equal_true.none_not_equal_true()
 
 // LOGICAL AND RUN
 conditionals.logical.and.and_true_true.and_true_true()

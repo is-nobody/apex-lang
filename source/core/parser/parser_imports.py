@@ -15,7 +15,7 @@ class ParserImportsMixin:
                     TokenType.RETURN, TokenType.IMPORT, TokenType.TRY, 
                     TokenType.FAILURE, TokenType.ALWAYS,
                     TokenType.AND, TokenType.OR, TokenType.NOT, 
-                    TokenType.NONE, TokenType.TRUE, TokenType.FALSE,
+                    TokenType.TRUE, TokenType.FALSE,
                     TokenType.FUNCTION):
             module_parts.append(self.advance().value)
         else:
@@ -30,7 +30,7 @@ class ParserImportsMixin:
                         TokenType.RETURN, TokenType.IMPORT, TokenType.TRY,
                         TokenType.FAILURE, TokenType.ALWAYS,
                         TokenType.AND, TokenType.OR, TokenType.NOT,
-                        TokenType.NONE, TokenType.TRUE, TokenType.FALSE,
+                        TokenType.TRUE, TokenType.FALSE,
                         TokenType.FUNCTION):
                 module_parts.append(self.advance().value)
             else:

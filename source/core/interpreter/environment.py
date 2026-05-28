@@ -18,8 +18,6 @@ class Environment:
         self.parent = parent
 
     def _get_type_category(self, value: Any) -> str:
-        if value is None:
-            return "none"
         if isinstance(value, bool):
             return "boolean"
         if isinstance(value, (int, float)):
@@ -38,7 +36,6 @@ class Environment:
 
     def _category_display_name(self, category: str) -> str:
         names = {
-            "none": "none",
             "boolean": "boolean",
             "number": "number",
             "string": "string",

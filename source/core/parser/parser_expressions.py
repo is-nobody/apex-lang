@@ -162,7 +162,7 @@ class ParserExpressionsMixin:
                 
                 # Все что может быть идентификатором после точки
                 if self.check(TokenType.IDENTIFIER, TokenType.NUMBER,
-                            TokenType.NONE, TokenType.TRUE, TokenType.FALSE,
+                            TokenType.TRUE, TokenType.FALSE,
                             TokenType.IF, TokenType.ELIF, TokenType.ELSE,
                             TokenType.WHILE, TokenType.FOR, TokenType.IN,
                             TokenType.RANGE, TokenType.BREAK, TokenType.CONTINUE,
@@ -240,12 +240,6 @@ class ParserExpressionsMixin:
             self.advance()
             return ASTNode(ASTNodeType.BOOLEAN_LITERAL, 
                         value=False,
-                        line=token.line, 
-                        column=token.column)
-        
-        if token.type == TokenType.NONE:
-            self.advance()
-            return ASTNode(ASTNodeType.NONE_LITERAL, 
                         line=token.line, 
                         column=token.column)
             
@@ -383,8 +377,6 @@ class ParserExpressionsMixin:
             return 'number'
         elif node.type == ASTNodeType.BOOLEAN_LITERAL:
             return 'boolean'
-        elif node.type == ASTNodeType.NONE_LITERAL:
-            return 'none'
         elif node.type == ASTNodeType.IDENTIFIER:
             return 'unknown'
         elif node.type == ASTNodeType.BINARY_EXPR:

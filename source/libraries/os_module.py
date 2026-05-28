@@ -48,9 +48,7 @@ class OS(BuiltinModule):
     
     @staticmethod
     def output(value=None):
-        if value is None:
-            print("none")
-        elif isinstance(value, bool):
+        if isinstance(value, bool):
             print("true" if value else "false")
         else:
             print(value)

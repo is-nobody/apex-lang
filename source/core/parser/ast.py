@@ -28,7 +28,6 @@ class ASTNodeType(Enum):
     NUMBER_LITERAL = auto()
     STRING_LITERAL = auto()
     BOOLEAN_LITERAL = auto()
-    NONE_LITERAL = auto()
     IDENTIFIER = auto()
     TABLE_LITERAL = auto()
     TABLE_ENTRY = auto()

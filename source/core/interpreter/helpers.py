@@ -3,14 +3,12 @@ from typing import Any, TYPE_CHECKING
 from source.core.interpreter.tables import Table
 from source.libraries.builtin_module import BuiltinModule
 from source.core.interpreter.environment import Environment
+import re
 
-# Для избежания циклического импорта
 if TYPE_CHECKING:
     from source.core.interpreter_main import Interpreter
 
 def is_truthy(value: Any) -> bool:
-    if value is None:
-        return False
     if isinstance(value, bool):
         return value
     if isinstance(value, (int, float)):
@@ -22,13 +20,6 @@ def is_truthy(value: Any) -> bool:
     return True
 
 def evaluate_interpolation_expr(expr: str, env: Environment, interpreter: 'Interpreter') -> Any:
-    """
-    Evaluate arithmetic expressions in interpolation.
-    Supports nested {} expressions.
-    Supports: +, -, *, /, %, parentheses, and variable/field access.
-    """
-    import re
-    
     expr = expr.strip()
     
     # First, evaluate nested {} expressions recursively
@@ -52,7 +43,7 @@ def evaluate_interpolation_expr(expr: str, env: Environment, interpreter: 'Inter
                 if brace_count == 0:
                     nested = expression[i+1:j-1]
                     nested_value = evaluate_interpolation_expr(nested, env, interpreter)
-                    result_parts.append(str(nested_value) if nested_value is not None else 'none')
+                    result_parts.append(str(nested_value))
                     i = j
                     continue
             
@@ -85,27 +76,26 @@ def evaluate_interpolation_expr(expr: str, env: Environment, interpreter: 'Inter
                     try:
                         value = value.get(part)
                     except NameError:
-                        value = None
-                        break
+                        raise NameError(f"Variable '{part}' not found in module")
                 elif isinstance(value, Table):
                     try:
                         idx = int(part)
                         value = value.get(idx)
                     except ValueError:
                         value = value.get(part)
+                    except KeyError:
+                        raise KeyError(f"Table key '{part}' does not exist")
                 elif isinstance(value, BuiltinModule):
                     try:
                         value = value.get(part)
                     except AttributeError:
-                        value = None
-                        break
+                        raise AttributeError(f"Module has no attribute '{part}'")
                 else:
-                    value = None
-                    break
+                    raise TypeError(f"Cannot access property '{part}' on {type(value).__name__}")
             
             variables[placeholder] = value
-        except NameError:
-            variables[placeholder] = None
+        except Exception as e:
+            interpreter.error(f"Error accessing variable '{var_path}': {e}", {"line": interpreter.current_line})
         
         var_counter += 1
         return placeholder
@@ -116,9 +106,7 @@ def evaluate_interpolation_expr(expr: str, env: Environment, interpreter: 'Inter
     # Now evaluate the arithmetic expression with placeholders
     eval_expr = processed_expr
     for placeholder, value in variables.items():
-        if value is None:
-            eval_expr = eval_expr.replace(placeholder, 'None')
-        elif isinstance(value, str):
+        if isinstance(value, str):
             escaped = value.replace('\\', '\\\\').replace('"', '\\"')
             eval_expr = eval_expr.replace(placeholder, f'"{escaped}"')
         elif isinstance(value, bool):
@@ -186,9 +174,6 @@ def is_valid_interpolation(expr: str) -> bool:
     for nested in nested_exprs:
         if not is_valid_interpolation(nested):
             return False
-    
-    # Allowed tokens in arithmetic expressions (without braces now)
-    import re
     
     # Pattern for valid arithmetic expression with variable/field access
     var_pattern = r'[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)*'
@@ -281,7 +266,7 @@ def interpolate_string(s: str, env: Environment, interpreter: 'Interpreter') -> 
                 # evaluate the expression
                 try:
                     value = evaluate_interpolation_expr(expr, env, interpreter)
-                    result += str(value) if value is not None else 'none'
+                    result += str(value)
                 except Exception as e:
                     result += '{' + expr + '}'
                 
