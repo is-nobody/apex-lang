@@ -46,6 +46,6 @@ pyinstaller build.spec
 This will create a binary file for your current platform.
 
 ## Documentation
-Each of the documentations explains variables, data types, operators, control flow, functions, imports, built-in libraries (`os`, `math`, `string`, `network`).
+Each of the documentations explains variables, data types, operators, control flow, functions, imports, built-in libraries (`os`, `math`, `string`, `table`).
 - **[Apex Reference Manual for Beginners](resources/RM_fBeginners.md)**  — excellent for beginners in programming, a detailed explanation of each topic.
 - **[Apex Reference Manual for Developers](resources/RM_fDevelopers.md)** — excellent for developers, minimal and clear coverage of each topic.
