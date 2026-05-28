@@ -106,15 +106,15 @@ Every variable has a name and a value. Every variable belongs to a specific data
 
 | Type | Description | Example |
 |------|-------------|---------|
-| `None` | Nothing, no value | `x = none` |
-| `Number` | Numbers (Wholes and decimals) | `x = 10`, `x = 3.14` |
-| `String` | Text, sequence of characters | `x = "hello"` |
-| `Boolean` | True or false | `x = true`, `x = false` |
-| `Table` | Universal container | `x = (1, 2, 3)`, `x = (name = "John")` |
+| `none` | Nothing, no value | `x = none` |
+| `number` | Numbers (Wholes and decimals) | `x = 10`, `x = 3.14` |
+| `string` | Text, sequence of characters | `x = "hello"` |
+| `boolean` | True or false | `x = true`, `x = false` |
+| `table` | Universal container | `x = (1, 2, 3)`, `x = (name = "John")` |
 
 The type of a variable cannot change. If a variable was created as a `string`, it can never become a `number`.
 
-For `none`, `true`, and `false`, case doesn't matter — just write them!
+For `none`, `true`, and `false` use lowercase.
 
 `//` means a comment, it has absolutely no effect for source code and will be used only for notes inside the code.
 

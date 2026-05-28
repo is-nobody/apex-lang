@@ -199,10 +199,7 @@ class Tokenizer:
             
             if char.isalpha() or char == '_':
                 identifier = self.read_identifier()
-                keyword_type = KEYWORDS.get(
-                    identifier.lower() if identifier.lower() in ('none', 'true', 'false') 
-                    else identifier
-                )
+                keyword_type = KEYWORDS.get(identifier)
                 if keyword_type:
                     self.add_token(keyword_type, identifier, line, col)
                 else:
