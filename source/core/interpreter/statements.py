@@ -107,8 +107,15 @@ class StatementsMixin:
         else:
             self.error("Can only iterate over tables or lists", node)
         
-        for item in items:
-            env.define(var_name, item)
+        for idx, item in enumerate(items):
+            if idx == 0:
+                try:
+                    env.assign(var_name, item)
+                except NameError:
+                    env.define(var_name, item)
+            else:
+                env.assign(var_name, item)
+            
             try:
                 result = self.evaluate(node['children'][1], env)
             except Break:

@@ -112,6 +112,8 @@ Every variable has a name and a value. Every variable belongs to a specific data
 | `Boolean` | True or false | `x = true`, `x = false` |
 | `Table` | Universal container | `x = (1, 2, 3)`, `x = (name = "John")` |
 
+The type of a variable cannot change. If a variable was created as a `string`, it can never become a `number`.
+
 For `none`, `true`, and `false`, case doesn't matter — just write them!
 
 `//` means a comment, it has absolutely no effect for source code and will be used only for notes inside the code.

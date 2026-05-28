@@ -97,6 +97,8 @@ Apex determines the type automatically. Main data types in language:
 | `Boolean` | True or false | `x = true`, `x = false` |
 | `Table` | Universal container | `x = (1, 2, 3)`, `x = (name = "John")` |
 
+The type of a variable cannot change. If a variable was created as a `string`, it can never become a `number`.
+
 For `none`, `true`, and `false`, case doesn't matter.
 
 `//` means a comment.
