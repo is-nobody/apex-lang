@@ -7,12 +7,11 @@ This manual is minimalistic. Each section builds on the previous ones. For the b
 - [Setting up workspace](#setting-up-workspace)
 
 ### 1. Variables & Data Types
-- [1.1 None](#11-none)
-- [1.2 Numbers](#12-numbers)
-- [1.3 Booleans](#13-booleans)
-- [1.4 Strings](#14-strings)
-- [1.5 Tables](#15-tables)
-- [1.6 Type Conversion](#16-table-conversion)
+- [1.1 Numbers](#11-numbers)
+- [1.2 Booleans](#12-booleans)
+- [1.3 Strings](#13-strings)
+- [1.4 Tables](#14-tables)
+- [1.5 Type Conversion](#15-table-conversion)
 
 ### 2. Operators
 - [2.1 Arithmetic Operators](#21-arithmetic-operators)
@@ -55,7 +54,7 @@ This manual is minimalistic. Each section builds on the previous ones. For the b
 - [9.1 OS Library (os)](#91-os-library-os)
 - [9.2 Math Library (math)](#92-math-library-math)
 - [9.3 String Library (string)](#93-string-library-string)
-- [9.4 Network Library (network)](#94-network-library-network)
+- [9.4 Table Library (table)](#94-table-library-table)
 
 ### Conclusion
 - [What's Next?](#whats-next)
@@ -91,7 +90,6 @@ Apex determines the type automatically. Main data types in language:
 
 | Type | Description | Example |
 |------|-------------|---------|
-| `none` | Nothing, no value | `x = none` |
 | `number` | Numbers (Wholes and decimals) | `x = 10`, `x = 3.14` |
 | `string` | Text, sequence of characters | `x = "hello"` |
 | `boolean` | True or false | `x = true`, `x = false` |
@@ -99,20 +97,11 @@ Apex determines the type automatically. Main data types in language:
 
 The type of a variable cannot change. If a variable was created as a `string`, it can never become a `number`.
 
-For `none`, `true`, and `false` use lowercase.
+For `true` and `false` use lowercase.
 
 `//` means a comment.
 
-## 1.1 None
-None represents nothing — no value, empty, undefined.
-
-```apex
-x = none        // x exists but has no value
-y = 10          // y had a value
-y = none        // now y empty
-```
-
-## 1.2 Numbers
+## 1.1 Numbers
 In Apex, you don't need to worry about whether a number is a whole number or a decimal. Apex figures out the rest. There is no limit to numbers.
 
 ### Whole Numbers
@@ -140,7 +129,7 @@ y = 3.5
 sum = x + y
 ```
 
-## 1.3 Booleans
+## 1.2 Booleans
 Booleans represent one of two possible values: `true` or `false`. You can create booleans in two ways: directly or through comparisons.
 
 Direct assignment:
@@ -160,7 +149,7 @@ is_adult = age > 18        // true — because 25 is greater than 18
 
 Whenever you use comparison operators (`==`, `!=`, `<`, `>`, `<=`, `>=`), the result is always a boolean. Booleans also come from logical operations that combine values.
 
-## 1.4 Strings
+## 1.3 Strings
 A string can be one character long, a thousand characters long, or even empty.
 
 ### Creating Strings
@@ -199,7 +188,7 @@ count = 5
 os.output("Total: {count * 2}")
 ```
 
-## 1.5 Tables
+## 1.4 Tables
 A table is Apex's universal container. Tables are flexible — they work as ordered lists and key-value pairs. You can even mix both styles in the same table.
 
 ### Creating Tables
@@ -255,7 +244,7 @@ user.active = true
 // (name = "Alice", age = 30, city = "Dubai", active = true)
 ```
 
-Updating a value works the same way — just assign a new value to an existing key or position. If you access a non-existent key, you will get none. If you want to remove an item from a table, you need to assign it the value `none`. If you need the `0` item, you will get a `none` value.
+Updating a value works the same way — just assign a new value to an existing key or position. If you access a non-existent key, you will get an error. If you need the `0` item, you will get an error. To remove an item from a table, use the `table.remove()` function from the table library *(see section 9.4)*.
 
 ### Mixed Tables
 Tables can combine ordered items and key-value pairs in the same table. Ordered items come first, then key-value pairs:
@@ -288,30 +277,23 @@ first_employee = company.employees.1
 city = company.address.city
 ```
 
-## 1.6 Type Conversion
+## 1.5 Type Conversion
 Apex provides two built-in functions for explicit type conversion:
 
-| Function | Converts to | Failure behavior |
-|----------|-------------|------------------|
-| `number(x)` | number | Returns `none` on invalid input |
-| `string(x)` | string | Never fails |
+| Function | What it does | Example |
+|----------|--------------|---------|
+| `number(x)` | Converts to number | `number("42")` → `42` |
+| `string(x)` | Converts to string | `string(42)` → `"42"` |
 
-### number(x)
-Converts a value to number.
-
-| Input | Output |
-|-------|--------|
-| `"42"`, `"3.14"` | Parsed number |
-| `true` / `false` | `1` / `0` |
-| `none` | `none` |
-| Invalid string | `none` |
+### number()
+Converts a value to number. You will get an error if conversion fails.
 
 ```apex
 number("42")       // 42
 number("3.14")     // 3.14
-number(true)       // 1
-number("hello")    // none
-number(none)       // none
+number(true)       // error (conversion fails)
+number(false)      // error (conversion fails)
+number("hello")    // error (conversion fails)
 ```
 
 ### string(x)
@@ -322,12 +304,11 @@ Converts any value to its string representation.
 | `42` | `"42"` |
 | `3.14` | `"3.14"` |
 | `true` / `false` | `"true"` / `"false"` |
-| `none` | `"none"` |
 
 ```apex
 string(42)      // "42"
+string(3.14)    // "3.14"
 string(true)    // "true"
-string(none)    // "none"
 ```
 
 # 2. Operators
@@ -398,15 +379,13 @@ If statements are how you tell Apex to make decisions.
 | `elif` | Previous conditions were `false` AND this condition is `true` |
 | `else` | All previous conditions were `false` |
 
-Apex does not treat `none` as `false`. Always compare with `== none` or `!= none`.
-
 ## 3.1 If Statement
 If user doesn't exist, then display output about him. But if we have user, we does nothing and moves on.
 
 ```apex
 import os
-user = none
-if user == none
+user = false
+if user == false
     os.output("No user found")
 ```
 
@@ -675,7 +654,8 @@ result = add(5, 3)
 os.output(result)    // Prints: 8
 ```
 
-Functions without `return` return `none` automatically. Once `return` happens, the function exits. Nothing after it runs.
+Functions without `return` return `false` automatically. Once `return` happens, the function exits. Nothing after it runs.
+
 ### 7.4 Call
 Using a function is called calling it. You write the function name followed by parentheses.
 ```apex
@@ -782,20 +762,17 @@ When you import a file, you get everything from it:
 - All variables
 
 # 9. Built-in Libraries
-What is this?
-
 ## 9.1 OS Library (os)
 The OS library lets you interact with the operating system. You can print text, read files, create folders, and more. Import it with `import os`.
 
 ### os.output(value)
-Prints a value to the terminal. If no value is given, it prints `none`.
+Prints a value to the terminal.
 
 ```apex
 import os
 os.output("Hello, Friend")     // Hello, Friend
 os.output(42)                  // 42
 os.output(true)                // true
-os.output()                    // none
 ```
 
 ### os.input(prompt)
@@ -807,18 +784,18 @@ name = os.input("What is your name? ")
 os.output("Hello, {name}")
 ```
 
-If the user types `Alice`, the output is `Hello, Alice`. The value from `os.input()` is always a string — even if the user types numbers. Use `number()` to convert it if you need to do math.
+If the user types `Alice`, the output is `Hello, Alice`. The value from `os.input()` is always a string — even if the user types numbers. Use `number()` to convert it if you need to do math. If the user enters something that isn't a number, `number()` will throw an error — use `try-failure` to handle this gracefully.
 
 ### os.read(filename)
-Reads the entire contents of a file and returns it as a string. Returns `none` if the file doesn't exist or can't be read.
+Reads the entire contents of a file and returns it as a string. Throws an error if the file doesn't exist or can't be read.
 
 ```apex
 import os
-content = os.read("story.txt")
-if content == none
+
+try
+    content = os.read("story.txt")
+failure
     os.output("Could not read the file")
-else
-    os.output(content)
 ```
 
 ### os.write(filename, content)
@@ -943,14 +920,16 @@ Returns a table with information about a file or folder. The table contains thes
 - `ctime` — creation time (timestamp)
 - `isdir` — `true` if it's a folder, `false` if it's a file
 
-Returns `none` if the path doesn't exist.
+Throws an error if the path doesn't exist.
 
 ```apex
 import os
-info = os.stat("data.txt")
-if info != none
+
+try
+    info = os.stat("data.txt")
     os.output("Size: {info.size} bytes")
-    os.output("Is folder: {info.isdir}")
+failure
+    os.output("File does not exist")
 ```
 
 ### os.exit(code)
@@ -1049,13 +1028,13 @@ math.round(3.14159, 3)  // 3.142
 ```
 
 ### math.sqrt(x)
-Returns the square root of a number. Returns `none` for negative numbers — you can't take the square root of a negative in real numbers.
+Returns the square root of a number. Throws an error for negative numbers — you can't take the square root of a negative in real numbers.
 
 ```apex
 import math
 math.sqrt(25)      // 5
 math.sqrt(2)       // 1.4142135623730951
-math.sqrt(-1)      // none
+math.sqrt(-1)      // error
 ```
 
 ### math.exp(x)
@@ -1069,15 +1048,15 @@ math.exp(2)        // 7.38905609893065
 ```
 
 ### math.log(x, base)
-Returns the logarithm of `x`. Without a base, uses the natural logarithm (base `e`). With a base, calculates the logarithm with that base. Returns `none` if `x` is zero or negative — logarithms aren't defined for those values.
+Returns the logarithm of `x`. Without a base, uses the natural logarithm (base `e`). With a base, calculates the logarithm with that base. Throws an error if `x` is zero or negative — logarithms aren't defined for those values.
 
 ```apex
 import math
 math.log(2.71828)       // ~1 (natural log of e)
 math.log(100, 10)       // 2 (10² = 100)
 math.log(8, 2)          // 3 (2³ = 8)
-math.log(0)             // none
-math.log(-5)            // none
+math.log(0)        // error
+math.log(-5)       // error
 ```
 
 ### Trigonometry
@@ -1120,23 +1099,23 @@ math.tan(math.asin(1)/4) // ~1 (tangent of π/4 is 1)
 ```
 
 ### math.asin(x)
-Returns the arcsine of `x` in radians — the angle whose sine is `x`. Input must be between -1 and 1. Returns `none` if outside that range.
+Returns the arcsine of `x` in radians — the angle whose sine is `x`. Input must be between -1 and 1. Throws an error if outside that range.
 
 ```apex
 import math
 math.asin(0)             // 0
 math.asin(1)             // 1.5707963267948966 (π/2)
-math.asin(2)             // none
+math.asin(2)             // error
 ```
 
 ### math.acos(x)
-Returns the arccosine of `x` in radians — the angle whose cosine is `x`. Input must be between -1 and 1. Returns `none` if outside that range.
+Returns the arccosine of `x` in radians — the angle whose cosine is `x`. Input must be between -1 and 1. Throws an error if outside that range.
 
 ```apex
 import math
 math.acos(1)             // 0
 math.acos(0)             // 1.5707963267948966 (π/2)
-math.acos(2)             // none
+math.acos(2)             // error
 ```
 
 ### math.atan(x)
@@ -1294,242 +1273,101 @@ string.replace("hello", "x", "y")                 // "hello" (nothing changed)
 string.replace("remove-this", "-this", "")        // "remove"
 ```
 
-## 9.4 Network Library (network)
-The Network library lets your program communicate over the internet. You can make HTTP requests, work with URLs, create TCP connections, and more. Import it with `import network`.
+## 9.4 Table Library (table)
+The Table library provides functions for working with tables. Import it with `import table`.
 
-### network.url_encode(s)
-Converts a string into a URL-safe format by replacing special characters with percent-encoded versions. Use this when building URLs with user input that might contain spaces or symbols.
+### table.remove(t, key)
+Removes an item from a table by key or index.
 
 ```apex
-import network
-network.url_encode("hello world")        // "hello%20world"
-network.url_encode("name=Alice&age=30")  // "name%3DAlice%26age%3D30"
+import table
+user = (name = "Alice", age = 30, active = true)
+table.remove(user, "age")
+// user is now (name = "Alice", active = true)
+
+colors = ("red", "green", "blue")
+table.remove(colors, 2)
+// colors is now ("red", "blue")
 ```
 
-### network.url_decode(s)
-Does the opposite of `url_encode` — converts percent-encoded characters back to their original form.
+If the key or index doesn't exist, an error is thrown.
+
+### table.has(t, key)
+Returns `true` if the table has the specified key or index.
 
 ```apex
-import network
-network.url_decode("hello%20world")       // "hello world"
-network.url_decode("name%3DAlice%26age%3D30")  // "name=Alice&age=30"
+import table
+user = (name = "Alice", age = 30)
+table.has(user, "name")   // true
+table.has(user, "city")   // false
+table.has(user, 1)        // true (ordered item at position 1)
 ```
 
-### network.parse_url(url)
-Breaks a URL into its components and returns them as a table. The table contains these keys:
-
-- `scheme` — the protocol (`http`, `https`, etc.)
-- `host` — the domain name or IP address
-- `port` — the port number (if specified in the URL)
-- `path` — the path after the domain
-- `query` — everything after `?` in the URL
-- `fragment` — everything after `#` in the URL
-
-Returns `none` if the URL can't be parsed.
+### table.size(t)
+Returns the number of items in the table.
 
 ```apex
-import network
-url = "https://example.com:8080/search?q=apex&lang=en#results"
-parsed = network.parse_url(url)
+import table
+user = (name = "Alice", age = 30)
+table.size(user)          // 2
 
-if parsed != none
-    os.output("Scheme: {parsed.scheme}")      // "https"
-    os.output("Host: {parsed.host}")          // "example.com"
-    os.output("Port: {parsed.port}")          // 8080
-    os.output("Path: {parsed.path}")          // "/search"
-    os.output("Query: {parsed.query}")        // "q=apex&lang=en"
-    os.output("Fragment: {parsed.fragment}")  // "results"
+colors = ("red", "green", "blue")
+table.size(colors)        // 3
+
+empty = ()
+table.size(empty)         // 0
 ```
 
-### network.http_get(url, headers)
-Sends an HTTP GET request to a URL and returns the response body as a string. The `headers` parameter is optional — you can pass a table of header key-value pairs.
+### table.keys(t)
+Returns a table of all keys in the table as strings. For ordered items without keys, their positions are converted to strings.
 
 ```apex
-import network
-import os
+import table
+user = (name = "Alice", age = 30, active = true)
+keys = table.keys(user)   // ("name", "age", "active")
 
-// Simple request
-response = network.http_get("https://api.example.com/data")
-os.output(response)
-
-// Request with headers
-headers = (
-    Authorization = "Bearer token123",
-    Accept = "application/json"
-)
-response = network.http_get("https://api.example.com/protected", headers)
-os.output(response)
+colors = ("red", "green", "blue")
+keys = table.keys(colors) // ("1", "2", "3")
 ```
 
-If the request fails, the function returns an error message string starting with `HTTP Error:`, `URL Error:`, or `Error:` instead of crashing your program.
-
-### network.http_post(url, body, headers)
-Sends an HTTP POST request with a body. The `body` can be a string, a table (which gets converted to JSON), or `none`. The `headers` parameter is optional.
+### table.values(t)
+Returns a table of all values in the table in order.
 
 ```apex
-import network
-import os
+import table
+user = (name = "Alice", age = 30, active = true)
+values = table.values(user)   // ("Alice", 30, true)
 
-// POST with string body
-response = network.http_post(
-    "https://api.example.com/submit",
-    "name=Alice&age=30"
-)
-
-// POST with JSON body (pass a table)
-data = (name = "Alice", age = 30, active = true)
-response = network.http_post(
-    "https://api.example.com/users",
-    data,
-    (Authorization = "Bearer token123")
-)
-os.output(response)
+colors = ("red", "green", "blue")
+values = table.values(colors) // ("red", "green", "blue")
 ```
 
-### network.http_set_timeout(seconds)
-Sets how long HTTP requests wait before giving up. The default is 30 seconds. This affects all future HTTP requests.
+### table.clear(t)
+Removes all items from the table.
 
 ```apex
-import network
-network.http_set_timeout(10)    // Wait at most 10 seconds
-response = network.http_get("https://slow-server.example.com")
+import table
+user = (name = "Alice", age = 30)
+table.clear(user)         // user is now ()
 ```
 
-### network.tcp_connect(host, port)
-Creates a TCP connection to a server. Returns a table with connection info, or `none` if the connection fails. The returned table has these keys:
-
-- `id` — a unique number identifying this socket (you'll need it for other socket functions)
-- `connected` — `true` if connected successfully
-- `host` — the host you connected to
-- `port` — the port you connected to
+### table.copy(t)
+Returns a shallow copy of the table. Changes to the copy don't affect the original.
 
 ```apex
-import network
-import os
-
-socket = network.tcp_connect("example.com", 80)
-if socket != none
-    os.output("Connected! Socket ID: {socket.id}")
-else
-    os.output("Connection failed")
+import table
+original = (name = "Alice", age = 30)
+duplicate = table.copy(original)
+duplicate.name = "Bob"
+// original.name is still "Alice"
 ```
 
-### network.socket_send(socket_id, data)
-Sends data through a connected socket. Returns `true` on success, `false` on failure.
+### table.merge(t1, t2)
+Merges two tables into a new table. If keys conflict, values from the second table overwrite the first.
 
 ```apex
-import network
-socket = network.tcp_connect("example.com", 80)
-if socket != none
-    network.socket_send(socket.id, "Hello, server!")
-```
-
-### network.socket_receive(socket_id, bytes_count)
-Receives data from a socket. The `bytes_count` parameter is optional — if not given, reads up to 4096 bytes. Returns the received data as a string, or `none` if nothing was received or an error occurred.
-
-```apex
-import network
-socket = network.tcp_connect("example.com", 80)
-if socket != none
-    network.socket_send(socket.id, "GET / HTTP/1.0\r\n\r\n")
-    response = network.socket_receive(socket.id)
-    os.output(response)
-```
-
-### network.socket_close(socket_id)
-Closes a socket connection. If no ID is given, closes all open sockets.
-
-```apex
-import network
-socket = network.tcp_connect("example.com", 80)
-// ... do something with the socket ...
-network.socket_close(socket.id)      // Close specific socket
-network.socket_close()               // Close all sockets
-```
-
-### network.socket_set_timeout(seconds)
-Sets the timeout for all socket operations. If a socket doesn't respond within this time, it gives up instead of waiting forever.
-
-```apex
-import network
-network.socket_set_timeout(5)    // 5-second timeout for socket operations
-```
-
-### network.tcp_listen(port, backlog)
-Creates a TCP server that listens for incoming connections on the given port. The `backlog` parameter is optional (default is 5) — it's the maximum number of waiting connections. Returns a table with server info, or `none` on failure.
-
-The returned table contains:
-- `id` — a unique number identifying this server (you'll need it for `server_accept`)
-- `port` — the port the server is listening on
-- `listening` — `true` if the server started successfully
-
-```apex
-import network
-import os
-
-server = network.tcp_listen(8080)
-if server != none
-    os.output("Server listening on port {server.port}")
-else
-    os.output("Failed to start server")
-```
-
-### network.server_accept(server_id)
-Waits for a client to connect to your server. When someone connects, returns a table with info about the new connection. Returns `none` if no one connected within the timeout period.
-
-The returned table contains:
-- `id` — a socket ID for communicating with this client
-- `address` — the client's address as a string like `"192.168.1.5:54321"`
-- `host` — the client's IP address
-- `port` — the client's port
-
-```apex
-import network
-import os
-
-server = network.tcp_listen(8080)
-if server != none
-    os.output("Waiting for connection...")
-    client = network.server_accept(server.id)
-    if client != none
-        os.output("Client connected from {client.address}")
-        
-        // Receive data from client
-        data = network.socket_receive(client.id)
-        os.output("Received: {data}")
-        
-        // Send response
-        network.socket_send(client.id, "Message received!")
-        
-        network.socket_close(client.id)
-    
-    network.server_close(server.id)
-```
-
-### network.server_close(server_id)
-Stops a server and closes it. If no ID is given, closes all servers.
-
-```apex
-network.server_close(123)    // Close specific server
-network.server_close()       // Close all servers
-```
-
-### network.dns_lookup(hostname)
-Converts a domain name (like `"google.com"`) into an IP address (like `"142.250.185.46"`). Returns `none` if the hostname can't be resolved.
-
-```apex
-import network
-ip = network.dns_lookup("github.com")
-os.output("GitHub IP: {ip}")    // Something like "140.82.121.3"
-```
-
-### network.ip_is_valid(ip)
-Checks whether a string is a valid IPv4 or IPv6 address. Returns `true` if valid, `false` if not.
-
-```apex
-import network
-network.ip_is_valid("192.168.1.1")                              // true
-network.ip_is_valid("256.1.1.1")                                // false (256 is out of range)
-network.ip_is_valid("2001:0db8:85a3:0000:0000:8a2e:0370:7334")  // true
-network.ip_is_valid("not an ip")                                // false
+import table
+t1 = (name = "Alice", age = 30)
+t2 = (city = "Dubai", age = 31)
+merged = table.merge(t1, t2)  // (name = "Alice", age = 31, city = "Dubai")
 ```
