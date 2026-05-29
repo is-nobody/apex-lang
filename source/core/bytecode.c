@@ -42,6 +42,7 @@ static const char* opcode_names[] = {
     [OP_TABLE_GET]        = "TABLE_GET",
     [OP_TABLE_APPEND]     = "TABLE_APPEND",
     [OP_CONCAT]           = "CONCAT",
+    [OP_STRING_APPEND]    = "STRING_APPEND",
     [OP_STRING_INTERP]    = "STRING_INTERP",
     [OP_FOR_PREP]         = "FOR_PREP",
     [OP_POP_ITER]         = "POP_ITER",

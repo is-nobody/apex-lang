@@ -68,6 +68,7 @@ typedef enum {
     
     // === String Operations ===
     OP_CONCAT,           // Rdest = Rleft + Rright (string concatenation)
+    OP_STRING_APPEND,    // Rdest += Rsrc (in-place string append)
     OP_STRING_INTERP,    // Rdest = interpolate template with values
     
     // === Loop Optimizations ===

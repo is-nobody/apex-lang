@@ -616,13 +616,18 @@ static void codegen_assign(CodeGenerator* cg, ASTNode* node) {
             ASTNode* left = node->var_assign.value->binary.left;
             ASTNode* right = node->var_assign.value->binary.right;
             
+            // Pattern: x = x + "literal"
             if (left->type == AST_IDENTIFIER &&
                 strcmp(left->identifier.name, node->var_assign.name) == 0 &&
-                right->type == AST_LITERAL_NUMBER) {
+                right->type == AST_LITERAL_STRING) {
                 
-                int const_idx = bytecode_add_number_constant(cg->chunk, right->literal_number.number_value);
-                emit(cg, INST(OP_ADD_IMM, local_reg, local_reg, const_idx), node->line);
-                return;
+                int local_reg = find_local(cg, node->var_assign.name);
+                if (local_reg >= 0) {
+                    int right_reg = codegen_literal_string(cg, right);
+                    emit(cg, INST(OP_STRING_APPEND, local_reg, right_reg, 0), node->line);
+                    free_register(cg, right_reg);
+                    return;
+                }
             }
         }
 

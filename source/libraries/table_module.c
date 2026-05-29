@@ -14,7 +14,7 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
     // table.has — check if a key exists in the table
     if (strcmp(name, "table.has") == 0) {
         if (arg_count >= 2 && args[1].type == VAL_STRING) {
-            *result = vm_make_bool(table_has(args[0].table, args[1].string));
+            *result = vm_make_bool(table_has(args[0].table, args[1].string->chars));
         } else if (arg_count >= 2 && args[1].type == VAL_NUMBER) {
             char key[32];
             snprintf(key, sizeof(key), "%g", args[1].number);
@@ -28,7 +28,7 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         if (arg_count >= 2) {
             char key[256];
             if (args[1].type == VAL_STRING) {
-                strcpy(key, args[1].string);
+                strcpy(key, args[1].string->chars);
             } else if (args[1].type == VAL_NUMBER) {
                 snprintf(key, sizeof(key), "%g", args[1].number);
             } else {

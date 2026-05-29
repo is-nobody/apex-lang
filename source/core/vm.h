@@ -16,21 +16,35 @@ typedef enum {
     VAL_FUNCTION,
 } ValueType_VM;
 
+// ========== Reference Counted Header ==========
+typedef struct {
+    int ref_count;
+    ValueType_VM type;
+} RefCountedObject;
+
+// ========== String Object ==========
+typedef struct StringObject {
+    RefCountedObject header;
+    uint32_t hash;
+    bool hash_computed;
+    int length;
+    char chars[];
+} StringObject;
+
 // ========== Value ==========
 typedef struct Value {
     ValueType_VM type;
     union {
         double number;
-        char* string;
         bool boolean;
         int function_addr;
+        StringObject* string;
         struct Table* table;
     };
 } Value;
 
 // ========== Table (Hash Table) ==========
 #define TABLE_MAX_LOAD 0.75
-
 typedef struct TableEntry {
     char* key;
     Value value;
@@ -38,6 +52,7 @@ typedef struct TableEntry {
 } TableEntry;
 
 typedef struct Table {
+    RefCountedObject header;
     TableEntry** entries;
     int capacity;
     int count;

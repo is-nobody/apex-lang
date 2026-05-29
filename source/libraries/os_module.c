@@ -35,7 +35,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     // os.input — read a line from stdin with an optional prompt
     if (strcmp(name, "os.input") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
-            printf("%s", args[0].string);
+            printf("%s", args[0].string->chars);
             fflush(stdout);
         }
         char buffer[4096];
@@ -89,7 +89,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     // os.system — execute a shell command, return exit code
     if (strcmp(name, "os.system") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
-            int exit_code = system(args[0].string);
+            int exit_code = system(args[0].string->chars);
             *result = vm_make_number(exit_code);
         } else {
             *result = vm_make_number(-1);
@@ -100,14 +100,15 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     // os.read — read entire file contents into a string
     if (strcmp(name, "os.read") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
-            FILE* f = fopen(args[0].string, "r");
+            FILE* f = fopen(args[0].string->chars, "r");
             if (f) {
                 fseek(f, 0, SEEK_END);
                 long size = ftell(f);
                 fseek(f, 0, SEEK_SET);
                 
                 char* buffer = (char*)malloc(size + 1);
-                (void)fread(buffer, 1, size, f);
+                size_t read_bytes = fread(buffer, 1, size, f);
+                (void)read_bytes;
                 buffer[size] = '\0';
                 fclose(f);
                 
@@ -123,9 +124,9 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     // os.write — write a string to a file (overwrites)
     if (strcmp(name, "os.write") == 0) {
         if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
-            FILE* f = fopen(args[0].string, "w");
+            FILE* f = fopen(args[0].string->chars, "w");
             if (f) {
-                fputs(args[1].string, f);
+                fputs(args[1].string->chars, f);
                 fclose(f);
                 *result = vm_make_bool(true);
             } else {
@@ -138,7 +139,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     // os.exists — check if a file or directory exists
     if (strcmp(name, "os.exists") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
-            FILE* f = fopen(args[0].string, "r");
+            FILE* f = fopen(args[0].string->chars, "r");
             if (f) {
                 fclose(f);
                 *result = vm_make_bool(true);
@@ -153,7 +154,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     if (strcmp(name, "os.isfile") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             struct stat st;
-            if (stat(args[0].string, &st) == 0) {
+            if (stat(args[0].string->chars, &st) == 0) {
                 *result = vm_make_bool(S_ISREG(st.st_mode));
             } else {
                 *result = vm_make_bool(false);
@@ -166,7 +167,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     if (strcmp(name, "os.isdir") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             struct stat st;
-            if (stat(args[0].string, &st) == 0) {
+            if (stat(args[0].string->chars, &st) == 0) {
                 *result = vm_make_bool(S_ISDIR(st.st_mode));
             } else {
                 *result = vm_make_bool(false);
@@ -189,7 +190,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     // os.chdir — change current working directory
     if (strcmp(name, "os.chdir") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
-            *result = vm_make_bool(chdir(args[0].string) == 0);
+            *result = vm_make_bool(chdir(args[0].string->chars) == 0);
         }
         return true;
     }
@@ -198,10 +199,10 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     if (strcmp(name, "os.mkdir") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             #ifdef _WIN32
-                *result = vm_make_bool(mkdir(args[0].string) == 0);
+                *result = vm_make_bool(mkdir(args[0].string->chars) == 0);
             #else
                 // 0755 permissions on Unix
-                *result = vm_make_bool(mkdir(args[0].string, 0755) == 0);
+                *result = vm_make_bool(mkdir(args[0].string->chars, 0755) == 0);
             #endif
         }
         return true;
@@ -210,7 +211,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     // os.rmdir — remove an empty directory
     if (strcmp(name, "os.rmdir") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
-            *result = vm_make_bool(rmdir(args[0].string) == 0);
+            *result = vm_make_bool(rmdir(args[0].string->chars) == 0);
         }
         return true;
     }
@@ -218,7 +219,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     // os.rmfile — delete a file
     if (strcmp(name, "os.rmfile") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
-            *result = vm_make_bool(unlink(args[0].string) == 0);
+            *result = vm_make_bool(unlink(args[0].string->chars) == 0);
         }
         return true;
     }
@@ -226,7 +227,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     // os.mkfile — create an empty file
     if (strcmp(name, "os.mkfile") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
-            FILE* f = fopen(args[0].string, "w");
+            FILE* f = fopen(args[0].string->chars, "w");
             if (f) {
                 fclose(f);
                 *result = vm_make_bool(true);
@@ -240,7 +241,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     // os.rename — rename a file or directory
     if (strcmp(name, "os.rename") == 0) {
         if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
-            *result = vm_make_bool(rename(args[0].string, args[1].string) == 0);
+            *result = vm_make_bool(rename(args[0].string->chars, args[1].string->chars) == 0);
         }
         return true;
     }
@@ -249,7 +250,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     if (strcmp(name, "os.listdir") == 0) {
         const char* path = ".";
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
-            path = args[0].string;
+            path = args[0].string->chars;
         }
         
         *result = vm_make_table();
@@ -290,7 +291,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     if (strcmp(name, "os.stat") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             struct stat st;
-            if (stat(args[0].string, &st) == 0) {
+            if (stat(args[0].string->chars, &st) == 0) {
                 *result = vm_make_table();
                 table_set(result->table, "size", vm_make_number(st.st_size));
                 table_set(result->table, "mtime", vm_make_number(st.st_mtime));

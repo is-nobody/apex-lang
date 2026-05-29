@@ -9,14 +9,14 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
     
     // string.len — return the length of a string
     if (strcmp(name, "string.len") == 0) {
-        *result = vm_make_number(args[0].type == VAL_STRING ? strlen(args[0].string) : 0);
+        *result = vm_make_number(args[0].type == VAL_STRING ? strlen(args[0].string->chars) : 0);
         return true;
     }
     
     // string.upper — convert string to uppercase
     if (strcmp(name, "string.upper") == 0) {
         if (args[0].type == VAL_STRING) {
-            char* str = strdup(args[0].string);
+            char* str = strdup(args[0].string->chars);
             for (char* p = str; *p; p++) *p = toupper(*p);
             *result = vm_make_string(str);
             free(str);
@@ -27,7 +27,7 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
     // string.lower — convert string to lowercase
     if (strcmp(name, "string.lower") == 0) {
         if (args[0].type == VAL_STRING) {
-            char* str = strdup(args[0].string);
+            char* str = strdup(args[0].string->chars);
             for (char* p = str; *p; p++) *p = tolower(*p);
             *result = vm_make_string(str);
             free(str);
@@ -38,7 +38,7 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
     // string.trim — remove leading and trailing whitespace
     if (strcmp(name, "string.trim") == 0) {
         if (args[0].type == VAL_STRING) {
-            const char* str = args[0].string;
+            const char* str = args[0].string->chars;
             while (isspace(*str)) str++;
             const char* end = str + strlen(str) - 1;
             while (end > str && isspace(*end)) end--;
@@ -57,8 +57,8 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
     // string.find — locate substring, returns index or -1
     if (strcmp(name, "string.find") == 0) {
         if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
-            char* pos = strstr(args[0].string, args[1].string);
-            *result = vm_make_number(pos ? (pos - args[0].string) : -1);
+            char* pos = strstr(args[0].string->chars, args[1].string->chars);
+            *result = vm_make_number(pos ? (pos - args[0].string->chars) : -1);
         }
         return true;
     }
@@ -67,15 +67,15 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
     if (strcmp(name, "string.replace") == 0) {
         if (arg_count >= 3 && args[0].type == VAL_STRING && 
             args[1].type == VAL_STRING && args[2].type == VAL_STRING) {
-            char* str = strdup(args[0].string);
-            char* pos = strstr(str, args[1].string);
+            char* str = strdup(args[0].string->chars);
+            char* pos = strstr(str, args[1].string->chars);
             if (pos) {
                 int prefix_len = pos - str;
-                char* result_str = (char*)malloc(strlen(str) + strlen(args[2].string) + 1);
+                char* result_str = (char*)malloc(strlen(str) + strlen(args[2].string->chars) + 1);
                 strncpy(result_str, str, prefix_len);
                 result_str[prefix_len] = '\0';
-                strcat(result_str, args[2].string);
-                strcat(result_str, pos + strlen(args[1].string));
+                strcat(result_str, args[2].string->chars);
+                strcat(result_str, pos + strlen(args[1].string->chars));
                 *result = vm_make_string(result_str);
                 free(result_str);
             } else {
@@ -90,16 +90,16 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
     if (strcmp(name, "string.sub") == 0) {
         if (arg_count >= 3 && args[0].type == VAL_STRING) {
             int start = args[1].type == VAL_NUMBER ? (int)args[1].number : 0;
-            int end = args[2].type == VAL_NUMBER ? (int)args[2].number : strlen(args[0].string);
+            int end = args[2].type == VAL_NUMBER ? (int)args[2].number : strlen(args[0].string->chars);
             
             if (start < 0) start = 0;
-            if (end > (int)strlen(args[0].string)) end = strlen(args[0].string);
+            if (end > (int)strlen(args[0].string->chars)) end = strlen(args[0].string->chars);
             if (start >= end) {
                 *result = vm_make_string("");
             } else {
                 int len = end - start;
                 char* sub = (char*)malloc(len + 1);
-                strncpy(sub, args[0].string + start, len);
+                strncpy(sub, args[0].string->chars + start, len);
                 sub[len] = '\0';
                 *result = vm_make_string(sub);
                 free(sub);
@@ -113,11 +113,11 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         if (args[0].type == VAL_STRING) {
             const char* sep = " ";
             if (arg_count >= 2 && args[1].type == VAL_STRING) {
-                sep = args[1].string;
+                sep = args[1].string->chars;
             }
             
             *result = vm_make_table();
-            char* str = strdup(args[0].string);
+            char* str = strdup(args[0].string->chars);
             char* token = strtok(str, sep);
             int idx = 1;
             
@@ -137,7 +137,7 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         if (arg_count >= 1 && args[0].type == VAL_TABLE) {
             const char* sep = "";
             if (arg_count >= 2 && args[1].type == VAL_STRING) {
-                sep = args[1].string;
+                sep = args[1].string->chars;
             }
             
             char buffer[65536] = "";
@@ -152,7 +152,7 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
                     
                     switch (entry->value.type) {
                         case VAL_STRING:
-                            strcat(buffer, entry->value.string);
+                            strcat(buffer, entry->value.string->chars);
                             break;
                         case VAL_NUMBER: {
                             char num[64];
