@@ -1,7 +1,2 @@
-# python cache
-__pycache__/
-*.pyc
-
-# build folders
+# build folder
 build/
-dist/

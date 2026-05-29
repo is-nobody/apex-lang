@@ -70,22 +70,16 @@ Go to the [GitHub releases](https://github.com/is-nobody/apex-lang/releases) pag
 After running, you'll see the Apex REPL — an interactive environment where you can type file name for executing. REPL stands for Read, Evaluate, Print, Loop. You type something, Apex runs it, shows the result, and waits for more.
 
 ### Your First Code
-Create a new file named `main.apex` in your current directory. Open it and write:
+Paste this code into REPL:
 
 ```apex
 import os
 os.output("Hello, Friend")
 ```
 
-Save the file. In the REPL, type the filename to run it:
-
-```bash
-main.apex
-```
-
 You'll see the output:
 
-```
+```bash
 Hello, Friend
 ```
 

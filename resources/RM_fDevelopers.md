@@ -71,18 +71,17 @@ Apex is a programming language designed for simplicity and cross-platform develo
 Now you're in REPL!
 
 ### Testing the interpreter
-Create your own file with `main.apex` name:
+Paste this code into REPL:
 
 ```apex
-// main.apex
 import os
 os.output("Hello, Friend")
 ```
 
-Execute it via REPL in current directory:
+Output:
 
 ```bash
-main.apex
+Hello, Friend
 ```
 
 # 1. Data Types

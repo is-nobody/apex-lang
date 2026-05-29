@@ -16,31 +16,25 @@ Created and maintained by one person. MIT Licensed.
 Now you're in REPL!
 
 ### Testing the interpreter
-Create your own file with `main.apex` name:
+Paste this code into REPL:
 
 ```apex
-// main.apex
 import os
 os.output("Hello, Friend")
 ```
 
-Execute it via REPL in current directory:
+Output:
 
 ```bash
-main.apex
+Hello, Friend
 ```
 
 ### Build binaries
 Run in the terminal:
 
 ```bash
-pip install pyinstaller
-```
-
-After installing PyInstaller:
-
-```bash
-pyinstaller build.spec
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
 ```
 
 This will create a binary file for your current platform.

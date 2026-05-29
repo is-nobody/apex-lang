@@ -1,20 +1,12 @@
 # Apex Language Roadmap
 
-## Mobile & VM Foundation
-| Task | Description |
-|------|-------------|
-| **AST to Bytecode** | Convert Abstract Syntax Tree into portable bytecode |
-| **Bytecode VM** | Write a stack-based VM to execute bytecode efficiently |
-| **Mobile runtime** | Port the VM to iOS (Swift/Kotlin) and Android (NDK) |
-| **REPL on mobile** | Run Apex code interactively on phones/tablets |
-
 ## Compiler & Binary Output
 | Task | Description |
 |------|-------------|
-| **Native binary compiler** | Compile Apex directly to machine code (via LLVM or custom backend) |
+| **Native binary compiler** | Compile Apex directly to machine code |
 | **Minimal runtime** | Reduce binary size (< 2 MB) |
 | **Static linking** | Bundle only used libraries |
-| **Cross-compilation** | Build for Windows/macOS/Linux from any platform |
+| **Cross-compilation** | Build for Windows/macOS/Linux |
 
 ## UI Library (First Class)
 | Task | Description |
