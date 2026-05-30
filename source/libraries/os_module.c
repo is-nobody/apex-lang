@@ -3,14 +3,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <sys/time.h>
 
 #ifdef _WIN32
     #include <windows.h>
     #include <direct.h>
+    #include <sys/stat.h>
+    #include <sys/timeb.h>
     #define chdir _chdir
     #define getcwd _getcwd
-    #define mkdir _mkdir
     #define rmdir _rmdir
     #define unlink _unlink
 #else
@@ -18,9 +18,12 @@
     #include <sys/stat.h>
     #include <sys/types.h>
     #include <dirent.h>
+    #include <sys/time.h>
 #endif
 
 bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
+    (void)vm;
+    
     // os.output — print a value to stdout
     if (strcmp(name, "os.output") == 0) {
         if (arg_count >= 1) {
@@ -40,7 +43,6 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         char buffer[4096];
         if (fgets(buffer, sizeof(buffer), stdin)) {
-            // Trim trailing newline / carriage return
             buffer[strcspn(buffer, "\r\n")] = 0;
             *result = vm_make_string(buffer);
         } else {
@@ -51,9 +53,15 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     
     // os.time — return current Unix timestamp as a float
     if (strcmp(name, "os.time") == 0) {
-        struct timeval tv;
-        gettimeofday(&tv, NULL);
-        *result = vm_make_number((double)tv.tv_sec + (double)tv.tv_usec / 1000000.0);
+        #ifdef _WIN32
+            struct _timeb tb;
+            _ftime(&tb);
+            *result = vm_make_number((double)tb.time + (double)tb.millitm / 1000.0);
+        #else
+            struct timeval tv;
+            gettimeofday(&tv, NULL);
+            *result = vm_make_number((double)tv.tv_sec + (double)tv.tv_usec / 1000000.0);
+        #endif
         return true;
     }
     
@@ -100,7 +108,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     // os.read — read entire file contents into a string
     if (strcmp(name, "os.read") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
-            FILE* f = fopen(args[0].string->chars, "r");
+            FILE* f = fopen(args[0].string->chars, "rb");
             if (f) {
                 fseek(f, 0, SEEK_END);
                 long size = ftell(f);
@@ -124,7 +132,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     // os.write — write a string to a file (overwrites)
     if (strcmp(name, "os.write") == 0) {
         if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
-            FILE* f = fopen(args[0].string->chars, "w");
+            FILE* f = fopen(args[0].string->chars, "wb");
             if (f) {
                 fputs(args[1].string->chars, f);
                 fclose(f);
@@ -155,7 +163,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             struct stat st;
             if (stat(args[0].string->chars, &st) == 0) {
-                *result = vm_make_bool(S_ISREG(st.st_mode));
+                *result = vm_make_bool(S_ISREG(st.st_mode) ? true : false);
             } else {
                 *result = vm_make_bool(false);
             }
@@ -168,7 +176,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             struct stat st;
             if (stat(args[0].string->chars, &st) == 0) {
-                *result = vm_make_bool(S_ISDIR(st.st_mode));
+                *result = vm_make_bool(S_ISDIR(st.st_mode) ? true : false);
             } else {
                 *result = vm_make_bool(false);
             }
@@ -199,9 +207,8 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     if (strcmp(name, "os.mkdir") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             #ifdef _WIN32
-                *result = vm_make_bool(mkdir(args[0].string->chars) == 0);
+                *result = vm_make_bool(_mkdir(args[0].string->chars) == 0);
             #else
-                // 0755 permissions on Unix
                 *result = vm_make_bool(mkdir(args[0].string->chars, 0755) == 0);
             #endif
         }
@@ -296,7 +303,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
                 table_set(result->table, "size", vm_make_number(st.st_size));
                 table_set(result->table, "mtime", vm_make_number(st.st_mtime));
                 table_set(result->table, "ctime", vm_make_number(st.st_ctime));
-                table_set(result->table, "isdir", vm_make_bool(S_ISDIR(st.st_mode)));
+                table_set(result->table, "isdir", vm_make_bool(S_ISDIR(st.st_mode) ? true : false));
             } else {
                 *result = vm_make_bool(false);
             }
@@ -318,7 +325,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         return true;
     }
     
-    // os.close — stub (placeholder for future file handle support)
+    // os.close — stub
     if (strcmp(name, "os.close") == 0) {
         *result = vm_make_bool(true);
         return true;

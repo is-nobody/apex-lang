@@ -39,13 +39,37 @@ target_compile_options(apex PRIVATE
     -Wall -Wextra -O2 -fno-strict-aliasing -D_DEFAULT_SOURCE
 )
 
+# Windows-specific: suppress MinGW POSIX deprecation warnings
+if(MINGW OR WIN32)
+    target_compile_definitions(apex PRIVATE
+        _WIN32_WINNT=0x0601
+        WIN32_LEAN_AND_MEAN
+    )
+endif()
+
 # Generate compile_commands.json for IDE support (VSCode, CLion)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # OS-specific library linking
-if(WIN32)
+if(MINGW)
+    # MinGW cross-compilation: link Windows libraries
+    target_link_libraries(apex PRIVATE
+        shlwapi
+        -static-libgcc
+        -static
+    )
+    # Force console subsystem for Windows
+    set_target_properties(apex PROPERTIES
+        LINK_FLAGS "-Wl,--subsystem,console"
+    )
+elseif(MSVC)
+    # Native MSVC build
+    target_link_libraries(apex PRIVATE shlwapi)
+elseif(WIN32)
+    # Generic Windows (non-MinGW)
     target_link_libraries(apex PRIVATE shlwapi)
 elseif(APPLE)
+    # macOS
     target_link_libraries(apex PRIVATE m)
 else()
     # Linux requires libm for math functions
@@ -54,15 +78,32 @@ endif()
 
 # Option: fully static build (zero system dependencies)
 option(BUILD_STATIC "Build fully static binary" OFF)
-if(BUILD_STATIC)
+if(BUILD_STATIC AND NOT MINGW)
+    # Static linking for Linux/macOS
     set_target_properties(apex PROPERTIES LINK_FLAGS "-static")
 endif()
 
 # Strip debug symbols in Release mode (reduces binary size)
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    add_custom_command(TARGET apex POST_BUILD
-        COMMAND ${CMAKE_STRIP} $<TARGET_FILE:apex>
-        COMMENT "Stripping debug symbols..."
+    if(NOT MINGW)
+        add_custom_command(TARGET apex POST_BUILD
+            COMMAND ${CMAKE_STRIP} $<TARGET_FILE:apex>
+            COMMENT "Stripping debug symbols..."
+        )
+    else()
+        # Use MinGW strip for cross-compiled binaries
+        add_custom_command(TARGET apex POST_BUILD
+            COMMAND x86_64-w64-mingw32-strip $<TARGET_FILE:apex>
+            COMMENT "Stripping debug symbols (MinGW)..."
+        )
+    endif()
+endif()
+
+# Windows cross-compilation: set .exe extension explicitly
+if(MINGW)
+    set_target_properties(apex PROPERTIES
+        SUFFIX ".exe"
+        PREFIX ""
     )
 endif()
 
@@ -79,25 +120,45 @@ set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_PACKAGE_CONTACT "dev@apex-lang.org")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Apex Language Interpreter")
 set(CPACK_PACKAGE_DESCRIPTION "High-performance interpreted language with REPL and stdlib.")
-set(CPACK_PACKAGE_FILE_NAME "apex-${PROJECT_VERSION}")
 
-# 3. Generator selection
-set(CPACK_GENERATOR "DEB;RPM;TGZ")
+# Platform-specific package settings
+if(MINGW)
+    # Windows packages
+    set(CPACK_GENERATOR "ZIP;NSIS")
+    set(CPACK_PACKAGE_FILE_NAME "apex-${PROJECT_VERSION}-win64")
+    set(CPACK_NSIS_DISPLAY_NAME "Apex Language")
+    set(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES64")
+    set(CPACK_NSIS_CREATE_ICONS_EXTRA
+        "CreateShortCut '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\Apex.lnk' '$INSTDIR\\\\bin\\\\apex.exe'"
+    )
+    set(CPACK_NSIS_DELETE_ICONS_EXTRA
+        "Delete '$SMPROGRAMS\\\\$START_MENU_FOLDER\\\\Apex.lnk'"
+    )
+elseif(APPLE)
+    # macOS packages
+    set(CPACK_GENERATOR "TGZ;DragNDrop")
+    set(CPACK_PACKAGE_FILE_NAME "apex-${PROJECT_VERSION}-macos")
+else()
+    # Linux packages
+    set(CPACK_GENERATOR "DEB;RPM;TGZ")
+    set(CPACK_PACKAGE_FILE_NAME "apex-${PROJECT_VERSION}-linux")
+    
+    # Debian-specific metadata
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6")
+    set(CPACK_DEBIAN_PACKAGE_SECTION "devel")
+    set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+    
+    # RPM-specific metadata
+    set(CPACK_RPM_PACKAGE_LICENSE "MIT")
+    set(CPACK_RPM_PACKAGE_GROUP "Development/Languages")
+    set(CPACK_RPM_PACKAGE_REQUIRES "glibc")
+endif()
 
-# 4. Dependencies
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6")
-set(CPACK_DEBIAN_PACKAGE_SECTION "devel")
-set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
-
-set(CPACK_RPM_PACKAGE_LICENSE "MIT")
-set(CPACK_RPM_PACKAGE_GROUP "Development/Languages")
-set(CPACK_RPM_PACKAGE_REQUIRES "glibc")
-
-# If static build -> no dependencies required
+# Static build: no dependencies required, adjust package name
 if(BUILD_STATIC)
     set(CPACK_DEBIAN_PACKAGE_DEPENDS "")
     set(CPACK_RPM_PACKAGE_REQUIRES "")
-    set(CPACK_PACKAGE_FILE_NAME "apex-${PROJECT_VERSION}-static")
+    set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_FILE_NAME}-static")
 endif()
 
 # Include the packaging module

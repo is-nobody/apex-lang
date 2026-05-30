@@ -4,11 +4,76 @@
 #include <string.h>
 #include <stdbool.h>
 #include <signal.h>
-#include <unistd.h>
-#include <termios.h>
-#include <sys/select.h>
-#include <sys/time.h>
 #include <errno.h>
+
+#ifdef _WIN32
+    #include <windows.h>
+    #include <conio.h>
+    #include <io.h>
+    #define isatty _isatty
+    #define STDIN_FILENO 0
+    #define usleep(x) Sleep((x)/1000)
+    
+    static HANDLE hStdin;
+    static DWORD prev_mode;
+    
+    static void enable_raw_mode() {
+        hStdin = GetStdHandle(STD_INPUT_HANDLE);
+        GetConsoleMode(hStdin, &prev_mode);
+        SetConsoleMode(hStdin, prev_mode & ~(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT));
+    }
+    
+    static void disable_raw_mode() {
+        SetConsoleMode(hStdin, prev_mode);
+    }
+    
+    static int getch_nonblock() {
+        if (_kbhit()) {
+            return _getch();
+        }
+        return -1;
+    }
+    
+    static ssize_t my_read(int fd, void* buf, size_t count) {
+        (void)fd;
+        if (count == 0) return 0;
+        DWORD nread;
+        if (ReadConsole(hStdin, buf, 1, &nread, NULL)) {
+            return nread;
+        }
+        return -1;
+    }
+#else
+    #include <unistd.h>
+    #include <termios.h>
+    #include <sys/select.h>
+    #include <sys/time.h>
+    
+    static struct termios orig_termios;
+    
+    static void enable_raw_mode() {
+        tcgetattr(STDIN_FILENO, &orig_termios);
+        struct termios raw = orig_termios;
+        raw.c_lflag &= ~(ECHO | ICANON | ISIG);
+        raw.c_cc[VMIN] = 1;
+        raw.c_cc[VTIME] = 0;
+        tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+    }
+    
+    static void disable_raw_mode() {
+        tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+    }
+    
+    static int kbhit() {
+        struct timeval tv = {0, 0};
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(STDIN_FILENO, &fds);
+        return select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv) > 0;
+    }
+    
+    #define my_read read
+#endif
 
 #include "execute.h"
 #include "add_to_path.h"
@@ -17,7 +82,6 @@
 #define MAX_INPUT 65536
 
 static volatile sig_atomic_t g_should_exit = 0;
-static struct termios orig_termios;
 
 static void signal_handler(int sig) {
     (void)sig;
@@ -25,6 +89,7 @@ static void signal_handler(int sig) {
 }
 
 static void setup_signals(void) {
+    #ifndef _WIN32
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = signal_handler;
@@ -32,27 +97,9 @@ static void setup_signals(void) {
     sa.sa_flags = 0;
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGTSTP, &sa, NULL);
-}
-
-static void enable_raw_mode() {
-    tcgetattr(STDIN_FILENO, &orig_termios);
-    struct termios raw = orig_termios;
-    raw.c_lflag &= ~(ECHO | ICANON | ISIG);
-    raw.c_cc[VMIN] = 1;
-    raw.c_cc[VTIME] = 0;
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
-}
-
-static void disable_raw_mode() {
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
-}
-
-static int kbhit() {
-    struct timeval tv = {0, 0};
-    fd_set fds;
-    FD_ZERO(&fds);
-    FD_SET(STDIN_FILENO, &fds);
-    return select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv) > 0;
+    #else
+    (void)signal_handler;
+    #endif
 }
 
 static const char* get_platform_name(void) {
@@ -79,14 +126,23 @@ static const char* get_platform_name(void) {
 static void execute_code(const char* code, const char* display_name) {
     if (!code || strlen(code) == 0) return;
     
-    char temp_file[] = "/tmp/apex_XXXXXX";
-    int fd = mkstemp(temp_file);
-    if (fd == -1) return;
+    #ifdef _WIN32
+        char temp_path[MAX_PATH];
+        char temp_file[MAX_PATH];
+        GetTempPath(MAX_PATH, temp_path);
+        GetTempFileName(temp_path, "apex", 0, temp_file);
+        FILE* f = fopen(temp_file, "w");
+    #else
+        char temp_file[] = "/tmp/apex_XXXXXX";
+        int fd = mkstemp(temp_file);
+        if (fd == -1) return;
+        FILE* f = fdopen(fd, "w");
+    #endif
     
-    FILE* f = fdopen(fd, "w");
     if (!f) {
+        #ifndef _WIN32
         close(fd);
-        unlink(temp_file);
+        #endif
         return;
     }
     
@@ -101,19 +157,30 @@ static void execute_code(const char* code, const char* display_name) {
 int main(int argc, char** argv) {
     ensure_path_updated(argv[0]);
 
-    // File argument mode
     if (argc > 1) {
         return execute_source(argv[1], argv[1]) ? 0 : 1;
     }
 
-    // Pipe mode (non-interactive stdin)
     if (!isatty(0)) {
-        char temp_file[] = "/tmp/apex_XXXXXX";
-        int fd = mkstemp(temp_file);
-        if (fd == -1) return 1;
+        #ifdef _WIN32
+            char temp_path[MAX_PATH];
+            char temp_file[MAX_PATH];
+            GetTempPath(MAX_PATH, temp_path);
+            GetTempFileName(temp_path, "apex", 0, temp_file);
+            FILE* f = fopen(temp_file, "w");
+        #else
+            char temp_file[] = "/tmp/apex_XXXXXX";
+            int fd = mkstemp(temp_file);
+            if (fd == -1) return 1;
+            FILE* f = fdopen(fd, "w");
+        #endif
         
-        FILE* f = fdopen(fd, "w");
-        if (!f) { close(fd); return 1; }
+        if (!f) {
+            #ifndef _WIN32
+            close(fd);
+            #endif
+            return 1;
+        }
         
         char buf[4096];
         size_t n;
@@ -127,7 +194,6 @@ int main(int argc, char** argv) {
         return ok ? 0 : 1;
     }
 
-    // Interactive REPL mode
     setup_signals();
     printf("Apex v26.06 on %s. Type code, always ready.\n", get_platform_name());
 
@@ -148,24 +214,23 @@ int main(int argc, char** argv) {
 
     while (!g_should_exit) {
         char c;
-        ssize_t n = read(STDIN_FILENO, &c, 1);
+        ssize_t n = my_read(STDIN_FILENO, &c, 1);
         
         if (n <= 0) {
+            #ifndef _WIN32
             if (errno == EINTR) continue;
+            #endif
             break;
         }
 
-        // Ctrl+D — exit
         if (c == 4) {
             break;
         }
 
-        // Ctrl+C — exit immediately
         if (c == 3) {
             break;
         }
 
-        // Enter — submit accumulated input if no pending keystrokes
         if (c == '\r' || c == '\n') {
             printf("\r\n");
             line[pos] = '\0';
@@ -182,7 +247,13 @@ int main(int argc, char** argv) {
             
             usleep(50000);
             
-            if (!kbhit()) {
+            #ifdef _WIN32
+            int has_kb = _kbhit();
+            #else
+            int has_kb = kbhit();
+            #endif
+            
+            if (!has_kb) {
                 if (total_len > 0) {
                     execute_code(full_input, "<repl>");
                 }
@@ -196,7 +267,6 @@ int main(int argc, char** argv) {
                 prompt_shown = 0;
             }
         }
-        // Backspace
         else if (c == 127 || c == '\b') {
             if (pos > 0) {
                 pos--;
@@ -204,7 +274,6 @@ int main(int argc, char** argv) {
                 fflush(stdout);
             }
         }
-        // Printable characters
         else if (c >= 32 && c < 127 && pos < MAX_LINE - 1) {
             if (!prompt_shown) {
                 printf("> ");

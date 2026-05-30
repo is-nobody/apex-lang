@@ -4,14 +4,32 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
-#include <unistd.h>
-#include <limits.h>
-#include <sys/stat.h>
 #include <ctype.h>
+
+#ifdef _WIN32
+    #include <windows.h>
+    #include <direct.h>
+    #include <io.h>
+    #define realpath(N,R) _fullpath((R),(N),MAX_PATH)
+    #define mkdir(path, mode) _mkdir(path)
+    #define unlink _unlink
+    #define chmod _chmod
+    #define access _access
+    #define F_OK 0
+    #define setenv(name, value, overwrite) SetEnvironmentVariable(name, value)
+    static int symlink(const char* target, const char* linkpath) {
+        if (CreateHardLink(linkpath, target, NULL)) return 0;
+        if (CreateSymbolicLink(linkpath, target, 0)) return 0;
+        return -1;
+    }
+#else
+    #include <unistd.h>
+    #include <limits.h>
+    #include <sys/stat.h>
+#endif
 
 #define APEX_MARKER "# apex-path-managed"
 
-// Case-insensitive substring search
 static bool contains_ci(const char* haystack, const char* needle) {
     if (!haystack || !needle) return false;
     size_t nlen = strlen(needle);
@@ -34,20 +52,28 @@ static void get_exe_paths(const char* argv0, char* out_dir, char* out_full, size
     ssize_t len = readlink("/proc/self/exe", out_full, size - 1);
     if (len <= 0) strncpy(out_full, argv0, size - 1);
     out_full[size-1] = '\0';
+#elif _WIN32
+    GetModuleFileName(NULL, out_full, size);
 #else
     realpath(argv0, out_full);
 #endif
-    // Resolve symlinks & make absolute
     char* resolved = realpath(out_full, NULL);
     if (resolved) { strncpy(out_full, resolved, size-1); free(resolved); }
     out_full[size-1] = '\0';
 
     strncpy(out_dir, out_full, size);
     char* last = strrchr(out_dir, '/');
+    #ifdef _WIN32
+        char* last2 = strrchr(out_dir, '\\');
+        if (last2 > last) last = last2;
+    #endif
     if (last) *last = '\0'; else out_dir[0] = '\0';
 }
 
 static void update_shell_config(const char* filepath, const char* local_bin_abs) {
+    #ifdef _WIN32
+    #endif
+    
     FILE* f = fopen(filepath, "r");
     if (!f) {
         f = fopen(filepath, "w");
@@ -71,15 +97,12 @@ static void update_shell_config(const char* filepath, const char* local_bin_abs)
         while (*p && *p != '\n') p++;
         if (*p == '\n') *p++ = '\0';
         
-        // Strip \r
         size_t len = strlen(start);
         if (len > 0 && start[len-1] == '\r') start[len-1] = '\0';
         if (len == 0) continue;
 
-        // Filter old entries
         if (strstr(start, APEX_MARKER)) continue;
         if (contains_ci(start, "apex") && contains_ci(start, "PATH")) continue;
-        if (strstr(start, "/home/none/kernel/Apex/Software/apex-lang/dist")) continue;
 
         lines = realloc(lines, sizeof(char*) * (count + 1));
         lines[count++] = strdup(start);
@@ -95,30 +118,55 @@ static void update_shell_config(const char* filepath, const char* local_bin_abs)
 }
 
 void ensure_path_updated(const char* argv0) {
+    #ifdef _WIN32
+    char exe_dir[MAX_PATH] = {0};
+    char exe_full[MAX_PATH] = {0};
+    #else
     char exe_dir[PATH_MAX] = {0};
     char exe_full[PATH_MAX] = {0};
+    #endif
+    
     get_exe_paths(argv0, exe_dir, exe_full, sizeof(exe_dir));
     if (!exe_dir[0]) return;
 
     const char* home = getenv("HOME");
+    #ifdef _WIN32
+        if (!home) home = getenv("USERPROFILE");
+    #endif
     if (!home) return;
 
+    #ifdef _WIN32
+    char local_bin[MAX_PATH];
+    #else
     char local_bin[PATH_MAX];
+    #endif
+    
     snprintf(local_bin, sizeof(local_bin), "%s/.local/bin", home);
     mkdir(local_bin, 0755);
 
-    // 1. Symlink
+    #ifdef _WIN32
+    char link_path[MAX_PATH];
+    snprintf(link_path, sizeof(link_path), "%s/apex.exe", local_bin);
+    #else
     char link_path[PATH_MAX];
     snprintf(link_path, sizeof(link_path), "%s/apex", local_bin);
+    #endif
+    
     unlink(link_path);
     if (symlink(exe_full, link_path) != 0) {
-        // Fallback: copy if fs doesn't support symlinks
         FILE* s = fopen(exe_full, "rb");
         FILE* d = fopen(link_path, "wb");
-        if (s && d) { char buf[4096]; size_t n; while((n=fread(buf,1,sizeof(buf),s))>0) fwrite(buf,1,n,d); fclose(s); fclose(d); chmod(link_path, 0755); }
+        if (s && d) {
+            char buf[4096];
+            size_t n;
+            while((n = fread(buf, 1, sizeof(buf), s)) > 0) fwrite(buf, 1, n, d);
+            fclose(s);
+            fclose(d);
+            chmod(link_path, 0755);
+        }
     }
 
-    // 2. Shell configs
+    #ifndef _WIN32
     const char* shell = getenv("SHELL");
     const char* configs[] = {".bashrc", ".zshrc", ".bash_profile", ".profile"};
     int cnt = 4;
@@ -127,13 +175,14 @@ void ensure_path_updated(const char* argv0) {
         else if (strstr(shell, "bash")) { configs[0] = ".bashrc"; configs[1] = ".bash_profile"; cnt = 2; }
     }
     for (int i=0; i<cnt; i++) {
-        char p[PATH_MAX]; snprintf(p, sizeof(p), "%s/%s", home, configs[i]);
+        char p[PATH_MAX];
+        snprintf(p, sizeof(p), "%s/%s", home, configs[i]);
         if (access(p, F_OK) == 0 || i == 0) update_shell_config(p, local_bin);
     }
 
-    // 3. Current session
     char* old = getenv("PATH");
     char new_path[PATH_MAX * 2];
     snprintf(new_path, sizeof(new_path), "%s:%s", local_bin, old ? old : "");
     setenv("PATH", new_path, 1);
+    #endif
 }

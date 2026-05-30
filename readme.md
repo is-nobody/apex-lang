@@ -33,8 +33,17 @@ Hello, Friend
 Run in the terminal:
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel
+# Linux native build → build/linux/apex
+cmake -S . -B build/linux -DCMAKE_BUILD_TYPE=Release
+cmake --build build/linux --parallel
+
+# Windows cross-compilation → build/windows/apex.exe
+cmake -S . -B build/windows \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_SYSTEM_NAME=Windows \
+    -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc
+
+cmake --build build/windows --parallel
 ```
 
 This will create a binary file for your current platform.
