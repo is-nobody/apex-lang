@@ -41,7 +41,7 @@ bool execute_source(const char* filepath, const char* filename) {
     if (!filepath || !filename) return false;
 
     // Read source file
-    FILE* f = fopen(filepath, "r");
+    FILE* f = fopen(filepath, "rb");
     if (!f) {
         fprintf(stderr, "Error: Cannot open file '%s'\n", filepath);
         return false;

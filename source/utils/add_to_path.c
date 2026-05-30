@@ -74,9 +74,9 @@ static void update_shell_config(const char* filepath, const char* local_bin_abs)
     #ifdef _WIN32
     #endif
     
-    FILE* f = fopen(filepath, "r");
+    FILE* f = fopen(filepath, "rb");
     if (!f) {
-        f = fopen(filepath, "w");
+        f = fopen(filepath, "wb");
         if (f) { fprintf(f, "\n%s\nexport PATH=\"%s:$PATH\"\n", APEX_MARKER, local_bin_abs); fclose(f); }
         return;
     }
@@ -109,7 +109,7 @@ static void update_shell_config(const char* filepath, const char* local_bin_abs)
     }
     free(content);
 
-    f = fopen(filepath, "w");
+    f = fopen(filepath, "wb");
     if (!f) { for (int i=0; i<count; i++) free(lines[i]); free(lines); return; }
     for (int i=0; i<count; i++) { fprintf(f, "%s\n", lines[i]); free(lines[i]); }
     fprintf(f, "\n%s\nexport PATH=\"%s:$PATH\"\n", APEX_MARKER, local_bin_abs);

@@ -131,7 +131,7 @@ static void execute_code(const char* code, const char* display_name) {
         char temp_file[MAX_PATH];
         GetTempPath(MAX_PATH, temp_path);
         GetTempFileName(temp_path, "apex", 0, temp_file);
-        FILE* f = fopen(temp_file, "w");
+        FILE* f = fopen(temp_file, "wb");
     #else
         char temp_file[] = "/tmp/apex_XXXXXX";
         int fd = mkstemp(temp_file);
@@ -167,7 +167,7 @@ int main(int argc, char** argv) {
             char temp_file[MAX_PATH];
             GetTempPath(MAX_PATH, temp_path);
             GetTempFileName(temp_path, "apex", 0, temp_file);
-            FILE* f = fopen(temp_file, "w");
+            FILE* f = fopen(temp_file, "wb");
         #else
             char temp_file[] = "/tmp/apex_XXXXXX";
             int fd = mkstemp(temp_file);
