@@ -35,27 +35,22 @@ This manual is written with step-by-step learning in mind and strives to be mini
 - [5.3 Break](#53-break)
 - [5.4 Continue](#54-continue)
 
-### 6. Error Handling
-- [6.1 Try Statement](#61-try-statement)
-- [6.2 Failure Statement](#62-failure-statement)
-- [6.3 Always Statement](#63-always-statement)
+### 6. Functions
+- [6.1 Function Statement](#61-function-statement)
+- [6.2 Parameters](#62-parameters)
+- [6.3 Return Value](#63-return-value)
+- [6.4 Call](#64-call)
 
-### 7. Functions
-- [7.1 Function Statement](#71-function-statement)
-- [7.2 Parameters](#72-parameters)
-- [7.3 Return Value](#73-return-value)
-- [7.4 Call](#74-call)
+### 7. Imports
+- [7.1 Importing an Entire File](#71-importing-an-entire-file)
+- [7.2 Importing from Sub-folders](#72-importing-from-sub-folders)
+- [7.3 Importing from One Sub-folder into Another](#73-importing-from-one-sub-folder-into-another)
 
-### 8. Imports
-- [8.1 Importing an Entire File](#81-importing-an-entire-file)
-- [8.2 Importing from Sub-folders](#82-importing-from-sub-folders)
-- [8.3 Importing from One Sub-folder into Another](#83-importing-from-one-sub-folder-into-another)
-
-### 9. Built-In Libraries
-- [9.1 OS Library (os)](#91-os-library-os)
-- [9.2 Math Library (math)](#92-math-library-math)
-- [9.3 String Library (string)](#93-string-library-string)
-- [9.4 Table Library (table)](#94-table-library-table)
+### 8. Built-In Libraries
+- [8.1 OS Library (os)](#81-os-library-os)
+- [8.2 Math Library (math)](#82-math-library-math)
+- [8.3 String Library (string)](#83-string-library-string)
+- [8.4 Table Library (table)](#84-table-library-table)
 
 ### Conclusion
 - [What's Next?](#whats-next)
@@ -771,107 +766,10 @@ This prints 1, 2, 4, 5. When `i` is 3, `continue` jumps to the next item (`4`) w
 
 Use `continue` when you want to skip certain items but keep looping through the rest.
 
-# 6. Error Handling
-Imagine you're building a program that reads a file from the user's computer. What happens if the file doesn't exist? Or if you're dividing by zero based on user input? Without error handling, your entire program crashes. You need a way to try something risky, and catch the problem without crashing. That's exactly what error handling gives you.
-
-## 6.1 Try Statement
-Use `try` to wrap code that might fail. If something goes wrong, the program jumps to the `failure` block instead of crashing.
-
-```apex
-import os
-
-try
-    x = 10 / 0
-    os.output("This won't run")
-failure
-    os.output("Something went wrong")
-```
-
-If the code inside `try` runs without errors, the `failure` block is skipped entirely.
-
-## 6.2 Failure Statement
-The `failure` block only runs when an error occurs. It's your safety net — the program takes a different path instead of crashing.
-
-Think of it like a backup plan. You *try* to do something risky. If it works, great. If it fails, the `failure` block catches you.
-
-```apex
-import os
-
-try
-    x = 10 / 0
-failure
-    os.output("Error: {error}")
-```
-
-What happens in this scenario:
-
-1. The program enters `try` and tries `10 / 0`
-2. Division by zero fails — jumps to `failure`
-3. `error` variable is set to `"division_by_zero"`
-4. Prints: `Error: division_by_zero`
-5. Program continues, no crash
-
-If no error occurred, `failure` would be skipped, but `always` still runs.
-
-### Error Variable
-When an error occurs inside a `try` block, Apex automatically creates the `error` variable. This variable is only available inside the `failure` block and contains a short identifier describing what went wrong.
-
-| Error | What It Means | Example |
-|-------|---------------|---------|
-| `division_by_zero` | Division by zero | `x = 10 / 0` |
-| `name_error` | Using an undefined variable | `x = unknown_var` |
-| `type_error` | Wrong data type operation | `x = "hello" + 5` |
-| `value_error` | Invalid value conversion | `x = number("abc")` |
-| `index_error` | Table index out of bounds | `x = arr.10` |
-| `key_error` | Accessing non-existent key | `x = table.missing_key` |
-| `attribute_error` | Accessing non-existent attribute | `x = 42.some_method` |
-
-You can check that if the error is of a specific type:
-
-```apex
-import os
-
-try
-    x = 10 / 0
-failure
-    if error == "division_by_zero"
-        os.output("Cannot divide by zero")
-    else
-        os.output("Other error: {error}")
-```
-
-## 6.3 Always Statement
-Sometimes you need code that runs whether an error happened or not. That's what `always` is for — cleanup tasks, resetting values, or letting the user know the operation finished.
-
-Imagine you're doing some math that might fail. Whether the division works or not, you want to tell the user "Done." The `always` block guarantees that message appears.
-
-```apex
-import os
-
-try
-    x = 10 / 0
-failure
-    if error == "division_by_zero"
-        os.output("Cannot divide by zero")
-    else
-        os.output("Other error: {error}")
-always
-    os.output("Operation completed")
-```
-
-What happens in each scenario:
-
-| Division works? | `try` runs? | `failure` runs? | `always` runs? |
-|-----|-----|-----|-----|
-| Yes | ✓ | ✗ | ✓ |
-| No | ✗ | ✓ | ✓ |
-
-The `always` block is your guarantee. Use it when something absolutely must happen — no matter what went wrong or right before it.
-
-# 7. Functions
+# 6. Functions
 Imagine you have a recipe for making a sandwich. You follow the same steps every time: take two slices of bread, spread butter on one, spread jam on the other, put them together. Now imagine you had to write out those steps every single time you wanted a sandwich. That would be tedious. Instead, you give the recipe a name — `make_sandwich` — and whenever you want a sandwich, you just say that name. That's exactly what a function is: a named block of code that you can use whenever you need it.
 
-## 7.1 Function Statement
+## 6.1 Function Statement
 To create a function, use the `function` keyword, then the function name, then parentheses `( )`, then the code block.
 
 ```apex
@@ -886,7 +784,7 @@ This creates a function named `say_hello`. It does one thing: prints "Hello!".
 Function names should describe what they do. `say_hello` is good. `task_first` is bad.
 This will help someone who sees it for the first time, or even you yourself, after a long time, understand what a function means without looking at its contents.
 
-## 7.2 Parameters
+## 6.2 Parameters
 Sometimes a function needs information to do its job. A `greet` function needs to know who to greet. A `multiply` function needs to know which numbers to multiply. Parameters are placeholders for that information. You put them inside the parentheses.
 
 ```apex
@@ -932,7 +830,7 @@ function add(a == number, b == number)
 add(5, 6)
 ```
 
-## 7.3 Return Value
+## 6.3 Return Value
 Some functions just do something — like `os.output()` prints text. Other functions calculate something and give it back to you.
 
 Return value is what the function sends back after it finishes. You use the `return` keyword.
@@ -970,7 +868,7 @@ total = add_and_return(5, 3)  // total becomes 8
 
 Functions without `return` return `false` automatically. Once `return` happens, the function exits. Nothing after it runs.
 
-### 7.4 Call
+### 6.4 Call
 Using a function is called calling it. You write the function name followed by parentheses.
 
 ```apex
@@ -1022,7 +920,7 @@ function calculate_total(price, quantity)
 final_price = calculate_total(100, 3)   // 100 * 3 = 300, then 300 * 0.9 = 270
 ```
 
-# 8. Imports
+# 7. Imports
 When your project grows beyond a few dozen lines, keeping everything in one file becomes painful. You need a way to split your code into smaller, manageable pieces. That's what imports give you — the ability to use code from other files. The problems with one giant file:
 
 - Difficult navigation – scrolling through thousands of lines to find specific functions
@@ -1035,7 +933,7 @@ Imports solve all of this by letting you organize your code across multiple file
 ### How Apex Finds Files
 Every import path is relative to the main file — the file you run with `apex filename.apex`. Think of your main file as the front door. All imports are paths from that front door, not from wherever you're standing.
 
-## 8.1 Importing an Entire File
+## 7.1 Importing an Entire File
 To import everything from a file in the same folder:
 
 ```apex
@@ -1049,7 +947,7 @@ os.output(database.APP_NAME)
 
 When you import a file, you must use the filename as a prefix to access its contents.
 
-## 8.2 Importing from Sub-folders
+## 7.2 Importing from Sub-folders
 Use dots (`.`) to navigate into folders:
 
 ```
@@ -1066,7 +964,7 @@ import utils.math
 
 Each dot in imports means "go inside this folder." `utils.math` looks for `utils/math.apex`.
 
-## 8.3 Importing from One Sub-folder into Another
+## 7.3 Importing from One Sub-folder into Another
 Here's where beginners often get confused. You have this structure:
 
 ```
@@ -1093,10 +991,10 @@ When you import a file, you get everything from it:
 - All functions
 - All variables
 
-# 9. Built-in Libraries
+# 8. Built-in Libraries
 Apex comes with several built-in libraries. These are ready-to-use tools that solve common tasks: working with os, math, strings, table, and more. You don't need to write everything from scratch — just import the library you need and use it.
 
-## 9.1 OS Library (os)
+## 8.1 OS Library (os)
 The OS library lets you interact with the operating system. You can print text, read files, create folders, and more. Import it with `import os`.
 
 ### os.output(value)
@@ -1118,7 +1016,7 @@ name = os.input("What is your name? ")
 os.output("Hello, {name}")
 ```
 
-If the user types `Alice`, the output is `Hello, Alice`. The value from `os.input()` is always a string — even if the user types numbers. Use `number()` to convert it if you need to do math. If the user enters something that isn't a number, `number()` will throw an error — use `try-failure` to handle this gracefully.
+If the user types `Alice`, the output is `Hello, Alice`. The value from `os.input()` is always a string — even if the user types numbers. Use `number()` to convert it if you need to do math. If the user enters something that isn't a number, `number()` will get an `false` value. Handle it via `if var == false`.
 
 ### os.read(filename)
 Reads the entire contents of a file and returns it as a string. Throws an error if the file doesn't exist or can't be read.
@@ -1126,9 +1024,9 @@ Reads the entire contents of a file and returns it as a string. Throws an error 
 ```apex
 import os
 
-try
-    content = os.read("story.txt")
-failure
+content = os.read("story.txt")
+
+if content == false
     os.output("Could not read the file")
 ```
 
@@ -1137,8 +1035,10 @@ Writes content to a file. Creates the file if it doesn't exist, overwrites it if
 
 ```apex
 import os
+
 success = os.write("notes.txt", "Today I learned Apex!")
-if success
+
+if success == true
     os.output("File saved!")
 ```
 
@@ -1155,7 +1055,8 @@ Returns `true` if the file or folder at `path` exists, `false` otherwise.
 
 ```apex
 import os
-if os.exists("config.apex")
+
+if os.exists("config.apex") == true
     os.output("Config file found")
 else
     os.output("No config file")
@@ -1254,13 +1155,14 @@ Returns a table with information about a file or folder. The table contains thes
 - `ctime` — creation time (timestamp)
 - `isdir` — `true` if it's a folder, `false` if it's a file
 
-Throws an error if the path doesn't exist.
+Throws an `false` value if the path doesn't exist.
 
 ```apex
 import os
 
-try
-    info = os.stat("data.txt")
+info = os.stat("data.txt")
+
+if info == true
     os.output("Size: {info.size} bytes")
 failure
     os.output("File does not exist")
@@ -1271,6 +1173,7 @@ Exits the program immediately. The `code` is optional — `0` means success, oth
 
 ```apex
 import os
+
 if os.exists("critical_file.txt") == false
     os.output("Critical file missing — exiting")
     os.exit(1)              // Exit with error code
@@ -1281,6 +1184,7 @@ Pauses the program for the given number of seconds. You can use decimals for fra
 
 ```apex
 import os
+
 os.output("Starting...")
 os.wait(2.5)                // Pause for 2.5 seconds
 os.output("Done waiting")
@@ -1291,6 +1195,7 @@ Returns the current time as a number — seconds since January 1, 1970. Useful f
 
 ```apex
 import os
+
 start = os.time()
 // ... do something slow ...
 elapsed = os.time() - start
@@ -1302,6 +1207,7 @@ Runs a system command as if you typed it in the terminal. Returns the command's 
 
 ```apex
 import os
+
 os.system("echo Hello from terminal")     // Works on Linux/macOS
 os.system("dir")                          // Windows — list files
 os.system("ls")                           // Linux/macOS — list files
@@ -1312,11 +1218,12 @@ Returns a string identifying your operating system: `"Windows"`, `"macOS"`, `"Li
 
 ```apex
 import os
+
 system = os.platform()
 os.output("You're running on {system}")
 ```
 
-## 9.2 Math Library (math)
+## 8.2 Math Library (math)
 The Math library provides mathematical functions beyond basic arithmetic. Import it with `import math`.
 
 ### math.abs(x)
@@ -1463,7 +1370,7 @@ math.atan(1)             // 0.7853981633974483 (π/4)
 
 Here's the String Library section for the manual:
 
-## 9.3 String Library (string)
+## 8.3 String Library (string)
 The String library helps you work with text — measure length, change case, find words, split and combine strings, and more. Import it with `import string`.
 
 ### string.len(s)
@@ -1609,7 +1516,7 @@ string.replace("hello", "x", "y")                 // "hello" (nothing changed)
 string.replace("remove-this", "-this", "")        // "remove"
 ```
 
-## 9.4 Table Library (table)
+## 8.4 Table Library (table)
 The Table library provides functions for working with tables. Import it with `import table`.
 
 ### table.remove(t, key)

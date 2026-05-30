@@ -18,7 +18,6 @@ typedef enum {
     AST_FOR_STMT,          // for var in iterable { body }
     AST_BREAK_STMT,        // break
     AST_CONTINUE_STMT,     // continue
-    AST_TRY_STMT,          // try { } failure { } always { }
     AST_EXPR_STMT,         // standalone expression used as a statement
     
     // Expressions
@@ -145,13 +144,6 @@ struct ASTNode {
             ASTNode* iterable;
             ASTNode* body;
         } for_stmt;
-        
-        // Try/catch/finally block
-        struct {
-            ASTNode* try_body;
-            ASTNode* failure_body;    // catch block
-            ASTNode* always_body;     // finally block
-        } try_stmt;
         
         // Module import
         struct {

@@ -85,12 +85,6 @@ typedef enum {
     OP_BREAK,            // exit loop
     OP_CONTINUE,         // next iteration
     
-    // === Error Handling ===
-    OP_TRY,              // begin try block (install handler)
-    OP_CATCH,            // begin catch block
-    OP_THROW,            // throw exception
-    OP_END_TRY,          // end of try/catch block
-    
     // === Misc ===
     OP_PRINT,            // print Rvalue to stdout
     OP_HALT,             // stop VM execution

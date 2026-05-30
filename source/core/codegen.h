@@ -26,14 +26,6 @@ typedef struct {
         int capacity;
     } loop_stack;
     
-    // Try/catch handler stack
-    struct {
-        int try_start;
-        int catch_addr;
-        int finally_addr;
-    } try_stack[64];
-    int try_depth;
-    
     // Register allocator state
     int next_register;
     int max_registers;

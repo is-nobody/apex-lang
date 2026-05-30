@@ -8,7 +8,7 @@
 
 static const char* token_type_names[] = {
     "FUNCTION", "IF", "ELIF", "ELSE", "WHILE", "FOR", "IN", "RANGE",
-    "BREAK", "CONTINUE", "RETURN", "IMPORT", "TRY", "FAILURE", "ALWAYS",
+    "BREAK", "CONTINUE", "RETURN", "IMPORT",
     "AND", "OR", "NOT", "NONE", "TRUE", "FALSE", "NUMBER", "STRING",
     "IDENTIFIER", "PLUS", "MINUS", "STAR", "SLASH", "PERCENT", "EQUAL",
     "EQUAL_EQUAL", "NOT_EQUAL", "LESS", "GREATER", "LESS_EQUAL",
@@ -34,9 +34,6 @@ static KeywordEntry keywords[] = {
     {"continue", TOKEN_CONTINUE},
     {"return", TOKEN_RETURN},
     {"import", TOKEN_IMPORT},
-    {"try", TOKEN_TRY},
-    {"failure", TOKEN_FAILURE},
-    {"always", TOKEN_ALWAYS},
     {"and", TOKEN_AND},
     {"or", TOKEN_OR},
     {"not", TOKEN_NOT},

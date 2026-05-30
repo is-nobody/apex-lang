@@ -347,7 +347,6 @@ VM* vm_create() {
     vm->register_count = 0;
     vm->global_count = 0;
     vm->call_depth = 0;
-    vm->try_handler_addr = -1;
     vm->iterator_depth = -1;
     vm->running = false;
     vm->had_error = false;
@@ -489,9 +488,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_JUMP_IF_EQ]       = &&OP_JUMP_IF_EQ_LABEL,
         [OP_JUMP_IF_NEQ]      = &&OP_JUMP_IF_NEQ_LABEL,
         [OP_PUSH_ARG]         = &&OP_PUSH_ARG_LABEL,
-        [OP_TRY]              = &&OP_TRY_LABEL,
-        [OP_CATCH]            = &&OP_CATCH_LABEL,
-        [OP_END_TRY]          = &&OP_END_TRY_LABEL,
         [OP_PRINT]            = &&OP_PRINT_LABEL,
         [OP_HALT]             = &&OP_HALT_LABEL,
         [OP_ADD_IMM]          = &&OP_ADD_IMM_LABEL,
@@ -1030,7 +1026,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         if (jump) { ip = &vm->code[target]; goto *dispatch_table[ip->opcode]; }
         ip++; goto *dispatch_table[ip->opcode];
     }
-    OP_TRY_LABEL: { vm->try_handler_addr = ip->operands[0]; ip++; goto *dispatch_table[ip->opcode]; }
     OP_PUSH_ARG_LABEL: {
         int reg = ip->operands[0];
         if (vm->args_top >= VM_MAX_ARGS_STACK) vm_error(vm, "Arguments stack overflow");
@@ -1042,14 +1037,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
-    OP_CATCH_LABEL: {
-        int err_reg = ip->operands[0];
-        value_decref(&vm->registers[err_reg]);
-        vm->registers[err_reg] = vm_make_string("runtime_error");
-        vm->try_handler_addr = -1;
-        ip++; goto *dispatch_table[ip->opcode];
-    }
-    OP_END_TRY_LABEL: vm->try_handler_addr = -1; ip++; goto *dispatch_table[ip->opcode];
     OP_PRINT_LABEL: vm_print_value(&vm->registers[ip->operands[0]]); printf("\n"); fflush(stdout); ip++; goto *dispatch_table[ip->opcode];
     OP_HALT_LABEL: vm->running = false; return !vm->had_error;
     OP_ADD_IMM_LABEL: {
@@ -1093,7 +1080,6 @@ void vm_dump_state(VM* vm) {
     printf("\n=== VM State ===\n");
     printf("PC: %d/%d\n", vm->pc, vm->code_count);
     printf("Call depth: %d\n", vm->call_depth);
-    printf("Try handler: %d\n", vm->try_handler_addr);
     vm_dump_registers(vm);
     printf("\n=== Globals (%d) ===\n", vm->global_count);
     for (int i = 0; i < vm->global_count; i++) {

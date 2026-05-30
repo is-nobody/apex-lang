@@ -101,9 +101,6 @@ typedef struct {
     bool running;
     bool had_error;
     
-    // Try/catch error handler address (-1 if not in a try block)
-    int try_handler_addr;
-    
     // Fast numeric loop stack (FOR_NEXT)
     struct {
         double index;

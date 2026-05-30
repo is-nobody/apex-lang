@@ -57,7 +57,6 @@ typedef struct Scope {
     struct Scope* parent;
     bool is_function_scope;  // enables return checking
     bool is_loop_scope;      // enables break/continue checking
-    bool is_try_scope;       // enables failure/always checking
 } Scope;
 
 // ========== Semantic Analyzer ==========
@@ -74,7 +73,6 @@ typedef struct {
     // Context tracking
     bool in_loop;
     bool in_function;
-    bool in_try_block;
     
     // Built-in function table
     Scope* builtins;

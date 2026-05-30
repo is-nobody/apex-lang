@@ -482,9 +482,6 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
         token->type == TOKEN_CONTINUE ||
         token->type == TOKEN_RETURN ||
         token->type == TOKEN_IMPORT ||
-        token->type == TOKEN_TRY ||
-        token->type == TOKEN_FAILURE ||
-        token->type == TOKEN_ALWAYS ||
         token->type == TOKEN_AND ||
         token->type == TOKEN_OR ||
         token->type == TOKEN_NOT ||
@@ -726,38 +723,6 @@ static ASTNode* parse_for_statement(Parser* parser) {
     return ast_create_for(var_name->value, iterable, body, for_kw->line, for_kw->column);
 }
 
-static ASTNode* parse_try_statement(Parser* parser) {
-    advance(parser); // consume 'try'
-    skip_newlines(parser);
-    
-    parser_enter_scope(parser);
-    ASTNode* try_body = parse_block(parser, true);
-    parser_exit_scope(parser);
-    
-    skip_newlines(parser);
-    
-    ASTNode* failure_body = NULL;
-    ASTNode* always_body = NULL;
-    
-    if (match(parser, TOKEN_FAILURE)) {
-        skip_newlines(parser);
-        parser_enter_scope(parser);
-        parser_add_symbol(parser, "error"); // automatic error variable
-        failure_body = parse_block(parser, true);
-        parser_exit_scope(parser);
-        skip_newlines(parser);
-    }
-    
-    if (match(parser, TOKEN_ALWAYS)) {
-        skip_newlines(parser);
-        parser_enter_scope(parser);
-        always_body = parse_block(parser, true);
-        parser_exit_scope(parser);
-    }
-    
-    return ast_create_try(try_body, failure_body, always_body);
-}
-
 static ASTNode* parse_import_statement(Parser* parser) {
     Token* import_kw = advance(parser); // consume 'import'
     
@@ -852,9 +817,6 @@ static ASTNode* parse_statement(Parser* parser) {
             
         case TOKEN_FOR:
             return parse_for_statement(parser);
-            
-        case TOKEN_TRY:
-            return parse_try_statement(parser);
             
         case TOKEN_RETURN:
             return parse_return_statement(parser);

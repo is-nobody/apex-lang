@@ -121,14 +121,6 @@ ASTNode* ast_create_for(const char* var_name, ASTNode* iterable, ASTNode* body,
     return node;
 }
 
-ASTNode* ast_create_try(ASTNode* try_body, ASTNode* failure_body, ASTNode* always_body) {
-    ASTNode* node = ast_create_node(AST_TRY_STMT, try_body->line, try_body->column);
-    node->try_stmt.try_body = try_body;
-    node->try_stmt.failure_body = failure_body;
-    node->try_stmt.always_body = always_body;
-    return node;
-}
-
 ASTNode* ast_create_import(const char* module_path, int line, int column) {
     ASTNode* node = ast_create_node(AST_IMPORT_STMT, line, column);
     node->import_stmt.module_path = strdup(module_path);
@@ -278,11 +270,6 @@ void ast_free_node(ASTNode* node) {
             ast_free_node(node->for_stmt.iterable);
             ast_free_node(node->for_stmt.body);
             break;
-        case AST_TRY_STMT:
-            ast_free_node(node->try_stmt.try_body);
-            ast_free_node(node->try_stmt.failure_body);
-            ast_free_node(node->try_stmt.always_body);
-            break;
         case AST_IMPORT_STMT:
             free(node->import_stmt.module_path);
             break;
@@ -399,20 +386,6 @@ static void ast_print_impl(ASTNode* node, int indent) {
             break;
         case AST_CONTINUE_STMT:
             printf("Continue\n");
-            break;
-        case AST_TRY_STMT:
-            printf("Try\n");
-            ast_print_impl(node->try_stmt.try_body, indent + 1);
-            if (node->try_stmt.failure_body) {
-                print_indent(indent + 1);
-                printf("Failure\n");
-                ast_print_impl(node->try_stmt.failure_body, indent + 2);
-            }
-            if (node->try_stmt.always_body) {
-                print_indent(indent + 1);
-                printf("Always\n");
-                ast_print_impl(node->try_stmt.always_body, indent + 2);
-            }
             break;
         case AST_EXPR_STMT:
             printf("ExprStmt\n");

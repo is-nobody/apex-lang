@@ -790,49 +790,6 @@ static void analyze_break_continue(SemAnalyzer* sema, ASTNode* node) {
     }
 }
 
-static void analyze_try_stmt(SemAnalyzer* sema, ASTNode* node) {
-    Scope* try_scope = scope_create(sema->current_scope,
-                                     sema->current_scope->level + 1);
-    try_scope->is_try_scope = true;
-    sema->current_scope = try_scope;
-    
-    bool prev_in_try = sema->in_try_block;
-    sema->in_try_block = true;
-    
-    analyze_block(sema, node->try_stmt.try_body);
-    
-    sema->current_scope = try_scope->parent;
-    sema->in_try_block = prev_in_try;
-    scope_destroy(try_scope);
-    
-    // Failure block — create implicit 'error' variable
-    if (node->try_stmt.failure_body) {
-        Scope* failure_scope = scope_create(sema->current_scope,
-                                             sema->current_scope->level + 1);
-        sema->current_scope = failure_scope;
-        
-        // Automatic error variable in failure block
-        scope_insert(sema->current_scope, "error",
-                     SYMBOL_VARIABLE, TYPE_STRING,
-                     node->line, node->column);
-        
-        analyze_block(sema, node->try_stmt.failure_body);
-        
-        sema->current_scope = failure_scope->parent;
-        scope_destroy(failure_scope);
-    }
-    
-    // Always block
-    if (node->try_stmt.always_body) {
-        Scope* always_scope = scope_create(sema->current_scope,
-                                            sema->current_scope->level + 1);
-        sema->current_scope = always_scope;
-        analyze_block(sema, node->try_stmt.always_body);
-        sema->current_scope = always_scope->parent;
-        scope_destroy(always_scope);
-    }
-}
-
 static void analyze_import_stmt(SemAnalyzer* sema, ASTNode* node) {
     const char* full_path = node->import_stmt.module_path;
     
@@ -888,9 +845,6 @@ static void analyze_statement(SemAnalyzer* sema, ASTNode* node) {
         case AST_BREAK_STMT:
         case AST_CONTINUE_STMT:
             analyze_break_continue(sema, node);
-            break;
-        case AST_TRY_STMT:
-            analyze_try_stmt(sema, node);
             break;
         case AST_IMPORT_STMT:
             analyze_import_stmt(sema, node);

@@ -81,7 +81,6 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk, SemAnalyzer* sema) {
     cg->max_registers = 0;
     cg->current_function = -1;
     cg->label_counter = 0;
-    cg->try_depth = 0;
     
     // Preload frequently used constants
     cg->cache.zero_reg = alloc_register(cg);
@@ -966,41 +965,6 @@ static void codegen_return(CodeGenerator* cg, ASTNode* node) {
     }
 }
 
-static void codegen_try_statement(CodeGenerator* cg, ASTNode* node) {
-    int catch_label = make_label(cg);
-    
-    // TRY begin
-    int try_start = bytecode_current_offset(cg->chunk);
-    emit(cg, INST(OP_TRY, catch_label, 0, 0), node->line);
-    
-    // Try body
-    codegen_block(cg, node->try_stmt.try_body);
-    
-    // Jump to finally
-    int jump_to_finally = bytecode_current_offset(cg->chunk);
-    emit(cg, INST(OP_JUMP, 0, 0, 0), node->line);
-    
-    // CATCH block
-    bytecode_patch_jump(cg->chunk, try_start + 1, bytecode_current_offset(cg->chunk));
-    
-    if (node->try_stmt.failure_body) {
-        // Create error variable
-        int error_reg = add_local(cg, "error");
-        emit(cg, INST(OP_CATCH, error_reg, 0, 0), node->line);
-        codegen_block(cg, node->try_stmt.failure_body);
-    }
-    
-    // FINALLY block
-    bytecode_patch_jump(cg->chunk, jump_to_finally, bytecode_current_offset(cg->chunk));
-    
-    if (node->try_stmt.always_body) {
-        emit(cg, INST(OP_END_TRY, 0, 0, 0), node->line);
-        codegen_block(cg, node->try_stmt.always_body);
-    } else {
-        emit(cg, INST(OP_END_TRY, 0, 0, 0), node->line);
-    }
-}
-
 static void codegen_import(CodeGenerator* cg, ASTNode* node) {
     const char* full_path = node->import_stmt.module_path;
     
@@ -1068,7 +1032,6 @@ static void codegen_statement(CodeGenerator* cg, ASTNode* node) {
         case AST_RETURN_STMT:     codegen_return(cg, node); break;
         case AST_BREAK_STMT:      codegen_break(cg, node); break;
         case AST_CONTINUE_STMT:   codegen_continue(cg, node); break;
-        case AST_TRY_STMT:        codegen_try_statement(cg, node); break;
         case AST_IMPORT_STMT:     codegen_import(cg, node); break;
         case AST_EXPR_STMT:       codegen_expr_statement(cg, node); break;
         case AST_BLOCK:           codegen_block(cg, node); break;
