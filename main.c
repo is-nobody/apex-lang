@@ -245,8 +245,6 @@ int main(int argc, char** argv) {
             }
             pos = 0;
             
-            usleep(50000);
-            
             #ifdef _WIN32
             int has_kb = _kbhit();
             #else
