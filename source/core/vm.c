@@ -363,15 +363,21 @@ VM* vm_create() {
 
 void vm_destroy(VM* vm) {
     if (!vm) return;
-    for (int i = 0; i < vm->register_count; i++) {
-        value_decref(&vm->registers[i]);
+    
+    for (int f = 0; f < VM_MAX_FRAMES; f++) {
+        for (int i = 0; i < VM_REGS_PER_FRAME; i++) {
+            value_decref(&vm->register_frames[f][i]);
+        }
     }
+    
     for (int i = 0; i < vm->global_count; i++) {
         value_decref(&vm->globals[i]);
     }
+    
     for (int i = 0; i < vm->args_top; i++) {
         value_decref(&vm->args_stack[i]);
     }
+    
     free(vm);
 }
 
@@ -747,10 +753,20 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     OP_CALL_BUILTIN_LABEL: {
         int dest_reg = ip->operands[0]; int name_idx = ip->operands[1]; int arg_count = ip->operands[2];
         Value args[16];
-        for (int i = 0; i < arg_count && i < 16; i++) args[i] = vm->args_stack[vm->args_top - arg_count + i];
-        vm->args_top -= arg_count;
+        
+        for (int i = 0; i < arg_count && i < 16; i++) {
+            args[i] = vm->args_stack[vm->args_top - arg_count + i];
+        }
+        
         Value result;
-        if (vm_call_builtin(vm, chunk->constants[name_idx].string_value, arg_count, args, &result)) {
+        bool ok = vm_call_builtin(vm, chunk->constants[name_idx].string_value, arg_count, args, &result);
+        
+        for (int i = 0; i < arg_count; i++) {
+            value_decref(&vm->args_stack[vm->args_top - arg_count + i]);
+        }
+        vm->args_top -= arg_count;
+
+        if (ok) {
             value_decref(&vm->registers[dest_reg]);
             vm->registers[dest_reg] = result;
         } else {
@@ -823,12 +839,18 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     OP_TABLE_SET_LABEL: {
         int table_reg = ip->operands[0]; int key_reg = ip->operands[1]; int val_reg = ip->operands[2];
         Table* table = vm->registers[table_reg].table;
-        char key_str[256];
+        
+        const char* key_cstr = "";
+        char num_buf[64];
         Value* key = &vm->registers[key_reg];
-        if (key->type == VAL_STRING) strcpy(key_str, key->string->chars);
-        else if (key->type == VAL_NUMBER) snprintf(key_str, sizeof(key_str), "%g", key->number);
-        else key_str[0] = '\0';
-        table_set(table, key_str, vm->registers[val_reg]);
+        
+        if (key->type == VAL_STRING) {
+            key_cstr = key->string->chars;
+        } else if (key->type == VAL_NUMBER) {
+            snprintf(num_buf, sizeof(num_buf), "%g", key->number);
+            key_cstr = num_buf;
+        }
+        table_set(table, key_cstr, vm->registers[val_reg]);
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_TABLE_SET_CONST_LABEL: {

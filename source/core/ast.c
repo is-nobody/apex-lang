@@ -303,6 +303,7 @@ void ast_free_node(ASTNode* node) {
             free(node->type_check.param_name);
             free(node->type_check.type_name);
             break;
+        case AST_PROGRAM:
         case AST_BLOCK:
             for (int i = 0; i < node->block.statements->count; i++)
                 ast_free_node(node->block.statements->nodes[i]);
