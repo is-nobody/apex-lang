@@ -6,11 +6,10 @@ function fib(n)
     return fib(n - 1) + fib(n - 2)
 
 function benchmark()
-    os.output("Apex: fib(35) recursive")
     start = os.time()
-    result = fib(35)
+    result = fib(45)
     elapsed = os.time() - start
-    os.output("Result: {result}")
+    os.output("fib(45) recursive = {result}, excepted 1134903170")
     os.output("Time: {elapsed} seconds")
 
 benchmark()

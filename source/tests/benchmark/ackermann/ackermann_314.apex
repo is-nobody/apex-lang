@@ -8,6 +8,7 @@ function ackermann(m, n)
     return ackermann(m - 1, ackermann(m, n - 1))
 
 start = os.time()
-result = ackermann(3, 6)
+result = ackermann(3, 14)
 elapsed = os.time() - start
-os.output("Ackermann(3,6) = {result}, Time: {elapsed}")
+os.output("Ackermann(3,14) = {result}, excepted 131069")
+os.output("Time: {elapsed}")

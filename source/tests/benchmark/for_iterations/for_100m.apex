@@ -1,15 +1,12 @@
 import os
 
 function benchmark()
-    os.output("Apex: 1,000,000 iterations")
     start = os.time()
     x = 0
-    i = 1
-    while i < 1000001
+    for i = 1, 100000000
         x = x + i
-        i = i + 1
     elapsed = os.time() - start
-    os.output("Result: {x}")
+    os.output("100000000 iterations for: {x}, excepted 5.00000005e+15")
     os.output("Time: {elapsed} seconds")
 
 benchmark()
