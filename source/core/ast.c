@@ -140,14 +140,6 @@ ASTNode* ast_create_string_interp(ASTNodeList* parts) {
     return node;
 }
 
-ASTNode* ast_create_type_check(const char* param_name, const char* type_name,
-                                int line, int column) {
-    ASTNode* node = ast_create_node(AST_TYPE_CHECK, line, column);
-    node->type_check.param_name = strdup(param_name);
-    node->type_check.type_name = strdup(type_name);
-    return node;
-}
-
 ASTNode* ast_create_block(ASTNodeList* statements) {
     ASTNode* node = ast_create_node(AST_BLOCK, 
         statements->count > 0 ? statements->nodes[0]->line : 0,
@@ -162,11 +154,9 @@ ASTNode* ast_create_expr_stmt(ASTNode* expression) {
     return node;
 }
 
-ASTNode* ast_create_param(const char* name, const char* type_annotation,
-                           int line, int column) {
+ASTNode* ast_create_param(const char* name, int line, int column) {
     ASTNode* node = ast_create_node(AST_PARAM, line, column);
     node->param.name = strdup(name);
-    node->param.type_annotation = type_annotation ? strdup(type_annotation) : NULL;
     return node;
 }
 
@@ -276,10 +266,6 @@ void ast_free_node(ASTNode* node) {
                 ast_free_node(node->string_interp.parts->nodes[i]);
             ast_list_free(node->string_interp.parts);
             break;
-        case AST_TYPE_CHECK:
-            free(node->type_check.param_name);
-            free(node->type_check.type_name);
-            break;
         case AST_PROGRAM:
         case AST_BLOCK:
             for (int i = 0; i < node->block.statements->count; i++)
@@ -291,8 +277,6 @@ void ast_free_node(ASTNode* node) {
             break;
         case AST_PARAM:
             free(node->param.name);
-            if (node->param.type_annotation)
-                free(node->param.type_annotation);
             break;
         default:
             break;
@@ -436,20 +420,13 @@ static void ast_print_impl(ASTNode* node, int indent) {
             for (int i = 0; i < node->string_interp.parts->count; i++)
                 ast_print_impl(node->string_interp.parts->nodes[i], indent + 1);
             break;
-        case AST_TYPE_CHECK:
-            printf("TypeCheck: %s == %s\n", 
-                   node->type_check.param_name, node->type_check.type_name);
-            break;
         case AST_BLOCK:
             printf("Block (%d stmts)\n", node->block.statements->count);
             for (int i = 0; i < node->block.statements->count; i++)
                 ast_print_impl(node->block.statements->nodes[i], indent + 1);
             break;
         case AST_PARAM:
-            printf("Param: %s", node->param.name);
-            if (node->param.type_annotation)
-                printf(" : %s", node->param.type_annotation);
-            printf("\n");
+            printf("Param: %s\n", node->param.name);
             break;
         default:
             printf("Unknown node type: %d\n", node->type);

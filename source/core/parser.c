@@ -574,11 +574,6 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
     Token* name = current_token(parser);
     advance(parser); // consume identifier
     
-    if (match(parser, TOKEN_EQUAL_EQUAL)) {
-        Token* type = consume(parser, TOKEN_IDENTIFIER, "Expected type name");
-        return ast_create_type_check(name->value, type->value, name->line, name->column);
-    }
-    
     consume(parser, TOKEN_EQUAL, "Expected '=' in assignment");
     ASTNode* value = parse_expression(parser);
     
@@ -610,14 +605,7 @@ static ASTNode* parse_function(Parser* parser) {
             Token* param_name = consume(parser, TOKEN_IDENTIFIER, "Expected parameter name");
             parser_add_symbol(parser, param_name->value);
             
-            const char* type_annotation = NULL;
-            if (match(parser, TOKEN_EQUAL_EQUAL)) {
-                Token* type = consume(parser, TOKEN_IDENTIFIER, "Expected type after '=='");
-                type_annotation = type->value;
-            }
-            
-            ASTNode* param = ast_create_param(param_name->value, type_annotation,
-                                               param_name->line, param_name->column);
+            ASTNode* param = ast_create_param(param_name->value, param_name->line, param_name->column);
             ast_list_add(params, param);
             
             if (!match(parser, TOKEN_COMMA)) break;
@@ -836,7 +824,7 @@ static ASTNode* parse_statement(Parser* parser) {
             }
             
             TokenType next = peek(parser, lookahead)->type;
-            if (next == TOKEN_EQUAL || next == TOKEN_EQUAL_EQUAL) {
+            if (next == TOKEN_EQUAL) {
                 is_assignment = true;
             }
             

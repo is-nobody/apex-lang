@@ -52,10 +52,6 @@ typedef enum {
     // === Memory Operations ===
     OP_LOAD_GLOBAL,      // Rdest = global[name_index]
     OP_STORE_GLOBAL,     // global[name_index] = Rsrc
-    OP_LOAD_LOCAL,       // Rdest = local[slot]
-    OP_STORE_LOCAL,      // local[slot] = Rsrc
-    OP_LOAD_UPVALUE,     // Rdest = upvalue[slot] (closure support)
-    OP_STORE_UPVALUE,    // upvalue[slot] = Rsrc
     
     // === Table Operations ===
     OP_NEW_TABLE,        // Rdest = new table()
@@ -64,7 +60,6 @@ typedef enum {
     OP_TABLE_GET,        // Rdest = table[key_reg]
     OP_TABLE_GET_CONST,  // Rdest = table[const_idx] (constant key)
     OP_TABLE_APPEND,     // table.append(value_reg)
-    OP_TABLE_LEN,        // Rdest = length(table)
     
     // === String Operations ===
     OP_CONCAT,           // Rdest = Rleft + Rright (string concatenation)
@@ -86,19 +81,13 @@ typedef enum {
     OP_CONTINUE,         // next iteration
     
     // === Misc ===
-    OP_PRINT,            // print Rvalue to stdout
     OP_HALT,             // stop VM execution
     
     // === Extended (optimizations) ===
     OP_ADD_IMM,          // Rdest = Rleft + immediate
     OP_LOAD_BOOL,        // Rdest = true/false (fast bool load)
-    OP_DUP,              // Rdest = Rsrc (duplicate register)
-    OP_SWAP,             // swap(Ra, Rb)
     
-    OP_INC_GLOBAL,       // global[op1] += R[op2]
-    OP_ADD_GLOBAL,       // global[op1] = R[op2] + R[op3]
     OP_LOAD_CONST_NUM,   // R[op0] = op1 (immediate number)
-    OP_JUMP_IF_NUM,      // if R[op1] < op2 then jump op0
 
     OP_COUNT,
 } Opcode;

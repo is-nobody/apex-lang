@@ -683,62 +683,43 @@ static void analyze_for_stmt(SemAnalyzer* sema, ASTNode* node) {
 }
 
 static void analyze_function_decl(SemAnalyzer* sema, ASTNode* node) {
-    Symbol* func_sym = scope_insert(sema->current_scope, 
-                                     node->function_decl.name,
-                                     SYMBOL_FUNCTION, TYPE_FUNCTION,
-                                     node->line, node->column);
-    
+    Symbol* func_sym = scope_insert(sema->current_scope,
+                                    node->function_decl.name,
+                                    SYMBOL_FUNCTION, TYPE_FUNCTION,
+                                    node->line, node->column);
     if (!func_sym) {
         sema_error(sema, node->line, node->column, false,
-            "Function '%s' already declared in this scope",
-            node->function_decl.name);
+                   "Function '%s' already declared in this scope",
+                   node->function_decl.name);
         return;
     }
     
-    // Create function scope
     Scope* func_scope = scope_create(sema->current_scope,
-                                      sema->current_scope->level + 1);
+                                     sema->current_scope->level + 1);
     func_scope->is_function_scope = true;
     sema->current_scope = func_scope;
-    
     bool prev_in_function = sema->in_function;
     sema->in_function = true;
     
-    // Register parameters
     int param_count = node->function_decl.params->count;
     func_sym->func_info.param_count = param_count;
     func_sym->func_info.param_types = (ValueType*)malloc(sizeof(ValueType) * param_count);
-    
+
     for (int i = 0; i < param_count; i++) {
         ASTNode* param = node->function_decl.params->nodes[i];
-        ValueType param_type = TYPE_ANY;  // Default to TYPE_ANY instead of TYPE_UNKNOWN
-        
-        if (param->param.type_annotation) {
-            param_type = type_from_string(param->param.type_annotation);
-            if (param_type == TYPE_UNKNOWN) {
-                sema_error(sema, param->line, param->column, false,
-                    "Unknown type annotation '%s' for parameter '%s'",
-                    param->param.type_annotation, param->param.name);
-                param_type = TYPE_ANY;
-            }
-        }
-        
-        func_sym->func_info.param_types[i] = param_type;
-        
-        // Register parameter with TYPE_ANY (can be anything)
+        func_sym->func_info.param_types[i] = TYPE_ANY;
+
         Symbol* param_sym = scope_insert(sema->current_scope, param->param.name,
-                         SYMBOL_PARAMETER, param_type,
-                         param->line, param->column);
+                                         SYMBOL_PARAMETER, TYPE_ANY,
+                                         param->line, param->column);
         if (param_sym) {
             param_sym->is_initialized = true;
         }
     }
     
-    // Analyze function body
     analyze_block(sema, node->function_decl.body);
-    
     func_sym->func_info.has_return = true;
-    
+
     sema->current_scope = func_scope->parent;
     sema->in_function = prev_in_function;
     scope_destroy(func_scope);
@@ -828,9 +809,6 @@ static void analyze_statement(SemAnalyzer* sema, ASTNode* node) {
             break;
         case AST_BLOCK:
             analyze_block(sema, node);
-            break;
-        case AST_TYPE_CHECK:
-            // Type annotations are handled during parameter declaration
             break;
         default:
             sema_error(sema, node->line, node->column, false,

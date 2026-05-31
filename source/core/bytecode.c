@@ -35,8 +35,6 @@ static const char* opcode_names[] = {
     [OP_RETURN_VOID]      = "RETURN_VOID",
     [OP_LOAD_GLOBAL]      = "LOAD_GLOBAL",
     [OP_STORE_GLOBAL]     = "STORE_GLOBAL",
-    [OP_LOAD_LOCAL]       = "LOAD_LOCAL",
-    [OP_STORE_LOCAL]      = "STORE_LOCAL",
     [OP_NEW_TABLE]        = "NEW_TABLE",
     [OP_TABLE_SET]        = "TABLE_SET",
     [OP_TABLE_GET]        = "TABLE_GET",
@@ -54,19 +52,11 @@ static const char* opcode_names[] = {
     [OP_JUMP_IF_GTE]      = "JUMP_IF_GTE",
     [OP_JUMP_IF_EQ]       = "JUMP_IF_EQ",
     [OP_JUMP_IF_NEQ]      = "JUMP_IF_NEQ",
-    [OP_BREAK]            = "BREAK",
-    [OP_CONTINUE]         = "CONTINUE",
     [OP_PUSH_ARG]         = "PUSH_ARG",
-    [OP_PRINT]            = "PRINT",
     [OP_HALT]             = "HALT",
     [OP_ADD_IMM]          = "ADD_IMM",
     [OP_LOAD_BOOL]        = "LOAD_BOOL",
-    [OP_DUP]              = "DUP",
-    [OP_SWAP]             = "SWAP",
-    [OP_INC_GLOBAL]       = "INC_GLOBAL",
-    [OP_ADD_GLOBAL]       = "ADD_GLOBAL",
     [OP_LOAD_CONST_NUM]   = "LOAD_CONST_NUM",
-    [OP_JUMP_IF_NUM]      = "JUMP_IF_NUM",
 };
 
 const char* opcode_name(Opcode op) {

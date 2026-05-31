@@ -33,7 +33,6 @@ typedef enum {
     AST_TABLE_LITERAL,     // (1, 2, 3) or (key = value, ...)
     AST_STRING_INTERP,     // "Hello {name}"
     AST_RANGE,             // range(start, end, step)
-    AST_TYPE_CHECK,        // x == number (type annotation in params)
     
     // Internal
     AST_BLOCK,             // { statement; statement; ... }
@@ -162,12 +161,6 @@ struct ASTNode {
             ASTNodeList* parts;       // alternating string literals and expressions
         } string_interp;
         
-        // Type check expression (param == type)
-        struct {
-            char* param_name;
-            char* type_name;
-        } type_check;
-        
         // Block of statements
         struct {
             ASTNodeList* statements;
@@ -176,7 +169,6 @@ struct ASTNode {
         // Function parameter definition
         struct {
             char* name;
-            char* type_annotation;    // NULL if no type specified
         } param;
         
         // Wraps an expression as a statement
@@ -221,8 +213,7 @@ ASTNode* ast_create_type_check(const char* param_name, const char* type_name,
                                 int line, int column);
 ASTNode* ast_create_block(ASTNodeList* statements);
 ASTNode* ast_create_expr_stmt(ASTNode* expression);
-ASTNode* ast_create_param(const char* name, const char* type_annotation, 
-                           int line, int column);
+ASTNode* ast_create_param(const char* name, int line, int column);
 
 // ========== List Operations ==========
 ASTNodeList* ast_list_create();

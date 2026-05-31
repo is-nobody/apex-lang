@@ -318,7 +318,7 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
 
     // 3. Register the loop variable and copy start into it.
     int var_reg = add_local(cg, node->for_stmt.var_name);
-    emit(cg, INST(OP_MOVE, var_reg, start_reg, 0), node->line); // <- Важно: OP_FOR_INIT читает старт отсюда
+    emit(cg, INST(OP_MOVE, var_reg, start_reg, 0), node->line);
 
     // 4. Initializing a fast iterator
     emit(cg, INST(OP_FOR_INIT, var_reg, end_reg, step_reg), node->line);

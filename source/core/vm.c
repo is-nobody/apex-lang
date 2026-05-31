@@ -465,8 +465,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_RETURN_VOID]      = &&OP_RETURN_VOID_LABEL,
         [OP_LOAD_GLOBAL]      = &&OP_LOAD_GLOBAL_LABEL,
         [OP_STORE_GLOBAL]     = &&OP_STORE_GLOBAL_LABEL,
-        [OP_LOAD_LOCAL]       = &&OP_LOAD_LOCAL_LABEL,
-        [OP_STORE_LOCAL]      = &&OP_STORE_LOCAL_LABEL,
         [OP_NEW_TABLE]        = &&OP_NEW_TABLE_LABEL,
         [OP_TABLE_SET]        = &&OP_TABLE_SET_LABEL,
         [OP_TABLE_SET_CONST]  = &&OP_TABLE_SET_CONST_LABEL,
@@ -479,8 +477,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_POP_ITER]         = &&OP_POP_ITER_LABEL,
         [OP_FOR_INIT]         = &&OP_FOR_INIT_LABEL,
         [OP_FOR_NEXT]         = &&OP_FOR_NEXT_LABEL,
-        [OP_BREAK]            = &&OP_BREAK_LABEL,
-        [OP_CONTINUE]         = &&OP_CONTINUE_LABEL,
         [OP_JUMP_IF_LT]       = &&OP_JUMP_IF_LT_LABEL,
         [OP_JUMP_IF_LTE]      = &&OP_JUMP_IF_LTE_LABEL,
         [OP_JUMP_IF_GT]       = &&OP_JUMP_IF_GT_LABEL,
@@ -488,44 +484,20 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_JUMP_IF_EQ]       = &&OP_JUMP_IF_EQ_LABEL,
         [OP_JUMP_IF_NEQ]      = &&OP_JUMP_IF_NEQ_LABEL,
         [OP_PUSH_ARG]         = &&OP_PUSH_ARG_LABEL,
-        [OP_PRINT]            = &&OP_PRINT_LABEL,
         [OP_HALT]             = &&OP_HALT_LABEL,
         [OP_ADD_IMM]          = &&OP_ADD_IMM_LABEL,
         [OP_LOAD_BOOL]        = &&OP_LOAD_BOOL_LABEL,
-        [OP_DUP]              = &&OP_DUP_LABEL,
-        [OP_SWAP]             = &&OP_SWAP_LABEL,
-        [OP_INC_GLOBAL]       = &&OP_INC_GLOBAL_LABEL,
-        [OP_ADD_GLOBAL]       = &&OP_ADD_GLOBAL_LABEL,
         [OP_LOAD_CONST_NUM]   = &&OP_LOAD_CONST_NUM_LABEL,
-        [OP_JUMP_IF_NUM]      = &&OP_JUMP_IF_NUM_LABEL,
     };
 
     register Instruction* ip = vm->code;
     goto *dispatch_table[ip->opcode];
 
     OP_NOP_LABEL: ip++; goto *dispatch_table[ip->opcode];
-    OP_INC_GLOBAL_LABEL: {
-        int idx = ip->operands[0]; int src = ip->operands[1];
-        vm->globals[idx].number += vm->registers[src].number;
-        ip++; goto *dispatch_table[ip->opcode];
-    }
-    OP_ADD_GLOBAL_LABEL: {
-        int dest_idx = ip->operands[0]; int left = ip->operands[1]; int right = ip->operands[2];
-        vm->globals[dest_idx].type = VAL_NUMBER;
-        vm->globals[dest_idx].number = vm->registers[left].number + vm->registers[right].number;
-        ip++; goto *dispatch_table[ip->opcode];
-    }
     OP_LOAD_CONST_NUM_LABEL: {
         int dest = ip->operands[0]; int value = ip->operands[1];
         vm->registers[dest].type = VAL_NUMBER; vm->registers[dest].number = (double)value;
         if (dest >= vm->register_count) vm->register_count = dest + 1;
-        ip++; goto *dispatch_table[ip->opcode];
-    }
-    OP_JUMP_IF_NUM_LABEL: {
-        int target = ip->operands[0]; int reg = ip->operands[1]; double limit = (double)ip->operands[2];
-        if (vm->registers[reg].type == VAL_NUMBER && vm->registers[reg].number < limit) {
-            ip = &vm->code[target]; goto *dispatch_table[ip->opcode];
-        }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_LOAD_CONST_LABEL: {
@@ -823,8 +795,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         value_incref(&vm->globals[idx]);
         ip++; goto *dispatch_table[ip->opcode];
     }
-    OP_LOAD_LOCAL_LABEL:
-    OP_STORE_LOCAL_LABEL: ip++; goto *dispatch_table[ip->opcode];
     OP_NEW_TABLE_LABEL: {
         int dest = ip->operands[0];
         value_decref(&vm->registers[dest]);
@@ -983,8 +953,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
     }
     OP_POP_ITER_LABEL: if (vm->iterator_depth >= 0) vm->iterator_depth--; ip++; goto *dispatch_table[ip->opcode];
-    OP_BREAK_LABEL: ip = &vm->code[ip->operands[0]]; goto *dispatch_table[ip->opcode];
-    OP_CONTINUE_LABEL: ip = &vm->code[ip->operands[0]]; goto *dispatch_table[ip->opcode];
     OP_JUMP_IF_LT_LABEL: {
         int target = ip->operands[0]; Value* left = &vm->registers[ip->operands[1]]; Value* right = &vm->registers[ip->operands[2]];
         if (left->type == VAL_NUMBER && right->type == VAL_NUMBER && left->number < right->number) { ip = &vm->code[target]; goto *dispatch_table[ip->opcode]; }
@@ -1042,7 +1010,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
-    OP_PRINT_LABEL: vm_print_value(&vm->registers[ip->operands[0]]); printf("\n"); fflush(stdout); ip++; goto *dispatch_table[ip->opcode];
     OP_HALT_LABEL: vm->running = false; return !vm->had_error;
     OP_ADD_IMM_LABEL: {
         int dest = ip->operands[0]; int src = ip->operands[1]; double imm = chunk->constants[ip->operands[2]].number_value;
@@ -1054,20 +1021,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int dest = ip->operands[0];
         vm->registers[dest].type = VAL_BOOL; vm->registers[dest].boolean = ip->operands[1] != 0;
         if (dest >= vm->register_count) vm->register_count = dest + 1;
-        ip++; goto *dispatch_table[ip->opcode];
-    }
-    OP_DUP_LABEL: {
-        int dest = ip->operands[0]; int src = ip->operands[1]; Value* sv = &vm->registers[src];
-        value_decref(&vm->registers[dest]);
-        vm->registers[dest] = *sv;
-        value_incref(&vm->registers[dest]);
-        if (dest >= vm->register_count) vm->register_count = dest + 1;
-        ip++; goto *dispatch_table[ip->opcode];
-    }
-    OP_SWAP_LABEL: {
-        Value tmp = vm->registers[ip->operands[0]];
-        vm->registers[ip->operands[0]] = vm->registers[ip->operands[1]];
-        vm->registers[ip->operands[1]] = tmp;
         ip++; goto *dispatch_table[ip->opcode];
     }
     return !vm->had_error;

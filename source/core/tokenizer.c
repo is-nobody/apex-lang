@@ -12,7 +12,7 @@ static const char* token_type_names[] = {
     "AND", "OR", "NOT", "TRUE", "FALSE", "NUMBER", "STRING",
     "IDENTIFIER", "PLUS", "MINUS", "STAR", "SLASH", "PERCENT", "EQUAL",
     "EQUAL_EQUAL", "NOT_EQUAL", "LESS", "GREATER", "LESS_EQUAL",
-    "GREATER_EQUAL", "LPAREN", "RPAREN", "COMMA", "DOT", "COLON",
+    "GREATER_EQUAL", "LPAREN", "RPAREN", "COMMA", "DOT",
     "NEWLINE", "EOF", "INDENT", "DEDENT",
 };
 
@@ -395,7 +395,6 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
             case ')': advance(tokenizer); add_token(tokenizer, TOKEN_RPAREN, ")", line, col); continue;
             case ',': advance(tokenizer); add_token(tokenizer, TOKEN_COMMA, ",", line, col); continue;
             case '.': advance(tokenizer); add_token(tokenizer, TOKEN_DOT, ".", line, col); continue;
-            case ':': advance(tokenizer); add_token(tokenizer, TOKEN_COLON, ":", line, col); continue;
         }
         
         char error_msg[64];

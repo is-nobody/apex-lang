@@ -44,7 +44,6 @@ typedef enum {
     TOKEN_RPAREN,
     TOKEN_COMMA,
     TOKEN_DOT,
-    TOKEN_COLON,
     TOKEN_NEWLINE,
     
     // Special
