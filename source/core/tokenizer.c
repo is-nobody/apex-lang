@@ -177,12 +177,24 @@ static void skip_comment(Tokenizer* tokenizer) {
 }
 
 static char* read_string(Tokenizer* tokenizer) {
-    advance(tokenizer);
+    int start_line = tokenizer->line;
+    int start_column = tokenizer->column;
+    advance(tokenizer); // skip opening quote
     
     char* buffer = (char*)malloc(256);
     if (!buffer) return NULL;
     int buf_size = 256;
     int buf_pos = 0;
+    
+    // Track if this is a multi-line string (opening quote followed by newline)
+    bool is_multiline = false;
+    
+    // Check if the string starts with a newline (multi-line string)
+    if (peek(tokenizer, 0) == '\n') {
+        is_multiline = true;
+        // Don't add the leading newline to the content
+        advance(tokenizer);
+    }
     
     while (1) {
         char c = peek(tokenizer, 0);
@@ -191,14 +203,94 @@ static char* read_string(Tokenizer* tokenizer) {
             break;
         }
         
-        if (c == '"') {
-            char next = peek(tokenizer, 1);
-            if (next == ')' || next == ',' || next == '\n' || next == '\r' || next == '\0') {
-                advance(tokenizer);
-                if (next == '\r' && peek(tokenizer, 0) == '\n') {
+        if (c == '\n') {
+            // Handle newline in multi-line strings
+            if (buf_pos + 1 >= buf_size) {
+                buf_size *= 2;
+                char* new_buf = (char*)realloc(buffer, buf_size);
+                if (!new_buf) {
+                    free(buffer);
+                    return NULL;
+                }
+                buffer = new_buf;
+            }
+            buffer[buf_pos++] = advance(tokenizer);
+            
+            // For multi-line strings, skip indentation after newline
+            if (is_multiline) {
+                while (peek(tokenizer, 0) == ' ' || peek(tokenizer, 0) == '\t') {
                     advance(tokenizer);
                 }
-                break;
+            }
+            continue;
+        }
+        
+        if (c == '"') {
+            // For single-line strings: any quote not followed by end-of-statement tokens is part of content
+            // For multi-line strings: quote must be at the start of a line to close the string
+            
+            if (is_multiline) {
+                // In multi-line mode, check if this quote is at the beginning of a line
+                // (after skipping indentation)
+                if (buf_pos > 0 && buffer[buf_pos - 1] == '\n') {
+                    // Quote at start of line - this could be the closing quote
+                    int saved_pos = tokenizer->pos;
+                    int saved_line = tokenizer->line;
+                    int saved_col = tokenizer->column;
+                    
+                    advance(tokenizer); // consume potential closing quote
+                    
+                    // Skip whitespace
+                    while (peek(tokenizer, 0) == ' ' || peek(tokenizer, 0) == '\t') {
+                        advance(tokenizer);
+                    }
+                    
+                    // Check if followed by newline, EOF, or end-of-statement
+                    char next = peek(tokenizer, 0);
+                    if (next == '\n' || next == '\0') {
+                        // This is the closing quote
+                        if (buf_pos > 0 && buffer[buf_pos - 1] == '\n') {
+                            // Remove trailing newline before closing quote
+                            buf_pos--;
+                        }
+                        break;
+                    } else {
+                        // Not closing quote - restore position
+                        tokenizer->pos = saved_pos;
+                        tokenizer->line = saved_line;
+                        tokenizer->column = saved_col;
+                    }
+                }
+            } else {
+                // Single-line string logic
+                int saved_pos = tokenizer->pos;
+                int saved_line = tokenizer->line;
+                int saved_col = tokenizer->column;
+                
+                advance(tokenizer); // consume potential closing quote
+                
+                // Check what follows the quote
+                char next = peek(tokenizer, 0);
+                char nextnext = peek(tokenizer, 1);
+                
+                // Quote ends the string if followed by: end of file, newline, comma, closing paren,
+                // or if we're at the end of an expression
+                if (next == '\0' || next == '\n' || next == ',' || 
+                    next == ')' || next == ']' ||
+                    (next == ' ' && (peek(tokenizer, 1) == '\n' || 
+                                   peek(tokenizer, 1) == ',' ||
+                                   peek(tokenizer, 1) == ')')) ||
+                    (next == '\r' && nextnext == '\n')) {
+                    if (next == '\r' && nextnext == '\n') {
+                        advance(tokenizer); // consume \r
+                    }
+                    break;
+                } else {
+                    // This quote is part of the content
+                    tokenizer->pos = saved_pos;
+                    tokenizer->line = saved_line;
+                    tokenizer->column = saved_col;
+                }
             }
         }
         
