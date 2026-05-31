@@ -1,8 +1,8 @@
 #ifndef VM_H
 #define VM_H
 
-#define VM_MAX_FRAMES 1024       // Maximum recursion depth
-#define VM_REGS_PER_FRAME 256    // Registers per call frame
+#define VM_MAX_FRAMES 512        // Maximum recursion depth
+#define VM_REGS_PER_FRAME 32     // Registers per call frame
 
 #include "bytecode.h"
 #include <stdbool.h>
@@ -59,14 +59,13 @@ typedef struct Table {
 } Table;
 
 // ========== VM ==========
-#define VM_MAX_STACK 1024
-#define VM_MAX_CALL_FRAMES 1024    // Increased for deep recursion
-#define VM_MAX_GLOBALS 65536
-#define VM_MAX_ARGS_STACK 256      // Argument passing stack
+#define VM_MAX_CALL_FRAMES 4096    // Increased for deep recursion
+#define VM_MAX_GLOBALS 512
+#define VM_MAX_ARGS_STACK 64       // Argument passing stack
 
 typedef struct {
     // Register frames array (each function call gets its own frame)
-    Value register_frames[VM_MAX_FRAMES][VM_REGS_PER_FRAME];
+    Value* register_frames;
     Value* registers;              // Pointer to the CURRENT active frame
     int current_frame;             // Current frame index
     int register_count;            // Max used register in the current frame
