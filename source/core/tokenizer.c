@@ -177,36 +177,42 @@ static void skip_comment(Tokenizer* tokenizer) {
 }
 
 static char* read_string(Tokenizer* tokenizer) {
-    advance(tokenizer); // skip opening quote
+    advance(tokenizer);
     
     char* buffer = (char*)malloc(256);
+    if (!buffer) return NULL;
     int buf_size = 256;
     int buf_pos = 0;
     
-    char c = peek(tokenizer, 0);
-    while (c != '\0') {
+    while (1) {
+        char c = peek(tokenizer, 0);
+        
+        if (c == '\0') {
+            break;
+        }
+        
         if (c == '"') {
-            advance(tokenizer);
-            if (peek(tokenizer, 0) == '"') {
-                // Escaped quote
+            char next = peek(tokenizer, 1);
+            if (next == ')' || next == ',' || next == '\n' || next == '\r' || next == '\0') {
                 advance(tokenizer);
-                if (buf_pos + 1 >= buf_size) {
-                    buf_size *= 2;
-                    buffer = (char*)realloc(buffer, buf_size);
+                if (next == '\r' && peek(tokenizer, 0) == '\n') {
+                    advance(tokenizer);
                 }
-                buffer[buf_pos++] = '"';
-            } else {
-                // Closing quote
                 break;
             }
-        } else {
-            if (buf_pos + 1 >= buf_size) {
-                buf_size *= 2;
-                buffer = (char*)realloc(buffer, buf_size);
-            }
-            buffer[buf_pos++] = advance(tokenizer);
         }
-        c = peek(tokenizer, 0);
+        
+        if (buf_pos + 1 >= buf_size) {
+            buf_size *= 2;
+            char* new_buf = (char*)realloc(buffer, buf_size);
+            if (!new_buf) {
+                free(buffer);
+                return NULL;
+            }
+            buffer = new_buf;
+        }
+        
+        buffer[buf_pos++] = advance(tokenizer);
     }
     
     buffer[buf_pos] = '\0';
