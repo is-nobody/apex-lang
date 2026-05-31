@@ -34,10 +34,45 @@ target_include_directories(apex PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries # For os_module.h, etc.
 )
 
-# Compiler flags
-target_compile_options(apex PRIVATE
-    -Wall -Wextra -O2 -fno-strict-aliasing -D_DEFAULT_SOURCE
+# ==========================================================
+# COMPILER FLAGS FOR MAXIMUM SPEED
+# ==========================================================
+
+# Base flags for all builds
+set(BASE_FLAGS 
+    -Wall -Wextra 
+    -fno-strict-aliasing 
+    -D_DEFAULT_SOURCE
 )
+
+# High-performance flags for GCC/Clang (Linux/macOS/MinGW)
+set(HIGH_PERF_FLAGS
+    -O3                 # Maximum optimization level
+    -march=native       # Optimize for current CPU (AVX/SSE/etc.)
+    -ffast-math         # Fast floating point operations (breaks strict IEEE 754)
+    -funroll-loops      # Unroll loops (critical for VM dispatch loop)
+    -fomit-frame-pointer # Free up a register
+    -flto               # Link-Time Optimization (inter-procedural optimization)
+)
+
+# Apply flags based on compiler
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(apex PRIVATE ${BASE_FLAGS} ${HIGH_PERF_FLAGS})
+    
+    # Enable LTO support in linker
+    if(CMAKE_BUILD_TYPE STREQUAL "Release")
+        target_link_options(apex PRIVATE -flto)
+    endif()
+elseif(MSVC)
+    # MSVC equivalents
+    target_compile_options(apex PRIVATE 
+        /O2 /Ot /GL /arch:AVX2 /fp:fast
+    )
+    target_link_options(apex PRIVATE /LTCG)
+else()
+    # Fallback for other compilers
+    target_compile_options(apex PRIVATE ${BASE_FLAGS} -O2)
+endif()
 
 # Windows-specific: suppress MinGW POSIX deprecation warnings
 if(MINGW OR WIN32)
