@@ -1,4 +1,4 @@
-# Apex Reference Manual for Beginners (26.06)
+# Apex Reference Manual for Beginners (v26.06)
 This manual is written with step-by-step learning in mind and strives to be minimalistic. Each section builds on the previous ones. For the best experience, follow the order. If you see a note like "see section X" — that's a hint that you might want to go here if something feels unfamiliar. Don't skip ahead to functions or loops before you understand variables and conditions. Everything connects.
 
 ## Table of Contents
@@ -31,7 +31,7 @@ This manual is written with step-by-step learning in mind and strives to be mini
 
 ### 5. For Loops
 - [5.1 For Statement](#51-for-statement)
-- [5.2 Range](#52-range)
+- [5.2 Steps](#52-steps)
 - [5.3 Break](#53-break)
 - [5.4 Continue](#54-continue)
 
@@ -675,96 +675,81 @@ while x < 10
 When `x` is even, `continue` skips `os.output(x)` and goes back to check the condition again.
 
 # 5. For Loops
-A `while` loop is great when you don't know how many times you need to repeat. But sometimes you know exactly how many times — "print 'Hello' 10 times" or "show all items in a list of 5 things". For these situations, Apex gives you the for loop. A `for` loop repeats code once for each item in a collection. You give it a variable and a table. The loop runs once per item, and each time the variable holds the next value.
+A `while` loop is great when you don't know how many times you need to repeat. But sometimes you know exactly how many times — "print 'Hello' 10 times" or "sum numbers from 1 to 1,000,000". For these situations, Apex gives you the `for` loop. It's fast, predictable, and follows the Lua-style numeric iteration.
 
 | Situation | Use | Why |
 |-----------|-----|-----|
-| Loop through items in a table | `for item in table` | Natural — one item at a time |
-| Repeat N times | `for i in range(1, N+1)` | You know the exact count |
+| Repeat N times | `for i = 1, 10` | You know the exact count |
 | Keep asking until valid input | `while` | Don't know when user will respond |
-| Wait for a file to load | `while` | Condition is unpredictable |
+| Wait for a condition | `while` | Condition is unpredictable |
 
 Think of it this way:
-
 - While: "Keep eating while the plate has food" — you don't know how many bites
-- For: "Take for 10 bites" — you know exactly how many
+- For: "Eat exactly 10 bites" — you know exactly how many
 
 ## 5.1 For Statement
-The `for` statement loops through every item in a table. Use it when you have a collection of things to process — names, prices, users, or any list of values.
+The `for` statement creates a numeric loop. You specify a variable, a starting number, and an ending number. The loop runs once for each number in that range, **including the end value**.
+
+Syntax: `for variable = start, end [, step]`
 
 ```apex
 import os
-shopping_list = ("milk", "bread", "eggs")
-for item in shopping_list
-    os.output(item)
-```
-
-Each time the loop runs, the variable (`item`) takes the next value from the table. The loop automatically stops when there are no more items.
-
-## 5.2 Range
-Need to repeat code a specific number of times? Use `range()`. The `range()` function creates a table with numbers.
-
-```apex
-import os
-for i in range(1, 6)
+for i = 1, 5
     os.output(i)
 ```
 
-This prints numbers 1 through 5. `range(1, 6)` creates the table `(1, 2, 3, 4, 5)`.
+This prints numbers 1 through 5. The variable `i` automatically takes each value: `1`, `2`, `3`, `4`, `5`. The loop stops when `i` exceeds the `end` value.
 
-**Why 6?** `range(start, end)` goes up to but **not including** `end`. So `range(1, 6)` gives you 1,2,3,4,5 — exactly five numbers.
-
-### Range with Step
-Add a third parameter to skip numbers — the step size.
+## 5.2 Steps
+You can control how much the loop variable increases or decreases by adding a third number — the `step`.
 
 ```apex
 import os
-for i in range(0, 11, 2)
+for i = 0, 10, 2
     os.output(i)
 ```
+This prints even numbers: 0, 2, 4, 6, 8, 10. It starts at `0`, ends at `10`, and adds `2` each time.
 
-This prints even numbers: 0, 2, 4, 6, 8, 10. `range(0, 11, 2)` creates `(0, 2, 4, 6, 8, 10)`.
-
-### Counting Down
-Use a negative step to count backward.
+For counting down use a negative step to count backward:
 
 ```apex
 import os
-for i in range(5, 0, -1)
+for i = 5, 1, -1
     os.output(i)
 ```
 
-This prints 5, 4, 3, 2, 1.
+This prints 5, 4, 3, 2, 1. The loop stops when the variable goes below the `end` value.
+
+If you omit the step, Apex assumes it is `1`.
 
 ## 5.3 Break
 `break` exits the loop immediately — same as in `while`.
 
 ```apex
 import os
-for i in range(1, 11)
+
+for i = 1, 10
     if i == 5
         break
     os.output(i)
 ```
-
 This prints 1, 2, 3, 4. When `i` becomes 5, `break` stops the loop entirely. Nothing after it runs for that iteration.
 
 Use `break` when you found what you were looking for and don't need to continue.
 
 ## 5.4 Continue
-`continue` skips the rest of the current iteration and moves to the next item.
+`continue` skips the rest of the current iteration and moves to the next number.
 
 ```apex
 import os
-for i in range(1, 6)
+for i = 1, 5
     if i == 3
         continue
     os.output(i)
 ```
+This prints 1, 2, 4, 5. When `i` is 3, `continue` jumps to the next value (`4`) without running `os.output()`.
 
-This prints 1, 2, 4, 5. When `i` is 3, `continue` jumps to the next item (`4`) without running the `os.output()`.
-
-Use `continue` when you want to skip certain items but keep looping through the rest.
+Use `continue` when you want to skip certain values but keep looping through the rest.
 
 # 6. Functions
 Imagine you have a recipe for making a sandwich. You follow the same steps every time: take two slices of bread, spread butter on one, spread jam on the other, put them together. Now imagine you had to write out those steps every single time you wanted a sandwich. That would be tedious. Instead, you give the recipe a name — `make_sandwich` — and whenever you want a sandwich, you just say that name. That's exactly what a function is: a named block of code that you can use whenever you need it.

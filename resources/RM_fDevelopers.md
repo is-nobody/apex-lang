@@ -1,4 +1,4 @@
-# Apex Language Reference Manual for Beginners
+# Apex Reference Manual for Developers (v26.06)
 This manual is minimalistic. Each section builds on the previous ones. For the best experience, follow the order.
 
 ## Table of Contents
@@ -30,7 +30,7 @@ This manual is minimalistic. Each section builds on the previous ones. For the b
 
 ### 5. For Loops
 - [5.1 For Statement](#51-for-statement)
-- [5.2 Range](#52-range)
+- [5.2 Steps](#52-steps)
 - [5.3 Break](#53-break)
 - [5.4 Continue](#54-continue)
 
@@ -457,34 +457,26 @@ When `x` is even, `continue` skips `os.output(x)` and goes back to check the con
 ## 5.1 For Statement
 A `for` loop repeats code once for each item in a collection. You give it a variable and a table. The loop runs once per item, and each time the variable holds the next value.
 
-## 5.2 Range
-The `range()` function creates a table with numbers.
+# 5. For Loops
+## 5.1 For Statement
+A `for` loop repeats code a specific number of times. You give it a variable, a start value, and an end value. The loop runs once for each number in that range.
+
+## 5.2 Step
+Add a third number to change the step size — how much to add or subtract each iteration.
 
 ```apex
 import os
-for i in range(1, 6)
+for i = 0, 10, 2
     os.output(i)
 ```
 
-`range(1, 6)` creates the table `(1, 2, 3, 4, 5)`.
+This prints even numbers: 0, 2, 4, 6, 8, 10. If you omit the step, Apex assumes `1`.
 
-### Range with Step
-Add a third parameter to skip numbers — the step size.
-
-```apex
-import os
-for i in range(0, 11, 2)
-    os.output(i)
-```
-
-This prints even numbers: 0, 2, 4, 6, 8, 10. `range(0, 11, 2)` creates `(0, 2, 4, 6, 8, 10)`.
-
-### Counting Down
-Use a negative step to count backward.
+For counting down use a negative step to count backward:
 
 ```apex
 import os
-for i in range(5, 0, -1)
+for i = 5, 1, -1
     os.output(i)
 ```
 
@@ -495,18 +487,18 @@ This prints 5, 4, 3, 2, 1.
 
 ```apex
 import os
-for i in range(1, 11)
+for i = 1, 10
     if i == 5
         break
     os.output(i)
 ```
 
 ## 5.4 Continue
-`continue` skips the rest of the current iteration and moves to the next item.
+`continue` skips the rest of the current iteration and moves to the next number.
 
 ```apex
 import os
-for i in range(1, 6)
+for i = 1, 5
     if i == 3
         continue
     os.output(i)

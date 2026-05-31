@@ -965,16 +965,21 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
                 double c = vm->iterator_stack[vm->iterator_depth].index;
                 double e = vm->iterator_stack[vm->iterator_depth].end;
                 double s = vm->iterator_stack[vm->iterator_depth].step;
-                if ((s > 0 && c < e) || (s < 0 && c > e)) {
-                    vm->registers[var_reg].type = VAL_NUMBER; vm->registers[var_reg].number = c;
+                
+                if ((s > 0 && c <= e) || (s < 0 && c >= e)) {
+                    vm->registers[var_reg].type = VAL_NUMBER;
+                    vm->registers[var_reg].number = c;
                     if (var_reg >= vm->register_count) vm->register_count = var_reg + 1;
                     vm->iterator_stack[vm->iterator_depth].index = c + s;
                     ip++; goto *dispatch_table[ip->opcode];
                 } else {
-                    vm->iterator_depth--; ip = &vm->code[exit_addr]; goto *dispatch_table[ip->opcode];
+                    vm->iterator_depth--;
+                    ip = &vm->code[exit_addr];
+                    goto *dispatch_table[ip->opcode];
                 }
             }
-            ip = &vm->code[exit_addr]; goto *dispatch_table[ip->opcode];
+            ip = &vm->code[exit_addr];
+            goto *dispatch_table[ip->opcode];
         }
     }
     OP_POP_ITER_LABEL: if (vm->iterator_depth >= 0) vm->iterator_depth--; ip++; goto *dispatch_table[ip->opcode];

@@ -508,36 +508,6 @@ static ValueType analyze_string_interp(SemAnalyzer* sema, ASTNode* node) {
     return TYPE_STRING;
 }
 
-static ValueType analyze_range(SemAnalyzer* sema, ASTNode* node) {
-    ValueType start_type = analyze_expression(sema, node->range.start);
-    ValueType end_type = analyze_expression(sema, node->range.end);
-    
-    // TYPE_ANY is compatible with NUMBER
-    if (start_type != TYPE_NUMBER && start_type != TYPE_ANY && start_type != TYPE_UNKNOWN) {
-        sema_error(sema, node->line, node->column, false,
-            "Range requires number arguments, got %s and %s",
-            type_name(start_type), type_name(end_type));
-        return TYPE_ERROR;
-    }
-    if (end_type != TYPE_NUMBER && end_type != TYPE_ANY && end_type != TYPE_UNKNOWN) {
-        sema_error(sema, node->line, node->column, false,
-            "Range requires number arguments, got %s and %s",
-            type_name(start_type), type_name(end_type));
-        return TYPE_ERROR;
-    }
-    
-    if (node->range.step) {
-        ValueType step_type = analyze_expression(sema, node->range.step);
-        if (step_type != TYPE_NUMBER && step_type != TYPE_ANY && step_type != TYPE_UNKNOWN) {
-            sema_error(sema, node->line, node->column, false,
-                "Range step must be a number, got %s", type_name(step_type));
-            return TYPE_ERROR;
-        }
-    }
-    
-    return TYPE_TABLE;
-}
-
 static ValueType analyze_expression(SemAnalyzer* sema, ASTNode* node) {
     if (!node) return TYPE_UNKNOWN;
     
@@ -563,8 +533,6 @@ static ValueType analyze_expression(SemAnalyzer* sema, ASTNode* node) {
             return analyze_table_literal(sema, node);
         case AST_STRING_INTERP:
             return analyze_string_interp(sema, node);
-        case AST_RANGE:
-            return analyze_range(sema, node);
         case AST_FUNCTION_DECL:
             return TYPE_FUNCTION;
         default:
@@ -679,30 +647,36 @@ static void analyze_while_stmt(SemAnalyzer* sema, ASTNode* node) {
 }
 
 static void analyze_for_stmt(SemAnalyzer* sema, ASTNode* node) {
-    ValueType iter_type = analyze_expression(sema, node->for_stmt.iterable);
-    
-    if (iter_type != TYPE_TABLE && iter_type != TYPE_UNKNOWN && 
-        iter_type != TYPE_STRING) {
+    ValueType start_type = analyze_expression(sema, node->for_stmt.start);
+    if (start_type != TYPE_NUMBER && start_type != TYPE_ANY && start_type != TYPE_UNKNOWN) {
         sema_error(sema, node->line, node->column, false,
-            "For loop requires iterable (table or string), got %s", 
-            type_name(iter_type));
+                   "For loop start must be a number, got %s", type_name(start_type));
     }
-    
+
+    ValueType end_type = analyze_expression(sema, node->for_stmt.end);
+    if (end_type != TYPE_NUMBER && end_type != TYPE_ANY && end_type != TYPE_UNKNOWN) {
+        sema_error(sema, node->line, node->column, false,
+                   "For loop end must be a number, got %s", type_name(end_type));
+    }
+
+    if (node->for_stmt.step) {
+        ValueType step_type = analyze_expression(sema, node->for_stmt.step);
+        if (step_type != TYPE_NUMBER && step_type != TYPE_ANY && step_type != TYPE_UNKNOWN) {
+            sema_error(sema, node->line, node->column, false,
+                       "For loop step must be a number, got %s", type_name(step_type));
+        }
+    }
+
     bool prev_in_loop = sema->in_loop;
     sema->in_loop = true;
-    
-    Scope* loop_scope = scope_create(sema->current_scope,
-                                      sema->current_scope->level + 1);
+    Scope* loop_scope = scope_create(sema->current_scope, sema->current_scope->level + 1);
     loop_scope->is_loop_scope = true;
     sema->current_scope = loop_scope;
-    
-    // Register loop variable
+
     scope_insert(sema->current_scope, node->for_stmt.var_name,
-                 SYMBOL_VARIABLE, TYPE_UNKNOWN,
-                 node->line, node->column);
-    
+                 SYMBOL_VARIABLE, TYPE_NUMBER, node->line, node->column);
+
     analyze_block(sema, node->for_stmt.body);
-    
     sema->current_scope = loop_scope->parent;
     scope_destroy(loop_scope);
     sema->in_loop = prev_in_loop;

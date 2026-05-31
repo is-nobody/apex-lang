@@ -112,15 +112,16 @@ ASTNode* ast_create_while(ASTNode* condition, ASTNode* body) {
     return node;
 }
 
-ASTNode* ast_create_for(const char* var_name, ASTNode* iterable, ASTNode* body,
-                         int line, int column) {
+ASTNode* ast_create_for(const char* var_name, ASTNode* start, ASTNode* end,
+                        ASTNode* step, ASTNode* body, int line, int column) {
     ASTNode* node = ast_create_node(AST_FOR_STMT, line, column);
     node->for_stmt.var_name = strdup(var_name);
-    node->for_stmt.iterable = iterable;
+    node->for_stmt.start = start;
+    node->for_stmt.end = end;
+    node->for_stmt.step = step;
     node->for_stmt.body = body;
     return node;
 }
-
 ASTNode* ast_create_import(const char* module_path, int line, int column) {
     ASTNode* node = ast_create_node(AST_IMPORT_STMT, line, column);
     node->import_stmt.module_path = strdup(module_path);
@@ -136,14 +137,6 @@ ASTNode* ast_create_return(ASTNode* value, int line, int column) {
 ASTNode* ast_create_string_interp(ASTNodeList* parts) {
     ASTNode* node = ast_create_node(AST_STRING_INTERP, 0, 0);
     node->string_interp.parts = parts;
-    return node;
-}
-
-ASTNode* ast_create_range(ASTNode* start, ASTNode* end, ASTNode* step) {
-    ASTNode* node = ast_create_node(AST_RANGE, start->line, start->column);
-    node->range.start = start;
-    node->range.end = end;
-    node->range.step = step;
     return node;
 }
 
@@ -267,7 +260,9 @@ void ast_free_node(ASTNode* node) {
             break;
         case AST_FOR_STMT:
             free(node->for_stmt.var_name);
-            ast_free_node(node->for_stmt.iterable);
+            ast_free_node(node->for_stmt.start);
+            ast_free_node(node->for_stmt.end);
+            if (node->for_stmt.step) ast_free_node(node->for_stmt.step);
             ast_free_node(node->for_stmt.body);
             break;
         case AST_IMPORT_STMT:
@@ -280,11 +275,6 @@ void ast_free_node(ASTNode* node) {
             for (int i = 0; i < node->string_interp.parts->count; i++)
                 ast_free_node(node->string_interp.parts->nodes[i]);
             ast_list_free(node->string_interp.parts);
-            break;
-        case AST_RANGE:
-            ast_free_node(node->range.start);
-            ast_free_node(node->range.end);
-            if (node->range.step) ast_free_node(node->range.step);
             break;
         case AST_TYPE_CHECK:
             free(node->type_check.param_name);
@@ -377,8 +367,14 @@ static void ast_print_impl(ASTNode* node, int indent) {
             ast_print_impl(node->while_stmt.body, indent + 1);
             break;
         case AST_FOR_STMT:
-            printf("For: %s\n", node->for_stmt.var_name);
-            ast_print_impl(node->for_stmt.iterable, indent + 1);
+            printf("For: %s = ", node->for_stmt.var_name);
+            ast_print_impl(node->for_stmt.start, indent);
+            print_indent(indent + 1); printf("to ");
+            ast_print_impl(node->for_stmt.end, indent + 1);
+            if (node->for_stmt.step) {
+                print_indent(indent + 1); printf("step ");
+                ast_print_impl(node->for_stmt.step, indent + 1);
+            }
             ast_print_impl(node->for_stmt.body, indent + 1);
             break;
         case AST_BREAK_STMT:
@@ -439,13 +435,6 @@ static void ast_print_impl(ASTNode* node, int indent) {
             printf("StringInterp\n");
             for (int i = 0; i < node->string_interp.parts->count; i++)
                 ast_print_impl(node->string_interp.parts->nodes[i], indent + 1);
-            break;
-        case AST_RANGE:
-            printf("Range\n");
-            ast_print_impl(node->range.start, indent + 1);
-            ast_print_impl(node->range.end, indent + 1);
-            if (node->range.step)
-                ast_print_impl(node->range.step, indent + 1);
             break;
         case AST_TYPE_CHECK:
             printf("TypeCheck: %s == %s\n", 

@@ -141,7 +141,9 @@ struct ASTNode {
         // For-in loop
         struct {
             char* var_name;
-            ASTNode* iterable;
+            ASTNode* start;
+            ASTNode* end;
+            ASTNode* step;
             ASTNode* body;
         } for_stmt;
         
@@ -159,13 +161,6 @@ struct ASTNode {
         struct {
             ASTNodeList* parts;       // alternating string literals and expressions
         } string_interp;
-        
-        // Range expression (start..end or start..end..step)
-        struct {
-            ASTNode* start;
-            ASTNode* end;
-            ASTNode* step;            // NULL if default step of 1
-        } range;
         
         // Type check expression (param == type)
         struct {
@@ -216,13 +211,12 @@ ASTNode* ast_create_function(const char* name, ASTNodeList* params, ASTNode* bod
 ASTNode* ast_create_if(ASTNode* condition, ASTNode* then_branch, 
                        ASTNode* elif_chain, ASTNode* else_branch);
 ASTNode* ast_create_while(ASTNode* condition, ASTNode* body);
-ASTNode* ast_create_for(const char* var_name, ASTNode* iterable, ASTNode* body, 
-                         int line, int column);
+ASTNode* ast_create_for(const char* var_name, ASTNode* start, ASTNode* end,
+                        ASTNode* step, ASTNode* body, int line, int column);
 ASTNode* ast_create_try(ASTNode* try_body, ASTNode* failure_body, ASTNode* always_body);
 ASTNode* ast_create_import(const char* module_path, int line, int column);
 ASTNode* ast_create_return(ASTNode* value, int line, int column);
 ASTNode* ast_create_string_interp(ASTNodeList* parts);
-ASTNode* ast_create_range(ASTNode* start, ASTNode* end, ASTNode* step);
 ASTNode* ast_create_type_check(const char* param_name, const char* type_name, 
                                 int line, int column);
 ASTNode* ast_create_block(ASTNodeList* statements);

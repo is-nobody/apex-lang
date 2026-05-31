@@ -380,23 +380,6 @@ static ASTNode* parse_group_or_table(Parser* parser) {
     return expr;
 }
 
-static ASTNode* parse_range(Parser* parser) {
-    advance(parser); // consume 'range'
-    consume(parser, TOKEN_LPAREN, "Expected '(' after 'range'");
-    
-    ASTNode* start = parse_expression(parser);
-    consume(parser, TOKEN_COMMA, "Expected ',' after range start");
-    ASTNode* end = parse_expression(parser);
-    
-    ASTNode* step = NULL;
-    if (match(parser, TOKEN_COMMA)) {
-        step = parse_expression(parser);
-    }
-    
-    consume(parser, TOKEN_RPAREN, "Expected ')' after range arguments");
-    return ast_create_range(start, end, step);
-}
-
 // ========== Prefix Parsers ==========
 
 static ASTNode* parse_prefix(Parser* parser) {
@@ -432,8 +415,6 @@ static ASTNode* parse_prefix(Parser* parser) {
             }
             return ast_create_unary(TOKEN_NOT, operand);
         }
-        case TOKEN_RANGE:
-            return parse_range(parser);
         case TOKEN_EOF:
         case TOKEN_NEWLINE:
             return NULL;
@@ -476,8 +457,6 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
         token->type == TOKEN_ELSE ||
         token->type == TOKEN_WHILE ||
         token->type == TOKEN_FOR ||
-        token->type == TOKEN_IN ||
-        token->type == TOKEN_RANGE ||
         token->type == TOKEN_BREAK ||
         token->type == TOKEN_CONTINUE ||
         token->type == TOKEN_RETURN ||
@@ -716,51 +695,70 @@ static ASTNode* parse_while_statement(Parser* parser) {
 static ASTNode* parse_for_statement(Parser* parser) {
     Token* for_kw = advance(parser);
     Token* var_name = consume(parser, TOKEN_IDENTIFIER, "Expected variable name");
-    consume(parser, TOKEN_IN, "Expected 'in' after for variable");
-    ASTNode* iterable = parse_expression(parser);
+    consume(parser, TOKEN_EQUAL, "Expected '=' after for variable");
+    
+    ASTNode* start = parse_expression(parser);
+    consume(parser, TOKEN_COMMA, "Expected ',' after start value");
+    ASTNode* end = parse_expression(parser);
+    
+    ASTNode* step = NULL;
+    if (match(parser, TOKEN_COMMA)) {
+        step = parse_expression(parser);
+    }
+    
     ASTNode* body = parse_block(parser, true);
-    return ast_create_for(var_name->value, iterable, body, for_kw->line, for_kw->column);
+    return ast_create_for(var_name->value, start, end, step, body, for_kw->line, for_kw->column);
+}
+
+static bool is_valid_import_segment(TokenType type) {
+    if (type == TOKEN_IDENTIFIER) return true;
+    if (type >= TOKEN_FUNCTION && type <= TOKEN_FALSE) return true;
+    if (type == TOKEN_NUMBER || type == TOKEN_STRING) return true;
+    return false;
 }
 
 static ASTNode* parse_import_statement(Parser* parser) {
-    Token* import_kw = advance(parser); // consume 'import'
+    Token* import_kw = advance(parser);
     
-    char module_path[1024] = "";
+    char* module_path = (char*)malloc(128);
+    int path_len = 0, path_cap = 128;
+    module_path[0] = '\0';
     
-    // First path segment
+    #define APPEND_PATH(s) do { \
+        int slen = (int)strlen(s); \
+        if (path_len + slen + 2 >= path_cap) { \
+            path_cap = (path_len + slen + 2) * 2; \
+            module_path = (char*)realloc(module_path, path_cap); \
+        } \
+        strcat(module_path, s); \
+        path_len += slen; \
+    } while(0)
+    
     Token* first = current_token(parser);
-    if (first->type != TOKEN_IDENTIFIER && 
-        first->type != TOKEN_AND && first->type != TOKEN_OR && 
-        first->type != TOKEN_NOT && first->type != TOKEN_IN &&
-        first->type != TOKEN_RANGE) {
+    if (!is_valid_import_segment(first->type)) {
+        free(module_path);
         parser_error(parser, "Expected module name");
     }
+    APPEND_PATH(first->value);
     advance(parser);
-    strcpy(module_path, first->value);
     
-    // Collect remaining dot-separated segments
     while (match(parser, TOKEN_DOT)) {
-        strcat(module_path, ".");
+        APPEND_PATH(".");
         Token* next = current_token(parser);
         
-        // Allow identifiers and keywords as module path segments
-        if (next->type == TOKEN_IDENTIFIER ||
-            next->type == TOKEN_AND || next->type == TOKEN_OR ||
-            next->type == TOKEN_NOT || next->type == TOKEN_IN ||
-            next->type == TOKEN_RANGE || next->type == TOKEN_FUNCTION ||
-            next->type == TOKEN_IF || next->type == TOKEN_ELSE ||
-            next->type == TOKEN_WHILE || next->type == TOKEN_FOR ||
-            next->type == TOKEN_RETURN || next->type == TOKEN_TRUE ||
-            next->type == TOKEN_FALSE) {
-            
+        if (is_valid_import_segment(next->type)) {
+            APPEND_PATH(next->value);
             advance(parser);
-            strcat(module_path, next->value);
         } else {
+            free(module_path);
             parser_error(parser, "Expected identifier after '.'");
         }
     }
     
-    return ast_create_import(module_path, import_kw->line, import_kw->column);
+    ASTNode* node = ast_create_import(module_path, import_kw->line, import_kw->column);
+    free(module_path);
+    #undef APPEND_PATH
+    return node;
 }
 
 static ASTNode* parse_return_statement(Parser* parser) {

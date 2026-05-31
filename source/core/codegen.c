@@ -100,16 +100,14 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk, SemAnalyzer* sema) {
 
 void codegen_destroy(CodeGenerator* cg) {
     if (!cg) return;
-    
     for (int i = 0; i < cg->locals.count; i++) {
         free(cg->locals.names[i]);
     }
     free(cg->locals.names);
     free(cg->locals.registers);
-    
     free(cg->loop_stack.break_addrs);
     free(cg->loop_stack.continue_addrs);
-    
+    free(cg->loop_stack.is_fast);
     free(cg);
 }
 
@@ -297,147 +295,58 @@ static int codegen_string_interp(CodeGenerator* cg, ASTNode* node) {
     return result_reg;
 }
 
-static int codegen_range(CodeGenerator* cg, ASTNode* node) {
-    int start_reg = codegen_expression(cg, node->range.start);
-    int end_reg = codegen_expression(cg, node->range.end);
-    int step_reg = -1;
-    
-    if (node->range.step) {
-        step_reg = codegen_expression(cg, node->range.step);
+static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
+    // 1. Growing the loop stack
+    if (cg->loop_stack.count >= cg->loop_stack.capacity) {
+        cg->loop_stack.capacity = cg->loop_stack.capacity == 0 ? 16 : cg->loop_stack.capacity * 2;
+        cg->loop_stack.break_addrs = realloc(cg->loop_stack.break_addrs, sizeof(int) * cg->loop_stack.capacity);
+        cg->loop_stack.continue_addrs = realloc(cg->loop_stack.continue_addrs, sizeof(int) * cg->loop_stack.capacity);
+        cg->loop_stack.is_fast = realloc(cg->loop_stack.is_fast, sizeof(bool) * cg->loop_stack.capacity);
+    }
+
+    // 2. Generating borders
+    int start_reg = codegen_expression(cg, node->for_stmt.start);
+    int end_reg = codegen_expression(cg, node->for_stmt.end);
+    int step_reg;
+    if (node->for_stmt.step) {
+        step_reg = codegen_expression(cg, node->for_stmt.step);
     } else {
-        // Default step = 1
         step_reg = alloc_register(cg);
         int one_idx = bytecode_add_number_constant(cg->chunk, 1.0);
         emit(cg, INST(OP_LOAD_CONST, step_reg, one_idx, 0), node->line);
     }
-    
-    // Create iterator: table with __start, __end, __step, __current
-    int iter_reg = alloc_register(cg);
-    emit(cg, INST(OP_NEW_TABLE, iter_reg, 0, 0), node->line);
-    
-    int start_key = bytecode_add_string_constant(cg->chunk, "__start");
-    int end_key = bytecode_add_string_constant(cg->chunk, "__end");
-    int step_key = bytecode_add_string_constant(cg->chunk, "__step");
-    
-    emit(cg, INST(OP_TABLE_SET_CONST, iter_reg, start_key, start_reg), node->line);
-    emit(cg, INST(OP_TABLE_SET_CONST, iter_reg, end_key, end_reg), node->line);
-    emit(cg, INST(OP_TABLE_SET_CONST, iter_reg, step_key, step_reg), node->line);
-    
+
+    // 3. Register the loop variable and copy start into it.
+    int var_reg = add_local(cg, node->for_stmt.var_name);
+    emit(cg, INST(OP_MOVE, var_reg, start_reg, 0), node->line); // <- Важно: OP_FOR_INIT читает старт отсюда
+
+    // 4. Initializing a fast iterator
+    emit(cg, INST(OP_FOR_INIT, var_reg, end_reg, step_reg), node->line);
+    int loop_start = bytecode_current_offset(cg->chunk);
+
+    // 5. Setting up the management stack
+    cg->loop_stack.is_fast[cg->loop_stack.count] = true;
+    cg->loop_stack.break_addrs[cg->loop_stack.count] = 0;
+    cg->loop_stack.continue_addrs[cg->loop_stack.count] = loop_start;
+    cg->loop_stack.count++;
+
+    // 6. Exit condition
+    int for_next_instr = bytecode_current_offset(cg->chunk);
+    emit(cg, INST(OP_FOR_NEXT, var_reg, 0, 0), node->line); // op2==0 -> fast path
+
+    // 7. Loop body
+    codegen_block(cg, node->for_stmt.body);
+    emit(cg, INST(OP_JUMP, loop_start, 0, 0), node->line);
+
+    // 8. Patching the exit address
+    int exit_addr = bytecode_current_offset(cg->chunk);
+    cg->chunk->code[for_next_instr].operands[1] = exit_addr;
+
+    // 9. Clearing
+    cg->loop_stack.count--;
     free_register(cg, start_reg);
     free_register(cg, end_reg);
     free_register(cg, step_reg);
-    
-    return iter_reg;
-}
-
-static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
-    // Grow loop stack if needed
-    if (cg->loop_stack.count >= cg->loop_stack.capacity) {
-        cg->loop_stack.capacity = cg->loop_stack.capacity == 0 ? 16 : cg->loop_stack.capacity * 2;
-        cg->loop_stack.break_addrs = (int*)realloc(cg->loop_stack.break_addrs, sizeof(int) * cg->loop_stack.capacity);
-        cg->loop_stack.continue_addrs = (int*)realloc(cg->loop_stack.continue_addrs, sizeof(int) * cg->loop_stack.capacity);
-        // If you added is_fast to the struct, don't forget to realloc it too
-    }
-
-    bool is_fast_loop = false;
-    
-    // Check if the iterable is a range() call
-    if (node->for_stmt.iterable->type == AST_CALL) {
-        ASTNode* callee = node->for_stmt.iterable->call.callee;
-        if (callee->type == AST_IDENTIFIER && strcmp(callee->identifier.name, "range") == 0) {
-            is_fast_loop = true;
-        }
-    } else if (node->for_stmt.iterable->type == AST_RANGE) {
-        is_fast_loop = true;
-    }
-
-    if (is_fast_loop) {
-        // === FAST NUMERIC LOOP ===
-        int start_reg, end_reg, step_reg;
-        ASTNodeList* args = NULL;
-
-        if (node->for_stmt.iterable->type == AST_CALL) {
-            args = node->for_stmt.iterable->call.arguments;
-            if (args->count == 1) {
-                start_reg = alloc_register(cg);
-                int zero_idx = bytecode_add_number_constant(cg->chunk, 0.0);
-                emit(cg, INST(OP_LOAD_CONST, start_reg, zero_idx, 0), node->line);
-                end_reg = codegen_expression(cg, args->nodes[0]);
-            } else {
-                start_reg = codegen_expression(cg, args->nodes[0]);
-                end_reg = codegen_expression(cg, args->nodes[1]);
-            }
-            if (args->count >= 3) {
-                step_reg = codegen_expression(cg, args->nodes[2]);
-            } else {
-                step_reg = alloc_register(cg);
-                int one_idx = bytecode_add_number_constant(cg->chunk, 1.0);
-                emit(cg, INST(OP_LOAD_CONST, step_reg, one_idx, 0), node->line);
-            }
-        } else {
-            // AST_RANGE (1..10 syntax)
-            start_reg = codegen_expression(cg, node->for_stmt.iterable->range.start);
-            end_reg = codegen_expression(cg, node->for_stmt.iterable->range.end);
-            if (node->for_stmt.iterable->range.step) {
-                step_reg = codegen_expression(cg, node->for_stmt.iterable->range.step);
-            } else {
-                step_reg = alloc_register(cg);
-                int one_idx = bytecode_add_number_constant(cg->chunk, 1.0);
-                emit(cg, INST(OP_LOAD_CONST, step_reg, one_idx, 0), node->line);
-            }
-        }
-
-        int var_reg = add_local(cg, node->for_stmt.var_name);
-        emit(cg, INST(OP_MOVE, var_reg, start_reg, 0), node->line);
-        emit(cg, INST(OP_FOR_INIT, var_reg, end_reg, step_reg), node->line);
-
-        int loop_start = bytecode_current_offset(cg->chunk);
-        
-        cg->loop_stack.break_addrs[cg->loop_stack.count] = 0;
-        cg->loop_stack.continue_addrs[cg->loop_stack.count] = loop_start;
-        cg->loop_stack.count++;
-
-        int for_next_instr = bytecode_current_offset(cg->chunk);
-        emit(cg, INST(OP_FOR_NEXT, var_reg, 0, 0), node->line); // op2=0 marks fast loop
-
-        codegen_block(cg, node->for_stmt.body);
-        emit(cg, INST(OP_JUMP, loop_start, 0, 0), node->line);
-
-        int exit_addr = bytecode_current_offset(cg->chunk);
-        cg->chunk->code[for_next_instr].operands[1] = exit_addr;
-        cg->loop_stack.break_addrs[cg->loop_stack.count - 1] = exit_addr;
-        cg->loop_stack.count--;
-
-        free_register(cg, start_reg);
-        free_register(cg, end_reg);
-        free_register(cg, step_reg);
-
-    } else {
-        // === SLOW LOOP (tables) ===
-        int iter_reg = codegen_expression(cg, node->for_stmt.iterable);
-        int var_reg = add_local(cg, node->for_stmt.var_name);
-
-        emit(cg, INST(OP_FOR_PREP, iter_reg, 0, 0), node->line);
-
-        int loop_start = bytecode_current_offset(cg->chunk);
-        
-        cg->loop_stack.break_addrs[cg->loop_stack.count] = 0;
-        cg->loop_stack.continue_addrs[cg->loop_stack.count] = loop_start;
-        cg->loop_stack.count++;
-
-        int for_next_instr = bytecode_current_offset(cg->chunk);
-        emit(cg, INST(OP_FOR_NEXT, var_reg, iter_reg, 0), node->line);
-
-        codegen_block(cg, node->for_stmt.body);
-        emit(cg, INST(OP_JUMP, loop_start, 0, 0), node->line);
-
-        int exit_addr = bytecode_current_offset(cg->chunk);
-        cg->chunk->code[for_next_instr].operands[2] = exit_addr; // op2!=0 marks slow loop
-        cg->loop_stack.break_addrs[cg->loop_stack.count - 1] = exit_addr;
-        cg->loop_stack.count--;
-
-        free_register(cg, iter_reg);
-    }
 }
 
 static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
@@ -568,10 +477,6 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
         }
         case AST_STRING_INTERP: {
             int reg = codegen_string_interp(cg, node);
-            return reg;
-        }
-        case AST_RANGE: {
-            int reg = codegen_range(cg, node);
             return reg;
         }
         default: {

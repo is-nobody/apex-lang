@@ -28,8 +28,6 @@ static KeywordEntry keywords[] = {
     {"else", TOKEN_ELSE},
     {"while", TOKEN_WHILE},
     {"for", TOKEN_FOR},
-    {"in", TOKEN_IN},
-    {"range", TOKEN_RANGE},
     {"break", TOKEN_BREAK},
     {"continue", TOKEN_CONTINUE},
     {"return", TOKEN_RETURN},
