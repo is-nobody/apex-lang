@@ -485,7 +485,6 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
         token->type == TOKEN_AND ||
         token->type == TOKEN_OR ||
         token->type == TOKEN_NOT ||
-        token->type == TOKEN_NONE ||
         token->type == TOKEN_TRUE ||
         token->type == TOKEN_FALSE) {
         
@@ -752,7 +751,7 @@ static ASTNode* parse_import_statement(Parser* parser) {
             next->type == TOKEN_IF || next->type == TOKEN_ELSE ||
             next->type == TOKEN_WHILE || next->type == TOKEN_FOR ||
             next->type == TOKEN_RETURN || next->type == TOKEN_TRUE ||
-            next->type == TOKEN_FALSE || next->type == TOKEN_NONE) {
+            next->type == TOKEN_FALSE) {
             
             advance(parser);
             strcat(module_path, next->value);

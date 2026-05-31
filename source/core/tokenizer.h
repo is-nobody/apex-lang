@@ -21,7 +21,6 @@ typedef enum {
     TOKEN_NOT,
     
     // Literals
-    TOKEN_NONE,
     TOKEN_TRUE,
     TOKEN_FALSE,
     TOKEN_NUMBER,

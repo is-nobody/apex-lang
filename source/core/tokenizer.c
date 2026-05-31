@@ -9,7 +9,7 @@
 static const char* token_type_names[] = {
     "FUNCTION", "IF", "ELIF", "ELSE", "WHILE", "FOR", "IN", "RANGE",
     "BREAK", "CONTINUE", "RETURN", "IMPORT",
-    "AND", "OR", "NOT", "NONE", "TRUE", "FALSE", "NUMBER", "STRING",
+    "AND", "OR", "NOT", "TRUE", "FALSE", "NUMBER", "STRING",
     "IDENTIFIER", "PLUS", "MINUS", "STAR", "SLASH", "PERCENT", "EQUAL",
     "EQUAL_EQUAL", "NOT_EQUAL", "LESS", "GREATER", "LESS_EQUAL",
     "GREATER_EQUAL", "LPAREN", "RPAREN", "COMMA", "DOT", "COLON",
@@ -37,7 +37,6 @@ static KeywordEntry keywords[] = {
     {"and", TOKEN_AND},
     {"or", TOKEN_OR},
     {"not", TOKEN_NOT},
-    {"none", TOKEN_NONE},
     {"true", TOKEN_TRUE},
     {"false", TOKEN_FALSE},
     {NULL, TOKEN_EOF}
@@ -256,7 +255,6 @@ static char* read_identifier(Tokenizer* tokenizer) {
 
 static TokenType lookup_keyword(const char* identifier) {
     // Case-insensitive literal checks
-    if (strcasecmp(identifier, "none") == 0) return TOKEN_NONE;
     if (strcasecmp(identifier, "true") == 0) return TOKEN_TRUE;
     if (strcasecmp(identifier, "false") == 0) return TOKEN_FALSE;
     

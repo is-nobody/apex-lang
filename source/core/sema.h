@@ -19,7 +19,6 @@ typedef enum {
     TYPE_NUMBER,
     TYPE_STRING,
     TYPE_BOOLEAN,
-    TYPE_NONE,
     TYPE_TABLE,
     TYPE_FUNCTION,
     TYPE_ERROR,          // type error marker

@@ -317,7 +317,7 @@ Arithmetic operators work with numbers. They do exactly what you learned in math
 | `/` | Division | `15 / 4` | `3.75` |
 | `%` | Modulo (remainder) | `15 % 4` | `3` |
 
-Arithmetic only works with the numbers data type, you cannot add number with string, none with boolean, etc. When you perform an arithmetic operation between a whole and a decimal, the result also becomes a decimal.
+Arithmetic only works with the numbers data type, you cannot add number with string, string with boolean, etc. When you perform an arithmetic operation between a whole and a decimal, the result also becomes a decimal.
 
 ## 2.2 Comparison Operators
 Comparison operators compare two values and give you a boolean result: either `true` or `false`. They can return only a Boolean value.

@@ -149,12 +149,6 @@ static int codegen_literal_bool(CodeGenerator* cg, ASTNode* node) {
     return reg;
 }
 
-static int codegen_literal_none(CodeGenerator* cg, ASTNode* node) {
-    int reg = alloc_register(cg);
-    emit(cg, INST(OP_LOAD_BOOL, reg, 0, 0), node->line);
-    return reg;
-}
-
 static int codegen_identifier(CodeGenerator* cg, ASTNode* node) {
     const char* name = node->identifier.name;
     int local_reg = find_local(cg, name);

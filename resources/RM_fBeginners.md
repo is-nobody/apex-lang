@@ -375,7 +375,7 @@ Arithmetic operators work with numbers. They do exactly what you learned in math
 | `/` | Division | `15 / 4` | `3.75` |
 | `%` | Modulo (remainder) | `15 % 4` | `3` |
 
-Arithmetic only works with the numbers data type, you cannot add number with string, none with boolean, etc. When you perform an arithmetic operation between a whole and a decimal, the result also becomes a decimal.
+Arithmetic only works with the numbers data type, you cannot add number with string, string with boolean, etc. When you perform an arithmetic operation between a whole and a decimal, the result also becomes a decimal.
 
 ### Addition (`+`)
 Adds two numbers together.
@@ -820,7 +820,7 @@ introduce("Alice", "Smith", 30)
 
 Order matters. The first value goes to the first parameter, the second value to the second parameter, and so on.
 
-Sometimes you need a function to accept a specific data type of a variable. For this, you need to use `==` and specify the type (available is: `none`, `number`, `boolean`, `string`, `table`):
+Sometimes you need a function to accept a specific data type of a variable. For this, you need to use `==` and specify the type (available is: `number`, `boolean`, `string`, `table`):
 
 ```apex
 import os
@@ -859,7 +859,7 @@ Why return instead of just output? Because output shows text on screen. Returnin
 // Output — you lose the value
 function add_and_print(a, b)
     os.output(a + b)
-total = add_and_print(5, 3)   // total becomes none (nothing returned)
+total = add_and_print(5, 3)   // total becomes 0 (nothing returned)
 // Returning — you keep the value
 function add_and_return(a, b)
     return a + b

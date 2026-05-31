@@ -210,7 +210,7 @@ static void register_builtin(Scope* scope, const char* name,
 
 static void register_all_builtins(Scope* scope) {
     // OS Library
-    register_builtin(scope, "os.output", TYPE_NONE, 1, TYPE_ANY);
+    register_builtin(scope, "os.output", TYPE_BOOLEAN, 1, TYPE_ANY);
     register_builtin(scope, "os.input", TYPE_STRING, 1, TYPE_STRING);
     register_builtin(scope, "os.read", TYPE_STRING, 1, TYPE_STRING);
     register_builtin(scope, "os.write", TYPE_BOOLEAN, 2, TYPE_STRING, TYPE_STRING);
@@ -227,8 +227,8 @@ static void register_all_builtins(Scope* scope) {
     register_builtin(scope, "os.mkdir", TYPE_BOOLEAN, 1, TYPE_STRING);
     register_builtin(scope, "os.rmdir", TYPE_BOOLEAN, 1, TYPE_STRING);
     register_builtin(scope, "os.stat", TYPE_TABLE, 1, TYPE_STRING);
-    register_builtin(scope, "os.exit", TYPE_NONE, 1, TYPE_NUMBER);
-    register_builtin(scope, "os.wait", TYPE_NONE, 1, TYPE_NUMBER);
+    register_builtin(scope, "os.exit", TYPE_BOOLEAN, 1, TYPE_NUMBER);
+    register_builtin(scope, "os.wait", TYPE_BOOLEAN, 1, TYPE_NUMBER);
     register_builtin(scope, "os.time", TYPE_NUMBER, 0);
     register_builtin(scope, "os.system", TYPE_NUMBER, 1, TYPE_STRING);
     register_builtin(scope, "os.platform", TYPE_STRING, 0);
@@ -260,12 +260,12 @@ static void register_all_builtins(Scope* scope) {
     register_builtin(scope, "string.replace", TYPE_STRING, 3, TYPE_STRING, TYPE_STRING, TYPE_STRING);
     
     // Table Library
-    register_builtin(scope, "table.remove", TYPE_NONE, 2, TYPE_TABLE, TYPE_ANY);
+    register_builtin(scope, "table.remove", TYPE_BOOLEAN, 2, TYPE_TABLE, TYPE_ANY);
     register_builtin(scope, "table.has", TYPE_BOOLEAN, 2, TYPE_TABLE, TYPE_ANY);
     register_builtin(scope, "table.size", TYPE_NUMBER, 1, TYPE_TABLE);
     register_builtin(scope, "table.keys", TYPE_TABLE, 1, TYPE_TABLE);
     register_builtin(scope, "table.values", TYPE_TABLE, 1, TYPE_TABLE);
-    register_builtin(scope, "table.clear", TYPE_NONE, 1, TYPE_TABLE);
+    register_builtin(scope, "table.clear", TYPE_BOOLEAN, 1, TYPE_TABLE);
     register_builtin(scope, "table.copy", TYPE_TABLE, 1, TYPE_TABLE);
     register_builtin(scope, "table.merge", TYPE_TABLE, 2, TYPE_TABLE, TYPE_TABLE);
     
@@ -539,7 +539,7 @@ static ValueType analyze_range(SemAnalyzer* sema, ASTNode* node) {
 }
 
 static ValueType analyze_expression(SemAnalyzer* sema, ASTNode* node) {
-    if (!node) return TYPE_NONE;
+    if (!node) return TYPE_UNKNOWN;
     
     switch (node->type) {
         case AST_LITERAL_NUMBER:
