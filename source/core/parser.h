@@ -28,6 +28,8 @@ typedef struct {
     ParserSymbolKind* kinds;
     ValueType* types;
     int* param_counts;
+    bool* const_known;
+    double* const_values;
     int count;
     int capacity;
     int current_scope;
@@ -40,6 +42,7 @@ struct Parser {
     int count;
     int current;
     char* filename;
+    char* source_dir;
     const char* source;
 
     ParserSymbolTable symbols;

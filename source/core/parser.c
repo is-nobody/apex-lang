@@ -6,6 +6,22 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <math.h>
+#include <limits.h>
+#ifdef _WIN32
+    #include <io.h>
+    #ifndef F_OK
+        #define F_OK 0
+    #endif
+    #ifndef PATH_MAX
+        #define PATH_MAX 4096
+    #endif
+#else
+    #include <unistd.h>
+    #ifndef PATH_MAX
+        #define PATH_MAX 4096
+    #endif
+#endif
 
 // ========== Forward Declarations ==========
 static Token* current_token(Parser* parser);
@@ -15,6 +31,7 @@ static ASTNode* parse_expression(Parser* parser);
 static ASTNode* parse_block(Parser* parser, bool expect_newlines);
 static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, int line, int column);
 static ValueType infer_expression_type(Parser* parser, ASTNode* node);
+static int symbol_index_recursive(Parser* parser, const char* name);
 
 // ========== Built-in function signatures ==========
 
@@ -64,7 +81,7 @@ void parser_error_at(Parser* parser, int line, int column, int len,
 
     parser->error_count++;
     print_error_with_context(parser->filename, parser->source,
-                             line, column, len, "ParseError", buffer);
+                             line, column, len, "Parse Error", buffer);
     throw_repl_error();
 }
 
@@ -102,6 +119,200 @@ static bool is_comparable_type(ValueType type) {
     return type == TYPE_NUMBER || type == TYPE_STRING || type == TYPE_BOOLEAN;
 }
 
+static const char* binary_op_name(TokenType op) {
+    switch (op) {
+        case TOKEN_PLUS: return "+";
+        case TOKEN_MINUS: return "-";
+        case TOKEN_STAR: return "*";
+        case TOKEN_SLASH: return "/";
+        case TOKEN_PERCENT: return "%";
+        case TOKEN_EQUAL_EQUAL: return "==";
+        case TOKEN_NOT_EQUAL: return "!=";
+        case TOKEN_LESS: return "<";
+        case TOKEN_GREATER: return ">";
+        case TOKEN_LESS_EQUAL: return "<=";
+        case TOKEN_GREATER_EQUAL: return ">=";
+        case TOKEN_AND: return "and";
+        case TOKEN_OR: return "or";
+        default: return token_type_name(op);
+    }
+}
+
+static void parser_set_source_dir(Parser* parser, const char* filename) {
+    parser->source_dir = (char*)malloc(PATH_MAX);
+    if (!parser->source_dir) return;
+
+    if (!filename || filename[0] == '\0' ||
+        strcmp(filename, "stdin") == 0 ||
+        strcmp(filename, "<interpolation>") == 0) {
+        strncpy(parser->source_dir, ".", PATH_MAX - 1);
+        parser->source_dir[PATH_MAX - 1] = '\0';
+        return;
+    }
+
+    strncpy(parser->source_dir, filename, PATH_MAX - 1);
+    parser->source_dir[PATH_MAX - 1] = '\0';
+    char* slash = strrchr(parser->source_dir, '/');
+    if (slash) {
+        *slash = '\0';
+    } else {
+        strncpy(parser->source_dir, ".", PATH_MAX - 1);
+    }
+}
+
+static bool parser_is_zero_constant(Parser* parser, ASTNode* node) {
+    if (!node) return false;
+
+    if (node->type == AST_LITERAL_NUMBER) {
+        return node->literal_number.number_value == 0.0;
+    }
+    if (node->type == AST_UNARY && node->unary.op == TOKEN_MINUS) {
+        ASTNode* operand = node->unary.operand;
+        if (operand && operand->type == AST_LITERAL_NUMBER) {
+            return operand->literal_number.number_value == 0.0;
+        }
+    }
+    if (node->type == AST_IDENTIFIER) {
+        int idx = symbol_index_recursive(parser, node->identifier.name);
+        if (idx >= 0 && parser->symbols.const_known[idx]) {
+            return parser->symbols.const_values[idx] == 0.0;
+        }
+    }
+    return false;
+}
+
+static void parser_check_divisor(Parser* parser, ASTNode* node, ASTNode* divisor) {
+    if (!parser->semantic_checks || !divisor) return;
+    if (parser_is_zero_constant(parser, divisor)) {
+        parser_error_at(parser, node->line, node->column, 0,
+                        "Division by zero");
+    }
+}
+
+static bool expr_has_side_effect(ASTNode* node) {
+    if (!node) return false;
+
+    switch (node->type) {
+        case AST_CALL:
+            return true;
+        case AST_BINARY:
+            return expr_has_side_effect(node->binary.left) ||
+                   expr_has_side_effect(node->binary.right);
+        case AST_UNARY:
+            return expr_has_side_effect(node->unary.operand);
+        case AST_MEMBER_ACCESS:
+        case AST_INDEX_ACCESS:
+            return expr_has_side_effect(node->access.object);
+        case AST_STRING_INTERP: {
+            for (int i = 0; i < node->string_interp.parts->count; i++) {
+                if (expr_has_side_effect(node->string_interp.parts->nodes[i])) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        case AST_TABLE_LITERAL: {
+            for (int i = 0; i < node->table_literal.items->count; i++) {
+                if (expr_has_side_effect(node->table_literal.items->nodes[i])) {
+                    return true;
+                }
+            }
+            for (int i = 0; i < node->table_literal.key_values->count; i++) {
+                ASTNode* kv = node->table_literal.key_values->nodes[i];
+                if (expr_has_side_effect(kv->binary.left) ||
+                    expr_has_side_effect(kv->binary.right)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        default:
+            return false;
+    }
+}
+
+static void parser_check_expr_statement(Parser* parser, ASTNode* expr) {
+    if (!parser->semantic_checks || !expr) return;
+    if (!expr_has_side_effect(expr)) {
+        parser_error_at(parser, expr->line, expr->column, 0,
+                        "Expression statement has no effect");
+    }
+}
+
+static bool is_builtin_module_root(const char* name) {
+    return strcmp(name, "os") == 0 || strcmp(name, "math") == 0 ||
+           strcmp(name, "string") == 0 || strcmp(name, "table") == 0;
+}
+
+static void parser_validate_import_file(Parser* parser, const char* module_path,
+                                        int line, int column) {
+    if (!parser->semantic_checks || !parser->source_dir || !module_path) return;
+    if (strcmp(parser->filename, "stdin") == 0 ||
+        strcmp(parser->filename, "<interpolation>") == 0) {
+        return;
+    }
+
+    char first_segment[256];
+    const char* dot = strchr(module_path, '.');
+    size_t first_len = dot ? (size_t)(dot - module_path) : strlen(module_path);
+    if (first_len >= sizeof(first_segment)) first_len = sizeof(first_segment) - 1;
+    memcpy(first_segment, module_path, first_len);
+    first_segment[first_len] = '\0';
+
+    if (is_builtin_module_root(first_segment)) {
+        return;
+    }
+
+    char relative[1024];
+    size_t len = 0;
+    relative[0] = '\0';
+    char path_copy[1024];
+    strncpy(path_copy, module_path, sizeof(path_copy) - 1);
+    path_copy[sizeof(path_copy) - 1] = '\0';
+
+    char* segment = strtok(path_copy, ".");
+    while (segment) {
+        if (len > 0) {
+            if (len + 1 < sizeof(relative)) relative[len++] = '/';
+        }
+        size_t seg_len = strlen(segment);
+        if (len + seg_len >= sizeof(relative)) return;
+        memcpy(relative + len, segment, seg_len);
+        len += seg_len;
+        relative[len] = '\0';
+        segment = strtok(NULL, ".");
+    }
+
+    if (len + 5 >= sizeof(relative)) return;
+    strcat(relative, ".apex");
+
+    char full_path[PATH_MAX];
+    if (snprintf(full_path, sizeof(full_path), "%s/%s", parser->source_dir, relative) >=
+        (int)sizeof(full_path)) {
+        return;
+    }
+    
+    #ifdef _WIN32
+    if (_access(full_path, F_OK) != 0) {
+    #else
+    if (access(full_path, F_OK) != 0) {
+    #endif
+        parser_error_at(parser, line, column, (int)strlen(module_path),
+                "Module '%s' not found (expected '%s')",
+                module_path, relative);
+    }
+}
+
+static void parser_symbol_set_const(Parser* parser, int idx, bool known, double value) {
+    if (idx < 0) return;
+    parser->symbols.const_known[idx] = known;
+    parser->symbols.const_values[idx] = value;
+}
+
+static void parser_symbol_clear_const(Parser* parser, int idx) {
+    parser_symbol_set_const(parser, idx, false, 0.0);
+}
+
 // ========== Symbol Management ==========
 
 static void symbols_grow(Parser* parser) {
@@ -113,6 +324,8 @@ static void symbols_grow(Parser* parser) {
     s->kinds = (ParserSymbolKind*)realloc(s->kinds, sizeof(ParserSymbolKind) * s->capacity);
     s->types = (ValueType*)realloc(s->types, sizeof(ValueType) * s->capacity);
     s->param_counts = (int*)realloc(s->param_counts, sizeof(int) * s->capacity);
+    s->const_known = (bool*)realloc(s->const_known, sizeof(bool) * s->capacity);
+    s->const_values = (double*)realloc(s->const_values, sizeof(double) * s->capacity);
 }
 
 static int symbol_index_in_scope(Parser* parser, const char* name, int scope) {
@@ -148,6 +361,8 @@ void parser_exit_scope(Parser* parser) {
                 parser->symbols.kinds[j] = parser->symbols.kinds[j + 1];
                 parser->symbols.types[j] = parser->symbols.types[j + 1];
                 parser->symbols.param_counts[j] = parser->symbols.param_counts[j + 1];
+                parser->symbols.const_known[j] = parser->symbols.const_known[j + 1];
+                parser->symbols.const_values[j] = parser->symbols.const_values[j + 1];
             }
             parser->symbols.count--;
         } else {
@@ -173,6 +388,8 @@ bool parser_declare_symbol(Parser* parser, const char* name, ParserSymbolKind ki
     parser->symbols.kinds[i] = kind;
     parser->symbols.types[i] = type;
     parser->symbols.param_counts[i] = param_count;
+    parser->symbols.const_known[i] = false;
+    parser->symbols.const_values[i] = 0.0;
     return true;
 }
 
@@ -206,6 +423,8 @@ Parser* parser_create(Token* tokens, int count, const char* filename, const char
     parser->symbols.kinds = NULL;
     parser->symbols.types = NULL;
     parser->symbols.param_counts = NULL;
+    parser->symbols.const_known = NULL;
+    parser->symbols.const_values = NULL;
     parser->symbols.count = 0;
     parser->symbols.capacity = 0;
     parser->symbols.current_scope = 0;
@@ -214,6 +433,8 @@ Parser* parser_create(Token* tokens, int count, const char* filename, const char
     parser->function_depth = 0;
     parser->semantic_checks = true;
     parser->source = source;
+    parser->source_dir = NULL;
+    parser_set_source_dir(parser, filename);
 
     return parser;
 }
@@ -221,7 +442,8 @@ Parser* parser_create(Token* tokens, int count, const char* filename, const char
 void parser_destroy(Parser* parser) {
     if (parser) {
         free(parser->filename);
-        
+        free(parser->source_dir);
+
         // Free symbol table
         for (int i = 0; i < parser->symbols.count; i++) {
             free(parser->symbols.names[i]);
@@ -231,6 +453,8 @@ void parser_destroy(Parser* parser) {
         free(parser->symbols.kinds);
         free(parser->symbols.types);
         free(parser->symbols.param_counts);
+        free(parser->symbols.const_known);
+        free(parser->symbols.const_values);
 
         free(parser);
     }
@@ -301,9 +525,12 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
             if (!is_numeric_type(left_type) || !is_numeric_type(right_type)) {
                 parser_error_at(parser, node->line, node->column, 0,
                     "Arithmetic operator '%s' requires number operands, got %s and %s",
-                    token_type_name(node->binary.op),
+                    binary_op_name(node->binary.op),
                     type_name(left_type), type_name(right_type));
                 return TYPE_ERROR;
+            }
+            if (node->binary.op == TOKEN_SLASH || node->binary.op == TOKEN_PERCENT) {
+                parser_check_divisor(parser, node, node->binary.right);
             }
             return TYPE_NUMBER;
         case TOKEN_EQUAL_EQUAL:
@@ -322,7 +549,7 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
             if (!is_numeric_type(left_type) || !is_numeric_type(right_type)) {
                 parser_error_at(parser, node->line, node->column, 0,
                     "Comparison operator '%s' requires number operands, got %s and %s",
-                    token_type_name(node->binary.op),
+                    binary_op_name(node->binary.op),
                     type_name(left_type), type_name(right_type));
                 return TYPE_ERROR;
             }
@@ -332,12 +559,14 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
             if (left_type != TYPE_BOOLEAN || right_type != TYPE_BOOLEAN) {
                 parser_error_at(parser, node->line, node->column, 0,
                     "Logical operator '%s' requires boolean operands, got %s and %s",
-                    token_type_name(node->binary.op),
+                    binary_op_name(node->binary.op),
                     type_name(left_type), type_name(right_type));
                 return TYPE_ERROR;
             }
             return TYPE_BOOLEAN;
         default:
+            parser_error_at(parser, node->line, node->column, 0,
+                            "Unknown binary operator");
             return TYPE_ERROR;
     }
 }
@@ -951,6 +1180,11 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
             if (value_type != TYPE_ERROR) {
                 parser_declare_symbol(parser, name->value, PARSER_SYM_VARIABLE,
                                       value_type, 0, name->line, name->column);
+                int idx = symbol_index_recursive(parser, name->value);
+                if (idx >= 0 && value->type == AST_LITERAL_NUMBER) {
+                    parser_symbol_set_const(parser, idx, true,
+                                            value->literal_number.number_value);
+                }
             }
         }
     } else {
@@ -972,6 +1206,11 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
                     name->value, type_name(old_type), type_name(new_type));
             } else if (old_type == TYPE_UNKNOWN && new_type != TYPE_ERROR) {
                 parser->symbols.types[idx] = new_type;
+            }
+            parser_symbol_clear_const(parser, idx);
+            if (value && value->type == AST_LITERAL_NUMBER) {
+                parser_symbol_set_const(parser, idx, true,
+                                        value->literal_number.number_value);
             }
         }
     }
@@ -1161,6 +1400,8 @@ static ASTNode* parse_import_statement(Parser* parser) {
     }
     
     ASTNode* node = ast_create_import(module_path, import_kw->line, import_kw->column);
+    parser_validate_import_file(parser, node->import_stmt.module_path,
+                                import_kw->line, import_kw->column);
     parser_register_import(parser, node->import_stmt.module_path,
                            import_kw->line, import_kw->column);
     free(module_path);
@@ -1268,6 +1509,7 @@ static ASTNode* parse_statement(Parser* parser) {
             // Parse as expression (function call or module access)
             ASTNode* expr = parse_expression(parser);
             if (expr) {
+                parser_check_expr_statement(parser, expr);
                 return ast_create_expr_stmt(expr);
             }
             return NULL;
@@ -1276,6 +1518,7 @@ static ASTNode* parse_statement(Parser* parser) {
         default: {
             ASTNode* expr = parse_expression(parser);
             if (expr) {
+                parser_check_expr_statement(parser, expr);
                 return ast_create_expr_stmt(expr);
             }
             advance(parser);

@@ -398,7 +398,7 @@ void vm_error(VM* vm, const char* format, ...) {
     va_end(args);
 
     int line = (vm->pc < vm->chunk->line_count) ? vm->chunk->line_info[vm->pc] : 0;
-    print_error_with_context("VM Error", vm->source ? vm->source : "", line, 0, 0, "RuntimeError", buffer);
+    print_error_with_context("VM", vm->source ? vm->source : "", line, 0, 0, "Runtime Error", buffer);
     vm->had_error = true;
 }
 

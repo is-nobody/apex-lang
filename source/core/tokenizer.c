@@ -8,12 +8,14 @@
 #include <ctype.h>
 
 static const char* token_type_names[] = {
-    "FUNCTION", "IF", "ELIF", "ELSE", "WHILE", "FOR", "IN", "RANGE",
+    "FUNCTION", "IF", "ELIF", "ELSE", "WHILE", "FOR",
     "BREAK", "CONTINUE", "RETURN", "IMPORT",
-    "AND", "OR", "NOT", "TRUE", "FALSE", "NUMBER", "STRING",
-    "IDENTIFIER", "PLUS", "MINUS", "STAR", "SLASH", "PERCENT", "EQUAL",
+    "AND", "OR", "NOT",
+    "TRUE", "FALSE", "NUMBER", "STRING", "IDENTIFIER",
+    "PLUS", "MINUS", "STAR", "SLASH", "PERCENT", "EQUAL",
     "EQUAL_EQUAL", "NOT_EQUAL", "LESS", "GREATER", "LESS_EQUAL",
-    "GREATER_EQUAL", "LPAREN", "RPAREN", "COMMA", "DOT",
+    "GREATER_EQUAL",
+    "LPAREN", "RPAREN", "COMMA", "DOT",
     "NEWLINE", "EOF", "INDENT", "DEDENT",
 };
 
@@ -120,7 +122,7 @@ void tokenizer_destroy(Tokenizer* tokenizer) {
 static void tokenizer_error(Tokenizer* tokenizer, const char* message) {
     print_error_with_context(tokenizer->filename, tokenizer->source,
                              tokenizer->line, tokenizer->column, 1,
-                             "SyntaxError", message);
+                             "Tokenizer Error", message);
     throw_repl_error();
 }
 
@@ -176,6 +178,36 @@ static void skip_comment(Tokenizer* tokenizer) {
         advance(tokenizer);
         c = peek(tokenizer, 0);
     }
+}
+
+static bool is_expression_boundary_char(char c) {
+    return c == '\0' || c == '\n' || c == '\r' || c == ',' || c == ')' ||
+           c == ']' || c == ';' || c == '+' || c == '-' || c == '*' ||
+           c == '/' || c == '%' || c == '=' || c == '<' || c == '>' ||
+           c == '!' || c == '(';
+}
+
+static bool closes_single_line_string(Tokenizer* tokenizer) {
+    char next = peek(tokenizer, 0);
+    char nextnext = peek(tokenizer, 1);
+
+    if (next == '\0' || next == '\n' || next == ',' || next == ')' || next == ']') {
+        return true;
+    }
+    if (next == '\r' && nextnext == '\n') {
+        return true;
+    }
+    if (is_expression_boundary_char(next)) {
+        return true;
+    }
+    if (next == ' ' || next == '\t') {
+        int i = 0;
+        while (peek(tokenizer, i) == ' ' || peek(tokenizer, i) == '\t') {
+            i++;
+        }
+        return is_expression_boundary_char(peek(tokenizer, i));
+    }
+    return false;
 }
 
 static char* read_string(Tokenizer* tokenizer) {
@@ -268,29 +300,19 @@ static char* read_string(Tokenizer* tokenizer) {
                 int saved_col = tokenizer->column;
                 
                 advance(tokenizer); // consume potential closing quote
-                
-                // Check what follows the quote
-                char next = peek(tokenizer, 0);
-                char nextnext = peek(tokenizer, 1);
-                
-                // Quote ends the string if followed by: end of file, newline, comma, closing paren,
-                // or if we're at the end of an expression
-                if (next == '\0' || next == '\n' || next == ',' || 
-                    next == ')' || next == ']' ||
-                    (next == ' ' && (peek(tokenizer, 1) == '\n' || 
-                                   peek(tokenizer, 1) == ',' ||
-                                   peek(tokenizer, 1) == ')')) ||
-                    (next == '\r' && nextnext == '\n')) {
-                    if (next == '\r' && nextnext == '\n') {
-                        advance(tokenizer); // consume \r
+
+                if (closes_single_line_string(tokenizer)) {
+                    char next = peek(tokenizer, 0);
+                    if (next == '\r' && peek(tokenizer, 1) == '\n') {
+                        advance(tokenizer);
                     }
                     break;
-                } else {
-                    // This quote is part of the content
-                    tokenizer->pos = saved_pos;
-                    tokenizer->line = saved_line;
-                    tokenizer->column = saved_col;
                 }
+
+                // Quote is part of the string content
+                tokenizer->pos = saved_pos;
+                tokenizer->line = saved_line;
+                tokenizer->column = saved_col;
             }
         }
         
