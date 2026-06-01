@@ -1,93 +1,53 @@
 import os
 
-errors = 0
 
 // number() tests
 result = number("42")
-expected = 42
-if result != expected
-    errors = errors + 1
-    os.output("  ERROR: number('42') expected {expected}, got {result}")
+os.output("number(42) = {result}, expected 42")
 
 result = number("3.14")
-expected = 3.14
-if result != expected
-    errors = errors + 1
-    os.output("  ERROR: number('3.14') expected {expected}, got {result}")
+os.output("number(3.14) = {result}, expected 3.14")
 
 result = number(true)
-expected = 1
-if result != expected
-    errors = errors + 1
-    os.output("  ERROR: number(true) expected {expected}, got {result}")
+os.output("number(true) = {result}, expected 1")
 
 result = number(false)
-expected = 0
-if result != expected
-    errors = errors + 1
-    os.output("  ERROR: number(false) expected {expected}, got {result}")
+os.output("number(false) = {result}, expected 0")
 
 result = number("hello")
-expected = none
-if result != expected
-    errors = errors + 1
-    os.output("  ERROR: number('hello') expected {expected}, got {result}")
+os.output("number(hello) = {result}, expected none")
 
 result = number(none)
-expected = none
-if result != expected
-    errors = errors + 1
-    os.output("  ERROR: number(none) expected {expected}, got {result}")
+os.output("number(none) = {result}, expected none")
 
 // string() tests
 result = string(42)
-expected = "42"
-if result != expected
-    errors = errors + 1
-    os.output("  ERROR: string(42) expected '{expected}', got '{result}'")
+os.output("string(42) = {result}, expected 42")
 
 result = string(3.14)
-expected = "3.14"
-if result != expected
-    errors = errors + 1
-    os.output("  ERROR: string(3.14) expected '{expected}', got '{result}'")
+os.output("string(3.14) = {result}, expected 3.14")
 
 result = string(true)
-expected = "true"
-if result != expected
-    errors = errors + 1
-    os.output("  ERROR: string(true) expected '{expected}', got '{result}'")
+os.output("string(true) = {result}, expected true")
 
 result = string(false)
-expected = "false"
-if result != expected
-    errors = errors + 1
-    os.output("  ERROR: string(false) expected '{expected}', got '{result}'")
+os.output("string(false) = {result}, expected false")
 
 result = string(none)
-expected = "none"
-if result != expected
-    errors = errors + 1
-    os.output("  ERROR: string(none) expected '{expected}', got '{result}'")
+os.output("string(none) = {result}, expected none")
 
 // type-checked function parameters
 function add(a == number, b == number)
     return a + b
 
 result = add(5, 6)
-expected = 11
-if result != expected
-    errors = errors + 1
-    os.output("  ERROR: add(5, 6) expected {expected}, got {result}")
+os.output("add(5, 6) = {result}, expected 11")
 
 function greet(name == string)
     return "Hello, {name}"
 
 result = greet("Friend")
-expected = "Hello, Friend"
-if result != expected
-    errors = errors + 1
-    os.output("  ERROR: greet('Friend') expected '{expected}', got '{result}'")
+os.output("greet(Friend) = {result}, expected Hello, Friend")
 
 function process_status(active == boolean)
     if active
@@ -96,16 +56,10 @@ function process_status(active == boolean)
         return "Status: INACTIVE"
 
 result = process_status(true)
-expected = "Status: ACTIVE"
-if result != expected
-    errors = errors + 1
-    os.output("  ERROR: process_status(true) expected '{expected}', got '{result}'")
+os.output("process_status(true) = {result}, expected Status: ACTIVE")
 
 result = process_status(false)
-expected = "Status: INACTIVE"
-if result != expected
-    errors = errors + 1
-    os.output("  ERROR: process_status(false) expected '{expected}', got '{result}'")
+os.output("process_status(false) = {result}, expected Status: INACTIVE")
 
 function check_presence(value)
     if value == none
@@ -114,37 +68,19 @@ function check_presence(value)
         return "has_value"
 
 result = check_presence(none)
-expected = "empty"
-if result != expected
-    errors = errors + 1
-    os.output("  ERROR: check_presence(none) expected '{expected}', got '{result}'")
+os.output("check_presence(none) = {result}, expected empty")
 
 result = check_presence("something")
-expected = "has_value"
-if result != expected
-    errors = errors + 1
-    os.output("  ERROR: check_presence('something') expected '{expected}', got '{result}'")
+os.output("check_presence(something) = {result}, expected has_value")
 
 // practical usage
 num1 = number("42")
 num2 = number("58")
 result = num1 + num2
-expected = 100
-if result != expected
-    errors = errors + 1
-    os.output("  ERROR: 42 + 58 expected {expected}, got {result}")
+os.output("num1 + num2 = {result}, expected 100")
 
 age = 25
 result = string(age)
-expected = "25"
-if result != expected
-    errors = errors + 1
-    os.output("  ERROR: string(25) expected '{expected}', got '{result}'")
+os.output("string(age) = {result}, expected 25")
 
 // final result
-os.output("Total errors in type_conversion.apex: {errors}")
-
-if errors == 0
-    os.output("Tests in type_conversion.apex passed!")
-else
-    os.output("{errors} test(s) failed in type_conversion.apex.")

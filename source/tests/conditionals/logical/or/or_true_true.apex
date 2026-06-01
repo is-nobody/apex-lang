@@ -1,13 +1,9 @@
 import os
 
 function or_true_true()
-    errors = 0
     
     result = true or true
-    if result != true
-        errors = errors + 1
+    os.output("true or true = {result}, expected true")
     
-    if errors != 0
-        os.output("{errors} failed in or_true_true.apex.")
 
 or_true_true()

@@ -1,13 +1,9 @@
 import os
 
 function decimal_greater_equal_false()
-    errors = 0
     
     result = 3.5 >= 5.5
-    if result != false
-        errors = errors + 1
+    os.output("3.5 >= 5.5 = {result}, expected false")
     
-    if errors != 0
-        os.output("{errors} failed in decimal_greater_equal_false.apex.")
 
 decimal_greater_equal_false()

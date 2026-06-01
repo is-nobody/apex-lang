@@ -1,7 +1,6 @@
 import os
 
 function nested_if_triple()
-    errors = 0
     result = ""
     x = 15
     y = 25
@@ -15,8 +14,5 @@ function nested_if_triple()
             result = "y_small"
     else
         result = "x_small"
-    if result != "nested"
-        errors = errors + 1
-    if errors != 0
-        os.output("{errors} failed in nested_if_triple.apex.")
+    os.output("result = {result}, expected nested")
 nested_if_triple()

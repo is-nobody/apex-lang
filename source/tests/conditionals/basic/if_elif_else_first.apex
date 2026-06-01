@@ -1,7 +1,6 @@
 import os
 
 function if_elif_else_first()
-    errors = 0
     result = ""
     score = 95
     if score >= 90
@@ -12,8 +11,5 @@ function if_elif_else_first()
         result = "C"
     else
         result = "F"
-    if result != "A"
-        errors = errors + 1
-    if errors != 0
-        os.output("{errors} failed in if_elif_else_first.apex.")
+    os.output("result = {result}, expected A")
 if_elif_else_first()

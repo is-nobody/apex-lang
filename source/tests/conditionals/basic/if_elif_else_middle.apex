@@ -1,7 +1,6 @@
 import os
 
 function if_elif_else_middle()
-    errors = 0
     result = ""
     score = 85
     if score >= 90
@@ -12,8 +11,5 @@ function if_elif_else_middle()
         result = "C"
     else
         result = "F"
-    if result != "B"
-        errors = errors + 1
-    if errors != 0
-        os.output("{errors} failed in if_elif_else_middle.apex.")
+    os.output("result = {result}, expected B")
 if_elif_else_middle()

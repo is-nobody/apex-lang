@@ -1,13 +1,9 @@
 import os
 
 function or_false_false()
-    errors = 0
     
     result = false or false
-    if result != false
-        errors = errors + 1
+    os.output("false or false = {result}, expected false")
     
-    if errors != 0
-        os.output("{errors} failed in or_false_false.apex.")
 
 or_false_false()

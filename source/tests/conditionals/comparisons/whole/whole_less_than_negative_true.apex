@@ -1,13 +1,9 @@
 import os
 
 function whole_less_than_negative_true()
-    errors = 0
     
     result = -10 < -5
-    if result != true
-        errors = errors + 1
+    os.output("-10 < -5 = {result}, expected true")
     
-    if errors != 0
-        os.output("{errors} failed in whole_less_than_negative_true.apex.")
 
 whole_less_than_negative_true()

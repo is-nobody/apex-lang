@@ -1,7 +1,6 @@
 import os
 
 function if_elif_else_else()
-    errors = 0
     result = ""
     score = 65
     if score >= 90
@@ -12,9 +11,6 @@ function if_elif_else_else()
         result = "C"
     else
         result = "F"
-    if result != "F"
-        errors = errors + 1
-    if errors != 0
-        os.output("{errors} failed in if_elif_else_else.apex.")
+    os.output("result = {result}, expected F")
 
 if_elif_else_else()

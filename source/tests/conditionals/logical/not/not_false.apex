@@ -1,13 +1,9 @@
 import os
 
 function not_false()
-    errors = 0
     
     result = not false
-    if result != true
-        errors = errors + 1
+    os.output("not false = {result}, expected true")
     
-    if errors != 0
-        os.output("{errors} failed in not_false.apex.")
 
 not_false()

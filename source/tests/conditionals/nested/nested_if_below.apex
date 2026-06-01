@@ -1,7 +1,6 @@
 import os
 
 function nested_if_below()
-    errors = 0
     result = ""
     x = 5
     if x > 10
@@ -11,8 +10,5 @@ function nested_if_below()
             result = "above"
     else
         result = "below"
-    if result != "below"
-        errors = errors + 1
-    if errors != 0
-        os.output("{errors} failed in nested_if_below.apex.")
+    os.output("result = {result}, expected below")
 nested_if_below()

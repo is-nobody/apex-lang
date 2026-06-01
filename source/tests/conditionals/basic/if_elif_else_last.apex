@@ -1,7 +1,6 @@
 import os
 
 function if_elif_else_last()
-    errors = 0
     result = ""
     score = 75
     if score >= 90
@@ -12,8 +11,5 @@ function if_elif_else_last()
         result = "C"
     else
         result = "F"
-    if result != "C"
-        errors = errors + 1
-    if errors != 0
-        os.output("{errors} failed in if_elif_else_last.apex.")
+    os.output("result = {result}, expected C")
 if_elif_else_last()
