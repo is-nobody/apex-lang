@@ -1,4 +1,5 @@
 #include "sema.h"
+#include "error.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,42 +19,24 @@ typedef struct {
 static SemanticError errors[MAX_ERRORS];
 static int error_idx = 0;
 
-static void sema_error(SemAnalyzer* sema, int line, int column, 
-                        bool is_warning, const char* format, ...) {
+static void sema_error(SemAnalyzer* sema, int line, int column, int len,
+                       bool is_warning, const char* format, ...) {
     if (error_idx >= MAX_ERRORS) return;
-    
     char buffer[1024];
-    va_list args;
-    va_start(args, format);
+    va_list args; va_start(args, format);
     vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
-    
-    errors[error_idx].line = line;
-    errors[error_idx].column = column;
+
+    errors[error_idx].line = line; errors[error_idx].column = column;
     errors[error_idx].message = strdup(buffer);
     errors[error_idx].is_warning = is_warning;
     error_idx++;
-    
-    if (is_warning) {
-        sema->warning_count++;
-        fprintf(stderr, "Warning: in %s on line %d: %s\n", 
-                sema->filename, line, buffer);
-    } else {
-        sema->error_count++;
-        fprintf(stderr, "SemanticError: in %s on line %d: %s\n", 
-                sema->filename, line, buffer);
-    }
-}
 
-void sema_print_errors(SemAnalyzer* sema) {
-    printf("Errors: %d, Warnings: %d\n", sema->error_count, sema->warning_count);
+    const char* type = is_warning ? "Warning" : "SemanticError";
+    print_error_with_context(sema->filename, sema->source, line, column, len, type, buffer);
     
-    for (int i = 0; i < error_idx; i++) {
-        printf("  %s in line %d: %s\n",
-               errors[i].is_warning ? "Warning" : "Error",
-               errors[i].line,
-               errors[i].message);
-    }
+    if (is_warning) sema->warning_count++;
+    else sema->error_count++;
 }
 
 // ========== Type Utilities ==========
@@ -301,7 +284,7 @@ static ValueType analyze_binary_expr(SemAnalyzer* sema, ASTNode* node) {
         case TOKEN_SLASH:
         case TOKEN_PERCENT:
             if (!is_numeric_type(left_type) || !is_numeric_type(right_type)) {
-                sema_error(sema, node->line, node->column, false,
+                sema_error(sema, node->line, node->column, 0, false,
                     "Arithmetic operator '%s' requires number operands, got %s and %s",
                     token_type_name(node->binary.op),
                     type_name(left_type), type_name(right_type));
@@ -313,7 +296,7 @@ static ValueType analyze_binary_expr(SemAnalyzer* sema, ASTNode* node) {
         case TOKEN_NOT_EQUAL:
             // Equality comparison
             if (!is_comparable_type(left_type) || !is_comparable_type(right_type)) {
-                sema_error(sema, node->line, node->column, false,
+                sema_error(sema, node->line, node->column, 0, false,
                     "Cannot compare types %s and %s",
                     type_name(left_type), type_name(right_type));
                 return TYPE_ERROR;
@@ -326,7 +309,7 @@ static ValueType analyze_binary_expr(SemAnalyzer* sema, ASTNode* node) {
         case TOKEN_GREATER_EQUAL:
             // Relational comparisons require numbers
             if (!is_numeric_type(left_type) || !is_numeric_type(right_type)) {
-                sema_error(sema, node->line, node->column, false,
+                sema_error(sema, node->line, node->column, 0, false,
                     "Comparison operator '%s' requires number operands, got %s and %s",
                     token_type_name(node->binary.op),
                     type_name(left_type), type_name(right_type));
@@ -338,7 +321,7 @@ static ValueType analyze_binary_expr(SemAnalyzer* sema, ASTNode* node) {
         case TOKEN_OR:
             // Logical operators require boolean
             if (left_type != TYPE_BOOLEAN || right_type != TYPE_BOOLEAN) {
-                sema_error(sema, node->line, node->column, false,
+                sema_error(sema, node->line, node->column, 0, false,
                     "Logical operator '%s' requires boolean operands, got %s and %s",
                     token_type_name(node->binary.op),
                     type_name(left_type), type_name(right_type));
@@ -358,7 +341,7 @@ static ValueType analyze_unary_expr(SemAnalyzer* sema, ASTNode* node) {
     switch (node->unary.op) {
         case TOKEN_MINUS:
             if (!is_numeric_type(operand_type)) {
-                sema_error(sema, node->line, node->column, false,
+                sema_error(sema, node->line, node->column, 0, false,
                     "Unary minus requires number operand, got %s",
                     type_name(operand_type));
                 return TYPE_ERROR;
@@ -367,7 +350,7 @@ static ValueType analyze_unary_expr(SemAnalyzer* sema, ASTNode* node) {
             
         case TOKEN_NOT:
             if (operand_type != TYPE_BOOLEAN) {
-                sema_error(sema, node->line, node->column, false,
+                sema_error(sema, node->line, node->column, 0, false,
                     "Logical not requires boolean operand, got %s",
                     type_name(operand_type));
                 return TYPE_ERROR;
@@ -389,7 +372,7 @@ static ValueType analyze_identifier(SemAnalyzer* sema, ASTNode* node) {
         // Check builtins
         sym = scope_lookup_recursive(sema->builtins, name);
         if (!sym) {
-            sema_error(sema, node->line, node->column, false,
+            sema_error(sema, node->line, node->column, (int)strlen(name), false,
                 "Undefined variable or function '%s'", name);
             return TYPE_ERROR;
         }
@@ -402,8 +385,11 @@ static ValueType analyze_call(SemAnalyzer* sema, ASTNode* node) {
     ValueType callee_type = analyze_expression(sema, node->call.callee);
     
     if (callee_type != TYPE_FUNCTION && callee_type != TYPE_UNKNOWN) {
-        sema_error(sema, node->line, node->column, false,
-            "Cannot call non-function value of type %s", type_name(callee_type));
+        int callee_len = (node->call.callee->type == AST_IDENTIFIER) ? 
+                        (int)strlen(node->call.callee->identifier.name) : 0;
+                        
+        sema_error(sema, node->line, node->column, callee_len, false,
+                "Cannot call non-function value of type %s", type_name(callee_type));
         return TYPE_ERROR;
     }
     
@@ -450,7 +436,7 @@ static ValueType analyze_call(SemAnalyzer* sema, ASTNode* node) {
             int actual = node->call.arguments->count;
             
             if (expected != actual) {
-                sema_error(sema, node->line, node->column, false,
+                sema_error(sema, node->line, node->column, 0, false,
                     "Function '%s' expects %d arguments, got %d",
                     func_name, expected, actual);
             }
@@ -470,14 +456,23 @@ static ValueType analyze_call(SemAnalyzer* sema, ASTNode* node) {
 static ValueType analyze_member_access(SemAnalyzer* sema, ASTNode* node) {
     ValueType object_type = analyze_expression(sema, node->access.object);
     
+    if (object_type == TYPE_ERROR) {
+        return TYPE_ERROR;
+    }
+
     if (object_type != TYPE_TABLE && object_type != TYPE_UNKNOWN && 
         object_type != TYPE_ANY) {
-        sema_error(sema, node->line, node->column, false,
+        
+        int obj_len = 0;
+        if (node->access.object->type == AST_IDENTIFIER) {
+            obj_len = (int)strlen(node->access.object->identifier.name);
+        }
+
+        sema_error(sema, node->line, node->column, obj_len, false,
             "Cannot access member of non-table type %s", type_name(object_type));
         return TYPE_ERROR;
     }
     
-    // Table member type is unknown without structural information
     return TYPE_UNKNOWN;
 }
 
@@ -536,7 +531,7 @@ static ValueType analyze_expression(SemAnalyzer* sema, ASTNode* node) {
         case AST_FUNCTION_DECL:
             return TYPE_FUNCTION;
         default:
-            sema_error(sema, node->line, node->column, false,
+            sema_error(sema, node->line, node->column, 0, false,
                 "Unexpected expression type %d", node->type);
             return TYPE_ERROR;
     }
@@ -552,7 +547,7 @@ static void analyze_var_decl(SemAnalyzer* sema, ASTNode* node) {
     // Check if variable is already declared in current scope
     Symbol* existing = scope_lookup(sema->current_scope, node->var_assign.name);
     if (existing) {
-        sema_error(sema, node->line, node->column, false,
+        sema_error(sema, node->line, node->column, 0, false,
             "Variable '%s' already declared in this scope", node->var_assign.name);
         return;
     }
@@ -562,7 +557,7 @@ static void analyze_var_decl(SemAnalyzer* sema, ASTNode* node) {
                                 SYMBOL_VARIABLE, value_type,
                                 node->line, node->column);
     if (!sym) {
-        sema_error(sema, node->line, node->column, false,
+        sema_error(sema, node->line, node->column, 0, false,
             "Failed to declare variable '%s'", node->var_assign.name);
     }
 }
@@ -572,13 +567,13 @@ static void analyze_assign(SemAnalyzer* sema, ASTNode* node) {
     Symbol* sym = scope_lookup_recursive(sema->current_scope, node->var_assign.name);
     
     if (!sym) {
-        sema_error(sema, node->line, node->column, false,
+        sema_error(sema, node->line, node->column, 0, false,
             "Assignment to undefined variable '%s'", node->var_assign.name);
         return;
     }
     
     if (sym->kind != SYMBOL_VARIABLE && sym->kind != SYMBOL_PARAMETER) {
-        sema_error(sema, node->line, node->column, false,
+        sema_error(sema, node->line, node->column, 0, false,
             "Cannot assign to '%s' (not a variable)", node->var_assign.name);
         return;
     }
@@ -588,7 +583,7 @@ static void analyze_assign(SemAnalyzer* sema, ASTNode* node) {
     // Type immutability check (Apex rule)
     if (sym->is_initialized && new_type != TYPE_UNKNOWN && 
         sym->value_type != TYPE_UNKNOWN && new_type != sym->value_type) {
-        sema_error(sema, node->line, node->column, false,
+        sema_error(sema, node->line, node->column, 0, false,
             "Cannot change type of variable '%s' from %s to %s",
             sym->name, type_name(sym->value_type), type_name(new_type));
         return;
@@ -607,7 +602,7 @@ static void analyze_if_stmt(SemAnalyzer* sema, ASTNode* node) {
     
     // TYPE_ANY is acceptable (function parameters)
     if (cond_type != TYPE_BOOLEAN && cond_type != TYPE_ANY && cond_type != TYPE_UNKNOWN) {
-        sema_error(sema, node->line, node->column, false,
+        sema_error(sema, node->line, node->column, 0, false,
             "If condition must be boolean, got %s", type_name(cond_type));
     }
     
@@ -626,7 +621,7 @@ static void analyze_while_stmt(SemAnalyzer* sema, ASTNode* node) {
     ValueType cond_type = analyze_expression(sema, node->while_stmt.condition);
     
     if (cond_type != TYPE_BOOLEAN && cond_type != TYPE_ANY && cond_type != TYPE_UNKNOWN) {
-        sema_error(sema, node->line, node->column, false,
+        sema_error(sema, node->line, node->column, 0, false,
             "While condition must be boolean, got %s", type_name(cond_type));
     }
     
@@ -649,20 +644,20 @@ static void analyze_while_stmt(SemAnalyzer* sema, ASTNode* node) {
 static void analyze_for_stmt(SemAnalyzer* sema, ASTNode* node) {
     ValueType start_type = analyze_expression(sema, node->for_stmt.start);
     if (start_type != TYPE_NUMBER && start_type != TYPE_ANY && start_type != TYPE_UNKNOWN) {
-        sema_error(sema, node->line, node->column, false,
+        sema_error(sema, node->line, node->column, 0, false,
                    "For loop start must be a number, got %s", type_name(start_type));
     }
 
     ValueType end_type = analyze_expression(sema, node->for_stmt.end);
     if (end_type != TYPE_NUMBER && end_type != TYPE_ANY && end_type != TYPE_UNKNOWN) {
-        sema_error(sema, node->line, node->column, false,
+        sema_error(sema, node->line, node->column, 0, false,
                    "For loop end must be a number, got %s", type_name(end_type));
     }
 
     if (node->for_stmt.step) {
         ValueType step_type = analyze_expression(sema, node->for_stmt.step);
         if (step_type != TYPE_NUMBER && step_type != TYPE_ANY && step_type != TYPE_UNKNOWN) {
-            sema_error(sema, node->line, node->column, false,
+            sema_error(sema, node->line, node->column, 0, false,
                        "For loop step must be a number, got %s", type_name(step_type));
         }
     }
@@ -688,7 +683,7 @@ static void analyze_function_decl(SemAnalyzer* sema, ASTNode* node) {
                                     SYMBOL_FUNCTION, TYPE_FUNCTION,
                                     node->line, node->column);
     if (!func_sym) {
-        sema_error(sema, node->line, node->column, false,
+        sema_error(sema, node->line, node->column, 0, false,
                    "Function '%s' already declared in this scope",
                    node->function_decl.name);
         return;
@@ -727,7 +722,7 @@ static void analyze_function_decl(SemAnalyzer* sema, ASTNode* node) {
 
 static void analyze_return_stmt(SemAnalyzer* sema, ASTNode* node) {
     if (!sema->in_function) {
-        sema_error(sema, node->line, node->column, false,
+        sema_error(sema, node->line, node->column, 0, false,
             "Return statement outside of function");
         return;
     }
@@ -740,7 +735,7 @@ static void analyze_return_stmt(SemAnalyzer* sema, ASTNode* node) {
 static void analyze_break_continue(SemAnalyzer* sema, ASTNode* node) {
     if (!sema->in_loop) {
         const char* keyword = node->type == AST_BREAK_STMT ? "break" : "continue";
-        sema_error(sema, node->line, node->column, false,
+        sema_error(sema, node->line, node->column, 0, false,
             "'%s' statement outside of loop", keyword);
     }
 }
@@ -811,7 +806,7 @@ static void analyze_statement(SemAnalyzer* sema, ASTNode* node) {
             analyze_block(sema, node);
             break;
         default:
-            sema_error(sema, node->line, node->column, false,
+            sema_error(sema, node->line, node->column, 0, false,
                 "Unexpected statement type %d", node->type);
             break;
     }
@@ -827,9 +822,10 @@ static void analyze_block(SemAnalyzer* sema, ASTNode* node) {
 
 // ========== Public API ==========
 
-SemAnalyzer* sema_create(const char* filename) {
+SemAnalyzer* sema_create(const char* filename, const char* source) {
     SemAnalyzer* sema = (SemAnalyzer*)calloc(1, sizeof(SemAnalyzer));
     sema->filename = strdup(filename);
+    sema->source = source;
     
     // Create global scope
     sema->global_scope = scope_create(NULL, 0);
@@ -872,16 +868,7 @@ bool sema_analyze(SemAnalyzer* sema, ASTNode* ast) {
         }
     }
     
-    // Print errors only if present
-    if (sema->error_count > 0 || sema->warning_count > 0) {
-        sema_print_errors(sema);
-    }
-    
     return sema->error_count == 0;
-}
-
-int sema_get_error_count(SemAnalyzer* sema) {
-    return sema ? sema->error_count : -1;
 }
 
 void sema_print_symbols(SemAnalyzer* sema) {

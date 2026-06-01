@@ -3,6 +3,7 @@
 #include "math_module.h"
 #include "string_module.h"
 #include "table_module.h"
+#include "error.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -342,7 +343,7 @@ static void sb_free(StringBuilder* sb) {
 }
 
 // ========== VM Implementation ==========
-VM* vm_create() {
+VM* vm_create(const char* source) {
     VM* vm = (VM*)calloc(1, sizeof(VM));
     if (!vm) return NULL;
     
@@ -358,7 +359,8 @@ VM* vm_create() {
     vm->had_error = false;
     vm->current_frame = 0;
     vm->args_top = 0;
-    
+    vm->source = source;
+
     for (int i = 0; i < VM_REGS_PER_FRAME; i++) {
         vm->registers[i].type = VAL_BOOL;
         vm->registers[i].boolean = false;
@@ -391,11 +393,12 @@ void vm_destroy(VM* vm) {
 
 void vm_error(VM* vm, const char* format, ...) {
     char buffer[1024];
-    va_list args;
-    va_start(args, format);
+    va_list args; va_start(args, format);
     vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
-    fprintf(stderr, "VM Error at PC=%d: %s\n", vm->pc, buffer);
+
+    int line = (vm->pc < vm->chunk->line_count) ? vm->chunk->line_info[vm->pc] : 0;
+    print_error_with_context("VM Error", vm->source ? vm->source : "", line, 0, 0, "RuntimeError", buffer);
     vm->had_error = true;
 }
 

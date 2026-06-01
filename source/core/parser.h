@@ -8,6 +8,7 @@ typedef struct {
     int count;
     int current;
     char* filename;
+    const char* source;
     
     // Symbol table for tracking declared variables
     // Key = variable name, Value = scope level
@@ -20,7 +21,7 @@ typedef struct {
     } symbols;
 } Parser;
 
-Parser* parser_create(Token* tokens, int count, const char* filename);
+Parser* parser_create(Token* tokens, int count, const char* filename, const char* source);
 void parser_destroy(Parser* parser);
 ASTNode* parser_parse(Parser* parser);
 void parser_error(Parser* parser, const char* message);

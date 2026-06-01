@@ -77,7 +77,7 @@ bool execute_source(const char* filepath, const char* filename) {
 
     // Recovery point for REPL errors
     if (is_repl_mode && setjmp(error_env) != 0) {
-        fprintf(stderr, "[REPL] Error recovered. Ready for next input.\n");
+
         cleanup_all(tokenizer, parser, ast, sema, cg, chunk, vm, source);
         return false;
     }
@@ -92,7 +92,7 @@ bool execute_source(const char* filepath, const char* filename) {
     }
 
     // Parsing
-    parser = parser_create(tokens, token_count, filename);
+    parser = parser_create(tokens, token_count, filename, source);
     ast = parser_parse(parser);
     if (!ast) {
         cleanup_all(tokenizer, parser, NULL, NULL, NULL, NULL, NULL, source);
@@ -100,9 +100,8 @@ bool execute_source(const char* filepath, const char* filename) {
     }
 
     // Semantic analysis
-    sema = sema_create(filename);
+    sema = sema_create(filename, source);
     if (!sema_analyze(sema, ast)) {
-        fprintf(stderr, "Semantic analysis failed for '%s'\n", filename);
         cleanup_all(tokenizer, parser, ast, sema, NULL, NULL, NULL, source);
         return false;
     }
@@ -117,7 +116,7 @@ bool execute_source(const char* filepath, const char* filename) {
     }
 
     // VM execution
-    vm = vm_create();
+    vm = vm_create(source);
     bool ok = vm_execute(vm, chunk);
 
     cleanup_all(tokenizer, parser, ast, sema, cg, chunk, vm, source);

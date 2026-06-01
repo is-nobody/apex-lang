@@ -108,6 +108,7 @@ typedef struct {
     } iterator_stack[VM_MAX_CALL_FRAMES];
     int iterator_depth;
     
+    const char* source;
 } VM;
 
 // ========== Value API ==========
@@ -133,7 +134,7 @@ void table_clear(Table* table);
 Table* table_copy(Table* table);
 
 // ========== VM API ==========
-VM* vm_create();
+VM* vm_create(const char* source);
 void vm_destroy(VM* vm);
 bool vm_execute(VM* vm, BytecodeChunk* chunk);
 void vm_error(VM* vm, const char* format, ...);

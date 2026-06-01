@@ -1,5 +1,6 @@
 #include "parser.h"
 #include "execute.h"
+#include "error.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -72,7 +73,7 @@ bool parser_is_declared(Parser* parser, const char* name) {
 
 // ========== Parser Utilities ==========
 
-Parser* parser_create(Token* tokens, int count, const char* filename) {
+Parser* parser_create(Token* tokens, int count, const char* filename, const char* source) {
     Parser* parser = (Parser*)malloc(sizeof(Parser));
     parser->tokens = tokens;
     parser->count = count;
@@ -85,7 +86,8 @@ Parser* parser_create(Token* tokens, int count, const char* filename) {
     parser->symbols.count = 0;
     parser->symbols.capacity = 0;
     parser->symbols.current_scope = 0;
-    
+    parser->source = source;
+
     return parser;
 }
 
@@ -153,13 +155,13 @@ static void skip_newlines(Parser* parser) {
 
 void parser_error(Parser* parser, const char* message) {
     Token* token = current_token(parser);
-    fprintf(stderr, "ParseError: in %s on line %d, col %d: %s\n",
-            parser->filename, token->line, token->column, message);
-    fprintf(stderr, "  Got token: %s '%s'\n",
-            token_type_name(token->type), token->value);
-    throw_repl_error(); // instead of exit(1)
+    int len = token->value ? (int)strlen(token->value) : 1;
+    
+    print_error_with_context(parser->filename, parser->source,
+                             token->line, token->column, len,
+                             "ParseError", message);
+    throw_repl_error();
 }
-
 // ========== Expression Parsing (Pratt Parser) ==========
 
 typedef enum {
@@ -216,7 +218,7 @@ static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, in
     Token* temp_tokens = tokenizer_tokenize(temp_tokenizer, &temp_count);
     
     // Create a temporary parser
-    Parser* temp_parser = parser_create(temp_tokens, temp_count, "<interpolation>");
+    Parser* temp_parser = parser_create(temp_tokens, temp_count, "<interpolation>", expr_str);
     ASTNode* expr = parse_expression(temp_parser);
     
     // Cleanup

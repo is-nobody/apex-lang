@@ -1,6 +1,7 @@
 // tokenizer.c
 #include "tokenizer.h"
 #include "execute.h"
+#include "error.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -117,9 +118,10 @@ void tokenizer_destroy(Tokenizer* tokenizer) {
 }
 
 static void tokenizer_error(Tokenizer* tokenizer, const char* message) {
-    fprintf(stderr, "SyntaxError: in %s on line %d: %s\n",
-            tokenizer->filename, tokenizer->line, message);
-    throw_repl_error(); // instead of exit(1)
+    print_error_with_context(tokenizer->filename, tokenizer->source,
+                             tokenizer->line, tokenizer->column, 1,
+                             "SyntaxError", message);
+    throw_repl_error();
 }
 
 static char peek(Tokenizer* tokenizer, int offset) {

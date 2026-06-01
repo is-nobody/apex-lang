@@ -10,7 +10,8 @@ set(CMAKE_C_EXTENSIONS ON)
 set(SOURCES
     main.c 
     source/utils/execute.c 
-    source/utils/add_to_path.c 
+    source/utils/add_to_path.c
+    source/utils/error.c
     source/core/tokenizer.c 
     source/core/parser.c 
     source/core/ast.c 

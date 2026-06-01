@@ -64,7 +64,8 @@ typedef struct {
     Scope* current_scope;
     ASTNode* ast;
     char* filename;
-    
+    const char* source;
+
     // Error counters
     int error_count;
     int warning_count;
@@ -81,13 +82,11 @@ typedef struct {
 } SemAnalyzer;
 
 // ========== API ==========
-SemAnalyzer* sema_create(const char* filename);
+SemAnalyzer* sema_create(const char* filename, const char* source);
 void sema_destroy(SemAnalyzer* sema);
 bool sema_analyze(SemAnalyzer* sema, ASTNode* ast);
-int sema_get_error_count(SemAnalyzer* sema);
 
 // Analysis result output
 void sema_print_symbols(SemAnalyzer* sema);
-void sema_print_errors(SemAnalyzer* sema);
 
 #endif // SEMA_H

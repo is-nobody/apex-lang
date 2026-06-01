@@ -253,7 +253,7 @@ int main(int argc, char** argv) {
             
             if (!has_kb) {
                 if (total_len > 0) {
-                    execute_code(full_input, "<repl>");
+                    execute_code(full_input, "REPL");
                 }
                 
                 total_len = 0;
