@@ -18,7 +18,6 @@ set(SOURCES
     source/core/tokenizer.c 
     source/core/parser.c 
     source/core/ast.c 
-    source/core/sema.c 
     source/core/bytecode.c 
     source/core/codegen.c 
     source/core/vm.c

@@ -2,7 +2,6 @@
 #include "tokenizer.h"
 #include "parser.h"
 #include "ast.h"
-#include "sema.h"
 #include "bytecode.h"
 #include "codegen.h"
 #include "vm.h"
@@ -24,13 +23,12 @@ void throw_repl_error(void) {
     }
 }
 
-static void cleanup_all(Tokenizer* tok, Parser* par, ASTNode* ast, 
-                        SemAnalyzer* sema, CodeGenerator* cg, 
-                        BytecodeChunk* chunk, VM* vm, char* source) {
+static void cleanup_all(Tokenizer* tok, Parser* par, ASTNode* ast,
+                        CodeGenerator* cg, BytecodeChunk* chunk, VM* vm,
+                        char* source) {
     if (vm) vm_destroy(vm);
     if (cg) codegen_destroy(cg);
     if (chunk) bytecode_destroy(chunk);
-    if (sema) sema_destroy(sema);
     if (ast) ast_free(ast);
     if (par) parser_destroy(par);
     if (tok) tokenizer_destroy(tok);
@@ -40,7 +38,6 @@ static void cleanup_all(Tokenizer* tok, Parser* par, ASTNode* ast,
 bool execute_source(const char* filepath, const char* filename) {
     if (!filepath || !filename) return false;
 
-    // Read source file
     FILE* f = fopen(filepath, "rb");
     if (!f) {
         fprintf(stderr, "Error: Cannot open file '%s'\n", filepath);
@@ -70,55 +67,41 @@ bool execute_source(const char* filepath, const char* filename) {
     Tokenizer* tokenizer = NULL;
     Parser* parser = NULL;
     ASTNode* ast = NULL;
-    SemAnalyzer* sema = NULL;
     CodeGenerator* cg = NULL;
     BytecodeChunk* chunk = NULL;
     VM* vm = NULL;
 
-    // Recovery point for REPL errors
     if (is_repl_mode && setjmp(error_env) != 0) {
-
-        cleanup_all(tokenizer, parser, ast, sema, cg, chunk, vm, source);
+        cleanup_all(tokenizer, parser, ast, cg, chunk, vm, source);
         return false;
     }
 
-    // Tokenization
     tokenizer = tokenizer_create(source, filename);
     int token_count;
     Token* tokens = tokenizer_tokenize(tokenizer, &token_count);
     if (!tokens) {
-        cleanup_all(tokenizer, NULL, NULL, NULL, NULL, NULL, NULL, source);
+        cleanup_all(tokenizer, NULL, NULL, NULL, NULL, NULL, source);
         return false;
     }
 
-    // Parsing
     parser = parser_create(tokens, token_count, filename, source);
     ast = parser_parse(parser);
-    if (!ast) {
-        cleanup_all(tokenizer, parser, NULL, NULL, NULL, NULL, NULL, source);
+    if (!ast || parser_had_errors(parser)) {
+        cleanup_all(tokenizer, parser, ast, NULL, NULL, NULL, source);
         return false;
     }
 
-    // Semantic analysis
-    sema = sema_create(filename, source);
-    if (!sema_analyze(sema, ast)) {
-        cleanup_all(tokenizer, parser, ast, sema, NULL, NULL, NULL, source);
-        return false;
-    }
-
-    // Bytecode generation
     chunk = bytecode_create();
-    cg = codegen_create(chunk, sema);
+    cg = codegen_create(chunk);
     if (!codegen_generate(cg, ast)) {
         fprintf(stderr, "Code generation failed for '%s'\n", filename);
-        cleanup_all(tokenizer, parser, ast, sema, cg, chunk, NULL, source);
+        cleanup_all(tokenizer, parser, ast, cg, chunk, NULL, source);
         return false;
     }
 
-    // VM execution
     vm = vm_create(source);
     bool ok = vm_execute(vm, chunk);
 
-    cleanup_all(tokenizer, parser, ast, sema, cg, chunk, vm, source);
+    cleanup_all(tokenizer, parser, ast, cg, chunk, vm, source);
     return ok;
 }

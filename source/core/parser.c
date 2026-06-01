@@ -1,34 +1,153 @@
 #include "parser.h"
 #include "execute.h"
 #include "error.h"
+#include "tokenizer.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
 
 // ========== Forward Declarations ==========
+static Token* current_token(Parser* parser);
 static ASTNode* parse_program(Parser* parser);
 static ASTNode* parse_statement(Parser* parser);
 static ASTNode* parse_expression(Parser* parser);
 static ASTNode* parse_block(Parser* parser, bool expect_newlines);
 static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, int line, int column);
+static ValueType infer_expression_type(Parser* parser, ASTNode* node);
+
+// ========== Built-in function signatures ==========
+
+typedef struct {
+    const char* name;
+    int param_count;
+} BuiltinSig;
+
+static const BuiltinSig BUILTINS[] = {
+    {"os.output", 1}, {"os.input", 1}, {"os.read", 1}, {"os.write", 2},
+    {"os.close", 1}, {"os.exists", 1}, {"os.isfile", 1}, {"os.isdir", 1},
+    {"os.rename", 2}, {"os.rmfile", 1}, {"os.mkfile", 1}, {"os.listdir", 1},
+    {"os.getcwd", 0}, {"os.chdir", 1}, {"os.mkdir", 1}, {"os.rmdir", 1},
+    {"os.stat", 1}, {"os.exit", 1}, {"os.wait", 1}, {"os.time", 0},
+    {"os.system", 1}, {"os.platform", 0},
+    {"math.abs", 1}, {"math.floor", 1}, {"math.ceil", 1}, {"math.round", 2},
+    {"math.sqrt", 1}, {"math.exp", 1}, {"math.log", 2}, {"math.sin", 1},
+    {"math.cos", 1}, {"math.tan", 1}, {"math.asin", 1}, {"math.acos", 1},
+    {"math.atan", 1},
+    {"string.len", 1}, {"string.lower", 1}, {"string.upper", 1},
+    {"string.sub", 3}, {"string.split", 2}, {"string.join", 2},
+    {"string.trim", 1}, {"string.find", 2}, {"string.replace", 3},
+    {"table.remove", 2}, {"table.has", 2}, {"table.size", 1},
+    {"table.keys", 1}, {"table.values", 1}, {"table.clear", 1},
+    {"table.copy", 1}, {"table.merge", 2},
+    {"number", 1}, {"string", 1},
+};
+
+static const BuiltinSig* lookup_builtin(const char* name) {
+    for (size_t i = 0; i < sizeof(BUILTINS) / sizeof(BUILTINS[0]); i++) {
+        if (strcmp(BUILTINS[i].name, name) == 0) {
+            return &BUILTINS[i];
+        }
+    }
+    return NULL;
+}
+
+// ========== Error reporting ==========
+
+void parser_error_at(Parser* parser, int line, int column, int len,
+                     const char* format, ...) {
+    char buffer[1024];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    parser->error_count++;
+    print_error_with_context(parser->filename, parser->source,
+                             line, column, len, "ParseError", buffer);
+    throw_repl_error();
+}
+
+void parser_error(Parser* parser, const char* message) {
+    Token* token = current_token(parser);
+    int len = token->value ? (int)strlen(token->value) : 1;
+    parser_error_at(parser, token->line, token->column, len, "%s", message);
+}
+
+bool parser_had_errors(const Parser* parser) {
+    return parser->error_count > 0;
+}
+
+// ========== Type utilities ==========
+
+static const char* type_name(ValueType type) {
+    switch (type) {
+        case TYPE_NUMBER: return "number";
+        case TYPE_STRING: return "string";
+        case TYPE_BOOLEAN: return "boolean";
+        case TYPE_TABLE: return "table";
+        case TYPE_FUNCTION: return "function";
+        case TYPE_UNKNOWN: return "unknown";
+        case TYPE_ERROR: return "error";
+        case TYPE_ANY: return "any";
+        default: return "???";
+    }
+}
+
+static bool is_numeric_type(ValueType type) {
+    return type == TYPE_NUMBER;
+}
+
+static bool is_comparable_type(ValueType type) {
+    return type == TYPE_NUMBER || type == TYPE_STRING || type == TYPE_BOOLEAN;
+}
 
 // ========== Symbol Management ==========
+
+static void symbols_grow(Parser* parser) {
+    if (parser->symbols.count < parser->symbols.capacity) return;
+    parser->symbols.capacity = parser->symbols.capacity == 0 ? 16 : parser->symbols.capacity * 2;
+    ParserSymbolTable* s = &parser->symbols;
+    s->names = (char**)realloc(s->names, sizeof(char*) * s->capacity);
+    s->scope_levels = (int*)realloc(s->scope_levels, sizeof(int) * s->capacity);
+    s->kinds = (ParserSymbolKind*)realloc(s->kinds, sizeof(ParserSymbolKind) * s->capacity);
+    s->types = (ValueType*)realloc(s->types, sizeof(ValueType) * s->capacity);
+    s->param_counts = (int*)realloc(s->param_counts, sizeof(int) * s->capacity);
+}
+
+static int symbol_index_in_scope(Parser* parser, const char* name, int scope) {
+    for (int i = 0; i < parser->symbols.count; i++) {
+        if (parser->symbols.scope_levels[i] == scope &&
+            strcmp(parser->symbols.names[i], name) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int symbol_index_recursive(Parser* parser, const char* name) {
+    for (int scope = parser->symbols.current_scope; scope >= 0; scope--) {
+        int idx = symbol_index_in_scope(parser, name, scope);
+        if (idx >= 0) return idx;
+    }
+    return -1;
+}
 
 void parser_enter_scope(Parser* parser) {
     parser->symbols.current_scope++;
 }
 
 void parser_exit_scope(Parser* parser) {
-    // Remove all symbols at the current scope level
     int i = 0;
     while (i < parser->symbols.count) {
         if (parser->symbols.scope_levels[i] == parser->symbols.current_scope) {
-            // Remove symbol
             free(parser->symbols.names[i]);
             for (int j = i; j < parser->symbols.count - 1; j++) {
                 parser->symbols.names[j] = parser->symbols.names[j + 1];
                 parser->symbols.scope_levels[j] = parser->symbols.scope_levels[j + 1];
+                parser->symbols.kinds[j] = parser->symbols.kinds[j + 1];
+                parser->symbols.types[j] = parser->symbols.types[j + 1];
+                parser->symbols.param_counts[j] = parser->symbols.param_counts[j + 1];
             }
             parser->symbols.count--;
         } else {
@@ -38,37 +157,38 @@ void parser_exit_scope(Parser* parser) {
     parser->symbols.current_scope--;
 }
 
-void parser_add_symbol(Parser* parser, const char* name) {
-    // Check if the symbol already exists in the current scope
-    for (int i = 0; i < parser->symbols.count; i++) {
-        if (parser->symbols.scope_levels[i] == parser->symbols.current_scope &&
-            strcmp(parser->symbols.names[i], name) == 0) {
-            return; // already declared
-        }
+bool parser_declare_symbol(Parser* parser, const char* name, ParserSymbolKind kind,
+                           ValueType type, int param_count, int line, int column) {
+    if (symbol_index_in_scope(parser, name, parser->symbols.current_scope) >= 0) {
+        const char* what = kind == PARSER_SYM_FUNCTION ? "Function" : "Variable";
+        parser_error_at(parser, line, column, (int)strlen(name),
+                        "%s '%s' already declared in this scope", what, name);
+        return false;
     }
-    
-    // Grow arrays if needed
-    if (parser->symbols.count >= parser->symbols.capacity) {
-        parser->symbols.capacity = parser->symbols.capacity == 0 ? 16 : parser->symbols.capacity * 2;
-        parser->symbols.names = (char**)realloc(parser->symbols.names, 
-                                                  sizeof(char*) * parser->symbols.capacity);
-        parser->symbols.scope_levels = (int*)realloc(parser->symbols.scope_levels,
-                                                       sizeof(int) * parser->symbols.capacity);
-    }
-    
-    parser->symbols.names[parser->symbols.count] = strdup(name);
-    parser->symbols.scope_levels[parser->symbols.count] = parser->symbols.current_scope;
-    parser->symbols.count++;
+
+    symbols_grow(parser);
+    int i = parser->symbols.count++;
+    parser->symbols.names[i] = strdup(name);
+    parser->symbols.scope_levels[i] = parser->symbols.current_scope;
+    parser->symbols.kinds[i] = kind;
+    parser->symbols.types[i] = type;
+    parser->symbols.param_counts[i] = param_count;
+    return true;
 }
 
 bool parser_is_declared(Parser* parser, const char* name) {
-    // Search across all scopes
-    for (int i = 0; i < parser->symbols.count; i++) {
-        if (strcmp(parser->symbols.names[i], name) == 0) {
-            return true;
-        }
+    return symbol_index_recursive(parser, name) >= 0;
+}
+
+static void parser_register_import(Parser* parser, const char* module_path, int line, int column) {
+    char path_copy[1024];
+    strncpy(path_copy, module_path, sizeof(path_copy) - 1);
+    path_copy[sizeof(path_copy) - 1] = '\0';
+    char* token = strtok(path_copy, ".");
+    if (!token) return;
+    if (symbol_index_recursive(parser, token) < 0) {
+        parser_declare_symbol(parser, token, PARSER_SYM_MODULE, TYPE_TABLE, 0, line, column);
     }
-    return false;
 }
 
 // ========== Parser Utilities ==========
@@ -83,9 +203,16 @@ Parser* parser_create(Token* tokens, int count, const char* filename, const char
     // Initialize symbol table
     parser->symbols.names = NULL;
     parser->symbols.scope_levels = NULL;
+    parser->symbols.kinds = NULL;
+    parser->symbols.types = NULL;
+    parser->symbols.param_counts = NULL;
     parser->symbols.count = 0;
     parser->symbols.capacity = 0;
     parser->symbols.current_scope = 0;
+    parser->error_count = 0;
+    parser->loop_depth = 0;
+    parser->function_depth = 0;
+    parser->semantic_checks = true;
     parser->source = source;
 
     return parser;
@@ -101,7 +228,10 @@ void parser_destroy(Parser* parser) {
         }
         free(parser->symbols.names);
         free(parser->symbols.scope_levels);
-        
+        free(parser->symbols.kinds);
+        free(parser->symbols.types);
+        free(parser->symbols.param_counts);
+
         free(parser);
     }
 }
@@ -153,15 +283,235 @@ static void skip_newlines(Parser* parser) {
     }
 }
 
-void parser_error(Parser* parser, const char* message) {
-    Token* token = current_token(parser);
-    int len = token->value ? (int)strlen(token->value) : 1;
-    
-    print_error_with_context(parser->filename, parser->source,
-                             token->line, token->column, len,
-                             "ParseError", message);
-    throw_repl_error();
+// ========== Semantic checks during parse ==========
+
+static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
+    ValueType left_type = infer_expression_type(parser, node->binary.left);
+    ValueType right_type = infer_expression_type(parser, node->binary.right);
+
+    if (left_type == TYPE_ANY || right_type == TYPE_ANY) return TYPE_ANY;
+    if (left_type == TYPE_UNKNOWN || right_type == TYPE_UNKNOWN) return TYPE_UNKNOWN;
+
+    switch (node->binary.op) {
+        case TOKEN_PLUS:
+        case TOKEN_MINUS:
+        case TOKEN_STAR:
+        case TOKEN_SLASH:
+        case TOKEN_PERCENT:
+            if (!is_numeric_type(left_type) || !is_numeric_type(right_type)) {
+                parser_error_at(parser, node->line, node->column, 0,
+                    "Arithmetic operator '%s' requires number operands, got %s and %s",
+                    token_type_name(node->binary.op),
+                    type_name(left_type), type_name(right_type));
+                return TYPE_ERROR;
+            }
+            return TYPE_NUMBER;
+        case TOKEN_EQUAL_EQUAL:
+        case TOKEN_NOT_EQUAL:
+            if (!is_comparable_type(left_type) || !is_comparable_type(right_type)) {
+                parser_error_at(parser, node->line, node->column, 0,
+                    "Cannot compare types %s and %s",
+                    type_name(left_type), type_name(right_type));
+                return TYPE_ERROR;
+            }
+            return TYPE_BOOLEAN;
+        case TOKEN_LESS:
+        case TOKEN_GREATER:
+        case TOKEN_LESS_EQUAL:
+        case TOKEN_GREATER_EQUAL:
+            if (!is_numeric_type(left_type) || !is_numeric_type(right_type)) {
+                parser_error_at(parser, node->line, node->column, 0,
+                    "Comparison operator '%s' requires number operands, got %s and %s",
+                    token_type_name(node->binary.op),
+                    type_name(left_type), type_name(right_type));
+                return TYPE_ERROR;
+            }
+            return TYPE_BOOLEAN;
+        case TOKEN_AND:
+        case TOKEN_OR:
+            if (left_type != TYPE_BOOLEAN || right_type != TYPE_BOOLEAN) {
+                parser_error_at(parser, node->line, node->column, 0,
+                    "Logical operator '%s' requires boolean operands, got %s and %s",
+                    token_type_name(node->binary.op),
+                    type_name(left_type), type_name(right_type));
+                return TYPE_ERROR;
+            }
+            return TYPE_BOOLEAN;
+        default:
+            return TYPE_ERROR;
+    }
 }
+
+static ValueType infer_unary_type(Parser* parser, ASTNode* node) {
+    ValueType operand_type = infer_expression_type(parser, node->unary.operand);
+    switch (node->unary.op) {
+        case TOKEN_MINUS:
+            if (!is_numeric_type(operand_type)) {
+                parser_error_at(parser, node->line, node->column, 0,
+                    "Unary minus requires number operand, got %s",
+                    type_name(operand_type));
+                return TYPE_ERROR;
+            }
+            return TYPE_NUMBER;
+        case TOKEN_NOT:
+            if (operand_type != TYPE_BOOLEAN) {
+                parser_error_at(parser, node->line, node->column, 0,
+                    "Logical not requires boolean operand, got %s",
+                    type_name(operand_type));
+                return TYPE_ERROR;
+            }
+            return TYPE_BOOLEAN;
+        default:
+            return TYPE_ERROR;
+    }
+}
+
+static const char* resolve_call_name(ASTNode* callee, char* buffer, size_t buflen) {
+    if (callee->type == AST_IDENTIFIER) {
+        return callee->identifier.name;
+    }
+    if (callee->type == AST_MEMBER_ACCESS &&
+        callee->access.object->type == AST_IDENTIFIER) {
+        snprintf(buffer, buflen, "%s.%s",
+                 callee->access.object->identifier.name,
+                 callee->access.member->identifier.name);
+        return buffer;
+    }
+    return NULL;
+}
+
+static ValueType infer_call_type(Parser* parser, ASTNode* node) {
+    ValueType callee_type = infer_expression_type(parser, node->call.callee);
+    if (callee_type != TYPE_FUNCTION && callee_type != TYPE_UNKNOWN &&
+        callee_type != TYPE_ANY) {
+        int callee_len = (node->call.callee->type == AST_IDENTIFIER) ?
+            (int)strlen(node->call.callee->identifier.name) : 0;
+        parser_error_at(parser, node->line, node->column, callee_len,
+            "Cannot call non-function value of type %s", type_name(callee_type));
+        return TYPE_ERROR;
+    }
+
+    char full_name[256] = "";
+    const char* func_name = resolve_call_name(node->call.callee, full_name, sizeof(full_name));
+    if (func_name) {
+        const BuiltinSig* builtin = lookup_builtin(func_name);
+        if (builtin) {
+            int actual = node->call.arguments->count;
+            if (builtin->param_count != actual) {
+                parser_error_at(parser, node->line, node->column, 1,
+                    "Function '%s' expects %d arguments, got %d",
+                    func_name, builtin->param_count, actual);
+            }
+            return TYPE_ANY;
+        }
+        int sym_idx = symbol_index_recursive(parser, func_name);
+        if (sym_idx >= 0 && parser->symbols.kinds[sym_idx] == PARSER_SYM_FUNCTION) {
+            int expected = parser->symbols.param_counts[sym_idx];
+            int actual = node->call.arguments->count;
+            if (expected != actual) {
+                parser_error_at(parser, node->line, node->column, 0,
+                    "Function '%s' expects %d arguments, got %d",
+                    func_name, expected, actual);
+            }
+            return parser->symbols.types[sym_idx];
+        }
+    }
+
+    for (int i = 0; i < node->call.arguments->count; i++) {
+        infer_expression_type(parser, node->call.arguments->nodes[i]);
+    }
+    return TYPE_UNKNOWN;
+}
+
+static ValueType infer_member_access_type(Parser* parser, ASTNode* node) {
+    ValueType object_type = infer_expression_type(parser, node->access.object);
+    if (object_type == TYPE_ERROR) return TYPE_ERROR;
+    if (object_type != TYPE_TABLE && object_type != TYPE_UNKNOWN && object_type != TYPE_ANY) {
+        int obj_len = 0;
+        if (node->access.object->type == AST_IDENTIFIER) {
+            obj_len = (int)strlen(node->access.object->identifier.name);
+        }
+        parser_error_at(parser, node->line, node->column, obj_len,
+            "Cannot access member of non-table type %s", type_name(object_type));
+        return TYPE_ERROR;
+    }
+    return TYPE_UNKNOWN;
+}
+
+static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
+    if (!node) return TYPE_UNKNOWN;
+
+    switch (node->type) {
+        case AST_LITERAL_NUMBER: return TYPE_NUMBER;
+        case AST_LITERAL_STRING: return TYPE_STRING;
+        case AST_LITERAL_BOOL: return TYPE_BOOLEAN;
+        case AST_IDENTIFIER: {
+            const char* name = node->identifier.name;
+            int idx = symbol_index_recursive(parser, name);
+            if (idx < 0 && !lookup_builtin(name)) {
+                parser_error_at(parser, node->line, node->column, (int)strlen(name),
+                    "Undefined variable or function '%s'", name);
+                return TYPE_ERROR;
+            }
+            if (idx >= 0) return parser->symbols.types[idx];
+            return TYPE_ANY;
+        }
+        case AST_BINARY: return infer_binary_type(parser, node);
+        case AST_UNARY: return infer_unary_type(parser, node);
+        case AST_CALL: return infer_call_type(parser, node);
+        case AST_MEMBER_ACCESS:
+        case AST_INDEX_ACCESS: return infer_member_access_type(parser, node);
+        case AST_TABLE_LITERAL: {
+            for (int i = 0; i < node->table_literal.items->count; i++) {
+                infer_expression_type(parser, node->table_literal.items->nodes[i]);
+            }
+            for (int i = 0; i < node->table_literal.key_values->count; i++) {
+                ASTNode* kv = node->table_literal.key_values->nodes[i];
+                infer_expression_type(parser, kv->binary.left);
+                infer_expression_type(parser, kv->binary.right);
+            }
+            return TYPE_TABLE;
+        }
+        case AST_STRING_INTERP: {
+            for (int i = 0; i < node->string_interp.parts->count; i++) {
+                ASTNode* part = node->string_interp.parts->nodes[i];
+                if (part->type != AST_LITERAL_STRING) {
+                    infer_expression_type(parser, part);
+                }
+            }
+            return TYPE_STRING;
+        }
+        case AST_FUNCTION_DECL: return TYPE_FUNCTION;
+        default:
+            parser_error_at(parser, node->line, node->column, 0,
+                "Unexpected expression type %d", node->type);
+            return TYPE_ERROR;
+    }
+}
+
+ValueType parser_check_expression(Parser* parser, ASTNode* node) {
+    if (!parser->semantic_checks) return TYPE_UNKNOWN;
+    return infer_expression_type(parser, node);
+}
+
+static void parser_check_condition(Parser* parser, ASTNode* condition, const char* context) {
+    if (!parser->semantic_checks) return;
+    ValueType cond_type = infer_expression_type(parser, condition);
+    if (cond_type != TYPE_BOOLEAN && cond_type != TYPE_ANY && cond_type != TYPE_UNKNOWN) {
+        parser_error_at(parser, condition->line, condition->column, 0,
+            "%s condition must be boolean, got %s", context, type_name(cond_type));
+    }
+}
+
+static void parser_check_number_expr(Parser* parser, ASTNode* expr, const char* context) {
+    if (!parser->semantic_checks) return;
+    ValueType t = infer_expression_type(parser, expr);
+    if (t != TYPE_NUMBER && t != TYPE_ANY && t != TYPE_UNKNOWN) {
+        parser_error_at(parser, expr->line, expr->column, 0,
+            "%s must be a number, got %s", context, type_name(t));
+    }
+}
+
 // ========== Expression Parsing (Pratt Parser) ==========
 
 typedef enum {
@@ -219,6 +569,7 @@ static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, in
     
     // Create a temporary parser
     Parser* temp_parser = parser_create(temp_tokens, temp_count, "<interpolation>", expr_str);
+    temp_parser->semantic_checks = false;
     ASTNode* expr = parse_expression(temp_parser);
     
     // Cleanup
@@ -562,71 +913,117 @@ static ASTNode* parse_precedence(Parser* parser, Precedence precedence) {
 
 static ASTNode* parse_expression(Parser* parser) {
     skip_newlines(parser);
-    
+
     if (check(parser, TOKEN_EOF)) {
         return NULL;
     }
-    
-    return parse_precedence(parser, PREC_ASSIGNMENT);
+
+    ASTNode* expr = parse_precedence(parser, PREC_ASSIGNMENT);
+    if (expr) {
+        parser_check_expression(parser, expr);
+    }
+    return expr;
 }
 
 // ========== Statement Parsing ==========
 
 static ASTNode* parse_var_decl_or_assign(Parser* parser) {
     Token* name = current_token(parser);
-    advance(parser); // consume identifier
-    
+    advance(parser);
+
     consume(parser, TOKEN_EQUAL, "Expected '=' in assignment");
     ASTNode* value = parse_expression(parser);
-    
-    // Check if variable already exists
+
     bool is_declaration = !parser_is_declared(parser, name->value);
+    int current_idx = symbol_index_in_scope(parser, name->value, parser->symbols.current_scope);
+
+    if (!parser->semantic_checks) {
+        return ast_create_var_assign(name->value, value, is_declaration, NULL,
+                                    name->line, name->column);
+    }
 
     if (is_declaration) {
-        parser_add_symbol(parser, name->value);
+        if (current_idx >= 0) {
+            parser_error_at(parser, name->line, name->column, (int)strlen(name->value),
+                "Variable '%s' already declared in this scope", name->value);
+        } else if (value) {
+            ValueType value_type = infer_expression_type(parser, value);
+            if (value_type != TYPE_ERROR) {
+                parser_declare_symbol(parser, name->value, PARSER_SYM_VARIABLE,
+                                      value_type, 0, name->line, name->column);
+            }
+        }
+    } else {
+        int idx = symbol_index_recursive(parser, name->value);
+        if (idx < 0) {
+            parser_error_at(parser, name->line, name->column, (int)strlen(name->value),
+                "Assignment to undefined variable '%s'", name->value);
+        } else if (parser->symbols.kinds[idx] != PARSER_SYM_VARIABLE &&
+                   parser->symbols.kinds[idx] != PARSER_SYM_PARAMETER) {
+            parser_error_at(parser, name->line, name->column, (int)strlen(name->value),
+                "Cannot assign to '%s' (not a variable)", name->value);
+        } else if (value) {
+            ValueType new_type = infer_expression_type(parser, value);
+            ValueType old_type = parser->symbols.types[idx];
+            if (old_type != TYPE_UNKNOWN && new_type != TYPE_UNKNOWN &&
+                new_type != TYPE_ERROR && old_type != new_type) {
+                parser_error_at(parser, name->line, name->column, 0,
+                    "Cannot change type of variable '%s' from %s to %s",
+                    name->value, type_name(old_type), type_name(new_type));
+            } else if (old_type == TYPE_UNKNOWN && new_type != TYPE_ERROR) {
+                parser->symbols.types[idx] = new_type;
+            }
+        }
     }
-    
+
     return ast_create_var_assign(name->value, value, is_declaration, NULL,
-                                  name->line, name->column);
+                                 name->line, name->column);
 }
 
 static ASTNode* parse_function(Parser* parser) {
-    advance(parser); // consume 'function'
+    advance(parser);
     Token* name = consume(parser, TOKEN_IDENTIFIER, "Expected function name");
-    
-    parser_add_symbol(parser, name->value);
-    
+
     consume(parser, TOKEN_LPAREN, "Expected '(' after function name");
-    
-    parser_enter_scope(parser);
-    
+
     ASTNodeList* params = ast_list_create();
-    
+
     if (!check(parser, TOKEN_RPAREN)) {
         while (true) {
             Token* param_name = consume(parser, TOKEN_IDENTIFIER, "Expected parameter name");
-            parser_add_symbol(parser, param_name->value);
-            
             ASTNode* param = ast_create_param(param_name->value, param_name->line, param_name->column);
             ast_list_add(params, param);
-            
             if (!match(parser, TOKEN_COMMA)) break;
         }
     }
-    
+
     consume(parser, TOKEN_RPAREN, "Expected ')' after parameters");
-    
+
+    parser_declare_symbol(parser, name->value, PARSER_SYM_FUNCTION,
+                          TYPE_FUNCTION, params->count, name->line, name->column);
+
+    parser->function_depth++;
+    parser_enter_scope(parser);
+
+    for (int i = 0; i < params->count; i++) {
+        ASTNode* param = params->nodes[i];
+        parser_declare_symbol(parser, param->param.name, PARSER_SYM_PARAMETER,
+                              TYPE_ANY, 0, param->line, param->column);
+    }
+
     ASTNode* body = parse_block(parser, true);
-    
+
     parser_exit_scope(parser);
-    
+    parser->function_depth--;
+
     return ast_create_function(name->value, params, body, name->line, name->column);
 }
 
 static ASTNode* parse_if_statement(Parser* parser) {
-    advance(parser); // consume 'if'
+    advance(parser);
     ASTNode* condition = parse_expression(parser);
-    
+    parser_check_condition(parser, condition, "If");
+
     ASTNode* then_branch = parse_block(parser, true);
     
     ASTNode* elif_chain = NULL;
@@ -637,6 +1034,7 @@ static ASTNode* parse_if_statement(Parser* parser) {
     while (check(parser, TOKEN_ELIF)) {
         Token* elif_kw = advance(parser);
         ASTNode* elif_cond = parse_expression(parser);
+        parser_check_condition(parser, elif_cond, "If");
         ASTNode* elif_body = parse_block(parser, true);
         
         ASTNode* elif_node = (ASTNode*)calloc(1, sizeof(ASTNode));
@@ -676,9 +1074,16 @@ static ASTNode* parse_if_statement(Parser* parser) {
 }
 
 static ASTNode* parse_while_statement(Parser* parser) {
-    advance(parser); // consume 'while'
+    advance(parser);
     ASTNode* condition = parse_expression(parser);
+    parser_check_condition(parser, condition, "While");
+
+    parser->loop_depth++;
+    parser_enter_scope(parser);
     ASTNode* body = parse_block(parser, true);
+    parser_exit_scope(parser);
+    parser->loop_depth--;
+
     return ast_create_while(condition, body);
 }
 
@@ -686,17 +1091,27 @@ static ASTNode* parse_for_statement(Parser* parser) {
     Token* for_kw = advance(parser);
     Token* var_name = consume(parser, TOKEN_IDENTIFIER, "Expected variable name");
     consume(parser, TOKEN_EQUAL, "Expected '=' after for variable");
-    
+
     ASTNode* start = parse_expression(parser);
+    parser_check_number_expr(parser, start, "For loop start");
     consume(parser, TOKEN_COMMA, "Expected ',' after start value");
     ASTNode* end = parse_expression(parser);
-    
+    parser_check_number_expr(parser, end, "For loop end");
+
     ASTNode* step = NULL;
     if (match(parser, TOKEN_COMMA)) {
         step = parse_expression(parser);
+        parser_check_number_expr(parser, step, "For loop step");
     }
-    
+
+    parser->loop_depth++;
+    parser_enter_scope(parser);
+    parser_declare_symbol(parser, var_name->value, PARSER_SYM_VARIABLE,
+                          TYPE_NUMBER, 0, var_name->line, var_name->column);
     ASTNode* body = parse_block(parser, true);
+    parser_exit_scope(parser);
+    parser->loop_depth--;
+
     return ast_create_for(var_name->value, start, end, step, body, for_kw->line, for_kw->column);
 }
 
@@ -746,14 +1161,21 @@ static ASTNode* parse_import_statement(Parser* parser) {
     }
     
     ASTNode* node = ast_create_import(module_path, import_kw->line, import_kw->column);
+    parser_register_import(parser, node->import_stmt.module_path,
+                           import_kw->line, import_kw->column);
     free(module_path);
     #undef APPEND_PATH
     return node;
 }
 
 static ASTNode* parse_return_statement(Parser* parser) {
-    Token* return_kw = advance(parser); // consume 'return'
-    
+    Token* return_kw = advance(parser);
+
+    if (parser->semantic_checks && parser->function_depth == 0) {
+        parser_error_at(parser, return_kw->line, return_kw->column, 6,
+            "Return statement outside of function");
+    }
+
     ASTNode* value = NULL;
     // Check if there's an expression on the same line
     if (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
@@ -765,11 +1187,19 @@ static ASTNode* parse_return_statement(Parser* parser) {
 
 static ASTNode* parse_break_statement(Parser* parser) {
     Token* break_kw = advance(parser);
+    if (parser->semantic_checks && parser->loop_depth == 0) {
+        parser_error_at(parser, break_kw->line, break_kw->column, 5,
+            "'break' statement outside of loop");
+    }
     return ast_create_node(AST_BREAK_STMT, break_kw->line, break_kw->column);
 }
 
 static ASTNode* parse_continue_statement(Parser* parser) {
     Token* cont_kw = advance(parser);
+    if (parser->semantic_checks && parser->loop_depth == 0) {
+        parser_error_at(parser, cont_kw->line, cont_kw->column, 8,
+            "'continue' statement outside of loop");
+    }
     return ast_create_node(AST_CONTINUE_STMT, cont_kw->line, cont_kw->column);
 }
 

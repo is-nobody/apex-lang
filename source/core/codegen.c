@@ -69,10 +69,9 @@ static int emit(CodeGenerator* cg, Instruction inst, int line) {
 
 // ========== Code Generator ==========
 
-CodeGenerator* codegen_create(BytecodeChunk* chunk, SemAnalyzer* sema) {
+CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     CodeGenerator* cg = (CodeGenerator*)calloc(1, sizeof(CodeGenerator));
     cg->chunk = chunk;
-    cg->sema = sema;
     cg->next_register = 0;
     cg->max_registers = 0;
     cg->current_function = -1;

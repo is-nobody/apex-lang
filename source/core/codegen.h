@@ -3,12 +3,10 @@
 
 #include "ast.h"
 #include "bytecode.h"
-#include "sema.h"
 
 typedef struct {
     BytecodeChunk* chunk;
-    SemAnalyzer* sema;
-    
+
     // Variable-to-register-slot mapping
     struct {
         char** names;
@@ -46,7 +44,7 @@ typedef struct {
 } CodeGenerator;
 
 // API
-CodeGenerator* codegen_create(BytecodeChunk* chunk, SemAnalyzer* sema);
+CodeGenerator* codegen_create(BytecodeChunk* chunk);
 void codegen_destroy(CodeGenerator* cg);
 bool codegen_generate(CodeGenerator* cg, ASTNode* ast);
 
