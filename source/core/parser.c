@@ -672,7 +672,7 @@ static ASTNode* parse_if_statement(Parser* parser) {
         }
     }
     
-    return ast_create_if(condition, then_branch, elif_chain, else_branch);
+    return ast_create_if(condition, then_branch, elif_chain, elif_chain ? NULL : else_branch);
 }
 
 static ASTNode* parse_while_statement(Parser* parser) {
