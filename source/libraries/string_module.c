@@ -90,7 +90,7 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
     if (strcmp(name, "string.sub") == 0) {
         if (arg_count >= 3 && args[0].type == VAL_STRING) {
             int start = args[1].type == VAL_NUMBER ? (int)args[1].number : 0;
-            int end = args[2].type == VAL_NUMBER ? (int)args[2].number : strlen(args[0].string->chars);
+            size_t end = args[2].type == VAL_NUMBER ? (size_t)args[2].number : strlen(args[0].string->chars);
             
             if (start < 0) start = 0;
             if (end > (int)strlen(args[0].string->chars)) end = strlen(args[0].string->chars);
