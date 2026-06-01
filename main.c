@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <signal.h>
 #include <errno.h>
+#include <ctype.h>
 
 #ifdef _WIN32
     #include <windows.h>
@@ -77,6 +78,102 @@
 
 #include "execute.h"
 #include "add_to_path.h"
+
+// ========== Syntax Highlighting ==========
+#define ANSI_RESET  "\033[0m"
+#define ANSI_BLUE   "\033[34m"  // Операторы
+#define ANSI_ORANGE "\033[33m"  // Ключевые слова
+#define ANSI_GREEN  "\033[32m"  // Строки
+#define ANSI_CYAN   "\033[36m"  // Числа
+#define ANSI_GRAY   "\033[90m"  // Комментарии
+
+static const char* keywords[] = {
+    "function", "if", "elif", "else", "while", "for", "break", "continue",
+    "return", "import", "and", "or", "not", "true", "false", NULL
+};
+
+static bool is_keyword(const char* word, int len) {
+    for (int i = 0; keywords[i]; i++) {
+        if ((int)strlen(keywords[i]) == len && memcmp(keywords[i], word, len) == 0)
+            return true;
+    }
+    return false;
+}
+
+static char* highlight_line(const char* line) {
+    if (!line || !*line) return strdup("");
+    // Выделяем буфер с запасом под ANSI-коды (примерно x10)
+    char* out = (char*)malloc(strlen(line) * 12 + 64);
+    int pos = 0, i = 0, len = strlen(line);
+
+    while (i < len) {
+        // Комментарии: //
+        if (i + 1 < len && line[i] == '/' && line[i+1] == '/') {
+            pos += sprintf(out + pos, "%s", ANSI_GRAY);
+            while (i < len && line[i] != '\n') out[pos++] = line[i++];
+            pos += sprintf(out + pos, "%s", ANSI_RESET);
+        }
+        // Строки: "..."
+        else if (line[i] == '"') {
+            pos += sprintf(out + pos, "%s", ANSI_GREEN);
+            out[pos++] = line[i++];
+            while (i < len && line[i] != '"' && line[i] != '\n') {
+                if (line[i] == '\\' && i + 1 < len) out[pos++] = line[i++];
+                out[pos++] = line[i++];
+            }
+            if (i < len && line[i] == '"') out[pos++] = line[i++];
+            pos += sprintf(out + pos, "%s", ANSI_RESET);
+        }
+        // Числа
+        else if (isdigit((unsigned char)line[i]) || 
+                (line[i] == '.' && i + 1 < len && isdigit((unsigned char)line[i+1]))) {
+            pos += sprintf(out + pos, "%s", ANSI_CYAN);
+            while (i < len && (isdigit((unsigned char)line[i]) || line[i] == '.')) out[pos++] = line[i++];
+            pos += sprintf(out + pos, "%s", ANSI_RESET);
+        }
+        // Идентификаторы / Ключевые слова
+        else if (isalpha((unsigned char)line[i]) || line[i] == '_') {
+            int start = i;
+            while (i < len && (isalnum((unsigned char)line[i]) || line[i] == '_')) i++;
+            if (is_keyword(line + start, i - start)) {
+                pos += sprintf(out + pos, "%s", ANSI_ORANGE);
+            }
+            memcpy(out + pos, line + start, i - start);
+            pos += i - start;
+            if (is_keyword(line + start, i - start)) pos += sprintf(out + pos, "%s", ANSI_RESET);
+        }
+        // Операторы
+        else if (strchr("+-*/%=<>!&|(),.", line[i])) {
+            int op_len = 1;
+            if (i + 1 < len) {
+                if ((line[i]=='=' && line[i+1]=='=') || (line[i]=='!' && line[i+1]=='=') ||
+                    (line[i]=='<' && line[i+1]=='=') || (line[i]=='>' && line[i+1]=='='))
+                    op_len = 2;
+            }
+            pos += sprintf(out + pos, "%s", ANSI_BLUE);
+            memcpy(out + pos, line + i, op_len);
+            pos += op_len;
+            pos += sprintf(out + pos, "%s", ANSI_RESET);
+            i += op_len;
+        }
+        // Остальные символы
+        else {
+            out[pos++] = line[i++];
+        }
+    }
+    out[pos] = '\0';
+    return out;
+}
+
+static void redraw_line(const char* line, int cursor_pos) {
+    char* highlighted = highlight_line(line);
+    // \r = в начало строки, \033[K = очистить до конца строки
+    printf("\r\033[K> %s", highlighted);
+    free(highlighted);
+    // Курсор: 3 = длина "> " + 1, cursor_pos = видимые символы до курсора
+    printf("\033[%dG", 3 + cursor_pos);
+    fflush(stdout);
+}
 
 #define MAX_LINE 4096
 #define MAX_INPUT 65536
@@ -223,18 +320,12 @@ int main(int argc, char** argv) {
             break;
         }
 
-        if (c == 4) {
-            break;
-        }
-
-        if (c == 3) {
-            break;
-        }
+        if (c == 4) break; // Ctrl+D
+        if (c == 3) break; // Ctrl+C
 
         if (c == '\r' || c == '\n') {
-            printf("\r\n");
+            printf("\n");
             line[pos] = '\0';
-            
             if (pos > 0) {
                 if (total_len + pos + 2 < MAX_INPUT) {
                     memcpy(full_input + total_len, line, pos);
@@ -252,34 +343,25 @@ int main(int argc, char** argv) {
             #endif
             
             if (!has_kb) {
-                if (total_len > 0) {
-                    execute_code(full_input, "REPL");
-                }
-                
+                if (total_len > 0) execute_code(full_input, "<repl>");
                 total_len = 0;
                 full_input[0] = '\0';
                 printf("> ");
                 fflush(stdout);
-                prompt_shown = 1;
-            } else {
-                prompt_shown = 0;
             }
         }
-        else if (c == 127 || c == '\b') {
+        else if (c == 127 || c == '\b') { // Backspace
             if (pos > 0) {
+                // Сдвигаем строку влево
+                memmove(&line[pos-1], &line[pos], strlen(&line[pos]) + 1);
                 pos--;
-                printf("\b \b");
-                fflush(stdout);
+                redraw_line(line, pos);
             }
         }
         else if (c >= 32 && c < 127 && pos < MAX_LINE - 1) {
-            if (!prompt_shown) {
-                printf("> ");
-                prompt_shown = 1;
-            }
             line[pos++] = c;
-            printf("%c", c);
-            fflush(stdout);
+            line[pos] = '\0';
+            redraw_line(line, pos);
         }
     }
 
