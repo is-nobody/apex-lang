@@ -34,10 +34,6 @@ static void free_register(CodeGenerator* cg, int reg) {
     }
 }
 
-static int make_label(CodeGenerator* cg) {
-    return cg->label_counter++;
-}
-
 // Local variable management
 
 static int find_local(CodeGenerator* cg, const char* name) {

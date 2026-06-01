@@ -55,15 +55,6 @@ static const char* type_name(ValueType type) {
     }
 }
 
-static ValueType type_from_string(const char* name) {
-    if (strcmp(name, "number") == 0) return TYPE_NUMBER;
-    if (strcmp(name, "string") == 0) return TYPE_STRING;
-    if (strcmp(name, "boolean") == 0) return TYPE_BOOLEAN;
-    if (strcmp(name, "table") == 0) return TYPE_TABLE;
-    if (strcmp(name, "function") == 0) return TYPE_FUNCTION;
-    return TYPE_UNKNOWN;
-}
-
 static bool is_numeric_type(ValueType type) {
     return type == TYPE_NUMBER;
 }

@@ -179,8 +179,6 @@ static void skip_comment(Tokenizer* tokenizer) {
 }
 
 static char* read_string(Tokenizer* tokenizer) {
-    int start_line = tokenizer->line;
-    int start_column = tokenizer->column;
     advance(tokenizer); // skip opening quote
     
     char* buffer = (char*)malloc(256);
