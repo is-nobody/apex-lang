@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <ctype.h>
+#include <limits.h>
 
 #ifdef _WIN32
     #include <windows.h>
@@ -24,7 +25,6 @@
     }
 #else
     #include <unistd.h>
-    #include <limits.h>
     #include <sys/stat.h>
 #endif
 

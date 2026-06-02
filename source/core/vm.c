@@ -3,12 +3,10 @@
 #include "math_module.h"
 #include "string_module.h"
 #include "table_module.h"
-#include "error.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <stdarg.h>
 
 // ========== Forward Declarations ==========
 static StringObject* string_create(const char* chars, int length);
@@ -391,17 +389,6 @@ void vm_destroy(VM* vm) {
     free(vm);
 }
 
-void vm_error(VM* vm, const char* format, ...) {
-    char buffer[1024];
-    va_list args; va_start(args, format);
-    vsnprintf(buffer, sizeof(buffer), format, args);
-    va_end(args);
-
-    int line = (vm->pc < vm->chunk->line_count) ? vm->chunk->line_info[vm->pc] : 0;
-    print_error_with_context("VM", vm->source ? vm->source : "", line, 0, 0, "Runtime Error", buffer);
-    vm->had_error = true;
-}
-
 // ========== Built-in Functions ==========
 static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     if (strncmp(name, "os.", 3) == 0) return os_call_builtin(vm, name, arg_count, args, result);
@@ -411,9 +398,20 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
 
     if (strcmp(name, "number") == 0) {
         if (arg_count >= 1) {
-            if (args[0].type == VAL_STRING) *result = vm_make_number(atof(args[0].string->chars));
-            else if (args[0].type == VAL_NUMBER) *result = vm_copy_value(args[0]);
-            else *result = vm_make_bool(false);
+            switch (args[0].type) {
+                case VAL_STRING:
+                    *result = vm_make_number(atof(args[0].string->chars));
+                    break;
+                case VAL_NUMBER:
+                    *result = vm_copy_value(args[0]);
+                    break;
+                case VAL_BOOL:
+                    *result = vm_make_number(args[0].boolean ? 1.0 : 0.0);
+                    break;
+                default:
+                    *result = vm_make_number(0.0);
+                    break;
+            }
         }
         return true;
     }
@@ -421,10 +419,19 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
         if (arg_count >= 1) {
             char buffer[256];
             switch (args[0].type) {
-                case VAL_NUMBER: snprintf(buffer, sizeof(buffer), "%g", args[0].number); *result = vm_make_string(buffer); break;
-                case VAL_BOOL: *result = vm_make_string(args[0].boolean ? "true" : "false"); break;
-                case VAL_STRING: *result = vm_copy_value(args[0]); break;
-                default: *result = vm_make_string("false"); break;
+                case VAL_NUMBER:
+                    snprintf(buffer, sizeof(buffer), "%g", args[0].number);
+                    *result = vm_make_string(buffer);
+                    break;
+                case VAL_BOOL:
+                    *result = vm_make_string(args[0].boolean ? "true" : "false");
+                    break;
+                case VAL_STRING:
+                    *result = vm_copy_value(args[0]);
+                    break;
+                default:
+                    *result = vm_make_string("");
+                    break;
             }
         }
         return true;
@@ -435,7 +442,6 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
 // ========== Main Execution Loop ==========
 bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     if (!vm || !chunk) return false;
-    bool is_numeric_only = true;
     vm->chunk = chunk;
     vm->code = chunk->code;
     vm->code_count = chunk->code_count;
@@ -540,13 +546,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_ADD_LABEL: {
-        if (is_numeric_only) {
-            regs[ip->operands[0]].number = regs[ip->operands[1]].number + regs[ip->operands[2]].number;
-        } else {
         int dest = ip->operands[0];
         regs[dest].type = VAL_NUMBER;
         regs[dest].number = regs[ip->operands[1]].number + regs[ip->operands[2]].number;
-        }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_SUB_LABEL: {
@@ -581,32 +583,32 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_CMP_EQ_LABEL: {
         int dest = ip->operands[0];
-        Value* left = &regs[ip->operands[1]]; Value* right = &regs[ip->operands[2]];
+        Value* left = &regs[ip->operands[1]];
+        Value* right = &regs[ip->operands[2]];
         int result = 0;
-        if (left->type == right->type) {
-            switch (left->type) {
-                case VAL_NUMBER: result = (left->number == right->number); break;
-                case VAL_STRING: result = string_equal(left->string, right->string); break;
-                case VAL_BOOL:   result = (left->boolean == right->boolean); break;
-                default: break;
-            }
+        switch (left->type) {
+            case VAL_NUMBER: result = (left->number == right->number); break;
+            case VAL_STRING: result = string_equal(left->string, right->string); break;
+            case VAL_BOOL:   result = (left->boolean == right->boolean); break;
+            default: break;
         }
-        regs[dest].type = VAL_BOOL; regs[dest].boolean = result;
+        regs[dest].type = VAL_BOOL;
+        regs[dest].boolean = result;
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_CMP_NEQ_LABEL: {
         int dest = ip->operands[0];
-        Value* left = &regs[ip->operands[1]]; Value* right = &regs[ip->operands[2]];
+        Value* left = &regs[ip->operands[1]];
+        Value* right = &regs[ip->operands[2]];
         int result = 1;
-        if (left->type == right->type) {
-            switch (left->type) {
-                case VAL_NUMBER: result = (left->number != right->number); break;
-                case VAL_STRING: result = !string_equal(left->string, right->string); break;
-                case VAL_BOOL:   result = (left->boolean != right->boolean); break;
-                default: break;
-            }
+        switch (left->type) {
+            case VAL_NUMBER: result = (left->number != right->number); break;
+            case VAL_STRING: result = !string_equal(left->string, right->string); break;
+            case VAL_BOOL:   result = (left->boolean != right->boolean); break;
+            default: break;
         }
-        regs[dest].type = VAL_BOOL; regs[dest].boolean = result;
+        regs[dest].type = VAL_BOOL;
+        regs[dest].boolean = result;
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_CMP_LT_LABEL: {
@@ -652,13 +654,25 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_TO_NUMBER_LABEL: {
-        int dest = ip->operands[0]; Value* src = &regs[ip->operands[1]];
-        if (src->type == VAL_STRING) {
-            regs[dest].type = VAL_NUMBER; regs[dest].number = atof(src->string->chars);
-        } else if (src->type == VAL_NUMBER) {
-            regs[dest].type = VAL_NUMBER; regs[dest].number = src->number;
-        } else {
-            regs[dest].type = VAL_BOOL; regs[dest].boolean = false;
+        int dest = ip->operands[0];
+        Value* src = &regs[ip->operands[1]];
+        switch (src->type) {
+            case VAL_STRING:
+                regs[dest].type = VAL_NUMBER;
+                regs[dest].number = atof(src->string->chars);
+                break;
+            case VAL_NUMBER:
+                regs[dest].type = VAL_NUMBER;
+                regs[dest].number = src->number;
+                break;
+            case VAL_BOOL:
+                regs[dest].type = VAL_NUMBER;
+                regs[dest].number = src->boolean ? 1.0 : 0.0;
+                break;
+            default:
+                regs[dest].type = VAL_NUMBER;
+                regs[dest].number = 0.0;
+                break;
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
@@ -705,12 +719,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int func_addr = ip->operands[1];
         int arg_count = ip->operands[2];
         int dest_reg  = ip->operands[0];
-
-        #ifndef VM_DEBUG
-        if (vm->call_depth >= VM_MAX_CALL_FRAMES || vm->current_frame >= VM_MAX_FRAMES - 1) {
-            vm_error(vm, "Stack overflow"); vm->had_error = true; vm->running = false; goto OP_HALT_LABEL;
-        }
-        #endif
 
         vm->call_stack[vm->call_depth].return_address = (ip + 1) - vm->code;
         vm->call_stack[vm->call_depth].dest_reg       = dest_reg;
@@ -840,46 +848,54 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_TABLE_SET_CONST_LABEL: {
-        int table_reg = ip->operands[0]; int key_idx = ip->operands[1]; int val_reg = ip->operands[2];
-        if (vm->registers[table_reg].type == VAL_TABLE && key_idx < chunk->const_count && chunk->constants[key_idx].type == CONST_STRING) {
-            table_set(vm->registers[table_reg].table, chunk->constants[key_idx].string_value, vm->registers[val_reg]);
-        }
+        int table_reg = ip->operands[0];
+        int key_idx = ip->operands[1];
+        int val_reg = ip->operands[2];
+        table_set(vm->registers[table_reg].table,
+                  chunk->constants[key_idx].string_value,
+                  vm->registers[val_reg]);
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_TABLE_GET_LABEL: {
-        int dest = ip->operands[0]; int table_reg = ip->operands[1]; int key_reg = ip->operands[2];
-        if (vm->registers[table_reg].type == VAL_TABLE) {
-            char key_str[256];
-            Value* key = &vm->registers[key_reg];
-            if (key->type == VAL_STRING) strcpy(key_str, key->string->chars);
-            else if (key->type == VAL_NUMBER) snprintf(key_str, sizeof(key_str), "%g", key->number);
-            else key_str[0] = '\0';
-            Value val; val.type = VAL_BOOL; val.boolean = false;
-            if (table_get(vm->registers[table_reg].table, key_str, &val)) {
-                value_decref(&vm->registers[dest]);
-                vm->registers[dest] = val;
-            }
+        int dest = ip->operands[0];
+        int table_reg = ip->operands[1];
+        int key_reg = ip->operands[2];
+        char key_str[256];
+        Value* key = &vm->registers[key_reg];
+        if (key->type == VAL_STRING) {
+            strcpy(key_str, key->string->chars);
+        } else {
+            snprintf(key_str, sizeof(key_str), "%g", key->number);
+        }
+        Value val;
+        val.type = VAL_BOOL;
+        val.boolean = false;
+        if (table_get(vm->registers[table_reg].table, key_str, &val)) {
+            value_decref(&vm->registers[dest]);
+            vm->registers[dest] = val;
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_TABLE_GET_CONST_LABEL: {
-        int dest = ip->operands[0]; int table_reg = ip->operands[1]; int key_idx = ip->operands[2];
-        if (vm->registers[table_reg].type == VAL_TABLE && key_idx < chunk->const_count && chunk->constants[key_idx].type == CONST_STRING) {
-            Value val; val.type = VAL_BOOL; val.boolean = false;
-            if (table_get(vm->registers[table_reg].table, chunk->constants[key_idx].string_value, &val)) {
-                value_decref(&vm->registers[dest]);
-                vm->registers[dest] = val;
-            }
+        int dest = ip->operands[0];
+        int table_reg = ip->operands[1];
+        int key_idx = ip->operands[2];
+        Value val;
+        val.type = VAL_BOOL;
+        val.boolean = false;
+        if (table_get(vm->registers[table_reg].table,
+                      chunk->constants[key_idx].string_value, &val)) {
+            value_decref(&vm->registers[dest]);
+            vm->registers[dest] = val;
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_TABLE_APPEND_LABEL: {
-        int table_reg = ip->operands[0]; int val_reg = ip->operands[1];
-        if (vm->registers[table_reg].type == VAL_TABLE) {
-            char key[32];
-            snprintf(key, sizeof(key), "%d", table_size(vm->registers[table_reg].table) + 1);
-            table_set(vm->registers[table_reg].table, key, vm->registers[val_reg]);
-        }
+        int table_reg = ip->operands[0];
+        int val_reg = ip->operands[1];
+        char key[32];
+        snprintf(key, sizeof(key), "%d", table_size(vm->registers[table_reg].table) + 1);
+        table_set(vm->registers[table_reg].table, key, vm->registers[val_reg]);
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_CONCAT_LABEL: {
@@ -914,13 +930,13 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_FOR_INIT_LABEL: {
-        int var_reg = ip->operands[0]; int end_reg = ip->operands[1]; int step_reg = ip->operands[2];
-        if (vm->iterator_depth < VM_MAX_CALL_FRAMES - 1) {
-            vm->iterator_depth++;
-            vm->iterator_stack[vm->iterator_depth].index = vm->registers[var_reg].number;
-            vm->iterator_stack[vm->iterator_depth].end   = vm->registers[end_reg].number;
-            vm->iterator_stack[vm->iterator_depth].step  = vm->registers[step_reg].number;
-        } else vm_error(vm, "Iterator stack overflow");
+        int var_reg = ip->operands[0];
+        int end_reg = ip->operands[1];
+        int step_reg = ip->operands[2];
+        vm->iterator_depth++;
+        vm->iterator_stack[vm->iterator_depth].index = vm->registers[var_reg].number;
+        vm->iterator_stack[vm->iterator_depth].end   = vm->registers[end_reg].number;
+        vm->iterator_stack[vm->iterator_depth].step  = vm->registers[step_reg].number;
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_FOR_NEXT_LABEL: {
@@ -971,18 +987,27 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_POP_ITER_LABEL: if (vm->iterator_depth >= 0) vm->iterator_depth--; ip++; goto *dispatch_table[ip->opcode];
     OP_JUMP_IF_LT_LABEL: {
-        int target = ip->operands[0]; Value* left = &vm->registers[ip->operands[1]]; Value* right = &vm->registers[ip->operands[2]];
-        if (left->type == VAL_NUMBER && right->type == VAL_NUMBER && left->number < right->number) { ip = &vm->code[target]; goto *dispatch_table[ip->opcode]; }
+        int target = ip->operands[0];
+        if (regs[ip->operands[1]].number < regs[ip->operands[2]].number) {
+            ip = &vm->code[target];
+            goto *dispatch_table[ip->opcode];
+        }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_JUMP_IF_LTE_LABEL: {
-        int target = ip->operands[0]; Value* left = &vm->registers[ip->operands[1]]; Value* right = &vm->registers[ip->operands[2]];
-        if (left->type == VAL_NUMBER && right->type == VAL_NUMBER && left->number <= right->number) { ip = &vm->code[target]; goto *dispatch_table[ip->opcode]; }
+        int target = ip->operands[0];
+        if (regs[ip->operands[1]].number <= regs[ip->operands[2]].number) {
+            ip = &vm->code[target];
+            goto *dispatch_table[ip->opcode];
+        }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_JUMP_IF_GT_LABEL: {
-        int target = ip->operands[0]; Value* left = &vm->registers[ip->operands[1]]; Value* right = &vm->registers[ip->operands[2]];
-        if (left->type == VAL_NUMBER && right->type == VAL_NUMBER && left->number > right->number) { ip = &vm->code[target]; goto *dispatch_table[ip->opcode]; }
+        int target = ip->operands[0];
+        if (regs[ip->operands[1]].number > regs[ip->operands[2]].number) {
+            ip = &vm->code[target];
+            goto *dispatch_table[ip->opcode];
+        }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_JUMP_IF_GTE_LABEL: {
@@ -991,40 +1016,45 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_JUMP_IF_EQ_LABEL: {
-        int target = ip->operands[0]; Value* left = &vm->registers[ip->operands[1]]; Value* right = &vm->registers[ip->operands[2]]; bool jump = false;
-        if (left->type == right->type) {
-            switch (left->type) {
-                case VAL_NUMBER: jump = (left->number == right->number); break;
-                case VAL_STRING: jump = string_equal(left->string, right->string); break;
-                case VAL_BOOL:   jump = (left->boolean == right->boolean); break;
-                default: break;
-            }
+        int target = ip->operands[0];
+        Value* left = &regs[ip->operands[1]];
+        Value* right = &regs[ip->operands[2]];
+        bool jump = false;
+        switch (left->type) {
+            case VAL_NUMBER: jump = (left->number == right->number); break;
+            case VAL_STRING: jump = string_equal(left->string, right->string); break;
+            case VAL_BOOL:   jump = (left->boolean == right->boolean); break;
+            default: break;
         }
-        if (jump) { ip = &vm->code[target]; goto *dispatch_table[ip->opcode]; }
+        if (jump) {
+            ip = &vm->code[target];
+            goto *dispatch_table[ip->opcode];
+        }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_JUMP_IF_NEQ_LABEL: {
-        int target = ip->operands[0]; Value* left = &vm->registers[ip->operands[1]]; Value* right = &vm->registers[ip->operands[2]]; bool jump = true;
-        if (left->type == right->type) {
-            switch (left->type) {
-                case VAL_NUMBER: jump = (left->number != right->number); break;
-                case VAL_STRING: jump = !string_equal(left->string, right->string); break;
-                case VAL_BOOL:   jump = (left->boolean != right->boolean); break;
-                default: break;
-            }
+        int target = ip->operands[0];
+        Value* left = &regs[ip->operands[1]];
+        Value* right = &regs[ip->operands[2]];
+        bool jump = true;
+        switch (left->type) {
+            case VAL_NUMBER: jump = (left->number != right->number); break;
+            case VAL_STRING: jump = !string_equal(left->string, right->string); break;
+            case VAL_BOOL:   jump = (left->boolean != right->boolean); break;
+            default: break;
         }
-        if (jump) { ip = &vm->code[target]; goto *dispatch_table[ip->opcode]; }
+        if (jump) {
+            ip = &vm->code[target];
+            goto *dispatch_table[ip->opcode];
+        }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_PUSH_ARG_LABEL: {
         int reg = ip->operands[0];
-        if (vm->args_top >= VM_MAX_ARGS_STACK) vm_error(vm, "Arguments stack overflow");
-        else {
-            Value* src = &vm->registers[reg];
-            vm->args_stack[vm->args_top] = *src;
-            value_incref(&vm->args_stack[vm->args_top]);
-            vm->args_top++;
-        }
+        Value* src = &vm->registers[reg];
+        vm->args_stack[vm->args_top] = *src;
+        value_incref(&vm->args_stack[vm->args_top]);
+        vm->args_top++;
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_HALT_LABEL: vm->running = false; return !vm->had_error;

@@ -1,7 +1,9 @@
 #ifndef VM_H
 #define VM_H
 
-#define VM_MAX_FRAMES 512        // Maximum recursion depth
+#include "apex_limits.h"
+
+#define VM_MAX_FRAMES APEX_MAX_CALL_DEPTH
 #define VM_REGS_PER_FRAME 32     // Registers per call frame
 
 #include "bytecode.h"
@@ -137,8 +139,6 @@ Table* table_copy(Table* table);
 VM* vm_create(const char* source);
 void vm_destroy(VM* vm);
 bool vm_execute(VM* vm, BytecodeChunk* chunk);
-void vm_error(VM* vm, const char* format, ...);
-
 // Debug utilities
 void vm_dump_state(VM* vm);
 void vm_dump_registers(VM* vm);

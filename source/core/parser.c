@@ -1,6 +1,7 @@
 #include "parser.h"
 #include "execute.h"
 #include "error.h"
+#include "apex_limits.h"
 #include "tokenizer.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -541,6 +542,12 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
                     type_name(left_type), type_name(right_type));
                 return TYPE_ERROR;
             }
+            if (left_type != right_type) {
+                parser_error_at(parser, node->line, node->column, 0,
+                    "Cannot compare %s with %s",
+                    type_name(left_type), type_name(right_type));
+                return TYPE_ERROR;
+            }
             return TYPE_BOOLEAN;
         case TOKEN_LESS:
         case TOKEN_GREATER:
@@ -631,6 +638,28 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
                     "Function '%s' expects %d arguments, got %d",
                     func_name, builtin->param_count, actual);
             }
+            if (actual > APEX_MAX_CALL_ARGS) {
+                parser_error_at(parser, node->line, node->column, 0,
+                    "Too many arguments (%d), maximum is %d",
+                    actual, APEX_MAX_CALL_ARGS);
+            }
+            if (strcmp(func_name, "number") == 0 && actual >= 1) {
+                ValueType arg_t = infer_expression_type(parser, node->call.arguments->nodes[0]);
+                if (arg_t != TYPE_STRING && arg_t != TYPE_NUMBER && arg_t != TYPE_BOOLEAN &&
+                    arg_t != TYPE_ANY && arg_t != TYPE_UNKNOWN) {
+                    parser_error_at(parser, node->line, node->column, 0,
+                        "number() argument must be string, number, or boolean, got %s",
+                        type_name(arg_t));
+                }
+            } else if (strcmp(func_name, "string") == 0 && actual >= 1) {
+                ValueType arg_t = infer_expression_type(parser, node->call.arguments->nodes[0]);
+                if (arg_t != TYPE_STRING && arg_t != TYPE_NUMBER && arg_t != TYPE_BOOLEAN &&
+                    arg_t != TYPE_ANY && arg_t != TYPE_UNKNOWN) {
+                    parser_error_at(parser, node->line, node->column, 0,
+                        "string() argument must be string, number, or boolean, got %s",
+                        type_name(arg_t));
+                }
+            }
             return TYPE_ANY;
         }
         int sym_idx = symbol_index_recursive(parser, func_name);
@@ -642,7 +671,7 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
                     "Function '%s' expects %d arguments, got %d",
                     func_name, expected, actual);
             }
-            return parser->symbols.types[sym_idx];
+            return TYPE_ANY;
         }
     }
 
@@ -1242,6 +1271,10 @@ static ASTNode* parse_function(Parser* parser) {
                           TYPE_FUNCTION, params->count, name->line, name->column);
 
     parser->function_depth++;
+    if (parser->function_depth > APEX_MAX_CALL_DEPTH) {
+        parser_error_at(parser, name->line, name->column, (int)strlen(name->value),
+            "Function nesting exceeds maximum depth of %d", APEX_MAX_CALL_DEPTH);
+    }
     parser_enter_scope(parser);
 
     for (int i = 0; i < params->count; i++) {
@@ -1318,6 +1351,10 @@ static ASTNode* parse_while_statement(Parser* parser) {
     parser_check_condition(parser, condition, "While");
 
     parser->loop_depth++;
+    if (parser->loop_depth > APEX_MAX_LOOP_DEPTH) {
+        parser_error_at(parser, condition->line, condition->column, 5,
+            "Loop nesting exceeds maximum depth of %d", APEX_MAX_LOOP_DEPTH);
+    }
     parser_enter_scope(parser);
     ASTNode* body = parse_block(parser, true);
     parser_exit_scope(parser);
@@ -1344,6 +1381,10 @@ static ASTNode* parse_for_statement(Parser* parser) {
     }
 
     parser->loop_depth++;
+    if (parser->loop_depth > APEX_MAX_LOOP_DEPTH) {
+        parser_error_at(parser, for_kw->line, for_kw->column, 3,
+            "Loop nesting exceeds maximum depth of %d", APEX_MAX_LOOP_DEPTH);
+    }
     parser_enter_scope(parser);
     parser_declare_symbol(parser, var_name->value, PARSER_SYM_VARIABLE,
                           TYPE_NUMBER, 0, var_name->line, var_name->column);

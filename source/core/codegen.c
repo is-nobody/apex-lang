@@ -1,4 +1,5 @@
 #include "codegen.h"
+#include "apex_limits.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -206,9 +207,15 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         strcpy(func_name, full_name);
     }
 
+    if (arg_count > APEX_MAX_CALL_ARGS) {
+        fprintf(stderr, "Compile error at line %d: too many arguments (%d), maximum is %d\n",
+                node->line, arg_count, APEX_MAX_CALL_ARGS);
+        if (arg_regs) free(arg_regs);
+        return -1;
+    }
+
     int result_reg = alloc_register(cg);
 
-    // Push arguments onto the stack
     for (int i = 0; i < arg_count; i++) {
         emit(cg, INST(OP_PUSH_ARG, arg_regs[i], 0, 0), node->line);
     }
