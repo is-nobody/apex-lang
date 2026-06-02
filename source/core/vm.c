@@ -442,6 +442,12 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
 // ========== Main Execution Loop ==========
 bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     if (!vm || !chunk) return false;
+
+    volatile double warmup_dummy = 1.0;
+    for (int i = 0; i < 10000000; i++) {
+        warmup_dummy = warmup_dummy * 1.0000001 + 1.0;
+    }
+
     vm->chunk = chunk;
     vm->code = chunk->code;
     vm->code_count = chunk->code_count;
