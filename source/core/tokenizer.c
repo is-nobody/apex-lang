@@ -428,6 +428,14 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
         int prev_indent = tokenizer->indent_stack[tokenizer->indent_depth - 1];
         
         if (current_indent > prev_indent) {
+            int expected_indent = prev_indent + 4;
+            if (current_indent != expected_indent) {
+                char msg[128];
+                snprintf(msg, sizeof(msg),
+                         "Expected indentation of %d spaces, got %d",
+                         expected_indent, current_indent);
+                tokenizer_error(tokenizer, msg);
+            }
             add_token(tokenizer, TOKEN_INDENT, "", tokenizer->line, tokenizer->column);
             tokenizer->indent_stack[tokenizer->indent_depth++] = current_indent;
         } else if (current_indent < prev_indent) {
@@ -522,6 +530,12 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
         tokenizer_error(tokenizer, error_msg);
     }
     
+    // Generate DEDENT for all unclosed indents at the end of the file
+    while (tokenizer->indent_depth > 1) {
+        add_token(tokenizer, TOKEN_DEDENT, " ", tokenizer->line, tokenizer->column);
+        tokenizer->indent_depth--;
+    }
+
     // Add trailing NEWLINE if source doesn't end with \n or EOF
     if (tokenizer->token_count > 0) {
         Token* last = &tokenizer->tokens[tokenizer->token_count - 1];

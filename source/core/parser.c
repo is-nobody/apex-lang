@@ -29,7 +29,7 @@ static Token* current_token(Parser* parser);
 static ASTNode* parse_program(Parser* parser);
 static ASTNode* parse_statement(Parser* parser);
 static ASTNode* parse_expression(Parser* parser);
-static ASTNode* parse_block(Parser* parser, bool expect_newlines);
+static ASTNode* parse_block(Parser* parser, bool require_indent, const char* after_keyword);
 static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, int line, int column);
 static ValueType infer_expression_type(Parser* parser, ASTNode* node);
 static int symbol_index_recursive(Parser* parser, const char* name);
@@ -477,7 +477,9 @@ static Token* advance(Parser* parser) {
 }
 
 static bool check(Parser* parser, TokenType type) {
-    if (current_token(parser)->type == TOKEN_EOF) return false;
+    if (current_token(parser)->type == TOKEN_EOF) {
+        return type == TOKEN_EOF; 
+    }
     return current_token(parser)->type == type;
 }
 
@@ -768,6 +770,26 @@ static void parser_check_number_expr(Parser* parser, ASTNode* expr, const char* 
         parser_error_at(parser, expr->line, expr->column, 0,
             "%s must be a number, got %s", context, type_name(t));
     }
+}
+
+static int get_line_length(const char* source, int line_num) {
+    if (!source) return 0;
+    int current_line = 1;
+    int i = 0;
+    while (source[i] != '\0') {
+        if (current_line == line_num) {
+            int start = i;
+            while (source[i] != '\0' && source[i] != '\n' && source[i] != '\r') {
+                i++;
+            }
+            return i - start;
+        }
+        if (source[i] == '\n') {
+            current_line++;
+        }
+        i++;
+    }
+    return 0;
 }
 
 // ========== Expression Parsing (Pratt Parser) ==========
@@ -1283,7 +1305,7 @@ static ASTNode* parse_function(Parser* parser) {
                               TYPE_ANY, 0, param->line, param->column);
     }
 
-    ASTNode* body = parse_block(parser, true);
+    ASTNode* body = parse_block(parser, true, "function");
 
     parser_exit_scope(parser);
     parser->function_depth--;
@@ -1296,7 +1318,7 @@ static ASTNode* parse_if_statement(Parser* parser) {
     ASTNode* condition = parse_expression(parser);
     parser_check_condition(parser, condition, "If");
 
-    ASTNode* then_branch = parse_block(parser, true);
+    ASTNode* then_branch = parse_block(parser, true, "if");
     
     ASTNode* elif_chain = NULL;
     ASTNode* else_branch = NULL;
@@ -1307,7 +1329,7 @@ static ASTNode* parse_if_statement(Parser* parser) {
         Token* elif_kw = advance(parser);
         ASTNode* elif_cond = parse_expression(parser);
         parser_check_condition(parser, elif_cond, "If");
-        ASTNode* elif_body = parse_block(parser, true);
+        ASTNode* elif_body = parse_block(parser, true, "elif");
         
         ASTNode* elif_node = (ASTNode*)calloc(1, sizeof(ASTNode));
         elif_node->type = AST_IF_STMT;
@@ -1332,7 +1354,7 @@ static ASTNode* parse_if_statement(Parser* parser) {
     }
     
     if (match(parser, TOKEN_ELSE)) {
-        else_branch = parse_block(parser, true);
+        else_branch = parse_block(parser, true, "else");
         if (elif_chain) {
             ASTNode* last = elif_chain;
             while (last->if_stmt.elif_chain) {
@@ -1356,7 +1378,7 @@ static ASTNode* parse_while_statement(Parser* parser) {
             "Loop nesting exceeds maximum depth of %d", APEX_MAX_LOOP_DEPTH);
     }
     parser_enter_scope(parser);
-    ASTNode* body = parse_block(parser, true);
+    ASTNode* body = parse_block(parser, true, "while");
     parser_exit_scope(parser);
     parser->loop_depth--;
 
@@ -1388,7 +1410,7 @@ static ASTNode* parse_for_statement(Parser* parser) {
     parser_enter_scope(parser);
     parser_declare_symbol(parser, var_name->value, PARSER_SYM_VARIABLE,
                           TYPE_NUMBER, 0, var_name->line, var_name->column);
-    ASTNode* body = parse_block(parser, true);
+    ASTNode* body = parse_block(parser, true, "for");
     parser_exit_scope(parser);
     parser->loop_depth--;
 
@@ -1568,35 +1590,44 @@ static ASTNode* parse_statement(Parser* parser) {
     }
 }
 
-static ASTNode* parse_block(Parser* parser, bool expect_newlines) {
+static ASTNode* parse_block(Parser* parser, bool require_indent, const char* after_keyword) {
     ASTNodeList* statements = ast_list_create();
-    
-    // Expect INDENT after function/if/while/for declarations
-    if (expect_newlines) {
+
+    if (require_indent) {
         skip_newlines(parser);
-        
+
         if (!match(parser, TOKEN_INDENT)) {
-            // No INDENT — parse a single statement
-            ASTNode* stmt = parse_statement(parser);
-            if (stmt) {
-                ast_list_add(statements, stmt);
-            }
+            Token* tok = current_token(parser);
+            
+            int line_len = get_line_length(parser->source, tok->line);
+            int len = line_len - (tok->column - 1);
+            if (len < 1) len = 1;
+
+            parser_error_at(parser, tok->line, tok->column, len,
+                            "Expected indented block after '%s' (next line must start with 4 spaces)",
+                            after_keyword ? after_keyword : "block");
             return ast_create_block(statements);
         }
     }
-    
-    // Parse statements until DEDENT or EOF
+
     while (!check(parser, TOKEN_EOF) && !check(parser, TOKEN_DEDENT)) {
+        int before = parser->current;
         ASTNode* stmt = parse_statement(parser);
         if (stmt) {
             ast_list_add(statements, stmt);
         }
+        if (parser->current == before && !check(parser, TOKEN_EOF) && !check(parser, TOKEN_DEDENT)) {
+            Token* tok = current_token(parser);
+            int len = tok->value ? (int)strlen(tok->value) : 1;
+            parser_error_at(parser, tok->line, tok->column, len,
+                "Unexpected token in block");
+            advance(parser);
+        }
         skip_newlines(parser);
     }
-    
-    // Consume DEDENT
+
     match(parser, TOKEN_DEDENT);
-    
+
     return ast_create_block(statements);
 }
 
