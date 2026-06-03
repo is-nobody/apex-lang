@@ -38,27 +38,28 @@ static int symbol_index_recursive(Parser* parser, const char* name);
 
 typedef struct {
     const char* name;
-    int param_count;
+    int min_args;
+    int max_args;
 } BuiltinSig;
 
 static const BuiltinSig BUILTINS[] = {
-    {"os.output", 1}, {"os.input", 1}, {"os.read", 1}, {"os.write", 2},
-    {"os.close", 1}, {"os.exists", 1}, {"os.isfile", 1}, {"os.isdir", 1},
-    {"os.rename", 2}, {"os.rmfile", 1}, {"os.mkfile", 1}, {"os.listdir", 1},
-    {"os.getcwd", 0}, {"os.chdir", 1}, {"os.mkdir", 1}, {"os.rmdir", 1},
-    {"os.stat", 1}, {"os.exit", 1}, {"os.wait", 1}, {"os.time", 0},
-    {"os.system", 1}, {"os.platform", 0},
-    {"math.abs", 1}, {"math.floor", 1}, {"math.ceil", 1}, {"math.round", 2},
-    {"math.sqrt", 1}, {"math.exp", 1}, {"math.log", 2}, {"math.sin", 1},
-    {"math.cos", 1}, {"math.tan", 1}, {"math.asin", 1}, {"math.acos", 1},
-    {"math.atan", 1},
-    {"string.len", 1}, {"string.lower", 1}, {"string.upper", 1},
-    {"string.sub", 3}, {"string.split", 2}, {"string.join", 2},
-    {"string.trim", 1}, {"string.find", 2}, {"string.replace", 3},
-    {"table.remove", 2}, {"table.has", 2}, {"table.size", 1},
-    {"table.keys", 1}, {"table.values", 1}, {"table.clear", 1},
-    {"table.copy", 1}, {"table.merge", 2},
-    {"number", 1}, {"string", 1},
+    {"os.output", 0, 1}, {"os.input", 0, 1}, {"os.read", 1, 1}, {"os.write", 2, 2},
+    {"os.close", 1, 1}, {"os.exists", 1, 1}, {"os.isfile", 1, 1}, {"os.isdir", 1, 1},
+    {"os.rename", 2, 2}, {"os.rmfile", 1, 1}, {"os.mkfile", 1, 1}, {"os.listdir", 1, 1},
+    {"os.getcwd", 0, 0}, {"os.chdir", 1, 1}, {"os.mkdir", 1, 1}, {"os.rmdir", 1, 1},
+    {"os.stat", 1, 1}, {"os.exit", 1, 1}, {"os.wait", 1, 1}, {"os.time", 0, 0},
+    {"os.system", 1, 1}, {"os.platform", 0, 0},
+    {"math.abs", 1, 1}, {"math.floor", 1, 1}, {"math.ceil", 1, 1}, {"math.round", 2, 2},
+    {"math.sqrt", 1, 1}, {"math.exp", 1, 1}, {"math.log", 2, 2}, {"math.sin", 1, 1},
+    {"math.cos", 1, 1}, {"math.tan", 1, 1}, {"math.asin", 1, 1}, {"math.acos", 1, 1},
+    {"math.atan", 1, 1},
+    {"string.len", 1, 1}, {"string.lower", 1, 1}, {"string.upper", 1, 1},
+    {"string.sub", 3, 3}, {"string.split", 2, 2}, {"string.join", 2, 2},
+    {"string.trim", 1, 1}, {"string.find", 2, 2}, {"string.replace", 3, 3},
+    {"table.remove", 2, 2}, {"table.has", 2, 2}, {"table.size", 1, 1},
+    {"table.keys", 1, 1}, {"table.values", 1, 1}, {"table.clear", 1, 1},
+    {"table.copy", 1, 1}, {"table.merge", 2, 2},
+    {"number", 1, 1}, {"string", 1, 1}
 };
 
 static const BuiltinSig* lookup_builtin(const char* name) {
@@ -635,10 +636,16 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
         const BuiltinSig* builtin = lookup_builtin(func_name);
         if (builtin) {
             int actual = node->call.arguments->count;
-            if (builtin->param_count != actual) {
-                parser_error_at(parser, node->line, node->column, 1,
-                    "Function '%s' expects %d arguments, got %d",
-                    func_name, builtin->param_count, actual);
+            if (actual < builtin->min_args || actual > builtin->max_args) {
+                if (builtin->min_args == builtin->max_args) {
+                    parser_error_at(parser, node->line, node->column, 1,
+                        "Function '%s' expects exactly %d argument(s), got %d",
+                        func_name, builtin->min_args, actual);
+                } else {
+                    parser_error_at(parser, node->line, node->column, 1,
+                        "Function '%s' expects %d to %d arguments, got %d",
+                        func_name, builtin->min_args, builtin->max_args, actual);
+                }
             }
             if (actual > APEX_MAX_CALL_ARGS) {
                 parser_error_at(parser, node->line, node->column, 0,
