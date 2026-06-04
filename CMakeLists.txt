@@ -12,7 +12,6 @@ set(SOURCES
     source/utils/execute.c 
     source/utils/add_to_path.c
     source/utils/error.c
-    source/utils/highlight.c
     source/utils/platform.c
     source/utils/repl.c
     source/core/tokenizer.c 

@@ -1,6 +1,13 @@
 #ifndef EXECUTE_H
 #define EXECUTE_H
+
 #include <stdbool.h>
+#include <stdarg.h>
+
+/**
+ * Prints red color message about error.
+ */
+void print_error(const char* format, ...);
 
 /**
  * Executes Apex source code.
@@ -15,4 +22,5 @@ void set_repl_mode(int active);
 
 /** Called from tokenizer.c / parser.c instead of exit(1) */
 void throw_repl_error(void);
-#endif
+
+#endif // EXECUTE_H

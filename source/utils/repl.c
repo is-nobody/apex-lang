@@ -1,12 +1,11 @@
 #include "repl.h"
 #include "platform.h"
-#include "highlight.h"
 #include "execute.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
-#include <errno.h> 
+#include <errno.h>
 
 #define MAX_LINE 4096
 #define MAX_INPUT 65536
@@ -31,11 +30,7 @@ static void setup_signals(void) {
 }
 
 static void redraw_line(const char* line, int cursor_pos) {
-    char* highlighted = highlight_line(line);
-    // \r = move to beginning of line, \033[K = clear to end of line
-    printf("\r\033[K> %s", highlighted);
-    free(highlighted);
-    // Cursor: 3 = length of "> " + 1, cursor_pos = visible characters before cursor
+    printf("\r\033[K> %s", line);
     printf("\033[%dG", 3 + cursor_pos);
     fflush(stdout);
 }
@@ -45,7 +40,7 @@ static void execute_code(const char* code, const char* display_name) {
     
     char* temp_path = platform_create_temp_file(code, strlen(code));
     if (!temp_path) {
-        fprintf(stderr, "Error: Cannot create temporary file\n");
+        print_error("Cannot create temporary file");
         return;
     }
     
@@ -57,7 +52,6 @@ static void execute_code(const char* code, const char* display_name) {
 
 void repl_run(void) {
     setup_signals();
-    
     printf("Apex v26.06 on %s. Type code, always ready.\n", platform_get_name());
     
     set_repl_mode(1);
@@ -67,7 +61,6 @@ void repl_run(void) {
     char line[MAX_LINE];
     int total_len = 0;
     int pos = 0;
-    
     full_input[0] = '\0';
     
     printf("> ");
@@ -76,21 +69,18 @@ void repl_run(void) {
     while (!g_should_exit) {
         char c;
         ssize_t n = terminal_read_blocking(&c);
-        
         if (n <= 0) {
 #ifndef _WIN32
             if (errno == EINTR) continue;
 #endif
             break;
         }
-        
         if (c == 4 || c == 3) break;
         
         // Enter
         if (c == '\r' || c == '\n') {
             printf("\n");
             line[pos] = '\0';
-            
             if (pos > 0) {
                 if (total_len + pos + 2 < MAX_INPUT) {
                     memcpy(full_input + total_len, line, pos);
@@ -100,7 +90,6 @@ void repl_run(void) {
                 }
             }
             pos = 0;
-            
             if (!terminal_has_input()) {
                 if (total_len > 0) {
                     execute_code(full_input, "REPL");

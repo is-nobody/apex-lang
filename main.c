@@ -45,7 +45,7 @@ static int execute_from_stdin(void) {
     free(data);
     
     if (!temp_path) {
-        fprintf(stderr, "Error: Cannot create temporary file\n");
+        print_error("Cannot create temporary file");
         return 1;
     }
     
