@@ -722,6 +722,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_CALL_LABEL: {
+        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {
+            vm->had_error = true;
+            vm->running = false;
+            return false; // Prevent stack overflow
+        }
         int func_addr = ip->operands[1];
         int arg_count = ip->operands[2];
         int dest_reg  = ip->operands[0];
@@ -745,7 +750,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_CALL_BUILTIN_LABEL: {
         int dest_reg = ip->operands[0]; int name_idx = ip->operands[1]; int arg_count = ip->operands[2];
-        Value args[16];
+        Value args[VM_MAX_ARGS_STACK];
         
         for (int i = 0; i < arg_count && i < 16; i++) {
             args[i] = vm->args_stack[vm->args_top - arg_count + i];
@@ -1056,6 +1061,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_PUSH_ARG_LABEL: {
+        if (vm->args_top >= VM_MAX_ARGS_STACK) {
+            vm->had_error = true;
+            vm->running = false;
+            return false; // Prevent args_stack overflow
+        }
         int reg = ip->operands[0];
         Value* src = &vm->registers[reg];
         vm->args_stack[vm->args_top] = *src;

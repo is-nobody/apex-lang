@@ -3,7 +3,7 @@
 
 #include "apex_limits.h"
 
-#define VM_MAX_FRAMES APEX_MAX_CALL_DEPTH
+#define VM_MAX_FRAMES VM_MAX_CALL_FRAMES
 #define VM_REGS_PER_FRAME 32     // Registers per call frame
 
 #include "bytecode.h"
