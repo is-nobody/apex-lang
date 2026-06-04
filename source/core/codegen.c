@@ -954,7 +954,8 @@ static void codegen_block(CodeGenerator* cg, ASTNode* node) {
 bool codegen_generate(CodeGenerator* cg, ASTNode* ast) {
     if (!cg || !ast) return false;
 
-    bytecode_add_function(cg->chunk, "main", 0);
+    // Use a reserved name that users can't use
+    bytecode_add_function(cg->chunk, "__entry__", 0);
     cg->current_function = 0;
     
     if (ast->type == AST_PROGRAM || ast->type == AST_BLOCK) {
