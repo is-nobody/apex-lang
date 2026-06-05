@@ -1,0 +1,32 @@
+import os
+
+function for_1m()
+    start = os.time()
+    x = 0
+    for i = 1, 1000000
+        x = x + i
+    elapsed = os.time() - start
+    os.output("1000000 iterations for: {x}, excepted 500000500000")
+    os.output("Time: {elapsed} seconds")
+
+function for_10m()
+    start = os.time()
+    x = 0
+    for i = 1, 10000000
+        x = x + i
+    elapsed = os.time() - start
+    os.output("10000000 iterations for: {x}, excepted 50000005000000")
+    os.output("Time: {elapsed} seconds")
+
+function for_100m()
+    start = os.time()
+    x = 0
+    for i = 1, 100000000
+        x = x + i
+    elapsed = os.time() - start
+    os.output("100000000 iterations for: {x}, excepted 5.00000005e+15")
+    os.output("Time: {elapsed} seconds")
+
+for_1m()
+for_10m()
+for_100m()
