@@ -8,7 +8,7 @@ function while_1m()
         x = x + i
         i = i + 1
     elapsed = os.time() - start
-    os.output("1000000 iterations while: {x}, excepted 500000500000")
+    os.output("1000000 iterations while: {x}, expected 500000500000")
     os.output("Time: {elapsed} seconds")
 
 function while_10m()
@@ -19,7 +19,7 @@ function while_10m()
         x = x + i
         i = i + 1
     elapsed = os.time() - start
-    os.output("10000000 iterations while: {x}, excepted 50000005000000")
+    os.output("10000000 iterations while: {x}, expected 50000005000000")
     os.output("Time: {elapsed} seconds")
 
 function while_100m()
@@ -30,7 +30,7 @@ function while_100m()
         x = x + i
         i = i + 1
     elapsed = os.time() - start
-    os.output("100000000 iterations while: {x}, excepted 5.00000005e+15")
+    os.output("100000000 iterations while: {x}, expected 5.00000005e+15")
     os.output("Time: {elapsed} seconds")
 
 while_1m()

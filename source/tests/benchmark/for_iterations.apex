@@ -6,7 +6,7 @@ function for_1m()
     for i = 1, 1000000
         x = x + i
     elapsed = os.time() - start
-    os.output("1000000 iterations for: {x}, excepted 500000500000")
+    os.output("1000000 iterations for: {x}, expected 500000500000")
     os.output("Time: {elapsed} seconds")
 
 function for_10m()
@@ -15,7 +15,7 @@ function for_10m()
     for i = 1, 10000000
         x = x + i
     elapsed = os.time() - start
-    os.output("10000000 iterations for: {x}, excepted 50000005000000")
+    os.output("10000000 iterations for: {x}, expected 50000005000000")
     os.output("Time: {elapsed} seconds")
 
 function for_100m()
@@ -24,7 +24,7 @@ function for_100m()
     for i = 1, 100000000
         x = x + i
     elapsed = os.time() - start
-    os.output("100000000 iterations for: {x}, excepted 5.00000005e+15")
+    os.output("100000000 iterations for: {x}, expected 5.00000005e+15")
     os.output("Time: {elapsed} seconds")
 
 for_1m()
