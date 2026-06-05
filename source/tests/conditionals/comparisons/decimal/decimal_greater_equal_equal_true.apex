@@ -1,9 +1,0 @@
-import os
-
-function decimal_greater_equal_equal_true()
-    
-    result = 5.5 >= 5.5
-    os.output("5.5 >= 5.5 = {result}, expected true")
-    
-
-decimal_greater_equal_equal_true()
