@@ -2,7 +2,6 @@
 import os
 
 function priority_mixed_without_parentheses()
-    
     result = 4 * 3 + 5
     os.output("4 * 3 + 5 = {result}, expected 17")
     
@@ -32,6 +31,5 @@ function priority_mixed_without_parentheses()
     
     result = 13 + 5 % 3
     os.output("13 + 5 % 3 = {result}, expected 15")
-    
 
 priority_mixed_without_parentheses()

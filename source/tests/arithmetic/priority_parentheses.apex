@@ -2,7 +2,6 @@
 import os
 
 function priority_parentheses()
-    
     result = (2 + 3) * 5
     os.output("(2 + 3) * 5 = {result}, expected 25")
     
@@ -14,6 +13,5 @@ function priority_parentheses()
     
     result = (8 - 3) * (2 + 1)
     os.output("(8 - 3) * (2 + 1) = {result}, expected 15")
-    
 
 priority_parentheses()
