@@ -1,1 +1,1 @@
-import nonexistent_module
+import missing_module

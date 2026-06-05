@@ -1,2 +1,1 @@
-t = (a = 1)
-x = t.42
+import os.
