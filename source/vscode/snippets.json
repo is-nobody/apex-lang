@@ -1,0 +1,85 @@
+{
+  "if statement": {
+    "prefix": "if",
+    "body": [
+      "if ${1:condition}",
+      "\t${2:// code}"
+    ],
+    "description": "If statement"
+  },
+  "if-elif": {
+    "prefix": "ifel",
+    "body": [
+      "if ${1:condition}",
+      "\t${2:// code}",
+      "elif ${3:condition}",
+      "\t${4:// code}"
+    ],
+    "description": "If-elif statement"
+  },
+  "if-else": {
+    "prefix": "ife",
+    "body": [
+      "if ${1:condition}",
+      "\t${2:// code}",
+      "else",
+      "\t${3:// code}"
+    ],
+    "description": "If-else statement"
+  },
+  "for loop": {
+    "prefix": "for",
+    "body": [
+      "for ${1:i} = ${2:1}, ${3:10}",
+      "\t${4:// code}"
+    ],
+    "description": "For loop"
+  },
+  "while loop": {
+    "prefix": "while",
+    "body": [
+      "while ${1:condition}",
+      "\t${2:// code}"
+    ],
+    "description": "While loop"
+  },
+  "function": {
+    "prefix": "func",
+    "body": [
+      "function ${1:name}(${2:params})",
+      "\t${3:// code}",
+      "\treturn ${4:value}"
+    ],
+    "description": "Function declaration"
+  },
+  "import os": {
+    "prefix": "ios",
+    "body": "import os",
+    "description": "Import OS library"
+  },
+  "import math": {
+    "prefix": "imath",
+    "body": "import math",
+    "description": "Import Math library"
+  },
+  "import string": {
+    "prefix": "istr",
+    "body": "import string",
+    "description": "Import String library"
+  },
+  "import table": {
+    "prefix": "itab",
+    "body": "import table",
+    "description": "Import Table library"
+  },
+  "os.output": {
+    "prefix": "out",
+    "body": "os.output(${1:value})",
+    "description": "Print to console"
+  },
+  "os.input": {
+    "prefix": "inp",
+    "body": "os.input(\"${1:prompt}\")",
+    "description": "Get user input"
+  }
+}
