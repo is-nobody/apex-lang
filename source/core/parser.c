@@ -162,23 +162,60 @@ static void parser_set_source_dir(Parser* parser, const char* filename) {
     }
 }
 
-static bool parser_is_zero_constant(Parser* parser, ASTNode* node) {
+// ========== Constant Evaluation Utilities ==========
+static bool evaluate_numeric_constant(Parser* parser, ASTNode* node, double* out_value) {
     if (!node) return false;
+    switch (node->type) {
+        case AST_LITERAL_NUMBER:
+            *out_value = node->literal_number.number_value;
+            return true;
+        case AST_IDENTIFIER: {
+            int idx = symbol_index_recursive(parser, node->identifier.name);
+            if (idx >= 0 && parser->symbols.const_known[idx]) {
+                *out_value = parser->symbols.const_values[idx];
+                return true;
+            }
+            return false;
+        }
+        case AST_UNARY:
+            if (node->unary.op == TOKEN_MINUS) {
+                double val;
+                if (evaluate_numeric_constant(parser, node->unary.operand, &val)) {
+                    *out_value = -val;
+                    return true;
+                }
+            }
+            return false;
+        case AST_BINARY: {
+            double lval, rval;
+            if (evaluate_numeric_constant(parser, node->binary.left, &lval) &&
+                evaluate_numeric_constant(parser, node->binary.right, &rval)) {
+                switch (node->binary.op) {
+                    case TOKEN_PLUS: *out_value = lval + rval; return true;
+                    case TOKEN_MINUS: *out_value = lval - rval; return true;
+                    case TOKEN_STAR: *out_value = lval * rval; return true;
+                    case TOKEN_SLASH: 
+                        if (rval == 0.0) { *out_value = 0.0; }
+                        else { *out_value = lval / rval; }
+                        return true;
+                    case TOKEN_PERCENT:
+                        if (rval == 0.0) { *out_value = 0.0; }
+                        else { *out_value = fmod(lval, rval); }
+                        return true;
+                    default: return false;
+                }
+            }
+            return false;
+        }
+        default:
+            return false;
+    }
+}
 
-    if (node->type == AST_LITERAL_NUMBER) {
-        return node->literal_number.number_value == 0.0;
-    }
-    if (node->type == AST_UNARY && node->unary.op == TOKEN_MINUS) {
-        ASTNode* operand = node->unary.operand;
-        if (operand && operand->type == AST_LITERAL_NUMBER) {
-            return operand->literal_number.number_value == 0.0;
-        }
-    }
-    if (node->type == AST_IDENTIFIER) {
-        int idx = symbol_index_recursive(parser, node->identifier.name);
-        if (idx >= 0 && parser->symbols.const_known[idx]) {
-            return parser->symbols.const_values[idx] == 0.0;
-        }
+static bool parser_is_zero_constant(Parser* parser, ASTNode* node) {
+    double val;
+    if (evaluate_numeric_constant(parser, node, &val)) {
+        return val == 0.0;
     }
     return false;
 }
@@ -1396,31 +1433,32 @@ static ASTNode* parse_for_statement(Parser* parser) {
     Token* for_kw = advance(parser);
     Token* var_name = consume(parser, TOKEN_IDENTIFIER, "Expected variable name");
     consume(parser, TOKEN_EQUAL, "Expected '=' after for variable");
-
     ASTNode* start = parse_expression(parser);
     parser_check_number_expr(parser, start, "For loop start");
     consume(parser, TOKEN_COMMA, "Expected ',' after start value");
     ASTNode* end = parse_expression(parser);
     parser_check_number_expr(parser, end, "For loop end");
-
     ASTNode* step = NULL;
     if (match(parser, TOKEN_COMMA)) {
         step = parse_expression(parser);
         parser_check_number_expr(parser, step, "For loop step");
+        
+        double step_val;
+        if (step && evaluate_numeric_constant(parser, step, &step_val) && step_val == 0.0) {
+            parser_error_at(parser, step->line, step->column, 0, "For loop step cannot be zero");
+        }
     }
-
     parser->loop_depth++;
     if (parser->loop_depth > APEX_MAX_LOOP_DEPTH) {
         parser_error_at(parser, for_kw->line, for_kw->column, 3,
-            "Loop nesting exceeds maximum depth of %d", APEX_MAX_LOOP_DEPTH);
+        "Loop nesting exceeds maximum depth of %d", APEX_MAX_LOOP_DEPTH);
     }
     parser_enter_scope(parser);
     parser_declare_symbol(parser, var_name->value, PARSER_SYM_VARIABLE,
-                          TYPE_NUMBER, 0, var_name->line, var_name->column);
+    TYPE_NUMBER, 0, var_name->line, var_name->column);
     ASTNode* body = parse_block(parser, true, "for");
     parser_exit_scope(parser);
     parser->loop_depth--;
-
     return ast_create_for(var_name->value, start, end, step, body, for_kw->line, for_kw->column);
 }
 
