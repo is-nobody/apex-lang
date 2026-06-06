@@ -42,9 +42,19 @@
     "commands": [
       {
         "command": "apex.runFile",
-        "title": "Apex: Run Current File"
+        "title": "Apex: Run Current File",
+        "icon": "$(play)"
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "apex.runFile",
+          "group": "navigation",
+          "when": "editorLangId == apex"
+        }
+      ]
+    },
     "keybindings": [
       {
         "command": "apex.runFile",
@@ -60,6 +70,6 @@
     ]
   },
   "devDependencies": {
-    "@types/vscode": "^1.60.0"
+    "@vscode/vsce": "^3.9.2"
   }
 }

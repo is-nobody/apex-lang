@@ -1,13 +1,10 @@
-// `vsce package` for build .vsix
-
+// `npx @vscode/vsce package` for build .vsix
 const vscode = require('vscode');
-const { exec } = require('child_process');
-const path = require('path');
 
 function activate(context) {
     console.log('Apex language support activated');
-
-    // Run file command
+    
+    // Run file command - uses terminal
     const runFile = vscode.commands.registerCommand('apex.runFile', async () => {
         const editor = vscode.window.activeTextEditor;
         if (!editor || editor.document.languageId !== 'apex') {
@@ -18,17 +15,14 @@ function activate(context) {
         const filePath = editor.document.uri.fsPath;
         await editor.document.save();
 
-        const output = vscode.window.createOutputChannel('Apex');
-        output.clear();
-        output.show(true);
-        output.appendLine(`Running: ${filePath}\n`);
-
-        exec(`apex "${filePath}"`, (error, stdout, stderr) => {
-            if (stdout) output.appendLine(stdout);
-            if (stderr) output.appendLine(stderr);
-            if (error && !stderr) output.appendLine(`Error: ${error.message}`);
-            output.appendLine('\n--- Done ---');
-        });
+        // Get or create a terminal
+        let terminal = vscode.window.terminals.find(t => t.name === 'Apex');
+        if (!terminal) {
+            terminal = vscode.window.createTerminal('Apex');
+        }
+        
+        terminal.show();
+        terminal.sendText(`apex "${filePath}"`);
     });
 
     // Hover provider
@@ -72,7 +66,7 @@ function activate(context) {
             const keywords = [
                 'function', 'if', 'elif', 'else', 'for', 'while',
                 'break', 'continue', 'return', 'import', 'and', 'or', 'not',
-                'true', 'false', 'in'
+                'true', 'false'
             ];
 
             const libs = [
@@ -139,25 +133,7 @@ function activate(context) {
         }
     });
 
-    // Status bar
-    const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-    statusBar.command = 'apex.runFile';
-    statusBar.text = '$(play) Run Apex';
-    statusBar.tooltip = 'Run current Apex file';
-
-    vscode.window.onDidChangeActiveTextEditor(editor => {
-        if (editor && editor.document.languageId === 'apex') {
-            statusBar.show();
-        } else {
-            statusBar.hide();
-        }
-    });
-
-    if (vscode.window.activeTextEditor?.document.languageId === 'apex') {
-        statusBar.show();
-    }
-
-    context.subscriptions.push(runFile, hover, completion, symbols, statusBar);
+    context.subscriptions.push(runFile, hover, completion, symbols);
 }
 
 function deactivate() {}
