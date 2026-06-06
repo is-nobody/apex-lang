@@ -1,19 +1,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
 #ifdef _WIN32
-    #include <io.h>
-    #define isatty _isatty
-    #define STDIN_FILENO 0
+#include <io.h>
+#define isatty _isatty
+#define STDIN_FILENO 0
 #else
-    #include <unistd.h>
+#include <unistd.h>
 #endif
-
 #include "execute.h"
 #include "repl.h"
 #include "platform.h"
 #include "add_to_path.h"
+#include "commands.h"
 
 // Execute code from stdin (pipe)
 static int execute_from_stdin(void) {
@@ -62,13 +61,18 @@ static int execute_from_stdin(void) {
 int main(int argc, char** argv) {
     // Update PATH if necessary
     ensure_path_updated(argv[0]);
-    
+
     // Initialize platform
     platform_init();
-    
+
+    int cmd_result = handle_commands(argc, argv);
+    if (cmd_result >= 0) {
+        return cmd_result;
+    }
+
     int result = 0;
-    
-    // Execute file passed as argument
+
+    // Execute file passed as argument (Fallback for backwards compatibility)
     if (argc > 1) {
         result = execute_source(argv[1], argv[1]) ? 0 : 1;
     }
@@ -80,6 +84,6 @@ int main(int argc, char** argv) {
     else {
         repl_run();
     }
-    
+
     return result;
 }
