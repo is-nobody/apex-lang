@@ -3,6 +3,7 @@
 
 #include "ast.h"
 #include "bytecode.h"
+#include <stdbool.h>
 
 typedef struct {
     BytecodeChunk* chunk;
@@ -15,13 +16,16 @@ typedef struct {
         int capacity;
     } locals;
     
-    // Break/continue address stack
+    // Loop control stack
     struct {
-        int* break_addrs;
-        int* continue_addrs;
-        bool* is_fast;
-        int count;
-        int capacity;
+        // Dynamic array of instruction offsets for 'break' jumps that need patching
+        int* break_jumps;      
+        int break_count;       // Number of pending breaks in the current loop scope
+        int break_capacity;
+        
+        int continue_addr;     // Target address for 'continue' (usually loop start)
+        
+        bool is_fast;          // True if using fast iterator (numeric for-loop)
     } loop_stack;
     
     // Register allocator state
