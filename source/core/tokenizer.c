@@ -258,61 +258,43 @@ static char* read_string(Tokenizer* tokenizer) {
         }
         
         if (c == '"') {
-            // For single-line strings: any quote not followed by end-of-statement tokens is part of content
-            // For multi-line strings: quote must be at the start of a line to close the string
+            // Check if this quote closes the string.
+            // In Apex, a quote closes the string if it's the last one on the line
+            // or if it's followed by a delimiter that cannot start an expression.
             
-            if (is_multiline) {
-                // In multi-line mode, check if this quote is at the beginning of a line
-                // (after skipping indentation)
-                if (buf_pos > 0 && buffer[buf_pos - 1] == '\n') {
-                    // Quote at start of line - this could be the closing quote
-                    int saved_pos = tokenizer->pos;
-                    int saved_line = tokenizer->line;
-                    int saved_col = tokenizer->column;
-                    
-                    advance(tokenizer); // consume potential closing quote
-                    
-                    // Skip whitespace
-                    while (peek(tokenizer, 0) == ' ' || peek(tokenizer, 0) == '\t') {
-                        advance(tokenizer);
-                    }
-                    
-                    // Check if followed by newline, EOF, or end-of-statement
-                    char next = peek(tokenizer, 0);
-                    if (next == '\n' || next == '\0') {
-                        // This is the closing quote
-                        if (buf_pos > 0 && buffer[buf_pos - 1] == '\n') {
-                            // Remove trailing newline before closing quote
-                            buf_pos--;
-                        }
-                        break;
-                    } else {
-                        // Not closing quote - restore position
-                        tokenizer->pos = saved_pos;
-                        tokenizer->line = saved_line;
-                        tokenizer->column = saved_col;
-                    }
-                }
-            } else {
-                // Single-line string logic
-                int saved_pos = tokenizer->pos;
-                int saved_line = tokenizer->line;
-                int saved_col = tokenizer->column;
-                
-                advance(tokenizer); // consume potential closing quote
-
-                if (closes_single_line_string(tokenizer)) {
-                    char next = peek(tokenizer, 0);
-                    if (next == '\r' && peek(tokenizer, 1) == '\n') {
-                        advance(tokenizer);
-                    }
+            int saved_pos = tokenizer->pos;
+            int saved_line = tokenizer->line;
+            int saved_col = tokenizer->column;
+            
+            advance(tokenizer); // consume the quote
+            
+            // Look ahead to see if there are any more quotes on this line
+            bool has_more_quotes = false;
+            int lookahead_idx = tokenizer->pos;
+            while (tokenizer->source[lookahead_idx] != '\0' && 
+                tokenizer->source[lookahead_idx] != '\n' && 
+                tokenizer->source[lookahead_idx] != '\r') {
+                if (tokenizer->source[lookahead_idx] == '"') {
+                    has_more_quotes = true;
                     break;
                 }
-
-                // Quote is part of the string content
+                lookahead_idx++;
+            }
+            
+            // If there are more quotes on this line, this one is definitely part of the content.
+            if (has_more_quotes) {
+                // Restore position and continue reading
                 tokenizer->pos = saved_pos;
                 tokenizer->line = saved_line;
                 tokenizer->column = saved_col;
+            } else {
+                // No more quotes on this line. This is likely the closing quote.
+                // We can break now.
+                char next = peek(tokenizer, 0);
+                if (next == '\r' && peek(tokenizer, 1) == '\n') {
+                    advance(tokenizer);
+                }
+                break;
             }
         }
         
