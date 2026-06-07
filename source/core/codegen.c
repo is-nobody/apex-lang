@@ -1,8 +1,8 @@
 #include "codegen.h"
-#include "apex_limits.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#define APEX_MAX_CALL_ARGS 64
 
 // ========== Forward Declarations ==========
 static int codegen_expression(CodeGenerator* cg, ASTNode* node);

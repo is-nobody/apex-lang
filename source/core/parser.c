@@ -1,7 +1,6 @@
 #include "parser.h"
 #include "execute.h"
 #include "error.h"
-#include "apex_limits.h"
 #include "tokenizer.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +22,9 @@
         #define PATH_MAX 4096
     #endif
 #endif
+#define APEX_MAX_CALL_DEPTH 512
+#define APEX_MAX_LOOP_DEPTH 512
+#define APEX_MAX_CALL_ARGS 64
 
 // ========== Forward Declarations ==========
 static Token* current_token(Parser* parser);

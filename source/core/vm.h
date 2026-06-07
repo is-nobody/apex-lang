@@ -1,8 +1,7 @@
 #ifndef VM_H
 #define VM_H
 
-#include "apex_limits.h"
-
+#define VM_MAX_CALL_FRAMES 4096
 #define VM_MAX_FRAMES VM_MAX_CALL_FRAMES
 #define VM_REGS_PER_FRAME 32     // Registers per call frame
 
