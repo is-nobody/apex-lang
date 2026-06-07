@@ -160,6 +160,13 @@ ASTNode* ast_create_param(const char* name, int line, int column) {
     return node;
 }
 
+ASTNode* ast_create_module_block(const char* name, ASTNode* body, int line, int column) {
+    ASTNode* node = ast_create_node(AST_MODULE_BLOCK, line, column);
+    node->module_block.module_name = strdup(name);
+    node->module_block.body = body;
+    return node;
+}
+
 // ========== List Operations ==========
 
 ASTNodeList* ast_list_create() {
@@ -257,6 +264,10 @@ void ast_free_node(ASTNode* node) {
             break;
         case AST_IMPORT_STMT:
             free(node->import_stmt.module_path);
+            break;
+        case AST_MODULE_BLOCK:
+            free(node->module_block.module_name);
+            ast_free_node(node->module_block.body);
             break;
         case AST_RETURN_STMT:
             ast_free_node(node->return_stmt.value);
@@ -391,6 +402,10 @@ static void ast_print_impl(ASTNode* node, int indent) {
             break;
         case AST_IDENTIFIER:
             printf("Identifier: %s\n", node->identifier.name);
+            break;
+        case AST_MODULE_BLOCK:
+            printf("ModuleBlock: %s\n", node->module_block.module_name);
+            ast_print_impl(node->module_block.body, indent + 1);
             break;
         case AST_CALL:
             printf("Call\n");

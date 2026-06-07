@@ -32,8 +32,9 @@ typedef enum {
     AST_MEMBER_ACCESS,     // table.key (dot notation)
     AST_TABLE_LITERAL,     // (1, 2, 3) or (key = value, ...)
     AST_STRING_INTERP,     // "Hello {name}"
-    AST_RANGE,             // range(start, end, step)
     
+    AST_MODULE_BLOCK,
+
     // Internal
     AST_BLOCK,             // { statement; statement; ... }
     AST_PARAM,             // function parameter with optional type annotation
@@ -151,6 +152,11 @@ struct ASTNode {
             char* module_path;
         } import_stmt;
         
+        struct {
+            char* module_name;
+            ASTNode* body;
+        } module_block;
+
         // Function return
         struct {
             ASTNode* value;           // NULL if bare return (no value)
@@ -214,6 +220,7 @@ ASTNode* ast_create_type_check(const char* param_name, const char* type_name,
 ASTNode* ast_create_block(ASTNodeList* statements);
 ASTNode* ast_create_expr_stmt(ASTNode* expression);
 ASTNode* ast_create_param(const char* name, int line, int column);
+ASTNode* ast_create_module_block(const char* name, ASTNode* body, int line, int column);
 
 // ========== List Operations ==========
 ASTNodeList* ast_list_create();

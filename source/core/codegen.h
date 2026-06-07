@@ -7,7 +7,7 @@
 
 typedef struct {
     BytecodeChunk* chunk;
-
+    
     // Variable-to-register-slot mapping
     struct {
         char** names;
@@ -15,36 +15,42 @@ typedef struct {
         int count;
         int capacity;
     } locals;
-    
+
     // Loop control stack
     struct {
-        // Dynamic array of instruction offsets for 'break' jumps that need patching
-        int* break_jumps;      
-        int break_count;       // Number of pending breaks in the current loop scope
+        int* break_jumps;
+        int break_count;
         int break_capacity;
-        
-        int continue_addr;     // Target address for 'continue' (usually loop start)
-        
-        bool is_fast;          // True if using fast iterator (numeric for-loop)
+        int continue_addr;
+        bool is_fast;
     } loop_stack;
-    
+
     // Register allocator state
     int next_register;
     int max_registers;
-    
+
     // Currently compiling function index
     int current_function;
-    
+
     // Unique label counter
     int label_counter;
-    
+
     // Optimization: cached registers for common operations
     struct {
-        int zero_reg;    // register holding constant 0
-        int one_reg;     // register holding constant 1
-        int empty_str;   // register holding empty string
+        int zero_reg;
+        int one_reg;
+        int empty_str;
     } cache;
-    
+
+    // Module tracking
+    char* current_module;
+    char** imported_modules;
+    int module_count;
+    int module_capacity;
+    char** module_globals;
+    int module_globals_count;
+    int module_globals_capacity;
+
 } CodeGenerator;
 
 // API

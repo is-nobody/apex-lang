@@ -283,62 +283,57 @@ static bool is_builtin_module_root(const char* name) {
            strcmp(name, "string") == 0 || strcmp(name, "table") == 0;
 }
 
-static void parser_validate_import_file(Parser* parser, const char* module_path,
-                                        int line, int column) {
-    if (!parser->semantic_checks || !parser->source_dir || !module_path) return;
-    if (strcmp(parser->filename, "stdin") == 0 ||
-        strcmp(parser->filename, "<interpolation>") == 0) {
-        return;
-    }
-
-    char first_segment[256];
-    const char* dot = strchr(module_path, '.');
-    size_t first_len = dot ? (size_t)(dot - module_path) : strlen(module_path);
-    if (first_len >= sizeof(first_segment)) first_len = sizeof(first_segment) - 1;
-    memcpy(first_segment, module_path, first_len);
-    first_segment[first_len] = '\0';
-
-    if (is_builtin_module_root(first_segment)) {
-        return;
-    }
-
+static bool build_module_path(Parser* parser, const char* module_path, char* out_path, int out_size) {
     char relative[1024];
     size_t len = 0;
     relative[0] = '\0';
     char path_copy[1024];
     strncpy(path_copy, module_path, sizeof(path_copy) - 1);
     path_copy[sizeof(path_copy) - 1] = '\0';
-
     char* segment = strtok(path_copy, ".");
     while (segment) {
         if (len > 0) {
             if (len + 1 < sizeof(relative)) relative[len++] = '/';
         }
         size_t seg_len = strlen(segment);
-        if (len + seg_len >= sizeof(relative)) return;
+        if (len + seg_len >= sizeof(relative)) return false;
         memcpy(relative + len, segment, seg_len);
         len += seg_len;
         relative[len] = '\0';
         segment = strtok(NULL, ".");
     }
-
-    if (len + 5 >= sizeof(relative)) return;
+    if (len + 5 >= sizeof(relative)) return false;
     strcat(relative, ".apex");
-
-    char full_path[PATH_MAX];
-    if (snprintf(full_path, sizeof(full_path), "%s/%s", parser->source_dir, relative) >=
-        (int)sizeof(full_path)) {
-        return;
-    }
     
-    #ifdef _WIN32
+    if (snprintf(out_path, out_size, "%s/%s", parser->source_dir, relative) >= out_size) {
+        return false;
+    }
+    return true;
+}
+
+static void parser_validate_import_file(Parser* parser, const char* module_path, int line, int column) {
+    if (!parser->semantic_checks || !parser->source_dir || !module_path) return;
+    if (strcmp(parser->filename, "stdin") == 0 || strcmp(parser->filename, "<interpolation>") == 0) return;
+    
+    char first_segment[256];
+    const char* dot = strchr(module_path, '.');
+    size_t first_len = dot ? (size_t)(dot - module_path) : strlen(module_path);
+    if (first_len >= sizeof(first_segment)) first_len = sizeof(first_segment) - 1;
+    memcpy(first_segment, module_path, first_len);
+    first_segment[first_len] = '\0';
+    
+    if (is_builtin_module_root(first_segment)) return;
+    
+    char full_path[PATH_MAX];
+    if (!build_module_path(parser, module_path, full_path, sizeof(full_path))) return;
+    
+#ifdef _WIN32
     if (_access(full_path, F_OK) != 0) {
-    #else
+#else
     if (access(full_path, F_OK) != 0) {
-    #endif
+#endif
         parser_error_at(parser, line, column, (int)strlen(module_path),
-                "Module '%s' not found (expected '%s')",
-                module_path, relative);
+                        "Module '%s' not found (expected '%s')", module_path, full_path);
     }
 }
 
@@ -554,7 +549,31 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
     ValueType left_type = infer_expression_type(parser, node->binary.left);
     ValueType right_type = infer_expression_type(parser, node->binary.right);
 
-    if (left_type == TYPE_ANY || right_type == TYPE_ANY) return TYPE_ANY;
+    // If either side is ANY, we can't be sure, but we shouldn't fail hard on arithmetic
+    // unless we are in a strict mode that forbids it. For now, let's assume ANY can be number.
+    if (left_type == TYPE_ANY || right_type == TYPE_ANY) {
+        switch (node->binary.op) {
+            case TOKEN_PLUS:
+            case TOKEN_MINUS:
+            case TOKEN_STAR:
+            case TOKEN_SLASH:
+            case TOKEN_PERCENT:
+                return TYPE_NUMBER; // Assume arithmetic works
+            case TOKEN_EQUAL_EQUAL:
+            case TOKEN_NOT_EQUAL:
+            case TOKEN_LESS:
+            case TOKEN_GREATER:
+            case TOKEN_LESS_EQUAL:
+            case TOKEN_GREATER_EQUAL:
+                return TYPE_BOOLEAN; // Assume comparison works
+            case TOKEN_AND:
+            case TOKEN_OR:
+                return TYPE_BOOLEAN; // Assume logical works
+            default:
+                return TYPE_ANY;
+        }
+    }
+
     if (left_type == TYPE_UNKNOWN || right_type == TYPE_UNKNOWN) return TYPE_UNKNOWN;
 
     switch (node->binary.op) {
@@ -621,25 +640,27 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
 static ValueType infer_unary_type(Parser* parser, ASTNode* node) {
     ValueType operand_type = infer_expression_type(parser, node->unary.operand);
     
-    // Allow TYPE_ANY and TYPE_UNKNOWN to pass through without strict checking
-    if (operand_type == TYPE_ANY || operand_type == TYPE_UNKNOWN) {
-        return TYPE_ANY;
+    if (operand_type == TYPE_ANY) {
+        if (node->unary.op == TOKEN_MINUS) return TYPE_NUMBER;
+        if (node->unary.op == TOKEN_NOT) return TYPE_BOOLEAN;
     }
-    
+
+    if (operand_type == TYPE_UNKNOWN) return TYPE_UNKNOWN;
+
     switch (node->unary.op) {
         case TOKEN_MINUS:
             if (!is_numeric_type(operand_type)) {
                 parser_error_at(parser, node->line, node->column, 0,
-                "Unary minus requires number operand, got %s",
-                type_name(operand_type));
+                    "Unary minus requires number operand, got %s",
+                    type_name(operand_type));
                 return TYPE_ERROR;
             }
             return TYPE_NUMBER;
         case TOKEN_NOT:
             if (operand_type != TYPE_BOOLEAN) {
                 parser_error_at(parser, node->line, node->column, 0,
-                "Logical not requires boolean operand, got %s",
-                type_name(operand_type));
+                    "Logical not requires boolean operand, got %s",
+                    type_name(operand_type));
                 return TYPE_ERROR;
             }
             return TYPE_BOOLEAN;
@@ -1493,21 +1514,20 @@ static bool is_valid_import_segment(TokenType type) {
 
 static ASTNode* parse_import_statement(Parser* parser) {
     Token* import_kw = advance(parser);
-    
     char* module_path = (char*)malloc(128);
     int path_len = 0, path_cap = 128;
     module_path[0] = '\0';
-    
-    #define APPEND_PATH(s) do { \
-        int slen = (int)strlen(s); \
-        if (path_len + slen + 2 >= path_cap) { \
-            path_cap = (path_len + slen + 2) * 2; \
-            module_path = (char*)realloc(module_path, path_cap); \
-        } \
-        strcat(module_path, s); \
-        path_len += slen; \
-    } while(0)
-    
+
+#define APPEND_PATH(s) do { \
+    int slen = (int)strlen(s); \
+    if (path_len + slen + 2 >= path_cap) { \
+        path_cap = (path_len + slen + 2) * 2; \
+        module_path = (char*)realloc(module_path, path_cap); \
+    } \
+    strcat(module_path, s); \
+    path_len += slen; \
+} while(0)
+
     Token* first = current_token(parser);
     if (!is_valid_import_segment(first->type)) {
         free(module_path);
@@ -1515,11 +1535,10 @@ static ASTNode* parse_import_statement(Parser* parser) {
     }
     APPEND_PATH(first->value);
     advance(parser);
-    
+
     while (match(parser, TOKEN_DOT)) {
         APPEND_PATH(".");
         Token* next = current_token(parser);
-        
         if (is_valid_import_segment(next->type)) {
             APPEND_PATH(next->value);
             advance(parser);
@@ -1528,15 +1547,73 @@ static ASTNode* parse_import_statement(Parser* parser) {
             parser_error(parser, "Expected identifier after '.'");
         }
     }
-    
-    ASTNode* node = ast_create_import(module_path, import_kw->line, import_kw->column);
-    parser_validate_import_file(parser, node->import_stmt.module_path,
-                                import_kw->line, import_kw->column);
-    parser_register_import(parser, node->import_stmt.module_path,
-                           import_kw->line, import_kw->column);
+
+    ASTNode* import_node = ast_create_import(module_path, import_kw->line, import_kw->column);
+    parser_validate_import_file(parser, module_path, import_kw->line, import_kw->column);
+    parser_register_import(parser, module_path, import_kw->line, import_kw->column);
+
+    char first_segment[256];
+    const char* dot = strchr(module_path, '.');
+    size_t first_len = dot ? (size_t)(dot - module_path) : strlen(module_path);
+    if (first_len >= sizeof(first_segment)) first_len = sizeof(first_segment) - 1;
+    memcpy(first_segment, module_path, first_len);
+    first_segment[first_len] = '\0';
+
+    if (is_builtin_module_root(first_segment)) {
+        free(module_path);
+        return import_node; // Builtin modules don't need file loading
+    }
+
+    // User module: load and parse file
+    char full_path[PATH_MAX];
+    if (!build_module_path(parser, module_path, full_path, sizeof(full_path))) {
+        parser_error(parser, "Module path too long");
+        free(module_path);
+        return import_node;
+    }
+
+    FILE* f = fopen(full_path, "rb");
+    if (!f) {
+        parser_error_at(parser, import_kw->line, import_kw->column, (int)strlen(module_path),
+                        "Cannot open module file '%s'", full_path);
+        free(module_path);
+        return import_node;
+    }
+
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char* source = (char*)malloc(size + 1);
+    if (!source) { fclose(f); free(module_path); return import_node; }
+    fread(source, 1, size, f);
+    source[size] = '\0';
+    fclose(f);
+
+    Tokenizer* mod_tok = tokenizer_create(source, full_path);
+    int mod_count;
+    Token* mod_tokens = tokenizer_tokenize(mod_tok, &mod_count);
+
+    Parser* mod_parser = parser_create(mod_tokens, mod_count, full_path, source);
+    mod_parser->semantic_checks = parser->semantic_checks;
+    free(mod_parser->source_dir);
+    mod_parser->source_dir = strdup(parser->source_dir);
+
+    ASTNode* mod_ast = parser_parse(mod_parser);
+
+    if (parser_had_errors(mod_parser)) {
+        parser->error_count += mod_parser->error_count;
+    }
+
+    parser_destroy(mod_parser);
+    tokenizer_destroy(mod_tok);
+    free(source);
     free(module_path);
-    #undef APPEND_PATH
-    return node;
+#undef APPEND_PATH
+
+    if (!mod_ast) return import_node;
+
+    ast_free_node(import_node); // Free the dummy import node
+    return ast_create_module_block(first_segment, mod_ast, import_kw->line, import_kw->column);
 }
 
 static ASTNode* parse_return_statement(Parser* parser) {
