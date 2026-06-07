@@ -1,108 +1,162 @@
 import os
 
+function test_no_params()
+    function say_hello()
+        return "Hello!"
+    
+    result = say_hello()
+    os.output("say_hello() = {result}, expected Hello!")
 
-// function with output (no return)
-function greet(name)
-    os.output("Hello, {name}!")
+function test_single_param()
+    function double(x)
+        return x * 2
+    
+    result = double(5)
+    os.output("double(5) = {result}, expected 10")
+    
+    result = double(0)
+    os.output("double(0) = {result}, expected 0")
+    
+    result = double(-3)
+    os.output("double(-3) = {result}, expected -6")
 
-// function with return value
-function add(a, b)
-    return a + b
+function test_multiple_params()
+    function add(a, b)
+        return a + b
+    
+    result = add(5, 3)
+    os.output("add(5, 3) = {result}, expected 8")
+    
+    result = add(-2, 7)
+    os.output("add(-2, 7) = {result}, expected 5")
+    
+    result = add(0, 0)
+    os.output("add(0, 0) = {result}, expected 0")
 
-result = add(5, 3)
-os.output("add(5, 3) = {result}, expected 8")
+function test_string_params()
+    function greet(name)
+        return "Hello, {name}!"
+    
+    result = greet("Alice")
+    os.output("greet("Alice") = {result}, expected Hello, Alice!")
+    
+    result = greet("")
+    os.output("greet("") = {result}, expected Hello, !")
 
-result = add(10, -2)
-os.output("add(10, -2) = {result}, expected 8")
+function test_no_return()
+    function do_nothing()
+        x = 42
+    
+    result = do_nothing()
+    os.output("do_nothing() = {result}, expected false")
 
-result = add(0, 0)
-os.output("add(0, 0) = {result}, expected 0")
+function test_nested_calls()
+    function multiply(a, b)
+        return a * b
+    
+    function add(a, b)
+        return a + b
+    
+    result = add(5, multiply(2, 3))
+    os.output("add(5, multiply(2, 3)) = {result}, expected 11")
+    
+    result = multiply(add(2, 3), add(1, 4))
+    os.output("multiply(add(2, 3), add(1, 4)) = {result}, expected 25")
 
-// function with conditional logic
-function check_age(age)
-    if age < 18
-        return "Too young"
-    return "Welcome"
+function test_function_chain()
+    function get_discount(price)
+        return price * 0.9
+    
+    function calculate_total(price, quantity)
+        total = price * quantity
+        return get_discount(total)
+    
+    result = calculate_total(100, 3)
+    os.output("calculate_total(100, 3) = {result}, expected 270")
+    
+    result = calculate_total(50, 2)
+    os.output("calculate_total(50, 2) = {result}, expected 90")
 
-result = check_age(15)
-os.output("check_age(15) = {result}, expected Too young")
+function test_boolean_params()
+    function is_adult(age)
+        return age >= 18
+    
+    result = is_adult(20)
+    os.output("is_adult(20) = {result}, expected true")
+    
+    result = is_adult(15)
+    os.output("is_adult(15) = {result}, expected false")
+    
+    result = is_adult(18)
+    os.output("is_adult(18) = {result}, expected true")
 
-result = check_age(18)
-os.output("check_age(18) = {result}, expected Welcome")
+function test_scope()
+    x = 10
+    
+    function modify_x()
+        x = 20
+        return x
+    
+    result = modify_x()
+    os.output("After modify_x(): result = {result}, x = {x}")
 
-result = check_age(25)
-os.output("check_age(25) = {result}, expected Welcome")
+function test_many_params()
+    function sum_five(a, b, c, d, e)
+        return a + b + c + d + e
+    
+    result = sum_five(1, 2, 3, 4, 5)
+    os.output("sum_five(1, 2, 3, 4, 5) = {result}, expected 15")
 
-result = check_age(0)
-os.output("check_age(0) = {result}, expected Too young")
+function test_recursion()
+    function factorial(n)
+        if n <= 1
+            return 1
+        else
+            return n * factorial(n - 1)
+    
+    result = factorial(5)
+    os.output("factorial(5) = {result}, expected 120")
+    
+    result = factorial(1)
+    os.output("factorial(1) = {result}, expected 1")
+    
+    result = factorial(0)
+    os.output("factorial(0) = {result}, expected 1")
 
-// function with multiple parameters
-function multiply(x, y)
-    return x * y
+function test_return_table()
+    function create_user(name, age)
+        return (name = name, age = age, active = true)
+    
+    user = create_user("Bob", 25)
+    os.output("create_user("Bob", 25).name = {user.name}, expected Bob")
+    os.output("create_user("Bob", 25).age = {user.age}, expected 25")
+    os.output("create_user("Bob", 25).active = {user.active}, expected true")
 
-result = multiply(4, 5)
-os.output("multiply(4, 5) = {result}, expected 20")
+function test_early_return()
+    function abs_value(x)
+        if x < 0
+            return -x
+        return x
+    
+    result = abs_value(-5)
+    os.output("abs_value(-5) = {result}, expected 5")
+    
+    result = abs_value(5)
+    os.output("abs_value(5) = {result}, expected 5")
+    
+    result = abs_value(0)
+    os.output("abs_value(0) = {result}, expected 0")
 
-result = multiply(7, 6)
-os.output("multiply(7, 6) = {result}, expected 42")
-
-// function with string concatenation
-function full_name(first, last)
-    return "{first} {last}"
-
-result = full_name("Alice", "Smith")
-os.output("full_name(Alice, Smith) = {result}, expected Alice Smith")
-
-result = full_name("Bob", "Jones")
-os.output("full_name(Bob, Jones) = {result}, expected Bob Jones")
-
-// function with no return value (returns none)
-function do_nothing()
-    // no return
-
-result = do_nothing()
-os.output("do_nothing() = {result}, expected none")
-
-// nested function calls
-function square(x)
-    return x * x
-
-function cube(x)
-    return x * square(x)
-
-result = cube(3)
-os.output("cube(3) = {result}, expected 27")
-
-result = cube(4)
-os.output("cube(4) = {result}, expected 64")
-
-// function call in expression
-function double(x)
-    return x * 2
-
-result = double(5) + double(3)
-os.output("double(5) + double(3) = {result}, expected 16")
-
-// function with table parameter
-function first_item(table)
-    return table.1
-
-colors = ("red", "green", "blue")
-result = first_item(colors)
-os.output("first_item(colors) = {result}, expected red")
-
-numbers = (10, 20, 30)
-result = first_item(numbers)
-os.output("first_item(numbers) = {result}, expected 10")
-
-// function that modifies table
-function add_item(table, item)
-    table.1 = item
-    return table
-
-colors = ("red", "green")
-modified = add_item(colors, "blue")
-result = modified.1
-os.output("modified.1 = {result}, expected blue")
-
-// final result
+test_no_params()
+test_single_param()
+test_multiple_params()
+test_string_params()
+test_no_return()
+test_nested_calls()
+test_function_chain()
+test_boolean_params()
+test_scope()
+test_many_params()
+test_recursion()
+test_return_table()
+test_early_return()
