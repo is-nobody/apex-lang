@@ -42,26 +42,27 @@ typedef struct {
     const char* name;
     int min_args;
     int max_args;
+    ValueType arg_type;
 } BuiltinSig;
 
 static const BuiltinSig BUILTINS[] = {
-    {"os.output", 0, 1}, {"os.input", 0, 1}, {"os.read", 1, 1}, {"os.write", 2, 2},
-    {"os.close", 1, 1}, {"os.exists", 1, 1}, {"os.isfile", 1, 1}, {"os.isdir", 1, 1},
-    {"os.rename", 2, 2}, {"os.rmfile", 1, 1}, {"os.mkfile", 1, 1}, {"os.listdir", 1, 1},
-    {"os.getcwd", 0, 0}, {"os.chdir", 1, 1}, {"os.mkdir", 1, 1}, {"os.rmdir", 1, 1},
-    {"os.stat", 1, 1}, {"os.exit", 1, 1}, {"os.wait", 1, 1}, {"os.time", 0, 0},
-    {"os.system", 1, 1}, {"os.platform", 0, 0},
-    {"math.abs", 1, 1}, {"math.floor", 1, 1}, {"math.ceil", 1, 1}, {"math.round", 2, 2},
-    {"math.sqrt", 1, 1}, {"math.exp", 1, 1}, {"math.log", 2, 2}, {"math.sin", 1, 1},
-    {"math.cos", 1, 1}, {"math.tan", 1, 1}, {"math.asin", 1, 1}, {"math.acos", 1, 1},
-    {"math.atan", 1, 1},
-    {"string.len", 1, 1}, {"string.lower", 1, 1}, {"string.upper", 1, 1},
-    {"string.sub", 3, 3}, {"string.split", 2, 2}, {"string.join", 2, 2},
-    {"string.trim", 1, 1}, {"string.find", 2, 2}, {"string.replace", 3, 3},
-    {"table.remove", 2, 2}, {"table.has", 2, 2}, {"table.size", 1, 1},
-    {"table.keys", 1, 1}, {"table.values", 1, 1}, {"table.clear", 1, 1},
-    {"table.copy", 1, 1}, {"table.merge", 2, 2},
-    {"number", 1, 1}, {"string", 1, 1}
+    {"os.output", 0, 1, TYPE_ANY}, {"os.input", 0, 1, TYPE_ANY}, {"os.read", 1, 1, TYPE_STRING}, {"os.write", 2, 2, TYPE_ANY},
+    {"os.close", 1, 1, TYPE_NUMBER}, {"os.exists", 1, 1, TYPE_STRING}, {"os.isfile", 1, 1, TYPE_STRING}, {"os.isdir", 1, 1, TYPE_STRING},
+    {"os.rename", 2, 2, TYPE_STRING}, {"os.rmfile", 1, 1, TYPE_STRING}, {"os.mkfile", 1, 1, TYPE_STRING}, {"os.listdir", 1, 1, TYPE_STRING},
+    {"os.getcwd", 0, 0, TYPE_ANY}, {"os.chdir", 1, 1, TYPE_STRING}, {"os.mkdir", 1, 1, TYPE_STRING}, {"os.rmdir", 1, 1, TYPE_STRING},
+    {"os.stat", 1, 1, TYPE_STRING}, {"os.exit", 1, 1, TYPE_NUMBER}, {"os.wait", 1, 1, TYPE_NUMBER}, {"os.time", 0, 0, TYPE_ANY},
+    {"os.system", 1, 1, TYPE_STRING}, {"os.platform", 0, 0, TYPE_ANY},
+    {"math.abs", 1, 1, TYPE_NUMBER}, {"math.floor", 1, 1, TYPE_NUMBER}, {"math.ceil", 1, 1, TYPE_NUMBER}, {"math.round", 1, 2, TYPE_NUMBER},
+    {"math.sqrt", 1, 1, TYPE_NUMBER}, {"math.exp", 1, 1, TYPE_NUMBER}, {"math.log", 1, 2, TYPE_NUMBER}, {"math.sin", 1, 1, TYPE_NUMBER},
+    {"math.cos", 1, 1, TYPE_NUMBER}, {"math.tan", 1, 1, TYPE_NUMBER}, {"math.asin", 1, 1, TYPE_NUMBER}, {"math.acos", 1, 1, TYPE_NUMBER},
+    {"math.atan", 1, 1, TYPE_NUMBER},
+    {"string.len", 1, 1, TYPE_STRING}, {"string.lower", 1, 1, TYPE_STRING}, {"string.upper", 1, 1, TYPE_STRING},
+    {"string.sub", 3, 3, TYPE_STRING}, {"string.split", 2, 2, TYPE_STRING}, {"string.join", 2, 2, TYPE_STRING},
+    {"string.trim", 1, 1, TYPE_STRING}, {"string.find", 2, 2, TYPE_STRING}, {"string.replace", 3, 3, TYPE_STRING},
+    {"table.remove", 2, 2, TYPE_TABLE}, {"table.has", 2, 2, TYPE_TABLE}, {"table.size", 1, 1, TYPE_TABLE},
+    {"table.keys", 1, 1, TYPE_TABLE}, {"table.values", 1, 1, TYPE_TABLE}, {"table.clear", 1, 1, TYPE_TABLE},
+    {"table.copy", 1, 1, TYPE_TABLE}, {"table.merge", 2, 2, TYPE_TABLE},
+    {"number", 1, 1, TYPE_ANY}, {"string", 1, 1, TYPE_ANY}
 };
 
 static const BuiltinSig* lookup_builtin(const char* name) {
@@ -685,6 +686,16 @@ static const char* resolve_call_name(ASTNode* callee, char* buffer, size_t bufle
     return NULL;
 }
 
+static void check_math_arg_type(Parser* parser, ASTNode* node, const char* func_name) {
+    if (node->call.arguments->count >= 1) {
+        ValueType arg_t = infer_expression_type(parser, node->call.arguments->nodes[0]);
+        if (arg_t != TYPE_NUMBER && arg_t != TYPE_ANY && arg_t != TYPE_UNKNOWN) {
+            parser_error_at(parser, node->line, node->column, 0,
+                "%s argument must be number, got %s", func_name, type_name(arg_t));
+        }
+    }
+}
+
 static ValueType infer_call_type(Parser* parser, ASTNode* node) {
     ValueType callee_type = infer_expression_type(parser, node->call.callee);
     if (callee_type != TYPE_FUNCTION && callee_type != TYPE_UNKNOWN &&
@@ -733,6 +744,13 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
                     parser_error_at(parser, node->line, node->column, 0,
                         "string() argument must be string, number, or boolean, got %s",
                         type_name(arg_t));
+                }
+            } else if (builtin->arg_type != TYPE_ANY && actual >= 1) {
+                ValueType arg_t = infer_expression_type(parser, node->call.arguments->nodes[0]);
+                if (arg_t != builtin->arg_type && arg_t != TYPE_ANY && arg_t != TYPE_UNKNOWN) {
+                    parser_error_at(parser, node->line, node->column, 0,
+                        "%s argument must be %s, got %s",
+                        func_name, type_name(builtin->arg_type), type_name(arg_t));
                 }
             }
             return TYPE_ANY;
