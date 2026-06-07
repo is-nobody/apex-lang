@@ -72,6 +72,7 @@ typedef struct {
     int indent_stack[256];
     int indent_depth;
     int pending_newline; 
+    int paren_depth;
 } Tokenizer;
 
 // Tokenizer functions

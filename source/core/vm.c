@@ -884,6 +884,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         if (table_get(vm->registers[table_reg].table, key_str, &val)) {
             value_decref(&vm->registers[dest]);
             vm->registers[dest] = val;
+        } else {
+            // Key not found. Set to false to prevent garbage leakage.
+            value_decref(&vm->registers[dest]);
+            vm->registers[dest].type = VAL_BOOL;
+            vm->registers[dest].boolean = false;
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
@@ -895,9 +900,14 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         val.type = VAL_BOOL;
         val.boolean = false;
         if (table_get(vm->registers[table_reg].table,
-                      chunk->constants[key_idx].string_value, &val)) {
+            chunk->constants[key_idx].string_value, &val)) {
             value_decref(&vm->registers[dest]);
             vm->registers[dest] = val;
+        } else {
+            // FIX: Key not found. Set to false (none) to prevent garbage leakage.
+            value_decref(&vm->registers[dest]);
+            vm->registers[dest].type = VAL_BOOL;
+            vm->registers[dest].boolean = false;
         }
         ip++; goto *dispatch_table[ip->opcode];
     }

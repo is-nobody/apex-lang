@@ -10,6 +10,8 @@ static void codegen_statement(CodeGenerator* cg, ASTNode* node);
 static void codegen_block(CodeGenerator* cg, ASTNode* node);
 static int codegen_string_interp(CodeGenerator* cg, ASTNode* node);
 static int codegen_optimized_condition(CodeGenerator* cg, ASTNode* condition, int line);
+static int codegen_member_assign(CodeGenerator* cg, ASTNode* node);
+static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node);
 
 // ========== Helpers ==========
 static int alloc_register(CodeGenerator* cg) {
@@ -35,6 +37,7 @@ static void free_register(CodeGenerator* cg, int reg) {
 
 // Local variable management
 static int find_local(CodeGenerator* cg, const char* name) {
+    if (!name) return -1;
     for (int i = 0; i < cg->locals.count; i++) {
         if (strcmp(cg->locals.names[i], name) == 0) {
             return cg->locals.registers[i];
@@ -337,6 +340,9 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
     }
     
     switch (node->type) {
+        case AST_ASSIGN: {
+            return codegen_assign_expr(cg, node);
+        }
         case AST_LITERAL_NUMBER: {
             int reg = codegen_literal_number(cg, node);
             return reg;
@@ -434,11 +440,21 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
             
             for (int i = 0; i < node->table_literal.key_values->count; i++) {
                 ASTNode* kv = node->table_literal.key_values->nodes[i];
-                int key_reg = codegen_expression(cg, kv->binary.left);
-                int value_reg = codegen_expression(cg, kv->binary.right);
-                emit(cg, INST(OP_TABLE_SET, table_reg, key_reg, value_reg), node->line);
-                free_register(cg, key_reg);
-                free_register(cg, value_reg);
+                
+                // FIX: The key is an identifier. Treat it as a constant string, NOT a variable!
+                if (kv->binary.left->type == AST_IDENTIFIER) {
+                    int key_idx = bytecode_add_string_constant(cg->chunk, kv->binary.left->identifier.name);
+                    int value_reg = codegen_expression(cg, kv->binary.right);
+                    emit(cg, INST(OP_TABLE_SET_CONST, table_reg, key_idx, value_reg), node->line);
+                    free_register(cg, value_reg);
+                } else {
+                    // Fallback (should rarely be hit if parser works correctly)
+                    int key_reg = codegen_expression(cg, kv->binary.left);
+                    int value_reg = codegen_expression(cg, kv->binary.right);
+                    emit(cg, INST(OP_TABLE_SET, table_reg, key_reg, value_reg), node->line);
+                    free_register(cg, key_reg);
+                    free_register(cg, value_reg);
+                }
             }
             return table_reg;
         }
@@ -467,7 +483,17 @@ static void codegen_var_decl(CodeGenerator* cg, ASTNode* node) {
     free_register(cg, value_reg);
 }
 
-static void codegen_assign(CodeGenerator* cg, ASTNode* node) {
+static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node) {
+    // FIX: Handle member/index assignments
+    if (node->var_assign.access_path) {
+        return codegen_member_assign(cg, node);
+    }
+    
+    // Safety check for invalid AST
+    if (!node->var_assign.name) {
+        return codegen_expression(cg, node->var_assign.value);
+    }
+    
     int local_reg = find_local(cg, node->var_assign.name);
     if (local_reg >= 0) {
         // === OPTIMIZATION 1: i = i + 1 -> OP_ADD_IMM ===
@@ -475,15 +501,13 @@ static void codegen_assign(CodeGenerator* cg, ASTNode* node) {
             node->var_assign.value->binary.op == TOKEN_PLUS) {
             ASTNode* left = node->var_assign.value->binary.left;
             ASTNode* right = node->var_assign.value->binary.right;
-            
             if (left->type == AST_IDENTIFIER &&
                 strcmp(left->identifier.name, node->var_assign.name) == 0 &&
                 right->type == AST_LITERAL_STRING) {
-                
                 int right_reg = codegen_literal_string(cg, right);
                 emit(cg, INST(OP_STRING_APPEND, local_reg, right_reg, 0), node->line);
                 free_register(cg, right_reg);
-                return;
+                return local_reg; // FIX: Return register
             }
         }
         
@@ -492,10 +516,8 @@ static void codegen_assign(CodeGenerator* cg, ASTNode* node) {
             ASTNode* bin = node->var_assign.value;
             if (bin->binary.left->type == AST_IDENTIFIER &&
                 strcmp(bin->binary.left->identifier.name, node->var_assign.name) == 0) {
-                
                 int right_reg = codegen_expression(cg, bin->binary.right);
                 Opcode op = OP_NOP;
-                
                 switch (bin->binary.op) {
                     case TOKEN_PLUS: op = OP_ADD; break;
                     case TOKEN_MINUS: op = OP_SUB; break;
@@ -504,11 +526,10 @@ static void codegen_assign(CodeGenerator* cg, ASTNode* node) {
                     case TOKEN_PERCENT: op = OP_MOD; break;
                     default: break;
                 }
-                
                 if (op != OP_NOP) {
                     emit(cg, INST(op, local_reg, local_reg, right_reg), node->line);
                     free_register(cg, right_reg);
-                    return;
+                    return local_reg; // FIX: Return register
                 }
                 free_register(cg, right_reg);
             }
@@ -517,7 +538,7 @@ static void codegen_assign(CodeGenerator* cg, ASTNode* node) {
         int value_reg = codegen_expression(cg, node->var_assign.value);
         emit(cg, INST(OP_MOVE, local_reg, value_reg, 0), node->line);
         free_register(cg, value_reg);
-        return;
+        return local_reg; // FIX: Return register
     }
     
     // === GLOBAL VARIABLES (Fallback) ===
@@ -527,7 +548,13 @@ static void codegen_assign(CodeGenerator* cg, ASTNode* node) {
         global_idx = bytecode_add_global(cg->chunk, node->var_assign.name);
     }
     emit(cg, INST(OP_STORE_GLOBAL, value_reg, global_idx, 0), node->line);
-    free_register(cg, value_reg);
+    return value_reg; // FIX: Return register
+}
+
+// Wrapper for statements that discards the result register
+static void codegen_assign(CodeGenerator* cg, ASTNode* node) {
+    int reg = codegen_assign_expr(cg, node);
+    free_register(cg, reg);
 }
 
 static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
@@ -679,6 +706,60 @@ static int codegen_optimized_condition(CodeGenerator* cg, ASTNode* condition, in
         return jump_offset;
     }
     return -1;
+}
+
+static int codegen_member_assign(CodeGenerator* cg, ASTNode* node) {
+    ASTNode* access = node->var_assign.access_path;
+    ASTNode* value_node = node->var_assign.value;
+    
+    // Collect the chain of accesses from the final member up to the base object
+    ASTNode* chain[256];
+    int chain_len = 0;
+    ASTNode* curr = access;
+    while (curr->type == AST_MEMBER_ACCESS || curr->type == AST_INDEX_ACCESS) {
+        if (chain_len >= 256) break; // Safety limit
+        chain[chain_len++] = curr;
+        curr = curr->access.object;
+    }
+    
+    // Evaluate the base object (e.g., 'company' or 'user')
+    int current_obj_reg = codegen_expression(cg, curr);
+    
+    // Traverse down the chain to get the immediate parent table of the key we want to set
+    for (int i = chain_len - 1; i > 0; i--) {
+        ASTNode* acc = chain[i];
+        int next_obj_reg = alloc_register(cg);
+        
+        if (acc->access.member->type == AST_IDENTIFIER) {
+            int key_idx = bytecode_add_string_constant(cg->chunk, acc->access.member->identifier.name);
+            emit(cg, INST(OP_TABLE_GET_CONST, next_obj_reg, current_obj_reg, key_idx), acc->line);
+        } else {
+            int key_reg = codegen_expression(cg, acc->access.member);
+            emit(cg, INST(OP_TABLE_GET, next_obj_reg, current_obj_reg, key_reg), acc->line);
+            free_register(cg, key_reg);
+        }
+        
+        free_register(cg, current_obj_reg);
+        current_obj_reg = next_obj_reg;
+    }
+    
+    // Evaluate the value being assigned
+    int val_reg = codegen_expression(cg, value_node);
+    
+    // Emit the SET instruction for the final member
+    ASTNode* final_acc = chain[0];
+    if (final_acc->access.member->type == AST_IDENTIFIER) {
+        int key_idx = bytecode_add_string_constant(cg->chunk, final_acc->access.member->identifier.name);
+        emit(cg, INST(OP_TABLE_SET_CONST, current_obj_reg, key_idx, val_reg), final_acc->line);
+    } else {
+        int key_reg = codegen_expression(cg, final_acc->access.member);
+        emit(cg, INST(OP_TABLE_SET, current_obj_reg, key_reg, val_reg), final_acc->line);
+        free_register(cg, key_reg);
+    }
+    
+    free_register(cg, current_obj_reg);
+    
+    return val_reg; // Return the value register so the assignment expression evaluates to the assigned value
 }
 
 static void codegen_break(CodeGenerator* cg, ASTNode* node) {

@@ -230,9 +230,10 @@ static void parser_check_divisor(Parser* parser, ASTNode* node, ASTNode* divisor
 
 static bool expr_has_side_effect(ASTNode* node) {
     if (!node) return false;
-
     switch (node->type) {
         case AST_CALL:
+        case AST_ASSIGN:       // Handles member assignments like user.age = 31
+        case AST_VAR_DECL:     // Handles variable declarations
             return true;
         case AST_BINARY:
             return expr_has_side_effect(node->binary.left) ||
@@ -258,8 +259,7 @@ static bool expr_has_side_effect(ASTNode* node) {
             }
             for (int i = 0; i < node->table_literal.key_values->count; i++) {
                 ASTNode* kv = node->table_literal.key_values->nodes[i];
-                if (expr_has_side_effect(kv->binary.left) ||
-                    expr_has_side_effect(kv->binary.right)) {
+                if (expr_has_side_effect(kv->binary.left) || expr_has_side_effect(kv->binary.right)) {
                     return true;
                 }
             }
@@ -620,20 +620,26 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
 
 static ValueType infer_unary_type(Parser* parser, ASTNode* node) {
     ValueType operand_type = infer_expression_type(parser, node->unary.operand);
+    
+    // Allow TYPE_ANY and TYPE_UNKNOWN to pass through without strict checking
+    if (operand_type == TYPE_ANY || operand_type == TYPE_UNKNOWN) {
+        return TYPE_ANY;
+    }
+    
     switch (node->unary.op) {
         case TOKEN_MINUS:
             if (!is_numeric_type(operand_type)) {
                 parser_error_at(parser, node->line, node->column, 0,
-                    "Unary minus requires number operand, got %s",
-                    type_name(operand_type));
+                "Unary minus requires number operand, got %s",
+                type_name(operand_type));
                 return TYPE_ERROR;
             }
             return TYPE_NUMBER;
         case TOKEN_NOT:
             if (operand_type != TYPE_BOOLEAN) {
                 parser_error_at(parser, node->line, node->column, 0,
-                    "Logical not requires boolean operand, got %s",
-                    type_name(operand_type));
+                "Logical not requires boolean operand, got %s",
+                type_name(operand_type));
                 return TYPE_ERROR;
             }
             return TYPE_BOOLEAN;
@@ -749,6 +755,9 @@ static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
         case AST_LITERAL_NUMBER: return TYPE_NUMBER;
         case AST_LITERAL_STRING: return TYPE_STRING;
         case AST_LITERAL_BOOL: return TYPE_BOOLEAN;
+        case AST_ASSIGN:
+        case AST_VAR_DECL:
+            return infer_expression_type(parser, node->var_assign.value);
         case AST_IDENTIFIER: {
             const char* name = node->identifier.name;
             int idx = symbol_index_recursive(parser, name);
@@ -771,7 +780,8 @@ static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
             }
             for (int i = 0; i < node->table_literal.key_values->count; i++) {
                 ASTNode* kv = node->table_literal.key_values->nodes[i];
-                infer_expression_type(parser, kv->binary.left);
+                // The left side is a table key (identifier), not a variable reference.
+                // Only type-check the value (right side).
                 infer_expression_type(parser, kv->binary.right);
             }
             return TYPE_TABLE;
@@ -986,11 +996,14 @@ static ASTNode* parse_table_literal(Parser* parser) {
     advance(parser); // consume '('
     ASTNodeList* items = ast_list_create();
     ASTNodeList* key_values = ast_list_create();
-    
     bool has_key_values = false;
-    
+
+    skip_newlines(parser); // <--- Skip newlines after '('
+
     if (!check(parser, TOKEN_RPAREN)) {
         while (true) {
+            skip_newlines(parser); // <--- Skip newlines before item
+            
             // Check for key = value pattern
             if (check(parser, TOKEN_IDENTIFIER) && check_next(parser, TOKEN_EQUAL)) {
                 has_key_values = true;
@@ -998,7 +1011,6 @@ static ASTNode* parse_table_literal(Parser* parser) {
                 advance(parser); // consume '='
                 ASTNode* value = parse_expression(parser);
                 
-                // Create a key-value node (stored as binary with key on left)
                 ASTNode* kv_node = ast_create_binary(
                     TOKEN_EQUAL,
                     ast_create_identifier(key->value, key->line, key->column),
@@ -1013,24 +1025,28 @@ static ASTNode* parse_table_literal(Parser* parser) {
                 ast_list_add(items, item);
             }
             
+            skip_newlines(parser); // <--- Skip newlines before ',' or ')'
             if (!match(parser, TOKEN_COMMA)) break;
-            skip_newlines(parser);
+            skip_newlines(parser); // Skip newlines after ','
         }
     }
-    
+    skip_newlines(parser); // <--- Skip newlines before final ')'
     consume(parser, TOKEN_RPAREN, "Expected ')' after table literal");
     return ast_create_table_literal(items, key_values);
 }
 
 static ASTNode* parse_group_or_table(Parser* parser) {
-    // Determine if this is a table literal by looking for commas or key=value
+    // 1. Check for empty table first: ()
+    if (check(parser, TOKEN_LPAREN) && check_next(parser, TOKEN_RPAREN)) {
+        return parse_table_literal(parser);
+    }
+
+    // 2. Determine if this is a table literal by looking for commas or key=value
     bool is_table = false;
     int lookahead = 0;
-    
     if (check(parser, TOKEN_LPAREN)) {
         int paren_count = 1;
         lookahead = 1;
-        
         while (paren_count > 0 && peek(parser, lookahead)->type != TOKEN_EOF) {
             TokenType t = peek(parser, lookahead)->type;
             if (t == TOKEN_LPAREN) paren_count++;
@@ -1050,9 +1066,11 @@ static ASTNode* parse_group_or_table(Parser* parser) {
         return parse_table_literal(parser);
     }
     
-    // Regular grouped expression
+    // 3. Regular grouped expression
     advance(parser); // consume '('
+    skip_newlines(parser); // Skip newlines after '('
     ASTNode* expr = parse_expression(parser);
+    skip_newlines(parser); // Skip newlines before ')'
     consume(parser, TOKEN_RPAREN, "Expected ')' after expression");
     return expr;
 }
@@ -1107,14 +1125,18 @@ static ASTNode* parse_call(Parser* parser, ASTNode* callee) {
     advance(parser); // consume '('
     ASTNodeList* arguments = ast_list_create();
     
+    skip_newlines(parser); // <--- Skip newlines after '('
     if (!check(parser, TOKEN_RPAREN)) {
         while (true) {
+            skip_newlines(parser); // <--- Skip newlines before argument
             ast_list_add(arguments, parse_expression(parser));
+            
+            skip_newlines(parser); // <--- Skip newlines before ',' or ')'
             if (!match(parser, TOKEN_COMMA)) break;
-            skip_newlines(parser);
+            skip_newlines(parser); // Skip newlines after ','
         }
     }
-    
+    skip_newlines(parser); // <--- Skip newlines before final ')'
     consume(parser, TOKEN_RPAREN, "Expected ')' after arguments");
     return ast_create_call(callee, arguments);
 }
@@ -1195,8 +1217,8 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
                 return ast_create_var_assign(
                     left->identifier.name, right, false, NULL,
                     token->line, token->column);
-            } else if (left->type == AST_MEMBER_ACCESS) {
-                // Compound assignment like x.field = value
+            } else if (left->type == AST_MEMBER_ACCESS || left->type == AST_INDEX_ACCESS) {
+                // Compound assignment like x.field = value OR x.2 = value
                 char* name = NULL;
                 if (left->access.object->type == AST_IDENTIFIER) {
                     name = left->access.object->identifier.name;
@@ -1205,6 +1227,7 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
                     name, right, false, left,
                     token->line, token->column);
             }
+            
             parser_error(parser, "Invalid assignment target");
             return NULL;
         }
@@ -1237,12 +1260,11 @@ static ASTNode* parse_precedence(Parser* parser, Precedence precedence) {
 
 static ASTNode* parse_expression(Parser* parser) {
     skip_newlines(parser);
-
     if (check(parser, TOKEN_EOF)) {
         return NULL;
     }
-
-    ASTNode* expr = parse_precedence(parser, PREC_ASSIGNMENT);
+    // FIX: Use PREC_NONE so the '=' operator is actually parsed
+    ASTNode* expr = parse_precedence(parser, PREC_NONE);
     if (expr) {
         parser_check_expression(parser, expr);
     }
@@ -1594,27 +1616,16 @@ static ASTNode* parse_statement(Parser* parser) {
             return parse_continue_statement(parser);
             
         case TOKEN_IDENTIFIER: {
-            // Check if this is an assignment
-            int lookahead = 1;
-            bool is_assignment = false;
-            
-            // Skip dot access chains (module.function)
-            while (peek(parser, lookahead)->type == TOKEN_DOT) {
-                lookahead += 2;
-                if (peek(parser, lookahead - 1)->type == TOKEN_EOF) break;
-            }
-            
-            TokenType next = peek(parser, lookahead)->type;
-            if (next == TOKEN_EQUAL) {
-                is_assignment = true;
-            }
-            
-            if (is_assignment) {
+            // Check if this is a simple variable assignment (e.g., x = 10).
+            // If the next token is '=', it's a simple assignment.
+            // If it's '.', it's a member access (e.g., x.y = 10 or x.y()), 
+            // which should be parsed as an expression.
+            if (peek(parser, 1)->type == TOKEN_EQUAL) {
                 ASTNode* node = parse_var_decl_or_assign(parser);
                 if (node) return node;
             }
-            
-            // Parse as expression (function call or module access)
+
+            // Parse as expression (function call, module access, or member access assignment)
             ASTNode* expr = parse_expression(parser);
             if (expr) {
                 parser_check_expr_statement(parser, expr);

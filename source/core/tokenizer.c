@@ -104,6 +104,7 @@ Tokenizer* tokenizer_create(const char* source, const char* filename) {
     tokenizer->indent_stack[0] = 0;
     tokenizer->indent_depth = 1;
     tokenizer->pending_newline = 0;
+    tokenizer->paren_depth = 0;
     return tokenizer;
 }
 
@@ -258,44 +259,54 @@ static char* read_string(Tokenizer* tokenizer) {
         }
         
         if (c == '"') {
-            // Check if this quote closes the string.
-            // In Apex, a quote closes the string if it's the last one on the line
-            // or if it's followed by a delimiter that cannot start an expression.
-            
-            int saved_pos = tokenizer->pos;
-            int saved_line = tokenizer->line;
-            int saved_col = tokenizer->column;
-            
             advance(tokenizer); // consume the quote
             
-            // Look ahead to see if there are any more quotes on this line
-            bool has_more_quotes = false;
-            int lookahead_idx = tokenizer->pos;
-            while (tokenizer->source[lookahead_idx] != '\0' && 
-                tokenizer->source[lookahead_idx] != '\n' && 
-                tokenizer->source[lookahead_idx] != '\r') {
-                if (tokenizer->source[lookahead_idx] == '"') {
-                    has_more_quotes = true;
-                    break;
-                }
-                lookahead_idx++;
+            // 1. Count unmatched parentheses in the current string buffer
+            int open_parens = 0;
+            for (int i = 0; i < buf_pos; i++) {
+                if (buffer[i] == '(') open_parens++;
+                else if (buffer[i] == ')') open_parens--;
             }
             
-            // If there are more quotes on this line, this one is definitely part of the content.
-            if (has_more_quotes) {
-                // Restore position and continue reading
-                tokenizer->pos = saved_pos;
-                tokenizer->line = saved_line;
-                tokenizer->column = saved_col;
-            } else {
-                // No more quotes on this line. This is likely the closing quote.
-                // We can break now.
-                char next = peek(tokenizer, 0);
-                if (next == '\r' && peek(tokenizer, 1) == '\n') {
-                    advance(tokenizer);
-                }
+            char next_char = peek(tokenizer, 0);
+            
+            // 2. Find the next non-space character
+            int space_offset = 0;
+            while (peek(tokenizer, space_offset) == ' ' || peek(tokenizer, space_offset) == '\t') {
+                space_offset++;
+            }
+            char next_non_space = peek(tokenizer, space_offset);
+            
+            bool is_inner = false;
+            
+            // Rule 1: If we have an unmatched '(' and the next char is ')' or ',', 
+            // it's meant to close the '(' or separate arguments inside the string.
+            if (open_parens > 0 && (next_char == ')' || next_char == ',')) {
+                is_inner = true;
+            }
+            // Rule 2: If we have an unmatched '(' and the next non-space char is 
+            // a number starter (-, +, digit), it's a value inside the parentheses.
+            else if (open_parens > 0 && (next_non_space == '-' || next_non_space == '+' || isdigit(next_non_space))) {
+                is_inner = true;
+            }
+            
+            // If it's not an inner quote, check the standard boundary rules
+            if (!is_inner && closes_single_line_string(tokenizer)) {
                 break;
             }
+            
+            // If it doesn't close the string, the quote is part of the content.
+            if (buf_pos + 1 >= buf_size) {
+                buf_size *= 2;
+                char* new_buf = (char*)realloc(buffer, buf_size);
+                if (!new_buf) {
+                    free(buffer);
+                    return NULL;
+                }
+                buffer = new_buf;
+            }
+            buffer[buf_pos++] = '"';
+            continue;
         }
         
         if (buf_pos + 1 >= buf_size) {
@@ -399,35 +410,33 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
             }
         }
         
-        // Calculate current line indentation
-        int current_indent = 0;
-        if (tokenizer->pos < (int)strlen(tokenizer->source)) {
-            // column already points to the first character after \n
-            current_indent = tokenizer->column - 1;
-        }
-        
-        // Compare with top of indent stack
-        int prev_indent = tokenizer->indent_stack[tokenizer->indent_depth - 1];
-        
-        if (current_indent > prev_indent) {
-            int expected_indent = prev_indent + 4;
-            if (current_indent != expected_indent) {
-                char msg[128];
-                snprintf(msg, sizeof(msg),
-                         "Expected indentation of %d spaces, got %d",
-                         expected_indent, current_indent);
-                tokenizer_error(tokenizer, msg);
+        // ONLY apply indentation rules at top level (not inside parentheses)
+        if (tokenizer->paren_depth == 0) {
+            int current_indent = 0;
+            if (tokenizer->pos < (int)strlen(tokenizer->source)) {
+                current_indent = tokenizer->column - 1;
             }
-            add_token(tokenizer, TOKEN_INDENT, "", tokenizer->line, tokenizer->column);
-            tokenizer->indent_stack[tokenizer->indent_depth++] = current_indent;
-        } else if (current_indent < prev_indent) {
-            while (tokenizer->indent_depth > 1 && 
-                current_indent < tokenizer->indent_stack[tokenizer->indent_depth - 1]) {
-                add_token(tokenizer, TOKEN_DEDENT, "", tokenizer->line, tokenizer->column);
-                tokenizer->indent_depth--;
+            int prev_indent = tokenizer->indent_stack[tokenizer->indent_depth - 1];
+            
+            if (current_indent > prev_indent) {
+                int expected_indent = prev_indent + 4;
+                if (current_indent != expected_indent) {
+                    char msg[128];
+                    snprintf(msg, sizeof(msg),
+                        "Expected indentation of %d spaces, got %d",
+                        expected_indent, current_indent);
+                    tokenizer_error(tokenizer, msg);
+                }
+                add_token(tokenizer, TOKEN_INDENT, " ", tokenizer->line, tokenizer->column);
+                tokenizer->indent_stack[tokenizer->indent_depth++] = current_indent;
+            } else if (current_indent < prev_indent) {
+                while (tokenizer->indent_depth > 1 &&
+                    current_indent < tokenizer->indent_stack[tokenizer->indent_depth - 1]) {
+                    add_token(tokenizer, TOKEN_DEDENT, " ", tokenizer->line, tokenizer->column);
+                    tokenizer->indent_depth--;
+                }
             }
         }
-        
         continue;
     }
         
@@ -501,8 +510,16 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
             case '=': advance(tokenizer); add_token(tokenizer, TOKEN_EQUAL, "=", line, col); continue;
             case '<': advance(tokenizer); add_token(tokenizer, TOKEN_LESS, "<", line, col); continue;
             case '>': advance(tokenizer); add_token(tokenizer, TOKEN_GREATER, ">", line, col); continue;
-            case '(': advance(tokenizer); add_token(tokenizer, TOKEN_LPAREN, "(", line, col); continue;
-            case ')': advance(tokenizer); add_token(tokenizer, TOKEN_RPAREN, ")", line, col); continue;
+            case '(':
+                advance(tokenizer);
+                tokenizer->paren_depth++;
+                add_token(tokenizer, TOKEN_LPAREN, "(", line, col);
+                continue;
+            case ')':
+                advance(tokenizer);
+                if (tokenizer->paren_depth > 0) tokenizer->paren_depth--;
+                add_token(tokenizer, TOKEN_RPAREN, ")", line, col);
+                continue;
             case ',': advance(tokenizer); add_token(tokenizer, TOKEN_COMMA, ",", line, col); continue;
             case '.': advance(tokenizer); add_token(tokenizer, TOKEN_DOT, ".", line, col); continue;
         }
