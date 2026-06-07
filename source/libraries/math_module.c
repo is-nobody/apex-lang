@@ -2,28 +2,32 @@
 #include <math.h>
 #include <string.h>
 
+static bool is_valid_number(double val) {
+    return !isnan(val) && !isinf(val);
+}
+
 bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     if (strcmp(name, "math.abs") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
             *result = vm_make_number(fabs(args[0].number));
+            return true;
         }
-        return true;
+        return false;
     }
-    
     if (strcmp(name, "math.floor") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
             *result = vm_make_number(floor(args[0].number));
+            return true;
         }
-        return true;
+        return false;
     }
-    
     if (strcmp(name, "math.ceil") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
             *result = vm_make_number(ceil(args[0].number));
+            return true;
         }
-        return true;
+        return false;
     }
-    
     if (strcmp(name, "math.round") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
             double num = args[0].number;
@@ -31,84 +35,99 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             if (arg_count >= 2 && args[1].type == VAL_NUMBER) {
                 decimals = (int)args[1].number;
             }
-            // Round to specified number of decimal places
             double factor = pow(10.0, decimals);
-            *result = vm_make_number(round(num * factor) / factor);
+            double res = round(num * factor) / factor;
+            if (!is_valid_number(res)) return false;
+            *result = vm_make_number(res);
+            return true;
         }
-        return true;
+        return false;
     }
-    
     if (strcmp(name, "math.sqrt") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            *result = vm_make_number(sqrt(args[0].number));
+            double x = args[0].number;
+            if (x < 0) return false;
+            double res = sqrt(x);
+            if (!is_valid_number(res)) return false;
+            *result = vm_make_number(res);
+            return true;
         }
-        return true;
+        return false;
     }
-    
     if (strcmp(name, "math.exp") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            *result = vm_make_number(exp(args[0].number));
+            double res = exp(args[0].number);
+            if (!is_valid_number(res)) return false;
+            *result = vm_make_number(res);
+            return true;
         }
-        return true;
+        return false;
     }
-    
     if (strcmp(name, "math.log") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
             double x = args[0].number;
+            if (x <= 0) return false;
+            double res;
             if (arg_count >= 2 && args[1].type == VAL_NUMBER) {
-                // log with custom base: log_b(x) = ln(x) / ln(b)
                 double base = args[1].number;
-                *result = vm_make_number(log(x) / log(base));
+                if (base <= 0 || base == 1.0) return false;
+                res = log(x) / log(base);
             } else {
-                // Natural logarithm
-                *result = vm_make_number(log(x));
+                res = log(x);
             }
+            if (!is_valid_number(res)) return false;
+            *result = vm_make_number(res);
+            return true;
         }
-        return true;
+        return false;
     }
-    
     if (strcmp(name, "math.sin") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
             *result = vm_make_number(sin(args[0].number));
+            return true;
         }
-        return true;
+        return false;
     }
-    
     if (strcmp(name, "math.cos") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
             *result = vm_make_number(cos(args[0].number));
+            return true;
         }
-        return true;
+        return false;
     }
-    
     if (strcmp(name, "math.tan") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            *result = vm_make_number(tan(args[0].number));
+            double res = tan(args[0].number);
+            if (!is_valid_number(res)) return false;
+            *result = vm_make_number(res);
+            return true;
         }
-        return true;
+        return false;
     }
-    
     if (strcmp(name, "math.asin") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            *result = vm_make_number(asin(args[0].number));
+            double x = args[0].number;
+            if (x < -1.0 || x > 1.0) return false;
+            *result = vm_make_number(asin(x));
+            return true;
         }
-        return true;
+        return false;
     }
-    
     if (strcmp(name, "math.acos") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            *result = vm_make_number(acos(args[0].number));
+            double x = args[0].number;
+            if (x < -1.0 || x > 1.0) return false;
+            *result = vm_make_number(acos(x));
+            return true;
         }
-        return true;
+        return false;
     }
-    
     if (strcmp(name, "math.atan") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
             *result = vm_make_number(atan(args[0].number));
+            return true;
         }
-        return true;
+        return false;
     }
-    
-    // Unknown function name
     return false;
 }
