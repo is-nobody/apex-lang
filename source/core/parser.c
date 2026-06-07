@@ -146,22 +146,27 @@ static const char* binary_op_name(TokenType op) {
 static void parser_set_source_dir(Parser* parser, const char* filename) {
     parser->source_dir = (char*)malloc(PATH_MAX);
     if (!parser->source_dir) return;
-
+    
     if (!filename || filename[0] == '\0' ||
-        strcmp(filename, "stdin") == 0 ||
-        strcmp(filename, "<interpolation>") == 0) {
-        strncpy(parser->source_dir, ".", PATH_MAX - 1);
-        parser->source_dir[PATH_MAX - 1] = '\0';
+        strcmp(filename, "stdin") == 0 || strcmp(filename, "<interpolation>") == 0) {
+        strcpy(parser->source_dir, ".");
         return;
     }
-
+    
     strncpy(parser->source_dir, filename, PATH_MAX - 1);
     parser->source_dir[PATH_MAX - 1] = '\0';
-    char* slash = strrchr(parser->source_dir, '/');
-    if (slash) {
-        *slash = '\0';
+    
+    char* last_sep = strrchr(parser->source_dir, '/');
+    char* last_sep_win = strrchr(parser->source_dir, '\\');
+    
+    if (last_sep_win && (!last_sep || last_sep_win > last_sep)) {
+        last_sep = last_sep_win;
+    }
+    
+    if (last_sep) {
+        *last_sep = '\0';
     } else {
-        strncpy(parser->source_dir, ".", PATH_MAX - 1);
+        strcpy(parser->source_dir, ".");
     }
 }
 
@@ -290,13 +295,21 @@ static bool build_module_path(Parser* parser, const char* module_path, char* out
     char relative[1024];
     size_t len = 0;
     relative[0] = '\0';
+    
     char path_copy[1024];
     strncpy(path_copy, module_path, sizeof(path_copy) - 1);
     path_copy[sizeof(path_copy) - 1] = '\0';
+    
     char* segment = strtok(path_copy, ".");
     while (segment) {
         if (len > 0) {
-            if (len + 1 < sizeof(relative)) relative[len++] = '/';
+            if (len + 1 < sizeof(relative)) {
+#ifdef _WIN32
+                relative[len++] = '\\';
+#else
+                relative[len++] = '/';
+#endif
+            }
         }
         size_t seg_len = strlen(segment);
         if (len + seg_len >= sizeof(relative)) return false;
@@ -305,12 +318,15 @@ static bool build_module_path(Parser* parser, const char* module_path, char* out
         relative[len] = '\0';
         segment = strtok(NULL, ".");
     }
-    if (len + 5 >= sizeof(relative)) return false;
+    
+    if (len + 6 >= sizeof(relative)) return false;
     strcat(relative, ".apex");
     
-    if (snprintf(out_path, out_size, "%s/%s", parser->source_dir, relative) >= out_size) {
-        return false;
-    }
+#ifdef _WIN32
+    if (snprintf(out_path, out_size, "%s\\%s", parser->source_dir, relative) >= out_size) return false;
+#else
+    if (snprintf(out_path, out_size, "%s/%s", parser->source_dir, relative) >= out_size) return false;
+#endif
     return true;
 }
 
