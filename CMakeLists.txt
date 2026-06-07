@@ -15,6 +15,7 @@ set(SOURCES
     source/utils/platform.c
     source/utils/repl.c
     source/utils/commands.c
+    source/utils/build.c
     source/core/tokenizer.c 
     source/core/parser.c 
     source/core/ast.c 
