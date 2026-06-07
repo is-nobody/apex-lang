@@ -399,19 +399,34 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
     if (strcmp(name, "number") == 0) {
         if (arg_count >= 1) {
             switch (args[0].type) {
-                case VAL_STRING:
-                    *result = vm_make_number(atof(args[0].string->chars));
+                case VAL_STRING: {
+                    // Check if string is a valid number
+                    char* endptr;
+                    double val = strtod(args[0].string->chars, &endptr);
+                    
+                    // If endptr points to the start, no conversion happened (e.g. "hello")
+                    // If *endptr is not '\0', there were trailing characters (e.g. "123abc")
+                    if (endptr == args[0].string->chars || *endptr != '\0') {
+                        *result = vm_make_bool(false);
+                    } else {
+                        *result = vm_make_number(val);
+                    }
                     break;
+                }
                 case VAL_NUMBER:
                     *result = vm_copy_value(args[0]);
                     break;
                 case VAL_BOOL:
-                    *result = vm_make_number(args[0].boolean ? 1.0 : 0.0);
+                    // Explicitly return false for booleans as requested
+                    *result = vm_make_bool(false);
                     break;
                 default:
-                    *result = vm_make_number(0.0);
+                    *result = vm_make_bool(false);
                     break;
             }
+        } else {
+            // No arguments provided
+            *result = vm_make_bool(false);
         }
         return true;
     }

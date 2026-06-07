@@ -10,11 +10,11 @@ function number_from_decimal_string()
 
 function number_from_true()
     result = number(true)
-    os.output("number(true) = {result}, expected 1")
+    os.output("number(true) = {result}, expected false")
 
 function number_from_false()
     result = number(false)
-    os.output("number(false) = {result}, expected 0")
+    os.output("number(false) = {result}, expected false")
 
 function number_from_invalid_string()
     result = number("hello")

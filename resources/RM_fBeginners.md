@@ -334,17 +334,15 @@ Apex provides two conversion functions:
 | `string(x)` | Converts to string | `string(42)` → `"42"` |
 
 ### number()
-Converts a value to number. You will get an error if conversion fails.
+Converts a value to number. You will get an `false` value if conversion fails.
 
 ```apex
 number("42")       // 42
 number("3.14")     // 3.14
-number(true)       // error (conversion fails)
-number(false)      // error (conversion fails)
-number("hello")    // error (conversion fails)
+number(true)       // false (conversion fails)
+number(false)      // false (conversion fails)
+number("hello")    // false (conversion fails)
 ```
-
-*More details about Comparison operators & If Statements in section 2.2 & 3*
 
 ### string()
 Converts any value to its string representation.
@@ -359,6 +357,7 @@ Converts any value to its string representation.
 string(42)      // "42"
 string(3.14)    // "3.14"
 string(true)    // "true"
+string(false)   // "false"
 ```
 
 # 2. Operators
