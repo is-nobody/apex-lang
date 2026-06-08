@@ -175,7 +175,7 @@ static void skip_comment(Tokenizer* tokenizer) {
     advance(tokenizer); // skip second '/'
     
     char c = peek(tokenizer, 0);
-    while (c != '\0' && c != '\n') {
+    while (c != '\0' && c != '\n' && c != '\r') {
         advance(tokenizer);
         c = peek(tokenizer, 0);
     }
@@ -396,14 +396,14 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
         add_token(tokenizer, TOKEN_NEWLINE, "\n", line, col);
         
         // Skip blank lines
-        while (tokenizer->pos < (int)strlen(tokenizer->source)) {
+        while (tokenizer->pos  < (int)strlen(tokenizer->source)) {
             char nc = peek(tokenizer, 0);
-            if (nc == ' ' || nc == '\t') {
+            if (nc == ' ' || nc == '\t' || nc == '\r') {
                 advance(tokenizer);
             } else if (nc == '\n') {
                 advance(tokenizer);
-                add_token(tokenizer, TOKEN_NEWLINE, "\n", tokenizer->line, tokenizer->column);
-            } else if (nc == '/' && peek(tokenizer, 1) == '/') {
+                add_token(tokenizer, TOKEN_NEWLINE,  "\n", tokenizer->line, tokenizer->column);
+            } else if (nc == '/'  && peek(tokenizer, 1) == '/') {
                 skip_comment(tokenizer);
             } else {
                 break;
