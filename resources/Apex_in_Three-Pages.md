@@ -47,20 +47,26 @@ x = ()          // table (empty container)
 
 ### 3. Strings Deep Dive
 - **Interpolation:** Embed variables or expressions inside `"..."` using `{}`.
-  ```apex
-  name = "Alice"
-  os.output("Hello, {name}")          // "Hello, Alice"
-  os.output("Count: {5 * 2}")         // "Count: 10"
-  ```
-- **Double Quotes Inside:** No escaping. Write `"` directly inside `"..."`.
-  ```apex
-  quote = "He said: "I hate donuts!""
-  ```
+```apex
+name = "Alice"
+os.output("Hello, {name}")          // "Hello, Alice"
+os.output("Count: {5 * 2}")         // "Count: 10"
+```
+
+- **Escape Sequences:** Use `\` to include special characters inside strings.
+```apex
+quote = "He said: \"I hate donuts!\""  // escape double quote
+path = "C:\\Users\\Admin"              // escape backslash
+curly = "\{0\}"                        // escape curly braces
+newline = "Line 1\nLine 2"             // new line
+newline = "Name\tAge\tCity"            // tabulation
+```
+
 - **Multiline:** Press Enter inside the quotes.
-  ```apex
-  text = "Line one
-  Line two"
-  ```
+```apex
+text = "Line one
+Line two"
+```
 
 ### 4. Tables Deep Dive
 Tables are universal containers `()`. They are ordered lists **and** key-value maps. Ordered items use numbers, keys use names. You can mix them.

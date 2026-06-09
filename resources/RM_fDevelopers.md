@@ -155,15 +155,52 @@ If you need double quotes inside them, just do it, Apex will take them calmly, s
 inside = "He say: "I hate donuts!""
 ```
 
-### String Interpolation
-Apex have only one way for gluing a string with a variable — string interpolation.
+### Quotes inside Quotes
+If you need double quotes inside a string, you can't just drop them in raw — Apex will see that second quote and think "String's over!" Then everything after it becomes gibberish that breaks your code.
+
+Here's what **doesn't** work:
 
 ```apex
-score = 95
-price = 19.99
-is_active = true
+inside = "He say: "I hate donuts!"" // NOPE
+```
 
-result = "Score: {score}, Price: {price}, Active: {is_active}"
+Apex reads that as: string `"He say: "` ends, then random words `I hate donuts!` floating in space, then an empty string `""`. Total chaos.
+
+Slap a backslash `\` in front of every inner double quote. This thing is called an **escape character**. It tells Apex: "The next character is special — treat it as a regular symbol, not as code."
+
+Here's how it actually works:
+
+```apex
+inside = "He say: \"I hate donuts!\""
+```
+
+When Apex sees `\"`, it goes: "Oh, this is just a regular double quote that should appear in the text — not the end of my string." Without those `\` backslashes, Apex would get confused and think your string ended too early. With them, everything works perfectly and you get exactly this output:
+
+```bash
+He say: "I hate donuts!"
+```
+
+### Escaping the Backslash Itself
+Backslash itself is a special character, so if you actually want a backslash in your string — like in a file path — you have to escape it too. Double them up:
+
+```apex
+filePath = "C:\\Users\\John\\Documents\\resume.pdf"
+```
+
+Each `\\` is Apex reading: "Okay, the first `\` means something special is coming... oh, the next character is also `\`? Got it, you want an actual backslash printed." Without doubling them, Apex would try to interpret `\U`, `\J`, `\D` as some special characters and everything breaks. Output with double slashes in code:
+
+```bash
+C:\Users\John\Documents\resume.pdf
+```
+
+### String Interpolation
+The way you combine text with variables in Apex is string interpolation — you embed variables directly inside a string by putting the variable name inside curly braces `{}`.
+
+```apex
+name = "Alice"
+age = 30
+greeting = "Hello, {name}"                    // "Hello, Alice"
+message = "{name} is {age} years old"         // "Alice is 30 years old"
 ```
 
 Apex automatically converts numbers and other values to strings when you put them inside `{}`. 
@@ -171,9 +208,67 @@ Apex automatically converts numbers and other values to strings when you put the
 Inside the braces, you can also use numeric expressions — they are evaluated first, and then the result is converted to a string:
 
 ```apex
-import os
 count = 5
-os.output("Total: {count * 2}")
+total = "Total: {count * 2}"  // Total: 10
+```
+
+### Curly Braces in Strings
+Escape them the exact same way — `\{` and `\}`:
+
+```apex
+String template = "Hello {0}, your balance is {1}"
+// Apex tries to find variables named "0" and "1"
+
+String template = "Hello \{0\}, your balance is \{1\}"
+// Output: Hello {0}, your balance is {1}
+```
+
+### Line Breaks and Tabs
+Apex has **escape sequences**.
+
+#### Line break — `\n`
+The `n` stands for *newline*.
+
+```apex
+message = "First line\nSecond line"
+```
+
+Output:
+
+```bash
+First line
+Second line
+```
+
+#### Tab — `\t`
+The `t` stands for *tab*.
+
+```apex
+header = "Name\tAge\tCity"
+row = "Alice\t30\tLondon"
+```
+
+Output:
+
+```bash
+Name    Age    City
+Alice   30     London
+```
+
+### Multiline Strings
+You just hit Enter and keep typing in a regular string wrapped in double quotes `"`.
+
+```apex
+emailBody = "
+    Hello Alice,
+
+    Thank you for your purchase.
+
+    Your order #12345 has been shipped.
+
+    Best regards,
+    The Store Team
+"
 ```
 
 ## 1.4 Tables

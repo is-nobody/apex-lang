@@ -198,10 +198,42 @@ message = "Hello, Friend"
 empty = ""
 ```
 
-If you need double quotes inside them, just do it, Apex will take them calmly, since they are already inside the main double quotes:
+### Quotes inside Quotes
+If you need double quotes inside a string, you can't just drop them in raw — Apex will see that second quote and think "String's over!" Then everything after it becomes gibberish that breaks your code.
+
+Here's what **doesn't** work:
 
 ```apex
-inside = "He say: "I hate donuts!""
+inside = "He say: "I hate donuts!"" // NOPE
+```
+
+Apex reads that as: string `"He say: "` ends, then random words `I hate donuts!` floating in space, then an empty string `""`. Total chaos.
+
+Slap a backslash `\` in front of every inner double quote. This thing is called an **escape character**. It tells Apex: "The next character is special — treat it as a regular symbol, not as code."
+
+Here's how it actually works:
+
+```apex
+inside = "He say: \"I hate donuts!\""
+```
+
+When Apex sees `\"`, it goes: "Oh, this is just a regular double quote that should appear in the text — not the end of my string." Without those `\` backslashes, Apex would get confused and think your string ended too early. With them, everything works perfectly and you get exactly this output:
+
+```bash
+He say: "I hate donuts!"
+```
+
+### Escaping the Backslash Itself
+Backslash itself is a special character, so if you actually want a backslash in your string — like in a file path — you have to escape it too. Double them up:
+
+```apex
+filePath = "C:\\Users\\John\\Documents\\resume.pdf"
+```
+
+Each `\\` is Apex reading: "Okay, the first `\` means something special is coming... oh, the next character is also `\`? Got it, you want an actual backslash printed." Without doubling them, Apex would try to interpret `\U`, `\J`, `\D` as some special characters and everything breaks. Output with double slashes in code:
+
+```bash
+C:\Users\John\Documents\resume.pdf
 ```
 
 ### String Interpolation
@@ -219,12 +251,74 @@ Apex automatically converts numbers and other values to strings when you put the
 Inside the braces, you can also use numeric expressions — they are evaluated first, and then the result is converted to a string:
 
 ```apex
-import os
 count = 5
-os.output("Total: {count * 2}")
+total = "Total: {count * 2}"  // Total: 10
 ```
 
-More advanced operations — like finding words, changing case, or splitting text — are available through [9.3 String Library](#93-string-library-string). You'll learn it later.
+### Curly Braces in Strings
+Curly braces `{}` have special meaning — string interpolation. When Apex sees `{someVariable}` inside a string, it tries to swap that placeholder with an actual value. Super useful, but if you literally want to print `{curly braces}` as text, Apex will freak out thinking it's a variable that doesn't exist.
+
+Escape them the exact same way — `\{` and `\}`:
+
+```apex
+String template = "Hello {0}, your balance is {1}"
+// Apex tries to find variables named "0" and "1"
+
+String template = "Hello \{0\}, your balance is \{1\}"
+// Output: Hello {0}, your balance is {1}
+```
+
+### Line Breaks and Tabs
+Sometimes you don't just need to piece a string together — you need to format it nicely: break it into lines or add indentation. Smashing Enter right into your code won't work; Apex will think the statement ended and start reading a new line of code. Instead, you use special combos called **escape sequences**.
+
+#### Line break — `\n`
+The `n` stands for *newline*. When Apex hits `\n` inside a string, it doesn't print those two characters — it inserts an actual line break:
+
+```apex
+message = "First line\nSecond line"
+```
+
+Output:
+
+```bash
+First line
+Second line
+```
+
+#### Tab — `\t`
+The `t` stands for *tab*. Works just like the Tab key in a text editor — inserts a nice fixed-width indent. Perfect when you want to align data into a pseudo-table or just add some structure:
+
+```apex
+header = "Name\tAge\tCity"
+row = "Alice\t30\tLondon"
+```
+
+Output:
+
+```bash
+Name    Age    City
+Alice   30     London
+```
+
+### Multiline Strings
+Alright, `\n` is great, but if you're writing a big chunk of text — an email body, a template — sprinkling `\n` everywhere gets ugly fast. The string becomes a messy pile of backslashes and n's that's hard to read and even harder to edit.
+
+Apex has a cleaner way: **multiline strings**. You just hit Enter and keep typing in a regular string wrapped in double quotes `"`. Line breaks right there in the code become actual line breaks in the output. No `\n` needed.
+
+```apex
+emailBody = "
+    Hello Alice,
+
+    Thank you for your purchase.
+
+    Your order #12345 has been shipped.
+
+    Best regards,
+    The Store Team
+"
+```
+
+Apex captures the text exactly as you typed it — line breaks, indentation, everything. The output looks exactly like what's between the quotes. Clean, readable, and no `\n` soup in sight. Just hit Enter where you want a new line.
 
 ## 1.4 Tables
 A table is Apex's universal container. Think of it as a box that can hold multiple values. Need a list of names? Use a table. Need to store information about a user? Use a table. Need both in one place? Table. Tables are flexible — they work as ordered lists and key-value pairs. You can even mix both styles in the same table.

@@ -181,147 +181,67 @@ static void skip_comment(Tokenizer* tokenizer) {
     }
 }
 
-static bool is_expression_boundary_char(char c) {
-    return c == '\0' || c == '\n' || c == '\r' || c == ',' || c == ')' ||
-           c == ']' || c == ';' || c == '+' || c == '-' || c == '*' ||
-           c == '/' || c == '%' || c == '=' || c == '<' || c == '>' ||
-           c == '!' || c == '(';
-}
-
-static bool closes_single_line_string(Tokenizer* tokenizer) {
-    char next = peek(tokenizer, 0);
-    char nextnext = peek(tokenizer, 1);
-
-    if (next == '\0' || next == '\n' || next == ',' || next == ')' || next == ']') {
-        return true;
-    }
-    if (next == '\r' && nextnext == '\n') {
-        return true;
-    }
-    if (is_expression_boundary_char(next)) {
-        return true;
-    }
-    if (next == ' ' || next == '\t') {
-        int i = 0;
-        while (peek(tokenizer, i) == ' ' || peek(tokenizer, i) == '\t') {
-            i++;
-        }
-        return is_expression_boundary_char(peek(tokenizer, i));
-    }
-    return false;
-}
-
 static char* read_string(Tokenizer* tokenizer) {
     advance(tokenizer); // skip opening quote
-    
     char* buffer = (char*)malloc(256);
     if (!buffer) return NULL;
     int buf_size = 256;
     int buf_pos = 0;
     
-    // Track if this is a multi-line string (opening quote followed by newline)
-    bool is_multiline = false;
-    
-    // Check if the string starts with a newline (multi-line string)
-    if (peek(tokenizer, 0) == '\n') {
-        is_multiline = true;
-        // Don't add the leading newline to the content
-        advance(tokenizer);
-    }
-    
     while (1) {
         char c = peek(tokenizer, 0);
         
         if (c == '\0') {
+            tokenizer_error(tokenizer, "Unterminated string");
             break;
         }
         
-        if (c == '\n') {
-            // Handle newline in multi-line strings
+        if (c == '\\') {
+            advance(tokenizer); // skip backslash
+            char next_c = peek(tokenizer, 0);
+            char char_to_add = next_c;
+            
+            switch (next_c) {
+                case 'n': char_to_add = '\n'; break;
+                case 't': char_to_add = '\t'; break;
+                case 'r': char_to_add = '\r'; break;
+                case '"': char_to_add = '"'; break;
+                case '\\': char_to_add = '\\'; break;
+                default: 
+                    if (next_c == '{' || next_c == '}') {
+                         if (buf_pos + 2 >= buf_size) {
+                            buf_size *= 2;
+                            buffer = (char*)realloc(buffer, buf_size);
+                        }
+                        buffer[buf_pos++] = '\\';
+                        buffer[buf_pos++] = next_c;
+                        advance(tokenizer);
+                        continue;
+                    }
+                    break;
+            }
+            
             if (buf_pos + 1 >= buf_size) {
                 buf_size *= 2;
-                char* new_buf = (char*)realloc(buffer, buf_size);
-                if (!new_buf) {
-                    free(buffer);
-                    return NULL;
-                }
-                buffer = new_buf;
+                buffer = (char*)realloc(buffer, buf_size);
             }
-            buffer[buf_pos++] = advance(tokenizer);
-            
-            // For multi-line strings, skip indentation after newline
-            if (is_multiline) {
-                while (peek(tokenizer, 0) == ' ' || peek(tokenizer, 0) == '\t') {
-                    advance(tokenizer);
-                }
-            }
+            buffer[buf_pos++] = char_to_add;
+            advance(tokenizer); // skip the escaped character
             continue;
         }
         
         if (c == '"') {
-            advance(tokenizer); // consume the quote
-            
-            // 1. Count unmatched parentheses in the current string buffer
-            int open_parens = 0;
-            for (int i = 0; i < buf_pos; i++) {
-                if (buffer[i] == '(') open_parens++;
-                else if (buffer[i] == ')') open_parens--;
-            }
-            
-            char next_char = peek(tokenizer, 0);
-            
-            // 2. Find the next non-space character
-            int space_offset = 0;
-            while (peek(tokenizer, space_offset) == ' ' || peek(tokenizer, space_offset) == '\t') {
-                space_offset++;
-            }
-            char next_non_space = peek(tokenizer, space_offset);
-            
-            bool is_inner = false;
-            
-            // Rule 1: If we have an unmatched '(' and the next char is ')' or ',', 
-            // it's meant to close the '(' or separate arguments inside the string.
-            if (open_parens > 0 && (next_char == ')' || next_char == ',')) {
-                is_inner = true;
-            }
-            // Rule 2: If we have an unmatched '(' and the next non-space char is 
-            // a number starter (-, +, digit), it's a value inside the parentheses.
-            else if (open_parens > 0 && (next_non_space == '-' || next_non_space == '+' || isdigit(next_non_space))) {
-                is_inner = true;
-            }
-            
-            // If it's not an inner quote, check the standard boundary rules
-            if (!is_inner && closes_single_line_string(tokenizer)) {
-                break;
-            }
-            
-            // If it doesn't close the string, the quote is part of the content.
-            if (buf_pos + 1 >= buf_size) {
-                buf_size *= 2;
-                char* new_buf = (char*)realloc(buffer, buf_size);
-                if (!new_buf) {
-                    free(buffer);
-                    return NULL;
-                }
-                buffer = new_buf;
-            }
-            buffer[buf_pos++] = '"';
-            continue;
+            advance(tokenizer); 
+            break;
         }
         
         if (buf_pos + 1 >= buf_size) {
             buf_size *= 2;
-            char* new_buf = (char*)realloc(buffer, buf_size);
-            if (!new_buf) {
-                free(buffer);
-                return NULL;
-            }
-            buffer = new_buf;
+            buffer = (char*)realloc(buffer, buf_size);
         }
-        
         buffer[buf_pos++] = advance(tokenizer);
     }
-    
+
     buffer[buf_pos] = '\0';
     return buffer;
 }

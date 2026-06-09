@@ -641,13 +641,6 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
             return TYPE_BOOLEAN;
         case TOKEN_AND:
         case TOKEN_OR:
-            if (left_type != TYPE_BOOLEAN || right_type != TYPE_BOOLEAN) {
-                parser_error_at(parser, node->line, node->column, 0,
-                    "Logical operator '%s' requires boolean operands, got %s and %s",
-                    binary_op_name(node->binary.op),
-                    type_name(left_type), type_name(right_type));
-                return TYPE_ERROR;
-            }
             return TYPE_BOOLEAN;
         default:
             parser_error_at(parser, node->line, node->column, 0,
@@ -974,25 +967,64 @@ static ASTNode* parse_string(Parser* parser) {
     Token* token = advance(parser);
     const char* value = token->value;
     
-    // Check for interpolation
-    if (!strchr(value, '{')) {
+    // Check for interpolation or escape sequences
+    // We look for '{' for interpolation AND '\' for escapes
+    if (!strchr(value, '{') && !strchr(value, '\\')) {
         return ast_create_literal_string(value, token->line, token->column);
     }
-    
-    // String interpolation
+
     ASTNodeList* parts = ast_list_create();
     const char* p = value;
     const char* start = value;
     
     while (*p) {
-        if (*p == '{') {
-            // Add preceding text
+        if (*p == '\\' && *(p + 1) != '\0') {
+            char next_char = *(p + 1);
+            
+            // Handle \{ and \} explicitly here
+            if (next_char == '{' || next_char == '}') {
+                // Add preceding text
+                if (p > start) {
+                    int len = p - start;
+                    char* lit = (char*)malloc(len + 1);
+                    strncpy(lit, start, len);
+                    lit[len] = '\0';
+                    if (len > 0) {
+                        ASTNode* str_node = ast_create_literal_string(lit, token->line, token->column);
+                        ast_list_add(parts, str_node);
+                    }
+                    free(lit);
+                }
+                
+                // Add the escaped character as a literal string part
+                char escaped_char[2] = { next_char, '\0' };
+                ASTNode* char_node = ast_create_literal_string(escaped_char, token->line, token->column + (p - value));
+                ast_list_add(parts, char_node);
+                
+                p += 2; // Skip both '\' and the character
+                start = p;
+                continue;
+            }
+            
+            // If it's a standard escape like \n that wasn't handled by tokenizer?
+            // The tokenizer ALREADY handles \n, \t etc. So if we see \n here, 
+            // it means the source had \\n (literal backslash + n).
+            // So we just treat it as a literal backslash followed by n.
+            // But wait, if tokenizer converted \n to 0x0A, we won't see '\' here.
+            // So any '\' we see here is a LITERAL backslash from the source code.
+            
+            // Just move past the backslash and let the next char be processed normally
+            // OR handle it as a literal backslash if you want to preserve it.
+            // For now, let's just skip the backslash if it's not \{ or \}
+            // Actually, better to keep it as is if it's not a special interpolation escape.
+             p++; 
+        } else if (*p == '{') {
+            // Real interpolation start
             if (p > start) {
                 int len = p - start;
                 char* lit = (char*)malloc(len + 1);
                 strncpy(lit, start, len);
                 lit[len] = '\0';
-                
                 if (len > 0) {
                     ASTNode* str_node = ast_create_literal_string(lit, token->line, token->column);
                     ast_list_add(parts, str_node);
@@ -1000,7 +1032,6 @@ static ASTNode* parse_string(Parser* parser) {
                 free(lit);
             }
             
-            // Find closing brace
             const char* expr_start = p + 1;
             const char* expr_end = strchr(expr_start, '}');
             
@@ -1010,15 +1041,13 @@ static ASTNode* parse_string(Parser* parser) {
                 strncpy(expr_str, expr_start, expr_len);
                 expr_str[expr_len] = '\0';
                 
-                // Parse the expression inside {}
-                ASTNode* expr_node = parse_string_expression(parser, expr_str, 
-                                                              token->line, 
+                ASTNode* expr_node = parse_string_expression(parser, expr_str,
+                                                              token->line,
                                                               token->column + (expr_start - value));
                 if (expr_node) {
                     ast_list_add(parts, expr_node);
                 }
                 free(expr_str);
-                
                 p = expr_end + 1;
                 start = p;
             } else {
@@ -1029,8 +1058,7 @@ static ASTNode* parse_string(Parser* parser) {
         }
     }
     
-    // Add remaining text
-    if (*start) {
+    if (p > start) {
         ASTNode* str_node = ast_create_literal_string(start, token->line, token->column);
         ast_list_add(parts, str_node);
     }
