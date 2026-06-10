@@ -149,6 +149,7 @@ typedef struct {
     int address;        // bytecode address
     int arity;          // number of parameters
     int local_count;    // number of local variables
+    char** local_names; // stores names of local variables for debugging
 } FunctionInfo;
 
 typedef struct {

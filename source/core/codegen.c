@@ -921,26 +921,43 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     const char* func_name = node->function_decl.name;
     char global_name[512];
     
+    // 1. Handle module prefix
     if (cg->current_module) {
         snprintf(global_name, sizeof(global_name), "%s.%s", cg->current_module, func_name);
         func_name = global_name;
         add_module_global(cg, global_name);
     }
-    
+
     int func_idx = bytecode_add_function(cg->chunk, func_name, node->function_decl.params->count);
+
+    // ==========================================================
+    // CRITICAL FIX: Register the function in globals HERE, 
+    // BEFORE the JUMP, so this code is actually reachable!
+    // ==========================================================
+    int global_idx = bytecode_add_global(cg->chunk, func_name);
+    int func_const_idx = bytecode_add_constant(cg->chunk,
+        (Constant){.type = CONST_FUNCTION, .function_index = func_idx});
+    
+    int temp_reg = alloc_register(cg);
+    emit(cg, INST(OP_LOAD_CONST, temp_reg, func_const_idx, 0), node->line);
+    emit(cg, INST(OP_STORE_GLOBAL, temp_reg, global_idx, 0), node->line);
+    free_register(cg, temp_reg);
+
+    // 2. NOW emit the JUMP to skip over the function body
     int jump_over = bytecode_current_offset(cg->chunk);
     emit(cg, INST(OP_JUMP, 0, 0, 0), node->line);
     
     int func_addr = bytecode_current_offset(cg->chunk);
     cg->chunk->functions[func_idx].address = func_addr;
-    
-    // ... [Save/Restore locals logic remains the same] ...
+
+    // 3. Save current state (locals, registers)
     int prev_function = cg->current_function;
     int prev_next_register = cg->next_register;
     int prev_max_registers = cg->max_registers;
     int saved_count = cg->locals.count;
     char** saved_names = NULL;
     int* saved_regs = NULL;
+
     if (saved_count > 0) {
         saved_names = (char**)malloc(sizeof(char*) * saved_count);
         saved_regs = (int*)malloc(sizeof(int) * saved_count);
@@ -949,9 +966,9 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
             saved_regs[i] = cg->locals.registers[i];
         }
     }
-    for (int i = 0; i < cg->locals.count; i++) {
-        free(cg->locals.names[i]);
-    }
+
+    // 4. Reset for function body
+    for (int i = 0; i < cg->locals.count; i++) free(cg->locals.names[i]);
     free(cg->locals.names);
     free(cg->locals.registers);
     cg->locals.names = NULL;
@@ -962,25 +979,48 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     cg->max_registers = 0;
     cg->current_function = func_idx;
 
+    // 5. Register parameters as locals
     for (int i = 0; i < node->function_decl.params->count; i++) {
         ASTNode* param = node->function_decl.params->nodes[i];
         add_local(cg, param->param.name);
     }
-    
+
+    // 6. Generate function body
     codegen_block(cg, node->function_decl.body);
-    
-    int false_idx = bytecode_add_bool_constant(cg->chunk, false);
-    int false_reg = alloc_register(cg);
-    emit(cg, INST(OP_LOAD_CONST, false_reg, false_idx, 0), node->line);
-    emit(cg, INST(OP_RETURN, false_reg, 0, 0), node->line);
-    free_register(cg, false_reg);
-    
-    cg->chunk->functions[func_idx].local_count = cg->locals.count;
-    for (int i = 0; i < cg->locals.count; i++) {
-        free(cg->locals.names[i]);
+
+    // 7. FIX: Only emit default return if the function doesn't already end with one
+    bool ends_with_return = false;
+    if (cg->chunk->code_count > 0) {
+        Opcode last_op = cg->chunk->code[cg->chunk->code_count - 1].opcode;
+        if (last_op == OP_RETURN || last_op == OP_RETURN_VOID) {
+            ends_with_return = true;
+        }
     }
+
+    if (!ends_with_return) {
+        int false_idx = bytecode_add_bool_constant(cg->chunk, false);
+        int false_reg = alloc_register(cg);
+        emit(cg, INST(OP_LOAD_CONST, false_reg, false_idx, 0), node->line);
+        emit(cg, INST(OP_RETURN, false_reg, 0, 0), node->line);
+        free_register(cg, false_reg);
+    }
+
+    // 8. Save local variable names for IR debugging
+    cg->chunk->functions[func_idx].local_count = cg->locals.count;
+    if (cg->locals.count > 0) {
+        cg->chunk->functions[func_idx].local_names = (char**)malloc(sizeof(char*) * cg->locals.count);
+        for (int i = 0; i < cg->locals.count; i++) {
+            cg->chunk->functions[func_idx].local_names[i] = strdup(cg->locals.names[i]);
+        }
+    } else {
+        cg->chunk->functions[func_idx].local_names = NULL;
+    }
+
+    // 9. Restore previous state
+    for (int i = 0; i < cg->locals.count; i++) free(cg->locals.names[i]);
     free(cg->locals.names);
     free(cg->locals.registers);
+    
     cg->locals.names = saved_names;
     cg->locals.registers = saved_regs;
     cg->locals.count = saved_count;
@@ -988,17 +1028,9 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     cg->next_register = prev_next_register;
     cg->max_registers = prev_max_registers;
     cg->current_function = prev_function;
-    
+
+    // 10. Patch the JUMP to point here (after the function body)
     bytecode_patch_jump(cg->chunk, jump_over, bytecode_current_offset(cg->chunk));
-    
-    // Use 'func_name' which already includes the module prefix if applicable
-    int global_idx = bytecode_add_global(cg->chunk, func_name);
-    int func_const_idx = bytecode_add_constant(cg->chunk,
-                                               (Constant){.type = CONST_FUNCTION, .function_index = func_idx});
-    int temp_reg = alloc_register(cg);
-    emit(cg, INST(OP_LOAD_CONST, temp_reg, func_const_idx, 0), node->line);
-    emit(cg, INST(OP_STORE_GLOBAL, temp_reg, global_idx, 0), node->line);
-    free_register(cg, temp_reg);
 }
 
 static void codegen_return(CodeGenerator* cg, ASTNode* node) {

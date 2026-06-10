@@ -22,6 +22,7 @@ set(SOURCES
     source/core/bytecode.c 
     source/core/codegen.c 
     source/core/vm.c
+    source/compiler/generate_ir.c
     source/libraries/os_module.c 
     source/libraries/math_module.c 
     source/libraries/string_module.c 
@@ -32,10 +33,11 @@ add_executable(apex ${SOURCES})
 
 # Header search paths (#include "vm.h" will work from any directory)
 target_include_directories(apex PRIVATE 
-    ${CMAKE_CURRENT_SOURCE_DIR}                # Root (for main.h, etc.)
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/core    # For vm.h, parser.h, etc.
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/utils   # For execute.h, add_to_path.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries # For os_module.h, etc.
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/core
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/utils
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/compiler
 )
 
 # ==========================================================

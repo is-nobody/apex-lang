@@ -37,7 +37,9 @@ static const char* opcode_names[] = {
     [OP_STORE_GLOBAL]     = "STORE_GLOBAL",
     [OP_NEW_TABLE]        = "NEW_TABLE",
     [OP_TABLE_SET]        = "TABLE_SET",
+    [OP_TABLE_SET_CONST]  = "TABLE_SET_CONST",
     [OP_TABLE_GET]        = "TABLE_GET",
+    [OP_TABLE_GET_CONST]  = "TABLE_GET_CONST",
     [OP_TABLE_APPEND]     = "TABLE_APPEND",
     [OP_CONCAT]           = "CONCAT",
     [OP_STRING_APPEND]    = "STRING_APPEND",
@@ -138,6 +140,12 @@ void bytecode_destroy(BytecodeChunk* chunk) {
     // Free functions
     for (int i = 0; i < chunk->func_count; i++) {
         free(chunk->functions[i].name);
+        if (chunk->functions[i].local_names) {
+            for (int j = 0; j < chunk->functions[i].local_count; j++) {
+                free(chunk->functions[i].local_names[j]);
+            }
+            free(chunk->functions[i].local_names);
+        }
     }
     free(chunk->functions);
     
@@ -283,6 +291,7 @@ int bytecode_add_function(BytecodeChunk* chunk, const char* name, int arity) {
     chunk->functions[chunk->func_count].address = chunk->code_count;
     chunk->functions[chunk->func_count].arity = arity;
     chunk->functions[chunk->func_count].local_count = 0;
+    chunk->functions[chunk->func_count].local_names = NULL;
     chunk->func_count++;
     
     return index;
