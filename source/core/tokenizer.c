@@ -120,9 +120,9 @@ void tokenizer_destroy(Tokenizer* tokenizer) {
     }
 }
 
-static void tokenizer_error(Tokenizer* tokenizer, const char* message) {
+static void tokenizer_error(Tokenizer* tokenizer, int len, const char* message) {
     print_error_with_context(tokenizer->filename, tokenizer->source,
-                             tokenizer->line, tokenizer->column, 1,
+                             tokenizer->line, tokenizer->column, len,
                              "Tokenizer Error", message);
     throw_repl_error();
 }
@@ -192,7 +192,7 @@ static char* read_string(Tokenizer* tokenizer) {
         char c = peek(tokenizer, 0);
         
         if (c == '\0') {
-            tokenizer_error(tokenizer, "Unterminated string");
+            tokenizer_error(tokenizer, 1, "Unterminated string");
             break;
         }
         
@@ -342,10 +342,8 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
                 int expected_indent = prev_indent + 4;
                 if (current_indent != expected_indent) {
                     char msg[128];
-                    snprintf(msg, sizeof(msg),
-                        "Expected indentation of %d spaces, got %d",
-                        expected_indent, current_indent);
-                    tokenizer_error(tokenizer, msg);
+                    snprintf(msg, sizeof(msg), "Expected indentation of %d spaces, got %d", expected_indent, current_indent);
+                    tokenizer_error(tokenizer, current_indent > 0 ? current_indent : 1, msg);
                 }
                 add_token(tokenizer, TOKEN_INDENT, " ", tokenizer->line, tokenizer->column);
                 tokenizer->indent_stack[tokenizer->indent_depth++] = current_indent;
@@ -446,7 +444,7 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
         
         char error_msg[64];
         snprintf(error_msg, sizeof(error_msg), "Unexpected character: '%c'", c);
-        tokenizer_error(tokenizer, error_msg);
+        tokenizer_error(tokenizer, 1, error_msg);
     }
     
     // Generate DEDENT for all unclosed indents at the end of the file

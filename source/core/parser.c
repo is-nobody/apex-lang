@@ -26,6 +26,40 @@
 #define APEX_MAX_LOOP_DEPTH 512
 #define APEX_MAX_CALL_ARGS 64
 
+static int get_node_len(ASTNode* node) {
+    if (!node) return 1;
+    switch (node->type) {
+        case AST_LITERAL_STRING:
+            return (int)strlen(node->literal_string.string_value) + 2; // +2 for quotes
+        case AST_IDENTIFIER:
+            return (int)strlen(node->identifier.name);
+        case AST_LITERAL_BOOL:
+            return node->literal_bool.bool_value ? 4 : 5; // "true" or "false"
+        case AST_LITERAL_NUMBER: {
+            char buf[64];
+            snprintf(buf, sizeof(buf), "%g", node->literal_number.number_value);
+            return (int)strlen(buf);
+        }
+        case AST_BINARY:
+            return get_node_len(node->binary.left);
+        case AST_UNARY:
+            return get_node_len(node->unary.operand) + (node->unary.op == TOKEN_NOT ? 4 : 1);
+        case AST_CALL:
+            return get_node_len(node->call.callee);
+        case AST_MEMBER_ACCESS: {
+            int obj_len = get_node_len(node->access.object);
+            int mem_len = get_node_len(node->access.member);
+            return obj_len + 1 + mem_len;
+        }
+        case AST_INDEX_ACCESS:
+            return get_node_len(node->access.object) + 1; // rough estimate for '['
+        case AST_TABLE_LITERAL:
+            return 2; // "()"
+        default:
+            return 1;
+    }
+}
+
 // ========== Forward Declarations ==========
 static Token* current_token(Parser* parser);
 static ASTNode* parse_program(Parser* parser);
@@ -231,7 +265,7 @@ static bool parser_is_zero_constant(Parser* parser, ASTNode* node) {
 static void parser_check_divisor(Parser* parser, ASTNode* node, ASTNode* divisor) {
     if (!parser->semantic_checks || !divisor) return;
     if (parser_is_zero_constant(parser, divisor)) {
-        parser_error_at(parser, node->line, node->column, 0,
+        parser_error_at(parser, divisor->line, divisor->column, get_node_len(divisor),
                         "Division by zero");
     }
 }
@@ -281,7 +315,7 @@ static bool expr_has_side_effect(ASTNode* node) {
 static void parser_check_expr_statement(Parser* parser, ASTNode* expr) {
     if (!parser->semantic_checks || !expr) return;
     if (!expr_has_side_effect(expr)) {
-        parser_error_at(parser, expr->line, expr->column, 0,
+        parser_error_at(parser, expr->line, expr->column, get_node_len(expr),
                         "Expression statement has no effect");
     }
 }
@@ -596,83 +630,68 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
     if (left_type == TYPE_UNKNOWN || right_type == TYPE_UNKNOWN) return TYPE_UNKNOWN;
 
     switch (node->binary.op) {
-        case TOKEN_PLUS:
-        case TOKEN_MINUS:
-        case TOKEN_STAR:
-        case TOKEN_SLASH:
-        case TOKEN_PERCENT:
+        case TOKEN_PLUS: case TOKEN_MINUS: case TOKEN_STAR: case TOKEN_SLASH: case TOKEN_PERCENT:
             if (!is_numeric_type(left_type) || !is_numeric_type(right_type)) {
-                parser_error_at(parser, node->line, node->column, 0,
-                    "Arithmetic operator '%s' requires number operands, got %s and %s",
-                    binary_op_name(node->binary.op),
-                    type_name(left_type), type_name(right_type));
+                parser_error_at(parser, node->binary.left->line, node->binary.left->column, get_node_len(node->binary.left),
+                                "Arithmetic operator '%s' requires number operands, got %s and %s",
+                                binary_op_name(node->binary.op), type_name(left_type), type_name(right_type));
                 return TYPE_ERROR;
             }
             if (node->binary.op == TOKEN_SLASH || node->binary.op == TOKEN_PERCENT) {
                 parser_check_divisor(parser, node, node->binary.right);
             }
             return TYPE_NUMBER;
-        case TOKEN_EQUAL_EQUAL:
-        case TOKEN_NOT_EQUAL:
+
+        case TOKEN_EQUAL_EQUAL: case TOKEN_NOT_EQUAL:
             if (!is_comparable_type(left_type) || !is_comparable_type(right_type)) {
-                parser_error_at(parser, node->line, node->column, 0,
-                    "Cannot compare types %s and %s",
-                    type_name(left_type), type_name(right_type));
+                parser_error_at(parser, node->binary.left->line, node->binary.left->column, get_node_len(node->binary.left),
+                                "Cannot compare types %s and %s", type_name(left_type), type_name(right_type));
                 return TYPE_ERROR;
             }
             if (left_type != right_type) {
-                parser_error_at(parser, node->line, node->column, 0,
-                    "Cannot compare %s with %s",
-                    type_name(left_type), type_name(right_type));
+                parser_error_at(parser, node->binary.left->line, node->binary.left->column, get_node_len(node->binary.left),
+                                "Cannot compare %s with %s", type_name(left_type), type_name(right_type));
                 return TYPE_ERROR;
             }
             return TYPE_BOOLEAN;
-        case TOKEN_LESS:
-        case TOKEN_GREATER:
-        case TOKEN_LESS_EQUAL:
-        case TOKEN_GREATER_EQUAL:
+
+        case TOKEN_LESS: case TOKEN_GREATER: case TOKEN_LESS_EQUAL: case TOKEN_GREATER_EQUAL:
             if (!is_numeric_type(left_type) || !is_numeric_type(right_type)) {
-                parser_error_at(parser, node->line, node->column, 0,
-                    "Comparison operator '%s' requires number operands, got %s and %s",
-                    binary_op_name(node->binary.op),
-                    type_name(left_type), type_name(right_type));
+                parser_error_at(parser, node->binary.left->line, node->binary.left->column, get_node_len(node->binary.left),
+                                "Comparison operator '%s' requires number operands, got %s and %s",
+                                binary_op_name(node->binary.op), type_name(left_type), type_name(right_type));
                 return TYPE_ERROR;
             }
             return TYPE_BOOLEAN;
-        case TOKEN_AND:
-        case TOKEN_OR:
+            
+        case TOKEN_AND: case TOKEN_OR:
             return TYPE_BOOLEAN;
         default:
-            parser_error_at(parser, node->line, node->column, 0,
-                            "Unknown binary operator");
+            parser_error_at(parser, node->line, node->column, 0, "Unknown binary operator");
             return TYPE_ERROR;
     }
 }
 
 static ValueType infer_unary_type(Parser* parser, ASTNode* node) {
     ValueType operand_type = infer_expression_type(parser, node->unary.operand);
-    
     if (operand_type == TYPE_ANY) {
         if (node->unary.op == TOKEN_MINUS) return TYPE_NUMBER;
         if (node->unary.op == TOKEN_NOT) return TYPE_BOOLEAN;
     }
-
     if (operand_type == TYPE_UNKNOWN) return TYPE_UNKNOWN;
 
     switch (node->unary.op) {
         case TOKEN_MINUS:
             if (!is_numeric_type(operand_type)) {
-                parser_error_at(parser, node->line, node->column, 0,
-                    "Unary minus requires number operand, got %s",
-                    type_name(operand_type));
+                parser_error_at(parser, node->unary.operand->line, node->unary.operand->column, get_node_len(node->unary.operand),
+                                "Unary minus requires number operand, got %s", type_name(operand_type));
                 return TYPE_ERROR;
             }
             return TYPE_NUMBER;
         case TOKEN_NOT:
             if (operand_type != TYPE_BOOLEAN) {
-                parser_error_at(parser, node->line, node->column, 0,
-                    "Logical not requires boolean operand, got %s",
-                    type_name(operand_type));
+                parser_error_at(parser, node->unary.operand->line, node->unary.operand->column, get_node_len(node->unary.operand),
+                                "Logical not requires boolean operand, got %s", type_name(operand_type));
                 return TYPE_ERROR;
             }
             return TYPE_BOOLEAN;
@@ -680,6 +699,7 @@ static ValueType infer_unary_type(Parser* parser, ASTNode* node) {
             return TYPE_ERROR;
     }
 }
+
 
 static const char* resolve_call_name(ASTNode* callee, char* buffer, size_t buflen) {
     if (callee->type == AST_IDENTIFIER) {
@@ -723,55 +743,47 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
         if (builtin) {
             int actual = node->call.arguments->count;
             if (actual < builtin->min_args || actual > builtin->max_args) {
-                if (builtin->min_args == builtin->max_args) {
-                    parser_error_at(parser, node->line, node->column, 1,
-                        "Function '%s' expects exactly %d argument(s), got %d",
-                        func_name, builtin->min_args, actual);
-                } else {
-                    parser_error_at(parser, node->line, node->column, 1,
-                        "Function '%s' expects %d to %d arguments, got %d",
-                        func_name, builtin->min_args, builtin->max_args, actual);
-                }
+                int err_len = get_node_len(node->call.callee);
+                parser_error_at(parser, node->call.callee->line, node->call.callee->column, err_len > 0 ? err_len : 1,
+                                "Function '%s' expects %d to %d arguments, got %d",
+                                func_name, builtin->min_args, builtin->max_args, actual);
             }
             if (actual > APEX_MAX_CALL_ARGS) {
-                parser_error_at(parser, node->line, node->column, 0,
-                    "Too many arguments (%d), maximum is %d",
-                    actual, APEX_MAX_CALL_ARGS);
+                parser_error_at(parser, node->line, node->column, 0, "Too many arguments (%d), maximum is %d", actual, APEX_MAX_CALL_ARGS);
             }
-            if (strcmp(func_name, "number") == 0 && actual >= 1) {
-                ValueType arg_t = infer_expression_type(parser, node->call.arguments->nodes[0]);
-                if (arg_t != TYPE_STRING && arg_t != TYPE_NUMBER && arg_t != TYPE_BOOLEAN &&
-                    arg_t != TYPE_ANY && arg_t != TYPE_UNKNOWN) {
-                    parser_error_at(parser, node->line, node->column, 0,
-                        "number() argument must be string, number, or boolean, got %s",
-                        type_name(arg_t));
-                }
-            } else if (strcmp(func_name, "string") == 0 && actual >= 1) {
-                ValueType arg_t = infer_expression_type(parser, node->call.arguments->nodes[0]);
-                if (arg_t != TYPE_STRING && arg_t != TYPE_NUMBER && arg_t != TYPE_BOOLEAN &&
-                    arg_t != TYPE_ANY && arg_t != TYPE_UNKNOWN) {
-                    parser_error_at(parser, node->line, node->column, 0,
-                        "string() argument must be string, number, or boolean, got %s",
-                        type_name(arg_t));
-                }
-            } else if (builtin->arg_type != TYPE_ANY && actual >= 1) {
-                ValueType arg_t = infer_expression_type(parser, node->call.arguments->nodes[0]);
-                if (arg_t != builtin->arg_type && arg_t != TYPE_ANY && arg_t != TYPE_UNKNOWN) {
-                    parser_error_at(parser, node->line, node->column, 0,
-                        "%s argument must be %s, got %s",
-                        func_name, type_name(builtin->arg_type), type_name(arg_t));
+            
+            if (actual >= 1) {
+                ASTNode* arg = node->call.arguments->nodes[0];
+                ValueType arg_t = infer_expression_type(parser, arg);
+                
+                if (strcmp(func_name, "number") == 0) {
+                    if (arg_t != TYPE_STRING && arg_t != TYPE_NUMBER && arg_t != TYPE_BOOLEAN && arg_t != TYPE_ANY && arg_t != TYPE_UNKNOWN) {
+                        parser_error_at(parser, arg->line, arg->column, get_node_len(arg),
+                                        "number() argument must be string, number, or boolean, got %s", type_name(arg_t));
+                    }
+                } else if (strcmp(func_name, "string") == 0) {
+                    if (arg_t != TYPE_STRING && arg_t != TYPE_NUMBER && arg_t != TYPE_BOOLEAN && arg_t != TYPE_ANY && arg_t != TYPE_UNKNOWN) {
+                        parser_error_at(parser, arg->line, arg->column, get_node_len(arg),
+                                        "string() argument must be string, number, or boolean, got %s", type_name(arg_t));
+                    }
+                } else if (builtin->arg_type != TYPE_ANY) {
+                    if (arg_t != builtin->arg_type && arg_t != TYPE_ANY && arg_t != TYPE_UNKNOWN) {
+                        parser_error_at(parser, arg->line, arg->column, get_node_len(arg),
+                                        "%s argument must be %s, got %s", func_name, type_name(builtin->arg_type), type_name(arg_t));
+                    }
                 }
             }
             return TYPE_ANY;
         }
+
         int sym_idx = symbol_index_recursive(parser, func_name);
         if (sym_idx >= 0 && parser->symbols.kinds[sym_idx] == PARSER_SYM_FUNCTION) {
             int expected = parser->symbols.param_counts[sym_idx];
             int actual = node->call.arguments->count;
             if (expected != actual) {
-                parser_error_at(parser, node->line, node->column, 0,
-                    "Function '%s' expects %d arguments, got %d",
-                    func_name, expected, actual);
+                int err_len = get_node_len(node->call.callee);
+                parser_error_at(parser, node->call.callee->line, node->call.callee->column, err_len > 0 ? err_len : 1,
+                                "Function '%s' expects %d arguments, got %d", func_name, expected, actual);
             }
             return TYPE_ANY;
         }
@@ -862,8 +874,8 @@ static void parser_check_condition(Parser* parser, ASTNode* condition, const cha
     if (!parser->semantic_checks) return;
     ValueType cond_type = infer_expression_type(parser, condition);
     if (cond_type != TYPE_BOOLEAN && cond_type != TYPE_ANY && cond_type != TYPE_UNKNOWN) {
-        parser_error_at(parser, condition->line, condition->column, 0,
-            "%s condition must be boolean, got %s", context, type_name(cond_type));
+        parser_error_at(parser, condition->line, condition->column, get_node_len(condition),
+                        "%s condition must be boolean, got %s", context, type_name(cond_type));
     }
 }
 
@@ -871,8 +883,8 @@ static void parser_check_number_expr(Parser* parser, ASTNode* expr, const char* 
     if (!parser->semantic_checks) return;
     ValueType t = infer_expression_type(parser, expr);
     if (t != TYPE_NUMBER && t != TYPE_ANY && t != TYPE_UNKNOWN) {
-        parser_error_at(parser, expr->line, expr->column, 0,
-            "%s must be a number, got %s", context, type_name(t));
+        parser_error_at(parser, expr->line, expr->column, get_node_len(expr),
+                        "%s must be a number, got %s", context, type_name(t));
     }
 }
 
@@ -1403,9 +1415,9 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
             ValueType old_type = parser->symbols.types[idx];
             if (old_type != TYPE_UNKNOWN && new_type != TYPE_UNKNOWN &&
                 new_type != TYPE_ERROR && old_type != new_type) {
-                parser_error_at(parser, name->line, name->column, 0,
-                    "Cannot change type of variable '%s' from %s to %s",
-                    name->value, type_name(old_type), type_name(new_type));
+                parser_error_at(parser, name->line, name->column, (int)strlen(name->value),
+                                "Cannot change type of variable '%s' from %s to %s",
+                                name->value, type_name(old_type), type_name(new_type));
             } else if (old_type == TYPE_UNKNOWN && new_type != TYPE_ERROR) {
                 parser->symbols.types[idx] = new_type;
             }
@@ -1525,8 +1537,8 @@ static ASTNode* parse_while_statement(Parser* parser) {
 
     parser->loop_depth++;
     if (parser->loop_depth > APEX_MAX_LOOP_DEPTH) {
-        parser_error_at(parser, condition->line, condition->column, 5,
-            "Loop nesting exceeds maximum depth of %d", APEX_MAX_LOOP_DEPTH);
+        parser_error_at(parser, condition->line, condition->column, get_node_len(condition),
+                        "Loop nesting exceeds maximum depth of %d", APEX_MAX_LOOP_DEPTH);
     }
     parser_enter_scope(parser);
     ASTNode* body = parse_block(parser, true, "while");
@@ -1557,8 +1569,8 @@ static ASTNode* parse_for_statement(Parser* parser) {
     }
     parser->loop_depth++;
     if (parser->loop_depth > APEX_MAX_LOOP_DEPTH) {
-        parser_error_at(parser, for_kw->line, for_kw->column, 3,
-        "Loop nesting exceeds maximum depth of %d", APEX_MAX_LOOP_DEPTH);
+        parser_error_at(parser, var_name->line, var_name->column, (int)strlen(var_name->value),
+                        "Loop nesting exceeds maximum depth of %d", APEX_MAX_LOOP_DEPTH);
     }
     parser_enter_scope(parser);
     parser_declare_symbol(parser, var_name->value, PARSER_SYM_VARIABLE,
@@ -1613,7 +1625,7 @@ static ASTNode* parse_import_statement(Parser* parser) {
     }
 
     ASTNode* import_node = ast_create_import(module_path, import_kw->line, import_kw->column);
-    parser_validate_import_file(parser, module_path, import_kw->line, import_kw->column);
+    parser_validate_import_file(parser, module_path, first->line, first->column);
     parser_register_import(parser, module_path, import_kw->line, import_kw->column);
 
     char first_segment[256];
