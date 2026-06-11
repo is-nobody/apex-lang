@@ -23,6 +23,8 @@ set(SOURCES
     source/core/codegen.c 
     source/core/vm.c
     source/compiler/generate_ir.c
+    source/package_manager/install.c
+    source/package_manager/publish.c
     source/libraries/os_module.c 
     source/libraries/math_module.c 
     source/libraries/string_module.c 
@@ -38,6 +40,7 @@ target_include_directories(apex PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/source/utils
     ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries
     ${CMAKE_CURRENT_SOURCE_DIR}/source/compiler
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/package_manager
 )
 
 # ==========================================================
@@ -93,28 +96,29 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # OS-specific library linking
 if(MINGW)
-    # MinGW cross-compilation: link Windows libraries
+    # MinGW cross-compilation
     target_link_libraries(apex PRIVATE
         shlwapi
+        ws2_32      # Winsock
+        wsock32     # Winsock legacy
         -static-libgcc
         -static
     )
-    # Force console subsystem for Windows
     set_target_properties(apex PROPERTIES
         LINK_FLAGS "-Wl,--subsystem,console"
     )
 elseif(MSVC)
     # Native MSVC build
-    target_link_libraries(apex PRIVATE shlwapi)
+    target_link_libraries(apex PRIVATE shlwapi zlibstatic)
 elseif(WIN32)
     # Generic Windows (non-MinGW)
-    target_link_libraries(apex PRIVATE shlwapi)
+    target_link_libraries(apex PRIVATE shlwapi zlib)
 elseif(APPLE)
-    # macOS
-    target_link_libraries(apex PRIVATE m)
+    # macOS: link math and zlib
+    target_link_libraries(apex PRIVATE m z)
 else()
-    # Linux requires libm for math functions
-    target_link_libraries(apex PRIVATE m)
+    # Linux: link math and zlib
+    target_link_libraries(apex PRIVATE m z)
 endif()
 
 # Option: fully static build (zero system dependencies)
