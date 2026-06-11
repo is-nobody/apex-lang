@@ -24,6 +24,7 @@ apex source/tests/conditionals/logical/or.apex
 # LOOPS
 apex source/tests/loops/for.apex
 apex source/tests/loops/while.apex
+apex source/tests/loops/nested_loops.apex
 
 # TYPE CONVERSION
 apex source/tests/type_conversion/number.apex
