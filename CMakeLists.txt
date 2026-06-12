@@ -23,7 +23,6 @@ set(SOURCES
     source/core/bytecode.c 
     source/core/codegen.c 
     source/core/vm.c
-    source/compiler/generate_ir.c
     source/package_manager/install.c
     source/package_manager/publish.c
     source/libraries/os_module.c 

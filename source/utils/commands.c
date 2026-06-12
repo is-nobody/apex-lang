@@ -2,7 +2,6 @@
 #include "execute.h"
 #include "platform.h"
 #include "build.h"
-#include "generate_ir.h"
 #include "package_manager.h"
 #include "bridge.h"
 #include <stdio.h>
@@ -42,11 +41,6 @@ int handle_commands(int argc, char** argv) {
     // --- BUILD COMMAND ---
     if (strcmp(argv[1], "build") == 0) {
         return build_command(argc, argv);
-    }
-
-    // --- COMPILE COMMAND ---
-    if (strcmp(argv[1], "compile") == 0) {
-        return compile_command(argc, argv);
     }
 
     // --- SETTINGS COMMAND ---
