@@ -8,7 +8,6 @@ typedef enum {
     TOKEN_IF,
     TOKEN_ELIF,
     TOKEN_ELSE,
-    TOKEN_WHILE,
     TOKEN_FOR,
     TOKEN_BREAK,
     TOKEN_CONTINUE,

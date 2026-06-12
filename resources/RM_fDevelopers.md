@@ -23,27 +23,23 @@ This manual is minimalistic. Each section builds on the previous ones. For the b
 - [3.2 Elif Statement](#32-elif-statement)
 - [3.3 Else Statement](#33-else-statement)
 
-### 4. While Loops
-- [4.1 While Statement](#41-while-statement)
-- [4.2 Break](#42-break)
-- [4.3 Continue](#43-continue)
+### 4. For Loops
+- [4.1 For Counter](#41-for-counter)
+- [4.2 For Condition](#42-for-condition)
+- [4.3 Break](#43-break)
+- [4.4 For Infinity](#44-for-infinity)
+- [4.5 Continue](#45-continue)
 
-### 5. For Loops
-- [5.1 For Statement](#51-for-statement)
-- [5.2 Steps](#52-steps)
-- [5.3 Break](#53-break)
-- [5.4 Continue](#54-continue)
+### 5. Functions
+- [5.1 Function Statement](#51-function-statement)
+- [5.2 Parameters](#52-parameters)
+- [5.3 Return Value](#53-return-value)
+- [5.4 Call](#54-call)
 
-### 6. Functions
-- [6.1 Function Statement](#61-function-statement)
-- [6.2 Parameters](#62-parameters)
-- [6.3 Return Value](#63-return-value)
-- [6.4 Call](#64-call)
-
-### 7. Imports
-- [7.1 Importing an Entire File](#71-importing-an-entire-file)
-- [7.2 Importing from Sub-folders](#72-importing-from-sub-folders)
-- [7.3 Importing from One Sub-folder into Another](#73-importing-from-one-sub-folder-into-another)
+### 6. Imports
+- [6.1 Importing an Entire File](#61-importing-an-entire-file)
+- [6.2 Importing from Sub-folders](#62-importing-from-sub-folders)
+- [6.3 Importing from One Sub-folder into Another](#63-importing-from-one-sub-folder-into-another)
 
 ### Conclusion
 - [What's Next?](#whats-next)
@@ -499,68 +495,21 @@ else
     os.output("You failed.")
 ```
 
-# 4. While Loops
-## 4.1 While Statement
-As long as condition is `true`, Apex keeps running the code inside. When condition becomes `false`, Apex exits the loop and continues with the rest of the program. Simple Example:
-
-Count from 1 to 5:
-
-```apex
-import os
-counter = 1
-while counter <= 5
-    os.output(counter)
-    counter = counter + 1
-```
-
-## 4.2 Break
-`break` immediately exits the loop, no matter what the condition says. Use it when you need to stop early.
-
-```apex
-import os
-x = 1
-while x <= 10
-    if x == 5
-        break
-    os.output(x)
-    x = x + 1
-```
-
-Nothing after `break` runs for that iteration.
-
-## 4.3 Continue
-`continue` skips the rest of the current iteration and jumps to the next check of the condition.
-
-```apex
-import os
-x = 0
-while x < 10
-    x = x + 1
-    if x % 2 == 0
-        continue
-    os.output(x)
-```
-
-When `x` is even, `continue` skips `os.output(x)` and goes back to check the condition again.
-
 # 5. For Loops
 ## 5.1 For Statement
 A `for` loop repeats code once for each item in a collection. You give it a variable and a table. The loop runs once per item, and each time the variable holds the next value.
 
-# 5. For Loops
-## 5.1 For Statement
-A `for` loop repeats code a specific number of times. You give it a variable, a start value, and an end value. The loop runs once for each number in that range.
+# 4. For Loops
+## 4.1 For Counter
+The `for` statement creates a numeric loop. You specify a variable, a starting number, and an ending number. The loop runs once for each number in that range, including the end value.
 
-## 5.2 Step
-Add a third number to change the step size — how much to add or subtract each iteration.
+Syntax: `for variable = start, end [, step]`, where step is optional. By default step is 1.
 
 ```apex
 import os
-for i = 0, 10, 2
+for i = 1, 5
     os.output(i)
 ```
-
-This prints even numbers: 0, 2, 4, 6, 8, 10. If you omit the step, Apex assumes `1`.
 
 For counting down use a negative step to count backward:
 
@@ -570,9 +519,19 @@ for i = 5, 1, -1
     os.output(i)
 ```
 
-This prints 5, 4, 3, 2, 1.
+## 4.2 For Condition
+When you don't know how many times you need to repeat, use a condition loop. As long as the condition is `true`, the loop keeps running.
 
-## 5.3 Break
+```apex
+import os
+
+counter = 1
+for counter <= 5
+    os.output(counter)
+    counter = counter + 1
+```
+
+## 4.3 Break
 `break` exits the loop immediately — same as in `while`.
 
 ```apex
@@ -583,7 +542,20 @@ for i = 1, 10
     os.output(i)
 ```
 
-## 5.4 Continue
+## 4.4 For Infinity
+When you just write `for` with no condition, the loop runs forever until you explicitly stop it with `break`.
+
+```apex
+import os
+
+for
+    response = os.input("Type 'quit' to exit: ")
+    if response == "quit"
+        break
+    os.output("You typed: {response}")
+```
+
+## 4.5 Continue
 `continue` skips the rest of the current iteration and moves to the next number.
 
 ```apex
@@ -594,8 +566,8 @@ for i = 1, 5
     os.output(i)
 ```
 
-# 6. Functions
-## 6.1 Function Statement
+# 5. Functions
+## 5.1 Function Statement
 To create a function, use the `function` keyword, then the function name, then parentheses `( )`, then the code block.
 
 ```apex
@@ -605,7 +577,7 @@ function say_hello()
     os.output("Hello!")
 ```
 
-## 6.2 Parameters
+## 5.2 Parameters
 Sometimes a function needs information to do its job. You put them inside the parentheses.
 
 ```apex
@@ -619,7 +591,7 @@ greet("Friend")
 
 You can have multiple parameters, separated by commas. Order matters. The first value goes to the first parameter, the second value to the second parameter, and so on.
 
-## 6.3 Return Value
+## 5.3 Return Value
 Return value is what the function sends back after it finishes. You use the `return` keyword.
 
 ```apex
@@ -634,7 +606,7 @@ os.output(result)    // Prints: 8
 
 Functions without `return` return `false` automatically. Once `return` happens, the function exits. Nothing after it runs.
 
-### 6.4 Call
+### 5.4 Call
 Using a function is called calling it. You write the function name followed by parentheses.
 ```apex
 // Call a function with no parameters
@@ -685,10 +657,10 @@ function calculate_total(price, quantity)
 final_price = calculate_total(100, 3)   // 100 * 3 = 300, then 300 * 0.9 = 270
 ```
 
-# 7. Imports
+# 6. Imports
 Imports give you the ability to use code from other files. Every import path is relative to the main file — the file you run with `apex filename.apex`.
 
-## 7.1 Importing an Entire File
+## 6.1 Importing an Entire File
 To import everything from a file in the same folder:
 
 ```apex
@@ -702,7 +674,7 @@ os.output(database.APP_NAME)
 
 When you import a file, you must use the filename as a prefix to access its contents.
 
-## 7.2 Importing from Sub-folders
+## 6.2 Importing from Sub-folders
 Use dots (`.`) to navigate into folders:
 
 ```
@@ -719,7 +691,7 @@ import utils.math
 
 Each dot in imports means "go inside this folder." `utils.math` looks for `utils/math.apex`.
 
-## 7.3 Importing from One Sub-folder into Another
+## 6.3 Importing from One Sub-folder into Another
 You have this structure:
 
 ```

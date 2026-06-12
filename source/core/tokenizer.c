@@ -8,7 +8,7 @@
 #include <ctype.h>
 
 static const char* token_type_names[] = {
-    "FUNCTION", "IF", "ELIF", "ELSE", "WHILE", "FOR",
+    "FUNCTION", "IF", "ELIF", "ELSE", "FOR",
     "BREAK", "CONTINUE", "RETURN", "IMPORT",
     "AND", "OR", "NOT",
     "TRUE", "FALSE", "NUMBER", "STRING", "IDENTIFIER",
@@ -29,7 +29,6 @@ static KeywordEntry keywords[] = {
     {"if", TOKEN_IF},
     {"elif", TOKEN_ELIF},
     {"else", TOKEN_ELSE},
-    {"while", TOKEN_WHILE},
     {"for", TOKEN_FOR},
     {"break", TOKEN_BREAK},
     {"continue", TOKEN_CONTINUE},

@@ -14,7 +14,6 @@ typedef enum {
     AST_FUNCTION_DECL,     // function name(params) { body }
     AST_RETURN_STMT,       // return value
     AST_IF_STMT,           // if / elif / else chain
-    AST_WHILE_STMT,        // while (condition) { body }
     AST_FOR_STMT,          // for var in iterable { body }
     AST_BREAK_STMT,        // break
     AST_CONTINUE_STMT,     // continue
@@ -132,15 +131,10 @@ struct ASTNode {
             ASTNode* next_elif;
         } elif_branch;
         
-        // While loop
-        struct {
-            ASTNode* condition;
-            ASTNode* body;
-        } while_stmt;
-        
         // For-in loop
         struct {
-            char* var_name;
+            char* var_name;      // NULL if not range loop
+            ASTNode* condition;  // NULL if range or infinite loop
             ASTNode* start;
             ASTNode* end;
             ASTNode* step;
@@ -208,10 +202,8 @@ ASTNode* ast_create_function(const char* name, ASTNodeList* params, ASTNode* bod
                               int line, int column);
 ASTNode* ast_create_if(ASTNode* condition, ASTNode* then_branch, 
                        ASTNode* elif_chain, ASTNode* else_branch);
-ASTNode* ast_create_while(ASTNode* condition, ASTNode* body);
-ASTNode* ast_create_for(const char* var_name, ASTNode* start, ASTNode* end,
-                        ASTNode* step, ASTNode* body, int line, int column);
-ASTNode* ast_create_try(ASTNode* try_body, ASTNode* failure_body, ASTNode* always_body);
+ASTNode* ast_create_for(const char* var_name, ASTNode* condition, ASTNode* start, 
+                        ASTNode* end, ASTNode* step, ASTNode* body, int line, int column);
 ASTNode* ast_create_import(const char* module_path, int line, int column);
 ASTNode* ast_create_return(ASTNode* value, int line, int column);
 ASTNode* ast_create_string_interp(ASTNodeList* parts);

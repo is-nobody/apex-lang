@@ -105,23 +105,17 @@ ASTNode* ast_create_if(ASTNode* condition, ASTNode* then_branch,
     return node;
 }
 
-ASTNode* ast_create_while(ASTNode* condition, ASTNode* body) {
-    ASTNode* node = ast_create_node(AST_WHILE_STMT, condition->line, condition->column);
-    node->while_stmt.condition = condition;
-    node->while_stmt.body = body;
-    return node;
-}
-
-ASTNode* ast_create_for(const char* var_name, ASTNode* start, ASTNode* end,
-                        ASTNode* step, ASTNode* body, int line, int column) {
+ASTNode* ast_create_for(const char* var_name, ASTNode* condition, ASTNode* start, ASTNode* end, ASTNode* step, ASTNode* body, int line, int column) {
     ASTNode* node = ast_create_node(AST_FOR_STMT, line, column);
-    node->for_stmt.var_name = strdup(var_name);
+    node->for_stmt.var_name = var_name ? strdup(var_name) : NULL;
+    node->for_stmt.condition = condition;
     node->for_stmt.start = start;
     node->for_stmt.end = end;
     node->for_stmt.step = step;
     node->for_stmt.body = body;
     return node;
 }
+
 ASTNode* ast_create_import(const char* module_path, int line, int column) {
     ASTNode* node = ast_create_node(AST_IMPORT_STMT, line, column);
     node->import_stmt.module_path = strdup(module_path);
@@ -251,14 +245,11 @@ void ast_free_node(ASTNode* node) {
             ast_free_node(node->if_stmt.elif_chain);
             ast_free_node(node->if_stmt.else_branch);
             break;
-        case AST_WHILE_STMT:
-            ast_free_node(node->while_stmt.condition);
-            ast_free_node(node->while_stmt.body);
-            break;
         case AST_FOR_STMT:
             free(node->for_stmt.var_name);
-            ast_free_node(node->for_stmt.start);
-            ast_free_node(node->for_stmt.end);
+            if (node->for_stmt.condition) ast_free_node(node->for_stmt.condition);
+            if (node->for_stmt.start) ast_free_node(node->for_stmt.start);
+            if (node->for_stmt.end) ast_free_node(node->for_stmt.end);
             if (node->for_stmt.step) ast_free_node(node->for_stmt.step);
             ast_free_node(node->for_stmt.body);
             break;
@@ -356,19 +347,20 @@ static void ast_print_impl(ASTNode* node, int indent) {
                 ast_print_impl(node->if_stmt.else_branch, indent + 2);
             }
             break;
-        case AST_WHILE_STMT:
-            printf("While\n");
-            ast_print_impl(node->while_stmt.condition, indent + 1);
-            ast_print_impl(node->while_stmt.body, indent + 1);
-            break;
         case AST_FOR_STMT:
-            printf("For: %s = ", node->for_stmt.var_name);
-            ast_print_impl(node->for_stmt.start, indent);
-            print_indent(indent + 1); printf("to ");
-            ast_print_impl(node->for_stmt.end, indent + 1);
-            if (node->for_stmt.step) {
-                print_indent(indent + 1); printf("step ");
-                ast_print_impl(node->for_stmt.step, indent + 1);
+            printf("For");
+            if (node->for_stmt.var_name) {
+                printf(" %s = ", node->for_stmt.var_name);
+                ast_print_impl(node->for_stmt.start, indent);
+                print_indent(indent + 1); printf("to ");
+                ast_print_impl(node->for_stmt.end, indent + 1);
+                if (node->for_stmt.step) {
+                    print_indent(indent + 1); printf("step ");
+                    ast_print_impl(node->for_stmt.step, indent + 1);
+                }
+            } else if (node->for_stmt.condition) {
+                printf(" ");
+                ast_print_impl(node->for_stmt.condition, indent + 1);
             }
             ast_print_impl(node->for_stmt.body, indent + 1);
             break;

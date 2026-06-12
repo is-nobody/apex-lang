@@ -35,7 +35,6 @@ function activate(context) {
                 'function': 'Declares a function.\n\n```apex\nfunction name(params)\n    // code\n    return value\n```',
                 'if': 'Conditional statement.\n\n```apex\nif condition\n    // code\nelif other_condition\n    // code\nelse\n    // code\n```',
                 'for': 'For loop (inclusive end value).\n\n```apex\nfor i = 1, 10\n    // code\n\nfor i = 10, 1, -1\n    // code\n```',
-                'while': 'While loop.\n\n```apex\nwhile condition\n    // code\n```',
                 'return': 'Returns a value from a function.',
                 'break': 'Exits the current loop immediately.',
                 'continue': 'Skips the rest of the current loop iteration.',
@@ -64,8 +63,8 @@ function activate(context) {
     const completion = vscode.languages.registerCompletionItemProvider('apex', {
         provideCompletionItems() {
             const keywords = [
-                'function', 'if', 'elif', 'else', 'for', 'while',
-                'break', 'continue', 'return', 'import', 'and', 'or', 'not',
+                'function', 'if', 'elif', 'else', 'for', 'break',
+                'continue', 'return', 'import', 'and', 'or', 'not',
                 'true', 'false'
             ];
 

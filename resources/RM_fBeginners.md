@@ -24,27 +24,23 @@ This manual is written with step-by-step learning in mind and strives to be mini
 - [3.2 Elif Statement](#32-elif-statement)
 - [3.3 Else Statement](#33-else-statement)
 
-### 4. While Loops
-- [4.1 While Statement](#41-while-statement)
-- [4.2 Break](#42-break)
-- [4.3 Continue](#43-continue)
+### 4. For Loops
+- [4.1 For Counter](#41-for-counter)
+- [4.2 For Condition](#42-for-condition)
+- [4.3 Break](#43-break)
+- [4.4 For Infinity](#44-for-infinity)
+- [4.5 Continue](#45-continue)
 
-### 5. For Loops
-- [5.1 For Statement](#51-for-statement)
-- [5.2 Steps](#52-steps)
-- [5.3 Break](#53-break)
-- [5.4 Continue](#54-continue)
+### 5. Functions
+- [5.1 Function Statement](#51-function-statement)
+- [5.2 Parameters](#52-parameters)
+- [5.3 Return Value](#53-return-value)
+- [5.4 Call](#54-call)
 
-### 6. Functions
-- [6.1 Function Statement](#61-function-statement)
-- [6.2 Parameters](#62-parameters)
-- [6.3 Return Value](#63-return-value)
-- [6.4 Call](#64-call)
-
-### 7. Imports
-- [7.1 Importing an Entire File](#71-importing-an-entire-file)
-- [7.2 Importing from Sub-folders](#72-importing-from-sub-folders)
-- [7.3 Importing from One Sub-folder into Another](#73-importing-from-one-sub-folder-into-another)
+### 6. Imports
+- [6.1 Importing an Entire File](#61-importing-an-entire-file)
+- [6.2 Importing from Sub-folders](#62-importing-from-sub-folders)
+- [6.3 Importing from One Sub-folder into Another](#63-importing-from-one-sub-folder-into-another)
 
 ### Conclusion
 - [What's Next?](#whats-next)
@@ -686,98 +682,19 @@ else
 
 Since `score` is 55, the `if` condition is `false`, so the `else` block runs.
 
-# 4. While Loops
-Sometimes you need to do the same thing many times. Print "Hello" ten times. Keep asking for input until the user types something valid. Count down from 10 to 0. A while loop lets you repeat code while a condition is true. As soon as the condition becomes false, the loop stops. Imagine you're told: "While your plate is not empty, take another bite."
+# 4. For Loops
+Sometimes you need to do the same thing many times. Print "Hello" ten times. Keep asking for input until the user types something valid. Count down from 10 to 0. Apex gives you the `for` loop with three different syntaxes to handle all these situations.
 
-You check: is the plate empty?
+| Syntax | When to Use | Example |
+|--------|-------------|---------|
+| `for x = start, end` | You know the exact range | `for i = 1, 5` |
+| `for condition` | Repeat while condition is true | `for counter <= 10` |
+| `for` | Infinite loop (use `break` to exit) | `for` |
 
-- If false (it still has food) = take a bite = check again
-- If true (empty) = stop eating
+## 4.1 For Counter
+The `for` statement creates a numeric loop. You specify a variable, a starting number, and an ending number. The loop runs once for each number in that range, including the end value.
 
-That's exactly how a while loop works. You check a condition. If it's true, you do something. Then you check again. And again. Until the condition becomes false.
-
-## 4.1 While Statement
-
-As long as condition is `true`, Apex keeps running the code inside. When condition becomes `false`, Apex exits the loop and continues with the rest of the program. Simple Example:
-
-Count from 1 to 5:
-
-```apex
-import os
-counter = 1
-while counter <= 5
-    os.output(counter)
-    counter = counter + 1
-```
-
-### Common Mistake: The Infinite Loop
-If the condition never becomes `false`, the loop runs forever. This is called an infinite loop. Your program will never stop.
-
-```apex
-import os
-x = 1
-while x <= 10
-    os.output(x)
-    // Forgot to change x — it stays 1 forever!
-```
-
-This prints `1` again and again until you force the program to stop. Always make sure something inside the loop changes the condition:
-
-```apex
-import os
-x = 1
-while x <= 10
-    os.output(x)
-    x = x + 1   // Now x increases — loop will end
-```
-
-## 4.2 Break
-`break` immediately exits the loop, no matter what the condition says. Use it when you need to stop early.
-
-```apex
-import os
-x = 1
-while x <= 10
-    if x == 5
-        break           // Stop completely when x reaches 5
-    os.output(x)
-    x = x + 1
-```
-
-When `x` becomes 5, `break` fires and the loop ends immediately. Nothing after `break` runs for that iteration.
-
-## 4.3 Continue
-`continue` skips the rest of the current iteration and jumps to the next check of the condition.
-
-```apex
-import os
-x = 0
-while x < 10
-    x = x + 1
-    if x % 2 == 0
-        continue        // Skip output even numbers
-    os.output(x)
-```
-
-When `x` is even, `continue` skips `os.output(x)` and goes back to check the condition again.
-
-# 5. For Loops
-A `while` loop is great when you don't know how many times you need to repeat. But sometimes you know exactly how many times — "print 'Hello' 10 times" or "sum numbers from 1 to 1,000,000". For these situations, Apex gives you the `for` loop. It's fast, predictable, and follows the Lua-style numeric iteration.
-
-| Situation | Use | Why |
-|-----------|-----|-----|
-| Repeat N times | `for i = 1, 10` | You know the exact count |
-| Keep asking until valid input | `while` | Don't know when user will respond |
-| Wait for a condition | `while` | Condition is unpredictable |
-
-Think of it this way:
-- While: "Keep eating while the plate has food" — you don't know how many bites
-- For: "Eat exactly 10 bites" — you know exactly how many
-
-## 5.1 For Statement
-The `for` statement creates a numeric loop. You specify a variable, a starting number, and an ending number. The loop runs once for each number in that range, **including the end value**.
-
-Syntax: `for variable = start, end [, step]`
+Syntax: `for variable = start, end [, step]`, where step is optional. By default step is 1.
 
 ```apex
 import os
@@ -787,7 +704,7 @@ for i = 1, 5
 
 This prints numbers 1 through 5. The variable `i` automatically takes each value: `1`, `2`, `3`, `4`, `5`. The loop stops when `i` exceeds the `end` value.
 
-## 5.2 Steps
+### Steps
 You can control how much the loop variable increases or decreases by adding a third number — the `step`.
 
 ```apex
@@ -807,9 +724,23 @@ for i = 5, 1, -1
 
 This prints 5, 4, 3, 2, 1. The loop stops when the variable goes below the `end` value.
 
-If you omit the step, Apex assumes it is `1`.
+## 4.2 For Condition
+When you don't know how many times you need to repeat, use a condition loop. As long as the condition is `true`, the loop keeps running.
 
-## 5.3 Break
+```apex
+import os
+
+counter = 1
+for counter <= 5
+    os.output(counter)
+    counter = counter + 1
+```
+
+This prints 1, 2, 3, 4, 5. The loop checks the condition before each iteration. When `counter` becomes 6, the condition `counter <= 5` is `false`, so the loop stops.
+
+**Important:** You must manually update the variable in the condition, or you'll create an infinite loop!
+
+## 4.3 Break
 `break` exits the loop immediately — same as in `while`.
 
 ```apex
@@ -824,7 +755,27 @@ This prints 1, 2, 3, 4. When `i` becomes 5, `break` stops the loop entirely. Not
 
 Use `break` when you found what you were looking for and don't need to continue.
 
-## 5.4 Continue
+## 4.4 For Infinity
+When you just write `for` with no condition, the loop runs forever until you explicitly stop it with `break`.
+
+```apex
+import os
+
+for
+    response = os.input("Type 'quit' to exit: ")
+    if response == "quit"
+        break
+    os.output("You typed: {response}")
+```
+
+This keeps asking for input until the user types "quit". The `break` statement immediately exits the loop.
+
+Infinite loops are useful when:
+- You don't know when the loop should end
+- The exit condition is complex or checked in the middle of the loop
+- You're waiting for user input or an external event
+
+## 4.5 Continue
 `continue` skips the rest of the current iteration and moves to the next number.
 
 ```apex
@@ -838,10 +789,10 @@ This prints 1, 2, 4, 5. When `i` is 3, `continue` jumps to the next value (`4`) 
 
 Use `continue` when you want to skip certain values but keep looping through the rest.
 
-# 6. Functions
+# 5. Functions
 Imagine you have a recipe for making a sandwich. You follow the same steps every time: take two slices of bread, spread butter on one, spread jam on the other, put them together. Now imagine you had to write out those steps every single time you wanted a sandwich. That would be tedious. Instead, you give the recipe a name — `make_sandwich` — and whenever you want a sandwich, you just say that name. That's exactly what a function is: a named block of code that you can use whenever you need it.
 
-## 6.1 Function Statement
+## 5.1 Function Statement
 To create a function, use the `function` keyword, then the function name, then parentheses `( )`, then the code block.
 
 ```apex
@@ -856,7 +807,7 @@ This creates a function named `say_hello`. It does one thing: prints "Hello!".
 Function names should describe what they do. `say_hello` is good. `task_first` is bad.
 This will help someone who sees it for the first time, or even you yourself, after a long time, understand what a function means without looking at its contents.
 
-## 6.2 Parameters
+## 5.2 Parameters
 Sometimes a function needs information to do its job. A `greet` function needs to know who to greet. A `multiply` function needs to know which numbers to multiply. Parameters are placeholders for that information. You put them inside the parentheses.
 
 ```apex
@@ -892,7 +843,7 @@ introduce("Alice", "Smith", 30)
 
 Order matters. The first value goes to the first parameter, the second value to the second parameter, and so on.
 
-## 6.3 Return Value
+## 5.3 Return Value
 Some functions just do something — like `os.output()` prints text. Other functions calculate something and give it back to you.
 
 Return value is what the function sends back after it finishes. You use the `return` keyword.
@@ -930,7 +881,7 @@ total = add_and_return(5, 3)  // total becomes 8
 
 Functions without `return` return `false` automatically. Once `return` happens, the function exits. Nothing after it runs.
 
-### 6.4 Call
+### 5.4 Call
 Using a function is called calling it. You write the function name followed by parentheses.
 
 ```apex
@@ -982,7 +933,7 @@ function calculate_total(price, quantity)
 final_price = calculate_total(100, 3)   // 100 * 3 = 300, then 300 * 0.9 = 270
 ```
 
-# 7. Imports
+# 6. Imports
 When your project grows beyond a few dozen lines, keeping everything in one file becomes painful. You need a way to split your code into smaller, manageable pieces. That's what imports give you — the ability to use code from other files. The problems with one giant file:
 
 - Difficult navigation – scrolling through thousands of lines to find specific functions
@@ -995,7 +946,7 @@ Imports solve all of this by letting you organize your code across multiple file
 ### How Apex Finds Files
 Every import path is relative to the main file — the file you run with `apex filename.apex`. Think of your main file as the front door. All imports are paths from that front door, not from wherever you're standing.
 
-## 7.1 Importing an Entire File
+## 6.1 Importing an Entire File
 To import everything from a file in the same folder:
 
 ```apex
@@ -1009,7 +960,7 @@ os.output(database.APP_NAME)
 
 When you import a file, you must use the filename as a prefix to access its contents.
 
-## 7.2 Importing from Sub-folders
+## 6.2 Importing from Sub-folders
 Use dots (`.`) to navigate into folders:
 
 ```
@@ -1026,7 +977,7 @@ import utils.math
 
 Each dot in imports means "go inside this folder." `utils.math` looks for `utils/math.apex`.
 
-## 7.3 Importing from One Sub-folder into Another
+## 6.3 Importing from One Sub-folder into Another
 Here's where beginners often get confused. You have this structure:
 
 ```

@@ -1251,7 +1251,6 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
         token->type == TOKEN_IF ||
         token->type == TOKEN_ELIF ||
         token->type == TOKEN_ELSE ||
-        token->type == TOKEN_WHILE ||
         token->type == TOKEN_FOR ||
         token->type == TOKEN_BREAK ||
         token->type == TOKEN_CONTINUE ||
@@ -1530,55 +1529,65 @@ static ASTNode* parse_if_statement(Parser* parser) {
     return ast_create_if(condition, then_branch, elif_chain, elif_chain ? NULL : else_branch);
 }
 
-static ASTNode* parse_while_statement(Parser* parser) {
-    advance(parser);
-    ASTNode* condition = parse_expression(parser);
-    parser_check_condition(parser, condition, "While");
-
-    parser->loop_depth++;
-    if (parser->loop_depth > APEX_MAX_LOOP_DEPTH) {
-        parser_error_at(parser, condition->line, condition->column, get_node_len(condition),
-                        "Loop nesting exceeds maximum depth of %d", APEX_MAX_LOOP_DEPTH);
-    }
-    parser_enter_scope(parser);
-    ASTNode* body = parse_block(parser, true, "while");
-    parser_exit_scope(parser);
-    parser->loop_depth--;
-
-    return ast_create_while(condition, body);
-}
-
 static ASTNode* parse_for_statement(Parser* parser) {
     Token* for_kw = advance(parser);
-    Token* var_name = consume(parser, TOKEN_IDENTIFIER, "Expected variable name");
-    consume(parser, TOKEN_EQUAL, "Expected '=' after for variable");
-    ASTNode* start = parse_expression(parser);
-    parser_check_number_expr(parser, start, "For loop start");
-    consume(parser, TOKEN_COMMA, "Expected ',' after start value");
-    ASTNode* end = parse_expression(parser);
-    parser_check_number_expr(parser, end, "For loop end");
-    ASTNode* step = NULL;
-    if (match(parser, TOKEN_COMMA)) {
-        step = parse_expression(parser);
-        parser_check_number_expr(parser, step, "For loop step");
-        
-        double step_val;
-        if (step && evaluate_numeric_constant(parser, step, &step_val) && step_val == 0.0) {
-            parser_error_at(parser, step->line, step->column, 0, "For loop step cannot be zero");
+    skip_newlines(parser);
+
+    ASTNode* condition = NULL;
+    char* var_name = NULL;
+    ASTNode* start = NULL, *end = NULL, *step = NULL;
+    int var_line = for_kw->line;
+    int var_col = for_kw->column;
+
+    // Lookahead: check if it's a range loop (IDENT = ...)
+    if (check(parser, TOKEN_IDENTIFIER)) {
+        int saved_current = parser->current;
+        Token* id_tok = advance(parser);
+        var_line = id_tok->line;
+        var_col = id_tok->column;
+
+        if (match(parser, TOKEN_EQUAL)) {
+            // Range loop: for x = start, end, [step]
+            var_name = strdup(id_tok->value);
+            start = parse_expression(parser);
+            parser_check_number_expr(parser, start, "For loop start");
+            consume(parser, TOKEN_COMMA, "Expected ',' after start value");
+            end = parse_expression(parser);
+            parser_check_number_expr(parser, end, "For loop end");
+            if (match(parser, TOKEN_COMMA)) {
+                step = parse_expression(parser);
+                parser_check_number_expr(parser, step, "For loop step");
+                double step_val;
+                if (step && evaluate_numeric_constant(parser, step, &step_val) && step_val == 0.0) {
+                    parser_error_at(parser, step->line, step->column, 0, "For loop step cannot be zero");
+                }
+            }
+        } else {
+            // Condition loop: backtrack and parse expression
+            parser->current = saved_current;
+            condition = parse_expression(parser);
         }
     }
+    // Else: infinite loop (condition & var_name remain NULL)
+
     parser->loop_depth++;
     if (parser->loop_depth > APEX_MAX_LOOP_DEPTH) {
-        parser_error_at(parser, var_name->line, var_name->column, (int)strlen(var_name->value),
+        parser_error_at(parser, for_kw->line, for_kw->column, 3, 
                         "Loop nesting exceeds maximum depth of %d", APEX_MAX_LOOP_DEPTH);
     }
     parser_enter_scope(parser);
-    parser_declare_symbol(parser, var_name->value, PARSER_SYM_VARIABLE,
-    TYPE_NUMBER, 0, var_name->line, var_name->column);
+
+    // FIX: Declare the loop variable in the new scope so it's recognized in the body!
+    if (var_name) {
+        parser_declare_symbol(parser, var_name, PARSER_SYM_VARIABLE,
+                              TYPE_NUMBER, 0, var_line, var_col);
+    }
+
     ASTNode* body = parse_block(parser, true, "for");
     parser_exit_scope(parser);
     parser->loop_depth--;
-    return ast_create_for(var_name->value, start, end, step, body, for_kw->line, for_kw->column);
+
+    return ast_create_for(var_name, condition, start, end, step, body, for_kw->line, for_kw->column);
 }
 
 static bool is_valid_import_segment(TokenType type) {
@@ -1752,9 +1761,6 @@ static ASTNode* parse_statement(Parser* parser) {
             
         case TOKEN_IF:
             return parse_if_statement(parser);
-            
-        case TOKEN_WHILE:
-            return parse_while_statement(parser);
             
         case TOKEN_FOR:
             return parse_for_statement(parser);

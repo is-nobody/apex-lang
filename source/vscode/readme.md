@@ -13,7 +13,7 @@ This extension brings full IDE support to VS Code, making it easier to write, re
 
 ### 🎨 Syntax Highlighting
 Full syntax highlighting for:
-- Keywords (`function`, `if`, `elif`, `else`, `for`, `while`, `import`, etc.)
+- Keywords (`function`, `if`, `elif`, `else`, `for`, `import`, etc.)
 - Data types and literals (`true`, `false`, numbers, strings)
 - Comments (`//`)
 - Operators (Arithmetic, Comparison, Logical)
@@ -29,24 +29,6 @@ Smart suggestions for:
 ### ℹ️ Hover Documentation
 Hover over any keyword or library function to see instant documentation, syntax examples, and descriptions.
 *Example: Hover over `for` to see loop syntax, or `os` to see available system functions.*
-
-### 📝 Code Snippets
-Speed up your coding with predefined snippets. Type the prefix and press `Tab`:
-
-| Prefix | Description | Code Generated |
-| :--- | :--- | :--- |
-| `if` | If statement | `if condition ...` |
-| `ifel` | If-Elif statement | `if ... elif ...` |
-| `ife` | If-Else statement | `if ... else ...` |
-| `for` | For loop | `for i = 1, 10 ...` |
-| `while` | While loop | `while condition ...` |
-| `func` | Function declaration | `function name(params) ...` |
-| `ios` | Import OS library | `import os` |
-| `imath` | Import Math library | `import math` |
-| `istr` | Import String library | `import string` |
-| `itab` | Import Table library | `import table` |
-| `out` | OS Output | `os.output(value)` |
-| `inp` | OS Input | `os.input("prompt")` |
 
 ### ▶️ Run Code
 Execute your current Apex file directly from VS Code.

@@ -22,9 +22,10 @@ apex source/tests/conditionals/logical/not.apex
 apex source/tests/conditionals/logical/or.apex
 
 # LOOPS
-apex source/tests/loops/for.apex
-apex source/tests/loops/while.apex
-apex source/tests/loops/nested_loops.apex
+apex source/tests/loops/for_condition.apex
+apex source/tests/loops/for_counter.apex
+apex source/tests/loops/for_infinity.apex
+apex source/tests/loops/for_nested.apex
 
 # TYPE CONVERSION
 apex source/tests/type_conversion/number.apex
