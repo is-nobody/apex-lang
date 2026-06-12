@@ -244,8 +244,31 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
     }
     
     static const char* builtins[] = {
-        "os.output", "os.input", "number", "string",
-        "string.len", "math.abs", "math.sqrt", "table.size",
+        "os.output", "os.input", "os.read", "os.write",
+        "os.append", "os.exists", "os.isfile", "os.isdir",
+        "os.filesize", "os.dirsize",
+        "os.getcd", "os.setcd",
+        "os.mkdir", "os.rmdir", "os.rmfile", "os.mkfile",
+        "os.rnfile", "os.rndir", "os.mvfile", "os.mvdir",
+        "os.cpfile", "os.cpdir",
+        "os.filetype", "os.chmod",
+        "os.getenv", "os.setenv", "os.env",
+        "os.spawn", "os.waitpid", "os.kill", "os.pid",
+        "os.stat", "os.exit", "os.wait", "os.time",
+        "os.system", "os.platform", "os.listdir",
+        "os.hostname", "os.user", "os.homedir",
+        "number", "string",
+        "string.len", "string.lower", "string.upper",
+        "string.sub", "string.split", "string.join",
+        "string.trim", "string.find", "string.replace",
+        "math.abs", "math.floor", "math.ceil", "math.round",
+        "math.sqrt", "math.exp", "math.log",
+        "math.sin", "math.cos", "math.tan",
+        "math.asin", "math.acos", "math.atan",
+        "table.remove", "table.has", "table.size",
+        "table.keys", "table.values", "table.clear",
+        "table.copy", "table.merge",
+        "type",
         NULL
     };
     bool is_builtin = false;

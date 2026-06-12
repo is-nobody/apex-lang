@@ -80,23 +80,87 @@ typedef struct {
 } BuiltinSig;
 
 static const BuiltinSig BUILTINS[] = {
-    {"os.output", 0, 1, TYPE_ANY}, {"os.input", 0, 1, TYPE_ANY}, {"os.read", 1, 1, TYPE_STRING}, {"os.write", 2, 2, TYPE_ANY},
-    {"os.close", 1, 1, TYPE_NUMBER}, {"os.exists", 1, 1, TYPE_STRING}, {"os.isfile", 1, 1, TYPE_STRING}, {"os.isdir", 1, 1, TYPE_STRING},
-    {"os.rename", 2, 2, TYPE_STRING}, {"os.rmfile", 1, 1, TYPE_STRING}, {"os.mkfile", 1, 1, TYPE_STRING}, {"os.listdir", 1, 1, TYPE_STRING},
-    {"os.getcwd", 0, 0, TYPE_ANY}, {"os.chdir", 1, 1, TYPE_STRING}, {"os.mkdir", 1, 1, TYPE_STRING}, {"os.rmdir", 1, 1, TYPE_STRING},
-    {"os.stat", 1, 1, TYPE_STRING}, {"os.exit", 1, 1, TYPE_NUMBER}, {"os.wait", 1, 1, TYPE_NUMBER}, {"os.time", 0, 0, TYPE_ANY},
-    {"os.system", 1, 1, TYPE_STRING}, {"os.platform", 0, 0, TYPE_ANY},
-    {"math.abs", 1, 1, TYPE_NUMBER}, {"math.floor", 1, 1, TYPE_NUMBER}, {"math.ceil", 1, 1, TYPE_NUMBER}, {"math.round", 1, 2, TYPE_NUMBER},
-    {"math.sqrt", 1, 1, TYPE_NUMBER}, {"math.exp", 1, 1, TYPE_NUMBER}, {"math.log", 1, 2, TYPE_NUMBER}, {"math.sin", 1, 1, TYPE_NUMBER},
-    {"math.cos", 1, 1, TYPE_NUMBER}, {"math.tan", 1, 1, TYPE_NUMBER}, {"math.asin", 1, 1, TYPE_NUMBER}, {"math.acos", 1, 1, TYPE_NUMBER},
+    // os library
+    {"os.output", 0, 1, TYPE_ANY},
+    {"os.input", 0, 1, TYPE_ANY},
+    {"os.read", 1, 1, TYPE_STRING},
+    {"os.write", 2, 2, TYPE_ANY},
+    {"os.exists", 1, 1, TYPE_STRING},
+    {"os.isfile", 1, 1, TYPE_STRING},
+    {"os.isdir", 1, 1, TYPE_STRING},
+    {"os.rmfile", 1, 1, TYPE_STRING},
+    {"os.mkfile", 1, 1, TYPE_STRING},
+    {"os.listdir", 1, 1, TYPE_STRING},
+    {"os.getcd", 0, 0, TYPE_ANY},
+    {"os.setcd", 1, 1, TYPE_STRING},
+    {"os.mkdir", 1, 1, TYPE_STRING},
+    {"os.rmdir", 1, 1, TYPE_STRING},
+    {"os.stat", 1, 1, TYPE_STRING},
+    {"os.exit", 1, 1, TYPE_NUMBER},
+    {"os.wait", 1, 1, TYPE_NUMBER},
+    {"os.time", 0, 0, TYPE_ANY},
+    {"os.system", 1, 1, TYPE_STRING},
+    {"os.platform", 0, 0, TYPE_ANY}, 
+    {"os.rnfile", 2, 2, TYPE_STRING},
+    {"os.rndir", 2, 2, TYPE_STRING},
+    {"os.mvfile", 2, 2, TYPE_STRING},
+    {"os.mvdir", 2, 2, TYPE_STRING},
+    {"os.filetype", 1, 1, TYPE_STRING},
+    {"os.filesize", 1, 1, TYPE_STRING},
+    {"os.dirsize", 1, 1, TYPE_STRING},
+    {"os.cpfile", 2, 2, TYPE_STRING},
+    {"os.cpdir", 2, 2, TYPE_STRING},
+    {"os.dirsize", 1, 1, TYPE_STRING},
+    {"os.kill", 1, 1, TYPE_NUMBER},
+    {"os.spawn", 1, 1, TYPE_STRING},
+    {"os.pid", 0, 0, TYPE_ANY},
+    {"os.getenv", 1, 1, TYPE_STRING},
+    {"os.setenv", 2, 2, TYPE_STRING},
+    {"os.env", 0, 0, TYPE_ANY},
+    {"os.append", 2, 2, TYPE_STRING},
+    {"os.chmod", 2, 2, TYPE_STRING},
+    {"os.waitpid", 1, 1, TYPE_NUMBER},
+    {"os.hostname", 0, 0, TYPE_ANY},
+    {"os.user", 0, 0, TYPE_ANY},
+    {"os.homedir", 0, 0, TYPE_ANY},
+
+    // math library
+    {"math.abs", 1, 1, TYPE_NUMBER},
+    {"math.floor", 1, 1, TYPE_NUMBER},
+    {"math.ceil", 1, 1, TYPE_NUMBER},
+    {"math.round", 1, 2, TYPE_NUMBER},
+    {"math.sqrt", 1, 1, TYPE_NUMBER},
+    {"math.exp", 1, 1, TYPE_NUMBER},
+    {"math.log", 1, 2, TYPE_NUMBER},
+    {"math.sin", 1, 1, TYPE_NUMBER},
+    {"math.cos", 1, 1, TYPE_NUMBER},
+    {"math.tan", 1, 1, TYPE_NUMBER},
+    {"math.asin", 1, 1, TYPE_NUMBER},
+    {"math.acos", 1, 1, TYPE_NUMBER},
     {"math.atan", 1, 1, TYPE_NUMBER},
-    {"string.len", 1, 1, TYPE_STRING}, {"string.lower", 1, 1, TYPE_STRING}, {"string.upper", 1, 1, TYPE_STRING},
-    {"string.sub", 3, 3, TYPE_STRING}, {"string.split", 2, 2, TYPE_STRING}, {"string.join", 2, 2, TYPE_STRING},
-    {"string.trim", 1, 1, TYPE_STRING}, {"string.find", 2, 2, TYPE_STRING}, {"string.replace", 3, 3, TYPE_STRING},
-    {"table.remove", 2, 2, TYPE_TABLE}, {"table.has", 2, 2, TYPE_TABLE}, {"table.size", 1, 1, TYPE_TABLE},
-    {"table.keys", 1, 1, TYPE_TABLE}, {"table.values", 1, 1, TYPE_TABLE}, {"table.clear", 1, 1, TYPE_TABLE},
-    {"table.copy", 1, 1, TYPE_TABLE}, {"table.merge", 2, 2, TYPE_TABLE},
-    {"number", 1, 1, TYPE_ANY}, {"string", 1, 1, TYPE_ANY}
+
+    // string library
+    {"string.len", 1, 1, TYPE_STRING},
+    {"string.lower", 1, 1, TYPE_STRING},
+    {"string.upper", 1, 1, TYPE_STRING},
+    {"string.sub", 3, 3, TYPE_STRING},
+    {"string.split", 2, 2, TYPE_STRING},
+    {"string.join", 2, 2, TYPE_STRING},
+    {"string.trim", 1, 1, TYPE_STRING},
+    {"string.find", 2, 2, TYPE_STRING},
+    {"string.replace", 3, 3, TYPE_STRING},
+
+    // table library
+    {"table.remove", 2, 2, TYPE_TABLE},
+    {"table.has", 2, 2, TYPE_TABLE},
+    {"table.size", 1, 1, TYPE_TABLE},
+    {"table.keys", 1, 1, TYPE_TABLE},
+    {"table.values", 1, 1, TYPE_TABLE},
+    {"table.clear", 1, 1, TYPE_TABLE},
+    {"table.copy", 1, 1, TYPE_TABLE},
+    {"table.merge", 2, 2, TYPE_TABLE},
+    {"number", 1, 1, TYPE_ANY},
+    {"string", 1, 1, TYPE_ANY}
 };
 
 static const BuiltinSig* lookup_builtin(const char* name) {
@@ -959,19 +1023,48 @@ static ASTNode* parse_number(Parser* parser) {
 
 static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, int line, int column) {
     // Create a temporary tokenizer for the expression inside {}
-    Tokenizer* temp_tokenizer = tokenizer_create(expr_str, "<interpolation>");
+    Tokenizer* temp_tokenizer = tokenizer_create(expr_str, parser->filename);
+    temp_tokenizer->line = line;
+    
     int temp_count;
     Token* temp_tokens = tokenizer_tokenize(temp_tokenizer, &temp_count);
     
-    // Create a temporary parser
-    Parser* temp_parser = parser_create(temp_tokens, temp_count, "<interpolation>", expr_str);
-    temp_parser->semantic_checks = false;
+    // FIX: Adjust columns of all tokens to match absolute position in source file
+    for (int i = 0; i < temp_count; i++) {
+        temp_tokens[i].column += column;
+    }
+
+    // FIX: Pass the ORIGINAL source code of the whole file so error context 
+    // can show the full line, not just the interpolation part.
+    Parser* temp_parser = parser_create(temp_tokens, temp_count, parser->filename, parser->source);
+    temp_parser->semantic_checks = true; 
+
+    // FIX: Copy symbols from parent parser to temp parser so variables like 'env' are visible
+    // We only need to copy up to current_scope to avoid leaking future declarations
+    for (int i = 0; i < parser->symbols.count; i++) {
+        if (parser->symbols.scope_levels[i] <= parser->symbols.current_scope) {
+            parser_declare_symbol(temp_parser, 
+                                  parser->symbols.names[i], 
+                                  parser->symbols.kinds[i], 
+                                  parser->symbols.types[i], 
+                                  parser->symbols.param_counts[i],
+                                  parser->symbols.names[i] ? 0 : 0, // Line/Col don't matter much here for lookup
+                                  0);
+            
+            // Copy const info if needed
+            int new_idx = temp_parser->symbols.count - 1;
+            temp_parser->symbols.const_known[new_idx] = parser->symbols.const_known[i];
+            temp_parser->symbols.const_values[new_idx] = parser->symbols.const_values[i];
+        }
+    }
+    // Set the scope level to match parent so lookups work correctly
+    temp_parser->symbols.current_scope = parser->symbols.current_scope;
+
     ASTNode* expr = parse_expression(temp_parser);
     
     // Cleanup
     parser_destroy(temp_parser);
     tokenizer_destroy(temp_tokenizer);
-    
     return expr;
 }
 

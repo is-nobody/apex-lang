@@ -6,29 +6,35 @@ Apex comes with several built-in libraries. These are ready-to-use tools that so
 ## OS Library (os)
 The OS library lets you interact with the operating system. You can print text, read files, create folders, and more. Import it with `import os`.
 
-### os.output(value)
+### Basic I/O
+#### os.output(value)
 Prints a value to the terminal.
 
 ```apex
 import os
+
 os.output("Hello, Friend")     // Hello, Friend
 os.output(42)                  // 42
 os.output(true)                // true
 ```
 
-### os.input(prompt)
-Waits for the user to type something and press Enter. Returns what they typed as a string. You can provide an optional prompt message.
+#### os.input(prompt)
+Waits for the user to type something and press Enter. Returns what they typed as a string. You can provide an optional prompt message. The value from `os.input()` is always a string — even if the user types numbers. Use `number()` to convert it if you need to do math. If the user enters something that isn't a number, `number()` returns `false` on failure.
 
 ```apex
 import os
+
 name = os.input("What is your name? ")
-os.output("Hello, {name}")
+
+if name == false
+    os.output("Could not read input")
+else
+    os.output("Hello, {name}")
 ```
 
-If the user types `Alice`, the output is `Hello, Alice`. The value from `os.input()` is always a string — even if the user types numbers. Use `number()` to convert it if you need to do math. If the user enters something that isn't a number, `number()` will get an `false` value. Handle it via `if var == false`.
-
-### os.read(filename)
-Reads the entire contents of a file and returns it as a string.
+### File Read/Write
+#### os.read(filename)
+Reads the entire contents of a file and returns it as a string. Returns `false` if the file cannot be read.
 
 ```apex
 import os
@@ -37,9 +43,11 @@ content = os.read("story.txt")
 
 if content == false
     os.output("Could not read the file")
+else
+    os.output(content)
 ```
 
-### os.write(filename, content)
+#### os.write(filename, content)
 Writes content to a file. Creates the file if it doesn't exist, overwrites it if it does. Returns `true` on success, `false` on failure.
 
 ```apex
@@ -47,137 +55,567 @@ import os
 
 success = os.write("notes.txt", "Today I learned Apex!")
 
-if success == true
-    os.output("File saved!")
+if success == false
+    os.output("Could not write to the file")
+else
+    os.output("File saved successfully")
 ```
 
-### os.close(filename)
-Closes an open file. If no filename is given, closes all open files. You normally don't need to call this — files close automatically. Use it only if you're working with many files and want to free resources.
+#### os.append(filename, content)
+Appends content to the end of a file. Creates the file if it doesn't exist. Returns `true` on success, `false` on failure.
 
 ```apex
-os.close("data.txt")    // Close specific file
-os.close()              // Close all open files
+import os
+
+result = os.write("log.txt", "First line\n")
+
+if result == false
+    os.output("Could not write to the file")
+else
+    os.output("First line written")
+
+result = os.append("log.txt", "Second line\n")
+
+if result == false
+    os.output("Could not append to the file")
+else
+    os.output("Second line appended")
+// log.txt now contains both lines
 ```
 
-### os.exists(path)
+### File Properties
+#### os.exists(path)
 Returns `true` if the file or folder at `path` exists, `false` otherwise.
 
 ```apex
 import os
 
-if os.exists("config.apex") == true
-    os.output("Config file found")
-else
+exists = os.exists("config.apex")
+
+if exists == false
     os.output("No config file")
-```
-
-### os.isfile(path)
-Returns `true` if the path points to a file specifically (not a folder).
-
-```apex
-os.isfile("data.txt")       // true if it's a file
-os.isfile("my_folder")      // false — it's a folder, not a file
-```
-
-### os.isdir(path)
-Returns `true` if the path points to a folder specifically.
-
-```apex
-os.isdir("my_folder")       // true if it's a folder
-os.isdir("data.txt")        // false — it's a file, not a folder
-```
-
-### os.rename(old_name, new_name)
-Renames a file or folder. Returns `true` on success, `false` on failure.
-
-```apex
-os.rename("old_name.txt", "new_name.txt")
-```
-
-### os.rmfile(path)
-Deletes a file permanently. Returns `true` if deleted, `false` if the file doesn't exist or can't be deleted.
-
-```apex
-import os
-if os.rmfile("temp.txt")
-    os.output("File deleted")
 else
-    os.output("Could not delete file")
+    os.output("Config file found")
 ```
 
-### os.mkfile(filename)
-Creates an empty file. Returns `true` on success, `false` on failure.
-
-```apex
-os.mkfile("new_file.txt")   // Creates empty file
-```
-
-### os.listdir(path)
-Returns a table of names — all files and folders inside the given folder. If no path is given, lists the current folder. Returns an empty table on failure.
+#### os.isfile(path)
+Returns `true` if the path points to a file specifically (not a folder). Returns `false` otherwise.
 
 ```apex
 import os
-items = os.listdir(".")           // List current folder
-for item in items
-    os.output(item)
-```
 
-### os.getcwd()
-Returns the current working directory as a string — where your program is running from.
+result = os.isfile("data.txt")
 
-```apex
-import os
-current_folder = os.getcwd()
-os.output("Running from: {current_folder}")
-```
-
-### os.chdir(path)
-Changes the current working directory. Returns `true` on success, `false` on failure.
-
-```apex
-os.chdir("/home/user/projects")   // Move to another folder
-os.chdir("..")                    // Go up one folder
-```
-
-### os.mkdir(path)
-Creates a new folder. Returns `true` on success, `false` if the folder already exists or can't be created.
-
-```apex
-import os
-if os.mkdir("my_project")
-    os.output("Folder created")
+if result == false
+    os.output("Not a file or doesn't exist")
 else
-    os.output("Folder already exists or can't be created")
+    os.output("It's a file")
 ```
 
-### os.rmdir(path)
-Removes an empty folder. Returns `true` on success, `false` if the folder isn't empty or doesn't exist. This only works on empty folders — use `os.rmfile()` to delete files inside first.
+#### os.isdir(path)
+Returns `true` if the path points to a folder specifically. Returns `false` otherwise.
 
 ```apex
-os.rmdir("old_folder")
+import os
+
+result = os.isdir("my_folder")
+
+if result == false
+    os.output("Not a folder or doesn't exist")
+else
+    os.output("It's a folder")
 ```
 
-### os.stat(path)
+#### os.filesize(path)
+Returns the size of a file in bytes. Returns a number on success, `false` if the file doesn't exist or isn't a regular file.
+
+```apex
+import os
+
+size = os.filesize("movie.mp4")
+
+if size == false
+    os.output("Could not get file size")
+else
+    os.output("File size: {size} bytes")
+```
+
+#### os.dirsize(path)
+Calculates the total size of a directory in bytes (recursively, including all nested files and folders). Returns a number on success, or `false` if the directory doesn't exist.
+
+```apex
+import os
+
+size = os.dirsize("downloads")
+
+if size == false
+    os.output("Could not calculate directory size")
+else
+    os.output("Folder size: {size} bytes")
+```
+
+#### os.filetype(path)
+Detects the file type by its contents (magic bytes). Returns a string describing the type, or `false` if the file is not found. Recognizes: `PDF`, `PNG`, `JPEG`, `GIF`, `ZIP`, `ELF`, `Windows executable`, `Plain text`, `Unknown binary`.
+
+```apex
+import os
+
+filetype = os.filetype("document.pdf")
+
+if filetype == false
+    os.output("Could not detect file type")
+else
+    os.output("File type: {filetype}")
+```
+
+#### os.stat(path)
 Returns a table with information about a file or folder. The table contains these keys:
 - `size` — file size in bytes
 - `mtime` — last modification time (timestamp)
 - `ctime` — creation time (timestamp)
 - `isdir` — `true` if it's a folder, `false` if it's a file
 
-Throws an `false` value if the path doesn't exist.
+Returns a table on success, `false` on failure.
 
 ```apex
 import os
 
 info = os.stat("data.txt")
 
-if info == true
-    os.output("Size: {info.size} bytes")
-failure
+if info == false
     os.output("File does not exist")
+else
+    os.output("Size: {info.size} bytes")
+    os.output("Modified: {info.mtime}")
+    os.output("Created: {info.ctime}")
+    os.output("Is directory: {info.isdir}")
 ```
 
-### os.exit(code)
+### Rename and Move
+#### os.rnfile(old_name, new_name)
+Renames a file. Returns `true` on success, `false` if the source doesn't exist or isn't a file.
+
+```apex
+import os
+
+result = os.rnfile("old.txt", "new.txt")
+
+if result == false
+    os.output("Could not rename the file")
+else
+    os.output("File renamed successfully")
+```
+
+#### os.rndir(old_name, new_name)
+Renames a directory. Returns `true` on success, `false` if the source doesn't exist or isn't a directory.
+
+```apex
+import os
+
+result = os.rndir("old_folder", "new_folder")
+
+if result == false
+    os.output("Could not rename the directory")
+else
+    os.output("Directory renamed successfully")
+```
+
+#### os.mvfile(source, destination)
+Moves a file to a new location. Returns `true` on success, `false` on failure.
+
+```apex
+import os
+
+result = os.mvfile("doc.txt", "backup/doc.txt")
+
+if result == false
+    os.output("Could not move the file")
+else
+    os.output("File moved successfully")
+```
+
+#### os.mvdir(source, destination)
+Moves a directory to a new location. Returns `true` on success, `false` on failure.
+
+```apex
+import os
+
+result = os.mvdir("project", "archive/project")
+
+if result == false
+    os.output("Could not move the directory")
+else
+    os.output("Directory moved successfully")
+```
+
+### Copy
+#### os.cpfile(source, destination)
+Copies a file. Returns `true` on success, `false` on failure.
+
+```apex
+import os
+
+result = os.cpfile("original.txt", "copy.txt")
+
+if result == false
+    os.output("Could not copy the file")
+else
+    os.output("File copied successfully")
+```
+
+#### os.cpdir(source, destination)
+Recursively copies a directory with all its contents. Returns `true` on success, `false` on failure.
+
+```apex
+import os
+
+result = os.cpdir("my_project", "backup/my_project")
+
+if result == false
+    os.output("Could not copy the directory")
+else
+    os.output("Directory copied successfully")
+```
+
+### Create and Delete
+#### os.mkfile(filename)
+Creates an empty file. Returns `true` on success, `false` on failure.
+
+```apex
+import os
+
+result = os.mkfile("new_file.txt")
+
+if result == false
+    os.output("Could not create the file")
+else
+    os.output("File created successfully")
+```
+
+#### os.mkdir(path)
+Creates a new folder. Returns `true` on success, `false` if the folder already exists or can't be created.
+
+```apex
+import os
+
+result = os.mkdir("my_project")
+
+if result == false
+    os.output("Folder already exists or can't be created")
+else
+    os.output("Folder created successfully")
+```
+
+#### os.rmfile(path)
+Deletes a file permanently. Returns `true` if deleted, `false` if the file doesn't exist or can't be deleted.
+
+```apex
+import os
+
+result = os.rmfile("temp.txt")
+
+if result == false
+    os.output("Could not delete the file")
+else
+    os.output("File deleted successfully")
+```
+
+#### os.rmdir(path)
+Removes an empty folder. Returns `true` on success, `false` if the folder isn't empty or doesn't exist. This only works on empty folders — use `os.rmfile()` to delete files inside first.
+
+```apex
+import os
+
+result = os.rmdir("old_folder")
+
+if result == false
+    os.output("Could not remove the directory")
+else
+    os.output("Directory removed successfully")
+```
+
+### Directory Navigation
+#### os.listdir(path)
+Returns a table of names — all files and folders inside the given folder. If no path is given, lists the current folder. Returns an empty table on failure.
+
+```apex
+import os
+
+items = os.listdir(".")
+
+if items == false
+    os.output("Could not list directory contents")
+else
+    os.output("Contents of current directory:")
+    for item in items
+        os.output("  {item}")
+```
+
+#### os.getcd()
+Returns the current directory as a string — where your program is running from. Returns `false` on failure.
+
+```apex
+import os
+
+current_folder = os.getcd()
+
+if current_folder == false
+    os.output("Could not get current directory")
+else
+    os.output("Running from: {current_folder}")
+```
+
+#### os.setcd(path)
+Changes the current directory. Returns `true` on success, `false` on failure.
+
+```apex
+import os
+
+result = os.setcd("/home/user/projects")
+
+if result == false
+    os.output("Could not change directory")
+else
+    os.output("Directory changed successfully")
+```
+
+### Permissions
+
+#### os.chmod(path, mode)
+Changes file permissions. The `mode` is a number (e.g., `755` for rwxr-xr-x on Unix). Returns `true` on success, `false` on failure.
+
+```apex
+import os
+
+result = os.chmod("script.sh", 755)
+
+if result == false
+    os.output("Could not change permissions")
+else
+    os.output("Permissions changed successfully")
+```
+
+### Environment Variables
+#### os.getenv(name)
+Gets the value of an environment variable. Returns the value as a string, or `false` if the variable doesn't exist.
+
+```apex
+import os
+
+path = os.getenv("PATH")
+
+if path == false
+    os.output("Environment variable not found")
+else
+    os.output("PATH: {path}")
+```
+
+#### os.setenv(name, value)
+Sets an environment variable. Returns `true` on success, `false` on failure.
+
+```apex
+import os
+
+result = os.setenv("MY_VAR", "hello")
+
+if result == false
+    os.output("Could not set environment variable")
+else
+    os.output("MY_VAR set to: {os.getenv("MY_VAR")}")
+```
+
+#### os.env()
+Returns a table containing all environment variables as key-value pairs. Returns `false` on failure.
+
+```apex
+import os
+
+env_vars = os.env()
+
+if env_vars == false
+    os.output("Could not get environment variables")
+else
+    os.output("HOME = {env_vars.HOME}")
+    os.output("PATH = {env_vars.PATH}")
+```
+
+### System Info
+#### os.platform()
+Returns a string identifying your operating system: `"Windows"`, `"macOS"`, `"Linux"`, or `"Unknown OS"`. Returns `false` on failure.
+
+```apex
+import os
+
+system = os.platform()
+
+if system == false
+    os.output("Could not detect platform")
+else
+    os.output("You're running on {system}")
+```
+
+#### os.hostname()
+Returns the system's hostname as a string. Returns `false` on failure.
+
+```apex
+import os
+
+name = os.hostname()
+
+if name == false
+    os.output("Could not get hostname")
+else
+    os.output("Hostname: {name}")
+```
+
+#### os.user()
+Returns the current user's login name as a string. Returns `false` if it can't be determined.
+
+```apex
+import os
+
+username = os.user()
+
+if username == false
+    os.output("Could not get username")
+else
+    os.output("Logged in as: {username}")
+```
+
+#### os.homedir()
+Returns the current user's home directory path as a string. Returns `false` if it can't be determined.
+
+```apex
+import os
+
+home = os.homedir()
+
+if home == false
+    os.output("Could not get home directory")
+else
+    os.output("Home folder: {home}")
+
+    // Example: change to home directory
+    result = os.setcd(home)
+    if result == false
+        os.output("Could not change to home directory")
+    else
+        os.output("Changed to home directory")
+```
+
+#### os.pid()
+Returns the current process ID as a number. Returns `false` on failure.
+
+```apex
+import os
+
+process_id = os.pid()
+
+if process_id == false
+    os.output("Could not get process ID")
+else
+    os.output("Process ID: {process_id}")
+```
+
+### Process Management
+#### os.spawn(command)
+Starts a new process from a shell command. Returns the PID (process ID) of the new process as a number, or `false` on failure. The program does not wait for the process to finish.
+
+```apex
+import os
+
+pid = os.spawn("notepad.exe")    // Windows
+// pid = os.spawn("gedit &")     // Linux
+
+if pid == false
+    os.output("Could not start process")
+else
+    os.output("Started process with PID: {pid}")
+```
+
+#### os.waitpid(pid)
+Waits for a specific process to finish and returns its exit code. Returns a number (the exit code) on success, `false` if the process doesn't exist or can't be waited on.
+
+```apex
+import os
+
+pid = os.spawn("my_program")
+
+if pid == false
+    os.output("Could not start process")
+else
+    exit_code = os.waitpid(pid)
+    if exit_code == false
+        os.output("Could not wait for process")
+    else
+        os.output("Process exited with code: {exit_code}")
+```
+
+#### os.kill(pid)
+Terminates the process with the given PID. Returns `true` on success, `false` on failure.
+
+```apex
+import os
+
+result = os.kill(12345)
+
+if result == false
+    os.output("Could not terminate process")
+else
+    os.output("Process terminated successfully")
+```
+
+#### os.system(command)
+Runs a system command as if you typed it in the terminal. Returns the command's exit code. Available commands depend on your operating system. Returns `false` on failure.
+
+```apex
+import os
+
+exit_code = os.system("echo Hello from terminal")     // Works on Linux/macOS
+// exit_code = os.system("dir")                       // Windows — list files
+// exit_code = os.system("ls")                        // Linux/macOS — list files
+
+if exit_code == false
+    os.output("Could not execute command")
+else
+    os.output("Command exited with code: {exit_code}")
+```
+
+### Time and Exit
+#### os.time()
+Returns the current time as a number — seconds since January 1, 1970. Useful for measuring how long something takes. Returns `false` on failure.
+
+```apex
+import os
+
+start = os.time()
+
+if start == false
+    os.output("Could not get system time")
+else
+    // ... do something slow ...
+    end = os.time()
+    elapsed = end - start
+    os.output("Took {elapsed} seconds")
+```
+
+#### os.wait(seconds)
+Pauses the program for the given number of seconds. You can use decimals for fractions of a second. Negative values are treated as `0`. Returns `true` on success, `false` on failure.
+
+```apex
+import os
+
+os.output("Starting...")
+
+result = os.wait(2.5)
+
+if result == false
+    os.output("Wait interrupted")
+else
+    os.output("Done waiting")
+```
+
+#### os.exit(code)
 Exits the program immediately. The `code` is optional — `0` means success, other numbers mean an error. If no code is given, uses `0`.
 
 ```apex
@@ -185,51 +623,9 @@ import os
 
 if os.exists("critical_file.txt") == false
     os.output("Critical file missing — exiting")
-    os.exit(1)              // exit with error code
-```
-
-### os.wait(seconds)
-Pauses the program for the given number of seconds. You can use decimals for fractions of a second. Negative values are treated as `0`.
-
-```apex
-import os
-
-os.output("Starting...")
-os.wait(2.5)                // Pause for 2.5 seconds
-os.output("Done waiting")
-```
-
-### os.time()
-Returns the current time as a number — seconds since January 1, 1970. Useful for measuring how long something takes.
-
-```apex
-import os
-
-start = os.time()
-// ... do something slow ...
-elapsed = os.time() - start
-os.output("Took {elapsed} seconds")
-```
-
-### os.system(command)
-Runs a system command as if you typed it in the terminal. Returns the command's exit code. Available commands depend on your operating system.
-
-```apex
-import os
-
-os.system("echo Hello from terminal")     // Works on Linux/macOS
-os.system("dir")                          // Windows — list files
-os.system("ls")                           // Linux/macOS — list files
-```
-
-### os.platform()
-Returns a string identifying your operating system: `"Windows"`, `"macOS"`, `"Linux"`, or `"Unknown OS"`.
-
-```apex
-import os
-
-system = os.platform()
-os.output("You're running on {system}")
+    os.exit(1)
+else
+    os.output("Critical file found, continuing...")
 ```
 
 ## Math Library (math)

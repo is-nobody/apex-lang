@@ -19,6 +19,8 @@
     #include <sys/types.h>
     #include <dirent.h>
     #include <sys/time.h>
+    #include <signal.h>
+    #include <sys/wait.h>
 #endif
 
 bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
@@ -184,21 +186,23 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         return true;
     }
     
-    // os.getcwd — get current working directory
-    if (strcmp(name, "os.getcwd") == 0) {
+    // os.getcd — get current working directory
+    if (strcmp(name, "os.getcd") == 0) {
         char cwd[4096];
         if (getcwd(cwd, sizeof(cwd))) {
             *result = vm_make_string(cwd);
         } else {
-            *result = vm_make_string("");
+            *result = vm_make_bool(false);
         }
         return true;
     }
     
-    // os.chdir — change current working directory
-    if (strcmp(name, "os.chdir") == 0) {
+    // os.setcd — change current working directory
+    if (strcmp(name, "os.setcd") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             *result = vm_make_bool(chdir(args[0].string->chars) == 0);
+        } else {
+            *result = vm_make_bool(false);
         }
         return true;
     }
@@ -245,14 +249,239 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         return true;
     }
     
-    // os.rename — rename a file or directory
-    if (strcmp(name, "os.rename") == 0) {
+    // os.rnfile (Rename File)
+    if (strcmp(name, "os.rnfile") == 0) {
         if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
-            *result = vm_make_bool(rename(args[0].string->chars, args[1].string->chars) == 0);
+            struct stat st;
+            bool is_file = stat(args[0].string->chars, &st) == 0 && S_ISREG(st.st_mode);
+            *result = vm_make_bool(is_file && rename(args[0].string->chars, args[1].string->chars) == 0);
+        } else {
+            *result = vm_make_bool(false);
         }
         return true;
     }
     
+    // os.rndir (Rename Directory)
+    if (strcmp(name, "os.rndir") == 0) {
+        if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
+            struct stat st;
+            bool is_dir = stat(args[0].string->chars, &st) == 0 && S_ISDIR(st.st_mode);
+            *result = vm_make_bool(is_dir && rename(args[0].string->chars, args[1].string->chars) == 0);
+        } else {
+            *result = vm_make_bool(false);
+        }
+        return true;
+    }
+
+    // os.mvfile (Move File)
+    if (strcmp(name, "os.mvfile") == 0) {
+        if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
+            struct stat st;
+            bool is_file = stat(args[0].string->chars, &st) == 0 && S_ISREG(st.st_mode);
+            *result = vm_make_bool(is_file && rename(args[0].string->chars, args[1].string->chars) == 0);
+        } else {
+            *result = vm_make_bool(false);
+        }
+        return true;
+    }
+
+    // os.mvdir (Move Directory)
+    if (strcmp(name, "os.mvdir") == 0) {
+        if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
+            struct stat st;
+            bool is_dir = stat(args[0].string->chars, &st) == 0 && S_ISDIR(st.st_mode);
+            *result = vm_make_bool(is_dir && rename(args[0].string->chars, args[1].string->chars) == 0);
+        } else {
+            *result = vm_make_bool(false);
+        }
+        return true;
+    }
+
+    // os.dirsize — calculate total size of directory contents recursively
+    if (strcmp(name, "os.dirsize") == 0) {
+        if (arg_count >= 1 && args[0].type == VAL_STRING) {
+            double total_size = 0;
+            
+            DIR* dir = opendir(args[0].string->chars);
+            if (dir) {
+                struct dirent* entry;
+                while ((entry = readdir(dir)) != NULL) {
+                    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+                        continue;
+                    }
+                    
+                    char full_path[4096];
+                    snprintf(full_path, sizeof(full_path), "%s/%s", args[0].string->chars, entry->d_name);
+                    
+                    struct stat st;
+                    if (stat(full_path, &st) == 0) {
+                        if (S_ISDIR(st.st_mode)) {
+                            Value subdir_result;
+                            Value subdir_arg = vm_make_string(full_path);
+                            if (os_call_builtin(vm, "os.dirsize", 1, &subdir_arg, &subdir_result)) {
+                                if (subdir_result.type == VAL_NUMBER) {
+                                    total_size += subdir_result.number;
+                                }
+                            }
+                        } else if (S_ISREG(st.st_mode)) {
+                            total_size += (double)st.st_size;
+                        }
+                    }
+                }
+                closedir(dir);
+                *result = vm_make_number(total_size);
+            } else {
+                // Директория не существует — возвращаем false
+                *result = vm_make_bool(false);
+            }
+        } else {
+            *result = vm_make_bool(false);
+        }
+        return true;
+    }
+
+    // os.cpfile — copy a file from source to destination
+    if (strcmp(name, "os.cpfile") == 0) {
+        if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
+            FILE* src = fopen(args[0].string->chars, "rb");
+            if (!src) {
+                *result = vm_make_bool(false);
+                return true;
+            }
+            
+            FILE* dst = fopen(args[1].string->chars, "wb");
+            if (!dst) {
+                fclose(src);
+                *result = vm_make_bool(false);
+                return true;
+            }
+            
+            char buffer[8192];
+            size_t bytes_read;
+            bool success = true;
+            
+            while ((bytes_read = fread(buffer, 1, sizeof(buffer), src)) > 0) {
+                size_t bytes_written = fwrite(buffer, 1, bytes_read, dst);
+                if (bytes_written != bytes_read) {
+                    success = false;
+                    break;
+                }
+            }
+            
+            fclose(src);
+            fclose(dst);
+            
+            *result = vm_make_bool(success);
+        } else {
+            *result = vm_make_bool(false);
+        }
+        return true;
+    }
+
+    // os.cpdir — copy a directory recursively from source to destination
+    if (strcmp(name, "os.cpdir") == 0) {
+        if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
+            struct stat st;
+            if (stat(args[0].string->chars, &st) != 0 || !S_ISDIR(st.st_mode)) {
+                *result = vm_make_bool(false);
+                return true;
+            }
+            
+            mkdir(args[1].string->chars, 0755);
+            
+            bool success = true;
+            
+            DIR* dir = opendir(args[0].string->chars);
+            if (dir) {
+                struct dirent* entry;
+                while ((entry = readdir(dir)) != NULL) {
+                    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+                        continue;
+                    }
+                    
+                    char src_path[4096], dst_path[4096];
+                    snprintf(src_path, sizeof(src_path), "%s/%s", args[0].string->chars, entry->d_name);
+                    snprintf(dst_path, sizeof(dst_path), "%s/%s", args[1].string->chars, entry->d_name);
+                    
+                    struct stat entry_st;
+                    if (stat(src_path, &entry_st) != 0) {
+                        success = false;
+                        break;
+                    }
+                    
+                    Value cp_result;
+                    Value cp_args[] = {vm_make_string(src_path), vm_make_string(dst_path)};
+                    
+                    if (S_ISDIR(entry_st.st_mode)) {
+                        if (!os_call_builtin(vm, "os.cpdir", 2, cp_args, &cp_result) ||
+                            (cp_result.type == VAL_BOOL && !cp_result.boolean)) {
+                            success = false;
+                            break;
+                        }
+                    } else if (S_ISREG(entry_st.st_mode)) {
+                        if (!os_call_builtin(vm, "os.cpfile", 2, cp_args, &cp_result) ||
+                            (cp_result.type == VAL_BOOL && !cp_result.boolean)) {
+                            success = false;
+                            break;
+                        }
+                    }
+                }
+                closedir(dir);
+            } else {
+                success = false;
+            }
+            
+            *result = vm_make_bool(success);
+        } else {
+            *result = vm_make_bool(false);
+        }
+        return true;
+    }
+
+    // os.filetype (Self-made magic byte detector)
+    if (strcmp(name, "os.filetype") == 0) {
+        if (arg_count >= 1 && args[0].type == VAL_STRING) {
+            FILE* f = fopen(args[0].string->chars, "rb");
+            if (!f) {
+                *result = vm_make_bool(false);
+                return true;
+            }
+            unsigned char header[16];
+            size_t read_bytes = fread(header, 1, 16, f);
+            fclose(f);
+
+            if (read_bytes == 0) {
+                *result = vm_make_bool(false);
+            } else if (read_bytes >= 4 && header[0] == '%' && header[1] == 'P' && header[2] == 'D' && header[3] == 'F') {
+                *result = vm_make_string("PDF document");
+            } else if (read_bytes >= 8 && header[0] == 0x89 && header[1] == 'P' && header[2] == 'N' && header[3] == 'G' && header[4] == '\r' && header[5] == '\n' && header[6] == 0x1A && header[7] == '\n') {
+                *result = vm_make_string("PNG image");
+            } else if (read_bytes >= 3 && header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF) {
+                *result = vm_make_string("JPEG image");
+            } else if (read_bytes >= 6 && (memcmp(header, "GIF87a", 6) == 0 || memcmp(header, "GIF89a", 6) == 0)) {
+                *result = vm_make_string("GIF image");
+            } else if (read_bytes >= 4 && header[0] == 'P' && header[1] == 'K' && (header[2] == 0x03 || header[2] == 0x05 || header[2] == 0x07) && header[3] == 0x04) {
+                *result = vm_make_string("ZIP archive");
+            } else if (read_bytes >= 4 && header[0] == 0x7F && header[1] == 'E' && header[2] == 'L' && header[3] == 'F') {
+                *result = vm_make_string("ELF executable");
+            } else if (read_bytes >= 2 && header[0] == 'M' && header[1] == 'Z') {
+                *result = vm_make_string("Windows executable");
+            } else {
+                bool is_text = true;
+                for (size_t i = 0; i < read_bytes; i++) {
+                    if (header[i] < 32 && header[i] != '\n' && header[i] != '\r' && header[i] != '\t') {
+                        is_text = false;
+                        break;
+                    }
+                }
+                *result = vm_make_string(is_text ? "Plain text" : "Unknown binary");
+            }
+        } else {
+            *result = vm_make_bool(false);
+        }
+        return true;
+    }
+
     // os.listdir — list directory contents, returns a 1-indexed table
     if (strcmp(name, "os.listdir") == 0) {
         const char* path = ".";
@@ -325,11 +554,282 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         return true;
     }
     
-    // os.close — stub
-    if (strcmp(name, "os.close") == 0) {
-        *result = vm_make_bool(true);
+    // os.filesize — get file size in bytes
+    if (strcmp(name, "os.filesize") == 0) {
+        if (arg_count >= 1 && args[0].type == VAL_STRING) {
+            struct stat st;
+            if (stat(args[0].string->chars, &st) == 0) {
+                if (S_ISREG(st.st_mode)) {
+                    *result = vm_make_number((double)st.st_size);
+                } else {
+                    *result = vm_make_bool(false);
+                }
+            } else {
+                *result = vm_make_bool(false);
+            }
+        } else {
+            *result = vm_make_bool(false);
+        }
         return true;
     }
-    
+
+    // os.kill
+    if (strcmp(name, "os.kill") == 0) {
+        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
+            int pid = (int)args[0].number;
+            bool success = false;
+#ifdef _WIN32
+            HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, (DWORD)pid);
+            if (hProcess) {
+                success = TerminateProcess(hProcess, 1) != 0;
+                CloseHandle(hProcess);
+            }
+#else
+            success = (kill((pid_t)pid, SIGTERM) == 0);
+#endif
+            *result = vm_make_bool(success);
+        } else {
+            *result = vm_make_bool(false);
+        }
+        return true;
+    }
+
+    // os.pid — get current process ID
+    if (strcmp(name, "os.pid") == 0) {
+        #ifdef _WIN32
+            *result = vm_make_number(GetCurrentProcessId());
+        #else
+            *result = vm_make_number(getpid());
+        #endif
+        return true;
+    }
+
+    // os.getenv — get environment variable
+    if (strcmp(name, "os.getenv") == 0) {
+        if (arg_count >= 1 && args[0].type == VAL_STRING) {
+            char* env = getenv(args[0].string->chars);
+            if (env) {
+                *result = vm_make_string(env);
+            } else {
+                *result = vm_make_bool(false);
+            }
+        } else {
+            *result = vm_make_bool(false);
+        }
+        return true;
+    }
+
+    // os.setenv — set environment variable
+    if (strcmp(name, "os.setenv") == 0) {
+        if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
+            #ifdef _WIN32
+                char env_str[8192];
+                snprintf(env_str, sizeof(env_str), "%s=%s", args[0].string->chars, args[1].string->chars);
+                *result = vm_make_bool(_putenv(env_str) == 0);
+            #else
+                *result = vm_make_bool(setenv(args[0].string->chars, args[1].string->chars, 1) == 0);
+            #endif
+        } else {
+            *result = vm_make_bool(false);
+        }
+        return true;
+    }
+
+    // os.env — return all environment variables as a table
+    if (strcmp(name, "os.env") == 0) {
+        *result = vm_make_table();
+        #ifdef _WIN32
+            char* env_block = GetEnvironmentStrings();
+            if (env_block) {
+                char* env = env_block;
+                while (*env) {
+                    char* eq = strchr(env, '=');
+                    if (eq) {
+                        *eq = '\0';
+                        table_set(result->table, env, vm_make_string(eq + 1));
+                        *eq = '=';
+                    }
+                    env += strlen(env) + 1;
+                }
+                FreeEnvironmentStrings(env_block);
+            }
+        #else
+            extern char** environ;
+            if (environ) {
+                for (char** env = environ; *env; env++) {
+                    char* eq = strchr(*env, '=');
+                    if (eq) {
+                        *eq = '\0';
+                        table_set(result->table, *env, vm_make_string(eq + 1));
+                        *eq = '=';
+                    }
+                }
+            }
+        #endif
+        return true;
+    }
+
+    // os.append — append to file
+    if (strcmp(name, "os.append") == 0) {
+        if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
+            FILE* f = fopen(args[0].string->chars, "ab");
+            if (f) {
+                fputs(args[1].string->chars, f);
+                fclose(f);
+                *result = vm_make_bool(true);
+            } else {
+                *result = vm_make_bool(false);
+            }
+        } else {
+            *result = vm_make_bool(false);
+        }
+        return true;
+    }
+
+    // os.chmod — change file permissions
+    if (strcmp(name, "os.chmod") == 0) {
+        if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_NUMBER) {
+            #ifdef _WIN32
+                *result = vm_make_bool(_chmod(args[0].string->chars, (int)args[1].number) == 0);
+            #else
+                *result = vm_make_bool(chmod(args[0].string->chars, (mode_t)args[1].number) == 0);
+            #endif
+        } else {
+            *result = vm_make_bool(false);
+        }
+        return true;
+    }
+
+    // os.spawn — create new process, return PID
+    if (strcmp(name, "os.spawn") == 0) {
+        if (arg_count >= 1 && args[0].type == VAL_STRING) {
+            #ifdef _WIN32
+                STARTUPINFO si = { sizeof(STARTUPINFO) };
+                PROCESS_INFORMATION pi = { 0 };
+                char cmd[8192];
+                snprintf(cmd, sizeof(cmd), "cmd /c %s", args[0].string->chars);
+                if (CreateProcess(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+                    CloseHandle(pi.hThread);
+                    *result = vm_make_number((double)pi.dwProcessId);
+                } else {
+                    *result = vm_make_bool(false);
+                }
+            #else
+                pid_t pid = fork();
+                if (pid == 0) {
+                    execl("/bin/sh", "sh", "-c", args[0].string->chars, (char*)NULL);
+                    _exit(127);
+                } else if (pid > 0) {
+                    *result = vm_make_number((double)pid);
+                } else {
+                    *result = vm_make_bool(false);
+                }
+            #endif
+        } else {
+            *result = vm_make_bool(false);
+        }
+        return true;
+    }
+
+    // os.waitpid — wait for specific process
+    if (strcmp(name, "os.waitpid") == 0) {
+        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
+            int pid = (int)args[0].number;
+            #ifdef _WIN32
+                HANDLE hProcess = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_INFORMATION, FALSE, (DWORD)pid);
+                if (hProcess) {
+                    WaitForSingleObject(hProcess, INFINITE);
+                    DWORD exit_code;
+                    if (GetExitCodeProcess(hProcess, &exit_code)) {
+                        *result = vm_make_number((double)exit_code);
+                    } else {
+                        *result = vm_make_bool(false);
+                    }
+                    CloseHandle(hProcess);
+                } else {
+                    *result = vm_make_bool(false);
+                }
+            #else
+                int status;
+                if (waitpid(pid, &status, 0) > 0) {
+                    if (WIFEXITED(status)) {
+                        *result = vm_make_number((double)WEXITSTATUS(status));
+                    } else if (WIFSIGNALED(status)) {
+                        *result = vm_make_number(-1);
+                    } else {
+                        *result = vm_make_number(-1);
+                    }
+                } else {
+                    *result = vm_make_bool(false);
+                }
+            #endif
+        } else {
+            *result = vm_make_bool(false);
+        }
+        return true;
+    }
+
+    // os.hostname — system hostname
+    if (strcmp(name, "os.hostname") == 0) {
+        char hostname[256];
+        if (gethostname(hostname, sizeof(hostname)) == 0) {
+            *result = vm_make_string(hostname);
+        } else {
+            *result = vm_make_bool(false);
+        }
+        return true;
+    }
+
+    // os.user — current username
+    if (strcmp(name, "os.user") == 0) {
+        #ifdef _WIN32
+            char username[256];
+            DWORD size = sizeof(username);
+            if (GetUserName(username, &size)) {
+                *result = vm_make_string(username);
+            } else {
+                *result = vm_make_bool(false);
+            }
+        #else
+            char* username = getenv("USER");
+            if (!username) username = getenv("LOGNAME");
+            if (username) {
+                *result = vm_make_string(username);
+            } else {
+                *result = vm_make_bool(false);
+            }
+        #endif
+        return true;
+    }
+
+    // os.homedir — home directory
+    if (strcmp(name, "os.homedir") == 0) {
+        #ifdef _WIN32
+            char* home = getenv("USERPROFILE");
+            if (!home) {
+                char* drive = getenv("HOMEDRIVE");
+                char* path = getenv("HOMEPATH");
+                if (drive && path) {
+                    char combined[512];
+                    snprintf(combined, sizeof(combined), "%s%s", drive, path);
+                    home = combined;
+                }
+            }
+            if (home) {
+                *result = vm_make_string(home);
+            } else {
+                *result = vm_make_bool(false);
+            }
+        #else
+            char* home = getenv("HOME");
+            if (home) {
+                *result = vm_make_string(home);
+            } else {
+                *result = vm_make_bool(false);
+            }
+        #endif
+        return true;
+    }
+
     return false;
 }
