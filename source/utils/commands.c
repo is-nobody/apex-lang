@@ -4,6 +4,7 @@
 #include "build.h"
 #include "generate_ir.h"
 #include "package_manager.h"
+#include "bridge.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
@@ -46,6 +47,11 @@ int handle_commands(int argc, char** argv) {
     // --- COMPILE COMMAND ---
     if (strcmp(argv[1], "compile") == 0) {
         return compile_command(argc, argv);
+    }
+
+    // --- SETTINGS COMMAND ---
+    if (strcmp(argv[1], "settings") == 0) {
+        return bridge_execute_settings() ? 0 : 1;
     }
 
     // --- INSTALL COMMAND ---

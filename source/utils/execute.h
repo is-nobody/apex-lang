@@ -9,6 +9,8 @@
  */
 void print_error(const char* format, ...);
 
+bool execute_source_string(const char* source_code, const char* filename);
+
 /**
  * Executes Apex source code.
  * @param source   Source code string
