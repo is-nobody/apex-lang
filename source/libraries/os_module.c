@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <errno.h>
 
 #ifdef _WIN32
     #include <windows.h>
@@ -127,6 +128,8 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             } else {
                 *result = vm_make_bool(false);
             }
+        } else {
+            *result = vm_make_bool(false);
         }
         return true;
     }
@@ -142,6 +145,8 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             } else {
                 *result = vm_make_bool(false);
             }
+        } else {
+            *result = vm_make_bool(false);
         }
         return true;
     }
@@ -156,6 +161,8 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             } else {
                 *result = vm_make_bool(false);
             }
+        } else {
+            *result = vm_make_bool(false);
         }
         return true;
     }
@@ -169,6 +176,8 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             } else {
                 *result = vm_make_bool(false);
             }
+        } else {
+            *result = vm_make_bool(false);
         }
         return true;
     }
@@ -182,6 +191,8 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             } else {
                 *result = vm_make_bool(false);
             }
+        } else {
+            *result = vm_make_bool(false);
         }
         return true;
     }
@@ -215,6 +226,8 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             #else
                 *result = vm_make_bool(mkdir(args[0].string->chars, 0755) == 0);
             #endif
+        } else {
+            *result = vm_make_bool(false);
         }
         return true;
     }
@@ -223,6 +236,8 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     if (strcmp(name, "os.rmdir") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             *result = vm_make_bool(rmdir(args[0].string->chars) == 0);
+        } else {
+            *result = vm_make_bool(false);
         }
         return true;
     }
@@ -231,6 +246,8 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     if (strcmp(name, "os.rmfile") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             *result = vm_make_bool(unlink(args[0].string->chars) == 0);
+        } else {
+            *result = vm_make_bool(false);
         }
         return true;
     }
@@ -245,6 +262,8 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             } else {
                 *result = vm_make_bool(false);
             }
+        } else {
+            *result = vm_make_bool(false);
         }
         return true;
     }
@@ -302,20 +321,22 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             double total_size = 0;
             
-            DIR* dir = opendir(args[0].string->chars);
-            if (dir) {
-                struct dirent* entry;
-                while ((entry = readdir(dir)) != NULL) {
-                    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
-                        continue;
-                    }
-                    
-                    char full_path[4096];
-                    snprintf(full_path, sizeof(full_path), "%s/%s", args[0].string->chars, entry->d_name);
-                    
-                    struct stat st;
-                    if (stat(full_path, &st) == 0) {
-                        if (S_ISDIR(st.st_mode)) {
+            #ifdef _WIN32
+                WIN32_FIND_DATA fd;
+                HANDLE hFind;
+                char search_path[4096];
+                snprintf(search_path, sizeof(search_path), "%s\\*", args[0].string->chars);
+                hFind = FindFirstFile(search_path, &fd);
+                if (hFind != INVALID_HANDLE_VALUE) {
+                    do {
+                        if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0) {
+                            continue;
+                        }
+                        
+                        char full_path[4096];
+                        snprintf(full_path, sizeof(full_path), "%s\\%s", args[0].string->chars, fd.cFileName);
+                        
+                        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
                             Value subdir_result;
                             Value subdir_arg = vm_make_string(full_path);
                             if (os_call_builtin(vm, "os.dirsize", 1, &subdir_arg, &subdir_result)) {
@@ -323,17 +344,51 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
                                     total_size += subdir_result.number;
                                 }
                             }
-                        } else if (S_ISREG(st.st_mode)) {
-                            total_size += (double)st.st_size;
+                        } else {
+                            LARGE_INTEGER size;
+                            size.LowPart = fd.nFileSizeLow;
+                            size.HighPart = fd.nFileSizeHigh;
+                            total_size += (double)size.QuadPart;
+                        }
+                    } while (FindNextFile(hFind, &fd));
+                    FindClose(hFind);
+                    *result = vm_make_number(total_size);
+                } else {
+                    *result = vm_make_bool(false);
+                }
+            #else
+                DIR* dir = opendir(args[0].string->chars);
+                if (dir) {
+                    struct dirent* entry;
+                    while ((entry = readdir(dir)) != NULL) {
+                        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+                            continue;
+                        }
+                        
+                        char full_path[4096];
+                        snprintf(full_path, sizeof(full_path), "%s/%s", args[0].string->chars, entry->d_name);
+                        
+                        struct stat st;
+                        if (stat(full_path, &st) == 0) {
+                            if (S_ISDIR(st.st_mode)) {
+                                Value subdir_result;
+                                Value subdir_arg = vm_make_string(full_path);
+                                if (os_call_builtin(vm, "os.dirsize", 1, &subdir_arg, &subdir_result)) {
+                                    if (subdir_result.type == VAL_NUMBER) {
+                                        total_size += subdir_result.number;
+                                    }
+                                }
+                            } else if (S_ISREG(st.st_mode)) {
+                                total_size += (double)st.st_size;
+                            }
                         }
                     }
+                    closedir(dir);
+                    *result = vm_make_number(total_size);
+                } else {
+                    *result = vm_make_bool(false);
                 }
-                closedir(dir);
-                *result = vm_make_number(total_size);
-            } else {
-                // Директория не существует — возвращаем false
-                *result = vm_make_bool(false);
-            }
+            #endif
         } else {
             *result = vm_make_bool(false);
         }
@@ -387,49 +442,98 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
                 return true;
             }
             
-            mkdir(args[1].string->chars, 0755);
+            #ifdef _WIN32
+                if (_mkdir(args[1].string->chars) != 0 && errno != EEXIST) {
+                    *result = vm_make_bool(false);
+                    return true;
+                }
+            #else
+                if (mkdir(args[1].string->chars, 0755) != 0 && errno != EEXIST) {
+                    *result = vm_make_bool(false);
+                    return true;
+                }
+            #endif
             
             bool success = true;
             
-            DIR* dir = opendir(args[0].string->chars);
-            if (dir) {
-                struct dirent* entry;
-                while ((entry = readdir(dir)) != NULL) {
-                    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
-                        continue;
-                    }
-                    
-                    char src_path[4096], dst_path[4096];
-                    snprintf(src_path, sizeof(src_path), "%s/%s", args[0].string->chars, entry->d_name);
-                    snprintf(dst_path, sizeof(dst_path), "%s/%s", args[1].string->chars, entry->d_name);
-                    
-                    struct stat entry_st;
-                    if (stat(src_path, &entry_st) != 0) {
-                        success = false;
-                        break;
-                    }
-                    
-                    Value cp_result;
-                    Value cp_args[] = {vm_make_string(src_path), vm_make_string(dst_path)};
-                    
-                    if (S_ISDIR(entry_st.st_mode)) {
-                        if (!os_call_builtin(vm, "os.cpdir", 2, cp_args, &cp_result) ||
-                            (cp_result.type == VAL_BOOL && !cp_result.boolean)) {
-                            success = false;
-                            break;
+            #ifdef _WIN32
+                WIN32_FIND_DATA fd;
+                HANDLE hFind;
+                char search_path[4096];
+                snprintf(search_path, sizeof(search_path), "%s\\*", args[0].string->chars);
+                hFind = FindFirstFile(search_path, &fd);
+                if (hFind != INVALID_HANDLE_VALUE) {
+                    do {
+                        if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0) {
+                            continue;
                         }
-                    } else if (S_ISREG(entry_st.st_mode)) {
-                        if (!os_call_builtin(vm, "os.cpfile", 2, cp_args, &cp_result) ||
-                            (cp_result.type == VAL_BOOL && !cp_result.boolean)) {
-                            success = false;
-                            break;
+                        
+                        char src_path[4096], dst_path[4096];
+                        snprintf(src_path, sizeof(src_path), "%s\\%s", args[0].string->chars, fd.cFileName);
+                        snprintf(dst_path, sizeof(dst_path), "%s\\%s", args[1].string->chars, fd.cFileName);
+                        
+                        Value cp_result;
+                        Value cp_args[] = {vm_make_string(src_path), vm_make_string(dst_path)};
+                        
+                        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                            if (!os_call_builtin(vm, "os.cpdir", 2, cp_args, &cp_result) ||
+                                (cp_result.type == VAL_BOOL && !cp_result.boolean)) {
+                                success = false;
+                                break;
+                            }
+                        } else {
+                            if (!os_call_builtin(vm, "os.cpfile", 2, cp_args, &cp_result) ||
+                                (cp_result.type == VAL_BOOL && !cp_result.boolean)) {
+                                success = false;
+                                break;
+                            }
                         }
-                    }
+                    } while (FindNextFile(hFind, &fd));
+                    FindClose(hFind);
+                } else {
+                    success = false;
                 }
-                closedir(dir);
-            } else {
-                success = false;
-            }
+            #else
+                DIR* dir = opendir(args[0].string->chars);
+                if (dir) {
+                    struct dirent* entry;
+                    while ((entry = readdir(dir)) != NULL) {
+                        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+                            continue;
+                        }
+                        
+                        char src_path[4096], dst_path[4096];
+                        snprintf(src_path, sizeof(src_path), "%s/%s", args[0].string->chars, entry->d_name);
+                        snprintf(dst_path, sizeof(dst_path), "%s/%s", args[1].string->chars, entry->d_name);
+                        
+                        struct stat entry_st;
+                        if (stat(src_path, &entry_st) != 0) {
+                            success = false;
+                            break;
+                        }
+                        
+                        Value cp_result;
+                        Value cp_args[] = {vm_make_string(src_path), vm_make_string(dst_path)};
+                        
+                        if (S_ISDIR(entry_st.st_mode)) {
+                            if (!os_call_builtin(vm, "os.cpdir", 2, cp_args, &cp_result) ||
+                                (cp_result.type == VAL_BOOL && !cp_result.boolean)) {
+                                success = false;
+                                break;
+                            }
+                        } else if (S_ISREG(entry_st.st_mode)) {
+                            if (!os_call_builtin(vm, "os.cpfile", 2, cp_args, &cp_result) ||
+                                (cp_result.type == VAL_BOOL && !cp_result.boolean)) {
+                                success = false;
+                                break;
+                            }
+                        }
+                    }
+                    closedir(dir);
+                } else {
+                    success = false;
+                }
+            #endif
             
             *result = vm_make_bool(success);
         } else {
@@ -505,6 +609,8 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
                     table_set(result->table, key, vm_make_string(fd.cFileName));
                 } while (FindNextFile(hFind, &fd));
                 FindClose(hFind);
+            } else {
+                *result = vm_make_bool(false);
             }
         #else
             DIR* dir = opendir(path);
@@ -517,6 +623,8 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
                     table_set(result->table, key, vm_make_string(entry->d_name));
                 }
                 closedir(dir);
+            } else {
+                *result = vm_make_bool(false);
             }
         #endif
         
@@ -536,6 +644,8 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             } else {
                 *result = vm_make_bool(false);
             }
+        } else {
+            *result = vm_make_bool(false);
         }
         return true;
     }
@@ -704,7 +814,9 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     if (strcmp(name, "os.spawn") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             #ifdef _WIN32
-                STARTUPINFO si = { sizeof(STARTUPINFO) };
+                STARTUPINFO si;
+                memset(&si, 0, sizeof(si));
+                si.cb = sizeof(si);
                 PROCESS_INFORMATION pi = { 0 };
                 char cmd[8192];
                 snprintf(cmd, sizeof(cmd), "cmd /c %s", args[0].string->chars);
@@ -772,11 +884,20 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     // os.hostname — system hostname
     if (strcmp(name, "os.hostname") == 0) {
         char hostname[256];
-        if (gethostname(hostname, sizeof(hostname)) == 0) {
-            *result = vm_make_string(hostname);
-        } else {
-            *result = vm_make_bool(false);
-        }
+        #ifdef _WIN32
+            DWORD size = sizeof(hostname);
+            if (GetComputerName(hostname, &size)) {
+                *result = vm_make_string(hostname);
+            } else {
+                *result = vm_make_bool(false);
+            }
+        #else
+            if (gethostname(hostname, sizeof(hostname)) == 0) {
+                *result = vm_make_string(hostname);
+            } else {
+                *result = vm_make_bool(false);
+            }
+        #endif
         return true;
     }
 
