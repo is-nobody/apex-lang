@@ -441,7 +441,7 @@ else
 
 ### System Info
 #### os.platform()
-Returns a string identifying your operating system: `"Windows"`, `"macOS"`, `"Linux"`, or `"Unknown OS"`. Returns `false` on failure.
+Returns a string identifying your operating system, such as `"Windows"`, `"macOS"`, `"iOS"`, `"tvOS"`, `"watchOS"`, `"Android"`, `"Linux"`, `"FreeBSD"`, `"OpenBSD"`, `"NetBSD"`, `"QNX"`, or `"Unix"`. Returns `false` if the platform cannot be detected.
 
 ```apex
 import os
@@ -455,7 +455,7 @@ else
 ```
 
 #### os.architecture()
-Returns a string identifying the system's processor architecture, such as `"x86_64"`, `"arm64"`, or `"aarch64"`. Returns `"unknown"` if the architecture cannot be detected.
+Returns a string identifying the system's processor architecture, such as `"x86_64"`, `"arm64"`, or `"aarch64"`. Returns `"false"` if the architecture cannot be detected.
 
 ```apex
 import os

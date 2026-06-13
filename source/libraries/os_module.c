@@ -653,15 +653,44 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     
     // os.platform — return the operating system name
     if (strcmp(name, "os.platform") == 0) {
-        #ifdef _WIN32
-            *result = vm_make_string("Windows");
-        #elif __APPLE__
-            *result = vm_make_string("macOS");
-        #elif __linux__
-            *result = vm_make_string("Linux");
+        const char* platform = NULL;
+
+#ifdef _WIN32
+        platform = "Windows";
+#elif __ANDROID__
+        platform = "Android";
+#elif __APPLE__
+        #include <TargetConditionals.h>
+        #if TARGET_OS_IOS
+            platform = "iOS";
+        #elif TARGET_OS_TV
+            platform = "tvOS";
+        #elif TARGET_OS_WATCH
+            platform = "watchOS";
+        #elif TARGET_OS_MAC
+            platform = "macOS";
         #else
-            *result = vm_make_string("Unknown OS");
+            platform = "Apple";
         #endif
+#elif __linux__
+        platform = "Linux";
+#elif __FreeBSD__
+        platform = "FreeBSD";
+#elif __OpenBSD__
+        platform = "OpenBSD";
+#elif __NetBSD__
+        platform = "NetBSD";
+#elif defined(__QNX__)
+        platform = "QNX";
+#elif __unix__
+        platform = "Unix";
+#endif
+
+        if (platform) {
+            *result = vm_make_string(platform);
+        } else {
+            *result = vm_make_bool(false);
+        }
         return true;
     }
     
