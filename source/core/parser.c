@@ -123,6 +123,7 @@ static const BuiltinSig BUILTINS[] = {
     {"os.hostname", 0, 0, TYPE_ANY},
     {"os.user", 0, 0, TYPE_ANY},
     {"os.homedir", 0, 0, TYPE_ANY},
+    {"os.architecture", 0, 0, TYPE_ANY},
 
     // math library
     {"math.abs", 1, 1, TYPE_NUMBER},

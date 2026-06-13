@@ -250,7 +250,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "os.getcd", "os.setcd",
         "os.mkdir", "os.rmdir", "os.rmfile", "os.mkfile",
         "os.rnfile", "os.rndir", "os.mvfile", "os.mvdir",
-        "os.cpfile", "os.cpdir",
+        "os.cpfile", "os.cpdir", "os.architecture",
         "os.filetype", "os.chmod",
         "os.getenv", "os.setenv", "os.env",
         "os.spawn", "os.waitpid", "os.kill", "os.pid",

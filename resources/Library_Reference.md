@@ -454,6 +454,20 @@ else
     os.output("You're running on {system}")
 ```
 
+#### os.architecture()
+Returns a string identifying the system's processor architecture, such as `"x86_64"`, `"arm64"`, or `"aarch64"`. Returns `"unknown"` if the architecture cannot be detected.
+
+```apex
+import os
+
+arch = os.architecture()
+
+if name == false
+    os.output("Could not get architecture")
+else
+    os.output("System Architecture: {arch}")
+```
+
 #### os.hostname()
 Returns the system's hostname as a string. Returns `false` on failure.
 

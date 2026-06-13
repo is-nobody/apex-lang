@@ -22,6 +22,7 @@
     #include <sys/time.h>
     #include <signal.h>
     #include <sys/wait.h>
+    #include <sys/utsname.h>
 #endif
 
 bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
@@ -664,6 +665,44 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         return true;
     }
     
+    // os.architecture — return system architecture string
+    if (strcmp(name, "os.architecture") == 0) {
+        const char* arch = NULL;
+
+    #ifdef _WIN32
+        SYSTEM_INFO si;
+        GetNativeSystemInfo(&si);
+        switch (si.wProcessorArchitecture) {
+            case PROCESSOR_ARCHITECTURE_AMD64: arch = "x86_64"; break;
+            case PROCESSOR_ARCHITECTURE_INTEL: arch = "x86"; break;
+            case PROCESSOR_ARCHITECTURE_ARM64: arch = "arm64"; break;
+            case PROCESSOR_ARCHITECTURE_ARM:   arch = "arm"; break;
+            default:                           break;
+        }
+    #else
+        struct utsname buffer;
+        if (uname(&buffer) == 0) {
+            // Normalize common names
+            if (strcmp(buffer.machine, "aarch64") == 0) {
+                arch = "arm64";
+            } else if (strncmp(buffer.machine, "armv7", 5) == 0) {
+                arch = "arm";
+            } else if (strncmp(buffer.machine, "i686", 4) == 0 || strncmp(buffer.machine, "i386", 4) == 0) {
+                arch = "x86";
+            } else if (strlen(buffer.machine) > 0) {
+                arch = buffer.machine;
+            }
+        }
+    #endif
+
+        if (arch) {
+            *result = vm_make_string(arch);
+        } else {
+            *result = vm_make_bool(false);
+        }
+        return true;
+    }
+
     // os.filesize — get file size in bytes
     if (strcmp(name, "os.filesize") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
