@@ -732,6 +732,65 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         return true;
     }
 
+    // os.getparentpid — get parent process ID
+    if (strcmp(name, "os.getparentpid") == 0) {
+#ifdef _WIN32
+        DWORD ppid = 0;
+        HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (hSnapshot != INVALID_HANDLE_VALUE) {
+            PROCESSENTRY32 pe32;
+            pe32.dwSize = sizeof(PROCESSENTRY32);
+            DWORD current_pid = GetCurrentProcessId();
+            if (Process32First(hSnapshot, &pe32)) {
+                do {
+                    if (pe32.th32ProcessID == current_pid) {
+                        ppid = pe32.th32ParentProcessID;
+                        break;
+                    }
+                } while (Process32Next(hSnapshot, &pe32));
+            }
+            CloseHandle(hSnapshot);
+        }
+        *result = vm_make_number((double)ppid);
+#else
+        *result = vm_make_number((double)getppid());
+#endif
+        return true;
+    }
+
+    // os.apex_version — return the interpreter version string
+    if (strcmp(name, "os.apex_version") == 0) {
+        *result = vm_make_string("26.06");
+        return true;
+    }
+
+    // os.stdin — return a table representing stdin
+    if (strcmp(name, "os.stdin") == 0) {
+        *result = vm_make_table();
+        table_set(result->table, "handle", vm_make_number(0));
+        table_set(result->table, "mode", vm_make_string("r"));
+        table_set(result->table, "isatty", vm_make_bool(isatty(0)));
+        return true;
+    }
+
+    // os.stdout — return a table representing stdout
+    if (strcmp(name, "os.stdout") == 0) {
+        *result = vm_make_table();
+        table_set(result->table, "handle", vm_make_number(1));
+        table_set(result->table, "mode", vm_make_string("w"));
+        table_set(result->table, "isatty", vm_make_bool(isatty(1)));
+        return true;
+    }
+
+    // os.stderr — return a table representing stderr
+    if (strcmp(name, "os.stderr") == 0) {
+        *result = vm_make_table();
+        table_set(result->table, "handle", vm_make_number(2));
+        table_set(result->table, "mode", vm_make_string("w"));
+        table_set(result->table, "isatty", vm_make_bool(isatty(2)));
+        return true;
+    }
+
     // os.filesize — get file size in bytes
     if (strcmp(name, "os.filesize") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {

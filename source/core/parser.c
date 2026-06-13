@@ -114,6 +114,7 @@ static const BuiltinSig BUILTINS[] = {
     {"os.kill", 1, 1, TYPE_NUMBER},
     {"os.spawn", 1, 1, TYPE_STRING},
     {"os.pid", 0, 0, TYPE_ANY},
+    {"os.getparentpid", 0, 0, TYPE_ANY},
     {"os.getenv", 1, 1, TYPE_STRING},
     {"os.setenv", 2, 2, TYPE_STRING},
     {"os.env", 0, 0, TYPE_ANY},
@@ -124,6 +125,10 @@ static const BuiltinSig BUILTINS[] = {
     {"os.user", 0, 0, TYPE_ANY},
     {"os.homedir", 0, 0, TYPE_ANY},
     {"os.architecture", 0, 0, TYPE_ANY},
+    {"os.apex_version", 0, 0, TYPE_ANY},
+    {"os.stdin", 0, 0, TYPE_ANY},
+    {"os.stdout", 0, 0, TYPE_ANY},
+    {"os.stderr", 0, 0, TYPE_ANY},
 
     // math library
     {"math.abs", 1, 1, TYPE_NUMBER},

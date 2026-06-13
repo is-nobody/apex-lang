@@ -32,6 +32,63 @@ else
     os.output("Hello, {name}")
 ```
 
+#### os.stdin()
+Returns a table containing information about the standard input stream. The table includes `handle` (numeric file descriptor), `mode` (string, usually "r"), and `isatty` (boolean, true if connected to a terminal). Returns `false` on failure.
+
+```apex
+import os
+
+stdin_info = os.stdin()
+
+if stdin_info == false
+    os.output("Could not access stdin")
+else
+    os.output("Stdin Handle: {stdin_info.handle}")
+    os.output("Stdin Mode: {stdin_info.mode}")
+    if stdin_info.isatty
+        os.output("Stdin is a terminal")
+    else
+        os.output("Stdin is redirected")
+```
+
+#### os.stdout()
+Returns a table containing information about the standard output stream. The table includes `handle` (numeric file descriptor), `mode` (string, usually "w"), and `isatty` (boolean, true if connected to a terminal). Returns `false` on failure.
+
+```apex
+import os
+
+stdout_info = os.stdout()
+
+if stdout_info == false
+    os.output("Could not access stdout")
+else
+    os.output("Stdout Handle: {stdout_info.handle}")
+    os.output("Stdout Mode: {stdout_info.mode}")
+    if stdout_info.isatty
+        os.output("Stdout is a terminal")
+    else
+        os.output("Stdout is redirected")
+```
+
+#### os.stderr()
+Returns a table containing information about the standard error stream. The table includes `handle` (numeric file descriptor), `mode` (string, usually "w"), and `isatty` (boolean, true if connected to a terminal). Returns `false` on failure.
+
+```apex
+import os
+
+stderr_info = os.stderr()
+
+if stderr_info == false
+    os.output("Could not access stderr")
+else
+    os.output("Stderr Handle: {stderr_info.handle}")
+    os.output("Stderr Mode: {stderr_info.mode}")
+    if stderr_info.isatty
+        os.output("Stderr is a terminal")
+    else
+        os.output("Stderr is redirected")
+```
+
 ### File Read/Write
 #### os.read(filename)
 Reads the entire contents of a file and returns it as a string. Returns `false` if the file cannot be read.
@@ -517,6 +574,18 @@ else
         os.output("Changed to home directory")
 ```
 
+#### os.apex_version()
+Returns the current Apex interpreter version as a string.
+
+```apex
+import os
+
+version = os.apex_version()
+
+os.output("Apex Version: {version}")
+```
+
+### Process Management
 #### os.pid()
 Returns the current process ID as a number. Returns `false` on failure.
 
@@ -531,7 +600,20 @@ else
     os.output("Process ID: {process_id}")
 ```
 
-### Process Management
+#### os.getparentpid()
+Returns the parent process ID as a number. Returns `false` on failure or if the parent PID cannot be determined (e.g., on some Windows configurations).
+
+```apex
+import os
+
+parent_id = os.getparentpid()
+
+if parent_id == false
+    os.output("Could not get parent process ID")
+else
+    os.output("Parent Process ID: {parent_id}")
+```
+
 #### os.spawn(command)
 Starts a new process from a shell command. Returns the PID (process ID) of the new process as a number, or `false` on failure. The program does not wait for the process to finish.
 
