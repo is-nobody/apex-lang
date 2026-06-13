@@ -10,6 +10,7 @@
     #include <direct.h>
     #include <sys/stat.h>
     #include <sys/timeb.h>
+    #include <tlhelp32.h>
     #define chdir _chdir
     #define getcwd _getcwd
     #define rmdir _rmdir

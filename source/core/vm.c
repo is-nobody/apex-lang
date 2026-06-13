@@ -3,6 +3,7 @@
 #include "math_module.h"
 #include "string_module.h"
 #include "table_module.h"
+#include "ffi_module.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -395,6 +396,7 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
     if (strncmp(name, "math.", 5) == 0) return math_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "string.", 7) == 0) return string_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "table.", 6) == 0) return table_call_builtin(vm, name, arg_count, args, result);
+    if (strncmp(name, "ffi.", 4) == 0) return ffi_call_builtin(vm, name, arg_count, args, result);
 
     if (strcmp(name, "number") == 0) {
         if (arg_count >= 1) {

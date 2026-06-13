@@ -166,7 +166,15 @@ static const BuiltinSig BUILTINS[] = {
     {"table.copy", 1, 1, TYPE_TABLE},
     {"table.merge", 2, 2, TYPE_TABLE},
     {"number", 1, 1, TYPE_ANY},
-    {"string", 1, 1, TYPE_ANY}
+    {"string", 1, 1, TYPE_ANY},
+
+    // ffi library
+    {"ffi.open", 1, 1, TYPE_STRING},
+    {"ffi.call", 2, 64, TYPE_ANY},
+    {"ffi.errno", 0, 0, TYPE_ANY},
+    {"ffi.strerror", 0, 1, TYPE_NUMBER},
+    {"ffi.malloc", 1, 1, TYPE_NUMBER},
+    {"ffi.free", 1, 1, TYPE_NUMBER}
 };
 
 static const BuiltinSig* lookup_builtin(const char* name) {
@@ -391,8 +399,11 @@ static void parser_check_expr_statement(Parser* parser, ASTNode* expr) {
 }
 
 static bool is_builtin_module_root(const char* name) {
-    return strcmp(name, "os") == 0 || strcmp(name, "math") == 0 ||
-           strcmp(name, "string") == 0 || strcmp(name, "table") == 0;
+    return strcmp(name, "os") == 0 || 
+           strcmp(name, "math") == 0 ||
+           strcmp(name, "string") == 0 || 
+           strcmp(name, "table") == 0 ||
+           strcmp(name, "ffi") == 0;
 }
 
 static bool build_module_path(Parser* parser, const char* module_path, char* out_path, int out_size) {

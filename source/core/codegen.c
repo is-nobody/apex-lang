@@ -269,6 +269,8 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "table.remove", "table.has", "table.size",
         "table.keys", "table.values", "table.clear",
         "table.copy", "table.merge",
+        "ffi.open", "ffi.call", "ffi.errno", "ffi.strerror",
+        "ffi.malloc", "ffi.free",
         "type",
         NULL
     };

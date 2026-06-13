@@ -29,6 +29,7 @@ set(SOURCES
     source/libraries/math_module.c 
     source/libraries/string_module.c 
     source/libraries/table_module.c
+    source/libraries/ffi_module.c
 )
 
 add_executable(apex ${SOURCES})
@@ -138,10 +139,10 @@ elseif(WIN32)
     target_link_libraries(apex PRIVATE shlwapi zlib)
 elseif(APPLE)
     # macOS: link math and zlib
-    target_link_libraries(apex PRIVATE m z)
+    target_link_libraries(apex PRIVATE m z dl)
 else()
     # Linux: link math and zlib
-    target_link_libraries(apex PRIVATE m z)
+    target_link_libraries(apex PRIVATE m z dl)
 endif()
 
 # Option: fully static build (zero system dependencies)

@@ -1,0 +1,157 @@
+#include "vm.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+
+#ifdef _WIN32
+    #include <windows.h>
+    typedef HMODULE LibHandle;
+    #define dlopen(path, flags) LoadLibraryA(path)
+    #define dlsym(handle, name) GetProcAddress(handle, name)
+    #define dlclose(handle) FreeLibrary(handle)
+#else
+    #include <dlfcn.h>
+    typedef void* LibHandle;
+#endif
+
+bool ffi_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
+    (void)vm;
+
+    // ffi.open(path)
+    if (strcmp(name, "ffi.open") == 0) {
+        if (arg_count >= 1 && args[0].type == VAL_STRING) {
+            const char* path = args[0].string->chars;
+            char full_path[4096];
+            
+            // If path doesn't contain a slash, prepend "./" to search in current directory
+            if (strchr(path, '/') == NULL && strchr(path, '\\') == NULL) {
+                snprintf(full_path, sizeof(full_path), "./%s", path);
+                path = full_path;
+            }
+
+            void* handle = dlopen(path, RTLD_LAZY);
+            if (!handle) {
+                *result = vm_make_bool(false);
+            } else {
+                *result = vm_make_table();
+                table_set(result->table, "_handle", vm_make_number((double)(uintptr_t)handle));
+                table_set(result->table, "path", vm_make_string(args[0].string->chars));
+            }
+        } else {
+            *result = vm_make_bool(false);
+        }
+        return true;
+    }
+
+    // ffi.call(lib_table, func_name, ...)
+    if (strcmp(name, "ffi.call") == 0) {
+        if (arg_count < 2) {
+            *result = vm_make_bool(false);
+            return true;
+        }
+
+        Value* lib_val = &args[0];
+        Value* name_val = &args[1];
+
+        if (lib_val->type != VAL_TABLE || name_val->type != VAL_STRING) {
+            *result = vm_make_bool(false);
+            return true;
+        }
+
+        Value handle_val;
+        if (!table_get(lib_val->table, "_handle", &handle_val) || handle_val.type != VAL_NUMBER) {
+            *result = vm_make_bool(false);
+            return true;
+        }
+
+        LibHandle handle = (LibHandle)(uintptr_t)handle_val.number;
+        const char* func_name = name_val->string->chars;
+        
+        void* func_ptr = dlsym(handle, func_name);
+        if (!func_ptr) {
+            *result = vm_make_bool(false);
+            return true;
+        }
+
+        // Simple FFI: assume function returns long and takes up to 4 long args
+        typedef long (*generic_func_0)();
+        typedef long (*generic_func_1)(long);
+        typedef long (*generic_func_2)(long, long);
+        typedef long (*generic_func_3)(long, long, long);
+        typedef long (*generic_func_4)(long, long, long, long);
+
+        long res = 0;
+        int actual_args = arg_count - 2; // minus lib and name
+
+        switch (actual_args) {
+            case 0:
+                res = ((generic_func_0)func_ptr)();
+                break;
+            case 1:
+                res = ((generic_func_1)func_ptr)((long)args[2].number);
+                break;
+            case 2:
+                res = ((generic_func_2)func_ptr)((long)args[2].number, (long)args[3].number);
+                break;
+            case 3:
+                res = ((generic_func_3)func_ptr)((long)args[2].number, (long)args[3].number, (long)args[4].number);
+                break;
+            case 4:
+                res = ((generic_func_4)func_ptr)((long)args[2].number, (long)args[3].number, (long)args[4].number, (long)args[5].number);
+                break;
+            default:
+                *result = vm_make_bool(false);
+                return true;
+        }
+
+        *result = vm_make_number((double)res);
+        return true;
+    }
+
+    // ffi.errno()
+    if (strcmp(name, "ffi.errno") == 0) {
+        *result = vm_make_number(errno);
+        return true;
+    }
+
+    // ffi.malloc(size) — allocate memory, return pointer as number
+    if (strcmp(name, "ffi.malloc") == 0) {
+        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
+            size_t size = (size_t)args[0].number;
+            void* ptr = malloc(size);
+            if (ptr) {
+                *result = vm_make_number((double)(uintptr_t)ptr);
+            } else {
+                *result = vm_make_number(0); // NULL on failure
+            }
+        } else {
+            *result = vm_make_number(0);
+        }
+        return true;
+    }
+
+    // ffi.free(ptr) — free memory allocated by malloc
+    if (strcmp(name, "ffi.free") == 0) {
+        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
+            void* ptr = (void*)(uintptr_t)args[0].number;
+            if (ptr != NULL) {
+                free(ptr);
+            }
+        }
+        *result = vm_make_bool(true);
+        return true;
+    }
+
+    // ffi.strerror(code)
+    if (strcmp(name, "ffi.strerror") == 0) {
+        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
+            *result = vm_make_string(strerror((int)args[0].number));
+        } else {
+            *result = vm_make_string(strerror(errno));
+        }
+        return true;
+    }
+
+    return false;
+}
