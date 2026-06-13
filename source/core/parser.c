@@ -1188,22 +1188,38 @@ static ASTNode* parse_table_literal(Parser* parser) {
     ASTNodeList* key_values = ast_list_create();
     bool has_key_values = false;
 
-    skip_newlines(parser); // <--- Skip newlines after '('
+    skip_newlines(parser);
 
     if (!check(parser, TOKEN_RPAREN)) {
         while (true) {
-            skip_newlines(parser); // <--- Skip newlines before item
-            
+            skip_newlines(parser);
+
             // Check for key = value pattern
-            if (check(parser, TOKEN_IDENTIFIER) && check_next(parser, TOKEN_EQUAL)) {
+            // ALLOW: Identifiers, Strings, AND Numbers as keys
+            bool is_key = check(parser, TOKEN_IDENTIFIER) || 
+                          check(parser, TOKEN_STRING) || 
+                          check(parser, TOKEN_NUMBER);
+            
+            if (is_key && check_next(parser, TOKEN_EQUAL)) {
                 has_key_values = true;
-                Token* key = advance(parser);
+                Token* key_token = advance(parser);
                 advance(parser); // consume '='
-                ASTNode* value = parse_expression(parser);
                 
+                ASTNode* key_node;
+                // Create the appropriate AST node for the key
+                if (key_token->type == TOKEN_STRING) {
+                    key_node = ast_create_literal_string(key_token->value, key_token->line, key_token->column);
+                } else if (key_token->type == TOKEN_NUMBER) {
+                    // Convert number key to string key internally to match VM table behavior
+                    key_node = ast_create_literal_string(key_token->value, key_token->line, key_token->column);
+                } else {
+                    key_node = ast_create_identifier(key_token->value, key_token->line, key_token->column);
+                }
+
+                ASTNode* value = parse_expression(parser);
                 ASTNode* kv_node = ast_create_binary(
                     TOKEN_EQUAL,
-                    ast_create_identifier(key->value, key->line, key->column),
+                    key_node,
                     value
                 );
                 ast_list_add(key_values, kv_node);
@@ -1214,13 +1230,14 @@ static ASTNode* parse_table_literal(Parser* parser) {
                 ASTNode* item = parse_expression(parser);
                 ast_list_add(items, item);
             }
-            
-            skip_newlines(parser); // <--- Skip newlines before ',' or ')'
+
+            skip_newlines(parser);
             if (!match(parser, TOKEN_COMMA)) break;
-            skip_newlines(parser); // Skip newlines after ','
+            skip_newlines(parser);
         }
     }
-    skip_newlines(parser); // <--- Skip newlines before final ')'
+
+    skip_newlines(parser);
     consume(parser, TOKEN_RPAREN, "Expected ')' after table literal");
     return ast_create_table_literal(items, key_values);
 }
