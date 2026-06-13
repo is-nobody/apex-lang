@@ -17,6 +17,7 @@ set(SOURCES
     source/utils/commands.c
     source/utils/build.c
     source/utils/bridge.c
+    source/utils/apex_api.c
     source/core/tokenizer.c 
     source/core/parser.c 
     source/core/ast.c 
