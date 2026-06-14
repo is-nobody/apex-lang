@@ -248,13 +248,14 @@ static char* read_string(Tokenizer* tokenizer) {
 static char* read_number(Tokenizer* tokenizer) {
     char* buffer = (char*)malloc(64);
     int buf_pos = 0;
-    
     char c = peek(tokenizer, 0);
+    
+    // Integer part
     while (isdigit(c)) {
         buffer[buf_pos++] = advance(tokenizer);
         c = peek(tokenizer, 0);
     }
-    
+
     // Fractional part
     if (c == '.' && isdigit(peek(tokenizer, 1))) {
         buffer[buf_pos++] = advance(tokenizer);
@@ -264,7 +265,25 @@ static char* read_number(Tokenizer* tokenizer) {
             c = peek(tokenizer, 0);
         }
     }
-    
+
+    // Exponent part (Scientific Notation)
+    if (c == 'e' || c == 'E') {
+        // Lookahead to ensure it's actually an exponent (followed by digit or sign+digit)
+        char next = peek(tokenizer, 1);
+        if (isdigit(next) || ((next == '+' || next == '-') && isdigit(peek(tokenizer, 2)))) {
+            buffer[buf_pos++] = advance(tokenizer); // consume 'e' or 'E'
+            c = peek(tokenizer, 0);
+            if (c == '+' || c == '-') {
+                buffer[buf_pos++] = advance(tokenizer); // consume sign
+                c = peek(tokenizer, 0);
+            }
+            while (isdigit(c)) {
+                buffer[buf_pos++] = advance(tokenizer);
+                c = peek(tokenizer, 0);
+            }
+        }
+    }
+
     buffer[buf_pos] = '\0';
     return buffer;
 }
