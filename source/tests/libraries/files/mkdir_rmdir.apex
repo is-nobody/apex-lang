@@ -1,11 +1,12 @@
 import os
+import files
 
 function mkdir()
-    result = os.mkdir("folder")
+    result = files.mkdir("folder")
     os.output("folder is created = {result}, expected true")
 
 function rmdir()
-    result = os.rmdir("folder")
+    result = files.rmdir("folder")
     os.output("folder is deleted = {result}, expected true")
 
 mkdir()

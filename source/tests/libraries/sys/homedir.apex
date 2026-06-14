@@ -1,7 +1,8 @@
 import os
+import sys
 
 function homedir()
-    dir = os.homedir()
+    dir = sys.homedir()
     os.output(dir)
 
 homedir()

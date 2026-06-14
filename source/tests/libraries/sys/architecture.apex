@@ -1,7 +1,8 @@
 import os
+import sys
 
 function architecture()
-    arch = os.architecture()
+    arch = sys.architecture()
     os.output(arch)
 
 architecture()

@@ -1,4 +1,5 @@
 import os
+import files
 
 test_paths = (
     "/home/user/documents/file.txt",
@@ -8,7 +9,7 @@ test_paths = (
 )
 
 for path in test_paths
-    parent = os.parentfolder(path)
+    parent = files.parentfolder(path)
     if parent == false
         os.output("Error getting parent of: {path}")
     else

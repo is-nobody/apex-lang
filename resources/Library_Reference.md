@@ -4,7 +4,7 @@ Apex comes with several built-in libraries. These are ready-to-use tools that so
 **Important:** All functions evaluate to `false` on error. Handle it with `if var == false` condition check.
 
 ## OS Library (os)
-The OS library lets you interact with the operating system. You can print text, read files, create folders, and more. Import it with `import os`.
+The OS library lets you interact with the operating system, manage processes, and handle standard I/O. Import it with `import os`.
 
 ### Basic I/O
 #### os.output(value)
@@ -89,382 +89,6 @@ else
         os.output("Stderr is redirected")
 ```
 
-### File Read/Write
-#### os.read(filename)
-Reads the entire contents of a file and returns it as a string. Returns `false` if the file cannot be read.
-
-```apex
-import os
-
-content = os.read("story.txt")
-
-if content == false
-    os.output("Could not read the file")
-else
-    os.output(content)
-```
-
-#### os.write(filename, content)
-Writes content to a file. Creates the file if it doesn't exist, overwrites it if it does. Returns `true` on success, `false` on failure.
-
-```apex
-import os
-
-success = os.write("notes.txt", "Today I learned Apex!")
-
-if success == false
-    os.output("Could not write to the file")
-else
-    os.output("File saved successfully")
-```
-
-#### os.append(filename, content)
-Appends content to the end of a file. Creates the file if it doesn't exist. Returns `true` on success, `false` on failure.
-
-```apex
-import os
-
-result = os.write("log.txt", "First line\n")
-
-if result == false
-    os.output("Could not write to the file")
-else
-    os.output("First line written")
-
-result = os.append("log.txt", "Second line\n")
-
-if result == false
-    os.output("Could not append to the file")
-else
-    os.output("Second line appended")
-// log.txt now contains both lines
-```
-
-### File Properties
-#### os.exists(path)
-Returns `true` if the file or folder at `path` exists, `false` otherwise.
-
-```apex
-import os
-
-exists = os.exists("config.apex")
-
-if exists == false
-    os.output("No config file")
-else
-    os.output("Config file found")
-```
-
-#### os.isfile(path)
-Returns `true` if the path points to a file specifically (not a folder). Returns `false` otherwise.
-
-```apex
-import os
-
-result = os.isfile("data.txt")
-
-if result == false
-    os.output("Not a file or doesn't exist")
-else
-    os.output("It's a file")
-```
-
-#### os.isdir(path)
-Returns `true` if the path points to a folder specifically. Returns `false` otherwise.
-
-```apex
-import os
-
-result = os.isdir("my_folder")
-
-if result == false
-    os.output("Not a folder or doesn't exist")
-else
-    os.output("It's a folder")
-```
-
-#### os.filesize(path)
-Returns the size of a file in bytes. Returns a number on success, `false` if the file doesn't exist or isn't a regular file.
-
-```apex
-import os
-
-size = os.filesize("movie.mp4")
-
-if size == false
-    os.output("Could not get file size")
-else
-    os.output("File size: {size} bytes")
-```
-
-#### os.dirsize(path)
-Calculates the total size of a directory in bytes (recursively, including all nested files and folders). Returns a number on success, or `false` if the directory doesn't exist.
-
-```apex
-import os
-
-size = os.dirsize("downloads")
-
-if size == false
-    os.output("Could not calculate directory size")
-else
-    os.output("Folder size: {size} bytes")
-```
-
-#### os.filetype(path)
-Detects the file type by its contents (magic bytes). Returns a string describing the type, or `false` if the file is not found. Recognizes: `PDF`, `PNG`, `JPEG`, `GIF`, `ZIP`, `ELF`, `Windows executable`, `Plain text`, `Unknown binary`.
-
-```apex
-import os
-
-filetype = os.filetype("document.pdf")
-
-if filetype == false
-    os.output("Could not detect file type")
-else
-    os.output("File type: {filetype}")
-```
-
-#### os.stat(path)
-Returns a table with information about a file or folder. The table contains these keys:
-- `size` — file size in bytes
-- `mtime` — last modification time (timestamp)
-- `ctime` — creation time (timestamp)
-- `isdir` — `true` if it's a folder, `false` if it's a file
-
-Returns a table on success, `false` on failure.
-
-```apex
-import os
-
-info = os.stat("data.txt")
-
-if info == false
-    os.output("File does not exist")
-else
-    os.output("Size: {info.size} bytes")
-    os.output("Modified: {info.mtime}")
-    os.output("Created: {info.ctime}")
-    os.output("Is directory: {info.isdir}")
-```
-
-### Rename and Move
-#### os.rnfile(old_name, new_name)
-Renames a file. Returns `true` on success, `false` if the source doesn't exist or isn't a file.
-
-```apex
-import os
-
-result = os.rnfile("old.txt", "new.txt")
-
-if result == false
-    os.output("Could not rename the file")
-else
-    os.output("File renamed successfully")
-```
-
-#### os.rndir(old_name, new_name)
-Renames a directory. Returns `true` on success, `false` if the source doesn't exist or isn't a directory.
-
-```apex
-import os
-
-result = os.rndir("old_folder", "new_folder")
-
-if result == false
-    os.output("Could not rename the directory")
-else
-    os.output("Directory renamed successfully")
-```
-
-#### os.mvfile(source, destination)
-Moves a file to a new location. Returns `true` on success, `false` on failure.
-
-```apex
-import os
-
-result = os.mvfile("doc.txt", "backup/doc.txt")
-
-if result == false
-    os.output("Could not move the file")
-else
-    os.output("File moved successfully")
-```
-
-#### os.mvdir(source, destination)
-Moves a directory to a new location. Returns `true` on success, `false` on failure.
-
-```apex
-import os
-
-result = os.mvdir("project", "archive/project")
-
-if result == false
-    os.output("Could not move the directory")
-else
-    os.output("Directory moved successfully")
-```
-
-### Copy
-#### os.cpfile(source, destination)
-Copies a file. Returns `true` on success, `false` on failure.
-
-```apex
-import os
-
-result = os.cpfile("original.txt", "copy.txt")
-
-if result == false
-    os.output("Could not copy the file")
-else
-    os.output("File copied successfully")
-```
-
-#### os.cpdir(source, destination)
-Recursively copies a directory with all its contents. Returns `true` on success, `false` on failure.
-
-```apex
-import os
-
-result = os.cpdir("my_project", "backup/my_project")
-
-if result == false
-    os.output("Could not copy the directory")
-else
-    os.output("Directory copied successfully")
-```
-
-### Create and Delete
-#### os.mkfile(filename)
-Creates an empty file. Returns `true` on success, `false` on failure.
-
-```apex
-import os
-
-result = os.mkfile("new_file.txt")
-
-if result == false
-    os.output("Could not create the file")
-else
-    os.output("File created successfully")
-```
-
-#### os.mkdir(path)
-Creates a new folder. Returns `true` on success, `false` if the folder already exists or can't be created.
-
-```apex
-import os
-
-result = os.mkdir("my_project")
-
-if result == false
-    os.output("Folder already exists or can't be created")
-else
-    os.output("Folder created successfully")
-```
-
-#### os.rmfile(path)
-Deletes a file permanently. Returns `true` if deleted, `false` if the file doesn't exist or can't be deleted.
-
-```apex
-import os
-
-result = os.rmfile("temp.txt")
-
-if result == false
-    os.output("Could not delete the file")
-else
-    os.output("File deleted successfully")
-```
-
-#### os.rmdir(path)
-Removes an empty folder. Returns `true` on success, `false` if the folder isn't empty or doesn't exist. This only works on empty folders — use `os.rmfile()` to delete files inside first.
-
-```apex
-import os
-
-result = os.rmdir("old_folder")
-
-if result == false
-    os.output("Could not remove the directory")
-else
-    os.output("Directory removed successfully")
-```
-
-### Directory Navigation
-#### os.listdir(path)
-Returns a table of names — all files and folders inside the given folder. If no path is given, lists the current folder. Returns an empty table on failure.
-
-```apex
-import os
-
-items = os.listdir(".")
-
-if items == false
-    os.output("Could not list directory contents")
-else
-    os.output("Contents of current directory:")
-    for item in items
-        os.output("  {item}")
-```
-
-#### os.getcd()
-Returns the current directory as a string — where your program is running from. Returns `false` on failure.
-
-```apex
-import os
-
-current_folder = os.getcd()
-
-if current_folder == false
-    os.output("Could not get current directory")
-else
-    os.output("Running from: {current_folder}")
-```
-
-#### os.setcd(path)
-Changes the current directory. Returns `true` on success, `false` on failure.
-
-```apex
-import os
-
-result = os.setcd("/home/user/projects")
-
-if result == false
-    os.output("Could not change directory")
-else
-    os.output("Directory changed successfully")
-```
-
-#### os.parentfolder(path)
-Returns the parent directory of the given path. For root paths like `/` or `C:\`, returns the root itself. If no directory separator is found in the path, returns `"."`. Returns `false` if no path is provided or on failure.
-
-```apex
-import os
-
-parent = os.parentfolder("/home/user/projects")
-
-if parent == false
-    os.output("Could not get parent folder")
-else
-    os.output("Parent folder: {parent}")  // /home/user
-```
-
-### Permissions
-#### os.chmod(path, mode)
-Changes file permissions. The `mode` is a number (e.g., `755` for rwxr-xr-x on Unix). Returns `true` on success, `false` on failure.
-
-```apex
-import os
-
-result = os.chmod("script.sh", 755)
-
-if result == false
-    os.output("Could not change permissions")
-else
-    os.output("Permissions changed successfully")
-```
-
 ### Environment Variables
 #### os.getenv(name)
 Gets the value of an environment variable. Returns the value as a string, or `false` if the variable doesn't exist.
@@ -508,169 +132,6 @@ else
     os.output("HOME = {env_vars.HOME}")
     os.output("PATH = {env_vars.PATH}")
 ```
-
-### System Info
-#### os.platform()
-Returns a string identifying your operating system, such as `"Windows"`, `"macOS"`, `"iOS"`, `"tvOS"`, `"watchOS"`, `"Android"`, `"Linux"`, `"FreeBSD"`, `"OpenBSD"`, `"NetBSD"`, `"QNX"`, or `"Unix"`. Returns `false` if the platform cannot be detected.
-
-```apex
-import os
-
-system = os.platform()
-
-if system == false
-    os.output("Could not detect platform")
-else
-    os.output("You're running on {system}")
-```
-
-#### os.architecture()
-Returns a string identifying the system's processor architecture, such as `"x86_64"`, `"arm64"`, or `"aarch64"`. Returns `"false"` if the architecture cannot be detected.
-
-```apex
-import os
-
-arch = os.architecture()
-
-if name == false
-    os.output("Could not get architecture")
-else
-    os.output("System Architecture: {arch}")
-```
-
-#### os.hostname()
-Returns the system's hostname as a string. Returns `false` on failure.
-
-```apex
-import os
-
-name = os.hostname()
-
-if name == false
-    os.output("Could not get hostname")
-else
-    os.output("Hostname: {name}")
-```
-
-#### os.user()
-Returns the current user's login name as a string. Returns `false` if it can't be determined.
-
-```apex
-import os
-
-username = os.user()
-
-if username == false
-    os.output("Could not get username")
-else
-    os.output("Logged in as: {username}")
-```
-
-#### os.homedir()
-Returns the current user's home directory path as a string. Returns `false` if it can't be determined.
-
-```apex
-import os
-
-home = os.homedir()
-
-if home == false
-    os.output("Could not get home directory")
-else
-    os.output("Home folder: {home}")
-
-    // Example: change to home directory
-    result = os.setcd(home)
-    if result == false
-        os.output("Could not change to home directory")
-    else
-        os.output("Changed to home directory")
-```
-
-#### os.apex_version()
-Returns the current Apex interpreter version as a string.
-
-```apex
-import os
-
-version = os.apex_version()
-
-os.output("Apex Version: {version}")
-```
-
-#### os.executable()
-Returns the full path to the currently running Apex executable. Returns `false` on failure.
-
-```apex
-import os
-
-path = os.executable()
-
-if path == false
-    os.output("Could not get executable path")
-else
-    os.output("Running from: {path}")
-```
-
-### Disk Information
-#### os.disksize(path)
-Returns the total disk size in bytes for the volume containing the given path. If no path is provided, uses the current directory. Returns a number on success, `false` on failure.
-
-```apex
-import os
-
-total = os.disksize(".")
-
-if total == false
-    os.output("Could not get disk size")
-else
-    os.output("Total disk size: {total} bytes")
-```
-
-#### os.freesize(path)
-Returns the free disk space in bytes for the volume containing the given path. If no path is provided, uses the current directory. Returns a number on success, `false` on failure.
-
-```apex
-import os
-
-free = os.freesize(".")
-
-if free == false
-    os.output("Could not get free disk space")
-else
-    os.output("Free disk space: {free} bytes")
-```
-
-### Temporary Files
-#### os.tempfile()
-Creates a new temporary file and returns its path as a string. The file is created empty — you can write to it with `os.write()` or `os.append()`. Returns `false` on failure.
-
-```apex
-import os
-
-temp_path = os.tempfile()
-
-if temp_path == false
-    os.output("Could not create temporary file")
-else
-    os.output("Temporary file created: {temp_path}")
-    os.write(temp_path, "Temporary data...")
-```
-
-#### os.tempdir()
-Returns the path to the system's temporary directory. On Unix-like systems, checks the `TMPDIR`, `TMP`, and `TEMP` environment variables, falling back to `/tmp`. Returns `false` on failure.
-
-```apex
-import os
-
-temp_dir = os.tempdir()
-
-if temp_dir == false
-    os.output("Could not get temporary directory")
-else
-    os.output("Temporary directory: {temp_dir}")
-```
-
 
 ### Process Management
 #### os.pid()
@@ -764,6 +225,52 @@ else
     os.output("Command exited with code: {exit_code}")
 ```
 
+### Directory Navigation
+#### os.listdir(path)
+*Note: This function is also available in `files.listdir`.*
+Returns a table of names — all files and folders inside the given folder. If no path is given, lists the current folder. Returns an empty table on failure.
+
+```apex
+import os
+
+items = os.listdir(".")
+
+if items == false
+    os.output("Could not list directory contents")
+else
+    os.output("Contents of current directory:")
+    for item in items
+        os.output("  {item}")
+```
+
+#### os.getcd()
+Returns the current directory as a string — where your program is running from. Returns `false` on failure.
+
+```apex
+import os
+
+current_folder = os.getcd()
+
+if current_folder == false
+    os.output("Could not get current directory")
+else
+    os.output("Running from: {current_folder}")
+```
+
+#### os.setcd(path)
+Changes the current directory. Returns `true` on success, `false` on failure.
+
+```apex
+import os
+
+result = os.setcd("/home/user/projects")
+
+if result == false
+    os.output("Could not change directory")
+else
+    os.output("Directory changed successfully")
+```
+
 ### Time and Exit
 #### os.time()
 Returns the current time as a number — seconds since January 1, 1970. Useful for measuring how long something takes. Returns `false` on failure.
@@ -809,6 +316,511 @@ if os.exists("critical_file.txt") == false
     os.exit(1)
 else
     os.output("Critical file found, continuing...")
+```
+
+---
+
+## Files Library (files)
+The Files library handles file and directory operations, including reading, writing, moving, and checking properties. Import it with `import files`.
+
+### File Read/Write
+#### files.read(filename)
+Reads the entire contents of a file and returns it as a string. Returns `false` if the file cannot be read.
+
+```apex
+import files
+
+content = files.read("story.txt")
+
+if content == false
+    os.output("Could not read the file")
+else
+    os.output(content)
+```
+
+#### files.write(filename, content)
+Writes content to a file. Creates the file if it doesn't exist, overwrites it if it does. Returns `true` on success, `false` on failure.
+
+```apex
+import files
+
+success = files.write("notes.txt", "Today I learned Apex!")
+
+if success == false
+    os.output("Could not write to the file")
+else
+    os.output("File saved successfully")
+```
+
+#### files.append(filename, content)
+Appends content to the end of a file. Creates the file if it doesn't exist. Returns `true` on success, `false` on failure.
+
+```apex
+import files
+
+result = files.write("log.txt", "First line\n")
+
+if result == false
+    os.output("Could not write to the file")
+else
+    os.output("First line written")
+
+result = files.append("log.txt", "Second line\n")
+
+if result == false
+    os.output("Could not append to the file")
+else
+    os.output("Second line appended")
+// log.txt now contains both lines
+```
+
+### File Properties
+#### files.exists(path)
+Returns `true` if the file or folder at `path` exists, `false` otherwise.
+
+```apex
+import files
+
+exists = files.exists("config.apex")
+
+if exists == false
+    os.output("No config file")
+else
+    os.output("Config file found")
+```
+
+#### files.isfile(path)
+Returns `true` if the path points to a file specifically (not a folder). Returns `false` otherwise.
+
+```apex
+import files
+
+result = files.isfile("data.txt")
+
+if result == false
+    os.output("Not a file or doesn't exist")
+else
+    os.output("It's a file")
+```
+
+#### files.isdir(path)
+Returns `true` if the path points to a folder specifically. Returns `false` otherwise.
+
+```apex
+import files
+
+result = files.isdir("my_folder")
+
+if result == false
+    os.output("Not a folder or doesn't exist")
+else
+    os.output("It's a folder")
+```
+
+#### files.filesize(path)
+Returns the size of a file in bytes. Returns a number on success, `false` if the file doesn't exist or isn't a regular file.
+
+```apex
+import files
+
+size = files.filesize("movie.mp4")
+
+if size == false
+    os.output("Could not get file size")
+else
+    os.output("File size: {size} bytes")
+```
+
+#### files.dirsize(path)
+Calculates the total size of a directory in bytes (recursively, including all nested files and folders). Returns a number on success, or `false` if the directory doesn't exist.
+
+```apex
+import files
+
+size = files.dirsize("downloads")
+
+if size == false
+    os.output("Could not calculate directory size")
+else
+    os.output("Folder size: {size} bytes")
+```
+
+#### files.filetype(path)
+Detects the file type by its contents (magic bytes). Returns a string describing the type, or `false` if the file is not found. Recognizes: `PDF`, `PNG`, `JPEG`, `GIF`, `ZIP`, `ELF`, `Windows executable`, `Plain text`, `Unknown binary`.
+
+```apex
+import files
+
+filetype = files.filetype("document.pdf")
+
+if filetype == false
+    os.output("Could not detect file type")
+else
+    os.output("File type: {filetype}")
+```
+
+#### files.stat(path)
+Returns a table with information about a file or folder. The table contains these keys:
+- `size` — file size in bytes
+- `mtime` — last modification time (timestamp)
+- `ctime` — creation time (timestamp)
+- `isdir` — `true` if it's a folder, `false` if it's a file
+
+Returns a table on success, `false` on failure.
+
+```apex
+import files
+
+info = files.stat("data.txt")
+
+if info == false
+    os.output("File does not exist")
+else
+    os.output("Size: {info.size} bytes")
+    os.output("Modified: {info.mtime}")
+    os.output("Created: {info.ctime}")
+    os.output("Is directory: {info.isdir}")
+```
+
+### Rename and Move
+#### files.rnfile(old_name, new_name)
+Renames a file. Returns `true` on success, `false` if the source doesn't exist or isn't a file.
+
+```apex
+import files
+
+result = files.rnfile("old.txt", "new.txt")
+
+if result == false
+    os.output("Could not rename the file")
+else
+    os.output("File renamed successfully")
+```
+
+#### files.rndir(old_name, new_name)
+Renames a directory. Returns `true` on success, `false` if the source doesn't exist or isn't a directory.
+
+```apex
+import files
+
+result = files.rndir("old_folder", "new_folder")
+
+if result == false
+    os.output("Could not rename the directory")
+else
+    os.output("Directory renamed successfully")
+```
+
+#### files.mvfile(source, destination)
+Moves a file to a new location. Returns `true` on success, `false` on failure.
+
+```apex
+import files
+
+result = files.mvfile("doc.txt", "backup/doc.txt")
+
+if result == false
+    os.output("Could not move the file")
+else
+    os.output("File moved successfully")
+```
+
+#### files.mvdir(source, destination)
+Moves a directory to a new location. Returns `true` on success, `false` on failure.
+
+```apex
+import files
+
+result = files.mvdir("project", "archive/project")
+
+if result == false
+    os.output("Could not move the directory")
+else
+    os.output("Directory moved successfully")
+```
+
+### Copy
+#### files.cpfile(source, destination)
+Copies a file. Returns `true` on success, `false` on failure.
+
+```apex
+import files
+
+result = files.cpfile("original.txt", "copy.txt")
+
+if result == false
+    os.output("Could not copy the file")
+else
+    os.output("File copied successfully")
+```
+
+#### files.cpdir(source, destination)
+Recursively copies a directory with all its contents. Returns `true` on success, `false` on failure.
+
+```apex
+import files
+
+result = files.cpdir("my_project", "backup/my_project")
+
+if result == false
+    os.output("Could not copy the directory")
+else
+    os.output("Directory copied successfully")
+```
+
+### Create and Delete
+#### files.mkfile(filename)
+Creates an empty file. Returns `true` on success, `false` on failure.
+
+```apex
+import files
+
+result = files.mkfile("new_file.txt")
+
+if result == false
+    os.output("Could not create the file")
+else
+    os.output("File created successfully")
+```
+
+#### files.mkdir(path)
+Creates a new folder. Returns `true` on success, `false` if the folder already exists or can't be created.
+
+```apex
+import files
+
+result = files.mkdir("my_project")
+
+if result == false
+    os.output("Folder already exists or can't be created")
+else
+    os.output("Folder created successfully")
+```
+
+#### files.rmfile(path)
+Deletes a file permanently. Returns `true` if deleted, `false` if the file doesn't exist or can't be deleted.
+
+```apex
+import files
+
+result = files.rmfile("temp.txt")
+
+if result == false
+    os.output("Could not delete the file")
+else
+    os.output("File deleted successfully")
+```
+
+#### files.rmdir(path)
+Removes an empty folder. Returns `true` on success, `false` if the folder isn't empty or doesn't exist. This only works on empty folders — use `files.rmfile()` to delete files inside first.
+
+```apex
+import files
+
+result = files.rmdir("old_folder")
+
+if result == false
+    os.output("Could not remove the directory")
+else
+    os.output("Directory removed successfully")
+```
+
+### Directory Navigation
+#### files.listdir(path)
+Returns a table of names — all files and folders inside the given folder. If no path is given, lists the current folder. Returns an empty table on failure.
+
+```apex
+import files
+
+items = files.listdir(".")
+
+if items == false
+    os.output("Could not list directory contents")
+else
+    os.output("Contents of current directory:")
+    for item in items
+        os.output("  {item}")
+```
+
+#### files.parentfolder(path)
+Returns the parent directory of the given path. For root paths like `/` or `C:\`, returns the root itself. If no directory separator is found in the path, returns `"."`. Returns `false` if no path is provided or on failure.
+
+```apex
+import files
+
+parent = files.parentfolder("/home/user/projects")
+
+if parent == false
+    os.output("Could not get parent folder")
+else
+    os.output("Parent folder: {parent}")  // /home/user
+```
+
+### Permissions
+#### files.chmod(path, mode)
+Changes file permissions. The `mode` is a number (e.g., `755` for rwxr-xr-x on Unix). Returns `true` on success, `false` on failure.
+
+```apex
+import files
+
+result = files.chmod("script.sh", 755)
+
+if result == false
+    os.output("Could not change permissions")
+else
+    os.output("Permissions changed successfully")
+```
+
+### Disk Information
+#### files.disksize(path)
+Returns the total disk size in bytes for the volume containing the given path. If no path is provided, uses the current directory. Returns a number on success, `false` on failure.
+
+```apex
+import files
+
+total = files.disksize(".")
+
+if total == false
+    os.output("Could not get disk size")
+else
+    os.output("Total disk size: {total} bytes")
+```
+
+#### files.freesize(path)
+Returns the free disk space in bytes for the volume containing the given path. If no path is provided, uses the current directory. Returns a number on success, `false` on failure.
+
+```apex
+import files
+
+free = files.freesize(".")
+
+if free == false
+    os.output("Could not get free disk space")
+else
+    os.output("Free disk space: {free} bytes")
+```
+
+### Temporary Files
+#### files.tempdir()
+Returns the path to the system's temporary directory. On Unix-like systems, checks the `TMPDIR`, `TMP`, and `TEMP` environment variables, falling back to `/tmp`. Returns `false` on failure.
+
+```apex
+import files
+
+temp_dir = files.tempdir()
+
+if temp_dir == false
+    os.output("Could not get temporary directory")
+else
+    os.output("Temporary directory: {temp_dir}")
+```
+
+---
+
+## System Library (sys)
+The System library provides static or rarely changing system information. Import it with `import sys`.
+
+### System Info
+#### sys.platform()
+Returns a string identifying your operating system, such as `"Windows"`, `"macOS"`, `"iOS"`, `"tvOS"`, `"watchOS"`, `"Android"`, `"Linux"`, `"FreeBSD"`, `"OpenBSD"`, `"NetBSD"`, `"QNX"`, or `"Unix"`. Returns `false` if the platform cannot be detected.
+
+```apex
+import sys
+
+system = sys.platform()
+
+if system == false
+    os.output("Could not detect platform")
+else
+    os.output("You're running on {system}")
+```
+
+#### sys.architecture()
+Returns a string identifying the system's processor architecture, such as `"x86_64"`, `"arm64"`, or `"aarch64"`. Returns `false` if the architecture cannot be detected.
+
+```apex
+import sys
+
+arch = sys.architecture()
+
+if arch == false
+    os.output("Could not get architecture")
+else
+    os.output("System Architecture: {arch}")
+```
+
+#### sys.hostname()
+Returns the system's hostname as a string. Returns `false` on failure.
+
+```apex
+import sys
+
+name = sys.hostname()
+
+if name == false
+    os.output("Could not get hostname")
+else
+    os.output("Hostname: {name}")
+```
+
+#### sys.user()
+Returns the current user's login name as a string. Returns `false` if it can't be determined.
+
+```apex
+import sys
+
+username = sys.user()
+
+if username == false
+    os.output("Could not get username")
+else
+    os.output("Logged in as: {username}")
+```
+
+#### sys.homedir()
+Returns the current user's home directory path as a string. Returns `false` if it can't be determined.
+
+```apex
+import sys
+
+home = sys.homedir()
+
+if home == false
+    os.output("Could not get home directory")
+else
+    os.output("Home folder: {home}")
+
+    // Example: change to home directory
+    result = os.setcd(home)
+    if result == false
+        os.output("Could not change to home directory")
+    else
+        os.output("Changed to home directory")
+```
+
+#### sys.apex_version()
+Returns the current Apex interpreter version as a string.
+
+```apex
+import sys
+
+version = sys.apex_version()
+
+os.output("Apex Version: {version}")
+```
+
+#### sys.executable()
+Returns the full path to the currently running Apex executable. Returns `false` on failure.
+
+```apex
+import sys
+
+path = sys.executable()
+
+if path == false
+    os.output("Could not get executable path")
+else
+    os.output("Running from: {path}")
 ```
 
 ## Math Library (math)

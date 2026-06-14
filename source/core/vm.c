@@ -1,5 +1,7 @@
 #include "vm.h"
 #include "os_module.h"
+#include "files_module.h"
+#include "sys_module.h"
 #include "math_module.h"
 #include "string_module.h"
 #include "table_module.h"
@@ -393,6 +395,8 @@ void vm_destroy(VM* vm) {
 // ========== Built-in Functions ==========
 static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     if (strncmp(name, "os.", 3) == 0) return os_call_builtin(vm, name, arg_count, args, result);
+    if (strncmp(name, "files.", 6) == 0) return files_call_builtin(vm, name, arg_count, args, result);
+    if (strncmp(name, "sys.", 4) == 0) return sys_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "math.", 5) == 0) return math_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "string.", 7) == 0) return string_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "table.", 6) == 0) return table_call_builtin(vm, name, arg_count, args, result);

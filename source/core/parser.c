@@ -80,64 +80,65 @@ typedef struct {
 } BuiltinSig;
 
 static const BuiltinSig BUILTINS[] = {
-    // os library
+    // os
     {"os.output", 0, 1, TYPE_ANY},
     {"os.input", 0, 1, TYPE_ANY},
-    {"os.read", 1, 1, TYPE_STRING},
-    {"os.write", 2, 2, TYPE_ANY},
-    {"os.exists", 1, 1, TYPE_STRING},
-    {"os.isfile", 1, 1, TYPE_STRING},
-    {"os.isdir", 1, 1, TYPE_STRING},
-    {"os.rmfile", 1, 1, TYPE_STRING},
-    {"os.mkfile", 1, 1, TYPE_STRING},
-    {"os.listdir", 1, 1, TYPE_STRING},
-    {"os.getcd", 0, 0, TYPE_ANY},
-    {"os.setcd", 1, 1, TYPE_STRING},
-    {"os.mkdir", 1, 1, TYPE_STRING},
-    {"os.rmdir", 1, 1, TYPE_STRING},
-    {"os.stat", 1, 1, TYPE_STRING},
-    {"os.exit", 1, 1, TYPE_NUMBER},
-    {"os.wait", 1, 1, TYPE_NUMBER},
-    {"os.time", 0, 0, TYPE_ANY},
-    {"os.system", 1, 1, TYPE_STRING},
-    {"os.platform", 0, 0, TYPE_ANY}, 
-    {"os.rnfile", 2, 2, TYPE_STRING},
-    {"os.rndir", 2, 2, TYPE_STRING},
-    {"os.mvfile", 2, 2, TYPE_STRING},
-    {"os.mvdir", 2, 2, TYPE_STRING},
-    {"os.filetype", 1, 1, TYPE_STRING},
-    {"os.filesize", 1, 1, TYPE_STRING},
-    {"os.dirsize", 1, 1, TYPE_STRING},
-    {"os.cpfile", 2, 2, TYPE_STRING},
-    {"os.cpdir", 2, 2, TYPE_STRING},
-    {"os.dirsize", 1, 1, TYPE_STRING},
-    {"os.kill", 1, 1, TYPE_NUMBER},
-    {"os.spawn", 1, 1, TYPE_STRING},
-    {"os.pid", 0, 0, TYPE_ANY},
-    {"os.getparentpid", 0, 0, TYPE_ANY},
     {"os.getenv", 1, 1, TYPE_STRING},
     {"os.setenv", 2, 2, TYPE_STRING},
     {"os.env", 0, 0, TYPE_ANY},
-    {"os.append", 2, 2, TYPE_STRING},
-    {"os.chmod", 2, 2, TYPE_STRING},
+    {"os.time", 0, 0, TYPE_ANY},
+    {"os.wait", 1, 1, TYPE_NUMBER},
+    {"os.exit", 1, 1, TYPE_NUMBER},
+    {"os.getcd", 0, 0, TYPE_ANY},
+    {"os.setcd", 1, 1, TYPE_STRING},
+    {"os.pid", 0, 0, TYPE_ANY},
+    {"os.getparentpid", 0, 0, TYPE_ANY},
+    {"os.spawn", 1, 1, TYPE_STRING},
     {"os.waitpid", 1, 1, TYPE_NUMBER},
-    {"os.hostname", 0, 0, TYPE_ANY},
-    {"os.user", 0, 0, TYPE_ANY},
-    {"os.homedir", 0, 0, TYPE_ANY},
-    {"os.architecture", 0, 0, TYPE_ANY},
-    {"os.apex_version", 0, 0, TYPE_ANY},
+    {"os.kill", 1, 1, TYPE_NUMBER},
+    {"os.system", 1, 1, TYPE_STRING},
     {"os.stdin", 0, 0, TYPE_ANY},
     {"os.stdout", 0, 0, TYPE_ANY},
     {"os.stderr", 0, 0, TYPE_ANY},
-    {"os.args", 0, 0, TYPE_ANY},
-    {"os.executable", 0, 0, TYPE_ANY},
-    {"os.disksize", 0, 1, TYPE_STRING},
-    {"os.freesize", 0, 1, TYPE_STRING},
-    {"os.tempfile", 0, 0, TYPE_ANY},
-    {"os.tempdir", 0, 0, TYPE_ANY},
-    {"os.parentfolder", 1, 1, TYPE_STRING},
 
-    // math library
+    // files
+    {"files.read", 1, 1, TYPE_STRING},
+    {"files.write", 2, 2, TYPE_STRING},
+    {"files.append", 2, 2, TYPE_STRING},
+    {"files.exists", 1, 1, TYPE_STRING},
+    {"files.isfile", 1, 1, TYPE_STRING},
+    {"files.isdir", 1, 1, TYPE_STRING},
+    {"files.filesize", 1, 1, TYPE_STRING},
+    {"files.dirsize", 1, 1, TYPE_STRING},
+    {"files.filetype", 1, 1, TYPE_STRING},
+    {"files.stat", 1, 1, TYPE_STRING},
+    {"files.mkfile", 1, 1, TYPE_STRING},
+    {"files.mkdir", 1, 1, TYPE_STRING},
+    {"files.rmfile", 1, 1, TYPE_STRING},
+    {"files.rmdir", 1, 1, TYPE_STRING},
+    {"files.rnfile", 2, 2, TYPE_STRING},
+    {"files.rndir", 2, 2, TYPE_STRING},
+    {"files.mvfile", 2, 2, TYPE_STRING},
+    {"files.mvdir", 2, 2, TYPE_STRING},
+    {"files.cpfile", 2, 2, TYPE_STRING},
+    {"files.cpdir", 2, 2, TYPE_STRING},
+    {"files.listdir", 0, 1, TYPE_STRING},
+    {"files.parentfolder", 1, 1, TYPE_STRING},
+    {"files.chmod", 2, 2, TYPE_STRING},
+
+    // sys
+    {"sys.platform", 0, 0, TYPE_ANY},
+    {"sys.architecture", 0, 0, TYPE_ANY},
+    {"sys.hostname", 0, 0, TYPE_ANY},
+    {"sys.user", 0, 0, TYPE_ANY},
+    {"sys.homedir", 0, 0, TYPE_ANY},
+    {"sys.apex_version", 0, 0, TYPE_ANY},
+    {"sys.executable", 0, 0, TYPE_ANY},
+    {"sys.disksize", 0, 1, TYPE_STRING},
+    {"sys.freesize", 0, 1, TYPE_STRING},
+    {"sys.tempdir", 0, 0, TYPE_ANY},
+
+    // math
     {"math.abs", 1, 1, TYPE_NUMBER},
     {"math.floor", 1, 1, TYPE_NUMBER},
     {"math.ceil", 1, 1, TYPE_NUMBER},
@@ -166,7 +167,7 @@ static const BuiltinSig BUILTINS[] = {
     {"math.hypot", 2, 2, TYPE_NUMBER},
     {"math.factorial", 1, 1, TYPE_NUMBER},
 
-    // string library
+    // string
     {"string.len", 1, 1, TYPE_STRING},
     {"string.lower", 1, 1, TYPE_STRING},
     {"string.upper", 1, 1, TYPE_STRING},
@@ -177,7 +178,7 @@ static const BuiltinSig BUILTINS[] = {
     {"string.find", 2, 2, TYPE_STRING},
     {"string.replace", 3, 3, TYPE_STRING},
 
-    // table library
+    // table
     {"table.remove", 2, 2, TYPE_TABLE},
     {"table.has", 2, 2, TYPE_TABLE},
     {"table.size", 1, 1, TYPE_TABLE},
@@ -189,7 +190,7 @@ static const BuiltinSig BUILTINS[] = {
     {"number", 1, 1, TYPE_ANY},
     {"string", 1, 1, TYPE_ANY},
 
-    // ffi library
+    // ffi
     {"ffi.open", 1, 1, TYPE_STRING},
     {"ffi.call", 2, 64, TYPE_ANY},
     {"ffi.errno", 0, 0, TYPE_ANY},
@@ -421,6 +422,8 @@ static void parser_check_expr_statement(Parser* parser, ASTNode* expr) {
 
 static bool is_builtin_module_root(const char* name) {
     return strcmp(name, "os") == 0 || 
+           strcmp(name, "files") == 0 ||
+           strcmp(name, "sys") == 0 ||
            strcmp(name, "math") == 0 ||
            strcmp(name, "string") == 0 || 
            strcmp(name, "table") == 0 ||

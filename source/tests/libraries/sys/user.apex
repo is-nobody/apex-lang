@@ -1,7 +1,8 @@
 import os
+import sys
 
 function user()
-    u = os.user()
+    u = sys.user()
     os.output(u)
 
 user()

@@ -1,10 +1,11 @@
 import os
+import files
 
 function isfile()
-    result = os.isfile("main.c")
+    result = files.isfile("main.c")
     os.output("main.c is file = {result}, expected true")
 
-    result = os.isfile("notexists")
+    result = files.isfile("notexists")
     os.output("notexists is file = {result}, expected false")
 
 isfile()

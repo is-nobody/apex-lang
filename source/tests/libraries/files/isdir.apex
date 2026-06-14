@@ -1,10 +1,11 @@
 import os
+import files
 
 function isdir()
-    result = os.isdir("source")
+    result = files.isdir("source")
     os.output("source is directory = {result}, expected true")
 
-    result = os.isdir("notexists")
+    result = files.isdir("notexists")
     os.output("notexists is directory = {result}, expected false")
 
 isdir()

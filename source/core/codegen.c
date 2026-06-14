@@ -244,26 +244,29 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
     }
     
     static const char* builtins[] = {
-        "os.output", "os.input", "os.read", "os.write",
-        "os.append", "os.exists", "os.isfile", "os.isdir",
-        "os.filesize", "os.dirsize",
-        "os.getcd", "os.setcd", "os.getparentpid",
-        "os.mkdir", "os.rmdir", "os.rmfile", "os.mkfile",
-        "os.rnfile", "os.rndir", "os.mvfile", "os.mvdir",
-        "os.cpfile", "os.cpdir", "os.architecture",
-        "os.filetype", "os.chmod", "os.apex_version",
+        // os
+        "os.output", "os.input", "os.stdin", "os.stdout", "os.stderr",
         "os.getenv", "os.setenv", "os.env",
-        "os.spawn", "os.waitpid", "os.kill", "os.pid",
-        "os.stat", "os.exit", "os.wait", "os.time",
-        "os.system", "os.platform", "os.listdir",
-        "os.hostname", "os.user", "os.homedir",
-        "os.stdin", "os.stdout", "os.stderr",
-        "os.args", "os.executable", "os.disksize", "os.freesize",
-        "os.tempfile", "os.tempdir", "os.parentfolder",
-        "number", "string",
-        "string.len", "string.lower", "string.upper",
-        "string.sub", "string.split", "string.join",
-        "string.trim", "string.find", "string.replace",
+        "os.time", "os.wait", "os.exit",
+        "os.getcd", "os.setcd",
+        "os.pid", "os.getparentpid", "os.spawn", "os.waitpid", "os.kill", "os.system",
+        
+        // files
+        "files.read", "files.write", "files.append",
+        "files.exists", "files.isfile", "files.isdir", "files.filesize", "files.dirsize", 
+        "files.filetype", "files.stat",
+        "files.mkfile", "files.mkdir", "files.rmfile", "files.rmdir",
+        "files.rnfile", "files.rndir", "files.mvfile", "files.mvdir", 
+        "files.cpfile", "files.cpdir",
+        "files.listdir", "files.parentfolder",
+        "files.chmod",
+        
+        // sys
+        "sys.platform", "sys.architecture", "sys.hostname", "sys.user",
+        "sys.homedir", "sys.apex_version", "sys.executable",
+        "sys.disksize", "sys.freesize", "sys.tempdir",
+
+        // math
         "math.abs", "math.floor", "math.ceil", "math.round",
         "math.sqrt", "math.exp", "math.log",
         "math.sin", "math.cos", "math.tan",
@@ -273,11 +276,21 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "math.pow", "math.atan2",
         "math.radians", "math.degrees", "math.hypot",
         "math.gcd", "math.factorial",
+
+        // string
+        "string.len", "string.lower", "string.upper",
+        "string.sub", "string.split", "string.join",
+        "string.trim", "string.find", "string.replace",
+
+        // table
         "table.remove", "table.has", "table.size",
         "table.keys", "table.values", "table.clear",
         "table.copy", "table.merge",
         "ffi.open", "ffi.call", "ffi.errno", "ffi.strerror",
         "ffi.malloc", "ffi.free",
+
+        // built-in
+        "number", "string",
         "type",
         NULL
     };

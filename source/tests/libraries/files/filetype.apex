@@ -1,10 +1,11 @@
 import os
+import files
 
 function filetype()
-    file = os.filetype("main.c")
+    file = files.filetype("main.c")
     os.output(file)
 
-    file = os.filetype("notexists")
+    file = files.filetype("notexists")
     if file == false
         os.output("Can't find file")
 
