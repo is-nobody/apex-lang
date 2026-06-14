@@ -814,41 +814,74 @@ else
 ## Math Library (math)
 The Math library provides mathematical functions beyond basic arithmetic. Import it with `import math`.
 
-### math.abs(x)
+### Constants
+#### math.pi
+Returns the mathematical constant π (pi), approximately 3.14159. Pi represents the ratio of a circle's circumference to its diameter.
+
+```apex
+import math
+
+math.pi    // 3.141592653589793
+```
+
+#### math.e
+Returns Euler's number (e), approximately 2.71828. This constant is the base of natural logarithms and appears in growth rates, compound interest, and many natural processes.
+
+```apex
+import math
+
+math.e    // 2.718281828459045
+```
+
+#### math.inf
+Returns positive infinity. This represents a value larger than any finite number. Useful for comparisons and algorithm boundaries.
+
+```apex
+import math
+
+math.inf    // inf
+```
+
+### Rounding and Truncation
+#### math.abs(x)
 Returns the absolute value of a number — how far it is from zero, ignoring the sign.
 
 ```apex
 import math
+
 math.abs(5)        // 5
 math.abs(-5)       // 5
 math.abs(-3.14)    // 3.14
 ```
 
-### math.floor(x)
+#### math.floor(x)
 Rounds a number down to the nearest whole number. Think of it as "cut off the decimal part, go lower."
 
 ```apex
 import math
+
 math.floor(3.7)     // 3
 math.floor(3.1)     // 3
 math.floor(-2.3)    // -3 (goes down, so more negative)
 ```
 
-### math.ceil(x)
+#### math.ceil(x)
 Rounds a number up to the nearest whole number. Think of it as "push up to the next integer."
 
 ```apex
 import math
+
 math.ceil(3.1)      // 4
 math.ceil(3.7)      // 4
 math.ceil(-2.3)     // -2 (goes up toward zero)
 ```
 
-### math.round(x, digits)
-Rounds a number to the nearest whole number, or to a specific number of decimal places. The `digits` parameter is optional — without it, rounds to a whole number.
+#### math.round(x, digits)
+Rounds a number to the nearest whole number, or to a specific number of decimal places. The `digits` parameter is optional — without it, rounds to a whole number. At exactly .5, rounds up.
 
 ```apex
 import math
+
 math.round(3.4)         // 3
 math.round(3.6)         // 4
 math.round(3.5)         // 4 (rounds up at .5)
@@ -856,107 +889,228 @@ math.round(3.14159, 2)  // 3.14
 math.round(3.14159, 3)  // 3.142
 ```
 
-### math.sqrt(x)
-Returns the square root of a number. You can't take the square root of a negative in real numbers.
+#### math.trunc(x)
+Truncates a number by removing the decimal part — just chops off everything after the decimal point. Unlike `math.floor`, truncation always moves toward zero.
 
 ```apex
 import math
-math.sqrt(25)      // 5
-math.sqrt(2)       // 1.4142135623730951
-math.sqrt(-1)      // false
+
+math.trunc(3.7)     // 3
+math.trunc(-3.7)    // -3
+math.trunc(0.9)     // 0
 ```
 
-### math.exp(x)
-Returns `e` raised to the power of `x`. `e` is Euler's number (approximately 2.71828), used in growth rates, compound interest, and natural processes.
+### Powers and Roots
+#### math.sqrt(x)
+Returns the square root of a number. Returns `NaN` for negative numbers. You can check the result with `math.isnan()`.
 
 ```apex
 import math
+
+math.sqrt(25)      // 5
+math.sqrt(2)       // 1.4142135623730951
+math.sqrt(-1)      // NaN
+```
+
+#### math.pow(base, exponent)
+Raises a number to a power. Returns `base` raised to the `exponent`.
+
+```apex
+import math
+
+math.pow(2, 3)     // 8
+math.pow(4, 0.5)   // 2 (same as square root)
+math.pow(10, -1)   // 0.1
+```
+
+#### math.exp(x)
+Returns `e` raised to the power of `x`. This is the exponential function, the inverse of the natural logarithm.
+
+```apex
+import math
+
 math.exp(1)        // 2.718281828459045
 math.exp(0)        // 1
 math.exp(2)        // 7.38905609893065
 ```
 
-### math.log(x, base)
-Returns the logarithm of `x`. Without a base, uses the natural logarithm (base `e`). With a base, calculates the logarithm with that base.
+#### math.hypot(x, y)
+Returns the hypotenuse of a right triangle given the lengths of the two legs. Mathematically equivalent to `math.sqrt(x * x + y * y)` but avoids overflow for very large numbers.
 
 ```apex
 import math
-math.log(2.71828)       // ~1 (natural log of e)
-math.log(100, 10)       // 2 (10² = 100)
-math.log(8, 2)          // 3 (2³ = 8)
-math.log(0)             // false
-math.log(-5)            // false
+
+math.hypot(3, 4)   // 5
+math.hypot(5, 12)  // 13
+math.hypot(1, 1)   // 1.4142135623730951
+```
+
+### Logarithms
+#### math.log(x, base)
+Returns the logarithm of `x`. Without a base, uses the natural logarithm (base `e`). With a base, calculates the logarithm with that base. Returns `NaN` for zero or negative inputs.
+
+```apex
+import math
+
+math.log(2.718281828459045)  // ~1 (natural log of e)
+math.log(100, 10)            // 2 (10² = 100)
+math.log(8, 2)               // 3 (2³ = 8)
+math.log(0)                  // NaN
+math.log(-5)                 // NaN
 ```
 
 ### Trigonometry
-All trigonometric functions work with **radians**, not degrees. Radians are another way to measure angles — a full circle is 2π radians, which equals 360 degrees.
+All trigonometric functions work with **radians**, not degrees. Radians are another way to measure angles — a full circle is 2π radians, which equals 360 degrees. Use `math.radians()` and `math.degrees()` to convert between them.
 
-If you have degrees and need radians: multiply by `math.pi` and divide by 180. Apex doesn't have a built-in `math.pi` constant, but you can create one:
-
-```apex
-import math
-pi = math.asin(1) * 2    // 3.141592653589793
-degrees = 90
-radians = degrees * pi / 180
-```
-
-### math.sin(x)
+#### math.sin(x)
 Returns the sine of `x` radians.
 
 ```apex
 import math
-math.sin(0)              // 0
-math.sin(math.asin(1))   // ~1 (sine of π/2 is 1)
+
+math.sin(0)                // 0
+math.sin(math.pi / 2)      // 1
+math.sin(math.pi)          // ~0
 ```
 
-### math.cos(x)
+#### math.cos(x)
 Returns the cosine of `x` radians.
 
 ```apex
 import math
-math.cos(0)              // 1
-math.cos(math.asin(1))   // ~0 (cosine of π/2 is 0)
+
+math.cos(0)                // 1
+math.cos(math.pi / 2)      // ~0
+math.cos(math.pi)          // -1
 ```
 
-### math.tan(x)
+#### math.tan(x)
 Returns the tangent of `x` radians.
 
 ```apex
 import math
-math.tan(0)              // 0
-math.tan(math.asin(1)/4) // ~1 (tangent of π/4 is 1)
+
+math.tan(0)                // 0
+math.tan(math.pi / 4)      // ~1
+math.tan(math.pi)          // ~0
 ```
 
-### math.asin(x)
-Returns the arcsine of `x` in radians — the angle whose sine is `x`. Input must be between -1 and 1.
+#### math.asin(x)
+Returns the arcsine of `x` in radians — the angle whose sine is `x`. Input must be between -1 and 1. Returns `NaN` for values outside this range.
 
 ```apex
 import math
-math.asin(0)             // 0
-math.asin(1)             // 1.5707963267948966 (π/2)
-math.asin(2)             // false
+
+math.asin(0)               // 0
+math.asin(1)               // 1.5707963267948966 (π/2)
+math.asin(2)               // NaN
 ```
 
-### math.acos(x)
-Returns the arccosine of `x` in radians — the angle whose cosine is `x`. Input must be between -1 and 1.
+#### math.acos(x)
+Returns the arccosine of `x` in radians — the angle whose cosine is `x`. Input must be between -1 and 1. Returns `NaN` for values outside this range.
 
 ```apex
 import math
-math.acos(1)             // 0
-math.acos(0)             // 1.5707963267948966 (π/2)
-math.acos(2)             // false
+
+math.acos(1)               // 0
+math.acos(0)               // 1.5707963267948966 (π/2)
+math.acos(2)               // NaN
 ```
 
-### math.atan(x)
+#### math.atan(x)
 Returns the arctangent of `x` in radians — the angle whose tangent is `x`.
 
 ```apex
 import math
-math.atan(0)             // 0
-math.atan(1)             // 0.7853981633974483 (π/4)
+
+math.atan(0)               // 0
+math.atan(1)               // 0.7853981633974483 (π/4)
 ```
 
-Here's the String Library section for the manual:
+#### math.atan2(y, x)
+Returns the arctangent of `y/x` in radians, using the signs of both arguments to determine the correct quadrant. This is more useful than `math.atan(y/x)` when you need to know which quadrant the angle is in.
+
+```apex
+import math
+
+math.atan2(1, 1)           // 0.7853981633974483 (π/4)
+math.atan2(1, 0)           // 1.5707963267948966 (π/2)
+math.atan2(-1, 0)          // -1.5707963267948966 (-π/2)
+```
+
+### Angle Conversion
+#### math.radians(degrees)
+Converts degrees to radians.
+
+```apex
+import math
+
+math.radians(180)          // 3.141592653589793 (π)
+math.radians(90)           // 1.5707963267948966 (π/2)
+math.radians(360)          // 6.283185307179586 (2π)
+```
+
+#### math.degrees(radians)
+Converts radians to degrees.
+
+```apex
+import math
+
+math.degrees(math.pi)      // 180
+math.degrees(math.pi / 2)  // 90
+math.degrees(1)            // 57.29577951308232
+```
+
+### Number Theory
+#### math.gcd(a, b)
+Returns the greatest common divisor of two numbers — the largest number that divides both evenly. Both arguments are converted to positive integers before calculation.
+
+```apex
+import math
+
+math.gcd(12, 8)            // 4
+math.gcd(17, 5)            // 1
+math.gcd(48, 18)           // 6
+```
+
+#### math.factorial(n)
+Returns the factorial of a non-negative integer `n` (the product of all positive integers from 1 to `n`). The maximum allowed input is 170 — larger values will overflow and return `false`. Returns `false` for negative or non-integer inputs.
+
+```apex
+import math
+
+math.factorial(0)          // 1
+math.factorial(1)          // 1
+math.factorial(5)          // 120
+math.factorial(10)         // 3628800
+math.factorial(-3)         // false
+math.factorial(2.5)        // false
+math.factorial(171)        // false (too large)
+```
+
+### Number Testing
+#### math.isnan(x)
+Returns `true` if the value is NaN (Not a Number), `false` otherwise. NaN typically results from operations like `sqrt(-1)` or `0/0`. NaN is the only value that is not equal to itself.
+
+```apex
+import math
+
+math.isnan(math.sqrt(-1))  // true
+math.isnan(0)              // false
+math.isnan(42)             // false
+```
+
+#### math.isinf(x)
+Returns `true` if the value is positive or negative infinity, `false` otherwise. Infinity often results from division by zero or overflowing calculations.
+
+```apex
+import math
+
+math.isinf(math.inf)       // true
+math.isinf(-math.inf)      // true
+math.isinf(1000)           // false
+math.isinf(0)              // false
+```
 
 ## String Library (string)
 The String library helps you work with text — measure length, change case, find words, split and combine strings, and more. Import it with `import string`.

@@ -12,6 +12,6 @@ function sqrt()
     os.output("math.sqrt(0) = {result}, expected 0")
 
     result = math.sqrt(-1)
-    os.output("math.sqrt(-1) = {result}, expected false")
+    os.output("math.sqrt(-1) = {result}, expected -nan")
 
 sqrt()

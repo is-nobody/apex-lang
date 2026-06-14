@@ -83,7 +83,6 @@ set(BASE_FLAGS
 set(HIGH_PERF_FLAGS
     -O3                 # Maximum optimization level
     -march=native       # Optimize for current CPU (AVX/SSE/etc.)
-    -ffast-math         # Fast floating point operations (breaks strict IEEE 754)
     -funroll-loops      # Unroll loops (critical for VM dispatch loop)
     -fomit-frame-pointer # Free up a register
     -flto               # Link-Time Optimization (inter-procedural optimization)
