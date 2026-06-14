@@ -24,6 +24,7 @@
     #include <signal.h>
     #include <sys/wait.h>
     #include <sys/utsname.h>
+    #include <sys/statvfs.h>
 #endif
 
 bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
@@ -538,6 +539,183 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             #endif
             
             *result = vm_make_bool(success);
+        } else {
+            *result = vm_make_bool(false);
+        }
+        return true;
+    }
+
+    // os.executable — return path to the current executable
+    if (strcmp(name, "os.executable") == 0) {
+        char path[4096];
+    #ifdef _WIN32
+        if (GetModuleFileName(NULL, path, sizeof(path)) != 0) {
+            *result = vm_make_string(path);
+        } else {
+            *result = vm_make_bool(false);
+        }
+    #elif __linux__
+        ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
+        if (len != -1) {
+            path[len] = '\0';
+            *result = vm_make_string(path);
+        } else {
+            *result = vm_make_bool(false);
+        }
+    #elif __APPLE__
+        uint32_t size = sizeof(path);
+        if (_NSGetExecutablePath(path, &size) == 0) {
+            *result = vm_make_string(path);
+        } else {
+            *result = vm_make_bool(false);
+        }
+    #else
+        *result = vm_make_bool(false);
+    #endif
+        return true;
+    }
+
+    // os.disksize — return total disk space of the volume containing 'path' (default current dir)
+    if (strcmp(name, "os.disksize") == 0) {
+        const char* path = ".";
+        if (arg_count >= 1 && args[0].type == VAL_STRING) {
+            path = args[0].string->chars;
+        }
+        
+    #ifdef _WIN32
+        ULARGE_INTEGER freeBytesAvailable, totalNumberOfBytes, totalNumberOfFreeBytes;
+        if (GetDiskFreeSpaceEx(path, &freeBytesAvailable, &totalNumberOfBytes, &totalNumberOfFreeBytes)) {
+            *result = vm_make_number((double)totalNumberOfBytes.QuadPart);
+        } else {
+            *result = vm_make_bool(false);
+        }
+    #elif defined(__linux__) || defined(__APPLE__) || defined(__unix__)
+        struct statvfs buf;
+        if (statvfs(path, &buf) == 0) {
+            // f_blocks * f_frsize gives total size in bytes
+            double total = (double)buf.f_blocks * (double)buf.f_frsize;
+            *result = vm_make_number(total);
+        } else {
+            *result = vm_make_bool(false);
+        }
+    #else
+        *result = vm_make_bool(false);
+    #endif
+        return true;
+    }
+
+    // os.freesize — return free disk space of the volume containing 'path' (default current dir)
+    if (strcmp(name, "os.freesize") == 0) {
+        const char* path = ".";
+        if (arg_count >= 1 && args[0].type == VAL_STRING) {
+            path = args[0].string->chars;
+        }
+
+    #ifdef _WIN32
+        ULARGE_INTEGER freeBytesAvailable, totalNumberOfBytes, totalNumberOfFreeBytes;
+        if (GetDiskFreeSpaceEx(path, &freeBytesAvailable, &totalNumberOfBytes, &totalNumberOfFreeBytes)) {
+            *result = vm_make_number((double)totalNumberOfFreeBytes.QuadPart);
+        } else {
+            *result = vm_make_bool(false);
+        }
+    #elif defined(__linux__) || defined(__APPLE__) || defined(__unix__)
+        struct statvfs buf;
+        if (statvfs(path, &buf) == 0) {
+            // f_bavail * f_frsize gives free space available to non-privileged users
+            double free = (double)buf.f_bavail * (double)buf.f_frsize;
+            *result = vm_make_number(free);
+        } else {
+            *result = vm_make_bool(false);
+        }
+    #else
+        *result = vm_make_bool(false);
+    #endif
+        return true;
+    }
+
+    // os.tempfile — create a temporary file and return its path
+    if (strcmp(name, "os.tempfile") == 0) {
+        char template[4096];
+    #ifdef _WIN32
+        char tempDir[MAX_PATH];
+        if (GetTempPath(MAX_PATH, tempDir)) {
+            char tempFile[MAX_PATH];
+            if (GetTempFileName(tempDir, "apx", 0, tempFile)) {
+                *result = vm_make_string(tempFile);
+            } else {
+                *result = vm_make_bool(false);
+            }
+        } else {
+            *result = vm_make_bool(false);
+        }
+    #else
+        strcpy(template, "/tmp/apex_XXXXXX");
+        int fd = mkstemp(template);
+        if (fd != -1) {
+            close(fd); // Close immediately, just wanted the name created
+            *result = vm_make_string(template);
+        } else {
+            *result = vm_make_bool(false);
+        }
+    #endif
+        return true;
+    }
+
+    // os.tempdir — return the system's temporary directory path
+    if (strcmp(name, "os.tempdir") == 0) {
+        char path[4096];
+    #ifdef _WIN32
+        if (GetTempPath(sizeof(path), path) != 0) {
+            // Remove trailing backslash if present for consistency? Optional.
+            *result = vm_make_string(path);
+        } else {
+            *result = vm_make_bool(false);
+        }
+    #else
+        const char* tmp = getenv("TMPDIR");
+        if (!tmp) tmp = getenv("TMP");
+        if (!tmp) tmp = getenv("TEMP");
+        if (!tmp) tmp = "/tmp";
+        *result = vm_make_string(tmp);
+    #endif
+        return true;
+    }
+
+    // os.parentfolder — return the parent directory of a given path
+    if (strcmp(name, "os.parentfolder") == 0) {
+        if (arg_count >= 1 && args[0].type == VAL_STRING) {
+            const char* path = args[0].string->chars;
+            char* last_sep = strrchr(path, '/');
+    #ifdef _WIN32
+            char* last_sep_win = strrchr(path, '\\');
+            if (last_sep_win && (!last_sep || last_sep_win > last_sep)) {
+                last_sep = last_sep_win;
+            }
+    #endif
+            
+            if (last_sep) {
+                int len = last_sep - path;
+                if (len == 0) {
+                    // Root case like "/" or "C:\"
+                    char root[4];
+                    snprintf(root, sizeof(root), "%c%c", path[0], path[1]); // e.g. "C:"
+                    // Handle unix root specifically
+                    if (path[0] == '/') {
+                        *result = vm_make_string("/");
+                    } else {
+                        *result = vm_make_string(root);
+                    }
+                } else {
+                    char* parent = (char*)malloc(len + 1);
+                    strncpy(parent, path, len);
+                    parent[len] = '\0';
+                    *result = vm_make_string(parent);
+                    free(parent);
+                }
+            } else {
+                // No separator found, return current directory "."
+                *result = vm_make_string(".");
+            }
         } else {
             *result = vm_make_bool(false);
         }

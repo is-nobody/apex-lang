@@ -258,6 +258,8 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "os.system", "os.platform", "os.listdir",
         "os.hostname", "os.user", "os.homedir",
         "os.stdin", "os.stdout", "os.stderr",
+        "os.args", "os.executable", "os.disksize", "os.freesize",
+        "os.tempfile", "os.tempdir", "os.parentfolder",
         "number", "string",
         "string.len", "string.lower", "string.upper",
         "string.sub", "string.split", "string.join",

@@ -129,6 +129,13 @@ static const BuiltinSig BUILTINS[] = {
     {"os.stdin", 0, 0, TYPE_ANY},
     {"os.stdout", 0, 0, TYPE_ANY},
     {"os.stderr", 0, 0, TYPE_ANY},
+    {"os.args", 0, 0, TYPE_ANY},
+    {"os.executable", 0, 0, TYPE_ANY},
+    {"os.disksize", 0, 1, TYPE_STRING},
+    {"os.freesize", 0, 1, TYPE_STRING},
+    {"os.tempfile", 0, 0, TYPE_ANY},
+    {"os.tempdir", 0, 0, TYPE_ANY},
+    {"os.parentfolder", 1, 1, TYPE_STRING},
 
     // math library
     {"math.abs", 1, 1, TYPE_NUMBER},

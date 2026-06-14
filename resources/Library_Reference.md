@@ -436,8 +436,21 @@ else
     os.output("Directory changed successfully")
 ```
 
-### Permissions
+#### os.parentfolder(path)
+Returns the parent directory of the given path. For root paths like `/` or `C:\`, returns the root itself. If no directory separator is found in the path, returns `"."`. Returns `false` if no path is provided or on failure.
 
+```apex
+import os
+
+parent = os.parentfolder("/home/user/projects")
+
+if parent == false
+    os.output("Could not get parent folder")
+else
+    os.output("Parent folder: {parent}")  // /home/user
+```
+
+### Permissions
 #### os.chmod(path, mode)
 Changes file permissions. The `mode` is a number (e.g., `755` for rwxr-xr-x on Unix). Returns `true` on success, `false` on failure.
 
@@ -584,6 +597,80 @@ version = os.apex_version()
 
 os.output("Apex Version: {version}")
 ```
+
+#### os.executable()
+Returns the full path to the currently running Apex executable. Returns `false` on failure.
+
+```apex
+import os
+
+path = os.executable()
+
+if path == false
+    os.output("Could not get executable path")
+else
+    os.output("Running from: {path}")
+```
+
+### Disk Information
+#### os.disksize(path)
+Returns the total disk size in bytes for the volume containing the given path. If no path is provided, uses the current directory. Returns a number on success, `false` on failure.
+
+```apex
+import os
+
+total = os.disksize(".")
+
+if total == false
+    os.output("Could not get disk size")
+else
+    os.output("Total disk size: {total} bytes")
+```
+
+#### os.freesize(path)
+Returns the free disk space in bytes for the volume containing the given path. If no path is provided, uses the current directory. Returns a number on success, `false` on failure.
+
+```apex
+import os
+
+free = os.freesize(".")
+
+if free == false
+    os.output("Could not get free disk space")
+else
+    os.output("Free disk space: {free} bytes")
+```
+
+### Temporary Files
+#### os.tempfile()
+Creates a new temporary file and returns its path as a string. The file is created empty — you can write to it with `os.write()` or `os.append()`. Returns `false` on failure.
+
+```apex
+import os
+
+temp_path = os.tempfile()
+
+if temp_path == false
+    os.output("Could not create temporary file")
+else
+    os.output("Temporary file created: {temp_path}")
+    os.write(temp_path, "Temporary data...")
+```
+
+#### os.tempdir()
+Returns the path to the system's temporary directory. On Unix-like systems, checks the `TMPDIR`, `TMP`, and `TEMP` environment variables, falling back to `/tmp`. Returns `false` on failure.
+
+```apex
+import os
+
+temp_dir = os.tempdir()
+
+if temp_dir == false
+    os.output("Could not get temporary directory")
+else
+    os.output("Temporary directory: {temp_dir}")
+```
+
 
 ### Process Management
 #### os.pid()
