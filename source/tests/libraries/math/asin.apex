@@ -6,6 +6,6 @@ function asin()
     os.output("math.asin(0.5) = {result}, expected 0.523598775598299")
 
     result = math.asin(2)
-    os.output("math.asin(2) = {result}, expected false")
+    os.output("math.asin(2) = {result}, expected nan")
 
 asin()

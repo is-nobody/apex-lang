@@ -360,14 +360,6 @@ static bool parser_is_zero_constant(Parser* parser, ASTNode* node) {
     return false;
 }
 
-static void parser_check_divisor(Parser* parser, ASTNode* node, ASTNode* divisor) {
-    if (!parser->semantic_checks || !divisor) return;
-    if (parser_is_zero_constant(parser, divisor)) {
-        parser_error_at(parser, divisor->line, divisor->column, get_node_len(divisor),
-                        "Division by zero");
-    }
-}
-
 static bool expr_has_side_effect(ASTNode* node) {
     if (!node) return false;
     switch (node->type) {
@@ -705,8 +697,6 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
     ValueType left_type = infer_expression_type(parser, node->binary.left);
     ValueType right_type = infer_expression_type(parser, node->binary.right);
 
-    // If either side is ANY, we can't be sure, but we shouldn't fail hard on arithmetic
-    // unless we are in a strict mode that forbids it. For now, let's assume ANY can be number.
     if (left_type == TYPE_ANY || right_type == TYPE_ANY) {
         switch (node->binary.op) {
             case TOKEN_PLUS:
@@ -714,17 +704,17 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
             case TOKEN_STAR:
             case TOKEN_SLASH:
             case TOKEN_PERCENT:
-                return TYPE_NUMBER; // Assume arithmetic works
+                return TYPE_NUMBER;
             case TOKEN_EQUAL_EQUAL:
             case TOKEN_NOT_EQUAL:
             case TOKEN_LESS:
             case TOKEN_GREATER:
             case TOKEN_LESS_EQUAL:
             case TOKEN_GREATER_EQUAL:
-                return TYPE_BOOLEAN; // Assume comparison works
+                return TYPE_BOOLEAN;
             case TOKEN_AND:
             case TOKEN_OR:
-                return TYPE_BOOLEAN; // Assume logical works
+                return TYPE_BOOLEAN;
             default:
                 return TYPE_ANY;
         }
@@ -739,9 +729,6 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
                                 "Arithmetic operator '%s' requires number operands, got %s and %s",
                                 binary_op_name(node->binary.op), type_name(left_type), type_name(right_type));
                 return TYPE_ERROR;
-            }
-            if (node->binary.op == TOKEN_SLASH || node->binary.op == TOKEN_PERCENT) {
-                parser_check_divisor(parser, node, node->binary.right);
             }
             return TYPE_NUMBER;
 
