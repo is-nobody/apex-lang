@@ -121,7 +121,7 @@ static const BuiltinSig BUILTINS[] = {
     {"files.cpdir", 2, 2, TYPE_STRING},
     {"files.listdir", 0, 1, TYPE_STRING},
     {"files.parentfolder", 1, 1, TYPE_STRING},
-    {"files.chmod", 2, 2, TYPE_STRING},
+    {"files.access", 2, 2, TYPE_STRING},
 
     // sys
     {"sys.platform", 0, 0, TYPE_ANY},

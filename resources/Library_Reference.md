@@ -612,14 +612,14 @@ else
 ```
 
 ### Permissions
-#### files.chmod(path, mode)
+#### files.access(path, mode)
 Changes file permissions. The `mode` is a number (e.g., `755` for rwxr-xr-x on Unix). Returns `true` on success, `false` on failure.
 
 ```apex
 import os
 import files
 
-result = files.chmod("script.sh", 755)
+result = files.access("script.sh", 755)
 
 if result == false
     os.output("Could not change permissions")

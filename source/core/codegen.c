@@ -259,7 +259,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "files.rnfile", "files.rndir", "files.mvfile", "files.mvdir", 
         "files.cpfile", "files.cpdir",
         "files.listdir", "files.parentfolder",
-        "files.chmod",
+        "files.access",
         
         // sys
         "sys.platform", "sys.architecture", "sys.hostname", "sys.user",

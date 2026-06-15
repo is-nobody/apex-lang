@@ -529,7 +529,7 @@ bool files_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         }
         return true;
     }
-    if (strcmp(name, "files.chmod") == 0) {
+    if (strcmp(name, "files.access") == 0) {
         if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_NUMBER) {
 #ifdef _WIN32
             *result = vm_make_bool(_chmod(args[0].string->chars, (int)args[1].number) == 0);
