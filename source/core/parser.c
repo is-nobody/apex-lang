@@ -97,9 +97,6 @@ static const BuiltinSig BUILTINS[] = {
     {"os.waitpid", 1, 1, TYPE_NUMBER},
     {"os.kill", 1, 1, TYPE_NUMBER},
     {"os.system", 1, 1, TYPE_STRING},
-    {"os.stdin", 0, 0, TYPE_ANY},
-    {"os.stdout", 0, 0, TYPE_ANY},
-    {"os.stderr", 0, 0, TYPE_ANY},
 
     // files
     {"files.read", 1, 1, TYPE_STRING},
@@ -137,6 +134,7 @@ static const BuiltinSig BUILTINS[] = {
     {"sys.disksize", 0, 1, TYPE_STRING},
     {"sys.freesize", 0, 1, TYPE_STRING},
     {"sys.tempdir", 0, 0, TYPE_ANY},
+    {"sys.isterminal", 0, 0, TYPE_ANY},
 
     // math
     {"math.abs", 1, 1, TYPE_NUMBER},

@@ -210,6 +210,15 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         return true;
     }
 
+    if (strcmp(name, "sys.isterminal") == 0) {
+        int fd = 1;
+        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
+            fd = (int)args[0].number;
+        }
+        *result = vm_make_bool(isatty(fd));
+        return true;
+    }
+
     if (strcmp(name, "sys.tempdir") == 0) {
         char path[4096];
 #ifdef _WIN32

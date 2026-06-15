@@ -50,27 +50,6 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
-    if (strcmp(name, "os.stdin") == 0) {
-        *result = vm_make_table();
-        table_set(result->table, "handle", vm_make_number(0));
-        table_set(result->table, "mode", vm_make_string("r"));
-        table_set(result->table, "isatty", vm_make_bool(isatty(0)));
-        return true;
-    }
-    if (strcmp(name, "os.stdout") == 0) {
-        *result = vm_make_table();
-        table_set(result->table, "handle", vm_make_number(1));
-        table_set(result->table, "mode", vm_make_string("w"));
-        table_set(result->table, "isatty", vm_make_bool(isatty(1)));
-        return true;
-    }
-    if (strcmp(name, "os.stderr") == 0) {
-        *result = vm_make_table();
-        table_set(result->table, "handle", vm_make_number(2));
-        table_set(result->table, "mode", vm_make_string("w"));
-        table_set(result->table, "isatty", vm_make_bool(isatty(2)));
-        return true;
-    }
 
     // --- Environment ---
     if (strcmp(name, "os.getenv") == 0) {
