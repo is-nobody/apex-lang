@@ -96,7 +96,7 @@ static const BuiltinSig BUILTINS[] = {
     {"os.spawn", 1, 1, TYPE_STRING},
     {"os.waitpid", 1, 1, TYPE_NUMBER},
     {"os.kill", 1, 1, TYPE_NUMBER},
-    {"os.system", 1, 1, TYPE_STRING},
+    {"os.execute", 1, 1, TYPE_STRING},
 
     // files
     {"files.read", 1, 1, TYPE_STRING},
@@ -216,6 +216,10 @@ static const BuiltinSig BUILTINS[] = {
     {"regex.sub", 3, 3, TYPE_STRING},
     {"regex.split", 2, 2, TYPE_STRING},
     {"regex.escape", 1, 1, TYPE_STRING},
+
+    // json
+    {"json.decode", 1, 1, TYPE_STRING},
+    {"json.encode", 1, 1, TYPE_ANY},
 
     // built-in
     {"number", 1, 1, TYPE_ANY},
@@ -445,7 +449,8 @@ static bool is_builtin_module_root(const char* name) {
            strcmp(name, "table") == 0 ||
            strcmp(name, "ffi") == 0 ||
            strcmp(name, "random") == 0 ||
-           strcmp(name, "regex") == 0;
+           strcmp(name, "regex") == 0 ||
+           strcmp(name, "json") == 0;
 }
 
 static bool build_module_path(Parser* parser, const char* module_path, char* out_path, int out_size) {

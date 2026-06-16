@@ -152,15 +152,13 @@ else
     os.output("Process terminated successfully")
 ```
 
-#### os.system(command)
+#### os.execute(command)
 Runs a system command as if you typed it in the terminal. Returns the command's exit code. Available commands depend on your operating system. Returns `false` on failure.
 
 ```apex
 import os
 
-exit_code = os.system("echo Hello from terminal")     // Works on Linux/macOS
-// exit_code = os.system("dir")                       // Windows — list files
-// exit_code = os.system("ls")                        // Linux/macOS — list files
+exit_code = os.execute("echo Hello from terminal")     // Works on Linux/macOS
 
 if exit_code == false
     os.output("Could not execute command")

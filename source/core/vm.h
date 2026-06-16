@@ -141,5 +141,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk);
 // Debug utilities
 void vm_dump_state(VM* vm);
 void vm_dump_registers(VM* vm);
-
+void value_incref(Value* v);
+void value_decref(Value* v);
 #endif // VM_H

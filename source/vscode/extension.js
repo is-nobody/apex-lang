@@ -91,7 +91,7 @@ function activate(context) {
             const libFuncs = [
                 'os.output', 'os.input', 'os.read', 'os.write', 'os.exists',
                 'os.mkdir', 'os.rmdir', 'os.listdir', 'os.time', 'os.wait',
-                'os.system', 'os.platform', 'os.exit',
+                'os.execute', 'os.platform', 'os.exit',
                 'math.abs', 'math.floor', 'math.ceil', 'math.round', 'math.sqrt',
                 'math.exp', 'math.log', 'math.sin', 'math.cos', 'math.tan',
                 'string.len', 'string.lower', 'string.upper', 'string.sub',

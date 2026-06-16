@@ -249,7 +249,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "os.getenv", "os.setenv", "os.env",
         "os.time", "os.wait", "os.exit",
         "os.getcd", "os.setcd",
-        "os.pid", "os.getparentpid", "os.spawn", "os.waitpid", "os.kill", "os.system",
+        "os.pid", "os.getparentpid", "os.spawn", "os.waitpid", "os.kill", "os.execute",
         
         // files
         "files.read", "files.write", "files.append",
@@ -298,6 +298,9 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "regex.search", "regex.match", "regex.fullmatch", 
         "regex.findall", "regex.finditer", "regex.sub", 
         "regex.split", "regex.escape",
+
+        // json
+        "json.decode", "json.encode",
 
         // built-in
         "number", "string", "type",

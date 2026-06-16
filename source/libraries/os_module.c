@@ -275,7 +275,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
-    if (strcmp(name, "os.system") == 0) {
+    if (strcmp(name, "os.execute") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             int exit_code = system(args[0].string->chars);
             *result = vm_make_number(exit_code);

@@ -8,6 +8,7 @@
 #include "ffi_module.h"
 #include "random_module.h"
 #include "regex_module.h"
+#include "json_module.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,8 +17,8 @@
 // ========== Forward Declarations ==========
 static StringObject* string_create(const char* chars, int length);
 static void string_destroy(StringObject* str);
-static inline void value_incref(Value* v);
-static inline void value_decref(Value* v);
+void value_incref(Value* v);
+void value_decref(Value* v);
 static bool string_equal(StringObject* a, StringObject* b);
 static const char* value_to_cstr(Value* v, char* buf, int buf_size);
 
@@ -72,7 +73,7 @@ static const char* value_to_cstr(Value* v, char* buf, int buf_size) {
 }
 
 // ========== Reference Counting ==========
-static inline void value_incref(Value* v) {
+void value_incref(Value* v) {
     if (v->type == VAL_STRING && v->string) {
         v->string->header.ref_count++;
     } else if (v->type == VAL_TABLE && v->table) {
@@ -80,7 +81,7 @@ static inline void value_incref(Value* v) {
     }
 }
 
-static inline void value_decref(Value* v) {
+void value_decref(Value* v) {
     if (!v) return;
     switch (v->type) {
         case VAL_STRING:
@@ -425,6 +426,7 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
     if (strncmp(name, "ffi.", 4) == 0) return ffi_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "random.", 7) == 0) return random_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "regex.", 6) == 0) return regex_call_builtin(vm, name, arg_count, args, result);
+    if (strncmp(name, "json.", 5) == 0) return json_call_builtin(vm, name, arg_count, args, result);
 
     if (strcmp(name, "number") == 0) {
         if (arg_count >= 1) {
