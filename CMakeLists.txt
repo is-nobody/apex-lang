@@ -37,6 +37,7 @@ set(SOURCES
     source/libraries/regex_module.c
     source/libraries/json_module.c
     source/libraries/csv_module.c
+    source/libraries/base_module.c
 )
 
 add_executable(apex ${SOURCES})

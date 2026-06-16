@@ -305,6 +305,12 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         // csv
         "csv.read", "csv.write",
 
+        // base
+        "base.b16write", "base.b16read",
+        "base.b32write", "base.b32read",
+        "base.a85write", "base.a85read",
+        "base.url_write", "base.url_read",
+
         // built-in
         "number", "string", "type",
         NULL

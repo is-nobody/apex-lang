@@ -225,6 +225,16 @@ static const BuiltinSig BUILTINS[] = {
     {"csv.read", 1, 3, TYPE_STRING},
     {"csv.write", 2, 4, TYPE_STRING},
 
+    // base
+    {"base.b16write", 1, 1, TYPE_STRING},
+    {"base.b16read", 1, 1, TYPE_STRING},
+    {"base.b32write", 1, 1, TYPE_STRING},
+    {"base.b32read", 1, 1, TYPE_STRING},
+    {"base.a85write", 1, 1, TYPE_STRING},
+    {"base.a85read", 1, 1, TYPE_STRING},
+    {"base.url_write", 1, 1, TYPE_STRING},
+    {"base.url_read", 1, 1, TYPE_STRING},
+
     // built-in
     {"number", 1, 1, TYPE_ANY},
     {"string", 1, 1, TYPE_ANY},
@@ -455,7 +465,8 @@ static bool is_builtin_module_root(const char* name) {
            strcmp(name, "random") == 0 ||
            strcmp(name, "regex") == 0 ||
            strcmp(name, "json") == 0 ||
-           strcmp(name, "csv") == 0;
+           strcmp(name, "csv") == 0 ||
+           strcmp(name, "base") == 0;
 }
 
 static bool build_module_path(Parser* parser, const char* module_path, char* out_path, int out_size) {
@@ -1106,50 +1117,59 @@ static ASTNode* parse_number(Parser* parser) {
     return ast_create_literal_number(value, token->line, token->column);
 }
 
+
 static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, int line, int column) {
     // Create a temporary tokenizer for the expression inside {}
     Tokenizer* temp_tokenizer = tokenizer_create(expr_str, parser->filename);
+    
+    // Force the line number of the temp tokenizer to match the source file
     temp_tokenizer->line = line;
     
     int temp_count;
     Token* temp_tokens = tokenizer_tokenize(temp_tokenizer, &temp_count);
     
-    // FIX: Adjust columns of all tokens to match absolute position in source file
+    // Adjust columns AND lines of all tokens to match absolute position in source file
     for (int i = 0; i < temp_count; i++) {
         temp_tokens[i].column += column;
+        temp_tokens[i].line = line; 
     }
-
-    // FIX: Pass the ORIGINAL source code of the whole file so error context 
-    // can show the full line, not just the interpolation part.
+    
+    // Pass the ORIGINAL source code so error context shows the full line
     Parser* temp_parser = parser_create(temp_tokens, temp_count, parser->filename, parser->source);
-    temp_parser->semantic_checks = true; 
-
-    // FIX: Copy symbols from parent parser to temp parser so variables like 'env' are visible
-    // We only need to copy up to current_scope to avoid leaking future declarations
-    for (int i = 0; i < parser->symbols.count; i++) {
-        if (parser->symbols.scope_levels[i] <= parser->symbols.current_scope) {
-            parser_declare_symbol(temp_parser, 
-                                  parser->symbols.names[i], 
-                                  parser->symbols.kinds[i], 
-                                  parser->symbols.types[i], 
-                                  parser->symbols.param_counts[i],
-                                  parser->symbols.names[i] ? 0 : 0, // Line/Col don't matter much here for lookup
-                                  0);
-            
-            // Copy const info if needed
-            int new_idx = temp_parser->symbols.count - 1;
-            temp_parser->symbols.const_known[new_idx] = parser->symbols.const_known[i];
-            temp_parser->symbols.const_values[new_idx] = parser->symbols.const_values[i];
+    temp_parser->semantic_checks = true;
+    
+    // Direct symbol table copy instead of re-declaring ===
+    // Re-declaring triggers duplicate checks and messes up scopes.
+    // We just need the symbols to be VISIBLE for lookup.
+    if (parser->symbols.count > 0) {
+        // Ensure temp parser has enough capacity
+        while (temp_parser->symbols.capacity < parser->symbols.count) {
+            symbols_grow(temp_parser);
         }
+        
+        // Copy only symbols from current or outer scopes
+        for (int i = 0; i < parser->symbols.count; i++) {
+            if (parser->symbols.scope_levels[i] <= parser->symbols.current_scope) {
+                int idx = temp_parser->symbols.count++;
+                temp_parser->symbols.names[idx] = strdup(parser->symbols.names[i]);
+                temp_parser->symbols.scope_levels[idx] = parser->symbols.scope_levels[i];
+                temp_parser->symbols.kinds[idx] = parser->symbols.kinds[i];
+                temp_parser->symbols.types[idx] = parser->symbols.types[i];
+                temp_parser->symbols.param_counts[idx] = parser->symbols.param_counts[i];
+                temp_parser->symbols.const_known[idx] = parser->symbols.const_known[i];
+                temp_parser->symbols.const_values[idx] = parser->symbols.const_values[i];
+            }
+        }
+        // Set scope level to match parent so lookups work correctly
+        temp_parser->symbols.current_scope = parser->symbols.current_scope;
     }
-    // Set the scope level to match parent so lookups work correctly
-    temp_parser->symbols.current_scope = parser->symbols.current_scope;
-
+    
     ASTNode* expr = parse_expression(temp_parser);
     
     // Cleanup
     parser_destroy(temp_parser);
     tokenizer_destroy(temp_tokenizer);
+    
     return expr;
 }
 
