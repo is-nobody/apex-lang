@@ -6,6 +6,7 @@
 #include "string_module.h"
 #include "table_module.h"
 #include "ffi_module.h"
+#include "random_module.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -282,6 +283,26 @@ int table_size(Table* table) {
     return table ? table->count : 0;
 }
 
+char** table_keys(Table* table, int* out_count) {
+    if (!table || !out_count) return NULL;
+    *out_count = 0;
+    if (table->count == 0) return NULL;
+
+    char** keys = (char**)malloc(sizeof(char*) * table->count);
+    if (!keys) return NULL;
+
+    int idx = 0;
+    for (int i = 0; i < table->capacity; i++) {
+        TableEntry* entry = table->entries[i];
+        while (entry) {
+            keys[idx++] = entry->key;
+            entry = entry->next;
+        }
+    }
+    *out_count = idx;
+    return keys;
+}
+
 void table_clear(Table* table) {
     if (!table) return;
     for (int i = 0; i < table->capacity; i++) {
@@ -401,17 +422,15 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
     if (strncmp(name, "string.", 7) == 0) return string_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "table.", 6) == 0) return table_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "ffi.", 4) == 0) return ffi_call_builtin(vm, name, arg_count, args, result);
+    if (strncmp(name, "random.", 7) == 0) return random_call_builtin(vm, name, arg_count, args, result);
 
     if (strcmp(name, "number") == 0) {
         if (arg_count >= 1) {
             switch (args[0].type) {
                 case VAL_STRING: {
-                    // Check if string is a valid number
                     char* endptr;
                     double val = strtod(args[0].string->chars, &endptr);
                     
-                    // If endptr points to the start, no conversion happened (e.g. "hello")
-                    // If *endptr is not '\0', there were trailing characters (e.g. "123abc")
                     if (endptr == args[0].string->chars || *endptr != '\0') {
                         *result = vm_make_bool(false);
                     } else {
@@ -423,7 +442,6 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
                     *result = vm_copy_value(args[0]);
                     break;
                 case VAL_BOOL:
-                    // Explicitly return false for booleans as requested
                     *result = vm_make_bool(false);
                     break;
                 default:
@@ -431,7 +449,6 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
                     break;
             }
         } else {
-            // No arguments provided
             *result = vm_make_bool(false);
         }
         return true;
@@ -454,6 +471,14 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
                     *result = vm_make_string("");
                     break;
             }
+        }
+        return true;
+    }
+    if (strcmp(name, "type") == 0) {
+        if (arg_count >= 1) {
+            *result = vm_make_string(vm_value_type_name(&args[0]));
+        } else {
+            *result = vm_make_bool(false);
         }
         return true;
     }

@@ -185,8 +185,6 @@ static const BuiltinSig BUILTINS[] = {
     {"table.clear", 1, 1, TYPE_TABLE},
     {"table.copy", 1, 1, TYPE_TABLE},
     {"table.merge", 2, 2, TYPE_TABLE},
-    {"number", 1, 1, TYPE_ANY},
-    {"string", 1, 1, TYPE_ANY},
 
     // ffi
     {"ffi.open", 1, 1, TYPE_STRING},
@@ -194,7 +192,25 @@ static const BuiltinSig BUILTINS[] = {
     {"ffi.errno", 0, 0, TYPE_ANY},
     {"ffi.strerror", 0, 1, TYPE_NUMBER},
     {"ffi.malloc", 1, 1, TYPE_NUMBER},
-    {"ffi.free", 1, 1, TYPE_NUMBER}
+    {"ffi.free", 1, 1, TYPE_NUMBER},
+
+    // random
+    {"random.random", 0, 0, TYPE_ANY},
+    {"random.randint", 2, 2, TYPE_NUMBER},
+    {"random.choice", 1, 1, TYPE_TABLE},
+    {"random.shuffle", 1, 1, TYPE_TABLE},
+    {"random.sample", 2, 2, TYPE_TABLE},
+    {"random.choices", 1, 2, TYPE_TABLE},
+    {"random.gauss", 2, 2, TYPE_NUMBER},
+    {"random.seed", 0, 1, TYPE_NUMBER},
+    {"random.triangular", 0, 3, TYPE_NUMBER},
+    {"random.expovariate", 1, 1, TYPE_NUMBER},
+    {"random.betavariate", 2, 2, TYPE_NUMBER},
+
+    // built-in
+    {"number", 1, 1, TYPE_ANY},
+    {"string", 1, 1, TYPE_ANY},
+    {"type", 1, 1, TYPE_ANY}
 };
 
 static const BuiltinSig* lookup_builtin(const char* name) {
@@ -417,7 +433,8 @@ static bool is_builtin_module_root(const char* name) {
            strcmp(name, "math") == 0 ||
            strcmp(name, "string") == 0 || 
            strcmp(name, "table") == 0 ||
-           strcmp(name, "ffi") == 0;
+           strcmp(name, "ffi") == 0 ||
+           strcmp(name, "random") == 0;
 }
 
 static bool build_module_path(Parser* parser, const char* module_path, char* out_path, int out_size) {

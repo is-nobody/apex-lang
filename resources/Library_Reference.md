@@ -1346,8 +1346,6 @@ t2 = (city = "Dubai", age = 31)
 merged = table.merge(t1, t2)  // (name = "Alice", age = 31, city = "Dubai")
 ```
 
-Вы правы. Исправляю:
-
 ## FFI Library (ffi)
 The FFI library lets you call functions from shared libraries (.so on Linux, .dll on Windows). You can load libraries, call C functions, and manage memory. Import it with `import ffi`.
 
@@ -1447,4 +1445,132 @@ ptr = ffi.malloc(512)
 if ptr != 0
     ffi.free(ptr)
     os.output("Memory freed")
+```
+
+## Random Library (random)
+The Random library provides functions for generating pseudo-random numbers and performing random operations on data structures. Import it with `import random`.
+
+### Seeding
+#### random.seed(value)
+Initializes the random number generator with a specific seed value. Using the same seed will produce the same sequence of random numbers, which is useful for reproducibility. If called without arguments, it seeds using the current system time.
+
+```apex
+import random
+
+// Reproducible sequence
+random.seed(12345)
+r1 = random.random()
+
+random.seed(12345)
+r2 = random.random()
+
+if r1 == r2
+    os.output("Seeds match!")
+```
+
+### Basic Generation
+#### random.random()
+Returns a random floating-point number in the range `[0.0, 1.0)`.
+
+```apex
+import random
+
+val = random.random()
+os.output("Random float: {val}")
+```
+
+#### random.randint(a, b)
+Returns a random integer `N` such that `a <= N <= b`. If `a > b`, the bounds are swapped automatically.
+
+```apex
+import random
+
+dice = random.randint(1, 6)
+os.output("You rolled a {dice}")
+```
+
+### Sequence Operations
+#### random.choice(seq)
+Returns a random element from a non-empty table `seq`. Returns `false` if the table is empty or the argument is not a table.
+
+```apex
+import random
+
+colors = ("red", "green", "blue")
+pick = random.choice(colors)
+os.output("Selected color: {pick}")
+```
+
+#### random.shuffle(seq)
+Shuffles the elements of a table `seq` in place. The table must use sequential numeric keys (e.g., `(1, 2, 3)`). Returns `false` on error.
+
+```apex
+import random
+
+deck = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+random.shuffle(deck)
+os.output("Shuffled deck: {deck}")
+```
+
+#### random.sample(seq, k)
+Returns a new table containing `k` unique elements chosen from the table `seq`. Used for random sampling without replacement. Returns `false` if `k` is larger than the size of `seq`.
+
+```apex
+import random
+
+pool = (10, 20, 30, 40, 50, 60, 70, 80, 90, 100)
+winners = random.sample(pool, 3)
+os.output("Winners: {winners}")
+```
+
+#### random.choices(seq, k)
+Returns a new table of length `k` with elements chosen from `seq` with replacement. If `k` is omitted, it defaults to 1.
+
+```apex
+import random
+
+coins = ("heads", "tails")
+results = random.choices(coins, 10)
+os.output("10 coin flips: {results}")
+```
+
+### Distributions
+#### random.gauss(mu, sigma)
+Returns a random floating-point number from a Gaussian (normal) distribution with mean `mu` and standard deviation `sigma`.
+
+```apex
+import random
+
+height = random.gauss(175, 10)
+os.output("Simulated height: {height} cm")
+```
+
+#### random.triangular(low, high, mode)
+Returns a random floating-point number from a triangular distribution. `low` and `high` default to 0 and 1, while `mode` defaults to the midpoint between them.
+
+```apex
+import random
+
+val = random.triangular(0, 10, 5)
+os.output("Triangular sample: {val}")
+```
+
+#### random.expovariate(lambd)
+Returns a random floating-point number from an exponential distribution with rate parameter `lambd`. Returns `false` if `lambd` is zero.
+
+```apex
+import random
+
+wait_time = random.expovariate(0.5)
+os.output("Expected wait: {wait_time} minutes")
+```
+
+#### random.betavariate(alpha, beta)
+Returns a random floating-point number from a Beta distribution with parameters `alpha` and `beta`. Both parameters must be greater than zero. Returns `false` otherwise.
+
+```apex
+import random
+
+probability = random.betavariate(2, 5)
+os.output("Beta sample: {probability}")
 ```
