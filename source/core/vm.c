@@ -9,6 +9,7 @@
 #include "random_module.h"
 #include "regex_module.h"
 #include "json_module.h"
+#include "csv_module.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -427,6 +428,7 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
     if (strncmp(name, "random.", 7) == 0) return random_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "regex.", 6) == 0) return regex_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "json.", 5) == 0) return json_call_builtin(vm, name, arg_count, args, result);
+    if (strncmp(name, "csv.", 4) == 0) return csv_call_builtin(vm, name, arg_count, args, result);
 
     if (strcmp(name, "number") == 0) {
         if (arg_count >= 1) {
@@ -921,40 +923,60 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int dest = ip->operands[0];
         int table_reg = ip->operands[1];
         int key_reg = ip->operands[2];
+        
+        Value* table_val = &vm->registers[table_reg];
         char key_str[256];
         Value* key = &vm->registers[key_reg];
+        
+        if (table_val->type != VAL_TABLE) {
+            value_decref(&vm->registers[dest]);
+            vm->registers[dest].type = VAL_BOOL;
+            vm->registers[dest].boolean = false;
+            ip++; goto *dispatch_table[ip->opcode];
+        }
+
         if (key->type == VAL_STRING) {
             strcpy(key_str, key->string->chars);
         } else {
             snprintf(key_str, sizeof(key_str), "%g", key->number);
         }
+        
         Value val;
         val.type = VAL_BOOL;
         val.boolean = false;
-        if (table_get(vm->registers[table_reg].table, key_str, &val)) {
+        if (table_get(table_val->table, key_str, &val)) {
             value_decref(&vm->registers[dest]);
             vm->registers[dest] = val;
         } else {
-            // Key not found. Set to false to prevent garbage leakage.
             value_decref(&vm->registers[dest]);
             vm->registers[dest].type = VAL_BOOL;
             vm->registers[dest].boolean = false;
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
+
     OP_TABLE_GET_CONST_LABEL: {
         int dest = ip->operands[0];
         int table_reg = ip->operands[1];
         int key_idx = ip->operands[2];
+        
+        Value* table_val = &vm->registers[table_reg];
+        
+        if (table_val->type != VAL_TABLE) {
+            value_decref(&vm->registers[dest]);
+            vm->registers[dest].type = VAL_BOOL;
+            vm->registers[dest].boolean = false;
+            ip++; goto *dispatch_table[ip->opcode];
+        }
+
         Value val;
         val.type = VAL_BOOL;
         val.boolean = false;
-        if (table_get(vm->registers[table_reg].table,
+        if (table_get(table_val->table,
             chunk->constants[key_idx].string_value, &val)) {
             value_decref(&vm->registers[dest]);
             vm->registers[dest] = val;
         } else {
-            // FIX: Key not found. Set to false (none) to prevent garbage leakage.
             value_decref(&vm->registers[dest]);
             vm->registers[dest].type = VAL_BOOL;
             vm->registers[dest].boolean = false;

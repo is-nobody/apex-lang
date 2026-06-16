@@ -5,21 +5,21 @@ num = 42
 str = "hello"
 bool_val = true
 
-json_num = json.encode(num)
+json_num = json.write(num)
 os.output("Number: {json_num}")
 
-json_str = json.encode(str)
+json_str = json.write(str)
 os.output("String: {json_str}")
 
-json_bool = json.encode(bool_val)
+json_bool = json.write(bool_val)
 os.output("Bool: {json_bool}")
 
 arr = ("apple", "banana", "cherry")
-json_arr = json.encode(arr)
+json_arr = json.write(arr)
 os.output("Array: {json_arr}")
 
 obj = (name = "Apex", version = 1.0, is_cool = true)
-json_obj = json.encode(obj)
+json_obj = json.write(obj)
 os.output("Object: {json_obj}")
 
 complex = (
@@ -30,24 +30,24 @@ complex = (
     count = 2,
     active = true
 )
-json_complex = json.encode(complex)
+json_complex = json.write(complex)
 os.output("Complex: {json_complex}")
 
 raw_json = "\{\"status\": \"ok\", \"codes\": [200, 404], \"meta\": \{\"debug\": true\}\}"
-data = json.decode(raw_json)
+data = json.read(raw_json)
 
 if type(data) == "table"
-    os.output("Decoded status: {data.status}")
+    os.output("readd status: {data.status}")
     os.output("First code: {string(data.codes.1)}")
     os.output("Debug mode: {string(data.meta.debug)}")
 else
-    os.output("Failed to decode JSON")
+    os.output("Failed to read JSON")
 
 original = (key = "value", list = (1, 2, 3))
-encoded = json.encode(original)
-decoded = json.decode(encoded)
+writed = json.write(original)
+readd = json.read(writed)
 
-if decoded.key == "value" and decoded.list.1 == 1
+if readd.key == "value" and readd.list.1 == 1
     os.output("Round-trip successful!")
 else
     os.output("Round-trip failed.")

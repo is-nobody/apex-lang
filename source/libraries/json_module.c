@@ -359,7 +359,7 @@ static void encode_value(VM* vm, Value* value, StringBuilder* sb) {
 bool json_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     (void)vm;
 
-    if (strcmp(name, "json.decode") == 0) {
+    if (strcmp(name, "json.read") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             const char* json_str = args[0].string->chars;
             if (parse_value(vm, &json_str, result)) {
@@ -370,7 +370,7 @@ bool json_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
         return true;
     }
 
-    if (strcmp(name, "json.encode") == 0) {
+    if (strcmp(name, "json.write") == 0) {
         if (arg_count >= 1) {
             StringBuilder sb;
             sb_init(&sb, 256);

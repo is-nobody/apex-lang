@@ -218,8 +218,12 @@ static const BuiltinSig BUILTINS[] = {
     {"regex.escape", 1, 1, TYPE_STRING},
 
     // json
-    {"json.decode", 1, 1, TYPE_STRING},
-    {"json.encode", 1, 1, TYPE_ANY},
+    {"json.read", 1, 1, TYPE_STRING},
+    {"json.write", 1, 1, TYPE_ANY},
+
+    // csv
+    {"csv.read", 1, 3, TYPE_STRING},
+    {"csv.write", 2, 4, TYPE_STRING},
 
     // built-in
     {"number", 1, 1, TYPE_ANY},
@@ -450,7 +454,8 @@ static bool is_builtin_module_root(const char* name) {
            strcmp(name, "ffi") == 0 ||
            strcmp(name, "random") == 0 ||
            strcmp(name, "regex") == 0 ||
-           strcmp(name, "json") == 0;
+           strcmp(name, "json") == 0 ||
+           strcmp(name, "csv") == 0;
 }
 
 static bool build_module_path(Parser* parser, const char* module_path, char* out_path, int out_size) {
@@ -996,9 +1001,30 @@ ValueType parser_check_expression(Parser* parser, ASTNode* node) {
 static void parser_check_condition(Parser* parser, ASTNode* condition, const char* context) {
     if (!parser->semantic_checks) return;
     ValueType cond_type = infer_expression_type(parser, condition);
+    
     if (cond_type != TYPE_BOOLEAN && cond_type != TYPE_ANY && cond_type != TYPE_UNKNOWN) {
         parser_error_at(parser, condition->line, condition->column, get_node_len(condition),
-                        "%s condition must be boolean, got %s", context, type_name(cond_type));
+            "%s condition must be boolean, got %s", context, type_name(cond_type));
+        return;
+    }
+
+    bool is_explicit_condition = false;
+    
+    if (condition->type == AST_BINARY) {
+        TokenType op = condition->binary.op;
+        if (op == TOKEN_EQUAL_EQUAL || op == TOKEN_NOT_EQUAL || 
+            op == TOKEN_LESS || op == TOKEN_GREATER || 
+            op == TOKEN_LESS_EQUAL || op == TOKEN_GREATER_EQUAL ||
+            op == TOKEN_AND || op == TOKEN_OR) {
+            is_explicit_condition = true;
+        }
+    } else if (condition->type == AST_UNARY && condition->unary.op == TOKEN_NOT) {
+        is_explicit_condition = true;
+    }
+
+    if (!is_explicit_condition) {
+        parser_error_at(parser, condition->line, condition->column, get_node_len(condition),
+            "%s requires explicit condition (e.g., 'var == true' or 'var != false')", context);
     }
 }
 

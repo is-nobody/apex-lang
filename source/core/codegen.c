@@ -300,7 +300,10 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "regex.split", "regex.escape",
 
         // json
-        "json.decode", "json.encode",
+        "json.read", "json.write",
+
+        // csv
+        "csv.read", "csv.write",
 
         // built-in
         "number", "string", "type",
