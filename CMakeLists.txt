@@ -34,6 +34,7 @@ set(SOURCES
     source/libraries/table_module.c
     source/libraries/ffi_module.c
     source/libraries/random_module.c
+    source/libraries/regex_module.c
 )
 
 add_executable(apex ${SOURCES})

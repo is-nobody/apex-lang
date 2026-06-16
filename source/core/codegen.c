@@ -294,6 +294,11 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "random.sample", "random.choices", "random.gauss", "random.seed",
         "random.triangular", "random.expovariate", "random.betavariate",
 
+        // regex
+        "regex.search", "regex.match", "regex.fullmatch", 
+        "regex.findall", "regex.finditer", "regex.sub", 
+        "regex.split", "regex.escape",
+
         // built-in
         "number", "string", "type",
         NULL
