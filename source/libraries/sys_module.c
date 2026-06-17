@@ -1,4 +1,5 @@
 #include "sys_module.h"
+#include "vm.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,11 +8,11 @@
 #else
 #include <unistd.h>
 #include <sys/utsname.h>
-#include <sys/statvfs.h> // Added for statvfs
+#include <sys/statvfs.h>
 #if defined(__linux__)
-#include <unistd.h> // for readlink
+#include <unistd.h>
 #elif defined(__APPLE__)
-#include <mach-o/dyld.h> // for _NSGetExecutablePath
+#include <mach-o/dyld.h>
 #endif
 #endif
 
@@ -163,10 +164,21 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             path = args[0].string->chars;
         }
+
 #ifdef _WIN32
         ULARGE_INTEGER freeBytesAvailable, totalNumberOfBytes, totalNumberOfFreeBytes;
         if (GetDiskFreeSpaceEx(path, &freeBytesAvailable, &totalNumberOfBytes, &totalNumberOfFreeBytes)) {
-            *result = vm_make_number((double)totalNumberOfBytes.QuadPart);
+            double total_mb = (double)totalNumberOfBytes.QuadPart / (1024.0 * 1024.0);
+            double free_mb = (double)totalNumberOfFreeBytes.QuadPart / (1024.0 * 1024.0);
+            double used_mb = total_mb - free_mb;
+
+            Table* t = table_create(8);
+            table_set(t, "total", vm_make_number(total_mb));
+            table_set(t, "used", vm_make_number(used_mb));
+            table_set(t, "free", vm_make_number(free_mb));
+            
+            result->type = VAL_TABLE;
+            result->table = t;
         } else {
             *result = vm_make_bool(false);
         }
@@ -174,33 +186,19 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         struct statvfs buf;
         if (statvfs(path, &buf) == 0) {
             double total = (double)buf.f_blocks * (double)buf.f_frsize;
-            *result = vm_make_number(total);
-        } else {
-            *result = vm_make_bool(false);
-        }
-#else
-        *result = vm_make_bool(false);
-#endif
-        return true;
-    }
-
-    if (strcmp(name, "sys.freesize") == 0) {
-        const char* path = ".";
-        if (arg_count >= 1 && args[0].type == VAL_STRING) {
-            path = args[0].string->chars;
-        }
-#ifdef _WIN32
-        ULARGE_INTEGER freeBytesAvailable, totalNumberOfBytes, totalNumberOfFreeBytes;
-        if (GetDiskFreeSpaceEx(path, &freeBytesAvailable, &totalNumberOfBytes, &totalNumberOfFreeBytes)) {
-            *result = vm_make_number((double)totalNumberOfFreeBytes.QuadPart);
-        } else {
-            *result = vm_make_bool(false);
-        }
-#elif defined(__linux__) || defined(__APPLE__) || defined(__unix__)
-        struct statvfs buf;
-        if (statvfs(path, &buf) == 0) {
             double free = (double)buf.f_bavail * (double)buf.f_frsize;
-            *result = vm_make_number(free);
+            
+            double total_mb = total / (1024.0 * 1024.0);
+            double free_mb = free / (1024.0 * 1024.0);
+            double used_mb = total_mb - free_mb;
+
+            Table* t = table_create(8);
+            table_set(t, "total", vm_make_number(total_mb));
+            table_set(t, "used", vm_make_number(used_mb));
+            table_set(t, "free", vm_make_number(free_mb));
+            
+            result->type = VAL_TABLE;
+            result->table = t;
         } else {
             *result = vm_make_bool(false);
         }

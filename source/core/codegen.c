@@ -264,7 +264,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         // sys
         "sys.platform", "sys.architecture", "sys.hostname", "sys.user",
         "sys.homedir", "sys.apex_version", "sys.executable",
-        "sys.disksize", "sys.freesize", "sys.tempdir", "sys.isterminal",
+        "sys.disksize", "sys.tempdir", "sys.isterminal",
 
         // math
         "math.abs", "math.floor", "math.ceil", "math.round",

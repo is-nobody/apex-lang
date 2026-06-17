@@ -131,8 +131,7 @@ static const BuiltinSig BUILTINS[] = {
     {"sys.homedir", 0, 0, TYPE_ANY},
     {"sys.apex_version", 0, 0, TYPE_ANY},
     {"sys.executable", 0, 0, TYPE_ANY},
-    {"sys.disksize", 0, 1, TYPE_STRING},
-    {"sys.freesize", 0, 1, TYPE_STRING},
+    {"sys.disksize", 0, 0, TYPE_STRING},
     {"sys.tempdir", 0, 0, TYPE_ANY},
     {"sys.isterminal", 0, 0, TYPE_ANY},
 
