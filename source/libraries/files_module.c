@@ -159,7 +159,7 @@ bool files_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         }
         return true;
     }
-    if (strcmp(name, "files.isdir") == 0) {
+    if (strcmp(name, "files.isfolder") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             struct stat st;
             if (stat(args[0].string->chars, &st) == 0) {
@@ -189,7 +189,7 @@ bool files_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         }
         return true;
     }
-    if (strcmp(name, "files.dirsize") == 0) {
+    if (strcmp(name, "files.foldersize") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             struct stat st;
             if (stat(args[0].string->chars, &st) == 0 && S_ISDIR(st.st_mode)) {
@@ -262,7 +262,7 @@ bool files_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
     }
 
     // --- File/Dir Operations ---
-    if (strcmp(name, "files.mkfile") == 0) {
+    if (strcmp(name, "files.create_file") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             FILE* f = fopen(args[0].string->chars, "w");
             if (f) {
@@ -276,7 +276,7 @@ bool files_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         }
         return true;
     }
-    if (strcmp(name, "files.mkdir") == 0) {
+    if (strcmp(name, "files.create_folder") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
 #ifdef _WIN32
             *result = vm_make_bool(_mkdir(args[0].string->chars) == 0);
@@ -288,7 +288,7 @@ bool files_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         }
         return true;
     }
-    if (strcmp(name, "files.rmfile") == 0) {
+    if (strcmp(name, "files.delete_file") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             *result = vm_make_bool(unlink(args[0].string->chars) == 0);
         } else {
@@ -296,7 +296,7 @@ bool files_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         }
         return true;
     }
-    if (strcmp(name, "files.rmdir") == 0) {
+    if (strcmp(name, "files.delete_folder") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             *result = vm_make_bool(rmdir(args[0].string->chars) == 0);
         } else {
@@ -304,7 +304,7 @@ bool files_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         }
         return true;
     }
-    if (strcmp(name, "files.rnfile") == 0) {
+    if (strcmp(name, "files.rename_file") == 0) {
         if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
             struct stat st;
             bool is_file = stat(args[0].string->chars, &st) == 0 && S_ISREG(st.st_mode);
@@ -314,7 +314,7 @@ bool files_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         }
         return true;
     }
-    if (strcmp(name, "files.rndir") == 0) {
+    if (strcmp(name, "files.rename_folder") == 0) {
         if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
             struct stat st;
             bool is_dir = stat(args[0].string->chars, &st) == 0 && S_ISDIR(st.st_mode);
@@ -324,7 +324,7 @@ bool files_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         }
         return true;
     }
-    if (strcmp(name, "files.mvfile") == 0) {
+    if (strcmp(name, "files.move_file") == 0) {
         if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
             struct stat st;
             bool is_file = stat(args[0].string->chars, &st) == 0 && S_ISREG(st.st_mode);
@@ -334,7 +334,7 @@ bool files_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         }
         return true;
     }
-    if (strcmp(name, "files.mvdir") == 0) {
+    if (strcmp(name, "files.move_folder") == 0) {
         if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
             struct stat st;
             bool is_dir = stat(args[0].string->chars, &st) == 0 && S_ISDIR(st.st_mode);
@@ -344,7 +344,7 @@ bool files_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         }
         return true;
     }
-    if (strcmp(name, "files.cpfile") == 0) {
+    if (strcmp(name, "files.copy_file") == 0) {
         if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
             FILE* src = fopen(args[0].string->chars, "rb");
             if (!src) { *result = vm_make_bool(false); return true; }
@@ -365,26 +365,26 @@ bool files_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         }
         return true;
     }
-    if (strcmp(name, "files.cpdir") == 0) {
+    if (strcmp(name, "files.copy_folder") == 0) {
         if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
             struct stat st;
             if (stat(args[0].string->chars, &st) != 0 || !S_ISDIR(st.st_mode)) {
                 *result = vm_make_bool(false);
                 return true;
             }
-#ifdef _WIN32
+    #ifdef _WIN32
             if (_mkdir(args[1].string->chars) != 0 && errno != EEXIST) {
                 *result = vm_make_bool(false);
                 return true;
             }
-#else
+    #else
             if (mkdir(args[1].string->chars, 0755) != 0 && errno != EEXIST) {
                 *result = vm_make_bool(false);
                 return true;
             }
-#endif
+    #endif
             bool success = true;
-#ifdef _WIN32
+    #ifdef _WIN32
             WIN32_FIND_DATA fd;
             HANDLE hFind;
             char search_path[4096];
@@ -396,16 +396,18 @@ bool files_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
                     char src_path[4096], dst_path[4096];
                     snprintf(src_path, sizeof(src_path), "%s\\%s", args[0].string->chars, fd.cFileName);
                     snprintf(dst_path, sizeof(dst_path), "%s\\%s", args[1].string->chars, fd.cFileName);
+                    
                     Value cp_result;
                     Value cp_args[] = {vm_make_string(src_path), vm_make_string(dst_path)};
+                    
                     if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-                        if (!files_call_builtin(vm, "files.cpdir", 2, cp_args, &cp_result) ||
+                        if (!files_call_builtin(vm, "files.copy_folder", 2, cp_args, &cp_result) ||
                             (cp_result.type == VAL_BOOL && !cp_result.boolean)) {
                             success = false;
                             break;
                         }
                     } else {
-                        if (!files_call_builtin(vm, "files.cpfile", 2, cp_args, &cp_result) ||
+                        if (!files_call_builtin(vm, "files.copy_file", 2, cp_args, &cp_result) ||
                             (cp_result.type == VAL_BOOL && !cp_result.boolean)) {
                             success = false;
                             break;
@@ -416,7 +418,7 @@ bool files_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
             } else {
                 success = false;
             }
-#else
+    #else
             DIR* dir = opendir(args[0].string->chars);
             if (dir) {
                 struct dirent* entry;
@@ -425,18 +427,21 @@ bool files_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
                     char src_path[4096], dst_path[4096];
                     snprintf(src_path, sizeof(src_path), "%s/%s", args[0].string->chars, entry->d_name);
                     snprintf(dst_path, sizeof(dst_path), "%s/%s", args[1].string->chars, entry->d_name);
+                    
                     struct stat entry_st;
                     if (stat(src_path, &entry_st) != 0) { success = false; break; }
+                    
                     Value cp_result;
                     Value cp_args[] = {vm_make_string(src_path), vm_make_string(dst_path)};
+                    
                     if (S_ISDIR(entry_st.st_mode)) {
-                        if (!files_call_builtin(vm, "files.cpdir", 2, cp_args, &cp_result) ||
+                        if (!files_call_builtin(vm, "files.copy_folder", 2, cp_args, &cp_result) ||
                             (cp_result.type == VAL_BOOL && !cp_result.boolean)) {
                             success = false;
                             break;
                         }
                     } else if (S_ISREG(entry_st.st_mode)) {
-                        if (!files_call_builtin(vm, "files.cpfile", 2, cp_args, &cp_result) ||
+                        if (!files_call_builtin(vm, "files.copy_file", 2, cp_args, &cp_result) ||
                             (cp_result.type == VAL_BOOL && !cp_result.boolean)) {
                             success = false;
                             break;
@@ -447,14 +452,14 @@ bool files_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
             } else {
                 success = false;
             }
-#endif
+    #endif
             *result = vm_make_bool(success);
         } else {
             *result = vm_make_bool(false);
         }
         return true;
     }
-    if (strcmp(name, "files.listdir") == 0) {
+    if (strcmp(name, "files.listfolders") == 0) {
         const char* path = ".";
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             path = args[0].string->chars;

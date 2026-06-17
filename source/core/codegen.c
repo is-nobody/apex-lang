@@ -253,12 +253,12 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         
         // files
         "files.read", "files.write", "files.append",
-        "files.exists", "files.isfile", "files.isdir", "files.filesize", "files.dirsize", 
+        "files.exists", "files.isfile", "files.isfolder", "files.filesize", "files.foldersize", 
         "files.filetype", "files.stat",
-        "files.mkfile", "files.mkdir", "files.rmfile", "files.rmdir",
-        "files.rnfile", "files.rndir", "files.mvfile", "files.mvdir", 
-        "files.cpfile", "files.cpdir",
-        "files.listdir", "files.parentfolder",
+        "files.create_file", "files.create_folder", "files.delete_file", "files.delete_folder",
+        "files.rename_file", "files.rename_folder", "files.move_file", "files.move_folder", 
+        "files.copy_file", "files.copy_folder",
+        "files.listfolders", "files.parentfolder",
         "files.access",
         
         // sys
