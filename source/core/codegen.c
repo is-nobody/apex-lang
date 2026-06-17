@@ -390,16 +390,15 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
     int prev_break_count = cg->loop_stack.break_count;
     int prev_continue_addr = cg->loop_stack.continue_addr;
     bool prev_is_fast = cg->loop_stack.is_fast;
-
+    
     cg->loop_stack.break_count = 0;
     cg->loop_stack.is_fast = (node->for_stmt.var_name != NULL);
-    
+
     if (node->for_stmt.var_name) {
         // --- Range Loop: for x = start, end, [step] ---
         int start_reg = codegen_expression(cg, node->for_stmt.start);
         int end_reg = codegen_expression(cg, node->for_stmt.end);
         int step_reg;
-        
         if (node->for_stmt.step) {
             step_reg = codegen_expression(cg, node->for_stmt.step);
         } else {
@@ -423,7 +422,7 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
         codegen_block(cg, node->for_stmt.body);
 
         emit(cg, INST(OP_JUMP, loop_start, 0, 0), node->line);
-
+        
         int exit_addr = bytecode_current_offset(cg->chunk);
         cg->chunk->code[for_next_instr].operands[1] = exit_addr;
 
@@ -433,23 +432,69 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
         free_register(cg, start_reg);
         free_register(cg, end_reg);
         if (!node->for_stmt.step) free_register(cg, step_reg);
+
     } else {
         // --- Condition or Infinite Loop: for cond / for ---
+        
+        // OPTIMIZATION: Apply while-loop style optimization to for-conditions
+        ASTNode* condition = node->for_stmt.condition;
+        int left_reg = -1;
+        int right_reg = -1;
+        Opcode jump_op = OP_NOP;
+        bool optimized = false;
+        bool right_hoisted = false;
+
+        if (condition) {
+            if (condition->type == AST_BINARY) {
+                TokenType op = condition->binary.op;
+                switch (op) {
+                    case TOKEN_LESS:          jump_op = OP_JUMP_IF_GTE; break;
+                    case TOKEN_LESS_EQUAL:    jump_op = OP_JUMP_IF_GT;  break;
+                    case TOKEN_GREATER:       jump_op = OP_JUMP_IF_LTE; break;
+                    case TOKEN_GREATER_EQUAL: jump_op = OP_JUMP_IF_LT;  break;
+                    case TOKEN_EQUAL_EQUAL:   jump_op = OP_JUMP_IF_NEQ; break;
+                    case TOKEN_NOT_EQUAL:     jump_op = OP_JUMP_IF_EQ;  break;
+                    default: jump_op = OP_NOP; break;
+                }
+                if (jump_op != OP_NOP) {
+                    optimized = true;
+                    ASTNode* right_node = condition->binary.right;
+                    if (right_node->type == AST_LITERAL_NUMBER ||
+                        right_node->type == AST_LITERAL_STRING ||
+                        right_node->type == AST_LITERAL_BOOL) {
+                        right_reg = codegen_expression(cg, right_node);
+                        right_hoisted = true;
+                    }
+                }
+            }
+        }
+
         int loop_start = bytecode_current_offset(cg->chunk);
         cg->loop_stack.continue_addr = loop_start;
-
-        int jump_to_end = -1;
         
-        if (node->for_stmt.condition) {
-            int cond_reg = codegen_expression(cg, node->for_stmt.condition);
-            jump_to_end = bytecode_current_offset(cg->chunk);
-            emit(cg, INST(OP_JUMP_IF_FALSE, 0, cond_reg, 0), node->line);
-            free_register(cg, cond_reg);
+        int jump_to_end = -1;
+
+        if (condition) {
+            if (optimized) {
+                left_reg = codegen_expression(cg, condition->binary.left);
+                if (!right_hoisted) {
+                    right_reg = codegen_expression(cg, condition->binary.right);
+                }
+                jump_to_end = emit(cg, INST(jump_op, 0, left_reg, right_reg), node->line);
+                if (!right_hoisted) free_register(cg, right_reg);
+                free_register(cg, left_reg);
+            } else {
+                int cond_reg = codegen_expression(cg, condition);
+                jump_to_end = bytecode_current_offset(cg->chunk);
+                emit(cg, INST(OP_JUMP_IF_FALSE, 0, cond_reg, 0), node->line);
+                free_register(cg, cond_reg);
+            }
         }
 
         codegen_block(cg, node->for_stmt.body);
+        
         emit(cg, INST(OP_JUMP, loop_start, 0, 0), node->line);
-
+        
         int end_addr = bytecode_current_offset(cg->chunk);
         if (jump_to_end >= 0)
             bytecode_patch_jump(cg->chunk, jump_to_end, end_addr);
