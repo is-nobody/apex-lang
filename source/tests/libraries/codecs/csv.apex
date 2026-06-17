@@ -1,6 +1,6 @@
 import os
 import files
-import csv
+import codecs
 import table
 
 data = (
@@ -11,9 +11,9 @@ data = (
 
 filename = "test_auto.csv"
 
-result = csv.write(filename, data)
+result = codecs.csv_write(filename, data)
 
-read_data = csv.read(filename)
+read_data = codecs.csv_read(filename)
 
 if type(read_data) == "table"
     os.output("Read successful. Rows: {string(table.size(read_data))}")

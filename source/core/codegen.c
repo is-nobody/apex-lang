@@ -299,11 +299,9 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "regex.findall", "regex.finditer", "regex.sub", 
         "regex.split", "regex.escape",
 
-        // json
-        "json.read", "json.write",
-
-        // csv
-        "csv.read", "csv.write",
+        // codecs
+        "codecs.json_read", "codecs.json_write",
+        "codecs.csv_read", "codecs.csv_write",
 
         // base
         "base.b16write", "base.b16read",

@@ -216,13 +216,11 @@ static const BuiltinSig BUILTINS[] = {
     {"regex.split", 2, 2, TYPE_STRING},
     {"regex.escape", 1, 1, TYPE_STRING},
 
-    // json
-    {"json.read", 1, 1, TYPE_STRING},
-    {"json.write", 1, 1, TYPE_ANY},
-
-    // csv
-    {"csv.read", 1, 3, TYPE_STRING},
-    {"csv.write", 2, 4, TYPE_STRING},
+    // codecs
+    {"codecs.json_read", 1, 1, TYPE_STRING},
+    {"codecs.json_write", 1, 1, TYPE_ANY},
+    {"codecs.csv_read", 1, 3, TYPE_STRING},
+    {"codecs.csv_write", 2, 4, TYPE_STRING},
 
     // base
     {"base.b16write", 1, 1, TYPE_STRING},
@@ -463,8 +461,7 @@ static bool is_builtin_module_root(const char* name) {
            strcmp(name, "ffi") == 0 ||
            strcmp(name, "random") == 0 ||
            strcmp(name, "regex") == 0 ||
-           strcmp(name, "json") == 0 ||
-           strcmp(name, "csv") == 0 ||
+           strcmp(name, "codecs") == 0 ||
            strcmp(name, "base") == 0;
 }
 

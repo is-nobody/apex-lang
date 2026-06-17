@@ -35,8 +35,7 @@ set(SOURCES
     source/libraries/ffi_module.c
     source/libraries/random_module.c
     source/libraries/regex_module.c
-    source/libraries/json_module.c
-    source/libraries/csv_module.c
+    source/libraries/codecs_module.c
     source/libraries/base_module.c
 )
 
