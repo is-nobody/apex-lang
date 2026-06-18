@@ -16,7 +16,6 @@ set(SOURCES
     source/utils/repl.c
     source/utils/commands.c
     source/utils/build.c
-    source/utils/bridge.c
     source/utils/apex_api.c
     source/core/tokenizer.c 
     source/core/parser.c 
@@ -41,29 +40,6 @@ set(SOURCES
 )
 
 add_executable(apex ${SOURCES})
-
-# Compile the VFS packer utility
-# If cross-compiling to MinGW from a non-Windows host, build the packer 
-# with the HOST compiler so the host OS can execute it.
-if(MINGW AND NOT CMAKE_HOST_WIN32)
-    find_program(HOST_C_COMPILER NAMES gcc clang cc REQUIRED)
-    set(HOST_PACKER "${CMAKE_CURRENT_BINARY_DIR}/vfs_packer_host")
-    
-    add_custom_command(
-        OUTPUT ${HOST_PACKER}
-        COMMAND ${HOST_C_COMPILER} -O2 -o ${HOST_PACKER} "${CMAKE_CURRENT_SOURCE_DIR}/source/utils/vfs_packer.c"
-        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/source/utils/vfs_packer.c"
-        COMMENT "Compiling host VFS packer..."
-    )
-    add_custom_target(vfs_packer_host ALL DEPENDS ${HOST_PACKER})
-    add_dependencies(apex vfs_packer_host)
-    
-    set(VFS_PACKER_CMD ${HOST_PACKER})
-else()
-    add_executable(vfs_packer source/utils/vfs_packer.c)
-    add_dependencies(apex vfs_packer)
-    set(VFS_PACKER_CMD $<TARGET_FILE:vfs_packer>)
-endif()
 
 # Header search paths (#include "vm.h" will work from any directory)
 target_include_directories(apex PRIVATE 
@@ -159,33 +135,18 @@ if(BUILD_STATIC AND NOT MINGW)
     set_target_properties(apex PROPERTIES LINK_FLAGS "-static")
 endif()
 
-# ==========================================================
-# EMBEDDED PAYLOAD PACKER
-# ==========================================================
-
-file(GLOB_RECURSE EMBEDDED_SCRIPTS "${CMAKE_CURRENT_SOURCE_DIR}/source/embedded/*.apex")
-
-list(REMOVE_DUPLICATES EMBEDDED_SCRIPTS)
-
-if(EMBEDDED_SCRIPTS)
-    if(CMAKE_BUILD_TYPE STREQUAL "Release")
-        if(NOT MINGW)
-            add_custom_command(TARGET apex POST_BUILD
-                COMMAND ${CMAKE_STRIP} $<TARGET_FILE:apex>
-                COMMAND ${VFS_PACKER_CMD} $<TARGET_FILE:apex> "${CMAKE_CURRENT_SOURCE_DIR}" ${EMBEDDED_SCRIPTS}
-                COMMENT "Stripping and embedding built-in payload..."
-            )
-        else()
-            add_custom_command(TARGET apex POST_BUILD
-                COMMAND x86_64-w64-mingw32-strip $<TARGET_FILE:apex>
-                COMMAND ${VFS_PACKER_CMD} $<TARGET_FILE:apex> "${CMAKE_CURRENT_SOURCE_DIR}" ${EMBEDDED_SCRIPTS}
-                COMMENT "Stripping and embedding built-in payload (MinGW)..."
-            )
-        endif()
-    else()
+# Strip debug symbols in Release mode (reduces binary size)
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    if(NOT MINGW)
         add_custom_command(TARGET apex POST_BUILD
-            COMMAND ${VFS_PACKER_CMD} $<TARGET_FILE:apex> "${CMAKE_CURRENT_SOURCE_DIR}" ${EMBEDDED_SCRIPTS}
-            COMMENT "Embedding built-in payload..."
+            COMMAND ${CMAKE_STRIP} $<TARGET_FILE:apex>
+            COMMENT "Stripping debug symbols..."
+        )
+    else()
+        # Use MinGW strip for cross-compiled binaries
+        add_custom_command(TARGET apex POST_BUILD
+            COMMAND x86_64-w64-mingw32-strip $<TARGET_FILE:apex>
+            COMMENT "Stripping debug symbols (MinGW)..."
         )
     endif()
 endif()
