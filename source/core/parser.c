@@ -232,6 +232,15 @@ static const BuiltinSig BUILTINS[] = {
     {"base.url_write", 1, 1, TYPE_STRING},
     {"base.url_read", 1, 1, TYPE_STRING},
 
+    // secrets
+    {"secrets.token_hex", 0, 1, TYPE_NUMBER},
+    {"secrets.token_urlsafe", 0, 1, TYPE_NUMBER},
+    {"secrets.token_bytes", 1, 1, TYPE_NUMBER},
+    {"secrets.choice", 1, 1, TYPE_TABLE},
+    {"secrets.randbelow", 1, 1, TYPE_NUMBER},
+    {"secrets.randbits", 1, 1, TYPE_NUMBER},
+    {"secrets.compare_digest", 2, 2, TYPE_STRING},
+
     // built-in
     {"number", 1, 1, TYPE_ANY},
     {"string", 1, 1, TYPE_ANY},
@@ -462,7 +471,8 @@ static bool is_builtin_module_root(const char* name) {
            strcmp(name, "random") == 0 ||
            strcmp(name, "regex") == 0 ||
            strcmp(name, "codecs") == 0 ||
-           strcmp(name, "base") == 0;
+           strcmp(name, "base") == 0 ||
+           strcmp(name, "secrets") == 0;
 }
 
 static bool build_module_path(Parser* parser, const char* module_path, char* out_path, int out_size) {

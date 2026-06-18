@@ -10,6 +10,7 @@
 #include "regex_module.h"
 #include "codecs_module.h"
 #include "base_module.h"
+#include "secrets_module.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -429,6 +430,7 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
     if (strncmp(name, "regex.", 6) == 0) return regex_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "codecs.", 7) == 0) return codecs_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "base.", 5) == 0) return base_call_builtin(vm, name, arg_count, args, result);
+    if (strncmp(name, "secrets.", 8) == 0) return secrets_call_builtin(vm, name, arg_count, args, result);
 
     if (strcmp(name, "number") == 0) {
         if (arg_count >= 1) {

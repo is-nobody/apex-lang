@@ -309,6 +309,10 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "base.a85write", "base.a85read",
         "base.url_write", "base.url_read",
 
+        // secrets
+        "secrets.token_hex", "secrets.token_urlsafe", "secrets.token_bytes",
+        "secrets.choice", "secrets.randbelow", "secrets.randbits", "secrets.compare_digest",
+
         // built-in
         "number", "string", "type",
         NULL

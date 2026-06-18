@@ -37,6 +37,7 @@ set(SOURCES
     source/libraries/regex_module.c
     source/libraries/codecs_module.c
     source/libraries/base_module.c
+    source/libraries/secrets_module.c
 )
 
 add_executable(apex ${SOURCES})
