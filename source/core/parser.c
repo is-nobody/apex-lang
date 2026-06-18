@@ -1735,61 +1735,85 @@ static ASTNode* parse_if_statement(Parser* parser) {
 static ASTNode* parse_for_statement(Parser* parser) {
     Token* for_kw = advance(parser);
     skip_newlines(parser);
-
+    
     ASTNode* condition = NULL;
     char* var_name = NULL;
     ASTNode* start = NULL, *end = NULL, *step = NULL;
     int var_line = for_kw->line;
     int var_col = for_kw->column;
+    bool is_table_iter = false;
 
-    // Lookahead: check if it's a range loop (IDENT = ...)
+    // Lookahead: check if it's IDENT = ...
     if (check(parser, TOKEN_IDENTIFIER)) {
         int saved_current = parser->current;
         Token* id_tok = advance(parser);
         var_line = id_tok->line;
         var_col = id_tok->column;
-
+        
         if (match(parser, TOKEN_EQUAL)) {
-            // Range loop: for x = start, end, [step]
-            var_name = strdup(id_tok->value);
-            start = parse_expression(parser);
-            parser_check_number_expr(parser, start, "For loop start");
-            consume(parser, TOKEN_COMMA, "Expected ',' after start value");
-            end = parse_expression(parser);
-            parser_check_number_expr(parser, end, "For loop end");
-            if (match(parser, TOKEN_COMMA)) {
-                step = parse_expression(parser);
-                parser_check_number_expr(parser, step, "For loop step");
-                double step_val;
-                if (step && evaluate_numeric_constant(parser, step, &step_val) && step_val == 0.0) {
-                    parser_error_at(parser, step->line, step->column, 0, "For loop step cannot be zero");
+            // Peek ahead to determine type of loop
+            // Range: for i = 0, 10
+            // Table: for k = my_table
+            
+            if (check(parser, TOKEN_NUMBER)) {
+                // Likely a range loop
+                var_name = strdup(id_tok->value);
+                start = parse_expression(parser);
+                parser_check_number_expr(parser, start, "For loop start");
+                
+                // If there is a comma, it is definitely a range loop
+                if (check(parser, TOKEN_COMMA)) {
+                    consume(parser, TOKEN_COMMA, "Expected ',' after start value");
+                    end = parse_expression(parser);
+                    parser_check_number_expr(parser, end, "For loop end");
+                    
+                    if (match(parser, TOKEN_COMMA)) {
+                        step = parse_expression(parser);
+                        parser_check_number_expr(parser, step, "For loop step");
+                        double step_val;
+                        if (step && evaluate_numeric_constant(parser, step, &step_val) && step_val == 0.0) {
+                            parser_error_at(parser, step->line, step->column, 0, "For loop step cannot be zero");
+                        }
+                    }
+                } else {
+                    // Single number after = is ambiguous or error in range context.
+                    // Treat as error for range loop if no comma.
+                    parser_error_at(parser, id_tok->line, id_tok->column, strlen(id_tok->value), 
+                        "Range loop requires 'start, end'");
+                    free(var_name); var_name = NULL;
                 }
+            } else {
+                // Not a number, so it's a table/variable: for k = items
+                var_name = strdup(id_tok->value);
+                start = parse_expression(parser);
+                is_table_iter = true;
             }
         } else {
-            // Condition loop: backtrack and parse expression
+            // Backtrack: it was just an identifier, maybe part of a condition?
             parser->current = saved_current;
             condition = parse_expression(parser);
         }
     }
-    // Else: infinite loop (condition & var_name remain NULL)
-
+    
     parser->loop_depth++;
     if (parser->loop_depth > APEX_MAX_LOOP_DEPTH) {
-        parser_error_at(parser, for_kw->line, for_kw->column, 3, 
-                        "Loop nesting exceeds maximum depth of %d", APEX_MAX_LOOP_DEPTH);
+        parser_error_at(parser, for_kw->line, for_kw->column, 3,
+            "Loop nesting exceeds maximum depth of %d", APEX_MAX_LOOP_DEPTH);
     }
+    
     parser_enter_scope(parser);
-
-    // FIX: Declare the loop variable in the new scope so it's recognized in the body!
+    
     if (var_name) {
-        parser_declare_symbol(parser, var_name, PARSER_SYM_VARIABLE,
-                              TYPE_NUMBER, 0, var_line, var_col);
+        // For table iteration, type is ANY (could be string key or number key)
+        // For range loop, type is NUMBER
+        ValueType vtype = is_table_iter ? TYPE_ANY : TYPE_NUMBER;
+        parser_declare_symbol(parser, var_name, PARSER_SYM_VARIABLE, vtype, 0, var_line, var_col);
     }
-
+    
     ASTNode* body = parse_block(parser, true, "for");
     parser_exit_scope(parser);
     parser->loop_depth--;
-
+    
     return ast_create_for(var_name, condition, start, end, step, body, for_kw->line, for_kw->column);
 }
 
