@@ -1453,12 +1453,11 @@ static ASTNode* parse_call(Parser* parser, ASTNode* callee) {
 
 static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
     advance(parser); // consume '.'
-    
     Token* token = current_token(parser);
     ASTNode* member_node;
-    
-    // After dot, allow: identifiers, numbers, and KEYWORDS as field names
-    if (token->type == TOKEN_IDENTIFIER || 
+
+    // Allow identifiers (including our new "raw keys"), numbers, and keywords
+    if (token->type == TOKEN_IDENTIFIER ||
         token->type == TOKEN_NUMBER ||
         token->type == TOKEN_FUNCTION ||
         token->type == TOKEN_IF ||
@@ -1476,17 +1475,15 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
         token->type == TOKEN_FALSE) {
         
         advance(parser);
-        
         if (token->type == TOKEN_NUMBER) {
             member_node = ast_create_literal_string(token->value, token->line, token->column);
         } else {
             member_node = ast_create_identifier(token->value, token->line, token->column);
         }
-        
         return ast_create_member_access(object, member_node);
     }
-    
-    parser_error(parser, "Expected identifier after '.'");
+
+    parser_error(parser, "Expected identifier or key after '.'");
     return NULL;
 }
 
