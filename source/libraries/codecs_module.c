@@ -441,6 +441,202 @@ static char detect_delimiter(const char* data, int len) {
     return ',';
 }
 
+// ========== XML Helpers (Self-made) ==========
+
+typedef struct {
+    const char* p;
+} XmlParser;
+
+static void xml_skip_ws(XmlParser* xp) {
+    while (*xp->p && isspace((unsigned char)*xp->p)) xp->p++;
+}
+
+static void xml_parse_attrs(VM* vm, XmlParser* xp, Table* t) {
+    xml_skip_ws(xp);
+    while (*xp->p && *xp->p != '>' && *xp->p != '/') {
+        char key[128] = {0};
+        int ki = 0;
+        while (*xp->p && (isalnum((unsigned char)*xp->p) || *xp->p == '_' || *xp->p == '-') && ki < 127) {
+            key[ki++] = *xp->p++;
+        }
+        key[ki] = '\0';
+        if (!*key) break;
+        
+        xml_skip_ws(xp);
+        if (*xp->p != '=') break;
+        xp->p++; // skip =
+        xml_skip_ws(xp);
+        
+        if (*xp->p != '"') break;
+        xp->p++; // skip "
+        
+        StringBuilder val_sb;
+        sb_init(&val_sb, 64);
+        while (*xp->p && *xp->p != '"') {
+            sb_append_char(&val_sb, *xp->p);
+            xp->p++;
+        }
+        if (*xp->p == '"') xp->p++;
+        
+        char attr_key[150];
+        snprintf(attr_key, sizeof(attr_key), "@%s", key);
+        table_set(t, attr_key, vm_make_string(val_sb.buffer));
+        sb_free(&val_sb);
+        xml_skip_ws(xp);
+    }
+}
+
+static Value xml_parse_element(VM* vm, XmlParser* xp);
+
+static Value xml_parse_element(VM* vm, XmlParser* xp) {
+    xml_skip_ws(xp);
+    if (*xp->p != '<') return vm_make_bool(false);
+    xp->p++; // skip <
+    
+    char tag[128] = {0};
+    int ti = 0;
+    while (*xp->p && (isalnum((unsigned char)*xp->p) || *xp->p == '_' || *xp->p == '-') && ti < 127) {
+        tag[ti++] = *xp->p++;
+    }
+    tag[ti] = '\0';
+    if (!*tag) return vm_make_bool(false);
+    
+    Value elem = vm_make_table();
+    table_set(elem.table, "__tag", vm_make_string(tag));
+    
+    xml_parse_attrs(vm, xp, elem.table);
+    
+    xml_skip_ws(xp);
+    bool self_closing = false;
+    if (*xp->p == '/') {
+        self_closing = true;
+        xp->p++;
+    }
+    
+    if (*xp->p == '>') {
+        xp->p++;
+        if (self_closing) return elem;
+        
+        // Parse children
+        int index = 1;
+        while (*xp->p) {
+            if (*xp->p == '<') {
+                if (*(xp->p + 1) == '/') {
+                    // End tag
+                    xp->p += 2;
+                    while (*xp->p && *xp->p != '>') xp->p++;
+                    if (*xp->p == '>') xp->p++;
+                    break;
+                } else {
+                    Value child = xml_parse_element(vm, xp);
+                    if (child.type == VAL_TABLE) {
+                        char k[32];
+                        snprintf(k, sizeof(k), "%d", index++);
+                        table_set(elem.table, k, child);
+                        value_decref(&child);
+                    }
+                }
+            } else {
+                // Text content
+                StringBuilder text_sb;
+                sb_init(&text_sb, 64);
+                while (*xp->p && *xp->p != '<') {
+                    sb_append_char(&text_sb, *xp->p);
+                    xp->p++;
+                }
+                if (text_sb.length > 0) {
+                    table_set(elem.table, "#text", vm_make_string(text_sb.buffer));
+                }
+                sb_free(&text_sb);
+            }
+            xml_skip_ws(xp);
+        }
+        return elem;
+    }
+    value_decref(&elem);
+    return vm_make_bool(false);
+}
+
+// XML Write Helper
+static void xml_write_node(VM* vm, Value v, int depth, StringBuilder* sb) {
+    if (v.type != VAL_TABLE) return;
+    
+    Value tag_val;
+    if (!table_get(v.table, "__tag", &tag_val) || tag_val.type != VAL_STRING) {
+        value_decref(&tag_val);
+        return;
+    }
+    
+    for (int i = 0; i < depth; i++) sb_append(sb, "  ", 2);
+    sb_append(sb, "<", 1);
+    sb_append(sb, tag_val.string->chars, tag_val.string->length);
+    value_decref(&tag_val);
+    
+    // Write attributes
+    for (int i = 0; i < v.table->capacity; i++) {
+        TableEntry* e = v.table->entries[i];
+        while (e) {
+            if (e->key[0] == '@' && e->value.type == VAL_STRING) {
+                sb_append(sb, " ", 1);
+                sb_append(sb, e->key + 1, strlen(e->key + 1));
+                sb_append(sb, "=\"", 2);
+                sb_append(sb, e->value.string->chars, e->value.string->length);
+                sb_append(sb, "\"", 1);
+            }
+            e = e->next;
+        }
+    }
+    
+    // Check for children or text
+    bool has_children = false;
+    Value text_val;
+    bool has_text = table_get(v.table, "#text", &text_val);
+    
+    for (int i = 1; ; i++) {
+        char k[32];
+        snprintf(k, sizeof(k), "%d", i);
+        Value child;
+        if (table_get(v.table, k, &child)) {
+            has_children = true;
+            value_decref(&child);
+        } else {
+            break;
+        }
+    }
+    
+    if (has_children || has_text) {
+        sb_append(sb, ">", 1);
+        if (has_text) {
+            sb_append(sb, text_val.string->chars, text_val.string->length);
+            value_decref(&text_val);
+        }
+        if (has_children) sb_append(sb, "\n", 1);
+        
+        for (int i = 1; ; i++) {
+            char k[32];
+            snprintf(k, sizeof(k), "%d", i);
+            Value child;
+            if (table_get(v.table, k, &child)) {
+                xml_write_node(vm, child, depth + 1, sb);
+                value_decref(&child);
+            } else {
+                break;
+            }
+        }
+        
+        for (int i = 0; i < depth; i++) sb_append(sb, "  ", 2);
+        sb_append(sb, "</", 2);
+        // Re-get tag name for closing
+        if (table_get(v.table, "__tag", &tag_val)) {
+            sb_append(sb, tag_val.string->chars, tag_val.string->length);
+            value_decref(&tag_val);
+        }
+        sb_append(sb, ">\n", 2);
+    } else {
+        sb_append(sb, "/>\n", 3);
+    }
+}
+
 // ========== Public API ==========
 
 bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
@@ -474,48 +670,22 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             *result = vm_make_bool(false);
             return true;
         }
-        const char* filename = args[0].string->chars;
+        const char* data = args[0].string->chars;
+        int len = args[0].string->length;
+        
         bool has_header = true;
         char delimiter = ',';
-        if (arg_count >= 2 && args[1].type == VAL_BOOL) {
-            has_header = args[1].boolean;
-        }
-        if (arg_count >= 3 && args[2].type == VAL_STRING && args[2].string->length > 0) {
+        if (arg_count >= 2 && args[1].type == VAL_BOOL) has_header = args[1].boolean;
+        if (arg_count >= 3 && args[2].type == VAL_STRING && args[2].string->length > 0) 
             delimiter = args[2].string->chars[0];
-        }
 
-        FILE* f = fopen(filename, "rb");
-        if (!f) {
-            *result = vm_make_bool(false);
+        if (len <= 0) {
+            *result = vm_make_table();
             return true;
         }
-        fseek(f, 0, SEEK_END);
-        long size = ftell(f);
-        fseek(f, 0, SEEK_SET);
-        if (size <= 0) {
-            fclose(f);
-            *result = vm_make_table(); 
-            return true;
-        }
-        char* buffer = (char*)malloc(size + 1);
-        if (!buffer) {
-            fclose(f);
-            *result = vm_make_bool(false);
-            return true;
-        }
-        size_t read_size = fread(buffer, 1, size, f);
-        buffer[read_size] = '\0';
-        fclose(f);
 
-        if (delimiter == 0) delimiter = detect_delimiter(buffer, read_size);
-
-        CsvParser parser;
-        parser.data = buffer;
-        parser.pos = 0;
-        parser.len = read_size;
-        parser.delimiter = delimiter;
-
-        Value table_list = vm_make_table(); 
+        CsvParser parser = { .data = data, .pos = 0, .len = len, .delimiter = delimiter };
+        Value table_list = vm_make_table();
         
         char** headers = NULL;
         int col_count = 0;
@@ -528,13 +698,12 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
                 parser.pos++;
             }
             col_count = count + 1;
-            parser.pos = temp_pos; 
+            parser.pos = temp_pos;
+            
             if (col_count > 0) {
                 headers = (char**)malloc(sizeof(char*) * col_count);
                 if (headers) {
-                    for (int i = 0; i < col_count; i++) {
-                        headers[i] = csv_parse_field(&parser);
-                    }
+                    for (int i = 0; i < col_count; i++) headers[i] = csv_parse_field(&parser);
                 }
             }
         }
@@ -546,15 +715,14 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
                 if (parser.pos < parser.len && parser.data[parser.pos] == '\n') parser.pos++;
                 continue;
             }
+
             Value row_table = vm_make_table();
             if (has_header && headers && col_count > 0) {
                 for (int i = 0; i < col_count; i++) {
                     if (!csv_has_next(&parser)) break;
                     char* field = csv_parse_field(&parser);
                     Value val = csv_parse_value(field);
-                    if (headers[i]) {
-                        table_set(row_table.table, headers[i], val);
-                    }
+                    if (headers[i]) table_set(row_table.table, headers[i], val);
                     value_decref(&val);
                     free(field);
                 }
@@ -571,6 +739,7 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
                     idx++;
                 }
             }
+            
             char index_key[32];
             snprintf(index_key, sizeof(index_key), "%d", row_index++);
             table_set(table_list.table, index_key, row_table);
@@ -581,117 +750,305 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             for (int i = 0; i < col_count; i++) free(headers[i]);
             free(headers);
         }
-        free(buffer);
         *result = table_list;
         return true;
     }
 
     if (strcmp(name, "codecs.csv_write") == 0) {
-        if (arg_count < 2 || args[0].type != VAL_STRING || args[1].type != VAL_TABLE) {
+        if (arg_count < 1 || args[0].type != VAL_TABLE) {
             *result = vm_make_bool(false);
             return true;
         }
-        const char* filename = args[0].string->chars;
-        Table* data = args[1].table;
+        Table* data = args[0].table;
         bool has_header = true;
         char delimiter = ',';
-        if (arg_count >= 3 && args[2].type == VAL_BOOL) {
-            has_header = args[2].boolean;
-        }
-        if (arg_count >= 4 && args[3].type == VAL_STRING && args[3].string->length > 0) {
-            delimiter = args[3].string->chars[0];
-        }
-
-        FILE* f = fopen(filename, "wb");
-        if (!f) {
-            *result = vm_make_bool(false);
-            return true;
-        }
+        if (arg_count >= 2 && args[1].type == VAL_BOOL) has_header = args[1].boolean;
+        if (arg_count >= 3 && args[2].type == VAL_STRING && args[2].string->length > 0) 
+            delimiter = args[2].string->chars[0];
 
         int row_count = table_size(data);
         if (row_count == 0) {
-            fclose(f);
-            *result = vm_make_bool(true);
+            *result = vm_make_string("");
             return true;
         }
 
         Value first_row_val;
         if (!table_get(data, "1", &first_row_val) || first_row_val.type != VAL_TABLE) {
-            fclose(f);
             *result = vm_make_bool(false);
             return true;
         }
-        Table* first_row = first_row_val.table;
+        
         int header_count = 0;
-        char** headers = table_keys(first_row, &header_count);
+        char** headers = table_keys(first_row_val.table, &header_count);
+        StringBuilder sb;
+        sb_init(&sb, 256);
 
+        // Write Header
         if (has_header && headers && header_count > 0) {
             for (int i = 0; i < header_count; i++) {
-                if (i > 0) fputc(delimiter, f);
+                if (i > 0) sb_append_char(&sb, delimiter);
                 const char* h = headers[i];
                 bool needs_quote = strchr(h, delimiter) || strchr(h, '"') || strchr(h, '\n');
                 if (needs_quote) {
-                    fputc('"', f);
+                    sb_append_char(&sb, '"');
                     for (const char* p = h; *p; p++) {
-                        if (*p == '"') fputc('"', f);
-                        fputc(*p, f);
+                        if (*p == '"') sb_append_char(&sb, '"');
+                        sb_append_char(&sb, *p);
                     }
-                    fputc('"', f);
+                    sb_append_char(&sb, '"');
                 } else {
-                    fputs(h, f);
+                    sb_append(&sb, h, strlen(h));
                 }
             }
-            fprintf(f, "\r\n");
+            sb_append(&sb, "\n", 1);
         }
 
+        // Write Rows
         for (int r = 1; r <= row_count; r++) {
             char key[32];
             snprintf(key, sizeof(key), "%d", r);
             Value row_val;
             if (!table_get(data, key, &row_val) || row_val.type != VAL_TABLE) continue;
-            Table* row = row_val.table;
+            
             for (int i = 0; i < header_count; i++) {
-                if (i > 0) fputc(delimiter, f);
+                if (i > 0) sb_append_char(&sb, delimiter);
                 Value cell_val;
-                char buf[256];
+                char buf[64];
                 const char* str_val = "";
-                if (table_get(row, headers[i], &cell_val)) {
+                
+                if (table_get(row_val.table, headers[i], &cell_val)) {
                     switch (cell_val.type) {
-                        case VAL_NUMBER:
-                            snprintf(buf, sizeof(buf), "%g", cell_val.number);
-                            str_val = buf;
-                            break;
-                        case VAL_BOOL:
-                            str_val = cell_val.boolean ? "true" : "false";
-                            break;
-                        case VAL_STRING:
-                            str_val = cell_val.string->chars;
-                            break;
-                        default:
-                            str_val = "";
-                            break;
+                        case VAL_NUMBER: snprintf(buf, sizeof(buf), "%g", cell_val.number); str_val = buf; break;
+                        case VAL_BOOL: str_val = cell_val.boolean ? "true" : "false"; break;
+                        case VAL_STRING: str_val = cell_val.string->chars; break;
+                        default: str_val = ""; break;
                     }
                     value_decref(&cell_val);
                 }
+
                 bool needs_quote = strchr(str_val, delimiter) || strchr(str_val, '"') || strchr(str_val, '\n');
                 if (needs_quote) {
-                    fputc('"', f);
+                    sb_append_char(&sb, '"');
                     for (const char* p = str_val; *p; p++) {
-                        if (*p == '"') fputc('"', f);
-                        fputc(*p, f);
+                        if (*p == '"') sb_append_char(&sb, '"'); // Correct escaping: " -> ""
+                        sb_append_char(&sb, *p);
                     }
-                    fputc('"', f);
+                    sb_append_char(&sb, '"');
                 } else {
-                    fputs(str_val, f);
+                    sb_append(&sb, str_val, strlen(str_val));
                 }
             }
-            fprintf(f, "\r\n");
+            
+            // Only add newline if NOT the last row
+            if (r < row_count) sb_append(&sb, "\n", 1);
             value_decref(&row_val);
         }
 
         if (headers) free(headers);
-        fclose(f);
-        *result = vm_make_bool(true);
+        *result = vm_make_string(sb.buffer);
+        sb_free(&sb);
+        return true;
+    }
+
+    // --- XML ---
+    if (strcmp(name, "codecs.xml_read") == 0) {
+        if (arg_count >= 1 && args[0].type == VAL_STRING) {
+            const char* xml = args[0].string->chars;
+            
+            XmlParser xp;
+            xp.p = xml;
+            
+            Value root = xml_parse_element(vm, &xp);
+            if (root.type == VAL_TABLE) {
+                *result = root;
+            } else {
+                value_decref(&root);
+                *result = vm_make_bool(false);
+            }
+            return true;
+        }
+        *result = vm_make_bool(false);
+        return true;
+    }
+
+    if (strcmp(name, "codecs.xml_write") == 0) {
+        if (arg_count >= 1 && args[0].type == VAL_TABLE) {
+            StringBuilder sb;
+            sb_init(&sb, 256);
+            
+            xml_write_node(vm, args[0], 0, &sb);
+            
+            *result = vm_make_string(sb.buffer);
+            sb_free(&sb);
+            return true;
+        }
+        *result = vm_make_bool(false);
+        return true;
+    }
+
+    // --- YAML (Basic Subset) ---
+    if (strcmp(name, "codecs.yaml_read") == 0) {
+        if (arg_count >= 1 && args[0].type == VAL_STRING) {
+            const char* data = args[0].string->chars;
+            Value root = vm_make_table();
+            
+            // Very basic YAML parser: supports key: value and - list items at root level
+            char line[1024];
+            const char* p = data;
+            int index = 1;
+            
+            while (*p) {
+                // Read line
+                int i = 0;
+                while (*p && *p != '\n' && *p != '\r' && i < 1023) {
+                    line[i++] = *p++;
+                }
+                line[i] = '\0';
+                if (*p == '\r') p++;
+                if (*p == '\n') p++;
+                
+                // Skip empty lines and comments
+                char* l = line;
+                while (*l && isspace((unsigned char)*l)) l++;
+                if (!*l || *l == '#') continue;
+                
+                // Check for list item
+                if (*l == '-') {
+                    l++;
+                    while (*l && isspace((unsigned char)*l)) l++;
+                    if (*l) {
+                        char k[32];
+                        snprintf(k, sizeof(k), "%d", index++);
+                        // Try to parse as number or bool
+                        if (strcmp(l, "true") == 0) table_set(root.table, k, vm_make_bool(true));
+                        else if (strcmp(l, "false") == 0) table_set(root.table, k, vm_make_bool(false));
+                        else {
+                            char* endptr;
+                            double num = strtod(l, &endptr);
+                            if (*endptr == '\0') table_set(root.table, k, vm_make_number(num));
+                            else table_set(root.table, k, vm_make_string(l));
+                        }
+                    }
+                } else {
+                    // Key: Value
+                    char* colon = strchr(l, ':');
+                    if (colon) {
+                        *colon = '\0';
+                        char* key = l;
+                        char* val = colon + 1;
+                        while (*val && isspace((unsigned char)*val)) val++;
+                        
+                        // Trim key
+                        char* end = key + strlen(key) - 1;
+                        while (end > key && isspace((unsigned char)*end)) *end-- = '\0';
+                        
+                        if (*val) {
+                            if (strcmp(val, "true") == 0) table_set(root.table, key, vm_make_bool(true));
+                            else if (strcmp(val, "false") == 0) table_set(root.table, key, vm_make_bool(false));
+                            else {
+                                char* endptr;
+                                double num = strtod(val, &endptr);
+                                if (*endptr == '\0') table_set(root.table, key, vm_make_number(num));
+                                else table_set(root.table, key, vm_make_string(val));
+                            }
+                        }
+                    }
+                }
+            }
+            *result = root;
+            return true;
+        }
+        *result = vm_make_bool(false);
+        return true;
+    }
+
+    // --- TOML (Basic Subset) ---
+    if (strcmp(name, "codecs.toml_read") == 0) {
+        if (arg_count >= 1 && args[0].type == VAL_STRING) {
+            const char* data = args[0].string->chars;
+            Value root = vm_make_table();
+            Value current_table = root;
+            value_incref(&root);
+            
+            char line[1024];
+            const char* p = data;
+            
+            while (*p) {
+                int i = 0;
+                while (*p && *p != '\n' && *p != '\r' && i < 1023) {
+                    line[i++] = *p++;
+                }
+                line[i] = '\0';
+                if (*p == '\r') p++;
+                if (*p == '\n') p++;
+                
+                char* l = line;
+                while (*l && isspace((unsigned char)*l)) l++;
+                if (!*l || *l == '#') continue;
+                
+                // Section [table]
+                if (*l == '[') {
+                    l++;
+                    char* end = strchr(l, ']');
+                    if (end) {
+                        *end = '\0';
+                        // Trim trailing spaces from section name
+                        char* trim_end = end - 1;
+                        while (trim_end > l && isspace((unsigned char)*trim_end)) *trim_end-- = '\0';
+                        
+                        Value new_t = vm_make_table();
+                        table_set(root.table, l, new_t);
+                        value_decref(&current_table);
+                        current_table = new_t;
+                        value_incref(&new_t);
+                    }
+                    continue;
+                }
+                
+                // Key = Value
+                char* eq = strchr(l, '=');
+                if (eq) {
+                    *eq = '\0';
+                    char* key = l;
+                    char* val = eq + 1;
+                    
+                    // Trim key
+                    char* kend = key + strlen(key) - 1;
+                    while (kend > key && isspace((unsigned char)*kend)) *kend-- = '\0';
+                    
+                    // Trim val
+                    while (*val && isspace((unsigned char)*val)) val++;
+                    char* vend = val + strlen(val) - 1;
+                    while (vend > val && isspace((unsigned char)*vend)) *vend-- = '\0';
+                    
+                    if (*val) {
+                        Value v;
+                        if (*val == '"') {
+                            // String
+                            val++;
+                            char* close = strchr(val, '"');
+                            if (close) *close = '\0';
+                            v = vm_make_string(val);
+                        } else if (strcmp(val, "true") == 0) {
+                            v = vm_make_bool(true);
+                        } else if (strcmp(val, "false") == 0) {
+                            v = vm_make_bool(false);
+                        } else {
+                            char* endptr;
+                            double num = strtod(val, &endptr);
+                            if (*endptr == '\0') v = vm_make_number(num);
+                            else v = vm_make_string(val);
+                        }
+                        table_set(current_table.table, key, v);
+                        value_decref(&v);
+                    }
+                }
+            }
+            value_decref(&current_table);
+            *result = root;
+            return true;
+        }
+        *result = vm_make_bool(false);
         return true;
     }
 

@@ -302,6 +302,8 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         // codecs
         "codecs.json_read", "codecs.json_write",
         "codecs.csv_read", "codecs.csv_write",
+        "codecs.xml_read", "codecs.xml_write",
+        "codecs.yaml_read", "codecs.toml_read",
 
         // base
         "base.b16write", "base.b16read",
