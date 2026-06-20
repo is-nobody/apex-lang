@@ -1,8 +1,8 @@
-// math_lib.apex - Module with functions and variables
 import os
+import math
 
-pi = 3.14159
-e = 2.71828
+pi = math.pi()
+e = math.e()
 
 function add(a, b)
     return a + b
@@ -22,7 +22,7 @@ function divide(a, b)
 function power(base, exp)
     result = 1
     i = 0
-    for i in range(exp)
+    for i = 1, exp
         result = result * base
     return result
 

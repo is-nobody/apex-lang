@@ -160,7 +160,6 @@ static const BuiltinSig BUILTINS[] = {
     {"math.radians", 1, 1, TYPE_NUMBER},
     {"math.degrees", 1, 1, TYPE_NUMBER},
     {"math.gcd", 2, 2, TYPE_NUMBER},
-    {"math.inf", 0, 0, TYPE_ANY},
     {"math.hypot", 2, 2, TYPE_NUMBER},
     {"math.factorial", 1, 1, TYPE_NUMBER},
 
@@ -874,57 +873,61 @@ static void check_math_arg_type(Parser* parser, ASTNode* node, const char* func_
     }
 }
 
+// Add this helper to check if a root name is a known built-in module
+static bool is_known_builtin_module(const char* name) {
+    return strcmp(name, "os") == 0 ||
+           strcmp(name, "files") == 0 ||
+           strcmp(name, "sys") == 0 ||
+           strcmp(name, "math") == 0 ||
+           strcmp(name, "string") == 0 ||
+           strcmp(name, "table") == 0 ||
+           strcmp(name, "ffi") == 0 ||
+           strcmp(name, "random") == 0 ||
+           strcmp(name, "regex") == 0 ||
+           strcmp(name, "codecs") == 0 ||
+           strcmp(name, "base") == 0 ||
+           strcmp(name, "secrets") == 0;
+}
+
 static ValueType infer_call_type(Parser* parser, ASTNode* node) {
     ValueType callee_type = infer_expression_type(parser, node->call.callee);
-    if (callee_type != TYPE_FUNCTION && callee_type != TYPE_UNKNOWN &&
-        callee_type != TYPE_ANY) {
-        int callee_len = (node->call.callee->type == AST_IDENTIFIER) ?
-            (int)strlen(node->call.callee->identifier.name) : 0;
-        parser_error_at(parser, node->line, node->column, callee_len,
-            "Cannot call non-function value of type %s", type_name(callee_type));
+    
+    // If the callee itself is invalid (e.g., undefined variable), report that first
+    if (callee_type == TYPE_ERROR) {
         return TYPE_ERROR;
     }
 
     char full_name[256] = "";
     const char* func_name = resolve_call_name(node->call.callee, full_name, sizeof(full_name));
+
     if (func_name) {
+        // 1. Check against explicit Built-in Signatures
         const BuiltinSig* builtin = lookup_builtin(func_name);
         if (builtin) {
             int actual = node->call.arguments->count;
             if (actual < builtin->min_args || actual > builtin->max_args) {
                 int err_len = get_node_len(node->call.callee);
                 parser_error_at(parser, node->call.callee->line, node->call.callee->column, err_len > 0 ? err_len : 1,
-                                "Function '%s' expects %d to %d arguments, got %d",
-                                func_name, builtin->min_args, builtin->max_args, actual);
+                    "Function '%s' expects %d to %d arguments, got %d",
+                    func_name, builtin->min_args, builtin->max_args, actual);
             }
             if (actual > APEX_MAX_CALL_ARGS) {
                 parser_error_at(parser, node->line, node->column, 0, "Too many arguments (%d), maximum is %d", actual, APEX_MAX_CALL_ARGS);
             }
             
-            if (actual >= 1) {
+            // Type checking for first argument if specified
+            if (actual >= 1 && builtin->arg_type != TYPE_ANY) {
                 ASTNode* arg = node->call.arguments->nodes[0];
                 ValueType arg_t = infer_expression_type(parser, arg);
-                
-                if (strcmp(func_name, "number") == 0) {
-                    if (arg_t != TYPE_STRING && arg_t != TYPE_NUMBER && arg_t != TYPE_BOOLEAN && arg_t != TYPE_ANY && arg_t != TYPE_UNKNOWN) {
-                        parser_error_at(parser, arg->line, arg->column, get_node_len(arg),
-                                        "number() argument must be string, number, or boolean, got %s", type_name(arg_t));
-                    }
-                } else if (strcmp(func_name, "string") == 0) {
-                    if (arg_t != TYPE_STRING && arg_t != TYPE_NUMBER && arg_t != TYPE_BOOLEAN && arg_t != TYPE_ANY && arg_t != TYPE_UNKNOWN) {
-                        parser_error_at(parser, arg->line, arg->column, get_node_len(arg),
-                                        "string() argument must be string, number, or boolean, got %s", type_name(arg_t));
-                    }
-                } else if (builtin->arg_type != TYPE_ANY) {
-                    if (arg_t != builtin->arg_type && arg_t != TYPE_ANY && arg_t != TYPE_UNKNOWN) {
-                        parser_error_at(parser, arg->line, arg->column, get_node_len(arg),
-                                        "%s argument must be %s, got %s", func_name, type_name(builtin->arg_type), type_name(arg_t));
-                    }
+                if (arg_t != builtin->arg_type && arg_t != TYPE_ANY && arg_t != TYPE_UNKNOWN) {
+                     parser_error_at(parser, arg->line, arg->column, get_node_len(arg),
+                        "%s argument must be %s, got %s", func_name, type_name(builtin->arg_type), type_name(arg_t));
                 }
             }
             return TYPE_ANY;
         }
 
+        // 2. Check if it's a User-Defined Function
         int sym_idx = symbol_index_recursive(parser, func_name);
         if (sym_idx >= 0 && parser->symbols.kinds[sym_idx] == PARSER_SYM_FUNCTION) {
             int expected = parser->symbols.param_counts[sym_idx];
@@ -932,15 +935,37 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
             if (expected != actual) {
                 int err_len = get_node_len(node->call.callee);
                 parser_error_at(parser, node->call.callee->line, node->call.callee->column, err_len > 0 ? err_len : 1,
-                                "Function '%s' expects %d arguments, got %d", func_name, expected, actual);
+                    "Function '%s' expects %d arguments, got %d", func_name, expected, actual);
             }
             return TYPE_ANY;
         }
+
+        // 3. STRICT CHECK: Is it a call on a known Built-in Module?
+        // e.g., os.nnnnfid() -> func_name is "os.nnnnfid"
+        // We check if the root part (before dot) is a known module.
+        char root_module[64] = {0};
+        const char* dot_pos = strchr(func_name, '.');
+        if (dot_pos) {
+            size_t root_len = dot_pos - func_name;
+            if (root_len < sizeof(root_module)) {
+                strncpy(root_module, func_name, root_len);
+                root_module[root_len] = '\0';
+                
+                if (is_known_builtin_module(root_module)) {
+                    // It looks like a built-in call (e.g., math.foo), but wasn't found in BUILTINS[]
+                    parser_error_at(parser, node->call.callee->line, node->call.callee->column, get_node_len(node->call.callee),
+                        "Undefined function '%s' in module '%s'", dot_pos + 1, root_module);
+                    return TYPE_ERROR;
+                }
+            }
+        }
     }
 
+    // Argument inference for dynamic/unknown calls
     for (int i = 0; i < node->call.arguments->count; i++) {
         infer_expression_type(parser, node->call.arguments->nodes[i]);
     }
+    
     return TYPE_UNKNOWN;
 }
 
