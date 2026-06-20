@@ -77,7 +77,23 @@ static int execute_embedded_source(void) {
     char temp_dir[4096];
 #ifdef _WIN32
     char temp_base[MAX_PATH];
-    GetTempPathA(MAX_PATH, temp_base);
+    DWORD len = GetTempPathA(MAX_PATH, temp_base);
+    
+    // Robust fallback if MSYS2 env vars point to a deleted folder
+    if (len == 0 || GetFileAttributesA(temp_base) == INVALID_FILE_ATTRIBUTES) {
+        const char* userprofile = getenv("USERPROFILE");
+        if (userprofile) {
+            snprintf(temp_base, MAX_PATH, "%s\\AppData\\Local\\Temp", userprofile);
+            if (GetFileAttributesA(temp_base) == INVALID_FILE_ATTRIBUTES) {
+                strcpy(temp_base, "C:\\Windows\\Temp");
+                CreateDirectoryA(temp_base, NULL);
+            }
+        } else {
+            strcpy(temp_base, "C:\\Windows\\Temp");
+            CreateDirectoryA(temp_base, NULL);
+        }
+    }
+    
     snprintf(temp_dir, sizeof(temp_dir), "%s\\apex_embedded_%lu", temp_base, GetCurrentProcessId());
 #else
     snprintf(temp_dir, sizeof(temp_dir), "/tmp/apex_embedded_%d", getpid());
@@ -120,8 +136,7 @@ static int execute_embedded_source(void) {
     // Execute the extracted main script
     bool ok = execute_source(main_script, main_script);
     
-    // Cleanup (Optional: you might want to leave it for debugging or delete it)
-    // system("rm -rf ..."); 
+    platform_delete_temp_file(temp_dir);
     
     return ok ? 0 : 1;
 }
