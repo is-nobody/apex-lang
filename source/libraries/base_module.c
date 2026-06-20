@@ -233,7 +233,7 @@ bool base_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     int input_len = args[0].string->length;
     
     // --- Write Functions (Encode) ---
-    if (strcmp(name, "base.b16write") == 0 || strcmp(name, "base.b16encode") == 0) {
+    if (strcmp(name, "base.b16_write") == 0 || strcmp(name, "base.b16encode") == 0) {
         char* out = (char*)malloc(input_len * 2 + 1);
         if (!out) { *result = vm_make_bool(false); return true; }
         base16_encode((const unsigned char*)input, input_len, out);
@@ -242,7 +242,7 @@ bool base_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
         return true;
     }
     
-    if (strcmp(name, "base.b32write") == 0 || strcmp(name, "base.b32encode") == 0) {
+    if (strcmp(name, "base.b32_write") == 0 || strcmp(name, "base.b32encode") == 0) {
         // Max size is ceil(len/5)*8 + 1
         int out_size = ((input_len + 4) / 5) * 8 + 1;
         char* out = (char*)malloc(out_size);
@@ -253,7 +253,7 @@ bool base_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
         return true;
     }
     
-    if (strcmp(name, "base.a85write") == 0 || strcmp(name, "base.a85encode") == 0) {
+    if (strcmp(name, "base.a85_write") == 0 || strcmp(name, "base.a85encode") == 0) {
         // Max size is ceil(len/4)*5 + 1
         int out_size = ((input_len + 3) / 4) * 5 + 1;
         char* out = (char*)malloc(out_size);
@@ -265,7 +265,7 @@ bool base_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
 
     // --- Read Functions (Decode) ---
-    if (strcmp(name, "base.b16read") == 0 || strcmp(name, "base.b16decode") == 0) {
+    if (strcmp(name, "base.b16_read") == 0 || strcmp(name, "base.b16decode") == 0) {
         unsigned char* out = (unsigned char*)malloc(input_len / 2 + 1);
         if (!out) { *result = vm_make_bool(false); return true; }
         int out_len = 0;
@@ -279,7 +279,7 @@ bool base_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
         return true;
     }
     
-    if (strcmp(name, "base.b32read") == 0 || strcmp(name, "base.b32decode") == 0) {
+    if (strcmp(name, "base.b32_read") == 0 || strcmp(name, "base.b32decode") == 0) {
         unsigned char* out = (unsigned char*)malloc(input_len + 1);
         if (!out) { *result = vm_make_bool(false); return true; }
         int out_len = 0;
@@ -293,7 +293,7 @@ bool base_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
         return true;
     }
     
-    if (strcmp(name, "base.a85read") == 0 || strcmp(name, "base.a85decode") == 0) {
+    if (strcmp(name, "base.a85_read") == 0 || strcmp(name, "base.a85decode") == 0) {
         unsigned char* out = (unsigned char*)malloc(input_len + 1);
         if (!out) { *result = vm_make_bool(false); return true; }
         int out_len = 0;
@@ -304,16 +304,6 @@ bool base_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             *result = vm_make_bool(false);
         }
         free(out);
-        return true;
-    }
-    
-    // --- Generic write/read (Identity) ---
-    if (strcmp(name, "base.write") == 0) {
-        *result = vm_copy_value(args[0]);
-        return true;
-    }
-    if (strcmp(name, "base.read") == 0) {
-        *result = vm_copy_value(args[0]);
         return true;
     }
     

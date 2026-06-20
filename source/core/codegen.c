@@ -306,9 +306,9 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "codecs.yaml_read", "codecs.toml_read",
 
         // base
-        "base.b16write", "base.b16read",
-        "base.b32write", "base.b32read",
-        "base.a85write", "base.a85read",
+        "base.b16_write", "base.b16_read",
+        "base.b32_write", "base.b32_read",
+        "base.a85_write", "base.a85_read",
         "base.url_write", "base.url_read",
 
         // secrets

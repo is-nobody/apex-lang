@@ -226,12 +226,12 @@ static const BuiltinSig BUILTINS[] = {
     {"codecs.toml_read", 1, 1, TYPE_STRING},
 
     // base
-    {"base.b16write", 1, 1, TYPE_STRING},
-    {"base.b16read", 1, 1, TYPE_STRING},
-    {"base.b32write", 1, 1, TYPE_STRING},
-    {"base.b32read", 1, 1, TYPE_STRING},
-    {"base.a85write", 1, 1, TYPE_STRING},
-    {"base.a85read", 1, 1, TYPE_STRING},
+    {"base.b16_write", 1, 1, TYPE_STRING},
+    {"base.b16_read", 1, 1, TYPE_STRING},
+    {"base.b32_write", 1, 1, TYPE_STRING},
+    {"base.b32_read", 1, 1, TYPE_STRING},
+    {"base.a85_write", 1, 1, TYPE_STRING},
+    {"base.a85_read", 1, 1, TYPE_STRING},
     {"base.url_write", 1, 1, TYPE_STRING},
     {"base.url_read", 1, 1, TYPE_STRING},
 
