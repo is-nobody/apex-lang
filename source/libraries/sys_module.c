@@ -136,7 +136,7 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
     }
 
     if (strcmp(name, "sys.apex_version") == 0) {
-        *result = vm_make_string("26.06");
+        *result = vm_make_string("26.6");
         return true;
     }
 

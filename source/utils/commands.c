@@ -33,7 +33,7 @@ int handle_commands(int argc, char** argv) {
 
     // --- VERSION COMMAND ---
     if (strcmp(argv[1], "version") == 0) {
-        printf("apex-lang:main v26.06 [%s] on %s\n", COMPILER_INFO, platform_get_name());
+        printf("Apex 26.6 [%s] on %s\n", COMPILER_INFO, platform_get_name());
         return 0;
     }
 
