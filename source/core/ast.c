@@ -59,13 +59,10 @@ ASTNode* ast_create_call(ASTNode* callee, ASTNodeList* arguments) {
     return node;
 }
 
-ASTNode* ast_create_member_access(ASTNode* object, ASTNode* member) {
-    ASTNode* node = ast_create_node(
-        member->type == AST_IDENTIFIER ? AST_MEMBER_ACCESS : AST_INDEX_ACCESS,
-        object->line, object->column
-    );
+ASTNode* ast_create_index_access(ASTNode* object, ASTNode* index) {
+    ASTNode* node = ast_create_node(AST_INDEX_ACCESS, object->line, object->column);
     node->access.object = object;
-    node->access.member = member;
+    node->access.member = index;
     return node;
 }
 
@@ -212,7 +209,6 @@ void ast_free_node(ASTNode* node) {
             }
             ast_list_free(node->call.arguments);
             break;
-        case AST_MEMBER_ACCESS:
         case AST_INDEX_ACCESS:
             ast_free_node(node->access.object);
             ast_free_node(node->access.member);
@@ -406,11 +402,6 @@ static void ast_print_impl(ASTNode* node, int indent) {
             printf("Args: %d\n", node->call.arguments->count);
             for (int i = 0; i < node->call.arguments->count; i++)
                 ast_print_impl(node->call.arguments->nodes[i], indent + 2);
-            break;
-        case AST_MEMBER_ACCESS:
-            printf("MemberAccess\n");
-            ast_print_impl(node->access.object, indent + 1);
-            ast_print_impl(node->access.member, indent + 1);
             break;
         case AST_INDEX_ACCESS:
             printf("IndexAccess\n");

@@ -28,6 +28,4 @@ function for_infinity()
 for_counter_inside_for_counter()
 for_condition_inside_for_counter()
 for_infinity()
-
-for i == 5
-    for_infinity()
+for_infinity()

@@ -46,13 +46,14 @@ static int get_node_len(ASTNode* node) {
             return get_node_len(node->unary.operand) + (node->unary.op == TOKEN_NOT ? 4 : 1);
         case AST_CALL:
             return get_node_len(node->call.callee);
-        case AST_MEMBER_ACCESS: {
-            int obj_len = get_node_len(node->access.object);
-            int mem_len = get_node_len(node->access.member);
-            return obj_len + 1 + mem_len;
+        case AST_INDEX_ACCESS: {
+            if (node->access.member->type == AST_IDENTIFIER) {
+                // module.func
+                return get_node_len(node->access.object) + 1 + get_node_len(node->access.member);
+            }
+            // table[index]
+            return get_node_len(node->access.object) + get_node_len(node->access.member) + 2;
         }
-        case AST_INDEX_ACCESS:
-            return get_node_len(node->access.object) + 1; // rough estimate for '['
         case AST_TABLE_LITERAL:
             return 2; // "()"
         default:
@@ -425,7 +426,6 @@ static bool expr_has_side_effect(ASTNode* node) {
                    expr_has_side_effect(node->binary.right);
         case AST_UNARY:
             return expr_has_side_effect(node->unary.operand);
-        case AST_MEMBER_ACCESS:
         case AST_INDEX_ACCESS:
             return expr_has_side_effect(node->access.object);
         case AST_STRING_INTERP: {
@@ -848,13 +848,13 @@ static ValueType infer_unary_type(Parser* parser, ASTNode* node) {
     }
 }
 
-
 static const char* resolve_call_name(ASTNode* callee, char* buffer, size_t buflen) {
     if (callee->type == AST_IDENTIFIER) {
         return callee->identifier.name;
     }
-    if (callee->type == AST_MEMBER_ACCESS &&
-        callee->access.object->type == AST_IDENTIFIER) {
+    if (callee->type == AST_INDEX_ACCESS &&
+        callee->access.object->type == AST_IDENTIFIER &&
+        callee->access.member->type == AST_IDENTIFIER) {
         snprintf(buffer, buflen, "%s.%s",
                  callee->access.object->identifier.name,
                  callee->access.member->identifier.name);
@@ -969,18 +969,23 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
     return TYPE_UNKNOWN;
 }
 
-static ValueType infer_member_access_type(Parser* parser, ASTNode* node) {
+static ValueType infer_index_access_type(Parser* parser, ASTNode* node) {
+    // If this is module access, type is ANY (function or value)
+    if (node->access.object->type == AST_IDENTIFIER && 
+        node->access.member->type == AST_IDENTIFIER) {
+        return TYPE_ANY; 
+    }
+    
+    // Regular table access
     ValueType object_type = infer_expression_type(parser, node->access.object);
     if (object_type == TYPE_ERROR) return TYPE_ERROR;
     if (object_type != TYPE_TABLE && object_type != TYPE_UNKNOWN && object_type != TYPE_ANY) {
-        int obj_len = 0;
-        if (node->access.object->type == AST_IDENTIFIER) {
-            obj_len = (int)strlen(node->access.object->identifier.name);
-        }
+        int obj_len = (node->access.object->type == AST_IDENTIFIER) ? (int)strlen(node->access.object->identifier.name) : 0;
         parser_error_at(parser, node->line, node->column, obj_len,
-            "Cannot access member of non-table type %s", type_name(object_type));
+            "Cannot access element of non-table type %s", type_name(object_type));
         return TYPE_ERROR;
     }
+    infer_expression_type(parser, node->access.member);
     return TYPE_UNKNOWN;
 }
 
@@ -1008,8 +1013,7 @@ static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
         case AST_BINARY: return infer_binary_type(parser, node);
         case AST_UNARY: return infer_unary_type(parser, node);
         case AST_CALL: return infer_call_type(parser, node);
-        case AST_MEMBER_ACCESS:
-        case AST_INDEX_ACCESS: return infer_member_access_type(parser, node);
+        case AST_INDEX_ACCESS: return infer_index_access_type(parser, node);
         case AST_TABLE_LITERAL: {
             for (int i = 0; i < node->table_literal.items->count; i++) {
                 infer_expression_type(parser, node->table_literal.items->nodes[i]);
@@ -1315,45 +1319,32 @@ static ASTNode* parse_identifier(Parser* parser) {
 }
 
 static ASTNode* parse_table_literal(Parser* parser) {
-    advance(parser); // consume '('
+    advance(parser); // consume '['
     ASTNodeList* items = ast_list_create();
     ASTNodeList* key_values = ast_list_create();
     bool has_key_values = false;
-
     skip_newlines(parser);
 
-    if (!check(parser, TOKEN_RPAREN)) {
+    if (!check(parser, TOKEN_RBRACKET)) {
         while (true) {
             skip_newlines(parser);
 
-            // Check for key = value pattern
-            // ALLOW: Identifiers, Strings, AND Numbers as keys
-            bool is_key = check(parser, TOKEN_IDENTIFIER) || 
-                          check(parser, TOKEN_STRING) || 
+            bool is_key = check(parser, TOKEN_IDENTIFIER) ||
+                          check(parser, TOKEN_STRING) ||
                           check(parser, TOKEN_NUMBER);
-            
+
             if (is_key && check_next(parser, TOKEN_EQUAL)) {
                 has_key_values = true;
                 Token* key_token = advance(parser);
                 advance(parser); // consume '='
-                
-                ASTNode* key_node;
-                // Create the appropriate AST node for the key
-                if (key_token->type == TOKEN_STRING) {
-                    key_node = ast_create_literal_string(key_token->value, key_token->line, key_token->column);
-                } else if (key_token->type == TOKEN_NUMBER) {
-                    // Convert number key to string key internally to match VM table behavior
-                    key_node = ast_create_literal_string(key_token->value, key_token->line, key_token->column);
-                } else {
-                    key_node = ast_create_identifier(key_token->value, key_token->line, key_token->column);
-                }
+
+                // CRITICAL: Always create STRING keys for tables
+                // [red = val] and ["red" = val] must produce identical keys
+                ASTNode* key_node = ast_create_literal_string(
+                    key_token->value, key_token->line, key_token->column);
 
                 ASTNode* value = parse_expression(parser);
-                ASTNode* kv_node = ast_create_binary(
-                    TOKEN_EQUAL,
-                    key_node,
-                    value
-                );
+                ASTNode* kv_node = ast_create_binary(TOKEN_EQUAL, key_node, value);
                 ast_list_add(key_values, kv_node);
             } else {
                 if (has_key_values) {
@@ -1370,67 +1361,73 @@ static ASTNode* parse_table_literal(Parser* parser) {
     }
 
     skip_newlines(parser);
-    consume(parser, TOKEN_RPAREN, "Expected ')' after table literal");
+    consume(parser, TOKEN_RBRACKET, "Expected ']' after table literal");
     return ast_create_table_literal(items, key_values);
 }
 
-static ASTNode* parse_group_or_table(Parser* parser) {
-    // 1. Check for empty table first: ()
-    if (check(parser, TOKEN_LPAREN) && check_next(parser, TOKEN_RPAREN)) {
-        return parse_table_literal(parser);
-    }
+static ASTNode* parse_group(Parser* parser) {
+    advance(parser); // consume '('
+    skip_newlines(parser);
+    ASTNode* expr = parse_expression(parser);
+    skip_newlines(parser);
+    consume(parser, TOKEN_RPAREN, "Expected ')' after expression");
+    return expr;
+}
 
-    // 2. Determine if this is a table literal by looking for commas or key=value
-    bool is_table = false;
-    int lookahead = 0;
-    if (check(parser, TOKEN_LPAREN)) {
-        int paren_count = 1;
-        lookahead = 1;
-        while (paren_count > 0 && peek(parser, lookahead)->type != TOKEN_EOF) {
-            TokenType t = peek(parser, lookahead)->type;
-            if (t == TOKEN_LPAREN) paren_count++;
-            else if (t == TOKEN_RPAREN) paren_count--;
-            else if (t == TOKEN_COMMA && paren_count == 1) {
-                is_table = true;
-                break;
-            } else if (t == TOKEN_EQUAL && paren_count == 1) {
-                is_table = true;
-                break;
+static ASTNode* parse_index_access(Parser* parser, ASTNode* object) {
+    advance(parser); // consume '['
+    skip_newlines(parser);
+    ASTNode* index = parse_expression(parser);
+    skip_newlines(parser);
+    consume(parser, TOKEN_RBRACKET, "Expected ']' after index");
+    return ast_create_index_access(object, index);
+}
+
+static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
+    advance(parser); // consume '.'
+    Token* token = current_token(parser);
+    
+    bool is_module = false;
+    if (object->type == AST_IDENTIFIER) {
+        if (is_known_builtin_module(object->identifier.name)) {
+            is_module = true;
+        } else {
+            int idx = symbol_index_recursive(parser, object->identifier.name);
+            if (idx >= 0 && parser->symbols.kinds[idx] == PARSER_SYM_MODULE) {
+                is_module = true;
             }
-            lookahead++;
         }
     }
     
-    if (is_table) {
-        return parse_table_literal(parser);
+    if (!is_module) {
+        parser_error_at(parser, object->line, object->column, get_node_len(object),
+            "Dot access is restricted to modules. Use bracket notation '[]' for table access.");
+        if (token->type == TOKEN_IDENTIFIER || token->type == TOKEN_NUMBER) advance(parser);
+        return object; 
     }
-    
-    // 3. Regular grouped expression
-    advance(parser); // consume '('
-    skip_newlines(parser); // Skip newlines after '('
-    ASTNode* expr = parse_expression(parser);
-    skip_newlines(parser); // Skip newlines before ')'
-    consume(parser, TOKEN_RPAREN, "Expected ')' after expression");
-    return expr;
+
+    if (token->type == TOKEN_IDENTIFIER || token->type == TOKEN_NUMBER || 
+        (token->type >= TOKEN_FUNCTION && token->type <= TOKEN_FALSE)) {
+        advance(parser);
+        ASTNode* member_node = ast_create_identifier(token->value, token->line, token->column);
+        return ast_create_index_access(object, member_node); // FIXED
+    }
+    parser_error(parser, "Expected identifier after '.'");
+    return object;
 }
 
 // ========== Prefix Parsers ==========
 
 static ASTNode* parse_prefix(Parser* parser) {
     Token* token = current_token(parser);
-    
     switch (token->type) {
-        case TOKEN_NUMBER:
-            return parse_number(parser);
-        case TOKEN_STRING:
-            return parse_string(parser);
+        case TOKEN_NUMBER:     return parse_number(parser);
+        case TOKEN_STRING:     return parse_string(parser);
         case TOKEN_TRUE:
-        case TOKEN_FALSE:
-            return parse_bool(parser);
-        case TOKEN_IDENTIFIER:
-            return parse_identifier(parser);
-        case TOKEN_LPAREN:
-            return parse_group_or_table(parser);
+        case TOKEN_FALSE:      return parse_bool(parser);
+        case TOKEN_IDENTIFIER: return parse_identifier(parser);
+        case TOKEN_LBRACKET:   return parse_table_literal(parser); // bracket tables
+        case TOKEN_LPAREN:     return parse_group(parser);         // only grouping
         case TOKEN_MINUS: {
             advance(parser);
             ASTNode* operand = parse_precedence(parser, PREC_UNARY);
@@ -1480,48 +1477,14 @@ static ASTNode* parse_call(Parser* parser, ASTNode* callee) {
     return ast_create_call(callee, arguments);
 }
 
-static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
-    advance(parser); // consume '.'
-    Token* token = current_token(parser);
-    ASTNode* member_node;
-
-    // Allow identifiers (including our new "raw keys"), numbers, and keywords
-    if (token->type == TOKEN_IDENTIFIER ||
-        token->type == TOKEN_NUMBER ||
-        token->type == TOKEN_FUNCTION ||
-        token->type == TOKEN_IF ||
-        token->type == TOKEN_ELIF ||
-        token->type == TOKEN_ELSE ||
-        token->type == TOKEN_FOR ||
-        token->type == TOKEN_BREAK ||
-        token->type == TOKEN_CONTINUE ||
-        token->type == TOKEN_RETURN ||
-        token->type == TOKEN_IMPORT ||
-        token->type == TOKEN_AND ||
-        token->type == TOKEN_OR ||
-        token->type == TOKEN_NOT ||
-        token->type == TOKEN_TRUE ||
-        token->type == TOKEN_FALSE) {
-        
-        advance(parser);
-        if (token->type == TOKEN_NUMBER) {
-            member_node = ast_create_literal_string(token->value, token->line, token->column);
-        } else {
-            member_node = ast_create_identifier(token->value, token->line, token->column);
-        }
-        return ast_create_member_access(object, member_node);
-    }
-
-    parser_error(parser, "Expected identifier or key after '.'");
-    return NULL;
-}
-
 static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
     Token* token = current_token(parser);
     
     switch (token->type) {
         case TOKEN_LPAREN:
             return parse_call(parser, left);
+        case TOKEN_LBRACKET:
+            return parse_index_access(parser, left);
         case TOKEN_DOT:
             return parse_member_access(parser, left);
         case TOKEN_PLUS:
@@ -1543,17 +1506,13 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
             return ast_create_binary(token->type, left, right);
         }
         case TOKEN_EQUAL: {
-            // Assignment
             advance(parser);
             ASTNode* right = parse_precedence(parser, PREC_ASSIGNMENT - 1);
-            
-            // Extract the variable name from the left side
             if (left->type == AST_IDENTIFIER) {
                 return ast_create_var_assign(
                     left->identifier.name, right, false, NULL,
                     token->line, token->column);
-            } else if (left->type == AST_MEMBER_ACCESS || left->type == AST_INDEX_ACCESS) {
-                // Compound assignment like x.field = value OR x.2 = value
+            } else if (left->type == AST_INDEX_ACCESS) {
                 char* name = NULL;
                 if (left->access.object->type == AST_IDENTIFIER) {
                     name = left->access.object->identifier.name;
@@ -1562,7 +1521,6 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
                     name, right, false, left,
                     token->line, token->column);
             }
-            
             parser_error(parser, "Invalid assignment target");
             return NULL;
         }
@@ -1575,21 +1533,16 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
 
 static ASTNode* parse_precedence(Parser* parser, Precedence precedence) {
     ASTNode* left = parse_prefix(parser);
-    
     while (true) {
         Token* token = current_token(parser);
         Precedence current_prec = get_precedence(token->type);
-        
-        // Also check for call and member access (higher precedence)
-        if (token->type == TOKEN_LPAREN || token->type == TOKEN_DOT) {
+        // Check for call and index access (higher precedence)
+        if (token->type == TOKEN_LPAREN || token->type == TOKEN_LBRACKET || token->type == TOKEN_DOT) {
             current_prec = PREC_CALL;
         }
-        
         if (current_prec <= precedence) break;
-        
         left = parse_infix(parser, left);
     }
-    
     return left;
 }
 
@@ -1598,7 +1551,7 @@ static ASTNode* parse_expression(Parser* parser) {
     if (check(parser, TOKEN_EOF)) {
         return NULL;
     }
-    // FIX: Use PREC_NONE so the '=' operator is actually parsed
+    // Use PREC_NONE so the '=' operator is actually parsed
     ASTNode* expr = parse_precedence(parser, PREC_NONE);
     if (expr) {
         parser_check_expression(parser, expr);

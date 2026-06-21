@@ -15,7 +15,7 @@ static const char* token_type_names[] = {
     "PLUS", "MINUS", "STAR", "SLASH", "PERCENT", "EQUAL",
     "EQUAL_EQUAL", "NOT_EQUAL", "LESS", "GREATER", "LESS_EQUAL",
     "GREATER_EQUAL",
-    "LPAREN", "RPAREN", "COMMA", "DOT",
+    "LPAREN", "RPAREN", "LBRACKET ", "RBRACKET ", "COMMA", "DOT",
     "NEWLINE", "EOF", "INDENT", "DEDENT",
 };
 
@@ -456,61 +456,21 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
                 if (tokenizer->paren_depth > 0) tokenizer->paren_depth--;
                 add_token(tokenizer, TOKEN_RPAREN, ")", line, col);
                 continue;
+            case '[': 
+                advance(tokenizer); 
+                tokenizer->paren_depth++; // Suppress INDENT/DEDENT inside tables
+                add_token(tokenizer, TOKEN_LBRACKET, "[", line, col); 
+                continue;
+            case ']': 
+                advance(tokenizer); 
+                if (tokenizer->paren_depth > 0) tokenizer->paren_depth--;
+                add_token(tokenizer, TOKEN_RBRACKET, "]", line, col); 
+                continue;
             case ',': advance(tokenizer); add_token(tokenizer, TOKEN_COMMA, ",", line, col); continue;
-            case '.': {
-                advance(tokenizer); // consume '.'
-                
-                // Check what follows the dot
-                char next = peek(tokenizer, 0);
-                
-                // If it's a standard identifier start or a number, use existing logic
-                if (isalpha(next) || next == '_') {
-                    add_token(tokenizer, TOKEN_DOT, ".", line, col);
-                    continue;
-                }
-                if (isdigit(next)) {
-                    add_token(tokenizer, TOKEN_DOT, ".", line, col);
-                    continue;
-                }
-
-                // NEW: Allow "Raw Keys" for special characters like #, @, etc.
-                // We read until we hit a delimiter (space, newline, operator, etc.)
-                if (next != '\0' && next != ' ' && next != '\t' && next != '\n' && 
-                    next != '\r' && next != '(' && next != ')' && next != ',' && 
-                    next != '+' && next != '-' && next != '*' && next != '/' && 
-                    next != '%' && next != '=' && next != '<' && next != '>' &&
-                    next != '!' && next != '"' && next != '.') {
-                    
-                    add_token(tokenizer, TOKEN_DOT, ".", line, col);
-                    
-                    char* buffer = (char*)malloc(256);
-                    int buf_pos = 0;
-                    char kc = peek(tokenizer, 0);
-                    
-                    while (kc != '\0' && kc != ' ' && kc != '\t' && kc != '\n' && 
-                        kc != '\r' && kc != '(' && kc != ')' && kc != ',' && 
-                        kc != '+' && kc != '-' && kc != '*' && kc != '/' && 
-                        kc != '%' && kc != '=' && kc != '<' && kc != '>' &&
-                        kc != '!' && kc != '"' && kc != '.') {
-                        if (buf_pos + 1 < 256) {
-                            buffer[buf_pos++] = advance(tokenizer);
-                        } else {
-                            break;
-                        }
-                        kc = peek(tokenizer, 0);
-                    }
-                    buffer[buf_pos] = '\0';
-                    
-                    // Treat this raw sequence as an IDENTIFIER token so the parser handles it as a key
-                    add_token(tokenizer, TOKEN_IDENTIFIER, buffer, tokenizer->line, tokenizer->column);
-                    free(buffer);
-                    continue;
-                }
-
-                // Fallback for just a dot
+            case '.':
+                advance(tokenizer);
                 add_token(tokenizer, TOKEN_DOT, ".", line, col);
                 continue;
-            }
         }
         
         char error_msg[64];

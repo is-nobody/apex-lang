@@ -28,7 +28,6 @@ typedef enum {
     AST_IDENTIFIER,        // variable name reference
     AST_CALL,              // function(args)
     AST_INDEX_ACCESS,      // table[index] (bracket notation)
-    AST_MEMBER_ACCESS,     // table.key (dot notation)
     AST_TABLE_LITERAL,     // (1, 2, 3) or (key = value, ...)
     AST_STRING_INTERP,     // "Hello {name}"
     
@@ -92,7 +91,7 @@ struct ASTNode {
         // Table member/index access (shared by both access types)
         struct {
             ASTNode* object;
-            ASTNode* member;     // identifier for dot, expression for bracket
+            ASTNode* member;
         } access;
         
         // Table literal constructor
@@ -194,7 +193,7 @@ ASTNode* ast_create_identifier(const char* name, int line, int column);
 ASTNode* ast_create_binary(TokenType op, ASTNode* left, ASTNode* right);
 ASTNode* ast_create_unary(TokenType op, ASTNode* operand);
 ASTNode* ast_create_call(ASTNode* callee, ASTNodeList* arguments);
-ASTNode* ast_create_member_access(ASTNode* object, ASTNode* member);
+ASTNode* ast_create_index_access(ASTNode* object, ASTNode* index);
 ASTNode* ast_create_table_literal(ASTNodeList* items, ASTNodeList* key_values);
 ASTNode* ast_create_var_assign(const char* name, ASTNode* value, bool is_decl, 
                                 ASTNode* access_path, int line, int column);

@@ -4,13 +4,22 @@
 #include <string.h>
 #define APEX_MAX_CALL_ARGS 64
 
+static bool is_known_builtin_module(const char* name) {
+    return strcmp(name, "os") == 0 || strcmp(name, "files") == 0 ||
+           strcmp(name, "sys") == 0 || strcmp(name, "math") == 0 ||
+           strcmp(name, "string") == 0 || strcmp(name, "table") == 0 ||
+           strcmp(name, "ffi") == 0 || strcmp(name, "random") == 0 ||
+           strcmp(name, "regex") == 0 || strcmp(name, "codecs") == 0 ||
+           strcmp(name, "base") == 0 || strcmp(name, "secrets") == 0;
+}
+
 // ========== Forward Declarations ==========
 static int codegen_expression(CodeGenerator* cg, ASTNode* node);
 static void codegen_statement(CodeGenerator* cg, ASTNode* node);
 static void codegen_block(CodeGenerator* cg, ASTNode* node);
 static int codegen_string_interp(CodeGenerator* cg, ASTNode* node);
 static int codegen_optimized_condition(CodeGenerator* cg, ASTNode* condition, int line);
-static int codegen_member_assign(CodeGenerator* cg, ASTNode* node);
+static int codegen_index_assign(CodeGenerator* cg, ASTNode* node);
 static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node);
 
 // ========== Helpers ==========
@@ -208,27 +217,12 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
     ASTNode* callee = node->call.callee;
     if (callee->type == AST_IDENTIFIER) {
         strcpy(func_name, callee->identifier.name);
-    } else if (callee->type == AST_MEMBER_ACCESS) {
-        ASTNode* obj = callee;
-        char full_name[1024] = "";
-        char parts[32][256];
-        int part_count = 0;
-        
-        while (obj->type == AST_MEMBER_ACCESS) {
-            if (obj->access.member->type == AST_IDENTIFIER) {
-                strcpy(parts[part_count++], obj->access.member->identifier.name);
-            }
-            obj = obj->access.object;
-        }
-        if (obj->type == AST_IDENTIFIER) {
-            strcpy(parts[part_count++], obj->identifier.name);
-        }
-        
-        for (int i = part_count - 1; i >= 0; i--) {
-            strcat(full_name, parts[i]);
-            if (i > 0) strcat(full_name, ".");
-        }
-        strcpy(func_name, full_name);
+    } else if (callee->type == AST_INDEX_ACCESS &&
+               callee->access.object->type == AST_IDENTIFIER &&
+               callee->access.member->type == AST_IDENTIFIER) {
+        snprintf(func_name, sizeof(func_name), "%s.%s",
+                 callee->access.object->identifier.name,
+                 callee->access.member->identifier.name);
     }
     
     if (arg_count > APEX_MAX_CALL_ARGS) {
@@ -566,65 +560,59 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
 static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
     if (!node) {
         int reg = alloc_register(cg);
-        emit(cg, INST(OP_LOAD_BOOL, reg, 0, 0), node->line);
+        emit(cg, INST(OP_LOAD_BOOL, reg, 0, 0), 0);
         return reg;
     }
-    
+
     switch (node->type) {
-        case AST_ASSIGN: {
+        case AST_ASSIGN:
             return codegen_assign_expr(cg, node);
-        }
-        case AST_LITERAL_NUMBER: {
-            int reg = codegen_literal_number(cg, node);
-            return reg;
-        }
-        case AST_LITERAL_STRING: {
-            int reg = codegen_literal_string(cg, node);
-            return reg;
-        }
-        case AST_LITERAL_BOOL: {
-            int reg = codegen_literal_bool(cg, node);
-            return reg;
-        }
-        case AST_IDENTIFIER: {
-            int reg = codegen_identifier(cg, node);
-            return reg;
-        }
+
+        case AST_LITERAL_NUMBER:
+            return codegen_literal_number(cg, node);
+
+        case AST_LITERAL_STRING:
+            return codegen_literal_string(cg, node);
+
+        case AST_LITERAL_BOOL:
+            return codegen_literal_bool(cg, node);
+
+        case AST_IDENTIFIER:
+            return codegen_identifier(cg, node);
+
         case AST_BINARY: {
             int left_reg = codegen_expression(cg, node->binary.left);
             int right_reg = codegen_expression(cg, node->binary.right);
             int result_reg = alloc_register(cg);
-            
             Opcode op;
             switch (node->binary.op) {
-                case TOKEN_PLUS:      op = OP_ADD; break;
-                case TOKEN_MINUS:     op = OP_SUB; break;
-                case TOKEN_STAR:      op = OP_MUL; break;
-                case TOKEN_SLASH:     op = OP_DIV; break;
-                case TOKEN_PERCENT:   op = OP_MOD; break;
+                case TOKEN_PLUS:           op = OP_ADD; break;
+                case TOKEN_MINUS:          op = OP_SUB; break;
+                case TOKEN_STAR:           op = OP_MUL; break;
+                case TOKEN_SLASH:          op = OP_DIV; break;
+                case TOKEN_PERCENT:        op = OP_MOD; break;
                 case TOKEN_EQUAL_EQUAL:    op = OP_CMP_EQ; break;
                 case TOKEN_NOT_EQUAL:      op = OP_CMP_NEQ; break;
                 case TOKEN_LESS:           op = OP_CMP_LT; break;
                 case TOKEN_GREATER:        op = OP_CMP_GT; break;
                 case TOKEN_LESS_EQUAL:     op = OP_CMP_LTE; break;
                 case TOKEN_GREATER_EQUAL:  op = OP_CMP_GTE; break;
-                case TOKEN_AND:       op = OP_AND; break;
-                case TOKEN_OR:        op = OP_OR; break;
+                case TOKEN_AND:            op = OP_AND; break;
+                case TOKEN_OR:             op = OP_OR; break;
                 default:
                     fprintf(stderr, "Error: Unknown binary operator %d\n", node->binary.op);
                     op = OP_ADD;
                     break;
             }
-            
             emit(cg, INST(op, result_reg, left_reg, right_reg), node->line);
             free_register(cg, left_reg);
             free_register(cg, right_reg);
             return result_reg;
         }
+
         case AST_UNARY: {
             int operand_reg = codegen_expression(cg, node->unary.operand);
             int result_reg = alloc_register(cg);
-            
             switch (node->unary.op) {
                 case TOKEN_MINUS:
                     emit(cg, INST(OP_NEG, result_reg, operand_reg, 0), node->line);
@@ -632,98 +620,103 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
                 case TOKEN_NOT:
                     emit(cg, INST(OP_NOT, result_reg, operand_reg, 0), node->line);
                     break;
-                default:
-                    break;
+                default: break;
             }
             free_register(cg, operand_reg);
             return result_reg;
         }
-        case AST_CALL: {
-            int reg = codegen_call(cg, node);
-            return reg;
-        }
-        case AST_MEMBER_ACCESS:
+
+        case AST_CALL:
+            return codegen_call(cg, node);
+
         case AST_INDEX_ACCESS: {
-            // Check if this is a module access (e.g., math_lib.add)
-            if (node->access.object->type == AST_IDENTIFIER && 
-                node->access.member->type == AST_IDENTIFIER) {
-                
+            bool is_module_access = false;
+            char full_name[512] = "";
+
+            if (node->access.object->type == AST_IDENTIFIER) {
                 const char* obj_name = node->access.object->identifier.name;
-                bool is_module = false;
-                
-                for (int i = 0; i < cg->module_count; i++) {
-                    if (strcmp(cg->imported_modules[i], obj_name) == 0) {
-                        is_module = true;
-                        break;
-                    }
+                const char* member_name = NULL;
+
+                // Case 1: lib.pi (dot access -> IDENTIFIER)
+                if (node->access.member->type == AST_IDENTIFIER) {
+                    member_name = node->access.member->identifier.name;
+                }
+                // Case 2: lib["pi"] (bracket access -> STRING)
+                else if (node->access.member->type == AST_LITERAL_STRING) {
+                    member_name = node->access.member->literal_string.string_value;
                 }
 
-                if (is_module) {
-                    char full_name[512];
-                    snprintf(full_name, sizeof(full_name), "%s.%s", obj_name, node->access.member->identifier.name);
-                    
-                    int global_idx = bytecode_get_global(cg->chunk, full_name);
-                    if (global_idx < 0) {
-                        global_idx = bytecode_add_global(cg->chunk, full_name);
+                if (member_name) {
+                    // Check user-imported modules
+                    for (int i = 0; i < cg->module_count; i++) {
+                        if (strcmp(cg->imported_modules[i], obj_name) == 0) {
+                            is_module_access = true;
+                            break;
+                        }
                     }
-                    
-                    int reg = alloc_register(cg);
-                    emit(cg, INST(OP_LOAD_GLOBAL, reg, global_idx, 0), node->line);
-                    return reg;
+                    // Check built-in modules
+                    if (!is_module_access && is_known_builtin_module(obj_name)) {
+                        is_module_access = true;
+                    }
+
+                    if (is_module_access) {
+                        snprintf(full_name, sizeof(full_name), "%s.%s", obj_name, member_name);
+                    }
                 }
             }
 
-            // Fallback to standard table access
+            if (is_module_access) {
+                int global_idx = bytecode_get_global(cg->chunk, full_name);
+                if (global_idx < 0) {
+                    global_idx = bytecode_add_global(cg->chunk, full_name);
+                }
+                int reg = alloc_register(cg);
+                emit(cg, INST(OP_LOAD_GLOBAL, reg, global_idx, 0), node->line);
+                return reg;
+            }
+
+            // Fallback: regular table access
             int obj_reg = codegen_expression(cg, node->access.object);
             int result_reg = alloc_register(cg);
-            
             if (node->access.member->type == AST_IDENTIFIER) {
                 int key_idx = bytecode_add_string_constant(cg->chunk,
-                                                           node->access.member->identifier.name);
+                    node->access.member->identifier.name);
                 emit(cg, INST(OP_TABLE_GET_CONST, result_reg, obj_reg, key_idx), node->line);
             } else {
                 int key_reg = codegen_expression(cg, node->access.member);
                 emit(cg, INST(OP_TABLE_GET, result_reg, obj_reg, key_reg), node->line);
                 free_register(cg, key_reg);
             }
-            
             free_register(cg, obj_reg);
             return result_reg;
         }
+
         case AST_TABLE_LITERAL: {
             int table_reg = alloc_register(cg);
             emit(cg, INST(OP_NEW_TABLE, table_reg, 0, 0), node->line);
-            
+
+            // Positional items (array-like)
             for (int i = 0; i < node->table_literal.items->count; i++) {
                 int value_reg = codegen_expression(cg, node->table_literal.items->nodes[i]);
                 emit(cg, INST(OP_TABLE_APPEND, table_reg, value_reg, 0), node->line);
                 free_register(cg, value_reg);
             }
-            
+
+            // Key-value pairs (keys are ALWAYS AST_LITERAL_STRING now)
             for (int i = 0; i < node->table_literal.key_values->count; i++) {
                 ASTNode* kv = node->table_literal.key_values->nodes[i];
-                
-                // FIX: The key is an identifier. Treat it as a constant string, NOT a variable!
-                if (kv->binary.left->type == AST_IDENTIFIER) {
-                    int key_idx = bytecode_add_string_constant(cg->chunk, kv->binary.left->identifier.name);
-                    int value_reg = codegen_expression(cg, kv->binary.right);
-                    emit(cg, INST(OP_TABLE_SET_CONST, table_reg, key_idx, value_reg), node->line);
-                    free_register(cg, value_reg);
-                } else {
-                    // Fallback (should rarely be hit if parser works correctly)
-                    int key_reg = codegen_expression(cg, kv->binary.left);
-                    int value_reg = codegen_expression(cg, kv->binary.right);
-                    emit(cg, INST(OP_TABLE_SET, table_reg, key_reg, value_reg), node->line);
-                    free_register(cg, key_reg);
-                    free_register(cg, value_reg);
-                }
+                const char* key_str = kv->binary.left->literal_string.string_value;
+                int key_idx = bytecode_add_string_constant(cg->chunk, key_str);
+                int value_reg = codegen_expression(cg, kv->binary.right);
+                emit(cg, INST(OP_TABLE_SET_CONST, table_reg, key_idx, value_reg), node->line);
+                free_register(cg, value_reg);
             }
             return table_reg;
         }
-        case AST_STRING_INTERP: {
-            int reg = codegen_string_interp(cg, node);
-            return reg;
-        }
+
+        case AST_STRING_INTERP:
+            return codegen_string_interp(cg, node);
+
         default: {
             int reg = alloc_register(cg);
             emit(cg, INST(OP_LOAD_BOOL, reg, 0, 0), node->line);
@@ -747,7 +740,6 @@ static void add_module_global(CodeGenerator* cg, const char* full_name) {
 static void codegen_var_decl(CodeGenerator* cg, ASTNode* node) {
     int value_reg = codegen_expression(cg, node->var_assign.value);
     
-    // FIX: Change '!= -1' to '> 0'. 
     // Index 0 is the global scope (__entry__), indices > 0 are user functions.
     if (cg->current_function > 0) { 
         int local_reg = add_local(cg, node->var_assign.name);
@@ -767,9 +759,8 @@ static void codegen_var_decl(CodeGenerator* cg, ASTNode* node) {
 }
 
 static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node) {
-    // FIX: Handle member/index assignments
     if (node->var_assign.access_path) {
-        return codegen_member_assign(cg, node);
+        return codegen_index_assign(cg, node);
     }
     
     // Safety check for invalid AST
@@ -935,85 +926,60 @@ static int codegen_optimized_condition(CodeGenerator* cg, ASTNode* condition, in
     return -1;
 }
 
-static int codegen_member_assign(CodeGenerator* cg, ASTNode* node) {
+static int codegen_index_assign(CodeGenerator* cg, ASTNode* node) {
     ASTNode* access = node->var_assign.access_path;
     
-    // Check if this is a module global assignment (e.g., math_lib.pi = 3.14)
-    if (access->type == AST_MEMBER_ACCESS && 
+    // Check for module global variable assignment (e.g., math.pi = 3.14)
+    if (access->type == AST_INDEX_ACCESS &&
         access->access.object->type == AST_IDENTIFIER &&
         access->access.member->type == AST_IDENTIFIER) {
-        
         const char* obj_name = access->access.object->identifier.name;
         bool is_module = false;
-        
         for (int i = 0; i < cg->module_count; i++) {
-            if (strcmp(cg->imported_modules[i], obj_name) == 0) {
-                is_module = true;
-                break;
-            }
+            if (strcmp(cg->imported_modules[i], obj_name) == 0) { is_module = true; break; }
         }
-
+        if (!is_module && is_known_builtin_module(obj_name)) is_module = true;
+        
         if (is_module) {
             char full_name[512];
             snprintf(full_name, sizeof(full_name), "%s.%s", obj_name, access->access.member->identifier.name);
-            
             int val_reg = codegen_expression(cg, node->var_assign.value);
-            
             int global_idx = bytecode_get_global(cg->chunk, full_name);
-            if (global_idx < 0) {
-                global_idx = bytecode_add_global(cg->chunk, full_name);
-            }
-            
+            if (global_idx < 0) global_idx = bytecode_add_global(cg->chunk, full_name);
             emit(cg, INST(OP_STORE_GLOBAL, val_reg, global_idx, 0), node->line);
             return val_reg;
         }
     }
 
-    // Standard table member assignment logic
+    // Standard table assignment
     ASTNode* value_node = node->var_assign.value;
-    
     ASTNode* chain[256];
     int chain_len = 0;
     ASTNode* curr = access;
-    
-    while (curr->type == AST_MEMBER_ACCESS || curr->type == AST_INDEX_ACCESS) {
+    while (curr->type == AST_INDEX_ACCESS) {
         if (chain_len >= 256) break;
         chain[chain_len++] = curr;
         curr = curr->access.object;
     }
     
     int current_obj_reg = codegen_expression(cg, curr);
-    
     for (int i = chain_len - 1; i > 0; i--) {
         ASTNode* acc = chain[i];
         int next_obj_reg = alloc_register(cg);
-        
-        if (acc->access.member->type == AST_IDENTIFIER) {
-            int key_idx = bytecode_add_string_constant(cg->chunk, acc->access.member->identifier.name);
-            emit(cg, INST(OP_TABLE_GET_CONST, next_obj_reg, current_obj_reg, key_idx), acc->line);
-        } else {
-            int key_reg = codegen_expression(cg, acc->access.member);
-            emit(cg, INST(OP_TABLE_GET, next_obj_reg, current_obj_reg, key_reg), acc->line);
-            free_register(cg, key_reg);
-        }
-        
+        int key_reg = codegen_expression(cg, acc->access.member);
+        emit(cg, INST(OP_TABLE_GET, next_obj_reg, current_obj_reg, key_reg), acc->line);
+        free_register(cg, key_reg);
         free_register(cg, current_obj_reg);
         current_obj_reg = next_obj_reg;
     }
     
     int val_reg = codegen_expression(cg, value_node);
-    
     ASTNode* final_acc = chain[0];
-    if (final_acc->access.member->type == AST_IDENTIFIER) {
-        int key_idx = bytecode_add_string_constant(cg->chunk, final_acc->access.member->identifier.name);
-        emit(cg, INST(OP_TABLE_SET_CONST, current_obj_reg, key_idx, val_reg), final_acc->line);
-    } else {
-        int key_reg = codegen_expression(cg, final_acc->access.member);
-        emit(cg, INST(OP_TABLE_SET, current_obj_reg, key_reg, val_reg), final_acc->line);
-        free_register(cg, key_reg);
-    }
-    
+    int key_reg = codegen_expression(cg, final_acc->access.member);
+    emit(cg, INST(OP_TABLE_SET, current_obj_reg, key_reg, val_reg), final_acc->line);
+    free_register(cg, key_reg);
     free_register(cg, current_obj_reg);
+    
     return val_reg;
 }
 
@@ -1047,10 +1013,6 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
 
     int func_idx = bytecode_add_function(cg->chunk, func_name, node->function_decl.params->count);
 
-    // ==========================================================
-    // CRITICAL FIX: Register the function in globals HERE, 
-    // BEFORE the JUMP, so this code is actually reachable!
-    // ==========================================================
     int global_idx = bytecode_add_global(cg->chunk, func_name);
     int func_const_idx = bytecode_add_constant(cg->chunk,
         (Constant){.type = CONST_FUNCTION, .function_index = func_idx});
@@ -1105,7 +1067,7 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     // 6. Generate function body
     codegen_block(cg, node->function_decl.body);
 
-    // 7. FIX: Only emit default return if the function doesn't already end with one
+    // 7. Only emit default return if the function doesn't already end with one
     bool ends_with_return = false;
     if (cg->chunk->code_count > 0) {
         Opcode last_op = cg->chunk->code[cg->chunk->code_count - 1].opcode;
@@ -1157,11 +1119,6 @@ static void codegen_return(CodeGenerator* cg, ASTNode* node) {
     } else {
         emit(cg, INST(OP_RETURN_VOID, 0, 0, 0), node->line);
     }
-}
-
-static void codegen_import(CodeGenerator* cg, ASTNode* node) {
-    // Do nothing. Builtin modules are handled by codegen_call.
-    // User modules are handled by AST_MODULE_BLOCK.
 }
 
 static void codegen_expr_statement(CodeGenerator* cg, ASTNode* node) {

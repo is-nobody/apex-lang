@@ -41,6 +41,8 @@ typedef enum {
     // Delimiters
     TOKEN_LPAREN,
     TOKEN_RPAREN,
+    TOKEN_LBRACKET,
+    TOKEN_RBRACKET,
     TOKEN_COMMA,
     TOKEN_DOT,
     TOKEN_NEWLINE,

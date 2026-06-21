@@ -38,10 +38,10 @@ function test_string_params()
         return "Hello, {name}!"
     
     result = greet("Alice")
-    os.output("greet("Alice") = {result}, expected Hello, Alice!")
+    os.output("greet(\"Alice\") = {result}, expected Hello, Alice!")
     
     result = greet("")
-    os.output("greet("") = {result}, expected Hello, !")
+    os.output("greet(\"\") = {result}, expected Hello, !")
 
 function test_no_return()
     function do_nothing()
@@ -125,12 +125,12 @@ function test_recursion()
 
 function test_return_table()
     function create_user(name, age)
-        return (name = name, age = age, active = true)
+        return [name = name, age = age, active = true]
     
     user = create_user("Bob", 25)
-    os.output("create_user("Bob", 25).name = {user.name}, expected Bob")
-    os.output("create_user("Bob", 25).age = {user.age}, expected 25")
-    os.output("create_user("Bob", 25).active = {user.active}, expected true")
+    os.output("create_user(\"Bob\", 25).name = {user[\"name\"]}, expected Bob")
+    os.output("create_user(\"Bob\", 25).age = {user[\"age\"]}, expected 25")
+    os.output("create_user(\"Bob\", 25).active = {user[\"active\"]}, expected true")
 
 function test_early_return()
     function abs_value(x)
