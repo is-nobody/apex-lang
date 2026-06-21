@@ -3,18 +3,21 @@
     "lineComment": "//"
   },
   "brackets": [
-    ["(", ")"]
+    ["(", ")"],
+    ["[", "]"]
   ],
   "autoClosingPairs": [
     { "open": "(", "close": ")" },
+    { "open": "[", "close": "]" },
     { "open": "\"", "close": "\"" }
   ],
   "surroundingPairs": [
     { "open": "(", "close": ")" },
+    { "open": "[", "close": "]" },
     { "open": "\"", "close": "\"" }
   ],
   "indentationRules": {
-    "increaseIndentPattern": "^\\s*(function|if|elif|else|for|while)\\b.*$",
-    "decreaseIndentPattern": "^\\s*(elif|else|end)?\\s*$"
+    "increaseIndentPattern": "^\\s*(function|if|elif|else|for)\\b.*$",
+    "decreaseIndentPattern": "^\\s*(elif|else)\\b.*$"
   }
 }

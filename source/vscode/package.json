@@ -58,7 +58,7 @@
     "keybindings": [
       {
         "command": "apex.runFile",
-        "key": "ctrl+shift+r",
+        "key": "f5",
         "when": "editorLangId == apex"
       }
     ]
