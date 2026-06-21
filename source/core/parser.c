@@ -1724,7 +1724,6 @@ static ASTNode* parse_if_statement(Parser* parser) {
 static ASTNode* parse_for_statement(Parser* parser) {
     Token* for_kw = advance(parser);
     skip_newlines(parser);
-    
     ASTNode* condition = NULL;
     char* var_name = NULL;
     ASTNode* start = NULL, *end = NULL, *step = NULL;
@@ -1738,13 +1737,18 @@ static ASTNode* parse_for_statement(Parser* parser) {
         Token* id_tok = advance(parser);
         var_line = id_tok->line;
         var_col = id_tok->column;
-        
         if (match(parser, TOKEN_EQUAL)) {
             // Peek ahead to determine type of loop
-            // Range: for i = 0, 10
+            // Range: for i = 0, 10  OR  for i = -5, -1
             // Table: for k = my_table
             
-            if (check(parser, TOKEN_NUMBER)) {
+            bool is_number_next = check(parser, TOKEN_NUMBER);
+            // Check for negative number: - <number>
+            if (!is_number_next && check(parser, TOKEN_MINUS) && peek(parser, 1)->type == TOKEN_NUMBER) {
+                is_number_next = true;
+            }
+
+            if (is_number_next) {
                 // Likely a range loop
                 var_name = strdup(id_tok->value);
                 start = parse_expression(parser);
@@ -1755,7 +1759,6 @@ static ASTNode* parse_for_statement(Parser* parser) {
                     consume(parser, TOKEN_COMMA, "Expected ',' after start value");
                     end = parse_expression(parser);
                     parser_check_number_expr(parser, end, "For loop end");
-                    
                     if (match(parser, TOKEN_COMMA)) {
                         step = parse_expression(parser);
                         parser_check_number_expr(parser, step, "For loop step");
@@ -1766,9 +1769,8 @@ static ASTNode* parse_for_statement(Parser* parser) {
                     }
                 } else {
                     // Single number after = is ambiguous or error in range context.
-                    // Treat as error for range loop if no comma.
-                    parser_error_at(parser, id_tok->line, id_tok->column, strlen(id_tok->value), 
-                        "Range loop requires 'start, end'");
+                    parser_error_at(parser, id_tok->line, id_tok->column, strlen(id_tok->value),
+                    "Range loop requires 'start, end'");
                     free(var_name); var_name = NULL;
                 }
             } else {
@@ -1783,26 +1785,25 @@ static ASTNode* parse_for_statement(Parser* parser) {
             condition = parse_expression(parser);
         }
     }
-    
+
     parser->loop_depth++;
     if (parser->loop_depth > APEX_MAX_LOOP_DEPTH) {
         parser_error_at(parser, for_kw->line, for_kw->column, 3,
-            "Loop nesting exceeds maximum depth of %d", APEX_MAX_LOOP_DEPTH);
+        "Loop nesting exceeds maximum depth of %d", APEX_MAX_LOOP_DEPTH);
     }
-    
+
     parser_enter_scope(parser);
-    
     if (var_name) {
         // For table iteration, type is ANY (could be string key or number key)
         // For range loop, type is NUMBER
         ValueType vtype = is_table_iter ? TYPE_ANY : TYPE_NUMBER;
         parser_declare_symbol(parser, var_name, PARSER_SYM_VARIABLE, vtype, 0, var_line, var_col);
     }
-    
+
     ASTNode* body = parse_block(parser, true, "for");
     parser_exit_scope(parser);
     parser->loop_depth--;
-    
+
     return ast_create_for(var_name, condition, start, end, step, body, for_kw->line, for_kw->column);
 }
 
