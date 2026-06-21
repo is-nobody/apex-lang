@@ -1035,30 +1035,14 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_FOR_NEXT_LABEL: {
-        int var_reg = ip->operands[0]; int op1 = ip->operands[1]; int op2 = ip->operands[2]; int exit_addr;
-        if (op2 != 0) {
-            exit_addr = op2; int iter_reg = op1;
-            if (vm->registers[iter_reg].type == VAL_TABLE) {
-                Table* table = vm->registers[iter_reg].table;
-                Value curr, end, step;
-                curr.type = VAL_BOOL; end.type = VAL_BOOL; step.type = VAL_BOOL;
-                if (!table_get(table, "__current", &curr) || curr.type != VAL_NUMBER) { ip = &vm->code[exit_addr]; goto *dispatch_table[ip->opcode]; }
-                if (!table_get(table, "__end", &end) || end.type != VAL_NUMBER) { value_decref(&curr); ip = &vm->code[exit_addr]; goto *dispatch_table[ip->opcode]; }
-                if (!table_get(table, "__step", &step) || step.type != VAL_NUMBER) { step = vm_make_number(1.0); }
-                double c = curr.number; double e = end.number; double s = step.number;
-                value_decref(&curr); value_decref(&end); value_decref(&step);
-                if ((s > 0 && c < e) || (s < 0 && c > e)) {
-                    vm->registers[var_reg].type = VAL_NUMBER; vm->registers[var_reg].number = c;
-                    table_set(table, "__current", vm_make_number(c + s));
-                    if (var_reg >= vm->register_count) vm->register_count = var_reg + 1;
-                    ip++; goto *dispatch_table[ip->opcode];
-                } else {
-                    table_remove(table, "__current"); ip = &vm->code[exit_addr]; goto *dispatch_table[ip->opcode];
-                }
-            }
-            ip = &vm->code[exit_addr]; goto *dispatch_table[ip->opcode];
-        } else {
-            exit_addr = op1;
+        int var_reg = ip->operands[0];      
+        int end_or_size_reg = ip->operands[1];
+        int flag_or_exit = ip->operands[2];
+        
+        if (flag_or_exit == 0) {
+            // Range iteration
+            int exit_addr = end_or_size_reg;
+            
             if (vm->iterator_depth >= 0) {
                 double c = vm->iterator_stack[vm->iterator_depth].index;
                 double e = vm->iterator_stack[vm->iterator_depth].end;
@@ -1069,7 +1053,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
                     vm->registers[var_reg].number = c;
                     if (var_reg >= vm->register_count) vm->register_count = var_reg + 1;
                     vm->iterator_stack[vm->iterator_depth].index = c + s;
-                    ip++; goto *dispatch_table[ip->opcode];
+                    ip++;
+                    goto *dispatch_table[ip->opcode];
                 } else {
                     vm->iterator_depth--;
                     ip = &vm->code[exit_addr];
@@ -1078,6 +1063,26 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             }
             ip = &vm->code[exit_addr];
             goto *dispatch_table[ip->opcode];
+            
+        } else {
+            // Table iteration
+            int exit_addr = flag_or_exit;
+            
+            double index = vm->registers[var_reg].number;
+            double size = vm->registers[end_or_size_reg].number;
+            
+            // Increment index for table iteration
+            index += 1.0;
+            vm->registers[var_reg].number = index;
+            
+            if (index <= size) {
+                if (var_reg >= vm->register_count) vm->register_count = var_reg + 1;
+                ip++;
+                goto *dispatch_table[ip->opcode];
+            } else {
+                ip = &vm->code[exit_addr];
+                goto *dispatch_table[ip->opcode];
+            }
         }
     }
     OP_POP_ITER_LABEL: if (vm->iterator_depth >= 0) vm->iterator_depth--; ip++; goto *dispatch_table[ip->opcode];

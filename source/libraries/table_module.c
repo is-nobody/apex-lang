@@ -1,6 +1,24 @@
 #include "table_module.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
+
+static int compare_keys(const void* a, const void* b) {
+    const char* sa = *(const char**)a;
+    const char* sb = *(const char**)b;
+    
+    char* enda = NULL;
+    char* endb = NULL;
+    long na = strtol(sa, &enda, 10);
+    long nb = strtol(sb, &endb, 10);
+    
+    if (enda != NULL && *enda == '\0' && endb != NULL && *endb == '\0') {
+        return (na > nb) - (na < nb);
+    }
+    
+    return strcmp(sa, sb);
+}
+
 
 bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     if (arg_count < 1 || args[0].type != VAL_TABLE) return false;
@@ -44,16 +62,29 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
     if (strcmp(name, "table.keys") == 0) {
         *result = vm_make_table();
         Table* table = args[0].table;
-        int idx = 1;
         
-        for (int i = 0; i < table->capacity; i++) {
-            TableEntry* entry = table->entries[i];
-            while (entry) {
-                char key[32];
-                snprintf(key, sizeof(key), "%d", idx++);
-                table_set(result->table, key, vm_make_string(entry->key));
-                entry = entry->next;
+        int count = table_size(table);
+        if (count > 0) {
+            char** keys = (char**)malloc(sizeof(char*) * count);
+            int idx = 0;
+            
+            for (int i = 0; i < table->capacity; i++) {
+                TableEntry* entry = table->entries[i];
+                while (entry) {
+                    keys[idx++] = entry->key;
+                    entry = entry->next;
+                }
             }
+            
+            qsort(keys, count, sizeof(char*), compare_keys);
+            
+            for (int i = 0; i < count; i++) {
+                char key_str[32];
+                snprintf(key_str, sizeof(key_str), "%d", i + 1);  // 1-based indexing
+                table_set(result->table, key_str, vm_make_string(keys[i]));
+            }
+            
+            free(keys);
         }
         return true;
     }
@@ -62,16 +93,33 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
     if (strcmp(name, "table.values") == 0) {
         *result = vm_make_table();
         Table* table = args[0].table;
-        int idx = 1;
         
-        for (int i = 0; i < table->capacity; i++) {
-            TableEntry* entry = table->entries[i];
-            while (entry) {
-                char key[32];
-                snprintf(key, sizeof(key), "%d", idx++);
-                table_set(result->table, key, vm_copy_value(entry->value));
-                entry = entry->next;
+        int count = table_size(table);
+        if (count > 0) {
+            char** keys = (char**)malloc(sizeof(char*) * count);
+            int idx = 0;
+            
+            for (int i = 0; i < table->capacity; i++) {
+                TableEntry* entry = table->entries[i];
+                while (entry) {
+                    keys[idx++] = entry->key;
+                    entry = entry->next;
+                }
             }
+            
+            qsort(keys, count, sizeof(char*), compare_keys);
+            
+            for (int i = 0; i < count; i++) {
+                Value val;
+                if (table_get(table, keys[i], &val)) {
+                    char key_str[32];
+                    snprintf(key_str, sizeof(key_str), "%d", i + 1);
+                    table_set(result->table, key_str, val);
+                    value_decref(&val);
+                }
+            }
+            
+            free(keys);
         }
         return true;
     }

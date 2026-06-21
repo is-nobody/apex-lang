@@ -12,7 +12,7 @@ function for_table_keys()
     os.output("Table keys iteration:")
     for key = data
         os.output(key)
-    os.output("Expected: Alice 30 Wonderland")
+    os.output("Expected: 30 Wonderland Alice")
 
 function for_table_empty()
     empty = []

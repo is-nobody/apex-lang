@@ -395,45 +395,73 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
     if (node->for_stmt.var_name) {
         // Check if this is a Table Iteration: for k = table
         if (node->for_stmt.end == NULL && !node->for_stmt.condition) {
-            // --- Table Iteration: for k = items ---
+            // --- Table Iteration: for item = table ---
             int table_reg = codegen_expression(cg, node->for_stmt.start);
             
+            // Get keys table: keys = table.keys(table)
             int keys_table_reg = alloc_register(cg);
             int name_idx = bytecode_add_string_constant(cg->chunk, "table.keys");
             emit(cg, INST(OP_PUSH_ARG, table_reg, 0, 0), node->line);
             emit(cg, INST(OP_CALL_BUILTIN, keys_table_reg, name_idx, 1), node->line);
-            
+
+            // Get size of keys table: size = table.size(keys)
             int size_reg = alloc_register(cg);
             name_idx = bytecode_add_string_constant(cg->chunk, "table.size");
             emit(cg, INST(OP_PUSH_ARG, keys_table_reg, 0, 0), node->line);
             emit(cg, INST(OP_CALL_BUILTIN, size_reg, name_idx, 1), node->line);
-            
+
+            // Create user variable register
             int var_reg = add_local(cg, node->for_stmt.var_name);
-            int one_idx = bytecode_add_number_constant(cg->chunk, 1.0);
-            emit(cg, INST(OP_LOAD_CONST, var_reg, one_idx, 0), node->line);
-            emit(cg, INST(OP_FOR_INIT, var_reg, size_reg, cg->cache.one_reg), node->line);
             
+            // Create dedicated index register (starts at 0)
+            int index_reg = alloc_register(cg);
+            int zero_idx = bytecode_add_number_constant(cg->chunk, 0.0);
+            emit(cg, INST(OP_LOAD_CONST, index_reg, zero_idx, 0), node->line);
+
+            // Initialize the for loop
+            emit(cg, INST(OP_FOR_INIT, index_reg, size_reg, cg->cache.one_reg), node->line);
+
             int loop_start = bytecode_current_offset(cg->chunk);
             cg->loop_stack.continue_addr = loop_start;
-            
+
+            // FOR_NEXT: increment index, check if <= size, exit if not
             int for_next_instr = bytecode_current_offset(cg->chunk);
-            emit(cg, INST(OP_FOR_NEXT, var_reg, 0, 0), node->line);
-            
+            emit(cg, INST(OP_FOR_NEXT, index_reg, size_reg, 0), node->line);
+
+            // Get key from keys table: keys_table[index]
             int key_reg = alloc_register(cg);
-            emit(cg, INST(OP_TABLE_GET, key_reg, keys_table_reg, var_reg), node->line);
-            emit(cg, INST(OP_TABLE_GET, var_reg, table_reg, key_reg), node->line);
+            emit(cg, INST(OP_TABLE_GET, key_reg, keys_table_reg, index_reg), node->line);
+
+            // Get value from original table: table[key]
+            int value_reg = alloc_register(cg);
+            emit(cg, INST(OP_TABLE_GET, value_reg, table_reg, key_reg), node->line);
+
+            // Move value to user's variable
+            emit(cg, INST(OP_MOVE, var_reg, value_reg, 0), node->line);
+
             free_register(cg, key_reg);
-            
+            free_register(cg, value_reg);
+
+            // Execute loop body
             codegen_block(cg, node->for_stmt.body);
-            
+
+            // Jump back to FOR_NEXT
             emit(cg, INST(OP_JUMP, loop_start, 0, 0), node->line);
-            
+
+            // Patch exit address for FOR_NEXT
             int exit_addr = bytecode_current_offset(cg->chunk);
-            cg->chunk->code[for_next_instr].operands[1] = exit_addr;
-            
+            cg->chunk->code[for_next_instr].operands[2] = exit_addr;
+
+            // Free all registers
             free_register(cg, table_reg);
             free_register(cg, keys_table_reg);
             free_register(cg, size_reg);
+            free_register(cg, index_reg);
+            
+            // Patch break jumps to exit address
+            for (int i = 0; i < cg->loop_stack.break_count; i++) {
+                bytecode_patch_jump(cg->chunk, cg->loop_stack.break_jumps[i], exit_addr);
+            }
         } else {
             // --- Range Loop: for x = start, end, [step] ---
             int start_reg = codegen_expression(cg, node->for_stmt.start);
