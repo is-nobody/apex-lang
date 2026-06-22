@@ -123,7 +123,7 @@ function activate(context) {
                 // os
                 'os.output', 'os.input', 'os.getenv', 'os.setenv', 'os.env',
                 'os.time', 'os.wait', 'os.exit', 'os.getcd', 'os.setcd',
-                'os.pid', 'os.getparentpid', 'os.spawn', 'os.waitpid', 'os.kill', 'os.execute',
+                'os.pid', 'os.kill', 'os.execute',
                 
                 // files
                 'files.read', 'files.write', 'files.append',

@@ -93,8 +93,6 @@ static const BuiltinSig BUILTINS[] = {
     {"os.getcd", 0, 0, TYPE_ANY},
     {"os.setcd", 1, 1, TYPE_STRING},
     {"os.pid", 0, 0, TYPE_ANY},
-    {"os.getparentpid", 0, 0, TYPE_ANY},
-    {"os.spawn", 1, 1, TYPE_STRING},
     {"os.waitpid", 1, 1, TYPE_NUMBER},
     {"os.kill", 1, 1, TYPE_NUMBER},
     {"os.execute", 1, 1, TYPE_STRING},
