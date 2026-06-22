@@ -1,0 +1,131 @@
+name: Release
+
+on:
+  push:
+    tags: ['*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64_linux
+
+          - os: ubuntu-24.04-arm
+            target: arm64_linux
+
+          - os: macos-13
+            target: x86_64_darwin
+
+          - os: macos-latest
+            target: arm64_darwin
+
+          - os: ubuntu-latest
+            target: x86_64_windows
+            cross: true
+            cmake_toolchain: x86_64-w64-mingw32
+
+          - os: ubuntu-latest
+            target: arm64_windows
+            cross: true
+            cmake_toolchain: aarch64-w64-mingw32
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- Dependencies ---
+      - name: Install MinGW (x86_64 Windows)
+        if: matrix.target == 'x86_64_windows'
+        run: sudo apt-get install -y gcc-mingw-w64-x86-64
+
+      - name: Install MinGW (ARM64 Windows)
+        if: matrix.target == 'arm64_windows'
+        run: sudo apt-get install -y gcc-mingw-w64-arm64
+
+      # --- Version ---
+      - name: Get version
+        id: ver
+        run: echo "v=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      # --- Linux Native ---
+      - name: Build (Linux)
+        if: runner.os == 'Linux' && !matrix.cross
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_STATIC=ON
+          cmake --build build --parallel
+
+      # --- macOS Native ---
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_STATIC=ON
+          cmake --build build --parallel
+
+      # --- Windows cross-compile ---
+      - name: Build (Windows cross)
+        if: matrix.cross == true
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_STATIC=ON \
+            -DCMAKE_C_COMPILER=${{ matrix.cmake_toolchain }}-gcc \
+            -DCMAKE_SYSTEM_NAME=Windows
+          cmake --build build --parallel
+
+      # --- Package ---
+      - name: Package
+        run: |
+          V="${{ steps.ver.outputs.v }}"
+          T="${{ matrix.target }}"
+
+          if [[ "$T" == *windows* ]]; then
+            cp build/apex.exe apex.exe
+            zip "apex_${V}_${T}.exe.zip" apex.exe
+            sha256sum "apex_${V}_${T}.exe.zip" > "apex_${V}_${T}.exe.zip.sha256"
+          else
+            cp build/apex apex
+            tar -czf "apex_${V}_${T}.tar.gz" apex
+            sha256sum "apex_${V}_${T}.tar.gz" > "apex_${V}_${T}.tar.gz.sha256"
+          fi
+
+          mkdir -p out
+          mv apex_* out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: out/
+
+  # ──────────────────────────────────────────────────
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Combine checksums
+        run: |
+          cd dist
+          cat *.sha256 > checksums.txt
+          rm *.sha256
+
+      - name: Get version
+        id: ver
+        run: echo "v=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: "Apex ${{ steps.ver.outputs.v }}"
+          files: dist/*
