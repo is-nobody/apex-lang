@@ -19,7 +19,6 @@
 #include "execute.h"
 #include "repl.h"
 #include "platform.h"
-#include "add_to_path.h"
 #include "commands.h"
 
 // Marker used in the build process
@@ -182,7 +181,6 @@ int main(int argc, char** argv) {
     }
 
     // 2. Normal Interpreter Logic
-    ensure_path_updated(argv[0]);
     platform_init();
 
     // Handle specific commands (version, build, etc.)

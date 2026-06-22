@@ -1,7 +1,6 @@
 #include "apex_api.h"
 #include "execute.h"
 #include "platform.h"
-#include "add_to_path.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,10 +12,6 @@ void apex_init(void) {
     
     // Initialize platform-specific features (path handling, etc.)
     platform_init();
-    
-    // Ensure the Apex binary directory is in the path for module loading
-    // We pass a dummy argv[0] here; in a real app, you might want to pass the actual path
-    ensure_path_updated("apex");
     
     is_initialized = true;
 }

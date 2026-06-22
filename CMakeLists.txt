@@ -8,28 +8,27 @@ set(CMAKE_C_EXTENSIONS ON)
 
 # List of all source files, including new directories
 set(SOURCES
-    main.c 
-    source/utils/execute.c 
-    source/utils/add_to_path.c
+    main.c
+    source/utils/execute.c
     source/utils/error.c
     source/utils/platform.c
     source/utils/repl.c
     source/utils/commands.c
     source/utils/build.c
     source/utils/apex_api.c
-    source/core/tokenizer.c 
-    source/core/parser.c 
-    source/core/ast.c 
-    source/core/bytecode.c 
-    source/core/codegen.c 
+    source/core/tokenizer.c
+    source/core/parser.c
+    source/core/ast.c
+    source/core/bytecode.c
+    source/core/codegen.c
     source/core/vm.c
     source/package_manager/install.c
     source/package_manager/publish.c
     source/libraries/os_module.c 
     source/libraries/files_module.c
     source/libraries/sys_module.c
-    source/libraries/math_module.c 
-    source/libraries/string_module.c 
+    source/libraries/math_module.c
+    source/libraries/string_module.c
     source/libraries/table_module.c
     source/libraries/ffi_module.c
     source/libraries/random_module.c
