@@ -35,7 +35,6 @@ set(SOURCES
     source/libraries/random_module.c
     source/libraries/regex_module.c
     source/libraries/codecs_module.c
-    source/libraries/base_module.c
     source/libraries/secrets_module.c
 )
 

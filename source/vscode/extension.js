@@ -67,8 +67,7 @@ function activate(context) {
                 'ffi': 'Foreign Function Interface.\n\nFunctions: open, call, errno, strerror, malloc, free.',
                 'random': 'Random number generation.\n\nFunctions: random, randint, choice, shuffle, sample, choices, gauss, seed, triangular, expovariate, betavariate.',
                 'regex': 'Regular expressions.\n\nFunctions: search, match, fullmatch, findall, finditer, sub, split, escape.',
-                'codecs': 'Data encoding/decoding.\n\nFunctions: json_read, json_write, csv_read, csv_write, xml_read, xml_write, yaml_read, toml_read.',
-                'base': 'Base encoding.\n\nFunctions: b16_write, b16_read, b32_write, b32_read, a85_write, a85_read, url_write, url_read.',
+                'codecs': 'Data encoding/decoding.\n\nFunctions: json_read, json_write, csv_read, csv_write, xml_read, xml_write, yaml_read, toml_read, base_write, base_read, baseurl_write, baseurl_read.',
                 'secrets': 'Secure token generation.\n\nFunctions: token_hex, token_urlsafe, token_bytes, choice, randbelow, randbits, compare_digest.'
             };
 
@@ -106,7 +105,6 @@ function activate(context) {
                 { label: 'random', detail: 'Random Number Library' },
                 { label: 'regex', detail: 'Regular Expressions' },
                 { label: 'codecs', detail: 'Data Encoding/Decoding' },
-                { label: 'base', detail: 'Base Encoding' },
                 { label: 'secrets', detail: 'Secure Tokens' }
             ];
 
@@ -183,12 +181,8 @@ function activate(context) {
                 'codecs.csv_read', 'codecs.csv_write',
                 'codecs.xml_read', 'codecs.xml_write',
                 'codecs.yaml_read', 'codecs.toml_read',
-
-                // base
-                'base.b16_write', 'base.b16_read',
-                'base.b32_write', 'base.b32_read',
-                'base.a85_write', 'base.a85_read',
-                'base.url_write', 'base.url_read',
+                'codecs.base_write', 'codecs.base_read',
+                'codecs.baseurl_write', 'codecs.baseurl_read',
 
                 // secrets
                 'secrets.token_hex', 'secrets.token_urlsafe', 'secrets.token_bytes',

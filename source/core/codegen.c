@@ -10,7 +10,7 @@ static bool is_known_builtin_module(const char* name) {
            strcmp(name, "string") == 0 || strcmp(name, "table") == 0 ||
            strcmp(name, "ffi") == 0 || strcmp(name, "random") == 0 ||
            strcmp(name, "regex") == 0 || strcmp(name, "codecs") == 0 ||
-           strcmp(name, "base") == 0 || strcmp(name, "secrets") == 0;
+           strcmp(name, "secrets") == 0;
 }
 
 // ========== Forward Declarations ==========
@@ -298,12 +298,8 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "codecs.csv_read", "codecs.csv_write",
         "codecs.xml_read", "codecs.xml_write",
         "codecs.yaml_read", "codecs.toml_read",
-
-        // base
-        "base.b16_write", "base.b16_read",
-        "base.b32_write", "base.b32_read",
-        "base.a85_write", "base.a85_read",
-        "base.url_write", "base.url_read",
+        "codecs.base_read", "codecs.base_write",
+        "codecs.baseurl_write", "codecs.baseurl_read",
 
         // secrets
         "secrets.token_hex", "secrets.token_urlsafe", "secrets.token_bytes",

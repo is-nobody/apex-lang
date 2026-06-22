@@ -225,16 +225,10 @@ static const BuiltinSig BUILTINS[] = {
     {"codecs.xml_write", 1, 1, TYPE_TABLE},
     {"codecs.yaml_read", 1, 1, TYPE_STRING},
     {"codecs.toml_read", 1, 1, TYPE_STRING},
-
-    // base
-    {"base.b16_write", 1, 1, TYPE_STRING},
-    {"base.b16_read", 1, 1, TYPE_STRING},
-    {"base.b32_write", 1, 1, TYPE_STRING},
-    {"base.b32_read", 1, 1, TYPE_STRING},
-    {"base.a85_write", 1, 1, TYPE_STRING},
-    {"base.a85_read", 1, 1, TYPE_STRING},
-    {"base.url_write", 1, 1, TYPE_STRING},
-    {"base.url_read", 1, 1, TYPE_STRING},
+    {"codecs.base_write", 1, 1, TYPE_STRING},
+    {"codecs.base_read", 1, 1, TYPE_STRING},
+    {"codecs.baseurl_write", 1, 1, TYPE_STRING},
+    {"codecs.baseurl_read", 1, 1, TYPE_STRING},
 
     // secrets
     {"secrets.token_hex", 0, 1, TYPE_NUMBER},
@@ -474,7 +468,6 @@ static bool is_builtin_module_root(const char* name) {
            strcmp(name, "random") == 0 ||
            strcmp(name, "regex") == 0 ||
            strcmp(name, "codecs") == 0 ||
-           strcmp(name, "base") == 0 ||
            strcmp(name, "secrets") == 0;
 }
 
