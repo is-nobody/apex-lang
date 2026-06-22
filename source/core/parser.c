@@ -199,12 +199,15 @@ static const BuiltinSig BUILTINS[] = {
     {"random.choice", 1, 1, TYPE_TABLE},
     {"random.shuffle", 1, 1, TYPE_TABLE},
     {"random.sample", 2, 2, TYPE_TABLE},
-    {"random.choices", 1, 2, TYPE_TABLE},
     {"random.gauss", 2, 2, TYPE_NUMBER},
     {"random.seed", 0, 1, TYPE_NUMBER},
     {"random.triangular", 0, 3, TYPE_NUMBER},
     {"random.expovariate", 1, 1, TYPE_NUMBER},
     {"random.betavariate", 2, 2, TYPE_NUMBER},
+    {"random.secure_token_hex", 0, 1, TYPE_NUMBER},
+    {"random.secure_token_bytes", 1, 1, TYPE_NUMBER},
+    {"random.secure_randint", 1, 1, TYPE_NUMBER},
+    {"random.compare_digest", 2, 2, TYPE_STRING},
 
     // regex
     {"regex.search", 2, 2, TYPE_STRING},
@@ -229,15 +232,6 @@ static const BuiltinSig BUILTINS[] = {
     {"codecs.base_read", 1, 1, TYPE_STRING},
     {"codecs.baseurl_write", 1, 1, TYPE_STRING},
     {"codecs.baseurl_read", 1, 1, TYPE_STRING},
-
-    // secrets
-    {"secrets.token_hex", 0, 1, TYPE_NUMBER},
-    {"secrets.token_urlsafe", 0, 1, TYPE_NUMBER},
-    {"secrets.token_bytes", 1, 1, TYPE_NUMBER},
-    {"secrets.choice", 1, 1, TYPE_TABLE},
-    {"secrets.randbelow", 1, 1, TYPE_NUMBER},
-    {"secrets.randbits", 1, 1, TYPE_NUMBER},
-    {"secrets.compare_digest", 2, 2, TYPE_STRING},
 
     // built-in
     {"number", 1, 1, TYPE_ANY},
@@ -467,8 +461,7 @@ static bool is_builtin_module_root(const char* name) {
            strcmp(name, "ffi") == 0 ||
            strcmp(name, "random") == 0 ||
            strcmp(name, "regex") == 0 ||
-           strcmp(name, "codecs") == 0 ||
-           strcmp(name, "secrets") == 0;
+           strcmp(name, "codecs") == 0;
 }
 
 static bool build_module_path(Parser* parser, const char* module_path, char* out_path, int out_size) {
@@ -877,9 +870,7 @@ static bool is_known_builtin_module(const char* name) {
            strcmp(name, "ffi") == 0 ||
            strcmp(name, "random") == 0 ||
            strcmp(name, "regex") == 0 ||
-           strcmp(name, "codecs") == 0 ||
-           strcmp(name, "base") == 0 ||
-           strcmp(name, "secrets") == 0;
+           strcmp(name, "codecs") == 0;
 }
 
 static ValueType infer_call_type(Parser* parser, ASTNode* node) {

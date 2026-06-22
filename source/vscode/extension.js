@@ -68,7 +68,6 @@ function activate(context) {
                 'random': 'Random number generation.\n\nFunctions: random, randint, choice, shuffle, sample, choices, gauss, seed, triangular, expovariate, betavariate.',
                 'regex': 'Regular expressions.\n\nFunctions: search, match, fullmatch, findall, finditer, sub, split, escape.',
                 'codecs': 'Data encoding/decoding.\n\nFunctions: json_read, json_write, csv_read, csv_write, xml_read, xml_write, yaml_read, toml_read, base_write, base_read, baseurl_write, baseurl_read.',
-                'secrets': 'Secure token generation.\n\nFunctions: token_hex, token_urlsafe, token_bytes, choice, randbelow, randbits, compare_digest.'
             };
 
             // Check for specific module properties/functions first
@@ -104,8 +103,7 @@ function activate(context) {
                 { label: 'ffi', detail: 'Foreign Function Interface' },
                 { label: 'random', detail: 'Random Number Library' },
                 { label: 'regex', detail: 'Regular Expressions' },
-                { label: 'codecs', detail: 'Data Encoding/Decoding' },
-                { label: 'secrets', detail: 'Secure Tokens' }
+                { label: 'codecs', detail: 'Data Encoding/Decoding' }
             ];
 
             const items = [];
@@ -168,8 +166,10 @@ function activate(context) {
 
                 // random
                 'random.random', 'random.randint', 'random.choice', 'random.shuffle',
-                'random.sample', 'random.choices', 'random.gauss', 'random.seed',
+                'random.sample', 'random.gauss', 'random.seed',
                 'random.triangular', 'random.expovariate', 'random.betavariate',
+                'random.secure_token_hex', 'random.secure_token_bytes',
+                'random.secure_randint', 'random.compare_digest',
 
                 // regex
                 'regex.search', 'regex.match', 'regex.fullmatch',
@@ -182,11 +182,7 @@ function activate(context) {
                 'codecs.xml_read', 'codecs.xml_write',
                 'codecs.yaml_read', 'codecs.toml_read',
                 'codecs.base_write', 'codecs.base_read',
-                'codecs.baseurl_write', 'codecs.baseurl_read',
-
-                // secrets
-                'secrets.token_hex', 'secrets.token_urlsafe', 'secrets.token_bytes',
-                'secrets.choice', 'secrets.randbelow', 'secrets.randbits', 'secrets.compare_digest'
+                'codecs.baseurl_write', 'codecs.baseurl_read'
             ];
 
             libFuncs.forEach(func => {

@@ -9,8 +9,7 @@ static bool is_known_builtin_module(const char* name) {
            strcmp(name, "sys") == 0 || strcmp(name, "math") == 0 ||
            strcmp(name, "string") == 0 || strcmp(name, "table") == 0 ||
            strcmp(name, "ffi") == 0 || strcmp(name, "random") == 0 ||
-           strcmp(name, "regex") == 0 || strcmp(name, "codecs") == 0 ||
-           strcmp(name, "secrets") == 0;
+           strcmp(name, "regex") == 0 || strcmp(name, "codecs") == 0;
 }
 
 // ========== Forward Declarations ==========
@@ -285,8 +284,10 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
 
         // random
         "random.random", "random.randint", "random.choice", "random.shuffle",
-        "random.sample", "random.choices", "random.gauss", "random.seed",
+        "random.sample", "random.gauss", "random.seed",
         "random.triangular", "random.expovariate", "random.betavariate",
+        "random.secure_token_hex", "random.secure_token_bytes",
+        "random.secure_randint", "random.compare_digest",
 
         // regex
         "regex.search", "regex.match", "regex.fullmatch", 
@@ -300,10 +301,6 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "codecs.yaml_read", "codecs.toml_read",
         "codecs.base_read", "codecs.base_write",
         "codecs.baseurl_write", "codecs.baseurl_read",
-
-        // secrets
-        "secrets.token_hex", "secrets.token_urlsafe", "secrets.token_bytes",
-        "secrets.choice", "secrets.randbelow", "secrets.randbits", "secrets.compare_digest",
 
         // built-in
         "number", "string", "type",
