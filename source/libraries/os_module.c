@@ -52,30 +52,6 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     }
 
     // --- Environment ---
-    if (strcmp(name, "os.getenv") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_STRING) {
-            char* env = getenv(args[0].string->chars);
-            if (env) *result = vm_make_string(env);
-            else *result = vm_make_bool(false);
-        } else {
-            *result = vm_make_bool(false);
-        }
-        return true;
-    }
-    if (strcmp(name, "os.setenv") == 0) {
-        if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
-#ifdef _WIN32
-            char env_str[8192];
-            snprintf(env_str, sizeof(env_str), "%s=%s", args[0].string->chars, args[1].string->chars);
-            *result = vm_make_bool(_putenv(env_str) == 0);
-#else
-            *result = vm_make_bool(setenv(args[0].string->chars, args[1].string->chars, 1) == 0);
-#endif
-        } else {
-            *result = vm_make_bool(false);
-        }
-        return true;
-    }
     if (strcmp(name, "os.env") == 0) {
         *result = vm_make_table();
 #ifdef _WIN32

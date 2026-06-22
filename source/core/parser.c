@@ -84,8 +84,6 @@ static const BuiltinSig BUILTINS[] = {
     // os
     {"os.output", 0, 1, TYPE_ANY},
     {"os.input", 0, 1, TYPE_ANY},
-    {"os.getenv", 1, 1, TYPE_STRING},
-    {"os.setenv", 2, 2, TYPE_STRING},
     {"os.env", 0, 0, TYPE_ANY},
     {"os.time", 0, 0, TYPE_ANY},
     {"os.wait", 1, 1, TYPE_NUMBER},

@@ -238,8 +238,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
     
     static const char* builtins[] = {
         // os
-        "os.output", "os.input",
-        "os.getenv", "os.setenv", "os.env",
+        "os.output", "os.input", "os.env",
         "os.time", "os.wait", "os.exit",
         "os.getcd", "os.setcd",
         "os.current_process_id", "os.terminate_process", "os.execute",
