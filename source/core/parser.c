@@ -92,9 +92,8 @@ static const BuiltinSig BUILTINS[] = {
     {"os.exit", 1, 1, TYPE_NUMBER},
     {"os.getcd", 0, 0, TYPE_ANY},
     {"os.setcd", 1, 1, TYPE_STRING},
-    {"os.pid", 0, 0, TYPE_ANY},
-    {"os.waitpid", 1, 1, TYPE_NUMBER},
-    {"os.kill", 1, 1, TYPE_NUMBER},
+    {"os.current_process_id", 0, 0, TYPE_ANY},
+    {"os.terminate_process", 1, 1, TYPE_NUMBER},
     {"os.execute", 1, 1, TYPE_STRING},
 
     // files

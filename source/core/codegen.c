@@ -242,7 +242,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "os.getenv", "os.setenv", "os.env",
         "os.time", "os.wait", "os.exit",
         "os.getcd", "os.setcd",
-        "os.pid", "os.kill", "os.execute",
+        "os.current_process_id", "os.terminate_process", "os.execute",
         
         // files
         "files.read", "files.write", "files.append",

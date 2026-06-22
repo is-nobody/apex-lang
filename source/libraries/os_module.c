@@ -162,7 +162,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     }
 
     // --- Process Management ---
-    if (strcmp(name, "os.pid") == 0) {
+    if (strcmp(name, "os.current_process_id") == 0) {
 #ifdef _WIN32
         *result = vm_make_number(GetCurrentProcessId());
 #else
@@ -170,7 +170,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
 #endif
         return true;
     }
-    if (strcmp(name, "os.kill") == 0) {
+    if (strcmp(name, "os.terminate_process") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
             int pid = (int)args[0].number;
             bool success = false;
