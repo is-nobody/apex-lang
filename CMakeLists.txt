@@ -211,3 +211,17 @@ endif()
 
 # Include the packaging module
 include(CPack)
+
+#[[
+# standard command for build (linux, etc.)
+cmake -S . -B build/linux -DCMAKE_BUILD_TYPE=Release
+cmake --build build/linux --parallel
+
+# build via MinGW binary for Windows from Linux
+cmake -S . -B build/windows \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_SYSTEM_NAME=Windows \
+    -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc
+
+cmake --build build/windows --parallel
+]]
