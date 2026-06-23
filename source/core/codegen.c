@@ -240,7 +240,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         // os
         "os.output", "os.input", "os.env",
         "os.time", "os.wait", "os.exit",
-        "os.getcd", "os.setcd",
+        "os.get_current_folder", "os.set_current_folder",
         "os.current_process_id", "os.terminate_process", "os.execute",
         
         // files

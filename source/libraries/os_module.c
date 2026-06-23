@@ -122,13 +122,13 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     }
 
     // --- Directory Navigation ---
-    if (strcmp(name, "os.getcd") == 0) {
+    if (strcmp(name, "os.get_current_folder") == 0) {
         char cwd[4096];
         if (getcwd(cwd, sizeof(cwd))) *result = vm_make_string(cwd);
         else *result = vm_make_bool(false);
         return true;
     }
-    if (strcmp(name, "os.setcd") == 0) {
+    if (strcmp(name, "os.set_current_folder") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             *result = vm_make_bool(chdir(args[0].string->chars) == 0);
         } else {
