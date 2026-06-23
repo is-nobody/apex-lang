@@ -204,7 +204,6 @@ static char csv_peek(CsvParser* p);
 static char csv_advance(CsvParser* p);
 static bool csv_has_next(CsvParser* p);
 static char* csv_parse_field(CsvParser* p);
-static char detect_delimiter(const char* data, int len);
 static bool is_numeric(const char* str);
 static bool is_bool(const char* str);
 static Value csv_parse_value(const char* str);
@@ -574,23 +573,6 @@ static char* csv_parse_field(CsvParser* p) {
     return result;
 }
 
-static char detect_delimiter(const char* data, int len) {
-    if (!data || len <= 0) return ',';
-    
-    int commas = 0, semicolons = 0, tabs = 0;
-    int limit = len < 1024 ? len : 1024;
-    
-    for (int i = 0; i < limit; i++) {
-        if (data[i] == ',') commas++;
-        else if (data[i] == ';') semicolons++;
-        else if (data[i] == '\t') tabs++;
-    }
-    
-    if (tabs > commas && tabs > semicolons) return '\t';
-    if (semicolons > commas) return ';';
-    return ',';
-}
-
 // ========== XML Helpers (Self-made) ==========
 typedef struct {
     const char* p;
@@ -601,6 +583,7 @@ static void xml_skip_ws(XmlParser* xp) {
 }
 
 static void xml_parse_attrs(VM* vm, XmlParser* xp, Table* t) {
+    (void)vm;
     xml_skip_ws(xp);
     while (*xp->p && *xp->p != '>' && *xp->p != '/') {
         char key[128] = {0};

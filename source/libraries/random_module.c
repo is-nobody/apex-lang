@@ -128,6 +128,7 @@ static double random_gamma(double shape) {
 }
 
 bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
+    (void)vm;
     ensure_seeded();
 
     // --- Standard Random Functions ---

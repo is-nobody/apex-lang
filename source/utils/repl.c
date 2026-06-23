@@ -12,7 +12,8 @@
 
 static volatile sig_atomic_t g_should_exit = 0;
 
-static void signal_handler(int sig) {
+// Marked as unused attribute to silence warnings if compiler thinks it's only defined but not used in some configs
+static __attribute__((unused)) void signal_handler(int sig) {
     (void)sig;
     g_should_exit = 1;
 }
@@ -69,13 +70,23 @@ void repl_run(void) {
     while (!g_should_exit) {
         char c;
         ssize_t n = terminal_read_blocking(&c);
+        
         if (n <= 0) {
+            // Handle EOF or error
+            if (n == 0) {
+                // EOF received (Ctrl+D)
+                break;
+            }
 #ifndef _WIN32
             if (errno == EINTR) continue;
 #endif
             break;
         }
-        if (c == 4 || c == 3) break;
+        
+        // Ctrl+C or Ctrl+D
+        if (c == 4 || c == 3) {
+            break;
+        }
         
         // Enter
         if (c == '\r' || c == '\n') {
@@ -90,6 +101,8 @@ void repl_run(void) {
                 }
             }
             pos = 0;
+            
+            // If no more input is pending in the buffer, execute
             if (!terminal_has_input()) {
                 if (total_len > 0) {
                     execute_code(full_input, "REPL");
@@ -100,6 +113,7 @@ void repl_run(void) {
                 fflush(stdout);
             }
         }
+        // Backspace
         else if (c == 127 || c == '\b') {
             if (pos > 0) {
                 memmove(&line[pos-1], &line[pos], strlen(&line[pos]) + 1);
@@ -107,6 +121,7 @@ void repl_run(void) {
                 redraw_line(line, pos);
             }
         }
+        // Printable characters
         else if (c >= 32 && c < 127 && pos < MAX_LINE - 1) {
             line[pos++] = c;
             line[pos] = '\0';
@@ -116,4 +131,5 @@ void repl_run(void) {
     
     terminal_disable_raw_mode();
     set_repl_mode(0);
+    printf("\n");
 }

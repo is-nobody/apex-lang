@@ -39,7 +39,7 @@ static int http_post_json_status(const char* host, int port, const char* path, c
         "\r\n",
         path, host, (unsigned long long)body_len);
     
-    if (header_len < 0 || header_len >= sizeof(header)) {
+    if (header_len < 0 || (size_t)header_len >= sizeof(header)) {
         cleanup_socket(sockfd);
         return -1;
     }
@@ -65,7 +65,7 @@ static int http_post_json_status(const char* host, int port, const char* path, c
     char resp_buf[4096];
     int total = 0;
     int n;
-    while (total < sizeof(resp_buf) - 1 && (n = recv(sockfd, resp_buf + total, sizeof(resp_buf) - total - 1, 0)) > 0) {
+    while (total < (int)(sizeof(resp_buf) - 1) && (n = recv(sockfd, resp_buf + total, sizeof(resp_buf) - total - 1, 0)) > 0) {
         total += n;
     }
     resp_buf[total] = '\0';
@@ -140,10 +140,14 @@ static bool http_post_multipart(const char* host, int port, const char* path,
     send(sockfd, file_content, file_size, 0);
     send(sockfd, footer_part, strlen(footer_part), 0);
 #else
-    write(sockfd, request_header, strlen(request_header));
-    write(sockfd, header_part, strlen(header_part));
-    write(sockfd, file_content, file_size);
-    write(sockfd, footer_part, strlen(footer_part));
+    if (write(sockfd, request_header, strlen(request_header)) < 0 ||
+        write(sockfd, header_part, strlen(header_part)) < 0 ||
+        write(sockfd, file_content, file_size) < 0 ||
+        write(sockfd, footer_part, strlen(footer_part)) < 0) {
+        free(file_content);
+        cleanup_socket(sockfd);
+        return false;
+    }
 #endif
 
     free(file_content);

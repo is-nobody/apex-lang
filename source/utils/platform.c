@@ -9,7 +9,11 @@
 #include <conio.h>
 #include <io.h>
 #include <shellapi.h>
+
+// Only use #pragma comment for MSVC. MinGW/GCC handles linking via CMake.
+#ifdef _MSC_VER
 #pragma comment(lib, "shell32.lib")
+#endif
 
 static HANDLE hStdin;
 static DWORD prev_mode;
@@ -119,6 +123,9 @@ void platform_delete_temp_file(const char* path) {
 #include <unistd.h>
 
 static int unlink_cb(const char *fpath, const struct stat *sb, int typeflag, struct FTW *ftwbuf) {
+    (void)sb;
+    (void)typeflag;
+    (void)ftwbuf;
     return remove(fpath);
 }
 

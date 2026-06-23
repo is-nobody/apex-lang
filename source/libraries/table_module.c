@@ -21,6 +21,7 @@ static int compare_keys(const void* a, const void* b) {
 
 
 bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
+    (void)vm;
     if (arg_count < 1 || args[0].type != VAL_TABLE) return false;
     
     // table.size — return number of entries in the table

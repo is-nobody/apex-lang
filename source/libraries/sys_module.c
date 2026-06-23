@@ -5,6 +5,7 @@
 #include <string.h>
 #ifdef _WIN32
 #include <windows.h>
+#include <io.h> 
 #else
 #include <unistd.h>
 #include <sys/utsname.h>
@@ -260,8 +261,8 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
     }
 
     if (strcmp(name, "sys.tempdir") == 0) {
-        char path[4096];
 #ifdef _WIN32
+        char path[4096];
         if (GetTempPath(sizeof(path), path) != 0) {
             *result = vm_make_string(path);
         } else {

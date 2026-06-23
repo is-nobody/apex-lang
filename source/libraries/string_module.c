@@ -5,6 +5,7 @@
 #include <stdio.h>
 
 bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
+    (void)vm;
     if (arg_count < 1) return false;
     
     // string.len — return the length of a string
@@ -93,8 +94,9 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             size_t end = args[2].type == VAL_NUMBER ? (size_t)args[2].number : strlen(args[0].string->chars);
             
             if (start < 0) start = 0;
-            if (end > (int)strlen(args[0].string->chars)) end = strlen(args[0].string->chars);
-            if (start >= end) {
+            size_t len = strlen(args[0].string->chars);
+            if ((size_t)end > len) end = (int)len;
+            if ((size_t)start >= (size_t)end) {
                 *result = vm_make_string("");
             } else {
                 int len = end - start;

@@ -60,7 +60,8 @@ typedef struct {
 } ZipCentralDirEntry;
 #pragma pack(pop)
 
-static void mkdirs(const char* path) {
+// Mark as unused to silence warning when HAVE_ZLIB is 0
+static __attribute__((unused)) void mkdirs(const char* path) {
     char tmp[1024];
     char* p = NULL;
     size_t len;
@@ -77,8 +78,11 @@ static void mkdirs(const char* path) {
     mkdir(tmp, 0755);
 }
 
+// Mark parameters as used via (void) cast to silence warnings when HAVE_ZLIB is 0
 static bool extract_zip(const char* zip_path, const char* dest_dir) {
 #if !HAVE_ZLIB
+    (void)zip_path;
+    (void)dest_dir;
     fprintf(stderr, "ZIP extraction requires zlib, which is not available in this build.\n");
     return false;
 #else

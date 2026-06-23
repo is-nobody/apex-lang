@@ -69,7 +69,11 @@ static int execute_embedded_source(void) {
     fseek(f, payload_start, SEEK_SET);
     char* payload = (char*)malloc(payload_size);
     if (!payload) { fclose(f); return -1; }
-    fread(payload, 1, payload_size, f);
+    if (fread(payload, 1, payload_size, f) != payload_size) {
+        free(payload);
+        fclose(f);
+        return -1;
+    }
     fclose(f);
 
     // Create temporary directory

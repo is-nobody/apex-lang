@@ -379,14 +379,6 @@ static bool evaluate_numeric_constant(Parser* parser, ASTNode* node, double* out
     }
 }
 
-static bool parser_is_zero_constant(Parser* parser, ASTNode* node) {
-    double val;
-    if (evaluate_numeric_constant(parser, node, &val)) {
-        return val == 0.0;
-    }
-    return false;
-}
-
 static bool expr_has_side_effect(ASTNode* node) {
     if (!node) return false;
     switch (node->type) {
@@ -831,16 +823,6 @@ static const char* resolve_call_name(ASTNode* callee, char* buffer, size_t bufle
         return buffer;
     }
     return NULL;
-}
-
-static void check_math_arg_type(Parser* parser, ASTNode* node, const char* func_name) {
-    if (node->call.arguments->count >= 1) {
-        ValueType arg_t = infer_expression_type(parser, node->call.arguments->nodes[0]);
-        if (arg_t != TYPE_NUMBER && arg_t != TYPE_ANY && arg_t != TYPE_UNKNOWN) {
-            parser_error_at(parser, node->line, node->column, 0,
-                "%s argument must be number, got %s", func_name, type_name(arg_t));
-        }
-    }
 }
 
 // helper to check if a root name is a known built-in module
@@ -1865,8 +1847,7 @@ static ASTNode* parse_import_statement(Parser* parser) {
 
     FILE* f = fopen(full_path, "rb");
     if (!f) {
-        parser_error_at(parser, import_kw->line, import_kw->column, (int)strlen(module_path),
-                        "Cannot open module file '%s'", full_path);
+        parser_error(parser, "Cannot open module file");
         free(module_path);
         return import_node;
     }
@@ -1875,8 +1856,20 @@ static ASTNode* parse_import_statement(Parser* parser) {
     long size = ftell(f);
     fseek(f, 0, SEEK_SET);
     char* source = (char*)malloc(size + 1);
-    if (!source) { fclose(f); free(module_path); return import_node; }
-    fread(source, 1, size, f);
+    if (!source) { 
+        fclose(f); 
+        free(module_path); 
+        return import_node; 
+    }
+    
+    size_t bytes_read = fread(source, 1, size, f);
+    if (bytes_read != (size_t)size) {
+        fclose(f);
+        free(source);
+        free(module_path);
+        parser_error(parser, "Failed to read module file");
+        return import_node;
+    }
     source[size] = '\0';
     fclose(f);
 

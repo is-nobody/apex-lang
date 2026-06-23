@@ -5,6 +5,7 @@
 #include <stdbool.h>
 
 bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
+    (void)vm;
     if (strcmp(name, "math.abs") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
             *result = vm_make_number(fabs(args[0].number));

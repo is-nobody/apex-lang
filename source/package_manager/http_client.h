@@ -109,7 +109,12 @@ static inline HttpResponse http_get(const char* host, int port, const char* path
 #ifdef _WIN32
     send(sockfd, request, strlen(request), 0);
 #else
-    write(sockfd, request, strlen(request));
+    if (write(sockfd, request, strlen(request)) < 0) {
+        fprintf(stderr, "Error: Failed to send request to %s:%d\n", host, port);
+        cleanup_socket(sockfd);
+        resp.status_code = -1;
+        return resp;
+    }
 #endif
 
     char buffer[8192];
@@ -157,7 +162,10 @@ static inline bool http_download_file(const char* host, int port, const char* pa
 #ifdef _WIN32
     send(sockfd, request, strlen(request), 0);
 #else
-    write(sockfd, request, strlen(request));
+    if (write(sockfd, request, strlen(request)) < 0) {
+        cleanup_socket(sockfd);
+        return false;
+    }
 #endif
 
     FILE* fp = fopen(dest_path, "wb");

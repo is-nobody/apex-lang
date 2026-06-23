@@ -11,12 +11,13 @@
 #include <ctype.h>
 
 #ifdef _WIN32
-    // Windows networking
     #include <winsock2.h>
     #include <ws2tcpip.h>
+    #ifdef _MSC_VER
+    #pragma comment(lib, "shell32.lib")
     #pragma comment(lib, "ws2_32.lib")
+    #endif
 #else
-    // POSIX networking
     #include <sys/socket.h>
     #include <netinet/in.h>
     #include <netdb.h>
@@ -24,6 +25,9 @@
     #include <unistd.h>
     #include <fcntl.h>
 #endif
+
+// Helper to ignore return values safely
+static inline void pm_ignore_ssize(ssize_t r) { (void)r; }
 
 // Helper to send HTTP GET request and return status code
 static inline int pm_http_get_status(const char* host, const char* path) {
@@ -72,10 +76,11 @@ static inline int pm_http_get_status(const char* host, const char* path) {
     
     char request[1024];
     snprintf(request, sizeof(request), "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", path, host);
+    
 #ifdef _WIN32
     send(sockfd, request, strlen(request), 0);
 #else
-    write(sockfd, request, strlen(request));
+    pm_ignore_ssize(write(sockfd, request, strlen(request)));
 #endif
     
     int total = 0;
@@ -147,10 +152,11 @@ static inline bool pm_http_download(const char* host, const char* path, const ch
     
     char request[1024];
     snprintf(request, sizeof(request), "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", path, host);
+    
 #ifdef _WIN32
     send(sockfd, request, strlen(request), 0);
 #else
-    write(sockfd, request, strlen(request));
+    pm_ignore_ssize(write(sockfd, request, strlen(request)));
 #endif
     
     FILE* fp = fopen(dest_path, "wb");

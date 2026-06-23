@@ -102,7 +102,11 @@ static void scan_imports(const char* source_dir, const char* filepath,
     fseek(f, 0, SEEK_SET);
     char* content = (char*)malloc(size + 1);
     if (!content) { fclose(f); return; }
-    fread(content, 1, size, f);
+    if (fread(content, 1, size, f) != (size_t)size) {
+        free(content);
+        fclose(f);
+        return; 
+    }
     content[size] = '\0';
     fclose(f);
 
@@ -154,7 +158,10 @@ static char* read_file(const char* path, long* out_size) {
     *out_size = ftell(f);
     fseek(f, 0, SEEK_SET);
     char* buf = (char*)malloc(*out_size);
-    if (buf) fread(buf, 1, *out_size, f);
+    if (buf) {
+        size_t read_count = fread(buf, 1, *out_size, f);
+        *out_size = (int)read_count;
+    }
     fclose(f);
     return buf;
 }
