@@ -2,8 +2,6 @@
 const vscode = require('vscode');
 
 function activate(context) {
-    console.log('Apex language support activated');
-    
     // Run file command - uses terminal
     const runFile = vscode.commands.registerCommand('apex.runFile', async () => {
         const editor = vscode.window.activeTextEditor;

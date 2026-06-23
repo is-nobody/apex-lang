@@ -1,8 +1,8 @@
-# Apex Language Support
+# Apex for Visual Studio Code
 A Visual Studio Code extension providing syntax highlighting, code snippets, IntelliSense, and execution support for the **Apex** programming language.
 
-![Version](https://img.shields.io/badge/version-26.6-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/Version-26.6-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
 
 ## About Apex
 Apex is a simple, cross-platform programming language designed for beginners and professional developers alike. It features a minimalistic indentation-based syntax, extensive built-in libraries for system interaction, file management, mathematics, data encoding, and more. It is distributed under the MIT License.

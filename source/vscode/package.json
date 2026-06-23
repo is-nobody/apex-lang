@@ -1,7 +1,7 @@
 {
   "name": "apex-language-support",
-  "displayName": "Apex Language Support 26.6",
-  "description": "Syntax highlighting and language support for the Apex programming language",
+  "displayName": "Apex",
+  "description": "Language support for the Apex programming language",
   "version": "26.6.0",
   "publisher": "apex-lang",
   "engines": {
