@@ -7,7 +7,6 @@
 #include "table_module.h"
 #include "ffi_module.h"
 #include "random_module.h"
-#include "regex_module.h"
 #include "codecs_module.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -425,7 +424,6 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
     if (strncmp(name, "table.", 6) == 0) return table_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "ffi.", 4) == 0) return ffi_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "random.", 7) == 0) return random_call_builtin(vm, name, arg_count, args, result);
-    if (strncmp(name, "regex.", 6) == 0) return regex_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "codecs.", 7) == 0) return codecs_call_builtin(vm, name, arg_count, args, result);
 
     if (strcmp(name, "number") == 0) {

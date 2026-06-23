@@ -9,7 +9,7 @@ static bool is_known_builtin_module(const char* name) {
            strcmp(name, "sys") == 0 || strcmp(name, "math") == 0 ||
            strcmp(name, "string") == 0 || strcmp(name, "table") == 0 ||
            strcmp(name, "ffi") == 0 || strcmp(name, "random") == 0 ||
-           strcmp(name, "regex") == 0 || strcmp(name, "codecs") == 0;
+           strcmp(name, "codecs") == 0;
 }
 
 // ========== Forward Declarations ==========
@@ -287,11 +287,6 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "random.triangular", "random.expovariate", "random.betavariate",
         "random.secure_token_hex", "random.secure_token_bytes",
         "random.secure_randint", "random.compare_digest",
-
-        // regex
-        "regex.search", "regex.match", "regex.fullmatch", 
-        "regex.findall", "regex.finditer", "regex.sub", 
-        "regex.split", "regex.escape",
 
         // codecs
         "codecs.json_read", "codecs.json_write",

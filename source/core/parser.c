@@ -204,16 +204,6 @@ static const BuiltinSig BUILTINS[] = {
     {"random.secure_randint", 1, 1, TYPE_NUMBER},
     {"random.compare_digest", 2, 2, TYPE_STRING},
 
-    // regex
-    {"regex.search", 2, 2, TYPE_STRING},
-    {"regex.match", 2, 2, TYPE_STRING},
-    {"regex.fullmatch", 2, 2, TYPE_STRING},
-    {"regex.findall", 2, 2, TYPE_STRING},
-    {"regex.finditer", 2, 2, TYPE_STRING},
-    {"regex.sub", 3, 3, TYPE_STRING},
-    {"regex.split", 2, 2, TYPE_STRING},
-    {"regex.escape", 1, 1, TYPE_STRING},
-
     // codecs
     {"codecs.json_read", 1, 1, TYPE_STRING},
     {"codecs.json_write", 1, 1, TYPE_ANY},
@@ -455,7 +445,6 @@ static bool is_builtin_module_root(const char* name) {
            strcmp(name, "table") == 0 ||
            strcmp(name, "ffi") == 0 ||
            strcmp(name, "random") == 0 ||
-           strcmp(name, "regex") == 0 ||
            strcmp(name, "codecs") == 0;
 }
 
@@ -854,7 +843,7 @@ static void check_math_arg_type(Parser* parser, ASTNode* node, const char* func_
     }
 }
 
-// Add this helper to check if a root name is a known built-in module
+// helper to check if a root name is a known built-in module
 static bool is_known_builtin_module(const char* name) {
     return strcmp(name, "os") == 0 ||
            strcmp(name, "files") == 0 ||
@@ -864,7 +853,6 @@ static bool is_known_builtin_module(const char* name) {
            strcmp(name, "table") == 0 ||
            strcmp(name, "ffi") == 0 ||
            strcmp(name, "random") == 0 ||
-           strcmp(name, "regex") == 0 ||
            strcmp(name, "codecs") == 0;
 }
 

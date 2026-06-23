@@ -65,8 +65,7 @@ function activate(context) {
                 'string': 'String manipulation library.\n\nFunctions: len, lower, upper, sub, split, join, trim, find, replace.',
                 'table': 'Table (hash map/array) library.\n\nFunctions: remove, has, size, keys, values, clear, copy, merge.',
                 'ffi': 'Foreign Function Interface.\n\nFunctions: open, call, errno, strerror, malloc, free.',
-                'random': 'Random number generation.\n\nFunctions: random, randint, choice, shuffle, sample, choices, gauss, seed, triangular, expovariate, betavariate.',
-                'regex': 'Regular expressions.\n\nFunctions: search, match, fullmatch, findall, finditer, sub, split, escape.',
+                'random': 'Random generation.\n\nFunctions: random, randint, choice, shuffle, sample, choices, gauss, seed, triangular, expovariate, betavariate.',
                 'codecs': 'Data encoding/decoding.\n\nFunctions: json_read, json_write, csv_read, csv_write, xml_read, xml_write, yaml_read, toml_read, base_write, base_read, baseurl_write, baseurl_read.',
             };
 
@@ -101,8 +100,7 @@ function activate(context) {
                 { label: 'string', detail: 'String Library' },
                 { label: 'table', detail: 'Table Library' },
                 { label: 'ffi', detail: 'Foreign Function Interface' },
-                { label: 'random', detail: 'Random Number Library' },
-                { label: 'regex', detail: 'Regular Expressions' },
+                { label: 'random', detail: 'Random generation' },
                 { label: 'codecs', detail: 'Data Encoding/Decoding' }
             ];
 
@@ -170,11 +168,6 @@ function activate(context) {
                 'random.triangular', 'random.expovariate', 'random.betavariate',
                 'random.secure_token_hex', 'random.secure_token_bytes',
                 'random.secure_randint', 'random.compare_digest',
-
-                // regex
-                'regex.search', 'regex.match', 'regex.fullmatch',
-                'regex.findall', 'regex.finditer', 'regex.sub',
-                'regex.split', 'regex.escape',
 
                 // codecs
                 'codecs.json_read', 'codecs.json_write',

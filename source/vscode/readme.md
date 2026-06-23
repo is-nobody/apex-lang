@@ -21,7 +21,7 @@ Full syntax highlighting for:
 ### 🧠 Advanced IntelliSense & Autocompletion
 Smart suggestions for:
 - **Keywords**: Control flow and logical operators.
-- **12 Standard Libraries**: `os`, `files`, `sys`, `math`, `string`, `table`, `ffi`, `random`, `regex`, `codecs`.
+- **12 Standard Libraries**: `os`, `files`, `sys`, `math`, `string`, `table`, `ffi`, `random`, `codecs`.
 - **Library Functions**: Auto-complete for hundreds of functions like `files.read()`, `sys.platform`, `random.randint()`, `codecs.json_write()`, etc.
 
 ### ℹ️ Hover Documentation
@@ -60,7 +60,6 @@ The Apex runtime includes a powerful set of built-in modules:
 | **table** | Data structures |
 | **ffi** | Foreign Function Interface |
 | **random** | Random generation |
-| **regex** | Regular expressions |
 | **codecs** | Data encoding |
 
 ## Contributing
