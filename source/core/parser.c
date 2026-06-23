@@ -969,13 +969,28 @@ static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
         case AST_IDENTIFIER: {
             const char* name = node->identifier.name;
             int idx = symbol_index_recursive(parser, name);
-            if (idx < 0 && !lookup_builtin(name)) {
+            
+            // 1. Check user-defined symbols
+            if (idx >= 0) {
+                return parser->symbols.types[idx];
+            }
+
+            // 2. Check built-in functions (like 'number', 'string', 'type')
+            if (lookup_builtin(name)) {
+                return TYPE_FUNCTION;
+            }
+
+            // 3. If this is a built-in module root but NOT imported - ERROR!
+            if (is_builtin_module_root(name)) {
                 parser_error_at(parser, node->line, node->column, (int)strlen(name),
-                    "Undefined variable or function '%s'", name);
+                                "Module '%s' is not imported. Use 'import %s' first", name, name);
                 return TYPE_ERROR;
             }
-            if (idx >= 0) return parser->symbols.types[idx];
-            return TYPE_ANY;
+
+            // 4. If none of the above, it's truly undefined
+            parser_error_at(parser, node->line, node->column, (int)strlen(name),
+                            "Undefined variable or function '%s'", name);
+            return TYPE_ERROR;
         }
         case AST_BINARY: return infer_binary_type(parser, node);
         case AST_UNARY: return infer_unary_type(parser, node);
@@ -1356,19 +1371,26 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
     
     bool is_module = false;
     if (object->type == AST_IDENTIFIER) {
-        if (is_known_builtin_module(object->identifier.name)) {
+        // Check if the module has been imported
+        int idx = symbol_index_recursive(parser, object->identifier.name);
+        if (idx >= 0 && parser->symbols.kinds[idx] == PARSER_SYM_MODULE) {
             is_module = true;
-        } else {
-            int idx = symbol_index_recursive(parser, object->identifier.name);
-            if (idx >= 0 && parser->symbols.kinds[idx] == PARSER_SYM_MODULE) {
-                is_module = true;
-            }
+        } else if (is_known_builtin_module(object->identifier.name)) {
+            // Module is known but NOT imported - ERROR!
+            parser_error_at(parser, object->line, object->column, 
+                          get_node_len(object),
+                          "Module '%s' is not imported. Use 'import %s' first", 
+                          object->identifier.name, object->identifier.name);
+            // Skip tokens to prevent cascade of errors
+            if (token->type == TOKEN_IDENTIFIER || token->type == TOKEN_NUMBER) 
+                advance(parser);
+            return object;
         }
     }
     
     if (!is_module) {
         parser_error_at(parser, object->line, object->column, get_node_len(object),
-            "Dot access is restricted to modules. Use bracket notation '[]' for table access.");
+            "Dot access is restricted to imported modules. Use bracket notation '[]' for table access.");
         if (token->type == TOKEN_IDENTIFIER || token->type == TOKEN_NUMBER) advance(parser);
         return object; 
     }
@@ -1377,7 +1399,7 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
         (token->type >= TOKEN_FUNCTION && token->type <= TOKEN_FALSE)) {
         advance(parser);
         ASTNode* member_node = ast_create_identifier(token->value, token->line, token->column);
-        return ast_create_index_access(object, member_node); // FIXED
+        return ast_create_index_access(object, member_node);
     }
     parser_error(parser, "Expected identifier after '.'");
     return object;
