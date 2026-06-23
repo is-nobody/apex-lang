@@ -84,13 +84,11 @@ static const BuiltinSig BUILTINS[] = {
     // os
     {"os.output", 0, 1, TYPE_ANY},
     {"os.input", 0, 1, TYPE_ANY},
-    {"os.env", 0, 0, TYPE_ANY},
     {"os.time", 0, 0, TYPE_ANY},
     {"os.wait", 1, 1, TYPE_NUMBER},
     {"os.exit", 1, 1, TYPE_NUMBER},
     {"os.get_current_folder", 0, 0, TYPE_ANY},
     {"os.set_current_folder", 1, 1, TYPE_STRING},
-    {"os.current_process_id", 0, 0, TYPE_ANY},
     {"os.terminate_process", 1, 1, TYPE_NUMBER},
     {"os.execute", 1, 1, TYPE_STRING},
 
@@ -130,6 +128,8 @@ static const BuiltinSig BUILTINS[] = {
     {"sys.disksize", 0, 0, TYPE_STRING},
     {"sys.tempdir", 0, 0, TYPE_ANY},
     {"sys.isterminal", 0, 0, TYPE_ANY},
+    {"sys.process_id", 0, 0, TYPE_ANY},
+    {"sys.environment", 0, 0, TYPE_ANY},
 
     // math
     {"math.abs", 1, 1, TYPE_NUMBER},

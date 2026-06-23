@@ -117,10 +117,10 @@ function activate(context) {
             // Library functions (Comprehensive list from codegen.c)
             const libFuncs = [
                 // os
-                'os.output', 'os.input', 'os.getenv', 'os.setenv', 'os.env',
-                'os.time', 'os.wait', 'os.exit', 'os.getcd', 'os.setcd',
-                'os.pid', 'os.kill', 'os.execute',
-                
+                'os.output', 'os.input',
+                'os.time', 'os.wait', 'os.exit', 'os.get_current_folder', 'os.set_current_folder',
+                'os.terminate_process', 'os.execute',
+
                 // files
                 'files.read', 'files.write', 'files.append',
                 'files.exists', 'files.isfile', 'files.isfolder', 'files.filesize', 'files.foldersize',
@@ -132,8 +132,8 @@ function activate(context) {
 
                 // sys
                 'sys.platform', 'sys.architecture', 'sys.hostname', 'sys.user',
-                'sys.homedir', 'sys.apex_version', 'sys.executable',
-                'sys.disksize', 'sys.tempdir', 'sys.isterminal',
+                'sys.homedir', 'sys.apex_version', 'sys.executable', 'sys.environment',
+                'sys.disksize', 'sys.tempdir', 'sys.isterminal', 'sys.process_id',
 
                 // math
                 'math.abs', 'math.floor', 'math.ceil', 'math.round',
@@ -173,7 +173,10 @@ function activate(context) {
                 'codecs.xml_read', 'codecs.xml_write',
                 'codecs.yaml_read', 'codecs.toml_read',
                 'codecs.base_write', 'codecs.base_read',
-                'codecs.baseurl_write', 'codecs.baseurl_read'
+                'codecs.baseurl_write', 'codecs.baseurl_read',
+
+                // built-in
+                'number', 'string', 'type'
             ];
 
             libFuncs.forEach(func => {

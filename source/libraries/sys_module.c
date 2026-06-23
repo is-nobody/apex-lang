@@ -18,8 +18,50 @@
 
 bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     (void)vm;
-    (void)arg_count;
-    (void)args;
+
+    // --- Environment ---
+    if (strcmp(name, "sys.environment") == 0) {
+        *result = vm_make_table();
+#ifdef _WIN32
+        char* env_block = GetEnvironmentStrings();
+        if (env_block) {
+            char* env = env_block;
+            while (*env) {
+                char* eq = strchr(env, '=');
+                if (eq) {
+                    *eq = '\0';
+                    table_set(result->table, env, vm_make_string(eq + 1));
+                    *eq = '=';
+                }
+                env += strlen(env) + 1;
+            }
+            FreeEnvironmentStrings(env_block);
+        }
+#else
+        extern char** environ;
+        if (environ) {
+            for (char** env = environ; *env; env++) {
+                char* eq = strchr(*env, '=');
+                if (eq) {
+                    *eq = '\0';
+                    table_set(result->table, *env, vm_make_string(eq + 1));
+                    *eq = '=';
+                }
+            }
+        }
+#endif
+        return true;
+    }
+
+    // --- Process ID ---
+    if (strcmp(name, "sys.process_id") == 0) {
+#ifdef _WIN32
+        *result = vm_make_number(GetCurrentProcessId());
+#else
+        *result = vm_make_number(getpid());
+#endif
+        return true;
+    }
 
     // --- System Info ---
     if (strcmp(name, "sys.platform") == 0) {
@@ -120,7 +162,7 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
             char* drive = getenv("HOMEDRIVE");
             char* path = getenv("HOMEPATH");
             if (drive && path) {
-                char combined[512];
+                static char combined[512];
                 snprintf(combined, sizeof(combined), "%s%s", drive, path);
                 home = combined;
             }

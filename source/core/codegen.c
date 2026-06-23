@@ -238,10 +238,10 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
     
     static const char* builtins[] = {
         // os
-        "os.output", "os.input", "os.env",
+        "os.output", "os.input",
         "os.time", "os.wait", "os.exit",
         "os.get_current_folder", "os.set_current_folder",
-        "os.current_process_id", "os.terminate_process", "os.execute",
+        "os.terminate_process", "os.execute",
         
         // files
         "files.read", "files.write", "files.append",
@@ -255,8 +255,8 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         
         // sys
         "sys.platform", "sys.architecture", "sys.hostname", "sys.user",
-        "sys.homedir", "sys.apex_version", "sys.executable",
-        "sys.disksize", "sys.tempdir", "sys.isterminal",
+        "sys.homedir", "sys.apex_version", "sys.executable", "sys.environment",
+        "sys.disksize", "sys.tempdir", "sys.isterminal", "sys.process_id", 
 
         // math
         "math.abs", "math.floor", "math.ceil", "math.round",

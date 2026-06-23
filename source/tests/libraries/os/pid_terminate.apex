@@ -1,8 +1,9 @@
 import os
+import sys
 
 function terminate_process()
-    p = os.current_process_id()
-    os.output("Current PID is {p}")
+    p = sys.process_id()
+    os.output("Current process ID is {p}")
     os.output("Goodbye, cruel world")
     os.terminate_process(p)
 

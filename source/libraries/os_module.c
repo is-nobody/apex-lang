@@ -20,7 +20,6 @@
 #include <sys/time.h>
 #include <signal.h>
 #include <sys/wait.h>
-#include <sys/utsname.h>
 #endif
 
 bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
@@ -48,40 +47,6 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         } else {
             *result = vm_make_string("");
         }
-        return true;
-    }
-
-    // --- Environment ---
-    if (strcmp(name, "os.env") == 0) {
-        *result = vm_make_table();
-#ifdef _WIN32
-        char* env_block = GetEnvironmentStrings();
-        if (env_block) {
-            char* env = env_block;
-            while (*env) {
-                char* eq = strchr(env, '=');
-                if (eq) {
-                    *eq = '\0';
-                    table_set(result->table, env, vm_make_string(eq + 1));
-                    *eq = '=';
-                }
-                env += strlen(env) + 1;
-            }
-            FreeEnvironmentStrings(env_block);
-        }
-#else
-        extern char** environ;
-        if (environ) {
-            for (char** env = environ; *env; env++) {
-                char* eq = strchr(*env, '=');
-                if (eq) {
-                    *eq = '\0';
-                    table_set(result->table, *env, vm_make_string(eq + 1));
-                    *eq = '=';
-                }
-            }
-        }
-#endif
         return true;
     }
 
@@ -138,14 +103,6 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     }
 
     // --- Process Management ---
-    if (strcmp(name, "os.current_process_id") == 0) {
-#ifdef _WIN32
-        *result = vm_make_number(GetCurrentProcessId());
-#else
-        *result = vm_make_number(getpid());
-#endif
-        return true;
-    }
     if (strcmp(name, "os.terminate_process") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
             int pid = (int)args[0].number;
