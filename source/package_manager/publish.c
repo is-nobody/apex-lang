@@ -1,5 +1,6 @@
 #include "package_manager.h"
 #include "http_client.h"
+#include "zip_utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -227,17 +228,6 @@ static bool prompt_yes_no(const char* msg) {
     return (input[0] == 'Y' || input[0] == 'y' || input[0] == '\n');
 }
 
-static bool create_simple_zip(const char* zip_name) {
-    FILE* zip_fp = fopen(zip_name, "wb");
-    if (!zip_fp) return false;
-    uint8_t eocd[22] = {
-        0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-    };
-    fwrite(eocd, 1, 22, zip_fp);
-    fclose(zip_fp);
-    return true; 
-}
-
 int publish_package() {
     // 0. Check prerequisites
     HttpResponse resp = http_get("localhost", 3000, "/api/packages");
@@ -363,8 +353,11 @@ int publish_package() {
     
     // 4. Pack files to zip
     char zip_name[256]; snprintf(zip_name, sizeof(zip_name), "%s.zip", pkg_name);
-    printf("\033[33mWarning: Full ZIP creation from scratch is omitted in this sketch. Using dummy zip.\033[0m\n");
-    create_simple_zip(zip_name);
+    printf("\033[36mCreating package archive...\033[0m\n");
+    if (!create_zip(zip_name, ".")) {
+        fprintf(stderr, "\033[31mError: Failed to create package archive\033[0m\n");
+        return 1;
+    }
     
     // 5. Upload to server
     printf("\033[36mPublishing package '%s'...\033[0m\n", pkg_name);
