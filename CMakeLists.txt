@@ -43,7 +43,6 @@ target_include_directories(apex PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/source/core
     ${CMAKE_CURRENT_SOURCE_DIR}/source/utils
     ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/compiler
     ${CMAKE_CURRENT_SOURCE_DIR}/source/package_manager
 )
 
@@ -53,8 +52,7 @@ target_include_directories(apex PRIVATE
 
 # Base flags for all builds
 set(BASE_FLAGS 
-    -Wall -Wextra 
-    -fno-strict-aliasing 
+    -Wall -Wextra
     -D_DEFAULT_SOURCE
 )
 
@@ -62,8 +60,6 @@ set(BASE_FLAGS
 set(HIGH_PERF_FLAGS
     -O3                 # Maximum optimization level
     -march=native       # Optimize for current CPU (AVX/SSE/etc.)
-    -funroll-loops      # Unroll loops (critical for VM dispatch loop)
-    -fomit-frame-pointer # Free up a register
     -flto               # Link-Time Optimization (inter-procedural optimization)
 )
 
@@ -77,9 +73,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     endif()
 elseif(MSVC)
     # MSVC equivalents
-    target_compile_options(apex PRIVATE 
-        /O2 /Ot /GL /arch:AVX2 /fp:fast
-    )
+    target_compile_options(apex PRIVATE /O2 /Ot /GL /fp:fast /MD)
     target_link_options(apex PRIVATE /LTCG)
 else()
     # Fallback for other compilers
@@ -97,54 +91,28 @@ endif()
 # Generate compile_commands.json for IDE support (VSCode, CLion)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# OS-specific library linking
+# ==========================================================
+# OS-SPECIFIC LIBRARY LINKING (DYNAMIC ONLY)
+# ==========================================================
 if(MINGW)
-    # MinGW cross-compilation
-    target_link_libraries(apex PRIVATE
-        shlwapi
-        ws2_32      # Winsock
-        wsock32     # Winsock legacy
-        -static-libgcc
-        -static
-    )
+    target_link_libraries(apex PRIVATE shlwapi ws2_32)
     set_target_properties(apex PROPERTIES
         LINK_FLAGS "-Wl,--subsystem,console"
     )
 elseif(MSVC)
-    # Native MSVC build
-    target_link_libraries(apex PRIVATE shlwapi zlibstatic)
-elseif(WIN32)
-    # Generic Windows (non-MinGW)
-    target_link_libraries(apex PRIVATE shlwapi zlib)
+    target_link_libraries(apex PRIVATE shlwapi)
 elseif(APPLE)
-    # macOS: link math and zlib
     target_link_libraries(apex PRIVATE m z dl)
 else()
-    # Linux: link math and zlib
     target_link_libraries(apex PRIVATE m z dl)
-endif()
-
-# Option: fully static build (zero system dependencies)
-option(BUILD_STATIC "Build fully static binary" OFF)
-if(BUILD_STATIC AND NOT MINGW)
-    # Static linking for Linux/macOS
-    set_target_properties(apex PROPERTIES LINK_FLAGS "-static")
 endif()
 
 # Strip debug symbols in Release mode (reduces binary size)
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    if(NOT MINGW)
-        add_custom_command(TARGET apex POST_BUILD
-            COMMAND ${CMAKE_STRIP} $<TARGET_FILE:apex>
-            COMMENT "Stripping debug symbols..."
-        )
-    else()
-        # Use MinGW strip for cross-compiled binaries
-        add_custom_command(TARGET apex POST_BUILD
-            COMMAND x86_64-w64-mingw32-strip $<TARGET_FILE:apex>
-            COMMENT "Stripping debug symbols (MinGW)..."
-        )
-    endif()
+    add_custom_command(TARGET apex POST_BUILD
+        COMMAND ${CMAKE_STRIP} $<TARGET_FILE:apex>
+        COMMENT "Stripping debug symbols..."
+    )
 endif()
 
 # Windows cross-compilation: set .exe extension explicitly
@@ -180,7 +148,7 @@ if(MINGW)
         "CreateShortCut '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\Apex.lnk' '$INSTDIR\\\\bin\\\\apex.exe'"
     )
     set(CPACK_NSIS_DELETE_ICONS_EXTRA
-        "Delete '$SMPROGRAMS\\\\$START_MENU_FOLDER\\\\Apex.lnk'"
+        "Delete '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\Apex.lnk'"
     )
 elseif(APPLE)
     # macOS packages
@@ -192,21 +160,11 @@ else()
     set(CPACK_PACKAGE_FILE_NAME "apex-${PROJECT_VERSION}-linux")
     
     # Debian-specific metadata
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6")
     set(CPACK_DEBIAN_PACKAGE_SECTION "devel")
-    set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
     
     # RPM-specific metadata
     set(CPACK_RPM_PACKAGE_LICENSE "MIT")
     set(CPACK_RPM_PACKAGE_GROUP "Development/Languages")
-    set(CPACK_RPM_PACKAGE_REQUIRES "glibc")
-endif()
-
-# Static build: no dependencies required, adjust package name
-if(BUILD_STATIC)
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "")
-    set(CPACK_RPM_PACKAGE_REQUIRES "")
-    set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_FILE_NAME}-static")
 endif()
 
 # Include the packaging module
