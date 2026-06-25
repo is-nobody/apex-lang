@@ -35,7 +35,7 @@ static PlatformInfo get_current_platform(void) {
 
     // Simplified: map all x86 variants to "x86" and all ARM variants to "arm"
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
-    info.arch = "x86_64";
+    info.arch = "x86-64";
 #elif defined(__aarch64__) || defined(_M_ARM64) || defined(__arm__) || defined(_M_ARM)
     info.arch = "arm64";
 #endif
@@ -205,8 +205,8 @@ int build_command(int argc, char** argv) {
     if (target_os) {
         target.os = target_os;
         // Validate architecture: only x86 and arm are allowed now
-        if (strcmp(target_arch, "x86_64") != 0 && strcmp(target_arch, "arm64") != 0) {
-            fprintf(stderr, "\033[31mError: Invalid architecture '%s'. Use 'x86_64' or 'arm64'.\033[0m\n", target_arch);
+        if (strcmp(target_arch, "x86-64") != 0 && strcmp(target_arch, "arm64") != 0) {
+            fprintf(stderr, "\033[31mError: Invalid architecture '%s'. Use 'x86-64' or 'arm64'.\033[0m\n", target_arch);
             return 1;
         }
         target.arch = target_arch;

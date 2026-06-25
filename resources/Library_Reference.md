@@ -694,7 +694,7 @@ else
 #### sys.architecture()
 Returns a string identifying the system's processor architecture. Possible return values:
 
-- `"x86_64"` — 64-bit x86 (AMD64/Intel 64)
+- `"x86-64"` — 64-bit x86 (AMD64/Intel 64)
 - `"arm64"` — 64-bit ARM (includes systems where `uname -m` reports `aarch64`, mapped to `"arm64"`)
 - `"x86"` — 32-bit x86
 - `"arm"` — 32-bit ARM

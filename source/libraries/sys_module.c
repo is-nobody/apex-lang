@@ -108,7 +108,7 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         SYSTEM_INFO si;
         GetNativeSystemInfo(&si);
         switch (si.wProcessorArchitecture) {
-            case PROCESSOR_ARCHITECTURE_AMD64: arch = "x86_64"; break;
+            case PROCESSOR_ARCHITECTURE_AMD64: arch = "x86-64"; break;
             case PROCESSOR_ARCHITECTURE_INTEL: arch = "x86"; break;
             case PROCESSOR_ARCHITECTURE_ARM64: arch = "arm64"; break;
             case PROCESSOR_ARCHITECTURE_ARM:   arch = "arm"; break;
