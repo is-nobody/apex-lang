@@ -893,6 +893,30 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
         return TYPE_ERROR;
     }
 
+    char full_name[256] = "";
+    const char* func_name = resolve_call_name(node->call.callee, full_name, sizeof(full_name));
+
+    // Check type conversion builtins FIRST (before TYPE_FUNCTION check)
+    if (func_name && (strcmp(func_name, "number") == 0 || 
+                      strcmp(func_name, "string") == 0 || 
+                      strcmp(func_name, "type") == 0)) {
+        if (node->call.arguments->count >= 1) {
+            ASTNode* arg = node->call.arguments->nodes[0];
+            ValueType arg_type = infer_expression_type(parser, arg);
+            
+            if (arg_type == TYPE_TABLE && strcmp(func_name, "type") != 0) {
+                int len = get_node_len(arg);
+                parser_error_at(parser, arg->line, arg->column, len,
+                    "Cannot convert table to %s", func_name);
+                return TYPE_ERROR;
+            }
+        }
+        if (strcmp(func_name, "number") == 0) return TYPE_NUMBER;
+        if (strcmp(func_name, "string") == 0) return TYPE_STRING;
+        if (strcmp(func_name, "type") == 0) return TYPE_STRING;
+    }
+
+    // Now check if callee is callable (skip for number/string/type which are handled above)
     if (callee_type != TYPE_FUNCTION && callee_type != TYPE_ANY && 
         callee_type != TYPE_UNKNOWN) {
         int err_len = get_node_len(node->call.callee);
@@ -900,26 +924,6 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
             err_len > 0 ? err_len : 1,
             "Cannot call non-function (type: %s)", type_name(callee_type));
         return TYPE_ERROR;
-    }
-
-    char full_name[256] = "";
-    const char* func_name = resolve_call_name(node->call.callee, full_name, sizeof(full_name));
-
-    if (strcmp(func_name, "number") == 0 || strcmp(func_name, "string") == 0) {
-        if (node->call.arguments->count >= 1) {
-            ASTNode* arg = node->call.arguments->nodes[0];
-            ValueType arg_type = infer_expression_type(parser, arg);
-            
-            if (arg_type == TYPE_TABLE) {
-                int len = get_node_len(arg);
-                fprintf(stderr, "DEBUG: arg line=%d col=%d len=%d type=%d\n", 
-                        arg->line, arg->column, len, arg->type);
-                parser_error_at(parser, arg->line, arg->column, len,
-                    "Cannot convert table to %s", func_name);
-                return TYPE_ERROR;
-            }
-        }
-        return strcmp(func_name, "number") == 0 ? TYPE_NUMBER : TYPE_STRING;
     }
 
     if (func_name) {
@@ -963,8 +967,6 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
         }
 
         // 3. STRICT CHECK: Is it a call on a known Built-in Module?
-        // e.g., os.nnnnfid() -> func_name is "os.nnnnfid"
-        // We check if the root part (before dot) is a known module.
         char root_module[64] = {0};
         const char* dot_pos = strchr(func_name, '.');
         if (dot_pos) {
@@ -974,7 +976,6 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
                 root_module[root_len] = '\0';
                 
                 if (is_known_builtin_module(root_module)) {
-                    // It looks like a built-in call (e.g., math.foo), but wasn't found in BUILTINS[]
                     parser_error_at(parser, node->call.callee->line, node->call.callee->column, get_node_len(node->call.callee),
                         "Undefined function '%s' in module '%s'", dot_pos + 1, root_module);
                     return TYPE_ERROR;
