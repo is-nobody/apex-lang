@@ -439,6 +439,17 @@ static bool expr_has_side_effect(ASTNode* node) {
 
 static void parser_check_expr_statement(Parser* parser, ASTNode* expr) {
     if (!parser->semantic_checks || !expr) return;
+    
+    if (expr->type == AST_BINARY) {
+        TokenType op = expr->binary.op;
+        if (op == TOKEN_AND || op == TOKEN_OR || 
+            op == TOKEN_EQUAL_EQUAL || op == TOKEN_NOT_EQUAL ||
+            op == TOKEN_LESS || op == TOKEN_GREATER || 
+            op == TOKEN_LESS_EQUAL || op == TOKEN_GREATER_EQUAL) {
+            return;
+        }
+    }
+    
     if (!expr_has_side_effect(expr)) {
         parser_error_at(parser, expr->line, expr->column, get_node_len(expr),
                         "Expression statement has no effect");
@@ -792,6 +803,20 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
             return TYPE_BOOLEAN;
             
         case TOKEN_AND: case TOKEN_OR:
+            if (left_type != TYPE_BOOLEAN && left_type != TYPE_ANY && left_type != TYPE_UNKNOWN) {
+                parser_error_at(parser, node->binary.left->line, node->binary.left->column, 
+                            get_node_len(node->binary.left),
+                            "Logical operator '%s' requires boolean operands, got %s",
+                            binary_op_name(node->binary.op), type_name(left_type));
+                return TYPE_ERROR;
+            }
+            if (right_type != TYPE_BOOLEAN && right_type != TYPE_ANY && right_type != TYPE_UNKNOWN) {
+                parser_error_at(parser, node->binary.right->line, node->binary.right->column,
+                            get_node_len(node->binary.right),
+                            "Logical operator '%s' requires boolean operands, got %s",
+                            binary_op_name(node->binary.op), type_name(right_type));
+                return TYPE_ERROR;
+            }
             return TYPE_BOOLEAN;
         default:
             parser_error_at(parser, node->line, node->column, 0, "Unknown binary operator");
