@@ -66,8 +66,8 @@ ASTNode* ast_create_index_access(ASTNode* object, ASTNode* index) {
     return node;
 }
 
-ASTNode* ast_create_table_literal(ASTNodeList* items, ASTNodeList* key_values) {
-    ASTNode* node = ast_create_node(AST_TABLE_LITERAL, 0, 0);
+ASTNode* ast_create_table_literal(ASTNodeList* items, ASTNodeList* key_values, int line, int column) {
+    ASTNode* node = ast_create_node(AST_TABLE_LITERAL, line, column);
     node->table_literal.items = items ? items : ast_list_create();
     node->table_literal.key_values = key_values ? key_values : ast_list_create();
     return node;

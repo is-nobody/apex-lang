@@ -48,14 +48,31 @@ static int get_node_len(ASTNode* node) {
             return get_node_len(node->call.callee);
         case AST_INDEX_ACCESS: {
             if (node->access.member->type == AST_IDENTIFIER) {
-                // module.func
                 return get_node_len(node->access.object) + 1 + get_node_len(node->access.member);
             }
-            // table[index]
             return get_node_len(node->access.object) + get_node_len(node->access.member) + 2;
         }
-        case AST_TABLE_LITERAL:
-            return 2; // "()"
+        case AST_TABLE_LITERAL: {
+            int len = 2; // "[]"
+            for (int i = 0; i < node->table_literal.items->count; i++) {
+                if (i > 0) len += 2; // ", "
+                len += get_node_len(node->table_literal.items->nodes[i]);
+            }
+            // If there are key-value pairs instead
+            for (int i = 0; i < node->table_literal.key_values->count; i++) {
+                if (i > 0 || node->table_literal.items->count > 0) len += 2; // ", "
+                ASTNode* kv = node->table_literal.key_values->nodes[i];
+                len += get_node_len(kv->binary.left) + 3 + get_node_len(kv->binary.right); // "key = value"
+            }
+            return len;
+        }
+        case AST_STRING_INTERP: {
+            int len = 2; // quotes
+            for (int i = 0; i < node->string_interp.parts->count; i++) {
+                len += get_node_len(node->string_interp.parts->nodes[i]);
+            }
+            return len;
+        }
         default:
             return 1;
     }
@@ -849,6 +866,23 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
     char full_name[256] = "";
     const char* func_name = resolve_call_name(node->call.callee, full_name, sizeof(full_name));
 
+    if (strcmp(func_name, "number") == 0 || strcmp(func_name, "string") == 0) {
+        if (node->call.arguments->count >= 1) {
+            ASTNode* arg = node->call.arguments->nodes[0];
+            ValueType arg_type = infer_expression_type(parser, arg);
+            
+            if (arg_type == TYPE_TABLE) {
+                int len = get_node_len(arg);
+                fprintf(stderr, "DEBUG: arg line=%d col=%d len=%d type=%d\n", 
+                        arg->line, arg->column, len, arg->type);
+                parser_error_at(parser, arg->line, arg->column, len,
+                    "Cannot convert table to %s", func_name);
+                return TYPE_ERROR;
+            }
+        }
+        return strcmp(func_name, "number") == 0 ? TYPE_NUMBER : TYPE_STRING;
+    }
+
     if (func_name) {
         // 1. Check against explicit Built-in Signatures
         const BuiltinSig* builtin = lookup_builtin(func_name);
@@ -1283,7 +1317,10 @@ static ASTNode* parse_identifier(Parser* parser) {
 }
 
 static ASTNode* parse_table_literal(Parser* parser) {
-    advance(parser); // consume '['
+    Token* open_bracket = advance(parser); // consume '['
+    int line = open_bracket->line;
+    int column = open_bracket->column;
+    
     ASTNodeList* items = ast_list_create();
     ASTNodeList* key_values = ast_list_create();
     bool has_key_values = false;
@@ -1326,7 +1363,7 @@ static ASTNode* parse_table_literal(Parser* parser) {
 
     skip_newlines(parser);
     consume(parser, TOKEN_RBRACKET, "Expected ']' after table literal");
-    return ast_create_table_literal(items, key_values);
+    return ast_create_table_literal(items, key_values, line, column);
 }
 
 static ASTNode* parse_group(Parser* parser) {

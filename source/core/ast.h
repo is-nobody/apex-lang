@@ -194,7 +194,7 @@ ASTNode* ast_create_binary(TokenType op, ASTNode* left, ASTNode* right);
 ASTNode* ast_create_unary(TokenType op, ASTNode* operand);
 ASTNode* ast_create_call(ASTNode* callee, ASTNodeList* arguments);
 ASTNode* ast_create_index_access(ASTNode* object, ASTNode* index);
-ASTNode* ast_create_table_literal(ASTNodeList* items, ASTNodeList* key_values);
+ASTNode* ast_create_table_literal(ASTNodeList* items, ASTNodeList* key_values, int line, int column);
 ASTNode* ast_create_var_assign(const char* name, ASTNode* value, bool is_decl, 
                                 ASTNode* access_path, int line, int column);
 ASTNode* ast_create_function(const char* name, ASTNodeList* params, ASTNode* body, 
