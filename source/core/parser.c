@@ -1851,9 +1851,31 @@ static ASTNode* parse_for_statement(Parser* parser) {
                 is_table_iter = true;
             }
         } else {
-            // Backtrack: it was just an identifier, maybe part of a condition?
-            parser->current = saved_current;
-            condition = parse_expression(parser);
+            // Not followed by '=', check if it's a comparison (condition-based loop)
+            Token* next = current_token(parser);
+            
+            // If next token is a comparison operator, it's a condition
+            if (next->type == TOKEN_EQUAL_EQUAL || next->type == TOKEN_NOT_EQUAL ||
+                next->type == TOKEN_LESS || next->type == TOKEN_GREATER ||
+                next->type == TOKEN_LESS_EQUAL || next->type == TOKEN_GREATER_EQUAL ||
+                next->type == TOKEN_AND || next->type == TOKEN_OR) {
+                // It's a condition-based for loop: for i < 10
+                parser->current--; // Go back to identifier
+                condition = parse_expression(parser);
+                parser_check_condition(parser, condition, "For");
+            } else {
+                // Neither '=' nor comparison - syntax error
+                int len = next->value ? (int)strlen(next->value) : 1;
+                if (next->type == TOKEN_STRING) len += 2;
+                
+                parser_error_at(parser, next->line, next->column, len,
+                              "Expected '=' after variable name in for loop");
+                while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
+                    advance(parser);
+                }
+                free(id_tok->value); // Cleanup
+                return NULL;
+            }
         }
     }
 
