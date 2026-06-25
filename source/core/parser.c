@@ -1554,7 +1554,8 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
                     name, right, false, left,
                     token->line, token->column);
             }
-            parser_error(parser, "Invalid assignment target");
+            parser_error_at(parser, left->line, left->column, get_node_len(left),
+                            "Invalid assignment target");
             return NULL;
         }
         default:
