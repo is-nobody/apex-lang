@@ -1776,6 +1776,32 @@ static ASTNode* parse_for_statement(Parser* parser) {
     int var_col = for_kw->column;
     bool is_table_iter = false;
 
+    if (!check(parser, TOKEN_IDENTIFIER)) {
+        Token* bad_token = current_token(parser);
+        int len = bad_token->value ? (int)strlen(bad_token->value) : 1;
+        
+        if (bad_token->type == TOKEN_STRING) {
+            len += 2;
+        }
+        
+        const char* got = NULL;
+        switch (bad_token->type) {
+            case TOKEN_NUMBER: got = "number"; break;
+            case TOKEN_STRING: got = "string"; break;
+            case TOKEN_TRUE:
+            case TOKEN_FALSE: got = "boolean"; break;
+            default: got = token_type_name(bad_token->type); break;
+        }
+        
+        parser_error_at(parser, bad_token->line, bad_token->column, len,
+                    "Expected variable name, got %s", got);
+        
+        while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
+            advance(parser);
+        }
+        return NULL;
+    }
+
     // Lookahead: check if it's IDENT = ...
     if (check(parser, TOKEN_IDENTIFIER)) {
         int saved_current = parser->current;
