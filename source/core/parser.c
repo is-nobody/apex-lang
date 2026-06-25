@@ -1442,9 +1442,11 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
     }
     
     if (!is_module) {
-        parser_error_at(parser, object->line, object->column, get_node_len(object),
+        parser_error_at(parser, token->line, token->column, 
+                       token->value ? (int)strlen(token->value) : 1,
             "Dot access is restricted to imported modules. Use bracket notation '[]' for table access.");
-        if (token->type == TOKEN_IDENTIFIER || token->type == TOKEN_NUMBER) advance(parser);
+        if (token->type == TOKEN_IDENTIFIER || token->type == TOKEN_NUMBER) 
+            advance(parser);
         return object; 
     }
 
