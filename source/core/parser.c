@@ -26,6 +26,17 @@
 #define APEX_MAX_LOOP_DEPTH 512
 #define APEX_MAX_CALL_ARGS 64
 
+// ========== Forward Declarations ==========
+static Token* current_token(Parser* parser);
+static ASTNode* parse_program(Parser* parser);
+static ASTNode* parse_statement(Parser* parser);
+static ASTNode* parse_expression(Parser* parser);
+static ASTNode* parse_block(Parser* parser, bool require_indent, const char* after_keyword);
+static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, int line, int column);
+static ValueType infer_expression_type(Parser* parser, ASTNode* node);
+static int symbol_index_recursive(Parser* parser, const char* name);
+static const char* binary_op_name(TokenType op);
+
 static int get_node_len(ASTNode* node) {
     if (!node) return 1;
     switch (node->type) {
@@ -40,8 +51,12 @@ static int get_node_len(ASTNode* node) {
             snprintf(buf, sizeof(buf), "%g", node->literal_number.number_value);
             return (int)strlen(buf);
         }
-        case AST_BINARY:
-            return get_node_len(node->binary.left);
+        case AST_BINARY: {
+            int left_len = get_node_len(node->binary.left);
+            int right_len = get_node_len(node->binary.right);
+            const char* op_str = binary_op_name(node->binary.op);
+            return left_len + (int)strlen(op_str) + right_len + 2;
+        }
         case AST_UNARY:
             return get_node_len(node->unary.operand) + (node->unary.op == TOKEN_NOT ? 4 : 1);
         case AST_CALL:
@@ -77,16 +92,6 @@ static int get_node_len(ASTNode* node) {
             return 1;
     }
 }
-
-// ========== Forward Declarations ==========
-static Token* current_token(Parser* parser);
-static ASTNode* parse_program(Parser* parser);
-static ASTNode* parse_statement(Parser* parser);
-static ASTNode* parse_expression(Parser* parser);
-static ASTNode* parse_block(Parser* parser, bool require_indent, const char* after_keyword);
-static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, int line, int column);
-static ValueType infer_expression_type(Parser* parser, ASTNode* node);
-static int symbol_index_recursive(Parser* parser, const char* name);
 
 // ========== Built-in function signatures ==========
 
@@ -1820,7 +1825,6 @@ static ASTNode* parse_for_statement(Parser* parser) {
 
     // Lookahead: check if it's IDENT = ...
     if (check(parser, TOKEN_IDENTIFIER)) {
-        int saved_current = parser->current;
         Token* id_tok = advance(parser);
         var_line = id_tok->line;
         var_col = id_tok->column;
