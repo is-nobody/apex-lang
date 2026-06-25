@@ -888,6 +888,15 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
         return TYPE_ERROR;
     }
 
+    if (callee_type != TYPE_FUNCTION && callee_type != TYPE_ANY && 
+        callee_type != TYPE_UNKNOWN) {
+        int err_len = get_node_len(node->call.callee);
+        parser_error_at(parser, node->call.callee->line, node->call.callee->column,
+            err_len > 0 ? err_len : 1,
+            "Cannot call non-function (type: %s)", type_name(callee_type));
+        return TYPE_ERROR;
+    }
+
     char full_name[256] = "";
     const char* func_name = resolve_call_name(node->call.callee, full_name, sizeof(full_name));
 
