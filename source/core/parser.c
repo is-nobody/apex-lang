@@ -1839,9 +1839,13 @@ static ASTNode* parse_for_statement(Parser* parser) {
                         }
                     }
                 } else {
-                    // Single number after = is ambiguous or error in range context.
-                    parser_error_at(parser, id_tok->line, id_tok->column, strlen(id_tok->value),
-                    "Range loop requires 'start, end'");
+                    // No comma found - highlight the unexpected token
+                    Token* bad = current_token(parser);
+                    int len = bad->value ? (int)strlen(bad->value) : 1;
+                    if (bad->type == TOKEN_STRING) len += 2;
+                    
+                    parser_error_at(parser, bad->line, bad->column, len,
+                                "Expected ',' after start value");
                     free(var_name); var_name = NULL;
                 }
             } else {
