@@ -1,4 +1,4 @@
-function foo()
+function xyu()
     return 0
 
-foo = 5 
+xyu = 5

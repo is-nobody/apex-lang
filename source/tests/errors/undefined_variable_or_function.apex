@@ -1,2 +1,1 @@
-import os
-os.output(xyu)
+x = y

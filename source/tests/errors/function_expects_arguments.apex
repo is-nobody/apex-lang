@@ -1,4 +1,4 @@
-function foo(a)
+function xyu(a)
     return 0
 
-foo(1, 2)
+xyu(1, 2)

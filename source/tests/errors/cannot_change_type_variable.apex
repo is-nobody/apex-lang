@@ -1,2 +1,2 @@
-x = 10
-x = "hello"
+xyu = 10
+xyu = "ten"
