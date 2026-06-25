@@ -1606,12 +1606,28 @@ static ASTNode* parse_expression(Parser* parser) {
 
 // ========== Statement Parsing ==========
 
+
 static ASTNode* parse_var_decl_or_assign(Parser* parser) {
     Token* name = current_token(parser);
     advance(parser);
 
     consume(parser, TOKEN_EQUAL, "Expected '=' in assignment");
+    
+    if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF)) {
+        parser_error_at(parser, name->line, name->column + (int)strlen(name->value) + 1, 1,
+                       "Expected expression after '='");
+        return ast_create_var_assign(name->value, NULL, !parser_is_declared(parser, name->value), NULL,
+                                    name->line, name->column);
+    }
+    
     ASTNode* value = parse_expression(parser);
+    
+    if (!value) {
+        parser_error_at(parser, name->line, name->column + (int)strlen(name->value) + 1, 1,
+                       "Expected expression after '='");
+        return ast_create_var_assign(name->value, NULL, !parser_is_declared(parser, name->value), NULL,
+                                    name->line, name->column);
+    }
 
     bool is_declaration = !parser_is_declared(parser, name->value);
     int current_idx = symbol_index_in_scope(parser, name->value, parser->symbols.current_scope);
