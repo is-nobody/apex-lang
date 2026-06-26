@@ -423,7 +423,7 @@ static void json_encode_value(VM* vm, Value* value, StringBuilder* sb) {
             break;
         case VAL_TABLE: {
             Table* t = value->table;
-            if (t->count == 0) {
+            if (TABLE_TOTAL_COUNT(t) == 0) {
                 sb_append(sb, "{}", 2);
                 break;
             }

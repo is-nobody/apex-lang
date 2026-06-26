@@ -21,6 +21,184 @@ void value_decref(Value* v);
 static bool string_equal(StringObject* a, StringObject* b);
 static const char* value_to_cstr(Value* v, char* buf, int buf_size);
 
+// ========== Object Pool Implementation ==========
+void object_pool_init(ObjectPool* pool) {
+    pool->string_pool_count = 0;
+    pool->table_pool_count = 0;
+    memset(pool->string_pool, 0, sizeof(pool->string_pool));
+    memset(pool->table_pool, 0, sizeof(pool->table_pool));
+}
+
+void object_pool_free(ObjectPool* pool) {
+    // Free remaining strings in pool
+    for (int i = 0; i < pool->string_pool_count; i++) {
+        free(pool->string_pool[i]);
+    }
+    pool->string_pool_count = 0;
+    // Free remaining tables in pool
+    for (int i = 0; i < pool->table_pool_count; i++) {
+        table_destroy(pool->table_pool[i]);
+    }
+    pool->table_pool_count = 0;
+}
+
+StringObject* string_create_pooled(ObjectPool* pool, const char* chars, int length) {
+    // Try to reuse from pool (for strings shorter than POOL_STRING_SIZE)
+    if (length < POOL_STRING_SIZE && pool->string_pool_count > 0) {
+        StringObject* str = pool->string_pool[--pool->string_pool_count];
+        if (str->length >= length) {
+            memcpy(str->chars, chars, length);
+            str->chars[length] = '\0';
+            str->length = length;
+            str->header.ref_count = 1;
+            str->hash_computed = false;
+            return str;
+        } else {
+            // Too small, free it and allocate new
+            free(str);
+        }
+    }
+    return string_create(chars, length);
+}
+
+void string_destroy_pooled(ObjectPool* pool, StringObject* str) {
+    if (!str) return;
+    if (str->length < POOL_STRING_SIZE && pool->string_pool_count < POOL_MAX_ITEMS) {
+        pool->string_pool[pool->string_pool_count++] = str;
+    } else {
+        string_destroy(str);
+    }
+}
+
+Table* table_create_pooled(ObjectPool* pool, int capacity) {
+    if (pool->table_pool_count > 0) {
+        Table* table = pool->table_pool[--pool->table_pool_count];
+        table->header.ref_count = 1;
+        table->capacity = capacity > 0 ? capacity : TABLE_ARRAY_INIT;
+        table->hash_count = 0;
+        table->array_count = 0;
+        table->entries = calloc(table->capacity, sizeof(TableEntry*));
+        table->array_part = calloc(TABLE_ARRAY_INIT, sizeof(Value));
+        table->array_capacity = TABLE_ARRAY_INIT;
+        for (int i = 0; i < TABLE_ARRAY_INIT; i++) {
+            table->array_part[i].type = VAL_BOOL;
+            table->array_part[i].boolean = false;
+        }
+        return table;
+    }
+    return table_create(capacity);
+}
+
+void table_destroy_pooled(ObjectPool* pool, Table* table) {
+    if (!table) return;
+    if (pool->table_pool_count < POOL_MAX_ITEMS / 4) {
+        // Clean and reuse
+        table_clear(table);
+        pool->table_pool[pool->table_pool_count++] = table;
+    } else {
+        table_destroy(table);
+    }
+}
+
+// ========== String Intern Table Implementation ==========
+static unsigned int intern_hash(const char* chars, int length) {
+    unsigned int hash = 5381;
+    for (int i = 0; i < length; i++) {
+        hash = ((hash << 5) + hash) + (unsigned char)chars[i];
+    }
+    return hash;
+}
+
+void string_intern_table_init(StringInternTable* it) {
+    it->capacity = INTERN_INITIAL_SIZE;
+    it->count = 0;
+    it->buckets = calloc(INTERN_INITIAL_SIZE, sizeof(StringObject*));
+}
+
+void string_intern_table_free(StringInternTable* it) {
+    for (int i = 0; i < it->capacity; i++) {
+        StringObject* str = it->buckets[i];
+        while (str) {
+            StringObject* next = (StringObject*)((uintptr_t)str->hash_computed ? 
+                NULL : NULL); // We'll just free all
+            string_destroy(str);
+            str = next;
+        }
+    }
+    free(it->buckets);
+    it->buckets = NULL;
+    it->capacity = 0;
+    it->count = 0;
+}
+
+static void intern_table_resize(StringInternTable* it, int new_capacity) {
+    StringObject** old_buckets = it->buckets;
+    int old_capacity = it->capacity;
+    
+    it->buckets = calloc(new_capacity, sizeof(StringObject*));
+    it->capacity = new_capacity;
+    it->count = 0;
+    
+    for (int i = 0; i < old_capacity; i++) {
+        StringObject* str = old_buckets[i];
+        while (str) {
+            StringObject* next = NULL; // Simplified - no chain in our simple impl
+            unsigned int idx = intern_hash(str->chars, str->length) % new_capacity;
+            // Simple insertion (no chaining, just find new slot)
+            while (it->buckets[idx] != NULL) {
+                idx = (idx + 1) % new_capacity;
+            }
+            it->buckets[idx] = str;
+            it->count++;
+            str = next;
+        }
+    }
+    free(old_buckets);
+}
+
+StringObject* string_intern(StringInternTable* it, const char* chars, int length) {
+    if (!it || !chars) return NULL;
+    
+    if (it->count > 50000) {
+        // Table is too large, just create without interning
+        StringObject* new_str = string_create(chars, length);
+        new_str->hash = intern_hash(chars, length);
+        new_str->hash_computed = true;
+        return new_str;
+    }
+
+    if ((double)it->count / it->capacity > INTERN_MAX_LOAD) {
+        intern_table_resize(it, it->capacity * 2);
+    }
+    
+    unsigned int hash = intern_hash(chars, length);
+    unsigned int idx = hash % it->capacity;
+    
+    // Linear probing
+    for (int i = 0; i < it->capacity; i++) {
+        unsigned int probe_idx = (idx + i) % it->capacity;
+        StringObject* existing = it->buckets[probe_idx];
+        
+        if (existing == NULL) {
+            // Not found, insert
+            StringObject* new_str = string_create(chars, length);
+            new_str->hash = hash;
+            new_str->hash_computed = true;
+            it->buckets[probe_idx] = new_str;
+            it->count++;
+            return new_str;
+        }
+        
+        if (existing->length == length && 
+            memcmp(existing->chars, chars, length) == 0) {
+            // Found! Return existing
+            return existing;
+        }
+    }
+    
+    return NULL; // Should never happen if resize works
+}
+
 // ========== String Object Implementation ==========
 static StringObject* string_create(const char* chars, int length) {
     StringObject* str = (StringObject*)malloc(sizeof(StringObject) + length + 1);
@@ -173,13 +351,19 @@ Table* table_create(int capacity) {
     table->header.ref_count = 1;
     table->header.type = VAL_TABLE;
     table->capacity = capacity < 8 ? 8 : capacity;
-    table->count = 0;
+    table->hash_count = 0;
     table->entries = (TableEntry**)calloc(table->capacity, sizeof(TableEntry*));
+    
+    table->array_capacity = 0;
+    table->array_part = NULL;
+    table->array_count = 0;
+    
     return table;
 }
 
 void table_destroy(Table* table) {
     if (!table) return;
+    
     for (int i = 0; i < table->capacity; i++) {
         TableEntry* entry = table->entries[i];
         while (entry) {
@@ -191,33 +375,121 @@ void table_destroy(Table* table) {
         }
     }
     free(table->entries);
+    
+    if (table->array_part) {
+        for (int i = 0; i < table->array_count; i++) {
+            value_decref(&table->array_part[i]);
+        }
+        free(table->array_part);
+    }
+    
     free(table);
 }
 
-static void table_resize(Table* table, int new_capacity) {
-    TableEntry** old_entries = table->entries;
-    int old_capacity = table->capacity;
-    table->capacity = new_capacity;
-    table->entries = (TableEntry**)calloc(new_capacity, sizeof(TableEntry*));
-    table->count = 0;
-    for (int i = 0; i < old_capacity; i++) {
-        TableEntry* entry = old_entries[i];
-        while (entry) {
-            TableEntry* next = entry->next;
-            unsigned int index = hash_key(entry->key, new_capacity);
-            entry->next = table->entries[index];
-            table->entries[index] = entry;
-            table->count++;
-            entry = next;
+static void array_part_grow(Table* table, int needed_index) {
+    if (table->array_part == NULL) {
+        // Lazy init
+        table->array_capacity = TABLE_ARRAY_INIT;
+        while (table->array_capacity <= needed_index) {
+            table->array_capacity *= 2;
         }
+        table->array_part = (Value*)calloc(table->array_capacity, sizeof(Value));
+        for (int i = 0; i < table->array_capacity; i++) {
+            table->array_part[i].type = VAL_BOOL;
+            table->array_part[i].boolean = false;
+        }
+        return;
     }
-    free(old_entries);
+    
+    int new_capacity = table->array_capacity;
+    while (new_capacity <= needed_index) {
+        new_capacity *= 2;
+    }
+    
+    Value* new_array = (Value*)calloc(new_capacity, sizeof(Value));
+    for (int i = 0; i < table->array_count; i++) {
+        new_array[i] = table->array_part[i];
+    }
+    for (int i = table->array_count; i < new_capacity; i++) {
+        new_array[i].type = VAL_BOOL;
+        new_array[i].boolean = false;
+    }
+    
+    free(table->array_part);
+    table->array_part = new_array;
+    table->array_capacity = new_capacity;
+}
+
+bool table_set_int(Table* table, int index, Value value) {
+    if (index < 0) return false;
+    
+    // Lazy init or grow
+    if (table->array_part == NULL || index >= table->array_capacity) {
+        array_part_grow(table, index);
+    }
+    
+    value_decref(&table->array_part[index]);
+    table->array_part[index] = value;
+    value_incref(&table->array_part[index]);
+    
+    if (index >= table->array_count) {
+        table->array_count = index + 1;
+    }
+    return true;
+}
+
+bool table_get_int(Table* table, int index, Value* out_value) {
+    if (!table || index < 0 || table->array_part == NULL || index >= table->array_count) 
+        return false;
+    
+    if (out_value) {
+        *out_value = table->array_part[index];
+        value_incref(out_value);
+    }
+    return true;
+}
+
+void table_append(Table* table, Value value) {
+    table_set_int(table, table->array_count, value);
 }
 
 bool table_set(Table* table, const char* key, Value value) {
-    if ((double)(table->count + 1) / table->capacity > TABLE_MAX_LOAD) {
-        table_resize(table, table->capacity * 2);
+    // FAST CHECK: only try integer parsing if first char is digit
+    if (key[0] >= '0' && key[0] <= '9') {
+        char* endptr;
+        long int_key = strtol(key, &endptr, 10);
+        if (*endptr == '\0' && int_key > 0 && int_key <= 1000000000) {
+            return table_set_int(table, (int)(int_key - 1), value);
+        }
     }
+    
+    // Hash part for string keys
+    if ((double)(table->hash_count + 1) / table->capacity > TABLE_MAX_LOAD) {
+        int old_capacity = table->capacity;
+        TableEntry** old_entries = table->entries;
+        
+        table->capacity = old_capacity * 2;
+        table->entries = (TableEntry**)calloc(table->capacity, sizeof(TableEntry*));
+        table->hash_count = 0;
+        
+        // Reinsert all old entries directly (no recursion, no parsing)
+        for (int i = 0; i < old_capacity; i++) {
+            TableEntry* entry = old_entries[i];
+            while (entry) {
+                TableEntry* next = entry->next;
+                
+                unsigned int idx = hash_key(entry->key, table->capacity);
+                entry->next = table->entries[idx];
+                table->entries[idx] = entry;
+                table->hash_count++;
+                
+                entry = next;
+            }
+        }
+        free(old_entries);
+    }
+    
+    // Now insert the new key
     unsigned int index = hash_key(key, table->capacity);
     TableEntry* entry = table->entries[index];
     while (entry) {
@@ -229,18 +501,30 @@ bool table_set(Table* table, const char* key, Value value) {
         }
         entry = entry->next;
     }
+    
     entry = (TableEntry*)malloc(sizeof(TableEntry));
     entry->key = strdup(key);
     entry->value = value;
     value_incref(&entry->value);
     entry->next = table->entries[index];
     table->entries[index] = entry;
-    table->count++;
+    table->hash_count++;
     return true;
 }
 
 bool table_get(Table* table, const char* key, Value* out_value) {
     if (!table || !key) return false;
+    
+    // FAST CHECK: only try integer parsing if first char is digit
+    if (key[0] >= '0' && key[0] <= '9') {
+        char* endptr;
+        long int_key = strtol(key, &endptr, 10);
+        if (*endptr == '\0' && int_key > 0) {
+            return table_get_int(table, (int)(int_key - 1), out_value);
+        }
+    }
+    
+    // Hash lookup
     unsigned int index = hash_key(key, table->capacity);
     TableEntry* entry = table->entries[index];
     while (entry) {
@@ -262,6 +546,27 @@ bool table_has(Table* table, const char* key) {
 
 void table_remove(Table* table, const char* key) {
     if (!table || !key) return;
+    
+    // FAST CHECK: only try integer parsing if first char is digit
+    if (key[0] >= '0' && key[0] <= '9') {
+        char* endptr;
+        long int_key = strtol(key, &endptr, 10);
+        if (*endptr == '\0' && int_key > 0 && table->array_part != NULL && int_key - 1 < table->array_count) {
+            int idx = (int)(int_key - 1);
+            value_decref(&table->array_part[idx]);
+            table->array_part[idx].type = VAL_BOOL;
+            table->array_part[idx].boolean = false;
+            
+            while (table->array_count > 0 && 
+                   table->array_part[table->array_count - 1].type == VAL_BOOL &&
+                   !table->array_part[table->array_count - 1].boolean) {
+                table->array_count--;
+            }
+            return;
+        }
+    }
+    
+    // Remove from hash part
     unsigned int index = hash_key(key, table->capacity);
     TableEntry* entry = table->entries[index];
     TableEntry* prev = NULL;
@@ -272,7 +577,7 @@ void table_remove(Table* table, const char* key) {
             free(entry->key);
             value_decref(&entry->value);
             free(entry);
-            table->count--;
+            table->hash_count--;
             return;
         }
         prev = entry;
@@ -281,31 +586,47 @@ void table_remove(Table* table, const char* key) {
 }
 
 int table_size(Table* table) {
-    return table ? table->count : 0;
+    return table ? table->array_count + table->hash_count : 0;
 }
 
 char** table_keys(Table* table, int* out_count) {
     if (!table || !out_count) return NULL;
     *out_count = 0;
-    if (table->count == 0) return NULL;
-
-    char** keys = (char**)malloc(sizeof(char*) * table->count);
+    
+    int total = table->array_count + table->hash_count;
+    if (total == 0) return NULL;
+    
+    char** keys = (char**)malloc(sizeof(char*) * total);
     if (!keys) return NULL;
-
+    
     int idx = 0;
+    
+    // Integer keys from array part
+    for (int i = 0; i < table->array_count; i++) {
+        if (table->array_part[i].type != VAL_BOOL || table->array_part[i].boolean) {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "%d", i + 1);
+            keys[idx++] = strdup(buf);
+        }
+    }
+    
+    // String keys from hash part
     for (int i = 0; i < table->capacity; i++) {
         TableEntry* entry = table->entries[i];
         while (entry) {
-            keys[idx++] = entry->key;
+            keys[idx++] = entry->key; // Don't strdup, already owned
             entry = entry->next;
         }
     }
+    
     *out_count = idx;
     return keys;
 }
 
 void table_clear(Table* table) {
     if (!table) return;
+    
+    // Clear hash entries
     for (int i = 0; i < table->capacity; i++) {
         TableEntry* entry = table->entries[i];
         while (entry) {
@@ -317,12 +638,23 @@ void table_clear(Table* table) {
         }
         table->entries[i] = NULL;
     }
-    table->count = 0;
+    table->hash_count = 0;
+    
+    // Clear array part
+    for (int i = 0; i < table->array_count; i++) {
+        value_decref(&table->array_part[i]);
+        table->array_part[i].type = VAL_BOOL;
+        table->array_part[i].boolean = false;
+    }
+    table->array_count = 0;
 }
 
 Table* table_copy(Table* table) {
     if (!table) return NULL;
+    
     Table* copy = table_create(table->capacity);
+    
+    // Copy hash entries
     for (int i = 0; i < table->capacity; i++) {
         TableEntry* entry = table->entries[i];
         while (entry) {
@@ -330,6 +662,12 @@ Table* table_copy(Table* table) {
             entry = entry->next;
         }
     }
+    
+    // Copy array part
+    for (int i = 0; i < table->array_count; i++) {
+        table_set_int(copy, i, table->array_part[i]);
+    }
+    
     return copy;
 }
 
@@ -388,6 +726,10 @@ VM* vm_create(const char* source) {
         vm->registers[i].type = VAL_BOOL;
         vm->registers[i].boolean = false;
     }
+    
+    string_intern_table_init(&vm->intern_table);
+    object_pool_init(&vm->obj_pool);
+    
     return vm;
 }
 
@@ -409,6 +751,9 @@ void vm_destroy(VM* vm) {
     for (int i = 0; i < vm->args_top; i++) {
         value_decref(&vm->args_stack[i]);
     }
+    
+    string_intern_table_free(&vm->intern_table);
+    object_pool_free(&vm->obj_pool);
     
     free(vm->register_frames);
     free(vm);
@@ -580,10 +925,30 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         Constant* c = &chunk->constants[const_idx];
         value_decref(&regs[dest]);
         switch (c->type) {
-            case CONST_NUMBER: regs[dest].type = VAL_NUMBER; regs[dest].number = c->number_value; break;
-            case CONST_STRING: regs[dest].type = VAL_STRING; regs[dest].string = string_create(c->string_value, strlen(c->string_value)); break;
-            case CONST_BOOL: regs[dest].type = VAL_BOOL; regs[dest].boolean = c->bool_value; break;
-            default: break;
+            case CONST_NUMBER: 
+                regs[dest].type = VAL_NUMBER; 
+                regs[dest].number = c->number_value; 
+                break;
+            case CONST_STRING: 
+                {
+                    int len = (int)strlen(c->string_value);
+                    // Only intern medium strings, never short ones
+                    if (len >= 16 && len <= 64 && vm->intern_table.count < 50000) {
+                        regs[dest].type = VAL_STRING;
+                        regs[dest].string = string_intern(&vm->intern_table, c->string_value, len);
+                        value_incref(&regs[dest]);
+                    } else {
+                        regs[dest].type = VAL_STRING;
+                        regs[dest].string = string_create(c->string_value, len);
+                    }
+                }
+                break;
+            case CONST_BOOL: 
+                regs[dest].type = VAL_BOOL; 
+                regs[dest].boolean = c->bool_value; 
+                break;
+            default: 
+                break;
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
@@ -731,19 +1096,39 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_TO_STRING_LABEL: {
-        int dest = ip->operands[0]; Value* src = &regs[ip->operands[1]];
+        int dest = ip->operands[0]; 
+        Value* src = &regs[ip->operands[1]];
         char buffer[256];
         value_decref(&regs[dest]);
         switch (src->type) {
             case VAL_NUMBER: {
                 double num = src->number;
-                if (fabs(num - (long long)num) < 1e-9 && fabs(num) < 1e15) snprintf(buffer, sizeof(buffer), "%lld", (long long)num);
-                else snprintf(buffer, sizeof(buffer), "%.15g", num);
-                regs[dest] = vm_make_string(buffer); break;
+                int len;
+                if (fabs(num - (long long)num) < 1e-9 && fabs(num) < 1e15) {
+                    len = snprintf(buffer, sizeof(buffer), "%lld", (long long)num);
+                } else {
+                    len = snprintf(buffer, sizeof(buffer), "%.15g", num);
+                }
+                // Only intern medium-length numeric strings
+                if (len >= 8 && len <= 32 && vm->intern_table.count < 50000) {
+                    regs[dest].type = VAL_STRING;
+                    regs[dest].string = string_intern(&vm->intern_table, buffer, len);
+                    value_incref(&regs[dest]);
+                } else {
+                    regs[dest] = vm_make_string(buffer);
+                }
+                break;
             }
-            case VAL_BOOL: regs[dest] = vm_make_string(src->boolean ? "true" : "false"); break;
-            case VAL_STRING: regs[dest] = *src; value_incref(&regs[dest]); break;
-            default: regs[dest] = vm_make_string("false"); break;
+            case VAL_BOOL: 
+                regs[dest] = vm_make_string(src->boolean ? "true" : "false"); 
+                break;
+            case VAL_STRING: 
+                regs[dest] = *src; 
+                value_incref(&regs[dest]); 
+                break;
+            default: 
+                regs[dest] = vm_make_string("false"); 
+                break;
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
@@ -890,12 +1275,25 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_TABLE_SET_LABEL: {
-        int table_reg = ip->operands[0]; int key_reg = ip->operands[1]; int val_reg = ip->operands[2];
-        Table* table = vm->registers[table_reg].table;
+        int table_reg = ip->operands[0]; 
+        int key_reg = ip->operands[1]; 
+        int val_reg = ip->operands[2];
         
+        Table* table = vm->registers[table_reg].table;
+        Value* key = &vm->registers[key_reg];
+        
+        // FAST PATH: numeric integer key -> direct array access O(1)
+        if (key->type == VAL_NUMBER) {
+            double num = key->number;
+            if (num >= 1 && num == (int)num) {
+                table_set_int(table, (int)num - 1, vm->registers[val_reg]);
+                ip++; goto *dispatch_table[ip->opcode];
+            }
+        }
+        
+        // SLOW PATH: convert to string
         const char* key_cstr = "";
         char num_buf[64];
-        Value* key = &vm->registers[key_reg];
         
         if (key->type == VAL_STRING) {
             key_cstr = key->string->chars;
@@ -921,7 +1319,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int key_reg = ip->operands[2];
         
         Value* table_val = &vm->registers[table_reg];
-        char key_str[256];
         Value* key = &vm->registers[key_reg];
         
         if (table_val->type != VAL_TABLE) {
@@ -930,7 +1327,25 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             vm->registers[dest].boolean = false;
             ip++; goto *dispatch_table[ip->opcode];
         }
-
+        
+        Table* table = table_val->table;
+        
+        // FAST PATH: numeric integer key -> direct array access O(1)
+        if (key->type == VAL_NUMBER) {
+            double num = key->number;
+            if (num >= 1 && num == (int)num && (int)num - 1 < 1000000000) {
+                int idx = (int)num - 1;
+                if (table->array_part != NULL && idx < table->array_count) {
+                    value_decref(&vm->registers[dest]);
+                    vm->registers[dest] = table->array_part[idx];
+                    value_incref(&vm->registers[dest]);
+                    ip++; goto *dispatch_table[ip->opcode];
+                }
+            }
+        }
+        
+        // SLOW PATH: convert to string and hash lookup
+        char key_str[256];
         if (key->type == VAL_STRING) {
             strcpy(key_str, key->string->chars);
         } else {
@@ -940,7 +1355,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         Value val;
         val.type = VAL_BOOL;
         val.boolean = false;
-        if (table_get(table_val->table, key_str, &val)) {
+        if (table_get(table, key_str, &val)) {
             value_decref(&vm->registers[dest]);
             vm->registers[dest] = val;
         } else {
@@ -950,7 +1365,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
-
     OP_TABLE_GET_CONST_LABEL: {
         int dest = ip->operands[0];
         int table_reg = ip->operands[1];
@@ -964,12 +1378,27 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             vm->registers[dest].boolean = false;
             ip++; goto *dispatch_table[ip->opcode];
         }
+        
+        // FAST PATH: try integer key from constant string
+        const char* key_str = chunk->constants[key_idx].string_value;
+        char* endptr;
+        long int_key = strtol(key_str, &endptr, 10);
+        if (*endptr == '\0' && int_key > 0) {
+            int idx = (int)(int_key - 1);
+            Table* table = table_val->table;
+            if (idx < table->array_count) {
+                value_decref(&vm->registers[dest]);
+                vm->registers[dest] = table->array_part[idx];
+                value_incref(&vm->registers[dest]);
+                ip++; goto *dispatch_table[ip->opcode];
+            }
+        }
 
+        // SLOW PATH: hash lookup
         Value val;
         val.type = VAL_BOOL;
         val.boolean = false;
-        if (table_get(table_val->table,
-            chunk->constants[key_idx].string_value, &val)) {
+        if (table_get(table_val->table, key_str, &val)) {
             value_decref(&vm->registers[dest]);
             vm->registers[dest] = val;
         } else {
@@ -982,27 +1411,78 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     OP_TABLE_APPEND_LABEL: {
         int table_reg = ip->operands[0];
         int val_reg = ip->operands[1];
-        char key[32];
-        snprintf(key, sizeof(key), "%d", table_size(vm->registers[table_reg].table) + 1);
-        table_set(vm->registers[table_reg].table, key, vm->registers[val_reg]);
+        
+        Table* table = vm->registers[table_reg].table;
+        Value* val = &vm->registers[val_reg];
+        
+        // Ensure array_part exists (lazy init)
+        if (table->array_part == NULL) {
+            table->array_capacity = TABLE_ARRAY_INIT;
+            table->array_part = (Value*)calloc(TABLE_ARRAY_INIT, sizeof(Value));
+            for (int i = 0; i < TABLE_ARRAY_INIT; i++) {
+                table->array_part[i].type = VAL_BOOL;
+                table->array_part[i].boolean = false;
+            }
+        }
+        
+        int idx = table->array_count;
+        if (idx >= table->array_capacity) {
+            array_part_grow(table, idx);
+        }
+        
+        value_decref(&table->array_part[idx]);
+        table->array_part[idx] = *val;
+        value_incref(&table->array_part[idx]);
+        table->array_count++;
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_CONCAT_LABEL: {
         int dest = ip->operands[0];
-        Value* left  = &vm->registers[ip->operands[1]]; Value* right = &vm->registers[ip->operands[2]];
+        Value* left  = &vm->registers[ip->operands[1]]; 
+        Value* right = &vm->registers[ip->operands[2]];
+        
         char lbuf[64], rbuf[64];
         const char* ls = value_to_cstr(left, lbuf, sizeof(lbuf));
         const char* rs = value_to_cstr(right, rbuf, sizeof(rbuf));
         int llen = (left->type == VAL_STRING) ? left->string->length : (int)strlen(ls);
         int rlen = (right->type == VAL_STRING) ? right->string->length : (int)strlen(rs);
-        StringBuilder sb;
-        sb_init(&sb, llen + rlen + 1);
-        sb_append(&sb, ls, llen);
-        sb_append(&sb, rs, rlen);
-        value_decref(&vm->registers[dest]);
-        vm->registers[dest].type = VAL_STRING;
-        vm->registers[dest].string = sb_to_string(&sb);
-        sb_free(&sb);
+        int total_len = llen + rlen;
+        
+        // Smart interning: only for medium strings (16-64 chars)
+        // Too short: direct malloc is faster
+        // Too long: pollutes intern table
+        if (total_len >= 16 && total_len <= 64 && vm->intern_table.count < 50000) {
+            char combined[65];
+            memcpy(combined, ls, llen);
+            memcpy(combined + llen, rs, rlen);
+            combined[total_len] = '\0';
+            
+            StringObject* interned = string_intern(&vm->intern_table, combined, total_len);
+            value_decref(&vm->registers[dest]);
+            vm->registers[dest].type = VAL_STRING;
+            vm->registers[dest].string = interned;
+            value_incref(&vm->registers[dest]);
+        } else if (total_len < 16) {
+            // For very short strings: direct StringBuilder (faster than interning)
+            StringBuilder sb;
+            sb_init(&sb, total_len + 1);
+            sb_append(&sb, ls, llen);
+            sb_append(&sb, rs, rlen);
+            value_decref(&vm->registers[dest]);
+            vm->registers[dest].type = VAL_STRING;
+            vm->registers[dest].string = sb_to_string(&sb);
+            sb_free(&sb);
+        } else {
+            // For long strings: StringBuilder
+            StringBuilder sb;
+            sb_init(&sb, total_len + 1);
+            sb_append(&sb, ls, llen);
+            sb_append(&sb, rs, rlen);
+            value_decref(&vm->registers[dest]);
+            vm->registers[dest].type = VAL_STRING;
+            vm->registers[dest].string = sb_to_string(&sb);
+            sb_free(&sb);
+        }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_STRING_INTERP_LABEL: ip++; goto *dispatch_table[ip->opcode];
