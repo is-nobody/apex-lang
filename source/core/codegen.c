@@ -55,6 +55,9 @@ static int find_local(CodeGenerator* cg, const char* name) {
 }
 
 static int add_local(CodeGenerator* cg, const char* name) {
+    int existing = find_local(cg, name);
+    if (existing >= 0) return existing;
+    
     if (cg->locals.count >= cg->locals.capacity) {
         cg->locals.capacity = cg->locals.capacity == 0 ? 16 : cg->locals.capacity * 2;
         cg->locals.names = (char**)realloc(cg->locals.names,
