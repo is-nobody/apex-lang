@@ -683,10 +683,28 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
             // Fallback: regular table access
             int obj_reg = codegen_expression(cg, node->access.object);
             int result_reg = alloc_register(cg);
+            
             if (node->access.member->type == AST_IDENTIFIER) {
-                int key_idx = bytecode_add_string_constant(cg->chunk,
-                    node->access.member->identifier.name);
-                emit(cg, INST(OP_TABLE_GET_CONST, result_reg, obj_reg, key_idx), node->line);
+                // Check if this identifier is a LOCAL VARIABLE
+                int local_reg = find_local(cg, node->access.member->identifier.name);
+                if (local_reg >= 0) {
+                    // It's a variable — use its value as key
+                    emit(cg, INST(OP_TABLE_GET, result_reg, obj_reg, local_reg), node->line);
+                } else {
+                    // Check if it's a GLOBAL VARIABLE
+                    int global_idx = bytecode_get_global(cg->chunk, node->access.member->identifier.name);
+                    if (global_idx >= 0) {
+                        int key_reg = alloc_register(cg);
+                        emit(cg, INST(OP_LOAD_GLOBAL, key_reg, global_idx, 0), node->line);
+                        emit(cg, INST(OP_TABLE_GET, result_reg, obj_reg, key_reg), node->line);
+                        free_register(cg, key_reg);
+                    } else {
+                        // Not a variable — treat as string literal key
+                        int key_idx = bytecode_add_string_constant(cg->chunk,
+                            node->access.member->identifier.name);
+                        emit(cg, INST(OP_TABLE_GET_CONST, result_reg, obj_reg, key_idx), node->line);
+                    }
+                }
             } else {
                 int key_reg = codegen_expression(cg, node->access.member);
                 emit(cg, INST(OP_TABLE_GET, result_reg, obj_reg, key_reg), node->line);
