@@ -65,7 +65,7 @@ See [Issues](https://github.com/is-nobody/apex-lang/issues) for bug reports and 
 ## Contributing
 Apex is created and maintained by one person, but contributions are welcome!
 
-For a detailed explanation of the interpreter's architecture, see the source code in `source/core/`.
+Please see [contributing](contributing.md) and remember about [Code of Conduct](code_of_conduct.md)
 
 ## License
 Apex is distributed under the terms of the **MIT license**.
