@@ -19,7 +19,6 @@ static int compare_keys(const void* a, const void* b) {
     return strcmp(sa, sb);
 }
 
-
 bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     (void)vm;
     if (arg_count < 1 || args[0].type != VAL_TABLE) return false;
@@ -64,19 +63,10 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         *result = vm_make_table();
         Table* table = args[0].table;
         
-        int count = table_size(table);
-        if (count > 0) {
-            char** keys = (char**)malloc(sizeof(char*) * count);
-            int idx = 0;
-            
-            for (int i = 0; i < table->capacity; i++) {
-                TableEntry* entry = table->entries[i];
-                while (entry) {
-                    keys[idx++] = entry->key;
-                    entry = entry->next;
-                }
-            }
-            
+        int count;
+        char** keys = table_keys(table, &count);  // <-- ИСПОЛЬЗУЕМ API!
+        
+        if (keys && count > 0) {
             qsort(keys, count, sizeof(char*), compare_keys);
             
             for (int i = 0; i < count; i++) {
@@ -95,19 +85,10 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         *result = vm_make_table();
         Table* table = args[0].table;
         
-        int count = table_size(table);
-        if (count > 0) {
-            char** keys = (char**)malloc(sizeof(char*) * count);
-            int idx = 0;
-            
-            for (int i = 0; i < table->capacity; i++) {
-                TableEntry* entry = table->entries[i];
-                while (entry) {
-                    keys[idx++] = entry->key;
-                    entry = entry->next;
-                }
-            }
-            
+        int count;
+        char** keys = table_keys(table, &count);  // <-- ИСПОЛЬЗУЕМ API!
+        
+        if (keys && count > 0) {
             qsort(keys, count, sizeof(char*), compare_keys);
             
             for (int i = 0; i < count; i++) {
@@ -136,12 +117,19 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
     if (strcmp(name, "table.copy") == 0) {
         *result = vm_make_table();
         Table* src = args[0].table;
-        for (int i = 0; i < src->capacity; i++) {
-            TableEntry* entry = src->entries[i];
-            while (entry) {
-                table_set(result->table, entry->key, vm_copy_value(entry->value));
-                entry = entry->next;
+        
+        int count;
+        char** keys = table_keys(src, &count);  // <-- ИСПОЛЬЗУЕМ API!
+        
+        if (keys && count > 0) {
+            for (int i = 0; i < count; i++) {
+                Value val;
+                if (table_get(src, keys[i], &val)) {
+                    table_set(result->table, keys[i], vm_copy_value(val));
+                    value_decref(&val);
+                }
             }
+            free(keys);
         }
         return true;
     }
@@ -149,19 +137,31 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
     // table.merge — merge two tables, second table overwrites duplicate keys
     if (strcmp(name, "table.merge") == 0) {
         if (arg_count >= 2 && args[1].type == VAL_TABLE) {
-            *result = table_copy(args[0].table) ? vm_make_table() : vm_make_table();
-            if (result->type == VAL_TABLE && result->table) {
+            // Create a copy of the first table
+            Table* copy = table_copy(args[0].table);
+            if (copy) {
+                *result = vm_make_table();
+                // Replace the newly created table with our copy
                 table_destroy(result->table);
+                result->table = copy;
+            } else {
+                *result = vm_make_table();
             }
-            *result = vm_copy_value(args[0]);
             
+            // Merge second table's entries
             Table* src2 = args[1].table;
-            for (int i = 0; i < src2->capacity; i++) {
-                TableEntry* entry = src2->entries[i];
-                while (entry) {
-                    table_set(result->table, entry->key, vm_copy_value(entry->value));
-                    entry = entry->next;
+            int count;
+            char** keys = table_keys(src2, &count);
+            
+            if (keys && count > 0) {
+                for (int i = 0; i < count; i++) {
+                    Value val;
+                    if (table_get(src2, keys[i], &val)) {
+                        table_set(result->table, keys[i], vm_copy_value(val));
+                        value_decref(&val);
+                    }
                 }
+                free(keys);
             }
         }
         return true;
