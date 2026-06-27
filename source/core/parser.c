@@ -129,7 +129,7 @@ static const BuiltinSig BUILTINS[] = {
     {"os.rename", 2, 2, TYPE_STRING},
     {"os.move", 2, 2, TYPE_STRING},
     {"os.copy", 2, 2, TYPE_STRING},
-    {"os.listfolders", 0, 1, TYPE_STRING},
+    {"os.items", 0, 1, TYPE_STRING},
     {"os.parentfolder", 1, 1, TYPE_STRING},
     {"os.access", 2, 2, TYPE_STRING},
 

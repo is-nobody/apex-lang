@@ -538,7 +538,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
-    if (strcmp(name, "os.listfolders") == 0) {
+    if (strcmp(name, "os.items") == 0) {
         const char* path = ".";
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             path = args[0].string->chars;

@@ -251,7 +251,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "os.create_file", "os.create_folder",
         "os.delete", "os.rename", 
         "os.move", "os.copy",
-        "os.listfolders", "os.parentfolder",
+        "os.items", "os.parentfolder",
         "os.access",
         
         // sys
