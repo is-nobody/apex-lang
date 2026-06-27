@@ -7,7 +7,7 @@ function access()
     stat = os.stat("test_access.txt")
     os.output("file exists: {stat != false}, expected true")
     os.output("size: {stat[\"size\"]}, expected 4")
-    os.delete_file("test_access.txt")
+    os.delete("test_access.txt")
     os.output("access nonexist: {os.access(\"no_file.txt\", 438)}, expected false")
 
 access()

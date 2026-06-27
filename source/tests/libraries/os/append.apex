@@ -7,6 +7,6 @@ function append()
     content = os.read("test_append.txt")
     os.output("content:\n{content}")
     os.output("has 3 lines: {content == \"line1\nline2\nline3\n\"}, expected true")
-    os.delete_file("test_append.txt")
+    os.delete("test_append.txt")
 
 append()

@@ -394,167 +394,144 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
-    if (strcmp(name, "os.delete_file") == 0) {
+    // --- Universal File/Dir Operations ---
+    if (strcmp(name, "os.delete") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
-            *result = vm_make_bool(unlink(args[0].string->chars) == 0);
-        } else {
-            *result = vm_make_bool(false);
-        }
-        return true;
-    }
-    if (strcmp(name, "os.delete_folder") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_STRING) {
-            *result = vm_make_bool(rmdir(args[0].string->chars) == 0);
-        } else {
-            *result = vm_make_bool(false);
-        }
-        return true;
-    }
-    if (strcmp(name, "os.rename_file") == 0) {
-        if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
             struct stat st;
-            bool is_file = stat(args[0].string->chars, &st) == 0 && S_ISREG(st.st_mode);
-            *result = vm_make_bool(is_file && rename(args[0].string->chars, args[1].string->chars) == 0);
+            if (stat(args[0].string->chars, &st) == 0) {
+                bool success = false;
+                if (S_ISDIR(st.st_mode)) {
+                    success = (rmdir(args[0].string->chars) == 0);
+                } else {
+                    success = (unlink(args[0].string->chars) == 0);
+                }
+                *result = vm_make_bool(success);
+            } else {
+                *result = vm_make_bool(false);
+            }
         } else {
             *result = vm_make_bool(false);
         }
         return true;
     }
-    if (strcmp(name, "os.rename_folder") == 0) {
+    if (strcmp(name, "os.rename") == 0) {
         if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
+            *result = vm_make_bool(rename(args[0].string->chars, args[1].string->chars) == 0);
+        } else {
+            *result = vm_make_bool(false);
+        }
+        return true;
+    }
+    // --- Universal Move/Copy ---
+    if (strcmp(name, "os.move") == 0) {
+        if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
+            *result = vm_make_bool(rename(args[0].string->chars, args[1].string->chars) == 0);
+        } else {
+            *result = vm_make_bool(false);
+        }
+        return true;
+    }
+    if (strcmp(name, "os.copy") == 0) {
+        if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
+            const char* src_path = args[0].string->chars;
+            const char* dst_path = args[1].string->chars;
+            
             struct stat st;
-            bool is_dir = stat(args[0].string->chars, &st) == 0 && S_ISDIR(st.st_mode);
-            *result = vm_make_bool(is_dir && rename(args[0].string->chars, args[1].string->chars) == 0);
-        } else {
-            *result = vm_make_bool(false);
-        }
-        return true;
-    }
-    if (strcmp(name, "os.move_file") == 0) {
-        if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
-            struct stat st;
-            bool is_file = stat(args[0].string->chars, &st) == 0 && S_ISREG(st.st_mode);
-            *result = vm_make_bool(is_file && rename(args[0].string->chars, args[1].string->chars) == 0);
-        } else {
-            *result = vm_make_bool(false);
-        }
-        return true;
-    }
-    if (strcmp(name, "os.move_folder") == 0) {
-        if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
-            struct stat st;
-            bool is_dir = stat(args[0].string->chars, &st) == 0 && S_ISDIR(st.st_mode);
-            *result = vm_make_bool(is_dir && rename(args[0].string->chars, args[1].string->chars) == 0);
-        } else {
-            *result = vm_make_bool(false);
-        }
-        return true;
-    }
-    if (strcmp(name, "os.copy_file") == 0) {
-        if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
-            FILE* src = fopen(args[0].string->chars, "rb");
-            if (!src) { *result = vm_make_bool(false); return true; }
-            FILE* dst = fopen(args[1].string->chars, "wb");
-            if (!dst) { fclose(src); *result = vm_make_bool(false); return true; }
-            char buffer[8192];
-            size_t bytes_read;
+            if (stat(src_path, &st) != 0) {
+                *result = vm_make_bool(false);
+                return true;
+            }
+
             bool success = true;
-            while ((bytes_read = fread(buffer, 1, sizeof(buffer), src)) > 0) {
-                size_t bytes_written = fwrite(buffer, 1, bytes_read, dst);
-                if (bytes_written != bytes_read) { success = false; break; }
-            }
-            fclose(src);
-            fclose(dst);
-            *result = vm_make_bool(success);
-        } else {
-            *result = vm_make_bool(false);
-        }
-        return true;
-    }
-    if (strcmp(name, "os.copy_folder") == 0) {
-        if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
-            struct stat st;
-            if (stat(args[0].string->chars, &st) != 0 || !S_ISDIR(st.st_mode)) {
-                *result = vm_make_bool(false);
-                return true;
-            }
+
+            if (S_ISDIR(st.st_mode)) {
+                // --- Recursive Folder Copy ---
 #ifdef _WIN32
-            if (_mkdir(args[1].string->chars) != 0 && errno != EEXIST) {
-                *result = vm_make_bool(false);
-                return true;
-            }
+                if (_mkdir(dst_path) != 0 && errno != EEXIST) {
+                    *result = vm_make_bool(false);
+                    return true;
+                }
 #else
-            if (mkdir(args[1].string->chars, 0755) != 0 && errno != EEXIST) {
-                *result = vm_make_bool(false);
-                return true;
-            }
+                if (mkdir(dst_path, 0755) != 0 && errno != EEXIST) {
+                    *result = vm_make_bool(false);
+                    return true;
+                }
 #endif
-            bool success = true;
 #ifdef _WIN32
-            WIN32_FIND_DATA fd;
-            HANDLE hFind;
-            char search_path[4096];
-            snprintf(search_path, sizeof(search_path), "%s\\*", args[0].string->chars);
-            hFind = FindFirstFile(search_path, &fd);
-            if (hFind != INVALID_HANDLE_VALUE) {
-                do {
-                    if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0) continue;
-                    char src_path[4096], dst_path[4096];
-                    snprintf(src_path, sizeof(src_path), "%s\\%s", args[0].string->chars, fd.cFileName);
-                    snprintf(dst_path, sizeof(dst_path), "%s\\%s", args[1].string->chars, fd.cFileName);
-                    Value cp_result;
-                    Value cp_args[] = {vm_make_string(src_path), vm_make_string(dst_path)};
-                    if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-                        // Recursive call via os_call_builtin with new names
-                        if (!os_call_builtin(vm, "os.copy_folder", 2, cp_args, &cp_result) ||
-                            (cp_result.type == VAL_BOOL && !cp_result.boolean)) {
+                WIN32_FIND_DATA fd;
+                HANDLE hFind;
+                char search_path[4096];
+                snprintf(search_path, sizeof(search_path), "%s\\*", src_path);
+                hFind = FindFirstFile(search_path, &fd);
+                if (hFind != INVALID_HANDLE_VALUE) {
+                    do {
+                        if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0) continue;
+                        char sub_src[4096], sub_dst[4096];
+                        snprintf(sub_src, sizeof(sub_src), "%s\\%s", src_path, fd.cFileName);
+                        snprintf(sub_dst, sizeof(sub_dst), "%s\\%s", dst_path, fd.cFileName);
+                        
+                        Value sub_result;
+                        Value sub_args[] = {vm_make_string(sub_src), vm_make_string(sub_dst)};
+                        if (!os_call_builtin(vm, "os.copy", 2, sub_args, &sub_result) || 
+                            (sub_result.type == VAL_BOOL && !sub_result.boolean)) {
                             success = false;
                             break;
                         }
-                    } else {
-                        if (!os_call_builtin(vm, "os.copy_file", 2, cp_args, &cp_result) ||
-                            (cp_result.type == VAL_BOOL && !cp_result.boolean)) {
+                    } while (FindNextFile(hFind, &fd));
+                    FindClose(hFind);
+                } else {
+                    success = false;
+                }
+#else
+                DIR* dir = opendir(src_path);
+                if (dir) {
+                    struct dirent* entry;
+                    while ((entry = readdir(dir)) != NULL) {
+                        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
+                        char sub_src[4096], sub_dst[4096];
+                        snprintf(sub_src, sizeof(sub_src), "%s/%s", src_path, entry->d_name);
+                        snprintf(sub_dst, sizeof(sub_dst), "%s/%s", dst_path, entry->d_name);
+                        
+                        struct stat entry_st;
+                        if (stat(sub_src, &entry_st) != 0) { success = false; break; }
+
+                        Value sub_result;
+                        Value sub_args[] = {vm_make_string(sub_src), vm_make_string(sub_dst)};
+                        if (!os_call_builtin(vm, "os.copy", 2, sub_args, &sub_result) || 
+                            (sub_result.type == VAL_BOOL && !sub_result.boolean)) {
                             success = false;
                             break;
                         }
                     }
-                } while (FindNextFile(hFind, &fd));
-                FindClose(hFind);
+                    closedir(dir);
+                } else {
+                    success = false;
+                }
+#endif
             } else {
-                success = false;
-            }
-#else
-            DIR* dir = opendir(args[0].string->chars);
-            if (dir) {
-                struct dirent* entry;
-                while ((entry = readdir(dir)) != NULL) {
-                    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
-                    char src_path[4096], dst_path[4096];
-                    snprintf(src_path, sizeof(src_path), "%s/%s", args[0].string->chars, entry->d_name);
-                    snprintf(dst_path, sizeof(dst_path), "%s/%s", args[1].string->chars, entry->d_name);
-                    struct stat entry_st;
-                    if (stat(src_path, &entry_st) != 0) { success = false; break; }
-                    Value cp_result;
-                    Value cp_args[] = {vm_make_string(src_path), vm_make_string(dst_path)};
-                    if (S_ISDIR(entry_st.st_mode)) {
-                        if (!os_call_builtin(vm, "os.copy_folder", 2, cp_args, &cp_result) ||
-                            (cp_result.type == VAL_BOOL && !cp_result.boolean)) {
-                            success = false;
-                            break;
-                        }
-                    } else if (S_ISREG(entry_st.st_mode)) {
-                        if (!os_call_builtin(vm, "os.copy_file", 2, cp_args, &cp_result) ||
-                            (cp_result.type == VAL_BOOL && !cp_result.boolean)) {
-                            success = false;
-                            break;
-                        }
+                // --- Single File Copy ---
+                FILE* src = fopen(src_path, "rb");
+                if (!src) {
+                    *result = vm_make_bool(false);
+                    return true;
+                }
+                FILE* dst = fopen(dst_path, "wb");
+                if (!dst) {
+                    fclose(src);
+                    *result = vm_make_bool(false);
+                    return true;
+                }
+                char buffer[8192];
+                size_t bytes_read;
+                while ((bytes_read = fread(buffer, 1, sizeof(buffer), src)) > 0) {
+                    if (fwrite(buffer, 1, bytes_read, dst) != bytes_read) {
+                        success = false;
+                        break;
                     }
                 }
-                closedir(dir);
-            } else {
-                success = false;
+                fclose(src);
+                fclose(dst);
             }
-#endif
             *result = vm_make_bool(success);
         } else {
             *result = vm_make_bool(false);

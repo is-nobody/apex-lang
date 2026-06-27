@@ -2,7 +2,7 @@ import os
 
 function write()
     write_success = os.write("test.txt", "Hello, Friend")
-    os.delete_file("test.txt")
+    os.delete("test.txt")
 
 function overwrite()
     os.create_file("overwrite.txt")
@@ -13,7 +13,7 @@ function overwrite()
     os.write("overwrite.txt", "After overwrite")
     os.output("After overwrite: {os.read(\"overwrite.txt\")}")
 
-    os.delete_file("overwrite.txt")
+    os.delete("overwrite.txt")
 
 write()
 overwrite()
