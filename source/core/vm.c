@@ -325,46 +325,54 @@ const char* vm_value_type_name(Value* value) {
 // ========== Helper for Pretty Table Printing ==========
 static void print_table_recursive(Table* table, int indent_level) {
     if (!table) return;
-
+    
     // Print opening bracket with indentation
     for (int i = 0; i < indent_level; i++) printf("    ");
     printf("[\n");
-
+    
     int total_keys = 0;
     char** keys = table_keys(table, &total_keys);
-
+    
     if (total_keys == 0) {
         for (int i = 0; i < indent_level + 1; i++) printf("    ");
         printf("]\n");
         return;
     }
-
+    
     for (int i = 0; i < total_keys; i++) {
         const char* key = keys[i];
         Value val;
         
-        // Retrieve value (increments ref count, so we must decref later)
         if (table_get(table, key, &val)) {
             // Print indentation for the current item
             for (int j = 0; j < indent_level + 1; j++) printf("    ");
-
-            // Print Key (always use key = value format for consistency)
+            
+            // Print Key
             printf("%s = ", key);
-
+            
             // Print Value based on its type
             switch (val.type) {
                 case VAL_NUMBER: {
                     double num = val.number;
-                    if (fabs(num) >= 1e6 || fabs(num - (long long)num) < 1e-9) printf("%.0f", num);
-                    else printf("%.15g", num);
+                    if (fabs(num) >= 1e6 || fabs(num - (long long)num) < 1e-9) 
+                        printf("%.0f", num);
+                    else 
+                        printf("%.15g", num);
                     break;
                 }
-                case VAL_STRING: printf("\"%s\"", val.string->chars); break;
-                case VAL_BOOL: printf("%s", val.boolean ? "true" : "false"); break;
-                case VAL_TABLE: 
-                    printf("<table>"); // Placeholder for nested tables to avoid deep recursion
+                case VAL_STRING: 
+                    printf("\"%s\"", val.string->chars); 
                     break;
-                default: printf("unknown"); break;
+                case VAL_BOOL: 
+                    printf("%s", val.boolean ? "true" : "false"); 
+                    break;
+                case VAL_TABLE:
+                    // Recursively print nested table with increased indentation
+                    print_table_recursive(val.table, indent_level + 1);
+                    break;
+                default: 
+                    printf("unknown"); 
+                    break;
             }
             
             // Add comma separator if not the last item
@@ -372,14 +380,13 @@ static void print_table_recursive(Table* table, int indent_level) {
                 printf(",");
             }
             printf("\n");
-
-            // Decrement reference count for the retrieved value
+            
             value_decref(&val);
         }
     }
-
-    free(keys); // Free the array of keys allocated by table_keys
-
+    
+    free(keys);
+    
     // Print closing bracket with indentation
     for (int i = 0; i < indent_level; i++) printf("    ");
     printf("]");

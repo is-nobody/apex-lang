@@ -43,6 +43,16 @@ second line")
 function output_tabulation()
     os.output("Name\tAge\tCity\nAlice\t30\tLondon")
 
+function output_table()
+    t = [
+        name = "config",
+        files = [
+            main = ["ggg"],
+            secondary = "build"
+        ]
+    ]
+    os.output(t)
+
 output_empty()
 output_string()
 output_number()
@@ -55,3 +65,4 @@ output_escape_backslash()
 output_newline()
 output_multiline()
 output_tabulation()
+output_table()
