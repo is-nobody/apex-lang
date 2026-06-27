@@ -279,28 +279,17 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
-    if (strcmp(name, "os.filesize") == 0) {
+    if (strcmp(name, "os.size") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             struct stat st;
             if (stat(args[0].string->chars, &st) == 0) {
                 if (S_ISREG(st.st_mode)) {
                     *result = vm_make_number((double)st.st_size);
+                } else if (S_ISDIR(st.st_mode)) {
+                    *result = vm_make_number(calculate_dir_size(args[0].string->chars));
                 } else {
                     *result = vm_make_bool(false);
                 }
-            } else {
-                *result = vm_make_bool(false);
-            }
-        } else {
-            *result = vm_make_bool(false);
-        }
-        return true;
-    }
-    if (strcmp(name, "os.foldersize") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_STRING) {
-            struct stat st;
-            if (stat(args[0].string->chars, &st) == 0 && S_ISDIR(st.st_mode)) {
-                *result = vm_make_number(calculate_dir_size(args[0].string->chars));
             } else {
                 *result = vm_make_bool(false);
             }

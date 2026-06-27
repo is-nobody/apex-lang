@@ -246,7 +246,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "os.get_current_folder", "os.set_current_folder",
         "os.terminate_process", "os.execute",
         "os.read", "os.write", "os.append",
-        "os.exists", "os.isfile", "os.isfolder", "os.filesize", "os.foldersize", 
+        "os.exists", "os.isfile", "os.isfolder", "os.size",
         "os.filetype", "os.stat",
         "os.create_file", "os.create_folder",
         "os.delete", "os.rename", 
