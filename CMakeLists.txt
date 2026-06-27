@@ -24,8 +24,7 @@ set(SOURCES
     source/core/vm.c
     source/package_manager/install.c
     source/package_manager/publish.c
-    source/libraries/os_module.c 
-    source/libraries/files_module.c
+    source/libraries/os_module.c
     source/libraries/sys_module.c
     source/libraries/math_module.c
     source/libraries/string_module.c

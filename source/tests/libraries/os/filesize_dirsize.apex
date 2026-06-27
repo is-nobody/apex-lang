@@ -1,18 +1,17 @@
 import os
-import files
 
 function filesize()
-    file = files.filesize("main.c")
+    file = os.filesize("main.c")
     os.output("Size of 'main.c' is {file / 1024} KB")
 
-    file = files.filesize("notexists")
+    file = os.filesize("notexists")
     os.output("notexists = {file}, expected false")
 
 function foldersize()
-    dir = files.foldersize("source")
+    dir = os.foldersize("source")
     os.output("Size of 'source' is {dir / 1024} KB")
 
-    dir = files.foldersize("notexists")
+    dir = os.foldersize("notexists")
     os.output("notexists = {dir}, expected false")
 
 filesize()

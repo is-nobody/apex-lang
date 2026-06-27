@@ -113,31 +113,29 @@ static const BuiltinSig BUILTINS[] = {
     {"os.set_current_folder", 1, 1, TYPE_STRING},
     {"os.terminate_process", 1, 1, TYPE_NUMBER},
     {"os.execute", 1, 1, TYPE_STRING},
-
-    // files
-    {"files.read", 1, 1, TYPE_STRING},
-    {"files.write", 2, 2, TYPE_STRING},
-    {"files.append", 2, 2, TYPE_STRING},
-    {"files.exists", 1, 1, TYPE_STRING},
-    {"files.isfile", 1, 1, TYPE_STRING},
-    {"files.isfolder", 1, 1, TYPE_STRING},
-    {"files.filesize", 1, 1, TYPE_STRING},
-    {"files.foldersize", 1, 1, TYPE_STRING},
-    {"files.filetype", 1, 1, TYPE_STRING},
-    {"files.stat", 1, 1, TYPE_STRING},
-    {"files.create_file", 1, 1, TYPE_STRING},
-    {"files.create_folder", 1, 1, TYPE_STRING},
-    {"files.delete_file", 1, 1, TYPE_STRING},
-    {"files.delete_folder", 1, 1, TYPE_STRING},
-    {"files.rename_file", 2, 2, TYPE_STRING},
-    {"files.rename_folder", 2, 2, TYPE_STRING},
-    {"files.move_file", 2, 2, TYPE_STRING},
-    {"files.move_folder", 2, 2, TYPE_STRING},
-    {"files.copy_file", 2, 2, TYPE_STRING},
-    {"files.copy_folder", 2, 2, TYPE_STRING},
-    {"files.listfolders", 0, 1, TYPE_STRING},
-    {"files.parentfolder", 1, 1, TYPE_STRING},
-    {"files.access", 2, 2, TYPE_STRING},
+    {"os.read", 1, 1, TYPE_STRING},
+    {"os.write", 2, 2, TYPE_STRING},
+    {"os.append", 2, 2, TYPE_STRING},
+    {"os.exists", 1, 1, TYPE_STRING},
+    {"os.isfile", 1, 1, TYPE_STRING},
+    {"os.isfolder", 1, 1, TYPE_STRING},
+    {"os.filesize", 1, 1, TYPE_STRING},
+    {"os.foldersize", 1, 1, TYPE_STRING},
+    {"os.filetype", 1, 1, TYPE_STRING},
+    {"os.stat", 1, 1, TYPE_STRING},
+    {"os.create_file", 1, 1, TYPE_STRING},
+    {"os.create_folder", 1, 1, TYPE_STRING},
+    {"os.delete_file", 1, 1, TYPE_STRING},
+    {"os.delete_folder", 1, 1, TYPE_STRING},
+    {"os.rename_file", 2, 2, TYPE_STRING},
+    {"os.rename_folder", 2, 2, TYPE_STRING},
+    {"os.move_file", 2, 2, TYPE_STRING},
+    {"os.move_folder", 2, 2, TYPE_STRING},
+    {"os.copy_file", 2, 2, TYPE_STRING},
+    {"os.copy_folder", 2, 2, TYPE_STRING},
+    {"os.listfolders", 0, 1, TYPE_STRING},
+    {"os.parentfolder", 1, 1, TYPE_STRING},
+    {"os.access", 2, 2, TYPE_STRING},
 
     // sys
     {"sys.platform", 0, 0, TYPE_ANY},
@@ -463,7 +461,6 @@ static void parser_check_expr_statement(Parser* parser, ASTNode* expr) {
 
 static bool is_builtin_module_root(const char* name) {
     return strcmp(name, "os") == 0 || 
-           strcmp(name, "files") == 0 ||
            strcmp(name, "sys") == 0 ||
            strcmp(name, "math") == 0 ||
            strcmp(name, "string") == 0 || 
@@ -875,7 +872,6 @@ static const char* resolve_call_name(ASTNode* callee, char* buffer, size_t bufle
 // helper to check if a root name is a known built-in module
 static bool is_known_builtin_module(const char* name) {
     return strcmp(name, "os") == 0 ||
-           strcmp(name, "files") == 0 ||
            strcmp(name, "sys") == 0 ||
            strcmp(name, "math") == 0 ||
            strcmp(name, "string") == 0 ||

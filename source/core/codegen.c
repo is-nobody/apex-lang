@@ -5,7 +5,7 @@
 #define APEX_MAX_CALL_ARGS 64
 
 static bool is_known_builtin_module(const char* name) {
-    return strcmp(name, "os") == 0 || strcmp(name, "files") == 0 ||
+    return strcmp(name, "os") == 0 ||
            strcmp(name, "sys") == 0 || strcmp(name, "math") == 0 ||
            strcmp(name, "string") == 0 || strcmp(name, "table") == 0 ||
            strcmp(name, "ffi") == 0 || strcmp(name, "random") == 0 ||
@@ -245,16 +245,14 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "os.time", "os.wait", "os.exit",
         "os.get_current_folder", "os.set_current_folder",
         "os.terminate_process", "os.execute",
-        
-        // files
-        "files.read", "files.write", "files.append",
-        "files.exists", "files.isfile", "files.isfolder", "files.filesize", "files.foldersize", 
-        "files.filetype", "files.stat",
-        "files.create_file", "files.create_folder", "files.delete_file", "files.delete_folder",
-        "files.rename_file", "files.rename_folder", "files.move_file", "files.move_folder", 
-        "files.copy_file", "files.copy_folder",
-        "files.listfolders", "files.parentfolder",
-        "files.access",
+        "os.read", "os.write", "os.append",
+        "os.exists", "os.isfile", "os.isfolder", "os.filesize", "os.foldersize", 
+        "os.filetype", "os.stat",
+        "os.create_file", "os.create_folder", "os.delete_file", "os.delete_folder",
+        "os.rename_file", "os.rename_folder", "os.move_file", "os.move_folder", 
+        "os.copy_file", "os.copy_folder",
+        "os.listfolders", "os.parentfolder",
+        "os.access",
         
         // sys
         "sys.platform", "sys.architecture", "sys.hostname", "sys.user",
