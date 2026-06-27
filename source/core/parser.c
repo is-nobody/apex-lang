@@ -1790,6 +1790,21 @@ static ASTNode* parse_for_statement(Parser* parser) {
     int var_col = for_kw->column;
     bool is_table_iter = false;
 
+    // Check for infinite loop: for\n    body
+    if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_INDENT)) {
+        parser->loop_depth++;
+        if (parser->loop_depth > APEX_MAX_LOOP_DEPTH) {
+            parser_error_at(parser, for_kw->line, for_kw->column, 3,
+                "Loop nesting exceeds maximum depth of %d", APEX_MAX_LOOP_DEPTH);
+        }
+        if (check(parser, TOKEN_NEWLINE)) {
+            advance(parser);
+        }
+        ASTNode* body = parse_block(parser, true, "for");
+        parser->loop_depth--;
+        return ast_create_for(NULL, NULL, NULL, NULL, NULL, body, for_kw->line, for_kw->column);
+    }
+
     if (!check(parser, TOKEN_IDENTIFIER)) {
         Token* bad_token = current_token(parser);
         int len = bad_token->value ? (int)strlen(bad_token->value) : 1;
