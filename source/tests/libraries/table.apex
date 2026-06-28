@@ -1,76 +1,93 @@
 import os
 import table
 
-os.output("=== TABLE TESTS ===")
-os.output("")
+tests_passed = 0
+tests_failed = 0
 
-// 1. table.size
-os.output("1. table.size:")
-t = (1, 2, 3)
-s = table.size(t)
-os.output(s)
-os.output("")
+function assert_equal(actual, expected, name)
+    if actual == expected
+        tests_passed = tests_passed + 1
+    else
+        tests_failed = tests_failed + 1
+        os.output("[ERROR] {name}: got {actual}, expected {expected}")
 
-// 2. table.has
-os.output("2. table.has:")
-t = (name = "Alice", age = 30)
-h1 = table.has(t, "name")
-h2 = table.has(t, "city")
-os.output(h1)
-os.output(h2)
-os.output("")
+function table_size()
+    t = [1, 2, 3]
+    size = table.size(t)
+    assert_equal(size, 3, "table.size")
 
-// 3. table.keys
-os.output("3. table.keys:")
-t = (name = "Alice", age = 30)
-k = table.keys(t)
-os.output(k)
-os.output("")
+function table_has()
+    t = ["name" = "Alice", "age" = 30]
+    has_name = table.has(t, "name")
+    assert_equal(has_name, true, "table.has name")
+    has_city = table.has(t, "city")
+    assert_equal(has_city, false, "table.has city")
 
-// 4. table.values
-os.output("4. table.values:")
-t = (name = "Alice", age = 30)
-v = table.values(t)
-os.output(v)
-os.output("")
+function table_keys()
+    t = ["name" = "Alice", "age" = 30]
+    keys = table.keys(t)
+    is_table = type(keys) == "table"
+    assert_equal(is_table, true, "table.keys returns table")
+    if is_table == true
+        size = table.size(keys)
+        assert_equal(size, 2, "table.keys count")
 
-// 5. table.remove
-os.output("5. table.remove:")
-t = ("a", "b", "c")
-os.output("Before:")
-os.output(t)
-table.remove(t, 2)
-os.output("After:")
-os.output(t)
-os.output("")
+function table_values()
+    t = ["name" = "Alice", "age" = 30]
+    values = table.values(t)
+    is_table = type(values) == "table"
+    assert_equal(is_table, true, "table.values returns table")
+    if is_table == true
+        size = table.size(values)
+        assert_equal(size, 2, "table.values count")
 
-// 6. table.clear
-os.output("6. table.clear:")
-t = (1, 2, 3)
-os.output("Before:")
-os.output(t)
-table.clear(t)
-os.output("After:")
-os.output(t)
-os.output("")
+function table_remove()
+    t = ["name" = "Alice", "age" = 30, "city" = "Dubai"]
+    size_before = table.size(t)
+    assert_equal(size_before, 3, "table.remove size before")
+    table.remove(t, "age")
+    size_after = table.size(t)
+    assert_equal(size_after, 2, "table.remove size after")
+    has_name = table.has(t, "name")
+    has_age = table.has(t, "age")
+    assert_equal(has_name, true, "table.remove name remains")
+    assert_equal(has_age, false, "table.remove age removed")
 
-// 7. table.copy
-os.output("7. table.copy:")
-original = (x = 1, y = 2)
-copy = table.copy(original)
-copy.x = 999
-os.output("Original:")
-os.output(original)
-os.output("Copy:")
-os.output(copy)
-os.output("")
+function table_clear()
+    t = [1, 2, 3]
+    table.clear(t)
+    size = table.size(t)
+    assert_equal(size, 0, "table.clear")
 
-// 8. table.merge
-os.output("8. table.merge:")
-a = (1, 2)
-b = (3, 4)
-m = table.merge(a, b)
-os.output(m)
-os.output("")
+function table_copy()
+    original = ["x" = 1, "y" = 2]
+    copy = table.copy(original)
+    copy["x"] = 999
+    assert_equal(original["x"], 1, "table.copy original unchanged")
+    assert_equal(copy["x"], 999, "table.copy copy changed")
+    assert_equal(copy["y"], 2, "table.copy shared value")
 
-os.output("=== DONE ===")
+function table_merge()
+    a = ["x" = 1, "y" = 2]
+    b = ["y" = 999, "z" = 3]
+    m = table.merge(a, b)
+    is_table = type(m) == "table"
+    assert_equal(is_table, true, "table.merge returns table")
+    if is_table == true
+        size = table.size(m)
+        assert_equal(size, 3, "table.merge size")
+        assert_equal(m["x"], 1, "table.merge keep x")
+        assert_equal(m["y"], 999, "table.merge overwrite y")
+        assert_equal(m["z"], 3, "table.merge add z")
+
+table_size()
+table_has()
+table_keys()
+table_values()
+table_remove()
+table_clear()
+table_copy()
+table_merge()
+
+if tests_failed == 0
+    os.output("[OK] libraries/table.apex")

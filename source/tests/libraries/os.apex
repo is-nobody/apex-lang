@@ -1,0 +1,150 @@
+import os
+import sys
+
+tests_passed = 0
+tests_failed = 0
+
+function assert_equal(actual, expected, name)
+    if actual == expected
+        tests_passed = tests_passed + 1
+    else
+        tests_failed = tests_failed + 1
+        os.output("[ERROR] {name}: got {actual}, expected {expected}")
+
+function write_read_delete()
+    os.write("os.txt", "Hello, Friend")
+    content = os.read("os.txt")
+    assert_equal(content, "Hello, Friend", "write and read file")
+    os.delete("os.txt")
+    exists_after = os.exists("os.txt")
+    assert_equal(exists_after, false, "delete file")
+
+function append()
+    os.write("append.txt", "line1\n")
+    os.append("append.txt", "line2\n")
+    content = os.read("append.txt")
+    assert_equal(content, "line1\nline2\n", "append to file")
+    os.delete("append.txt")
+
+function exists()
+    exists_yes = os.exists("main.c")
+    assert_equal(exists_yes, true, "main.c exists")
+    exists_no = os.exists("nonexistent.xyz")
+    assert_equal(exists_no, false, "nonexistent.xyz exists")
+
+function isfile()
+    result = os.isfile("main.c")
+    assert_equal(result, true, "main.c is file")
+    result = os.isfile("nonexistent")
+    assert_equal(result, false, "nonexistent is file")
+
+function isfolder()
+    result = os.isfolder("source")
+    assert_equal(result, true, "source is folder")
+    result = os.isfolder("nonexistent")
+    assert_equal(result, false, "nonexistent is folder")
+
+function create_delete_file()
+    result = os.create_file("create.txt")
+    assert_equal(result, true, "create file")
+    exists_yes = os.exists("create.txt")
+    assert_equal(exists_yes, true, "file exists after create")
+    result = os.delete("create.txt")
+    assert_equal(result, true, "delete file")
+    exists_no = os.exists("create.txt")
+    assert_equal(exists_no, false, "file exists after delete")
+
+function create_delete_folder()
+    result = os.create_folder("folder")
+    assert_equal(result, true, "create folder")
+    exists_yes = os.exists("folder")
+    assert_equal(exists_yes, true, "folder exists after create")
+    result = os.delete("folder")
+    assert_equal(result, true, "delete folder")
+    exists_no = os.exists("folder")
+    assert_equal(exists_no, false, "folder exists after delete")
+
+function rename_file()
+    os.write("old_name.txt", "test")
+    result = os.rename("old_name.txt", "new_name.txt")
+    assert_equal(result != false, true, "rename file")
+    old_exists = os.exists("old_name.txt")
+    new_exists = os.exists("new_name.txt")
+    assert_equal(old_exists, false, "old file gone")
+    assert_equal(new_exists, true, "new file exists")
+    os.delete("new_name.txt")
+
+function copy_file()
+    os.write("copy_src.txt", "copy test")
+    result = os.copy("copy_src.txt", "copy_dst.txt")
+    assert_equal(result != false, true, "copy file")
+    dst_exists = os.exists("copy_dst.txt")
+    assert_equal(dst_exists, true, "dst file exists")
+    content = os.read("copy_dst.txt")
+    assert_equal(content, "copy test", "copy content matches")
+    os.delete("copy_src.txt")
+    os.delete("copy_dst.txt")
+
+function move_file()
+    os.write("move_src.txt", "move test")
+    os.create_folder("move_dir")
+    result = os.move("move_src.txt", "move_dir/move_src.txt")
+    assert_equal(result != false, true, "move file")
+    old_exists = os.exists("move_src.txt")
+    new_exists = os.exists("move_dir/move_src.txt")
+    assert_equal(old_exists, false, "src file gone")
+    assert_equal(new_exists, true, "dst file exists")
+    os.delete("move_dir/move_src.txt")
+    os.delete("move_dir")
+
+function size_file()
+    size = os.size("main.c")
+    assert_equal(size != false, true, "file size returns value")
+    size_no = os.size("nonexistent")
+    assert_equal(size_no, false, "nonexistent size is false")
+
+function filetype()
+    result = os.filetype("main.c")
+    assert_equal(result != false, true, "filetype returns value")
+    result = os.filetype("nonexistent")
+    assert_equal(result, false, "nonexistent filetype is false")
+
+function time()
+    t = os.time()
+    assert_equal(type(t) == "number", true, "time returns number")
+
+function wait()
+    os.wait(0.01)
+    assert_equal(true, true, "wait completed")
+
+function get_current_folder()
+    result = os.get_current_folder()
+    assert_equal(result != false, true, "get_current_folder returns string")
+
+function access()
+    os.write("access.txt", "test")
+    result = os.access("access.txt", 438)
+    assert_equal(result, true, "access returns true")
+    result = os.access("no_file.txt", 438)
+    assert_equal(result, false, "access nonexistent returns false")
+    os.delete("access.txt")
+
+write_read_delete()
+append()
+exists()
+isfile()
+isfolder()
+create_delete_file()
+create_delete_folder()
+rename_file()
+copy_file()
+move_file()
+size_file()
+filetype()
+time()
+wait()
+get_current_folder()
+access()
+
+if tests_failed == 0
+    os.output("[OK] libraries/os.apex")

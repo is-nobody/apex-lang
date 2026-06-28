@@ -1,99 +1,109 @@
 import os
 
+tests_passed = 0
+tests_failed = 0
+
+function assert_equal(actual, expected, name)
+    if actual == expected
+        tests_passed = tests_passed + 1
+    else
+        tests_failed = tests_failed + 1
+        os.output("[ERROR] {name}: got {actual}, expected {expected}")
+
 function for_basic_forward()
-    os.output("Basic forward (1 to 5):")
+    result = ""
     for i = 1, 5
-        os.output(i)
-    os.output("Expected: 1 2 3 4 5")
+        result = "{result}{i}"
+    assert_equal(result, "12345", "basic forward 1 to 5")
 
 function for_forward_step()
-    os.output("Forward step 2 (0 to 10):")
+    result = ""
     for i = 0, 10, 2
-        os.output(i)
-    os.output("Expected: 0 2 4 6 8 10")
+        result = "{result}{i}"
+    assert_equal(result, "0246810", "forward step 2")
 
 function for_backward()
-    os.output("Backward (5 to 1):")
+    result = ""
     for i = 5, 1, -1
-        os.output(i)
-    os.output("Expected: 5 4 3 2 1")
+        result = "{result}{i}"
+    assert_equal(result, "54321", "backward 5 to 1")
 
 function for_backward_step()
-    os.output("Backward step 3 (10 to 1):")
+    result = ""
     for i = 10, 1, -3
-        os.output(i)
-    os.output("Expected: 10 7 4 1")
+        result = "{result}{i}"
+    assert_equal(result, "10741", "backward step 3")
 
 function for_single()
-    os.output("Single iteration (3 to 3):")
+    result = ""
     for i = 3, 3
-        os.output(i)
-    os.output("Expected: 3")
+        result = "{result}{i}"
+    assert_equal(result, "3", "single iteration")
 
 function for_with_break()
-    os.output("Break at 3 (1 to 5):")
+    result = ""
     for i = 1, 5
         if i == 3
             break
-        os.output(i)
-    os.output("Expected: 1 2")
+        result = "{result}{i}"
+    assert_equal(result, "12", "break at 3")
 
 function for_with_continue()
-    os.output("Skip 3 (1 to 5):")
+    result = ""
     for i = 1, 5
         if i == 3
             continue
-        os.output(i)
-    os.output("Expected: 1 2 4 5")
+        result = "{result}{i}"
+    assert_equal(result, "1245", "skip 3")
 
 function for_negative_forward()
-    os.output("Negative forward (-5 to -1):")
+    result = ""
     for i = -5, -1
-        os.output(i)
-    os.output("Expected: -5 -4 -3 -2 -1")
+        result = "{result}{i}"
+    assert_equal(result, "-5-4-3-2-1", "negative forward")
 
 function for_negative_backward()
-    os.output("Negative backward (-1 to -5):")
+    result = ""
     for i = -1, -5, -1
-        os.output(i)
-    os.output("Expected: -1 -2 -3 -4 -5")
+        result = "{result}{i}"
+    assert_equal(result, "-1-2-3-4-5", "negative backward")
 
 function for_zero_range()
-    os.output("Zero range (-2 to 2):")
+    result = ""
     for i = -2, 2
-        os.output(i)
-    os.output("Expected: -2 -1 0 1 2")
+        result = "{result}{i}"
+    assert_equal(result, "-2-1012", "zero range -2 to 2")
 
 function for_large_step()
-    os.output("Large step 5 (0 to 20):")
+    result = ""
     for i = 0, 20, 5
-        os.output(i)
-    os.output("Expected: 0 5 10 15 20")
+        result = "{result}{i}"
+    assert_equal(result, "05101520", "large step 5")
 
 function for_decimal_step()
-    os.output("Decimal step 0.5 (0 to 2):")
+    result = ""
     for i = 0, 2, 0.5
-        os.output(i)
-    os.output("Expected: 0 0.5 1.0 1.5 2.0")
+        result = "{result}{i}"
+    assert_equal(result, "00.511.52", "decimal step 0.5")
 
 function for_accumulator()
     sum = 0
     for i = 1, 5
         sum = sum + i
-    os.output("Sum 1 to 5 = {sum}, expected 15")
+    assert_equal(sum, 15, "sum 1 to 5")
 
 function for_string_build()
     result = ""
     for i = 1, 3
         result = "{result}{i}"
-    os.output("String build = {result}, expected 123")
+    assert_equal(result, "123", "string build")
 
 function for_nested()
-    os.output("Nested loops (1-2, 1-2):")
+    result = ""
     for i = 1, 2
         for j = 1, 2
-            os.output("i={i}, j={j}")
-    os.output("Expected: 1,1 1,2 2,1 2,2")
+            result = "{result}{i}{j}"
+    assert_equal(result, "11122122", "nested loops 1-2, 1-2")
 
 for_basic_forward()
 for_forward_step()
@@ -110,3 +120,6 @@ for_decimal_step()
 for_accumulator()
 for_string_build()
 for_nested()
+
+if tests_failed == 0
+    os.output("[OK] loops/for_counter.apex")

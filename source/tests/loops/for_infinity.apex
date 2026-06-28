@@ -1,17 +1,27 @@
 import os
 
+tests_passed = 0
+tests_failed = 0
+
+function assert_equal(actual, expected, name)
+    if actual == expected
+        tests_passed = tests_passed + 1
+    else
+        tests_failed = tests_failed + 1
+        os.output("[ERROR] {name}: got {actual}, expected {expected}")
+
 function inf_basic_break()
-    os.output("Basic infinite loop with break:")
+    result = ""
     counter = 1
     for
         if counter > 5
             break
-        os.output(counter)
+        result = "{result}{counter}"
         counter = counter + 1
-    os.output("Expected: 1 2 3 4 5")
+    assert_equal(result, "12345", "basic infinite with break")
 
 function inf_continue()
-    os.output("Infinite loop with continue (skip 3):")
+    result = ""
     counter = 1
     for
         if counter > 5
@@ -19,12 +29,11 @@ function inf_continue()
         if counter == 3
             counter = counter + 1
             continue
-        os.output(counter)
+        result = "{result}{counter}"
         counter = counter + 1
-    os.output("Expected: 1 2 4 5")
+    assert_equal(result, "1245", "infinite skip 3")
 
 function inf_accumulator()
-    os.output("Infinite loop accumulator:")
     sum = 0
     i = 1
     for
@@ -32,10 +41,10 @@ function inf_accumulator()
             break
         sum = sum + i
         i = i + 1
-    os.output("Sum = {sum}, expected 15")
+    assert_equal(sum, 15, "infinite accumulator")
 
 function inf_nested()
-    os.output("Nested infinite loops:")
+    result = ""
     i = 1
     for
         if i > 2
@@ -44,34 +53,34 @@ function inf_nested()
         for
             if j > 2
                 break
-            os.output("i={i}, j={j}")
+            result = "{result}{i}{j}"
             j = j + 1
         i = i + 1
-    os.output("Expected: 1,1 1,2 2,1 2,2")
+    assert_equal(result, "11122122", "nested infinite loops")
 
 function inf_do_while_simulation()
-    os.output("Simulating do-while (execute at least once):")
+    result = ""
     counter = 10
     for
-        os.output("Counter: {counter}")
+        result = "{result}{counter}"
         counter = counter + 1
         if counter > 10
             break
-    os.output("Expected: Counter: 10")
+    assert_equal(result, "10", "do-while simulation")
 
 function inf_multiple_breaks()
-    os.output("Multiple break conditions:")
+    result = ""
     i = 1
     for
         if i == 3
-            os.output("Hit 3, breaking")
+            result = "{result}3"
             break
         if i == 5
-            os.output("Hit 5, breaking")
+            result = "{result}5"
             break
-        os.output("i={i}")
+        result = "{result}{i}"
         i = i + 1
-    os.output("Expected: i=1 i=2 Hit 3, breaking")
+    assert_equal(result, "123", "multiple breaks")
 
 inf_basic_break()
 inf_continue()
@@ -79,3 +88,6 @@ inf_accumulator()
 inf_nested()
 inf_do_while_simulation()
 inf_multiple_breaks()
+
+if tests_failed == 0
+    os.output("[OK] loops/for_infinity.apex")

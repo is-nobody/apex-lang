@@ -1,98 +1,107 @@
 import os
 
+tests_passed = 0
+tests_failed = 0
+
+function assert_equal(actual, expected, name)
+    if actual == expected
+        tests_passed = tests_passed + 1
+    else
+        tests_failed = tests_failed + 1
+        os.output("[ERROR] {name}: got {actual}, expected {expected}")
+
 function for_basic_count_up()
-    os.output("Basic count up (1 to 5):")
+    result = ""
     counter = 1
     for counter <= 5
-        os.output(counter)
+        result = "{result}{counter}"
         counter = counter + 1
-    os.output("Expected: 1 2 3 4 5")
+    assert_equal(result, "12345", "basic count up 1 to 5")
 
 function for_count_down()
-    os.output("Count down (5 to 1):")
+    result = ""
     counter = 5
     for counter >= 1
-        os.output(counter)
+        result = "{result}{counter}"
         counter = counter - 1
-    os.output("Expected: 5 4 3 2 1")
+    assert_equal(result, "54321", "count down 5 to 1")
 
 function for_with_step()
-    os.output("Step 2 (0 to 10):")
+    result = ""
     counter = 0
     for counter <= 10
-        os.output(counter)
+        result = "{result}{counter}"
         counter = counter + 2
-    os.output("Expected: 0 2 4 6 8 10")
+    assert_equal(result, "0246810", "step 2, 0 to 10")
 
 function for_with_break()
-    os.output("Break at 3 (1 to 5):")
+    result = ""
     counter = 1
     for counter <= 5
         if counter == 3
             break
-        os.output(counter)
+        result = "{result}{counter}"
         counter = counter + 1
-    os.output("Expected: 1 2")
+    assert_equal(result, "12", "break at 3")
 
 function for_with_continue()
-    os.output("Skip 3 (1 to 5):")
+    result = ""
     counter = 1
     for counter <= 5
         if counter == 3
             counter = counter + 1
             continue
-        os.output(counter)
+        result = "{result}{counter}"
         counter = counter + 1
-    os.output("Expected: 1 2 4 5")
+    assert_equal(result, "1245", "skip 3")
 
 function for_single()
-    os.output("Single iteration (1 to 1):")
+    result = ""
     counter = 1
     for counter <= 1
-        os.output(counter)
+        result = "{result}{counter}"
         counter = counter + 1
-    os.output("Expected: 1")
+    assert_equal(result, "1", "single iteration")
 
 function for_zero()
-    os.output("Zero iterations (false condition):")
+    result = ""
     counter = 1
     for counter > 5
-        os.output(counter)
+        result = "{result}{counter}"
         counter = counter + 1
-    os.output("Expected: (no output)")
+    assert_equal(result, "", "zero iterations")
 
 function for_accumulator()
-    os.output("Sum with for (1 to 5):")
     sum = 0
     counter = 1
     for counter <= 5
         sum = sum + counter
         counter = counter + 1
-    os.output("Sum = {sum}, expected 15")
+    assert_equal(sum, 15, "sum 1 to 5")
 
 function for_negative()
-    os.output("Negative count up (-5 to -1):")
+    result = ""
     counter = -5
     for counter <= -1
-        os.output(counter)
+        result = "{result}{counter}"
         counter = counter + 1
-    os.output("Expected: -5 -4 -3 -2 -1")
+    assert_equal(result, "-5-4-3-2-1", "negative count up")
 
 function for_negative_decrement()
-    os.output("Negative count down (-1 to -5):")
+    result = ""
     counter = -1
     for counter >= -5
-        os.output(counter)
+        result = "{result}{counter}"
         counter = counter - 1
-    os.output("Expected: -1 -2 -3 -4 -5")
+    assert_equal(result, "-1-2-3-4-5", "negative count down")
 
 function for_doubling()
-    os.output("Doubling (1 to 16):")
+    result = ""
     counter = 1
     for counter <= 16
-        os.output(counter)
+        result = "{result}{counter}"
         counter = counter * 2
-    os.output("Expected: 1 2 4 8 16")
+    assert_equal(result, "124816", "doubling 1 to 16")
 
 for_basic_count_up()
 for_count_down()
@@ -105,3 +114,6 @@ for_accumulator()
 for_negative()
 for_negative_decrement()
 for_doubling()
+
+if tests_failed == 0
+    os.output("[OK] loops/for_condition.apex")

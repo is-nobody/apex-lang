@@ -1,59 +1,69 @@
+// for_table.apex
 import os
 
+tests_passed = 0
+tests_failed = 0
+
+function assert_equal(actual, expected, name)
+    if actual == expected
+        tests_passed = tests_passed + 1
+    else
+        tests_failed = tests_failed + 1
+        os.output("[ERROR] {name}: got {actual}, expected {expected}")
+
 function for_table_basic()
+    result = ""
     items = ["apple", "banana", "cherry"]
-    os.output("Basic table iteration:")
     for item = items
-        os.output(item)
-    os.output("Expected: apple banana cherry")
+        result = "{result}{item}"
+    assert_equal(result, "applebananacherry", "basic table iteration")
 
 function for_table_keys()
-    data = [name = "Alice", age = 30, city = "Wonderland"]
-    os.output("Table keys iteration:")
+    result = ""
+    data = ["name" = "Alice", "age" = 30, "city" = "Wonderland"]
     for key = data
-        os.output(key)
-    os.output("Expected: 30 Wonderland Alice")
+        result = "{result}{key}"
+    assert_equal(result, "30WonderlandAlice", "table keys iteration")
 
 function for_table_empty()
     empty = []
-    os.output("Empty table iteration:")
     count = 0
     for item = empty
         count = count + 1
-    os.output("Count = {count}, expected 0")
+    assert_equal(count, 0, "empty table iteration")
 
 function for_table_with_break()
+    result = ""
     items = [10, 20, 30, 40, 50]
-    os.output("Table iteration with break at 30:")
     for item = items
         if item == 30
             break
-        os.output(item)
-    os.output("Expected: 10 20")
+        result = "{result}{item}"
+    assert_equal(result, "1020", "table break at 30")
 
 function for_table_with_continue()
+    result = ""
     items = [1, 2, 3, 4, 5]
-    os.output("Table iteration skipping 3:")
     for item = items
         if item == 3
             continue
-        os.output(item)
-    os.output("Expected: 1 2 4 5")
+        result = "{result}{item}"
+    assert_equal(result, "1245", "table skip 3")
 
 function for_table_sum()
     numbers = [10, 20, 30]
     sum = 0
     for n = numbers
         sum = sum + n
-    os.output("Sum of table = {sum}, expected 60")
+    assert_equal(sum, 60, "sum of table")
 
 function for_table_nested()
+    result = ""
     matrix = [[1, 2], [3, 4]]
-    os.output("Nested table iteration:")
     for row = matrix
         for val = row
-            os.output(val)
-    os.output("Expected: 1 2 3 4")
+            result = "{result}{val}"
+    assert_equal(result, "1234", "nested table iteration")
 
 for_table_basic()
 for_table_keys()
@@ -62,3 +72,6 @@ for_table_with_break()
 for_table_with_continue()
 for_table_sum()
 for_table_nested()
+
+if tests_failed == 0
+    os.output("[OK] loops/for_table.apex")
