@@ -226,8 +226,6 @@ static const BuiltinSig BUILTINS[] = {
     {"codecs.csv_write", 1, 3, TYPE_TABLE},
     {"codecs.xml_read", 1, 1, TYPE_STRING},
     {"codecs.xml_write", 1, 1, TYPE_TABLE},
-    {"codecs.yaml_read", 1, 1, TYPE_STRING},
-    {"codecs.toml_read", 1, 1, TYPE_STRING},
     {"codecs.base_write", 1, 1, TYPE_STRING},
     {"codecs.base_read", 1, 1, TYPE_STRING},
     {"codecs.baseurl_write", 1, 1, TYPE_STRING},
