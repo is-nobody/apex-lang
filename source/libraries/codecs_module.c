@@ -29,7 +29,6 @@ static void base64_encode(const unsigned char* data, int len, char* out) {
         out[j++] = b64_chars[char_idx];
     }
     
-    // Padding
     while (j % 4 != 0) {
         out[j++] = '=';
     }
@@ -96,10 +95,6 @@ static void base64url_encode(const unsigned char* data, int len, char* out) {
         out[j++] = b64url_chars[char_idx];
     }
     
-    // No padding for URL safe usually, but keeping consistent with standard logic if needed. 
-    // Standard base64url often omits padding. Let's omit it for "url safe" convention unless specified otherwise.
-    // However, to keep decode simple and symmetric with standard logic that might expect padding, 
-    // we'll leave padding out as is common for URL safe, but decode must handle it.
     out[j] = '\0';
 }
 
@@ -187,26 +182,6 @@ static void sb_free(StringBuilder* sb) {
     sb->buffer = NULL;
     sb->length = 0;
 }
-
-// ========== Forward Declarations for JSON ==========
-static bool json_parse_value(VM* vm, const char** json_str, Value* out_value);
-static void json_encode_value(VM* vm, Value* value, StringBuilder* sb);
-
-// ========== Forward Declarations for CSV ==========
-typedef struct {
-    const char* data;
-    int pos;
-    int len;
-    char delimiter;
-} CsvParser;
-
-static char csv_peek(CsvParser* p);
-static char csv_advance(CsvParser* p);
-static bool csv_has_next(CsvParser* p);
-static char* csv_parse_field(CsvParser* p);
-static bool is_numeric(const char* str);
-static bool is_bool(const char* str);
-static Value csv_parse_value(const char* str);
 
 // ========== JSON Implementation ==========
 static void skip_ws(const char** s) {
@@ -428,39 +403,34 @@ static void json_encode_value(VM* vm, Value* value, StringBuilder* sb) {
                 break;
             }
             
-            bool is_array = true;
-            int count = 0;
-            for (int i = 0; i < t->capacity; i++) {
-                TableEntry* entry = t->entries[i];
-                while (entry) {
-                    count++;
-                    char* endptr;
-                    strtol(entry->key, &endptr, 10);
-                    if (*endptr != '\0') {
-                        is_array = false;
-                    }
-                    entry = entry->next;
-                }
-            }
+            // Check if it's an array (only array_part, no hash keys)
+            bool is_array = (t->array_count > 0 && t->hash_count == 0);
             
-            if (is_array && count > 0) {
+            if (is_array) {
+                // Output as JSON array
                 sb_append(sb, "[", 1);
-                for (int i = 1; i <= count; i++) {
-                    if (i > 1) sb_append(sb, ", ", 2);
-                    char key[32];
-                    snprintf(key, sizeof(key), "%d", i);
-                    Value val;
-                    if (table_get(t, key, &val)) {
-                        json_encode_value(vm, &val, sb);
-                        value_decref(&val);
-                    } else {
-                        sb_append(sb, "null", 4);
-                    }
+                for (int i = 0; i < t->array_count; i++) {
+                    if (i > 0) sb_append(sb, ", ", 2);
+                    json_encode_value(vm, &t->array_part[i], sb);
                 }
                 sb_append(sb, "]", 1);
             } else {
+                // Output as JSON object
                 sb_append(sb, "{", 1);
                 bool first = true;
+                
+                // First array_part
+                for (int i = 0; i < t->array_count; i++) {
+                    if (!first) sb_append(sb, ", ", 2);
+                    first = false;
+                    char key[32];
+                    snprintf(key, sizeof(key), "%d", i + 1);
+                    append_escaped(sb, key);
+                    sb_append(sb, ": ", 2);
+                    json_encode_value(vm, &t->array_part[i], sb);
+                }
+                
+                // Then hash part
                 for (int i = 0; i < t->capacity; i++) {
                     TableEntry* entry = t->entries[i];
                     while (entry) {
@@ -483,6 +453,27 @@ static void json_encode_value(VM* vm, Value* value, StringBuilder* sb) {
 }
 
 // ========== CSV Implementation ==========
+typedef struct {
+    const char* data;
+    int pos;
+    int len;
+    char delimiter;
+} CsvParser;
+
+static char csv_peek(CsvParser* p) {
+    if (!p->data || p->pos >= p->len) return '\0';
+    return p->data[p->pos];
+}
+
+static char csv_advance(CsvParser* p) {
+    if (!p->data || p->pos >= p->len) return '\0';
+    return p->data[p->pos++];
+}
+
+static bool csv_has_next(CsvParser* p) {
+    return p->data && p->pos < p->len;
+}
+
 static bool is_numeric(const char* str) {
     if (!str || *str == '\0') return false;
     char* endptr;
@@ -503,20 +494,6 @@ static Value csv_parse_value(const char* str) {
         return vm_make_bool(strcmp(str, "true") == 0);
     }
     return vm_make_string(str);
-}
-
-static char csv_peek(CsvParser* p) {
-    if (!p->data || p->pos >= p->len) return '\0';
-    return p->data[p->pos];
-}
-
-static char csv_advance(CsvParser* p) {
-    if (!p->data || p->pos >= p->len) return '\0';
-    return p->data[p->pos++];
-}
-
-static bool csv_has_next(CsvParser* p) {
-    return p->data && p->pos < p->len;
 }
 
 static char* csv_parse_field(CsvParser* p) {
@@ -573,7 +550,7 @@ static char* csv_parse_field(CsvParser* p) {
     return result;
 }
 
-// ========== XML Helpers (Self-made) ==========
+// ========== XML Implementation ==========
 typedef struct {
     const char* p;
 } XmlParser;
@@ -596,10 +573,10 @@ static void xml_parse_attrs(VM* vm, XmlParser* xp, Table* t) {
         
         xml_skip_ws(xp);
         if (*xp->p != '=') break;
-        xp->p++; // skip =
+        xp->p++;
         xml_skip_ws(xp);
         if (*xp->p != '"') break;
-        xp->p++; // skip "
+        xp->p++;
         
         StringBuilder val_sb;
         sb_init(&val_sb, 64);
@@ -618,12 +595,10 @@ static void xml_parse_attrs(VM* vm, XmlParser* xp, Table* t) {
     }
 }
 
-static Value xml_parse_element(VM* vm, XmlParser* xp);
-
 static Value xml_parse_element(VM* vm, XmlParser* xp) {
     xml_skip_ws(xp);
     if (*xp->p != '<') return vm_make_bool(false);
-    xp->p++; // skip <
+    xp->p++;
     
     char tag[128] = {0};
     int ti = 0;
@@ -648,12 +623,10 @@ static Value xml_parse_element(VM* vm, XmlParser* xp) {
         xp->p++;
         if (self_closing) return elem;
         
-        // Parse children
         int index = 1;
         while (*xp->p) {
             if (*xp->p == '<') {
                 if (*(xp->p + 1) == '/') {
-                    // End tag
                     xp->p += 2;
                     while (*xp->p && *xp->p != '>') xp->p++;
                     if (*xp->p == '>') xp->p++;
@@ -668,7 +641,6 @@ static Value xml_parse_element(VM* vm, XmlParser* xp) {
                     }
                 }
             } else {
-                // Text content
                 StringBuilder text_sb;
                 sb_init(&text_sb, 64);
                 while (*xp->p && *xp->p != '<') {
@@ -688,7 +660,6 @@ static Value xml_parse_element(VM* vm, XmlParser* xp) {
     return vm_make_bool(false);
 }
 
-// XML Write Helper
 static void xml_write_node(VM* vm, Value v, int depth, StringBuilder* sb) {
     if (v.type != VAL_TABLE) return;
     
@@ -703,7 +674,6 @@ static void xml_write_node(VM* vm, Value v, int depth, StringBuilder* sb) {
     sb_append(sb, tag_val.string->chars, tag_val.string->length);
     value_decref(&tag_val);
     
-    // Write attributes
     for (int i = 0; i < v.table->capacity; i++) {
         TableEntry* e = v.table->entries[i];
         while (e) {
@@ -718,7 +688,6 @@ static void xml_write_node(VM* vm, Value v, int depth, StringBuilder* sb) {
         }
     }
     
-    // Check for children or text
     bool has_children = false;
     Value text_val;
     bool has_text = table_get(v.table, "#text", &text_val);
@@ -757,7 +726,6 @@ static void xml_write_node(VM* vm, Value v, int depth, StringBuilder* sb) {
         
         for (int i = 0; i < depth; i++) sb_append(sb, "  ", 2);
         sb_append(sb, "</", 2);
-        // Re-get tag name for closing
         if (table_get(v.table, "__tag", &tag_val)) {
             sb_append(sb, tag_val.string->chars, tag_val.string->length);
             value_decref(&tag_val);
@@ -770,17 +738,14 @@ static void xml_write_node(VM* vm, Value v, int depth, StringBuilder* sb) {
 
 // ========== Public API ==========
 bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
-    if (arg_count < 1 || args[0].type != VAL_STRING) {
-        *result = vm_make_bool(false);
-        return true;
-    }
-    
-    const char* input = args[0].string->chars;
-    int input_len = args[0].string->length;
-
-    // --- Base64 Functions ---
+    // codecs.base_write
     if (strcmp(name, "codecs.base_write") == 0) {
-        // Max size is ceil(len/3)*4 + 1
+        if (arg_count < 1 || args[0].type != VAL_STRING) {
+            *result = vm_make_bool(false);
+            return true;
+        }
+        const char* input = args[0].string->chars;
+        int input_len = args[0].string->length;
         int out_size = ((input_len + 2) / 3) * 4 + 1;
         char* out = (char*)malloc(out_size);
         if (!out) { *result = vm_make_bool(false); return true; }
@@ -790,7 +755,14 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
     
+    // codecs.base_read
     if (strcmp(name, "codecs.base_read") == 0) {
+        if (arg_count < 1 || args[0].type != VAL_STRING) {
+            *result = vm_make_bool(false);
+            return true;
+        }
+        const char* input = args[0].string->chars;
+        int input_len = args[0].string->length;
         unsigned char* out = (unsigned char*)malloc(input_len + 1);
         if (!out) { *result = vm_make_bool(false); return true; }
         int out_len = 0;
@@ -804,8 +776,14 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
 
+    // codecs.baseurl_write
     if (strcmp(name, "codecs.baseurl_write") == 0) {
-        // Max size is ceil(len/3)*4 + 1
+        if (arg_count < 1 || args[0].type != VAL_STRING) {
+            *result = vm_make_bool(false);
+            return true;
+        }
+        const char* input = args[0].string->chars;
+        int input_len = args[0].string->length;
         int out_size = ((input_len + 2) / 3) * 4 + 1;
         char* out = (char*)malloc(out_size);
         if (!out) { *result = vm_make_bool(false); return true; }
@@ -815,7 +793,14 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
     
+    // codecs.baseurl_read
     if (strcmp(name, "codecs.baseurl_read") == 0) {
+        if (arg_count < 1 || args[0].type != VAL_STRING) {
+            *result = vm_make_bool(false);
+            return true;
+        }
+        const char* input = args[0].string->chars;
+        int input_len = args[0].string->length;
         unsigned char* out = (unsigned char*)malloc(input_len + 1);
         if (!out) { *result = vm_make_bool(false); return true; }
         int out_len = 0;
@@ -829,32 +814,35 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
 
-    // --- JSON ---
+    // codecs.json_read
     if (strcmp(name, "codecs.json_read") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_STRING) {
-            const char* json_str = args[0].string->chars;
-            if (json_parse_value(vm, &json_str, result)) {
-                return true;
-            }
+        if (arg_count < 1 || args[0].type != VAL_STRING) {
+            *result = vm_make_bool(false);
+            return true;
+        }
+        const char* json_str = args[0].string->chars;
+        if (json_parse_value(vm, &json_str, result)) {
+            return true;
         }
         *result = vm_make_bool(false);
         return true;
     }
     
+    // codecs.json_write
     if (strcmp(name, "codecs.json_write") == 0) {
-        if (arg_count >= 1) {
-            StringBuilder sb;
-            sb_init(&sb, 256);
-            json_encode_value(vm, &args[0], &sb);
-            *result = vm_make_string(sb.buffer);
-            sb_free(&sb);
+        if (arg_count < 1) {
+            *result = vm_make_string("");
             return true;
         }
-        *result = vm_make_string("");
+        StringBuilder sb;
+        sb_init(&sb, 256);
+        json_encode_value(vm, &args[0], &sb);
+        *result = vm_make_string(sb.buffer);
+        sb_free(&sb);
         return true;
     }
 
-    // --- CSV ---
+    // codecs.csv_read
     if (strcmp(name, "codecs.csv_read") == 0) {
         if (arg_count < 1 || args[0].type != VAL_STRING) {
             *result = vm_make_bool(false);
@@ -943,6 +931,7 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
     
+    // codecs.csv_write
     if (strcmp(name, "codecs.csv_write") == 0) {
         if (arg_count < 1 || args[0].type != VAL_TABLE) {
             *result = vm_make_bool(false);
@@ -974,7 +963,6 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         StringBuilder sb;
         sb_init(&sb, 256);
         
-        // Write Header
         if (has_header && headers && header_count > 0) {
             for (int i = 0; i < header_count; i++) {
                 if (i > 0) sb_append_char(&sb, delimiter);
@@ -994,7 +982,6 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             sb_append(&sb, "\n", 1);
         }
         
-        // Write Rows
         for (int r = 1; r <= row_count; r++) {
             char key[32];
             snprintf(key, sizeof(key), "%d", r);
@@ -1021,7 +1008,7 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
                 if (needs_quote) {
                     sb_append_char(&sb, '"');
                     for (const char* p = str_val; *p; p++) {
-                        if (*p == '"') sb_append_char(&sb, '"'); // Correct escaping: " -> ""
+                        if (*p == '"') sb_append_char(&sb, '"');
                         sb_append_char(&sb, *p);
                     }
                     sb_append_char(&sb, '"');
@@ -1029,7 +1016,6 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
                     sb_append(&sb, str_val, strlen(str_val));
                 }
             }
-            // Only add newline if NOT the last row
             if (r < row_count) sb_append(&sb, "\n", 1);
             value_decref(&row_val);
         }
@@ -1040,39 +1026,37 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
 
-    // --- XML ---
+    // codecs.xml_read
     if (strcmp(name, "codecs.xml_read") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_STRING) {
-            const char* xml = args[0].string->chars;
-
-            XmlParser xp;
-            xp.p = xml;
-            
-            Value root = xml_parse_element(vm, &xp);
-            if (root.type == VAL_TABLE) {
-                *result = root;
-            } else {
-                value_decref(&root);
-                *result = vm_make_bool(false);
-            }
+        if (arg_count < 1 || args[0].type != VAL_STRING) {
+            *result = vm_make_bool(false);
             return true;
         }
-        *result = vm_make_bool(false);
+        const char* xml = args[0].string->chars;
+        XmlParser xp;
+        xp.p = xml;
+        
+        Value root = xml_parse_element(vm, &xp);
+        if (root.type == VAL_TABLE) {
+            *result = root;
+        } else {
+            value_decref(&root);
+            *result = vm_make_bool(false);
+        }
         return true;
     }
 
+    // codecs.xml_write
     if (strcmp(name, "codecs.xml_write") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_TABLE) {
-            StringBuilder sb;
-            sb_init(&sb, 256);
-            
-            xml_write_node(vm, args[0], 0, &sb);
-
-            *result = vm_make_string(sb.buffer);
-            sb_free(&sb);
+        if (arg_count < 1 || args[0].type != VAL_TABLE) {
+            *result = vm_make_bool(false);
             return true;
         }
-        *result = vm_make_bool(false);
+        StringBuilder sb;
+        sb_init(&sb, 256);
+        xml_write_node(vm, args[0], 0, &sb);
+        *result = vm_make_string(sb.buffer);
+        sb_free(&sb);
         return true;
     }
 
