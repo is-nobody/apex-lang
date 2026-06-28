@@ -1364,27 +1364,29 @@ static ASTNode* parse_table_literal(Parser* parser) {
     Token* open_bracket = advance(parser); // consume '['
     int line = open_bracket->line;
     int column = open_bracket->column;
-    
+
     ASTNodeList* items = ast_list_create();
     ASTNodeList* key_values = ast_list_create();
     bool has_key_values = false;
+
     skip_newlines(parser);
 
     if (!check(parser, TOKEN_RBRACKET)) {
         while (true) {
             skip_newlines(parser);
 
-            bool is_key = check(parser, TOKEN_IDENTIFIER) ||
-                          check(parser, TOKEN_STRING) ||
-                          check(parser, TOKEN_NUMBER);
+            // Allow IDENTIFIER, STRING, or NUMBER as key if followed by '='
+            bool is_key = (check(parser, TOKEN_IDENTIFIER) || 
+                           check(parser, TOKEN_STRING) || 
+                           check(parser, TOKEN_NUMBER)) &&
+                          check_next(parser, TOKEN_EQUAL);
 
-            if (is_key && check_next(parser, TOKEN_EQUAL)) {
+            if (is_key) {
                 has_key_values = true;
                 Token* key_token = advance(parser);
                 advance(parser); // consume '='
 
                 // CRITICAL: Always create STRING keys for tables
-                // [red = val] and ["red" = val] must produce identical keys
                 ASTNode* key_node = ast_create_literal_string(
                     key_token->value, key_token->line, key_token->column);
 
@@ -1393,7 +1395,13 @@ static ASTNode* parse_table_literal(Parser* parser) {
                 ast_list_add(key_values, kv_node);
             } else {
                 if (has_key_values) {
-                    parser_error(parser, "Cannot mix ordered items after key-value pairs");
+                    // FIX: Report error at the location of the current token (the mixed item)
+                    Token* bad_token = current_token(parser);
+                    int len = bad_token->value ? (int)strlen(bad_token->value) : 1;
+                    if (bad_token->type == TOKEN_STRING) len += 2; // Account for quotes
+                    
+                    parser_error_at(parser, bad_token->line, bad_token->column, len,
+                                    "Cannot mix ordered items after key-value pairs");
                 }
                 ASTNode* item = parse_expression(parser);
                 ast_list_add(items, item);
@@ -1407,6 +1415,7 @@ static ASTNode* parse_table_literal(Parser* parser) {
 
     skip_newlines(parser);
     consume(parser, TOKEN_RBRACKET, "Expected ']' after table literal");
+
     return ast_create_table_literal(items, key_values, line, column);
 }
 
