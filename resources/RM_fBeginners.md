@@ -12,7 +12,7 @@ This manual is written with step-by-step learning in mind and strives to be mini
 - [1.2 Booleans](#12-booleans)
 - [1.3 Strings](#13-strings)
 - [1.4 Tables](#14-tables)
-- [1.5 Type Conversion](#15-table-conversion)
+- [1.5 Type Functions](#15-type-functions)
 
 ### 2. Operators
 - [2.1 Arithmetic Operators](#21-arithmetic-operators)
@@ -26,10 +26,11 @@ This manual is written with step-by-step learning in mind and strives to be mini
 
 ### 4. For Loops
 - [4.1 For Counter](#41-for-counter)
-- [4.2 For Condition](#42-for-condition)
-- [4.3 Break](#43-break)
-- [4.4 For Infinity](#44-for-infinity)
-- [4.5 Continue](#45-continue)
+- [4.2 For Table Iteration](#42-for-table-iteration)
+- [4.3 For Condition](#43-for-condition)
+- [4.4 Break](#44-break)
+- [4.5 For Infinity](#45-for-infinity)
+- [4.6 Continue](#46-continue)
 
 ### 5. Functions
 - [5.1 Function Statement](#51-function-statement)
@@ -320,89 +321,89 @@ Apex captures the text exactly as you typed it — line breaks, indentation, eve
 A table is Apex's universal container. Think of it as a box that can hold multiple values. Need a list of names? Use a table. Need to store information about a user? Use a table. Need both in one place? Table. Tables are flexible — they work as ordered lists and key-value pairs. You can even mix both styles in the same table.
 
 ### Creating Tables
-Tables are written inside parentheses `( )`. Values are separated by commas.
+Tables are written inside square brackets `[ ]`. Values are separated by commas.
 
 ```apex
-empty = ()                               // empty table — nothing inside
-fruits = ("apple", "banana", "orange")   // three items
-numbers = (10, 20, 30, 40)               // four numbers
-mixed = (42, "hello", true)              // different types together
+empty = []                               // empty table — nothing inside
+fruits = ["apple", "banana", "orange"]   // three items
+numbers = [10, 20, 30, 40]               // four numbers
+mixed = [42, "hello", true]              // different types together
 ```
 
 ### Ordered Lists
 When you list values without keys, you create an ordered list. Each value has a position — starting from 1.
 
 ```apex
-colors = ("red", "green", "blue")
+colors = ["red", "green", "blue"]
 // Access by position
-first_color = colors.1      // "red"
-second_color = colors.2     // "green"
-third_color = colors.3      // "blue"
+first_color = colors[1]      // "red"
+second_color = colors[2]     // "green"
+third_color = colors[3]      // "blue"
 ```
 
 ### Key-Value Pairs
 When you want to label each value with a name, use keys. Keys and values are connected with `=`. You can't use numbers as keys, because numbers are reserved and using for calling items without keys.
 
 ```apex
-user = (
+user = [
     name = "Alice",
     age = 30,
     active = true
-)
+]
 ```
 
 Keys are written without quotes. Apex recognizes them as names, not strings. Now you can access values by their key:
 
 ```apex
-user_name = user.name         // "Alice"
-user_age = user.age           // 30
-user_active = user.active     // true
+user_name = user["name"]         // "Alice"
+user_age = user["age"]           // 30
+user_active = user["active"]     // true
 ```
 
 ### Working with Keys
 Once a table exists, you can working with keys:
 
 ```apex
-user = (name = "Alice")
+user = [name = "Alice"]
 // Add a new key
-user.age = 30
-user.city = "Dubai"
-user.active = true
+user["age"] = 30
+user["city"] = "Dubai"
+user["active"] = true
 // Now user has four keys
-// (name = "Alice", age = 30, city = "Dubai", active = true)
+// [name = "Alice", age = 30, city = "Dubai", active = true]
 ```
 
-Updating a value works the same way — just assign a new value to an existing key or position. If you access a non-existent key, you will get an error. If you need the `0` item, you will get an error. To remove an item from a table, use the `table.remove()` function from the table library *(see section 9.4)*.
+Updating a value works the same way — just assign a new value to an existing key or position. If you access a non-existent key, you will get an `false`. To remove an item from a table, use the `table.remove()` function from the table library (see section 7.5).
 
 ### Mixed Tables
 You can skip this for now and come back later. Tables can combine ordered items and key-value pairs in the same table. Ordered items come first, then key-value pairs:
 
 ```apex
-person = ("Alice", "Manager", department = "Engineering", years = 5)
+person = ["Alice", "Manager", department = "Engineering", years = 5]
 // Access ordered items by position
-name = person.1               // "Alice"
-role = person.2               // "Manager"
+name = person[1]               // "Alice"
+role = person[2]               // "Manager"
 // Access key-value pairs by key
-dept = person.department      // "Engineering"
-experience = person.years     // 5
+dept = person["department"]      // "Engineering"
+experience = person["years"]     // 5
 ```
 
 ### Tables Inside Tables
 You can skip this for now and come back later. Tables can contain other tables. This lets you build complex data structures:
 
 ```apex
-company = (
+company = [
     name = "Apex",
-    employees = ("Alice", "Bob", "Charlie"),
-    address = (
+    employees = ["Alice", "Bob", "Charlie"],
+    address = [
         street = "1 Sheikh Mohammed bin Rashid Boulevard",
         city = "Dubai"
-    )
-)
+    ]
+]
 // Access nested values
-company_name = company.name                     // "Apex"
-first_employee = company.employees.1            // "Alice"
-city = company.address.city                     // "Dubai"
+company_name = company["name"]                     // "Apex"
+first_employee = company["employees"][1]            // "Alice"
+city = company["address"]["city"]                     // "Dubai"
 ```
 
 ## 1.5 Type Conversion
@@ -442,6 +443,16 @@ string(42)      // "42"
 string(3.14)    // "3.14"
 string(true)    // "true"
 string(false)   // "false"
+```
+
+### type()
+Returns the name of the variable's type as a string. This is useful for debugging or checking what kind of data you are working with.
+
+```apex
+type(42)        // "number"
+type("hello")   // "string"
+type(true)      // "boolean"
+type([1, 2])    // "table"
 ```
 
 # 2. Operators
@@ -631,10 +642,32 @@ Full precedence order (highest to lowest):
 Every program makes decisions. Should this user get access? Is the score high enough? Does the file exist? If statements are how you tell Apex to make these decisions. Without if statements, your program runs the same way every time — like a train on a track. With if statements, it becomes a car that can turn left or right depending on what happens.
 
 | Statement | When It Runs |
-|-----------|---------------|
+|-----------|--------------|
 | `if` | Condition is `true` |
 | `elif` | Previous conditions were `false` AND this condition is `true` |
 | `else` | All previous conditions were `false` |
+
+### Explicit Conditions Required
+In Apex, conditions must be **explicitly boolean**. You cannot use variables directly as conditions (no "truthy" or "falsy" values). 
+
+**This does NOT work:**
+```apex
+import os
+x = 10
+if x          // ERROR: If condition must be boolean, got number
+    os.output("Hello")
+```
+
+**You MUST write:**
+```apex
+import os
+x = 10
+if x == true       // Correct for booleans
+if x != false      // Also correct
+if x > 5           // Correct because comparison returns boolean
+```
+
+Always use comparison operators (`==`, `!=`, `<`, `>`, etc.) or logical operators (`and`, `or`, `not`) to ensure your condition results in a `boolean` value.
 
 ## 3.1 If Statement
 We don't have a user, and we check: if he doesn't exist, then display output about him. But if we have user, we does nothing and moves on.
@@ -683,11 +716,12 @@ else
 Since `score` is 55, the `if` condition is `false`, so the `else` block runs.
 
 # 4. For Loops
-Sometimes you need to do the same thing many times. Print "Hello" ten times. Keep asking for input until the user types something valid. Count down from 10 to 0. Apex gives you the `for` loop with three different syntaxes to handle all these situations.
+Sometimes you need to do the same thing many times. Print "Hello" ten times. Keep asking for input until the user types something valid. Count down from 10 to 0. Apex gives you the `for` loop with four different syntaxes to handle all these situations.
 
 | Syntax | When to Use | Example |
 |--------|-------------|---------|
 | `for x = start, end` | You know the exact range | `for i = 1, 5` |
+| `for k = table` | Iterate over table items | `for k = my_table` |
 | `for condition` | Repeat while condition is true | `for counter <= 10` |
 | `for` | Infinite loop (use `break` to exit) | `for` |
 
@@ -704,7 +738,7 @@ for i = 1, 5
 
 This prints numbers 1 through 5. The variable `i` automatically takes each value: `1`, `2`, `3`, `4`, `5`. The loop stops when `i` exceeds the `end` value.
 
-### Steps
+**Steps**
 You can control how much the loop variable increases or decreases by adding a third number — the `step`.
 
 ```apex
@@ -712,6 +746,7 @@ import os
 for i = 0, 10, 2
     os.output(i)
 ```
+
 This prints even numbers: 0, 2, 4, 6, 8, 10. It starts at `0`, ends at `10`, and adds `2` each time.
 
 For counting down use a negative step to count backward:
@@ -724,7 +759,26 @@ for i = 5, 1, -1
 
 This prints 5, 4, 3, 2, 1. The loop stops when the variable goes below the `end` value.
 
-## 4.2 For Condition
+## 4.2 For Table Iteration
+You can iterate over any table using `for key = table`. This will give you access to both the key and the value inside the loop.
+
+```apex
+import os
+scores = [alice = 95, bob = 82, charlie = 90]
+
+for name = scores
+    os.output("{name}: {scores[name]}")
+```
+
+Output:
+
+```text
+alice: 95
+bob: 82
+charlie: 90
+```
+
+## 4.3 For Condition
 When you don't know how many times you need to repeat, use a condition loop. As long as the condition is `true`, the loop keeps running.
 
 ```apex
@@ -740,7 +794,7 @@ This prints 1, 2, 3, 4, 5. The loop checks the condition before each iteration. 
 
 **Important:** You must manually update the variable in the condition, or you'll create an infinite loop!
 
-## 4.3 Break
+## 4.4 Break
 `break` exits the loop immediately — same as in `while`.
 
 ```apex
@@ -751,11 +805,12 @@ for i = 1, 10
         break
     os.output(i)
 ```
+
 This prints 1, 2, 3, 4. When `i` becomes 5, `break` stops the loop entirely. Nothing after it runs for that iteration.
 
 Use `break` when you found what you were looking for and don't need to continue.
 
-## 4.4 For Infinity
+## 4.5 For Infinity
 When you just write `for` with no condition, the loop runs forever until you explicitly stop it with `break`.
 
 ```apex
@@ -775,7 +830,7 @@ Infinite loops are useful when:
 - The exit condition is complex or checked in the middle of the loop
 - You're waiting for user input or an external event
 
-## 4.5 Continue
+## 4.6 Continue
 `continue` skips the rest of the current iteration and moves to the next number.
 
 ```apex
@@ -785,6 +840,7 @@ for i = 1, 5
         continue
     os.output(i)
 ```
+
 This prints 1, 2, 4, 5. When `i` is 3, `continue` jumps to the next value (`4`) without running `os.output()`.
 
 Use `continue` when you want to skip certain values but keep looping through the rest.
@@ -872,7 +928,7 @@ Why return instead of just output? Because output shows text on screen. Returnin
 // Output — you lose the value
 function add_and_print(a, b)
     os.output(a + b)
-total = add_and_print(5, 3)   // total becomes 0 (nothing returned)
+total = add_and_print(5, 3)   // total becomes false (nothing returned)
 // Returning — you keep the value
 function add_and_return(a, b)
     return a + b
