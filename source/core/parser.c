@@ -768,11 +768,26 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
     if (left_type == TYPE_UNKNOWN || right_type == TYPE_UNKNOWN) return TYPE_UNKNOWN;
 
     switch (node->binary.op) {
-        case TOKEN_PLUS: case TOKEN_MINUS: case TOKEN_STAR: case TOKEN_SLASH: case TOKEN_PERCENT:
+        case TOKEN_PLUS:
+            // No string concatenation allowed
+            if (left_type == TYPE_STRING || right_type == TYPE_STRING) {
+                parser_error_at(parser, node->line, node->column, get_node_len(node),
+                    "Arithmetic '+' requires numbers. For strings, use interpolation.");
+                return TYPE_ERROR;
+            }
             if (!is_numeric_type(left_type) || !is_numeric_type(right_type)) {
                 parser_error_at(parser, node->binary.left->line, node->binary.left->column, get_node_len(node->binary.left),
-                                "Arithmetic operator '%s' requires number operands, got %s and %s",
-                                binary_op_name(node->binary.op), type_name(left_type), type_name(right_type));
+                    "Arithmetic operator '+' requires number operands, got %s and %s",
+                    type_name(left_type), type_name(right_type));
+                return TYPE_ERROR;
+            }
+            return TYPE_NUMBER;
+            
+        case TOKEN_MINUS: case TOKEN_STAR: case TOKEN_SLASH: case TOKEN_PERCENT:
+            if (!is_numeric_type(left_type) || !is_numeric_type(right_type)) {
+                parser_error_at(parser, node->binary.left->line, node->binary.left->column, get_node_len(node->binary.left),
+                    "Arithmetic operator '%s' requires number operands, got %s and %s",
+                    binary_op_name(node->binary.op), type_name(left_type), type_name(right_type));
                 return TYPE_ERROR;
             }
             return TYPE_NUMBER;

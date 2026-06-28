@@ -786,7 +786,7 @@ static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node) {
     if (node->var_assign.access_path) {
         return codegen_index_assign(cg, node);
     }
-    
+
     // Safety check for invalid AST
     if (!node->var_assign.name) {
         return codegen_expression(cg, node->var_assign.value);
@@ -794,24 +794,8 @@ static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node) {
 
     int local_reg = find_local(cg, node->var_assign.name);
     if (local_reg >= 0) {
-        // === OPTIMIZATION 1: i = i + 1 -> OP_ADD_IMM ===
-        if (node->var_assign.value->type == AST_BINARY &&
-            node->var_assign.value->binary.op == TOKEN_PLUS) {
-            ASTNode* left = node->var_assign.value->binary.left;
-            ASTNode* right = node->var_assign.value->binary.right;
-            
-            // Check for string append optimization
-            if (left->type == AST_IDENTIFIER &&
-                strcmp(left->identifier.name, node->var_assign.name) == 0 &&
-                right->type == AST_LITERAL_STRING) {
-                int right_reg = codegen_literal_string(cg, right);
-                emit(cg, INST(OP_STRING_APPEND, local_reg, right_reg, 0), node->line);
-                free_register(cg, right_reg);
-                return local_reg;
-            }
-        }
-
-        // === OPTIMIZATION 2: x = x + y -> OP_ADD ===
+        // === OPTIMIZATION: Numeric Self-Assignment (x = x op y) ===
+        // Note: The parser now guarantees that TOKEN_PLUS is only used for numbers.
         if (node->var_assign.value->type == AST_BINARY) {
             ASTNode* bin = node->var_assign.value;
             if (bin->binary.left->type == AST_IDENTIFIER &&
@@ -819,11 +803,12 @@ static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node) {
                 
                 int right_reg = codegen_expression(cg, bin->binary.right);
                 Opcode op = OP_NOP;
+                
                 switch (bin->binary.op) {
-                    case TOKEN_PLUS: op = OP_ADD; break;
-                    case TOKEN_MINUS: op = OP_SUB; break;
-                    case TOKEN_STAR: op = OP_MUL; break;
-                    case TOKEN_SLASH: op = OP_DIV; break;
+                    case TOKEN_PLUS:   op = OP_ADD; break;
+                    case TOKEN_MINUS:  op = OP_SUB; break;
+                    case TOKEN_STAR:   op = OP_MUL; break;
+                    case TOKEN_SLASH:  op = OP_DIV; break;
                     case TOKEN_PERCENT: op = OP_MOD; break;
                     default: break;
                 }
@@ -837,6 +822,7 @@ static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node) {
             }
         }
 
+        // Standard assignment
         int value_reg = codegen_expression(cg, node->var_assign.value);
         emit(cg, INST(OP_MOVE, local_reg, value_reg, 0), node->line);
         free_register(cg, value_reg);
