@@ -961,8 +961,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_TABLE_GET_CONST]  = &&OP_TABLE_GET_CONST_LABEL,
         [OP_TABLE_APPEND]     = &&OP_TABLE_APPEND_LABEL,
         [OP_CONCAT]           = &&OP_CONCAT_LABEL,
-        [OP_STRING_INTERP]    = &&OP_STRING_INTERP_LABEL,
-        [OP_FOR_PREP]         = &&OP_FOR_PREP_LABEL,
         [OP_POP_ITER]         = &&OP_POP_ITER_LABEL,
         [OP_FOR_INIT]         = &&OP_FOR_INIT_LABEL,
         [OP_FOR_NEXT]         = &&OP_FOR_NEXT_LABEL,
@@ -974,7 +972,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_JUMP_IF_NEQ]      = &&OP_JUMP_IF_NEQ_LABEL,
         [OP_PUSH_ARG]         = &&OP_PUSH_ARG_LABEL,
         [OP_HALT]             = &&OP_HALT_LABEL,
-        [OP_ADD_IMM]          = &&OP_ADD_IMM_LABEL,
         [OP_LOAD_BOOL]        = &&OP_LOAD_BOOL_LABEL,
         [OP_LOAD_CONST_NUM]   = &&OP_LOAD_CONST_NUM_LABEL,
     };
@@ -1555,19 +1552,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
-    OP_STRING_INTERP_LABEL: ip++; goto *dispatch_table[ip->opcode];
-    OP_FOR_PREP_LABEL: {
-        int iter_reg = ip->operands[0];
-        if (vm->registers[iter_reg].type == VAL_TABLE) {
-            Table* table = vm->registers[iter_reg].table;
-            Value start_val;
-            if (table_get(table, "__start", &start_val) && start_val.type == VAL_NUMBER) {
-                table_set(table, "__current", vm_make_number(start_val.number));
-                value_decref(&start_val);
-            }
-        }
-        ip++; goto *dispatch_table[ip->opcode];
-    }
     OP_FOR_INIT_LABEL: {
         int var_reg = ip->operands[0];
         int end_reg = ip->operands[1];
@@ -1707,13 +1691,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_HALT_LABEL: vm->running = false; return !vm->had_error;
-    OP_ADD_IMM_LABEL: {
-        int dest = ip->operands[0]; int src = ip->operands[1]; 
-        double imm = chunk->constants[ip->operands[2]].number_value;
-        regs[dest].type = VAL_NUMBER; 
-        regs[dest].number = regs[src].number + imm;
-        ip++; goto *dispatch_table[ip->opcode];
-    }
     OP_LOAD_BOOL_LABEL: {
         int dest = ip->operands[0];
         regs[dest].type = VAL_BOOL; regs[dest].boolean = ip->operands[1] != 0;

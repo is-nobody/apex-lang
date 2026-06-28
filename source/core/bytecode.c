@@ -42,9 +42,6 @@ static const char* opcode_names[] = {
     [OP_TABLE_GET_CONST]  = "TABLE_GET_CONST",
     [OP_TABLE_APPEND]     = "TABLE_APPEND",
     [OP_CONCAT]           = "CONCAT",
-    [OP_STRING_APPEND]    = "STRING_APPEND",
-    [OP_STRING_INTERP]    = "STRING_INTERP",
-    [OP_FOR_PREP]         = "FOR_PREP",
     [OP_POP_ITER]         = "POP_ITER",
     [OP_FOR_INIT]         = "FOR_INIT",
     [OP_FOR_NEXT]         = "FOR_NEXT",
@@ -56,7 +53,6 @@ static const char* opcode_names[] = {
     [OP_JUMP_IF_NEQ]      = "JUMP_IF_NEQ",
     [OP_PUSH_ARG]         = "PUSH_ARG",
     [OP_HALT]             = "HALT",
-    [OP_ADD_IMM]          = "ADD_IMM",
     [OP_LOAD_BOOL]        = "LOAD_BOOL",
     [OP_LOAD_CONST_NUM]   = "LOAD_CONST_NUM",
 };

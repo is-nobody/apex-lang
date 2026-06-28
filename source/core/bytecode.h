@@ -63,11 +63,8 @@ typedef enum {
     
     // === String Operations ===
     OP_CONCAT,           // Rdest = Rleft + Rright (string concatenation)
-    OP_STRING_APPEND,    // Rdest += Rsrc (in-place string append)
-    OP_STRING_INTERP,    // Rdest = interpolate template with values
-    
+
     // === Loop Optimizations ===
-    OP_FOR_PREP,         // prepare for-in loop iteration
     OP_POP_ITER,         // clean up loop state
     OP_JUMP_IF_LT,       // if R[op1] <  R[op2] then jump op0
     OP_JUMP_IF_LTE,      // if R[op1] <= R[op2] then jump op0
@@ -77,14 +74,11 @@ typedef enum {
     OP_JUMP_IF_NEQ,      // if R[op1] != R[op2] then jump op0
     OP_FOR_INIT,         // initialize for-loop (faster than CALL range())
     OP_FOR_NEXT,         // get next element, jump if end reached
-    OP_BREAK,            // exit loop
-    OP_CONTINUE,         // next iteration
     
     // === Misc ===
     OP_HALT,             // stop VM execution
     
     // === Extended (optimizations) ===
-    OP_ADD_IMM,          // Rdest = Rleft + immediate
     OP_LOAD_BOOL,        // Rdest = true/false (fast bool load)
     
     OP_LOAD_CONST_NUM,   // R[op0] = op1 (immediate number)
