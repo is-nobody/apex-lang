@@ -897,8 +897,17 @@ static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
         elif = elif->if_stmt.elif_chain;
     }
     
-    if (node->if_stmt.else_branch) {
-        codegen_block(cg, node->if_stmt.else_branch);
+    ASTNode* else_branch = node->if_stmt.else_branch;
+    if (!else_branch && node->if_stmt.elif_chain) {
+        ASTNode* last = node->if_stmt.elif_chain;
+        while (last->if_stmt.elif_chain) {
+            last = last->if_stmt.elif_chain;
+        }
+        else_branch = last->if_stmt.else_branch;
+    }
+
+    if (else_branch) {
+        codegen_block(cg, else_branch);
     }
     
     int end_addr = bytecode_current_offset(cg->chunk);
