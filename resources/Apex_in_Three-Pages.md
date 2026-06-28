@@ -1,5 +1,5 @@
 # Apex in Three-Pages
-**Minimalist Core Reference (26.6)**
+**Minimalist Core Reference (26.06)**
 
 ### 1. Variables & Data Types
 A variable's type is set at creation and **cannot change**.

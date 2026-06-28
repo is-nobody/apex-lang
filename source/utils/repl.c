@@ -53,7 +53,7 @@ static void execute_code(const char* code, const char* display_name) {
 
 void repl_run(void) {
     setup_signals();
-    printf("Apex 26.6 on %s. Type code, always ready.\n", platform_get_name());
+    printf("Apex 26.06 on %s. Type code, always ready.\n", platform_get_name());
     
     set_repl_mode(1);
     terminal_enable_raw_mode();

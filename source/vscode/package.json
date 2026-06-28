@@ -2,7 +2,7 @@
   "name": "apex-language-support",
   "displayName": "Apex",
   "description": "Language support for the Apex programming language",
-  "version": "26.6.0",
+  "version": "26.06.0",
   "publisher": "apex-lang",
   "engines": {
     "vscode": "^1.60.0"

@@ -1,7 +1,7 @@
 # Apex for Visual Studio Code
 A Visual Studio Code extension providing syntax highlighting, code snippets, IntelliSense, and execution support for the **Apex** programming language.
 
-![Version](https://img.shields.io/badge/Version-26.6-blue)
+![Version](https://img.shields.io/badge/Version-26.06-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ## About Apex
@@ -69,7 +69,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 This extension is licensed under the MIT License.
 
 ## Release Notes
-### 26.6
+### 26.06
 - Initial release.
 - Syntax highlighting for Apex language.
 - IntelliSense for keywords and all 12 built-in libraries.

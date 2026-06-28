@@ -25,7 +25,7 @@ By contributing to Apex, you agree that your contributions will be licensed unde
 
 ## Development Setup
 ### Prerequisites
-- **Apex 26.6** - The language itself
+- **Apex 26.06** - The language itself
 - **Git** - For version control
 
 ### Install Apex
