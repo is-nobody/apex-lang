@@ -1,4 +1,5 @@
 #include "string_module.h"
+#include "table_module.h"
 #include <string.h>
 #include <ctype.h>
 #include <stdlib.h>
@@ -99,10 +100,10 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             if ((size_t)start >= (size_t)end) {
                 *result = vm_make_string("");
             } else {
-                int len = end - start;
-                char* sub = (char*)malloc(len + 1);
-                strncpy(sub, args[0].string->chars + start, len);
-                sub[len] = '\0';
+                int sub_len = end - start;
+                char* sub = (char*)malloc(sub_len + 1);
+                strncpy(sub, args[0].string->chars + start, sub_len);
+                sub[sub_len] = '\0';
                 *result = vm_make_string(sub);
                 free(sub);
             }
@@ -144,34 +145,49 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             
             char buffer[65536] = "";
             Table* table = args[0].table;
-            bool first = true;
             
-            for (int i = 0; i < table->capacity; i++) {
-                TableEntry* entry = table->entries[i];
-                while (entry) {
-                    if (!first) strcat(buffer, sep);
-                    first = false;
-                    
-                    switch (entry->value.type) {
-                        case VAL_STRING:
-                            strcat(buffer, entry->value.string->chars);
-                            break;
-                        case VAL_NUMBER: {
-                            char num[64];
-                            snprintf(num, sizeof(num), "%g", entry->value.number);
-                            strcat(buffer, num);
-                            break;
+            // Get sorted keys
+            int count;
+            char** keys = table_keys(table, &count);
+            
+            if (keys && count > 0) {
+                // Sort keys (numeric by order, strings lexicographically)
+                qsort(keys, count, sizeof(char*), compare_keys);
+                
+                bool first = true;
+                
+                for (int i = 0; i < count; i++) {
+                    Value val;
+                    if (table_get(table, keys[i], &val)) {
+                        if (!first) strcat(buffer, sep);
+                        first = false;
+                        
+                        switch (val.type) {
+                            case VAL_STRING:
+                                strcat(buffer, val.string->chars);
+                                break;
+                            case VAL_NUMBER: {
+                                char num[64];
+                                snprintf(num, sizeof(num), "%g", val.number);
+                                strcat(buffer, num);
+                                break;
+                            }
+                            case VAL_BOOL:
+                                strcat(buffer, val.boolean ? "true" : "false");
+                                break;
+                            default:
+                                break;
                         }
-                        default:
-                            break;
+                        value_decref(&val);
                     }
-                    entry = entry->next;
                 }
+                free(keys);
             }
             
             *result = vm_make_string(buffer);
+            return true;
         }
-        return true;
+        return false;
     }
     
     return false;
