@@ -40,12 +40,21 @@ function environment()
     is_table = type(e) == "table"
     assert_equal(is_table, true, "environment returns table")
     if is_table == true
-        has_user = table.has(e, "USER")
-        has_path = table.has(e, "PATH")
-        has_home = table.has(e, "HOME")
-        assert_equal(has_user, true, "environment has USER")
-        assert_equal(has_path, true, "environment has PATH")
-        assert_equal(has_home, true, "environment has HOME")
+        p = sys.platform()
+        if p == "Windows"
+            has_user = table.has(e, "USERNAME")
+            has_path = table.has(e, "PATH")
+            has_home = table.has(e, "USERPROFILE")
+            assert_equal(has_user, true, "environment has USERNAME")
+            assert_equal(has_path, true, "environment has PATH")
+            assert_equal(has_home, true, "environment has HOME/USERPROFILE")
+        else
+            has_user = table.has(e, "USER")
+            has_path = table.has(e, "PATH")
+            has_home = table.has(e, "HOME")
+            assert_equal(has_user, true, "environment has USER")
+            assert_equal(has_path, true, "environment has PATH")
+            assert_equal(has_home, true, "environment has HOME")
 
 function executable()
     exe = sys.executable()
