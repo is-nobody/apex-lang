@@ -1698,22 +1698,3 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     return !vm->had_error;
 }
-
-// ========== Debug Functions ==========
-void vm_dump_registers(VM* vm) {
-    printf("\n=== Registers (used: %d) ===\n", vm->register_count);
-    for (int i = 0; i < vm->register_count; i++) {
-        printf("R%-3d: ", i); vm_print_value(&vm->registers[i]); printf("\n");
-    }
-}
-
-void vm_dump_state(VM* vm) {
-    printf("\n=== VM State ===\n");
-    printf("PC: %d/%d\n", vm->pc, vm->code_count);
-    printf("Call depth: %d\n", vm->call_depth);
-    vm_dump_registers(vm);
-    printf("\n=== Globals (%d) ===\n", vm->global_count);
-    for (int i = 0; i < vm->global_count; i++) {
-        printf("G%-3d: ", i); vm_print_value(&vm->globals[i]); printf("\n");
-    }
-}
