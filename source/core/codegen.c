@@ -376,7 +376,6 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
     int prev_continue_addr = cg->loop_stack.continue_addr;
     bool prev_is_fast = cg->loop_stack.is_fast;
     
-    cg->loop_stack.break_count = 0;
     cg->loop_stack.is_fast = (node->for_stmt.var_name != NULL);
 
     if (node->for_stmt.var_name) {
