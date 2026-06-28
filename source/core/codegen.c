@@ -381,7 +381,7 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
     if (node->for_stmt.var_name) {
         // Check if this is a Table Iteration: for k = table
         if (node->for_stmt.end == NULL && !node->for_stmt.condition) {
-            // --- Table Iteration: for item = table ---
+            // --- Table Iteration: for key = table ---
             int table_reg = codegen_expression(cg, node->for_stmt.start);
             
             // Get keys table: keys = table.keys(table)
@@ -418,15 +418,10 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             int key_reg = alloc_register(cg);
             emit(cg, INST(OP_TABLE_GET, key_reg, keys_table_reg, index_reg), node->line);
 
-            // Get value from original table: table[key]
-            int value_reg = alloc_register(cg);
-            emit(cg, INST(OP_TABLE_GET, value_reg, table_reg, key_reg), node->line);
-
-            // Move value to user's variable
-            emit(cg, INST(OP_MOVE, var_reg, value_reg, 0), node->line);
+            // Move KEY to user's variable (not value)
+            emit(cg, INST(OP_MOVE, var_reg, key_reg, 0), node->line);
 
             free_register(cg, key_reg);
-            free_register(cg, value_reg);
 
             // Execute loop body
             codegen_block(cg, node->for_stmt.body);

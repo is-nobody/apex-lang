@@ -14,55 +14,55 @@ function assert_equal(actual, expected, name)
 function for_table_basic()
     result = ""
     items = ["apple", "banana", "cherry"]
-    for item = items
-        result = "{result}{item}"
+    for key = items
+        result = "{result}{items[key]}"
     assert_equal(result, "applebananacherry", "basic table iteration")
 
 function for_table_keys()
     result = ""
     data = ["name" = "Alice", "age" = 30, "city" = "Wonderland"]
     for key = data
-        result = "{result}{key}"
+        result = "{result}{data[key]}"
     assert_equal(result, "30WonderlandAlice", "table keys iteration")
 
 function for_table_empty()
     empty = []
     count = 0
-    for item = empty
+    for key = empty
         count = count + 1
     assert_equal(count, 0, "empty table iteration")
 
 function for_table_with_break()
     result = ""
     items = [10, 20, 30, 40, 50]
-    for item = items
-        if item == 30
+    for key = items
+        if items[key] == 30
             break
-        result = "{result}{item}"
+        result = "{result}{items[key]}"
     assert_equal(result, "1020", "table break at 30")
 
 function for_table_with_continue()
     result = ""
     items = [1, 2, 3, 4, 5]
-    for item = items
-        if item == 3
+    for key = items
+        if items[key] == 3
             continue
-        result = "{result}{item}"
+        result = "{result}{items[key]}"
     assert_equal(result, "1245", "table skip 3")
 
 function for_table_sum()
     numbers = [10, 20, 30]
     sum = 0
-    for n = numbers
-        sum = sum + n
+    for key = numbers
+        sum = sum + numbers[key]
     assert_equal(sum, 60, "sum of table")
 
 function for_table_nested()
     result = ""
     matrix = [[1, 2], [3, 4]]
-    for row = matrix
-        for val = row
-            result = "{result}{val}"
+    for row_key = matrix
+        for col_key = matrix[row_key]
+            result = "{result}{matrix[row_key][col_key]}"
     assert_equal(result, "1234", "nested table iteration")
 
 for_table_basic()
