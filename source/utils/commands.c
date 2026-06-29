@@ -2,7 +2,6 @@
 #include "execute.h"
 #include "platform.h"
 #include "build.h"
-#include "package_manager.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
@@ -40,20 +39,6 @@ int handle_commands(int argc, char** argv) {
     // --- BUILD COMMAND ---
     if (strcmp(argv[1], "build") == 0) {
         return build_command(argc, argv);
-    }
-
-    // --- INSTALL COMMAND ---
-    if (strcmp(argv[1], "install") == 0) {
-        if (argc < 3) {
-            print_error("Missing package name for 'install' command.");
-            return 1;
-        }
-        return install_package(argv[2]);
-    }
-
-    // --- PUBLISH COMMAND ---
-    if (strcmp(argv[1], "publish") == 0) {
-        return publish_package();
     }
 
     // Not a recognized command, fallback to default behavior
