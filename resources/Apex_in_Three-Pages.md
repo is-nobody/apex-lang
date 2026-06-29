@@ -1,151 +1,103 @@
-# Apex in Three-Pages
-**Minimalist Core Reference (26.06)**
-
-### 1. Variables & Data Types
-A variable's type is set at creation and **cannot change**.
+# Apex in Three Pages (26.06)
+## Types & Variables
+Strict typing: type is fixed at initialization. No implicit coercion.
 ```apex
-x = 2024        // number (whole)
-x = 3.14        // number (decimal, always use dot)
-x = "Hello"     // string (always double quotes)
-x = true        // boolean (lowercase)
-x = false       // boolean (lowercase)
-x = ()          // table (empty container)
+x = 42          // number (int/float unified)
+x = "Apex"      // string (double quotes only)
+x = true        // boolean
+x = []          // table (universal container)
 ```
-- **Comments:** `//` ignores the rest of the line.
-- **Type Conversion:** `number("42")` → `42`, `string(42)` → `"42"`. Fails on invalid input.
+- **Conversion:** `number("10")`, `string(10)`. Returns `false` on failure.
+- **Scope:** Global by default. Use `function` blocks for local scope.
 
-### 2. Operators
-**Arithmetic** (work only on numbers)
-| Op | Name | Example (`x=10, y=3`) | Result |
-|----|------|-----------------------|--------|
-| `+` | Add | `x + y` | `13` |
-| `-` | Sub | `x - y` | `7` |
-| `*` | Mul | `x * y` | `30` |
-| `/` | Div | `x / y` | `3.333..` |
-| `%` | Mod | `x % y` | `1` |
-*Precedence:* `()`, then `* / %`, then `+ -`.
+## Operators & Precedence
+| Level | Ops | Notes |
+|-------|-----|-------|
+| 1 | `()` | Grouping, function calls |
+| 2 | `* / %` | Arithmetic |
+| 3 | `+ -` | Arithmetic (no string concat) |
+| 4 | `< > <= >=` | Comparison (numbers only) |
+| 5 | `== !=` | Equality (all types) |
+| 6 | `not` | Logical negation |
+| 7 | `and` | Short-circuit AND |
+| 8 | `or` | Short-circuit OR |
 
-**Comparison** (return `boolean`)
-| Op | Name | Example | Result |
-|----|------|---------|--------|
-| `==` | Equal | `5 == 5` | `true` |
-| `!=` | Not equal | `5 != 3` | `true` |
-| `<` | Less | `3 < 5` | `true` |
-| `>` | Greater | `5 > 3` | `true` |
-| `<=` | Less/Eq | `3 <= 3` | `true` |
-| `>=` | Great/Eq | `5 >= 5` | `true` |
-- Strings only support `==` and `!=`.
-- Precedence: lower than arithmetic.
+- **Strings:** Only support `==` and `!=`.
+- **Tables:** Support `==` (reference equality).
 
-**Logical** (combine booleans)
-| Op | Name | Example | Result |
-|----|------|---------|--------|
-| `and` | AND | `true and false` | `false` |
-| `or` | OR | `true or false` | `true` |
-| `not` | NOT | `not true` | `false` |
-*Full Precedence:* `()` → `* / %` → `+ -` → `< > <= >=` → `== !=` → `not` → `and` → `or`.
+## Strings & Interpolation
+- **Interpolation:** `"Hello {name}, result: {5 * 2}"`. Expressions inside `{}` are evaluated.
+- **Escapes:** `\"` (quote), `\\` (backslash), `\{` (literal brace), `\n` (newline), `\t` (tab).
+- **Multiline:** Supported natively within quotes.
 
-### 3. Strings Deep Dive
-- **Interpolation:** Embed variables or expressions inside `"..."` using `{}`.
+## Tables `[]`
+Unified structure for arrays (1-based) and maps. **No dot access for tables.**
 ```apex
-name = "Alice"
-os.output("Hello, {name}")          // "Hello, Alice"
-os.output("Count: {5 * 2}")         // "Count: 10"
+// Mixed definition: positional items first, then key-value pairs
+data = ["item1", "item2", key1 = "val1", key2 = 100]
+
+// Access
+x = data[1]           // Positional (1-based index)
+y = data["key1"]      // Key access (bracket notation ONLY)
+
+// Mutation
+data["key1"] = "new"  // Update
+data["new_key"] = 50  // Add
+table.append(data, "item3") // Add positional item
 ```
+- **Nested:** `user["address"]["city"]`.
+- **Utilities:** `table.size(t)`, `table.keys(t)`, `table.has(t, "k")`.
 
-- **Escape Sequences:** Use `\` to include special characters inside strings.
+## Control Flow
+**Indentation:** 4 spaces required for blocks after `if`, `for`, `function`, etc.
+
+**If/Elif/Else:**
 ```apex
-quote = "He said: \"I hate donuts!\""  // escape double quote
-path = "C:\\Users\\Admin"              // escape backslash
-curly = "\{0\}"                        // escape curly braces
-newline = "Line 1\nLine 2"             // new line
-newline = "Name\tAge\tCity"            // tabulation
-```
-
-- **Multiline:** Press Enter inside the quotes.
-```apex
-text = "Line one
-Line two"
-```
-
-### 4. Tables Deep Dive
-Tables are universal containers `()`. They are ordered lists **and** key-value maps. Ordered items use numbers, keys use names. You can mix them.
-```apex
-// Ordered list (indices start at 1)
-colors = ("red", "green", "blue")
-first = colors.1       // "red"
-
-// Key-value pairs (keys without quotes)
-user = (name = "Alice", age = 30)
-user.age = 31           // Update existing
-user.city = "Dubai"     // Add new
-
-// Mixed table (ordered items FIRST, then key-value)
-person = ("Alice", "Manager", department = "Engineering", years = 5)
-name = person.1               // "Alice"
-dept = person.department      // "Engineering"
-```
-- **Nested Tables:** Tables can hold other tables. Access via chain: `company.address.city`.
-- *Accessing non-existent keys or index 0 throws an error.*
-
-### 5. Control Flow
-**Block structure:** If line 1 starts with `function`, `if`, `elif`, `else`, `for`, `while`, line 2 **must be indented with 4 spaces**.
-```apex
-if condition
-    // 4 spaces indent
-elif other_condition
-    // 4 spaces indent
+if x == 10
+    os.output("Ten")
+elif x > 10
+    os.output("More")
 else
-    // 4 spaces indent
+    os.output("Less")
 ```
-**If Statement:**
+
+**For Loop (Range):**
 ```apex
-score = 85
-if score >= 90
-    os.output("A")
-elif score >= 80
-    os.output("B")    // This runs, then skips rest
-else
-    os.output("F")
+// Auto-step detection: step is 1 if start <= end, -1 otherwise
+for i = 1, 5        // 1, 2, 3, 4, 5
+for i = 5, 1        // 5, 4, 3, 2, 1 (Auto -1)
+for i = 0, 10, 2    // Explicit step
 ```
 
-**For Loop:** `for var = start, end [, step]`. Runs **including** `end` value.
+**For Loop (Condition-based):**
 ```apex
-for i = 1, 5           // 1, 2, 3, 4, 5
-for i = 0, 10, 2       // 0, 2, 4, 6, 8, 10
-for i = 5, 1, -1       // 5, 4, 3, 2, 1
+// Replaces while loop. Requires explicit boolean condition
+for running == true
+    os.output("Still running...")
 ```
 
-**While Loop:** Runs as long as condition is `true`. Ensure loop changes condition to avoid infinite loop.
+**For Loop (Table Iteration):**
 ```apex
-counter = 1
-while counter <= 5
-    os.output(counter)
-    counter = counter + 1
+for k = my_table    // Iterates over keys
+    os.output("{k} = {my_table[k]}")
 ```
 
-**Break & Continue:** Work in both `for` and `while`.
-- `break`: Exits the loop immediately.
-- `continue`: Skips the rest of the current iteration, jumps to the next check.
-
-### 6. Functions
-**Declaration & Call:**
+## Functions
 ```apex
-function add(a, b)      // a, b are parameters
-    return a + b        // return value to caller
+function calculate(a, b)
+    return a + b
 
-result = add(5, 3)      // call, result is 8
+result = calculate(5, 10)
 ```
-- **No return:** Function automatically returns `false`.
-- **`return` exits the function instantly**, nothing after it runs.
-- **Call order:** Can nest calls `add(5, multiply(2,3))` or chain them.
+- **Return:** Defaults to `false` if omitted.
+- **Recursion:** Supported up to depth 512.
+- **Built-ins:** Organized in modules (`os.`, `math.`, `string.`, `table.`).
 
-### 7. Imports
-`import` paths are **always relative to the main file** (the one you run).
+## Modules & Imports
+Paths are relative to the **entry point** file.
 ```apex
-import os                // built-in
-import database          // file 'database.apex' in same folder
-import utils.math        // file 'utils/math.apex'
+import os             // Built-in
+import utils.helper   // Loads 'utils/helper.apex'
 ```
-- A dot `.` means "go inside this folder".
-- Even when importing inside a nested file, write path from the main file's perspective.
+- **Access:** `helper.my_func()`.
+- **Dot Restriction:** Dot access (`mod.func`) is reserved **strictly** for imported modules. Use brackets `t["key"]` for table keys.
