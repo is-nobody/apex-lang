@@ -1170,13 +1170,30 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         switch (src->type) {
             case VAL_NUMBER: {
                 double num = src->number;
+                
+                // Fast path: integer 0-100 from pre-created array
+                if (num == (int)num && num >= 0 && num <= 100) {
+                    // Create on first use, cache in static array
+                    static StringObject* num_cache[101] = {NULL};
+                    int idx = (int)num;
+                    if (num_cache[idx] == NULL) {
+                        char buf[4];
+                        int len = snprintf(buf, sizeof(buf), "%d", idx);
+                        num_cache[idx] = string_create_pooled(&vm->obj_pool, buf, len);
+                        num_cache[idx]->header.ref_count = 999999;
+                    }
+                    regs[dest].type = VAL_STRING;
+                    regs[dest].string = num_cache[idx];
+                    value_incref(&regs[dest]);
+                    break;
+                }
+                
                 int len;
                 if (fabs(num - (long long)num) < 1e-9 && fabs(num) < 1e15) {
                     len = snprintf(buffer, sizeof(buffer), "%lld", (long long)num);
                 } else {
                     len = snprintf(buffer, sizeof(buffer), "%.15g", num);
                 }
-                // Only intern medium-length numeric strings
                 if (len >= 8 && len <= 32 && vm->intern_table.count < 50000) {
                     regs[dest].type = VAL_STRING;
                     regs[dest].string = string_intern(&vm->intern_table, buffer, len);
