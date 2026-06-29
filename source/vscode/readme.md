@@ -21,8 +21,8 @@ Full syntax highlighting for:
 ### 🧠 Advanced IntelliSense & Autocompletion
 Smart suggestions for:
 - **Keywords**: Control flow and logical operators.
-- **12 Standard Libraries**: `os`, `files`, `sys`, `math`, `string`, `table`, `ffi`, `random`, `codecs`.
-- **Library Functions**: Auto-complete for hundreds of functions like `files.read()`, `sys.platform`, `random.randint()`, `codecs.json_write()`, etc.
+- **8 Standard Libraries**: `os`, `sys`, `math`, `string`, `table`, `ffi`, `random`, `codecs`.
+- **Library Functions**: Auto-complete for hundreds of functions like `os.read()`, `sys.platform`, `random.randint()`, `codecs.json_write()`, etc.
 
 ### ℹ️ Hover Documentation
 Hover over any keyword, module, or function to see instant documentation, syntax examples, and descriptions.
@@ -52,8 +52,7 @@ The Apex runtime includes a powerful set of built-in modules:
 
 | Module | Description |
 | :--- | :--- |
-| **os** | System interaction |
-| **files** | File system operations |
+| **os** | System interaction, File I/O, and Process management |
 | **sys** | System information |
 | **math** | Mathematical functions |
 | **string** | String manipulation |
@@ -72,7 +71,7 @@ This extension is licensed under the MIT License.
 ### 26.06
 - Initial release.
 - Syntax highlighting for Apex language.
-- IntelliSense for keywords and all 12 built-in libraries.
+- IntelliSense for keywords and all 8 built-in libraries.
 - Hover documentation for keywords and libraries.
 - Command to run current file.
 - Document symbol provider for functions.

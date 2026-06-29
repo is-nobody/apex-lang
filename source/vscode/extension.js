@@ -56,15 +56,14 @@ function activate(context) {
                 'type': 'Returns the type name of a value as a string.\n\n```apex\ntype(10)  // "number"\n```',
 
                 // Modules
-                'os': 'OS library — system interaction.\n\nFunctions: output, input, getenv, setenv, time, wait, exit, getcd, setcd, pid, spawn, execute, etc.',
-                'files': 'Files library — file system operations.\n\nFunctions: read, write, append, exists, isfile, isfolder, filesize, create_file, delete_file, rename_file, copy_file, listfolders, etc.',
-                'sys': 'System information library.\n\nProperties: platform, architecture, hostname, user, homedir, apex_version, executable, disksize, tempdir, isterminal.',
-                'math': 'Math library — mathematical functions.\n\nFunctions: abs, floor, ceil, round, sqrt, exp, log, sin, cos, tan, pi, e, inf, pow, gcd, factorial, etc.',
+                'os': 'OS library — system interaction, file I/O, and process management.\n\nFunctions: output, input, time, wait, exit, get_current_folder, set_current_folder, terminate_process, execute, read, write, append, exists, isfile, isfolder, size, stat, filetype, create_file, create_folder, delete, rename, move, copy, items, parentfolder, access.',
+                'sys': 'System information library.\n\nFunctions: platform, architecture, hostname, user, homedir, apex_version, executable, environment, disksize, tempdir, isterminal, process_id.',
+                'math': 'Math library — mathematical functions.\n\nFunctions: abs, floor, ceil, round, sqrt, exp, log, sin, cos, tan, pi, e, inf, pow, gcd, factorial, isnan, isinf, trunc, atan2, radians, degrees, hypot.',
                 'string': 'String manipulation library.\n\nFunctions: len, lower, upper, sub, split, join, trim, find, replace.',
                 'table': 'Table (hash map/array) library.\n\nFunctions: remove, has, size, keys, values, clear, copy, merge.',
                 'ffi': 'Foreign Function Interface.\n\nFunctions: open, call, errno, strerror, malloc, free.',
-                'random': 'Random generation.\n\nFunctions: random, randint, choice, shuffle, sample, choices, gauss, seed, triangular, expovariate, betavariate.',
-                'codecs': 'Data encoding/decoding.\n\nFunctions: json_read, json_write, csv_read, csv_write, xml_read, xml_write, yaml_read, toml_read, base_write, base_read, baseurl_write, baseurl_read.',
+                'random': 'Random generation.\n\nFunctions: random, randint, choice, shuffle, sample, gauss, seed, triangular, expovariate, betavariate, secure_token_bytes, secure_token_hex, secure_randint, compare_digest.',
+                'codecs': 'Data encoding/decoding.\n\nFunctions: json_read, json_write, csv_read, csv_write, xml_read, xml_write, base_write, base_read, baseurl_write, baseurl_read.',
             };
 
             // Check for specific module properties/functions first
@@ -91,8 +90,7 @@ function activate(context) {
             ];
 
             const libs = [
-                { label: 'os', detail: 'OS Library' },
-                { label: 'files', detail: 'File System Library' },
+                { label: 'os', detail: 'OS, File System & Process Library' },
                 { label: 'sys', detail: 'System Info Library' },
                 { label: 'math', detail: 'Math Library' },
                 { label: 'string', detail: 'String Library' },
@@ -114,26 +112,25 @@ function activate(context) {
                 items.push(item);
             });
 
-            // Library functions (Comprehensive list from codegen.c)
+            // Library functions (Comprehensive list based on C modules)
             const libFuncs = [
-                // os
+                // os (includes former files functionality)
                 'os.output', 'os.input',
-                'os.time', 'os.wait', 'os.exit', 'os.get_current_folder', 'os.set_current_folder',
+                'os.time', 'os.wait', 'os.exit', 
+                'os.get_current_folder', 'os.set_current_folder',
                 'os.terminate_process', 'os.execute',
-
-                // files
-                'files.read', 'files.write', 'files.append',
-                'files.exists', 'files.isfile', 'files.isfolder', 'files.filesize', 'files.foldersize',
-                'files.filetype', 'files.stat',
-                'files.create_file', 'files.create_folder', 'files.delete_file', 'files.delete_folder',
-                'files.rename_file', 'files.rename_folder', 'files.move_file', 'files.move_folder',
-                'files.copy_file', 'files.copy_folder',
-                'files.listfolders', 'files.parentfolder', 'files.access',
+                'os.read', 'os.write', 'os.append',
+                'os.exists', 'os.isfile', 'os.isfolder', 
+                'os.size', 'os.stat', 'os.filetype',
+                'os.create_file', 'os.create_folder', 
+                'os.delete', 'os.rename', 'os.move', 'os.copy',
+                'os.items', 'os.parentfolder', 'os.access',
 
                 // sys
                 'sys.platform', 'sys.architecture', 'sys.hostname', 'sys.user',
-                'sys.homedir', 'sys.apex_version', 'sys.executable', 'sys.environment',
-                'sys.disksize', 'sys.tempdir', 'sys.isterminal', 'sys.process_id',
+                'sys.homedir', 'sys.apex_version', 'sys.executable', 
+                'sys.environment', 'sys.disksize', 'sys.tempdir', 
+                'sys.isterminal', 'sys.process_id',
 
                 // math
                 'math.abs', 'math.floor', 'math.ceil', 'math.round',
@@ -171,7 +168,6 @@ function activate(context) {
                 'codecs.json_read', 'codecs.json_write',
                 'codecs.csv_read', 'codecs.csv_write',
                 'codecs.xml_read', 'codecs.xml_write',
-                'codecs.yaml_read', 'codecs.toml_read',
                 'codecs.base_write', 'codecs.base_read',
                 'codecs.baseurl_write', 'codecs.baseurl_read',
 
