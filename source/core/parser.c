@@ -36,6 +36,7 @@ static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, in
 static ValueType infer_expression_type(Parser* parser, ASTNode* node);
 static int symbol_index_recursive(Parser* parser, const char* name);
 static const char* binary_op_name(TokenType op);
+static ASTNode* parse_call(Parser* parser, ASTNode* callee);
 
 static int get_node_len(ASTNode* node) {
     if (!node) return 1;
@@ -1466,9 +1467,65 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
 
     if (token->type == TOKEN_IDENTIFIER || token->type == TOKEN_NUMBER || 
         (token->type >= TOKEN_FUNCTION && token->type <= TOKEN_FALSE)) {
+        
+        // Save token info for error reporting
+        int member_line = token->line;
+        int member_col = token->column;
+        char* member_name = strdup(token->value);
+        
         advance(parser);
         ASTNode* member_node = ast_create_identifier(token->value, token->line, token->column);
-        return ast_create_index_access(object, member_node);
+        ASTNode* access_node = ast_create_index_access(object, member_node);
+        
+        // Build full name for lookup: "module.member"
+        char full_name[256];
+        snprintf(full_name, sizeof(full_name), "%s.%s", 
+                 object->identifier.name, member_name);
+        
+        // Check if it's a function or constant (works for both builtin and user modules)
+        const BuiltinSig* builtin = lookup_builtin(full_name);
+        int sym_idx = symbol_index_recursive(parser, full_name);
+        
+        bool is_function = (builtin != NULL) || 
+                          (sym_idx >= 0 && parser->symbols.kinds[sym_idx] == PARSER_SYM_FUNCTION);
+        bool is_variable = (sym_idx >= 0 && 
+                           (parser->symbols.kinds[sym_idx] == PARSER_SYM_VARIABLE ||
+                            parser->symbols.kinds[sym_idx] == PARSER_SYM_PARAMETER));
+        
+        if (is_function) {
+            // It's a function - MUST have parentheses
+            if (check(parser, TOKEN_LPAREN)) {
+                return parse_call(parser, access_node);
+            } else {
+                parser_error_at(parser, member_line, member_col, 
+                              (int)strlen(member_name),
+                              "Function '%s' must be called with parentheses '()'",
+                              full_name);
+                free(member_name);
+                return access_node;
+            }
+        } else if (is_variable) {
+            // It's a variable/constant - parentheses NOT allowed
+            if (check(parser, TOKEN_LPAREN)) {
+                parser_error_at(parser, member_line, member_col, 
+                              (int)strlen(member_name),
+                              "Variable '%s' cannot be called with parentheses",
+                              full_name);
+                free(member_name);
+                return access_node;
+            }
+            // No parentheses - OK
+            free(member_name);
+            return access_node;
+        } else {
+            // Unknown member (shouldn't happen if module was parsed correctly)
+            // Allow both for flexibility
+            if (check(parser, TOKEN_LPAREN)) {
+                return parse_call(parser, access_node);
+            }
+            free(member_name);
+            return access_node;
+        }
     }
     parser_error(parser, "Expected identifier after '.'");
     return object;
@@ -2055,6 +2112,23 @@ static ASTNode* parse_import_statement(Parser* parser) {
 
     if (parser_had_errors(mod_parser)) {
         parser->error_count += mod_parser->error_count;
+    }
+
+    // ===== NEW: Register all module-level functions and variables =====
+    // Walk through the module's symbol table (scope 0 = module level)
+    for (int i = 0; i < mod_parser->symbols.count; i++) {
+        if (mod_parser->symbols.scope_levels[i] == 0) {
+            char full_name[512];
+            snprintf(full_name, sizeof(full_name), "%s.%s", 
+                     first_segment, mod_parser->symbols.names[i]);
+            
+            // Register in parent parser's symbol table
+            parser_declare_symbol(parser, full_name, 
+                                mod_parser->symbols.kinds[i],
+                                mod_parser->symbols.types[i],
+                                mod_parser->symbols.param_counts[i],
+                                import_kw->line, import_kw->column);
+        }
     }
 
     parser_destroy(mod_parser);
