@@ -199,9 +199,6 @@ void bytecode_patch_jump(BytecodeChunk* chunk, int jump_instruction, int target_
 // returns the current code offset (useful for jump targets)
 int bytecode_current_offset(BytecodeChunk* chunk);
 
-// prints a detailed disassembly of the bytecode chunk
-void bytecode_disassemble(BytecodeChunk* chunk);
-
 // returns the human-readable name of an opcode
 const char* opcode_name(Opcode op);
 

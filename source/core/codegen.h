@@ -56,7 +56,4 @@ void codegen_destroy(CodeGenerator* cg);
 // generates bytecode from an ast, returns true on success
 bool codegen_generate(CodeGenerator* cg, ASTNode* ast);
 
-// prints the current local variable mapping for debugging
-void codegen_print_locals(CodeGenerator* cg);
-
 #endif // CODEGEN_H

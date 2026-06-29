@@ -220,7 +220,4 @@ void ast_list_free(ASTNodeList* list);
 void ast_free_node(ASTNode* node);
 void ast_free(ASTNode* program);
 
-// debug utility to print the ast structure with indentation
-void ast_print(ASTNode* node, int indent);
-
 #endif // AST_H

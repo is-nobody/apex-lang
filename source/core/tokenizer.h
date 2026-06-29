@@ -86,7 +86,4 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* token_count);
 // returns a human-readable name for a token type
 const char* token_type_name(TokenType type);
 
-// prints a token's details for debugging purposes
-void token_print(Token* token);
-
 #endif // TOKENIZER_H

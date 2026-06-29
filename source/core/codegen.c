@@ -1142,11 +1142,3 @@ bool codegen_generate(CodeGenerator* cg, ASTNode* ast) {
     emit(cg, INST(OP_HALT, 0, 0, 0), 0);
     return true;
 }
-
-// prints the current local variable mapping for debugging
-void codegen_print_locals(CodeGenerator* cg) {
-    printf("\n=== Local Variables ===\n");
-    for (int i = 0; i < cg->locals.count; i++) {
-        printf("  %s -> R%d\n", cg->locals.names[i], cg->locals.registers[i]);
-    }
-}

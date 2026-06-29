@@ -52,45 +52,6 @@ const char* token_type_name(TokenType type) {
     return "UNKNOWN";
 }
 
-// prints a token's details including escaped special characters for readability
-void token_print(Token* token) {
-    if (token->type == TOKEN_INDENT) {
-        printf("%-20s %-25s %-8d %-8d\n", "INDENT", "", token->line, token->column);
-        return;
-    }
-    if (token->type == TOKEN_DEDENT) {
-        printf("%-20s %-25s %-8d %-8d\n", "DEDENT", "", token->line, token->column);
-        return;
-    }
-    
-    char display_value[512];
-    int j = 0;
-    for (int i = 0; token->value[i] != '\0' && j < 510; i++) {
-        if (token->value[i] == '\n') {
-            display_value[j++] = '\\';
-            display_value[j++] = 'n';
-        } else if (token->value[i] == '\t') {
-            display_value[j++] = '\\';
-            display_value[j++] = 't';
-        } else if (token->value[i] == '\r') {
-            display_value[j++] = '\\';
-            display_value[j++] = 'r';
-        } else {
-            display_value[j++] = token->value[i];
-        }
-    }
-    display_value[j] = '\0';
-    
-    char quoted_value[520];
-    snprintf(quoted_value, sizeof(quoted_value), "'%s'", display_value);
-    
-    printf("%-20s %-25s %-8d %-8d\n", 
-           token_type_name(token->type), 
-           quoted_value, 
-           token->line, 
-           token->column);
-}
-
 // creates a tokenizer instance with initial capacity and source tracking
 Tokenizer* tokenizer_create(const char* source, const char* filename) {
     Tokenizer* tokenizer = (Tokenizer*)malloc(sizeof(Tokenizer));
