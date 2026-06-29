@@ -1,3 +1,5 @@
+import os
+os.execute("
 # ARITHMETIC
 apex source/tests/arithmetic/whole_with_whole.apex
 apex source/tests/arithmetic/decimal_with_decimal.apex
@@ -45,3 +47,4 @@ apex source/tests/libraries/ffi.apex
 apex source/tests/libraries/codecs.apex
 apex source/tests/libraries/table.apex
 apex source/tests/libraries/string.apex
+")
