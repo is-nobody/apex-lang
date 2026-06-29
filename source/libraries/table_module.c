@@ -23,13 +23,11 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
     (void)vm;
     if (arg_count < 1 || args[0].type != VAL_TABLE) return false;
     
-    // table.size — return number of entries in the table
     if (strcmp(name, "table.size") == 0) {
         *result = vm_make_number(table_size(args[0].table));
         return true;
     }
     
-    // table.has — check if a key exists in the table
     if (strcmp(name, "table.has") == 0) {
         if (arg_count >= 2 && args[1].type == VAL_STRING) {
             *result = vm_make_bool(table_has(args[0].table, args[1].string->chars));
@@ -41,9 +39,25 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         return true;
     }
     
-    // table.remove — delete an entry by key
+    // table.remove — FAST PATH for numeric keys
     if (strcmp(name, "table.remove") == 0) {
         if (arg_count >= 2) {
+            if (args[1].type == VAL_NUMBER) {
+                double num = args[1].number;
+                if (num >= 1 && num == (int)num) {
+                    int idx = (int)num - 1;
+                    Table* t = args[0].table;
+                    bool existed = (t->array_part != NULL && idx < t->array_count);
+                    if (existed) {
+                        value_decref(&t->array_part[idx]);
+                        t->array_part[idx].type = VAL_BOOL;
+                        t->array_part[idx].boolean = false;
+                    }
+                    *result = vm_make_bool(existed);
+                    return true;
+                }
+            }
+            // String or non-integer: old path
             char key[256] = {0};
             if (args[1].type == VAL_STRING) {
                 strcpy(key, args[1].string->chars);
@@ -52,7 +66,6 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
             } else {
                 return false;
             }
-            // Check if key exists before removing
             bool existed = table_has(args[0].table, key);
             table_remove(args[0].table, key);
             *result = vm_make_bool(existed);
@@ -61,39 +74,30 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         return false;
     }
     
-    // table.keys — return a new table containing all keys
     if (strcmp(name, "table.keys") == 0) {
         *result = vm_make_table();
         Table* table = args[0].table;
-        
         int count;
-        char** keys = table_keys(table, &count);  // <-- USE API!
-        
+        char** keys = table_keys(table, &count);
         if (keys && count > 0) {
             qsort(keys, count, sizeof(char*), compare_keys);
-            
             for (int i = 0; i < count; i++) {
                 char key_str[32];
-                snprintf(key_str, sizeof(key_str), "%d", i + 1);  // 1-based indexing
+                snprintf(key_str, sizeof(key_str), "%d", i + 1);
                 table_set(result->table, key_str, vm_make_string(keys[i]));
             }
-            
             free(keys);
         }
         return true;
     }
     
-    // table.values — return a new table containing all values
     if (strcmp(name, "table.values") == 0) {
         *result = vm_make_table();
         Table* table = args[0].table;
-        
         int count;
-        char** keys = table_keys(table, &count);  // <-- USE API!
-        
+        char** keys = table_keys(table, &count);
         if (keys && count > 0) {
             qsort(keys, count, sizeof(char*), compare_keys);
-            
             for (int i = 0; i < count; i++) {
                 Value val;
                 if (table_get(table, keys[i], &val)) {
@@ -103,73 +107,93 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
                     value_decref(&val);
                 }
             }
-            
             free(keys);
         }
         return true;
     }
     
-    // table.clear — remove all entries from the table
     if (strcmp(name, "table.clear") == 0) {
         table_clear(args[0].table);
         *result = vm_make_bool(false);
         return true;
     }
     
-    // table.copy — create a shallow copy of the table
+    // table.copy — FAST PATH for array part
     if (strcmp(name, "table.copy") == 0) {
         *result = vm_make_table();
         Table* src = args[0].table;
+        Table* dst = result->table;
         
-        int count;
-        char** keys = table_keys(src, &count);  // <-- USE API!
-        
-        if (keys && count > 0) {
-            for (int i = 0; i < count; i++) {
-                Value val;
-                if (table_get(src, keys[i], &val)) {
-                    table_set(result->table, keys[i], vm_copy_value(val));
-                    value_decref(&val);
-                }
+        // Fast path: copy array part directly
+        if (src->array_count > 0) {
+            dst->array_count = src->array_count;
+            dst->array_capacity = src->array_capacity > 0 ? src->array_capacity : 8;
+            dst->array_part = (Value*)calloc(dst->array_capacity, sizeof(Value));
+            for (int i = 0; i < src->array_count; i++) {
+                dst->array_part[i] = src->array_part[i];
+                value_incref(&dst->array_part[i]);
             }
-            free(keys);
+            for (int i = src->array_count; i < dst->array_capacity; i++) {
+                dst->array_part[i].type = VAL_BOOL;
+                dst->array_part[i].boolean = false;
+            }
+        }
+        
+        // Copy hash part
+        for (int i = 0; i < src->capacity; i++) {
+            TableEntry* entry = src->entries[i];
+            while (entry) {
+                table_set(dst, entry->key, entry->value);
+                entry = entry->next;
+            }
         }
         return true;
     }
     
-    // table.merge — merge two tables, second overwrites duplicates
+    // table.merge — FAST PATH for array parts
     if (strcmp(name, "table.merge") == 0) {
         if (arg_count >= 2 && args[1].type == VAL_TABLE) {
             *result = vm_make_table();
-            
-            // Copy first table
+            Table* dst = result->table;
             Table* src1 = args[0].table;
-            int count1;
-            char** keys1 = table_keys(src1, &count1);
-            if (keys1 && count1 > 0) {
-                for (int i = 0; i < count1; i++) {
-                    Value val;
-                    if (table_get(src1, keys1[i], &val)) {
-                        table_set(result->table, keys1[i], vm_copy_value(val));
-                        value_decref(&val);
+            Table* src2 = args[1].table;
+            
+            // Fast path: merge array parts
+            int max_array = src1->array_count > src2->array_count ? src1->array_count : src2->array_count;
+            if (max_array > 0) {
+                dst->array_count = max_array;
+                dst->array_capacity = max_array > 8 ? max_array : 8;
+                dst->array_part = (Value*)calloc(dst->array_capacity, sizeof(Value));
+                
+                for (int i = 0; i < max_array; i++) {
+                    if (i < src2->array_count && src2->array_part[i].type != VAL_BOOL) {
+                        dst->array_part[i] = src2->array_part[i];
+                    } else if (i < src1->array_count) {
+                        dst->array_part[i] = src1->array_part[i];
+                    } else {
+                        dst->array_part[i].type = VAL_BOOL;
+                        dst->array_part[i].boolean = false;
                     }
+                    value_incref(&dst->array_part[i]);
                 }
-                free(keys1);
             }
             
-            // Merge second (overwrites)
-            Table* src2 = args[1].table;
-            int count2;
-            char** keys2 = table_keys(src2, &count2);
-            if (keys2 && count2 > 0) {
-                for (int i = 0; i < count2; i++) {
-                    Value val;
-                    if (table_get(src2, keys2[i], &val)) {
-                        table_set(result->table, keys2[i], vm_copy_value(val));
-                        value_decref(&val);
+            // Merge hash parts (src2 overwrites src1)
+            for (int i = 0; i < src1->capacity; i++) {
+                TableEntry* entry = src1->entries[i];
+                while (entry) {
+                    if (!table_has(dst, entry->key)) {
+                        table_set(dst, entry->key, entry->value);
                     }
+                    entry = entry->next;
                 }
-                free(keys2);
+            }
+            for (int i = 0; i < src2->capacity; i++) {
+                TableEntry* entry = src2->entries[i];
+                while (entry) {
+                    table_set(dst, entry->key, entry->value);
+                    entry = entry->next;
+                }
             }
             return true;
         }
