@@ -8,7 +8,7 @@ The OS library lets you interact with the operating system, manage processes, an
 
 ### Basic I/O
 #### os.output(value)
-Prints a value to the terminal.
+Prints a value to the terminal followed by a newline.
 
 ```apex
 import os
@@ -32,189 +32,9 @@ else
     os.output("Hello, {name}")
 ```
 
-### Environment Variables
-#### os.getenv(name)
-Gets the value of an environment variable. Returns the value as a string, or `false` if the variable doesn't exist.
-
-```apex
-import os
-
-path = os.getenv("PATH")
-
-if path == false
-    os.output("Environment variable not found")
-else
-    os.output("PATH: {path}")
-```
-
-#### os.setenv(name, value)
-Sets an environment variable. Returns `true` on success, `false` on failure.
-
-```apex
-import os
-
-result = os.setenv("MY_VAR", "hello")
-
-if result == false
-    os.output("Could not set environment variable")
-else
-    os.output("MY_VAR set to: {os.getenv("MY_VAR")}")
-```
-
-#### os.env()
-Returns a table containing all environment variables as key-value pairs. Returns `false` on failure.
-
-```apex
-import os
-
-env_vars = os.env()
-
-if env_vars == false
-    os.output("Could not get environment variables")
-else
-    os.output("HOME = {env_vars.HOME}")
-    os.output("PATH = {env_vars.PATH}")
-```
-
-### Process Management
-#### os.pid()
-Returns the current process ID as a number. Returns `false` on failure.
-
-```apex
-import os
-
-process_id = os.pid()
-
-if process_id == false
-    os.output("Could not get process ID")
-else
-    os.output("Process ID: {process_id}")
-```
-
-#### os.getparentpid()
-Returns the parent process ID as a number. Returns `false` on failure or if the parent PID cannot be determined (e.g., on some Windows configurations).
-
-```apex
-import os
-
-parent_id = os.getparentpid()
-
-if parent_id == false
-    os.output("Could not get parent process ID")
-else
-    os.output("Parent Process ID: {parent_id}")
-```
-
-#### os.spawn(command)
-Starts a new process from a shell command. Returns the PID (process ID) of the new process as a number, or `false` on failure. The program does not wait for the process to finish.
-
-```apex
-import os
-
-pid = os.spawn("notepad.exe")    // Windows
-// pid = os.spawn("gedit &")     // Linux
-
-if pid == false
-    os.output("Could not start process")
-else
-    os.output("Started process with PID: {pid}")
-```
-
-#### os.waitpid(pid)
-Waits for a specific process to finish and returns its exit code. Returns a number (the exit code) on success, `false` if the process doesn't exist or can't be waited on.
-
-```apex
-import os
-
-pid = os.spawn("my_program")
-
-if pid == false
-    os.output("Could not start process")
-else
-    exit_code = os.waitpid(pid)
-    if exit_code == false
-        os.output("Could not wait for process")
-    else
-        os.output("Process exited with code: {exit_code}")
-```
-
-#### os.kill(pid)
-Terminates the process with the given PID. Returns `true` on success, `false` on failure.
-
-```apex
-import os
-
-result = os.kill(12345)
-
-if result == false
-    os.output("Could not terminate process")
-else
-    os.output("Process terminated successfully")
-```
-
-#### os.execute(command)
-Runs a system command as if you typed it in the terminal. Returns the command's exit code. Available commands depend on your operating system. Returns `false` on failure.
-
-```apex
-import os
-
-exit_code = os.execute("echo Hello from terminal")     // Works on Linux/macOS
-
-if exit_code == false
-    os.output("Could not execute command")
-else
-    os.output("Command exited with code: {exit_code}")
-```
-
-### Directory Navigation
-#### os.listdir(path)
-*Note: This function is also available in `files.listdir`.*
-Returns a table of names — all files and folders inside the given folder. If no path is given, lists the current folder. Returns an empty table on failure.
-
-```apex
-import os
-
-items = os.listdir(".")
-
-if items == false
-    os.output("Could not list directory contents")
-else
-    os.output("Contents of current directory:")
-    for item in items
-        os.output("  {item}")
-```
-
-#### os.getcd()
-Returns the current directory as a string — where your program is running from. Returns `false` on failure.
-
-```apex
-import os
-
-current_folder = os.getcd()
-
-if current_folder == false
-    os.output("Could not get current directory")
-else
-    os.output("Running from: {current_folder}")
-```
-
-#### os.setcd(path)
-Changes the current directory. Returns `true` on success, `false` on failure.
-
-```apex
-import os
-
-result = os.setcd("/home/user/projects")
-
-if result == false
-    os.output("Could not change directory")
-else
-    os.output("Directory changed successfully")
-```
-
-### Time and Exit
+### Time and Process Control
 #### os.time()
-Returns the current time as a number — seconds since January 1, 1970. Useful for measuring how long something takes. Returns `false` on failure.
+Returns the current time as a number — seconds since January 1, 1970 (with microsecond precision). Useful for measuring how long something takes.
 
 ```apex
 import os
@@ -224,14 +44,13 @@ start = os.time()
 if start == false
     os.output("Could not get system time")
 else
-    // ... do something slow ...
     end = os.time()
     elapsed = end - start
     os.output("Took {elapsed} seconds")
 ```
 
 #### os.wait(seconds)
-Pauses the program for the given number of seconds. You can use decimals for fractions of a second. Negative values are treated as `0`. Returns `true` on success, `false` on failure.
+Pauses the program for the given number of seconds. You can use decimals for fractions of a second. Negative values are treated as `0`.
 
 ```apex
 import os
@@ -259,18 +78,75 @@ else
     os.output("Critical file found, continuing...")
 ```
 
+### Directory Navigation
+#### os.get_current_folder()
+Returns the current directory as a string — where your program is running from. Returns `false` on failure.
+
+```apex
+import os
+
+current_folder = os.get_current_folder()
+
+if current_folder == false
+    os.output("Could not get current directory")
+else
+    os.output("Running from: {current_folder}")
+```
+
+#### os.set_current_folder(path)
+Changes the current directory. Returns `true` on success, `false` on failure.
+
+```apex
+import os
+
+result = os.set_current_folder("/home/user/projects")
+
+if result == false
+    os.output("Could not change directory")
+else
+    os.output("Directory changed successfully")
+```
+
+### Process Management
+#### os.terminate_process(pid)
+Terminates the process with the given PID. Returns `true` on success, `false` on failure.
+
+```apex
+import os
+
+result = os.terminate_process(12345)
+
+if result == false
+    os.output("Could not terminate process")
+else
+    os.output("Process terminated successfully")
+```
+
+#### os.execute(command)
+Runs a system command as if you typed it in the terminal. Returns the command's exit code. Available commands depend on your operating system. Returns `-1` on failure to execute.
+
+```apex
+import os
+
+exit_code = os.execute("echo Hello from terminal")
+
+if exit_code == -1
+    os.output("Could not execute command")
+else
+    os.output("Command exited with code: {exit_code}")
+```
+
 ## Files Library (files)
-The Files library handles file and directory operations, including reading, writing, moving, and checking properties. Import it with `import files`.
+The Files functionality is integrated into the `os` library. Import it with `import os`.
 
 ### File Read/Write
-#### files.read(filename)
+#### os.read(filename)
 Reads the entire contents of a file and returns it as a string. Returns `false` if the file cannot be read.
 
 ```apex
 import os
-import files
 
-content = files.read("story.txt")
+content = os.read("story.txt")
 
 if content == false
     os.output("Could not read the file")
@@ -278,14 +154,13 @@ else
     os.output(content)
 ```
 
-#### files.write(filename, content)
+#### os.write(filename, content)
 Writes content to a file. Creates the file if it doesn't exist, overwrites it if it does. Returns `true` on success, `false` on failure.
 
 ```apex
 import os
-import files
 
-success = files.write("notes.txt", "Today I learned Apex!")
+success = os.write("notes.txt", "Today I learned Apex!")
 
 if success == false
     os.output("Could not write to the file")
@@ -293,14 +168,13 @@ else
     os.output("File saved successfully")
 ```
 
-#### files.append(filename, content)
+#### os.append(filename, content)
 Appends content to the end of a file. Creates the file if it doesn't exist. Returns `true` on success, `false` on failure.
 
 ```apex
 import os
-import files
 
-result = files.append("log.txt", "Second line\n")
+result = os.append("log.txt", "Second line\n")
 
 if result == false
     os.output("Could not append to the file")
@@ -309,14 +183,13 @@ else
 ```
 
 ### File Properties
-#### files.exists(path)
+#### os.exists(path)
 Returns `true` if the file or folder at `path` exists, `false` otherwise.
 
 ```apex
 import os
-import files
 
-exists = files.exists("config.apex")
+exists = os.exists("config.apex")
 
 if exists == false
     os.output("No config file")
@@ -324,14 +197,13 @@ else
     os.output("Config file found")
 ```
 
-#### files.isfile(path)
+#### os.isfile(path)
 Returns `true` if the path points to a file specifically (not a folder). Returns `false` otherwise.
 
 ```apex
 import os
-import files
 
-result = files.isfile("data.txt")
+result = os.isfile("data.txt")
 
 if result == false
     os.output("Not a file or doesn't exist")
@@ -339,14 +211,13 @@ else
     os.output("It's a file")
 ```
 
-#### files.isdir(path)
+#### os.isfolder(path)
 Returns `true` if the path points to a folder specifically. Returns `false` otherwise.
 
 ```apex
 import os
-import files
 
-result = files.isdir("my_folder")
+result = os.isfolder("my_folder")
 
 if result == false
     os.output("Not a folder or doesn't exist")
@@ -354,44 +225,27 @@ else
     os.output("It's a folder")
 ```
 
-#### files.filesize(path)
-Returns the size of a file in bytes. Returns a number on success, `false` if the file doesn't exist or isn't a regular file.
+#### os.size(path)
+Returns the size of a file or directory in bytes. For directories, it calculates the total size recursively. Returns a number on success, `false` if the path doesn't exist.
 
 ```apex
 import os
-import files
 
-size = files.filesize("movie.mp4")
+size = os.size("movie.mp4")
 
 if size == false
-    os.output("Could not get file size")
+    os.output("Could not get size")
 else
-    os.output("File size: {size} bytes")
+    os.output("Size: {size} bytes")
 ```
 
-#### files.dirsize(path)
-Calculates the total size of a directory in bytes (recursively, including all nested files and folders). Returns a number on success, or `false` if the directory doesn't exist.
+#### os.filetype(path)
+Detects the file type by its contents (magic bytes). Returns a string describing the type, or `false` if the file is not found. Recognizes: `PDF document`, `PNG image`, `JPEG image`, `GIF image`, `ZIP archive`, `ELF executable`, `Windows executable`, `Plain text`, `Unknown binary`.
 
 ```apex
 import os
-import files
 
-size = files.dirsize("downloads")
-
-if size == false
-    os.output("Could not calculate directory size")
-else
-    os.output("Folder size: {size} bytes")
-```
-
-#### files.filetype(path)
-Detects the file type by its contents (magic bytes). Returns a string describing the type, or `false` if the file is not found. Recognizes: `PDF`, `PNG`, `JPEG`, `GIF`, `ZIP`, `ELF`, `Windows executable`, `Plain text`, `Unknown binary`.
-
-```apex
-import os
-import files
-
-filetype = files.filetype("document.pdf")
+filetype = os.filetype("document.pdf")
 
 if filetype == false
     os.output("Could not detect file type")
@@ -399,7 +253,7 @@ else
     os.output("File type: {filetype}")
 ```
 
-#### files.stat(path)
+#### os.stat(path)
 Returns a table with information about a file or folder. The table contains these keys:
 - `size` — file size in bytes
 - `mtime` — last modification time (timestamp)
@@ -410,120 +264,70 @@ Returns a table on success, `false` on failure.
 
 ```apex
 import os
-import files
 
-info = files.stat("data.txt")
+info = os.stat("data.txt")
 
 if info == false
     os.output("File does not exist")
 else
-    os.output("Size: {info.size} bytes")
-    os.output("Modified: {info.mtime}")
-    os.output("Created: {info.ctime}")
-    os.output("Is directory: {info.isdir}")
+    os.output("Size: {info["size"]} bytes")
+    os.output("Modified: {info["mtime"]}")
+    os.output("Created: {info["ctime"]}")
+    os.output("Is directory: {info["isdir"]}")
 ```
 
 ### Rename and Move
-#### files.rnfile(old_name, new_name)
-Renames a file. Returns `true` on success, `false` if the source doesn't exist or isn't a file.
+#### os.rename(old_name, new_name)
+Renames a file or directory. Returns `true` on success, `false` on failure.
 
 ```apex
 import os
-import files
 
-result = files.rnfile("old.txt", "new.txt")
+result = os.rename("old.txt", "new.txt")
 
 if result == false
-    os.output("Could not rename the file")
+    os.output("Could not rename")
 else
-    os.output("File renamed successfully")
+    os.output("Renamed successfully")
 ```
 
-#### files.rndir(old_name, new_name)
-Renames a directory. Returns `true` on success, `false` if the source doesn't exist or isn't a directory.
+#### os.move(source, destination)
+Moves a file or directory to a new location. Returns `true` on success, `false` on failure.
 
 ```apex
 import os
-import files
 
-result = files.rndir("old_folder", "new_folder")
-
-if result == false
-    os.output("Could not rename the directory")
-else
-    os.output("Directory renamed successfully")
-```
-
-#### files.mvfile(source, destination)
-Moves a file to a new location. Returns `true` on success, `false` on failure.
-
-```apex
-import os
-import files
-
-result = files.mvfile("doc.txt", "backup/doc.txt")
+result = os.move("doc.txt", "backup/doc.txt")
 
 if result == false
-    os.output("Could not move the file")
+    os.output("Could not move")
 else
-    os.output("File moved successfully")
-```
-
-#### files.mvdir(source, destination)
-Moves a directory to a new location. Returns `true` on success, `false` on failure.
-
-```apex
-import os
-import files
-
-result = files.mvdir("project", "archive/project")
-
-if result == false
-    os.output("Could not move the directory")
-else
-    os.output("Directory moved successfully")
+    os.output("Moved successfully")
 ```
 
 ### Copy
-#### files.cpfile(source, destination)
-Copies a file. Returns `true` on success, `false` on failure.
+#### os.copy(source, destination)
+Copies a file or recursively copies a directory with all its contents. Returns `true` on success, `false` on failure.
 
 ```apex
 import os
-import files
 
-result = files.cpfile("original.txt", "copy.txt")
-
-if result == false
-    os.output("Could not copy the file")
-else
-    os.output("File copied successfully")
-```
-
-#### files.cpdir(source, destination)
-Recursively copies a directory with all its contents. Returns `true` on success, `false` on failure.
-
-```apex
-import os
-import files
-
-result = files.cpdir("my_project", "backup/my_project")
+result = os.copy("original.txt", "copy.txt")
 
 if result == false
-    os.output("Could not copy the directory")
+    os.output("Could not copy")
 else
-    os.output("Directory copied successfully")
+    os.output("Copied successfully")
 ```
 
 ### Create and Delete
-#### files.mkfile(filename)
+#### os.create_file(filename)
 Creates an empty file. Returns `true` on success, `false` on failure.
 
 ```apex
 import os
-import files
 
-result = files.mkfile("new_file.txt")
+result = os.create_file("new_file.txt")
 
 if result == false
     os.output("Could not create the file")
@@ -531,14 +335,13 @@ else
     os.output("File created successfully")
 ```
 
-#### files.mkdir(path)
+#### os.create_folder(path)
 Creates a new folder. Returns `true` on success, `false` if the folder already exists or can't be created.
 
 ```apex
 import os
-import files
 
-result = files.mkdir("my_project")
+result = os.create_folder("my_project")
 
 if result == false
     os.output("Folder already exists or can't be created")
@@ -546,45 +349,28 @@ else
     os.output("Folder created successfully")
 ```
 
-#### files.rmfile(path)
-Deletes a file permanently. Returns `true` if deleted, `false` if the file doesn't exist or can't be deleted.
+#### os.delete(path)
+Deletes a file or an empty folder. Returns `true` if deleted, `false` if the path doesn't exist, is a non-empty folder, or can't be deleted.
 
 ```apex
 import os
-import files
 
-result = files.rmfile("temp.txt")
-
-if result == false
-    os.output("Could not delete the file")
-else
-    os.output("File deleted successfully")
-```
-
-#### files.rmdir(path)
-Removes an empty folder. Returns `true` on success, `false` if the folder isn't empty or doesn't exist. This only works on empty folders — use `files.rmfile()` to delete files inside first.
-
-```apex
-import os
-import files
-
-result = files.rmdir("old_folder")
+result = os.delete("temp.txt")
 
 if result == false
-    os.output("Could not remove the directory")
+    os.output("Could not delete")
 else
-    os.output("Directory removed successfully")
+    os.output("Deleted successfully")
 ```
 
 ### Directory Navigation
-#### files.listdir(path)
-Returns a table of names — all files and folders inside the given folder. If no path is given, lists the current folder. Returns an empty table on failure.
+#### os.items(path)
+Returns a table of names — all files and folders inside the given folder. If no path is given, lists the current folder. Returns `false` on failure.
 
 ```apex
 import os
-import files
 
-items = files.listdir(".")
+items = os.items(".")
 
 if items == false
     os.output("Could not list directory contents")
@@ -594,82 +380,33 @@ else
         os.output("  {item}")
 ```
 
-#### files.parentfolder(path)
+#### os.parentfolder(path)
 Returns the parent directory of the given path. For root paths like `/` or `C:\`, returns the root itself. If no directory separator is found in the path, returns `"."`. Returns `false` if no path is provided or on failure.
 
 ```apex
 import os
-import files
 
-parent = files.parentfolder("/home/user/projects")
+parent = os.parentfolder("/home/user/projects")
 
 if parent == false
     os.output("Could not get parent folder")
 else
-    os.output("Parent folder: {parent}")  // /home/user
+    os.output("Parent folder: {parent}")
 ```
 
 ### Permissions
-#### files.access(path, mode)
+#### os.access(path, mode)
 Changes file permissions. The `mode` is a number (e.g., `755` for rwxr-xr-x on Unix). Returns `true` on success, `false` on failure.
 
 ```apex
 import os
-import files
 
-result = files.access("script.sh", 755)
+result = os.access("script.sh", 755)
 
 if result == false
     os.output("Could not change permissions")
 else
     os.output("Permissions changed successfully")
-```
-
-### Disk Information
-#### files.disksize(path)
-Returns the total disk size in bytes for the volume containing the given path. If no path is provided, uses the current directory. Returns a number on success, `false` on failure.
-
-```apex
-import os
-import files
-
-total = files.disksize(".")
-
-if total == false
-    os.output("Could not get disk size")
-else
-    os.output("Total disk size: {total} bytes")
-```
-
-#### files.freesize(path)
-Returns the free disk space in bytes for the volume containing the given path. If no path is provided, uses the current directory. Returns a number on success, `false` on failure.
-
-```apex
-import os
-import files
-
-free = files.freesize(".")
-
-if free == false
-    os.output("Could not get free disk space")
-else
-    os.output("Free disk space: {free} bytes")
-```
-
-### Temporary Files
-#### files.tempdir()
-Returns the path to the system's temporary directory. On Unix-like systems, checks the `TMPDIR`, `TMP`, and `TEMP` environment variables, falling back to `/tmp`. Returns `false` on failure.
-
-```apex
-import os
-import files
-
-temp_dir = files.tempdir()
-
-if temp_dir == false
-    os.output("Could not get temporary directory")
-else
-    os.output("Temporary directory: {temp_dir}")
 ```
 
 ## System Library (sys)
@@ -758,8 +495,8 @@ else
     os.output("Home folder: {home}")
 ```
 
-#### sys.isterminal()
-Checks if the program's output goes to a terminal. By default checks stdout. Pass a number to check a different file descriptor: `0` for stdin, `2` for stderr. Returns `true` if the output goes to a terminal, `false` if it's redirected to a file or pipe.
+#### sys.isterminal(fd)
+Checks if the file descriptor goes to a terminal. By default checks stdout (fd 1). Pass a number to check a different file descriptor: `0` for stdin, `2` for stderr. Returns `true` if the output goes to a terminal, `false` if it's redirected to a file or pipe.
 
 ```apex
 import os
@@ -796,6 +533,73 @@ if path == false
     os.output("Could not get executable path")
 else
     os.output("Running from: {path}")
+```
+
+#### sys.disksize(path)
+Returns a table with disk usage information for the volume containing the given path. If no path is provided, uses the current directory. The table contains:
+- `total` — Total size in MB
+- `used` — Used space in MB
+- `free` — Free space in MB
+
+Returns a table on success, `false` on failure.
+
+```apex
+import os
+import sys
+
+info = sys.disksize(".")
+
+if info == false
+    os.output("Could not get disk info")
+else
+    os.output("Total: {info["total"]} MB")
+    os.output("Free: {info["free"]} MB")
+```
+
+#### sys.tempdir()
+Returns the path to the system's temporary directory. On Unix-like systems, checks the `TMPDIR`, `TMP`, and `TEMP` environment variables, falling back to `/tmp`. Returns `false` on failure.
+
+```apex
+import os
+import sys
+
+temp_dir = sys.tempdir()
+
+if temp_dir == false
+    os.output("Could not get temporary directory")
+else
+    os.output("Temporary directory: {temp_dir}")
+```
+
+#### sys.environment()
+Returns a table containing all environment variables as key-value pairs.
+
+```apex
+import os
+import sys
+
+env_vars = sys.environment()
+
+if env_vars == false
+    os.output("Could not get environment variables")
+else
+    os.output("HOME = {env_vars["HOME"]}")
+    os.output("PATH = {env_vars["PATH"]}")
+```
+
+#### sys.process_id()
+Returns the current process ID as a number.
+
+```apex
+import os
+import sys
+
+pid = sys.process_id()
+
+if pid == false
+    os.output("Could not get process ID")
+else
+    os.output("Process ID: {pid}")
 ```
 
 ## Math Library (math)
@@ -1107,6 +911,7 @@ Returns the number of characters in a string. Spaces and punctuation count as ch
 
 ```apex
 import string
+
 string.len("hello")        // 5
 string.len("")             // 0
 string.len("hi there")     // 8 (space counts)
@@ -1118,6 +923,7 @@ Converts every character in the string to lowercase. Useful when you want to com
 
 ```apex
 import string
+
 string.lower("HELLO")      // "hello"
 string.lower("Hello")      // "hello"
 string.lower("Apex 123")   // "apex 123"
@@ -1128,6 +934,7 @@ Converts every character in the string to uppercase.
 
 ```apex
 import string
+
 string.upper("hello")      // "HELLO"
 string.upper("Hello")      // "HELLO"
 string.upper("apex 123")   // "APEX 123"
@@ -1140,6 +947,7 @@ Positions start counting from `0`, not `1`. The first character is at position 0
 
 ```apex
 import string
+
 text = "Hello, World"
 string.sub(text, 0, 5)     // "Hello"
 string.sub(text, 7, 12)    // "World"
@@ -1149,6 +957,8 @@ string.sub(text, 0, 1)     // "H" (first character only)
 If `start` is negative, it's treated as `0`. If `end` is larger than the string length, it stops at the end.
 
 ```apex
+import string
+
 string.sub("Apex", 1, 10)  // "pex" (end is bigger than string, stops at end)
 ```
 
@@ -1157,22 +967,24 @@ Splits a string into a table of substrings. The separator is the character (or c
 
 ```apex
 import string
-string.split("apple,banana,orange", ",")     // ("apple", "banana", "orange")
-string.split("hello world apex", " ")        // ("hello", "world", "apex")
-string.split("one two three")                // ("one", "two", "three")
-string.split("word")                         // ("word",)
+
+string.split("apple,banana,orange", ",")     // ["apple", "banana", "orange"]
+string.split("hello world apex", " ")        // ["hello", "world", "apex"]
+string.split("one two three")                // ["one", "two", "three"]
+string.split("word")                         // ["word"]
 ```
 
 Practical example — processing user input:
 
 ```apex
-import string
 import os
+import string
+
 user_input = os.input("Enter three numbers separated by commas: ")
 parts = string.split(user_input, ",")
-os.output("First number: {parts.1}")
-os.output("Second number: {parts.2}")
-os.output("Third number: {parts.3}")
+os.output("First number: {parts["1"]}")
+os.output("Second number: {parts["2"]}")
+os.output("Third number: {parts["3"]}")
 ```
 
 ### string.join(parts, separator)
@@ -1180,13 +992,13 @@ Does the opposite of `split` — takes a table of strings and joins them into on
 
 ```apex
 import string
-words = ("Hello", "World")
+
+words = ["Hello", "World"]
 string.join(words, " ")       // "Hello World"
 string.join(words, "-")       // "Hello-World"
 string.join(words)            // "HelloWorld" (no separator)
 
-// Join with commas
-tags = ("apex", "programming", "language")
+tags = ["apex", "programming", "language"]
 string.join(tags, ", ")       // "apex, programming, language"
 ```
 
@@ -1195,6 +1007,7 @@ Removes whitespace (spaces, tabs, newlines) from the beginning and end of a stri
 
 ```apex
 import string
+
 string.trim("  hello  ")      // "hello"
 string.trim("   apex   lang   ")  // "apex   lang" (inner spaces kept)
 string.trim("\n  text \n")    // "text"
@@ -1203,10 +1016,11 @@ string.trim("\n  text \n")    // "text"
 Very useful when cleaning user input — users often accidentally type extra spaces:
 
 ```apex
-import string
 import os
+import string
+
 name = os.input("Enter your name: ")
-name = string.trim(name)      // Remove accidental spaces
+name = string.trim(name)
 os.output("Hello, {name}")
 ```
 
@@ -1215,6 +1029,7 @@ Searches for `search` inside `s` and returns the position of the first match. Re
 
 ```apex
 import string
+
 text = "Hello, World"
 string.find(text, "World")    // 7
 string.find(text, "o")        // 4 (first 'o' is at position 4)
@@ -1224,7 +1039,9 @@ string.find(text, "Apex")     // -1 (not found)
 You can use the result to check if something exists in a string:
 
 ```apex
+import os
 import string
+
 email = "alice@example.com"
 if string.find(email, "@") != -1
     os.output("Valid email format")
@@ -1233,15 +1050,15 @@ else
 ```
 
 ### string.replace(s, old, new)
-Replaces every occurrence of `old` with `new` in the string. If `old` isn't found, returns the original string unchanged.
+Replaces the **first** occurrence of `old` with `new` in the string. If `old` isn't found, returns the original string unchanged.
 
 ```apex
 import string
+
 string.replace("Hello World", "World", "Apex")    // "Hello Apex"
-string.replace("banana", "a", "o")                // "bonono"
+string.replace("banana", "a", "o")                // "bonana" (only first 'a')
 string.replace("hello", "x", "y")                 // "hello" (nothing changed)
 
-// Remove something by replacing with empty string
 string.replace("remove-this", "-this", "")        // "remove"
 ```
 
@@ -1249,27 +1066,27 @@ string.replace("remove-this", "-this", "")        // "remove"
 The Table library provides functions for working with tables. Import it with `import table`.
 
 ### table.remove(t, key)
-Removes an item from a table by key or index.
+Removes an item from a table by key or index. Returns `true` if the key existed and was removed, `false` otherwise.
 
 ```apex
 import table
-user = (name = "Alice", age = 30, active = true)
+
+user = ["name" = "Alice", "age" = 30, "active" = true]
 table.remove(user, "age")
-// user is now (name = "Alice", active = true)
+// user is now ["name" = "Alice", "active" = true]
 
-colors = ("red", "green", "blue")
+colors = ["red", "green", "blue"]
 table.remove(colors, 2)
-// colors is now ("red", "blue")
+// colors is now ["red", "blue"]
 ```
-
-If the key or index doesn't exist, an error is thrown.
 
 ### table.has(t, key)
 Returns `true` if the table has the specified key or index.
 
 ```apex
 import table
-user = (name = "Alice", age = 30)
+
+user = ["name" = "Alice", "age" = 30]
 table.has(user, "name")   // true
 table.has(user, "city")   // false
 table.has(user, 1)        // true (ordered item at position 1)
@@ -1280,38 +1097,41 @@ Returns the number of items in the table.
 
 ```apex
 import table
-user = (name = "Alice", age = 30)
+
+user = ["name" = "Alice", "age" = 30]
 table.size(user)          // 2
 
-colors = ("red", "green", "blue")
+colors = ["red", "green", "blue"]
 table.size(colors)        // 3
 
-empty = ()
+empty = []
 table.size(empty)         // 0
 ```
 
 ### table.keys(t)
-Returns a table of all keys in the table as strings. For ordered items without keys, their positions are converted to strings.
+Returns a table of all keys in the table as strings. For ordered items without keys, their positions are converted to strings. Keys are sorted numerically if possible, otherwise lexicographically.
 
 ```apex
 import table
-user = (name = "Alice", age = 30, active = true)
-keys = table.keys(user)   // ("name", "age", "active")
 
-colors = ("red", "green", "blue")
-keys = table.keys(colors) // ("1", "2", "3")
+user = ["name" = "Alice", "age" = 30, "active" = true]
+keys = table.keys(user)   // ["name", "age", "active"]
+
+colors = ["red", "green", "blue"]
+keys = table.keys(colors) // ["1", "2", "3"]
 ```
 
 ### table.values(t)
-Returns a table of all values in the table in order.
+Returns a table of all values in the table in order. Keys are sorted numerically if possible, otherwise lexicographically.
 
 ```apex
 import table
-user = (name = "Alice", age = 30, active = true)
-values = table.values(user)   // ("Alice", 30, true)
 
-colors = ("red", "green", "blue")
-values = table.values(colors) // ("red", "green", "blue")
+user = ["name" = "Alice", "age" = 30, "active" = true]
+values = table.values(user)   // ["Alice", 30, true]
+
+colors = ["red", "green", "blue"]
+values = table.values(colors) // ["red", "green", "blue"]
 ```
 
 ### table.clear(t)
@@ -1319,8 +1139,9 @@ Removes all items from the table.
 
 ```apex
 import table
-user = (name = "Alice", age = 30)
-table.clear(user)         // user is now ()
+
+user = ["name" = "Alice", "age" = 30]
+table.clear(user)         // user is now []
 ```
 
 ### table.copy(t)
@@ -1328,10 +1149,11 @@ Returns a shallow copy of the table. Changes to the copy don't affect the origin
 
 ```apex
 import table
-original = (name = "Alice", age = 30)
+
+original = ["name" = "Alice", "age" = 30]
 duplicate = table.copy(original)
-duplicate.name = "Bob"
-// original.name is still "Alice"
+duplicate["name"] = "Bob"
+// original["name"] is still "Alice"
 ```
 
 ### table.merge(t1, t2)
@@ -1339,9 +1161,10 @@ Merges two tables into a new table. If keys conflict, values from the second tab
 
 ```apex
 import table
-t1 = (name = "Alice", age = 30)
-t2 = (city = "Dubai", age = 31)
-merged = table.merge(t1, t2)  // (name = "Alice", age = 31, city = "Dubai")
+
+t1 = ["name" = "Alice", "age" = 30]
+t2 = ["city" = "Dubai", "age" = 31]
+merged = table.merge(t1, t2)  // ["name" = "Alice", "age" = 31, "city" = "Dubai"]
 ```
 
 ## FFI Library (ffi)
@@ -1354,6 +1177,7 @@ Loads a shared library from the given path and returns a table representing the 
 If the path does not contain a slash or backslash, "./" is prepended to search in the current directory.
 
 ```apex
+import os
 import ffi
 
 lib = ffi.open("libc.so.6")
@@ -1361,7 +1185,7 @@ lib = ffi.open("libc.so.6")
 if lib == false
     os.output("Could not load library")
 else
-    os.output("Library loaded: {lib.path}")
+    os.output("Library loaded: {lib["path"]}")
 ```
 
 ### Calling Functions
@@ -1371,6 +1195,7 @@ Calls a function from a loaded library. The first argument is the library table 
 Functions are assumed to return `long` and accept up to 4 `long` arguments. Arguments are converted to numbers before passing. Returns the result as a number, or `false` on failure.
 
 ```apex
+import os
 import ffi
 
 lib = ffi.open("libc.so.6")
@@ -1378,7 +1203,6 @@ lib = ffi.open("libc.so.6")
 if lib == false
     os.output("Could not load libc")
 else
-    // Call getpid() - no arguments
     pid = ffi.call(lib, "getpid")
     
     if pid == false
@@ -1392,6 +1216,7 @@ else
 Returns the current value of `errno` as a number. Use this after a failed FFI call to get the error code.
 
 ```apex
+import os
 import ffi
 
 lib = ffi.open("nonexistent.so")
@@ -1405,6 +1230,7 @@ if lib == false
 Returns a human-readable error message for the given error code. If no code is provided, uses the current `errno`.
 
 ```apex
+import os
 import ffi
 
 lib = ffi.open("nonexistent.so")
@@ -1420,6 +1246,7 @@ if lib == false
 Allocates `size` bytes of memory and returns the pointer as a number. Returns `0` if allocation fails.
 
 ```apex
+import os
 import ffi
 
 ptr = ffi.malloc(1024)
@@ -1428,7 +1255,6 @@ if ptr == 0
     os.output("Memory allocation failed")
 else
     os.output("Allocated memory at: {ptr}")
-    // Remember to free when done
     ffi.free(ptr)
 ```
 
@@ -1436,6 +1262,7 @@ else
 Frees memory previously allocated by `ffi.malloc()`. Takes the pointer number as an argument. Does nothing if the pointer is `0` (NULL). Always returns `true`.
 
 ```apex
+import os
 import ffi
 
 ptr = ffi.malloc(512)
@@ -1453,9 +1280,9 @@ The Random library provides functions for generating pseudo-random numbers and p
 Initializes the random number generator with a specific seed value. Using the same seed will produce the same sequence of random numbers, which is useful for reproducibility. If called without arguments, it seeds using the current system time.
 
 ```apex
+import os
 import random
 
-// Reproducible sequence
 random.seed(12345)
 r1 = random.random()
 
@@ -1471,6 +1298,7 @@ if r1 == r2
 Returns a random floating-point number in the range `[0.0, 1.0)`.
 
 ```apex
+import os
 import random
 
 val = random.random()
@@ -1481,6 +1309,7 @@ os.output("Random float: {val}")
 Returns a random integer `N` such that `a <= N <= b`. If `a > b`, the bounds are swapped automatically.
 
 ```apex
+import os
 import random
 
 dice = random.randint(1, 6)
@@ -1492,20 +1321,22 @@ os.output("You rolled a {dice}")
 Returns a random element from a non-empty table `seq`. Returns `false` if the table is empty or the argument is not a table.
 
 ```apex
+import os
 import random
 
-colors = ("red", "green", "blue")
+colors = ["red", "green", "blue"]
 pick = random.choice(colors)
 os.output("Selected color: {pick}")
 ```
 
 #### random.shuffle(seq)
-Shuffles the elements of a table `seq` in place. The table must use sequential numeric keys (e.g., `(1, 2, 3)`). Returns `false` on error.
+Shuffles the elements of a table `seq` in place. The table must use sequential numeric keys (e.g., `[1, 2, 3]`). Returns `false` on error.
 
 ```apex
+import os
 import random
 
-deck = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+deck = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 random.shuffle(deck)
 os.output("Shuffled deck: {deck}")
 ```
@@ -1514,22 +1345,12 @@ os.output("Shuffled deck: {deck}")
 Returns a new table containing `k` unique elements chosen from the table `seq`. Used for random sampling without replacement. Returns `false` if `k` is larger than the size of `seq`.
 
 ```apex
+import os
 import random
 
-pool = (10, 20, 30, 40, 50, 60, 70, 80, 90, 100)
+pool = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
 winners = random.sample(pool, 3)
 os.output("Winners: {winners}")
-```
-
-#### random.choices(seq, k)
-Returns a new table of length `k` with elements chosen from `seq` with replacement. If `k` is omitted, it defaults to 1.
-
-```apex
-import random
-
-coins = ("heads", "tails")
-results = random.choices(coins, 10)
-os.output("10 coin flips: {results}")
 ```
 
 ### Distributions
@@ -1537,6 +1358,7 @@ os.output("10 coin flips: {results}")
 Returns a random floating-point number from a Gaussian (normal) distribution with mean `mu` and standard deviation `sigma`.
 
 ```apex
+import os
 import random
 
 height = random.gauss(175, 10)
@@ -1547,6 +1369,7 @@ os.output("Simulated height: {height} cm")
 Returns a random floating-point number from a triangular distribution. `low` and `high` default to 0 and 1, while `mode` defaults to the midpoint between them.
 
 ```apex
+import os
 import random
 
 val = random.triangular(0, 10, 5)
@@ -1557,6 +1380,7 @@ os.output("Triangular sample: {val}")
 Returns a random floating-point number from an exponential distribution with rate parameter `lambd`. Returns `false` if `lambd` is zero.
 
 ```apex
+import os
 import random
 
 wait_time = random.expovariate(0.5)
@@ -1567,8 +1391,247 @@ os.output("Expected wait: {wait_time} minutes")
 Returns a random floating-point number from a Beta distribution with parameters `alpha` and `beta`. Both parameters must be greater than zero. Returns `false` otherwise.
 
 ```apex
+import os
 import random
 
 probability = random.betavariate(2, 5)
 os.output("Beta sample: {probability}")
+```
+
+### Secure Randomness
+#### random.secure_token_bytes(n)
+Returns a string of `n` random bytes generated using a cryptographically secure source (`/dev/urandom` on Linux/macOS, `rand_s` on Windows). Returns `false` on failure.
+
+```apex
+import os
+import random
+import string
+
+token = random.secure_token_bytes(16)
+
+if token == false
+    os.output("Could not generate secure token")
+else
+    os.output("Generated {string.len(token)} random bytes")
+```
+
+#### random.secure_token_hex(nbytes)
+Returns a hexadecimal string representation of `nbytes` random bytes generated using a cryptographically secure source. Defaults to 16 bytes if no argument is provided. Returns `false` on failure.
+
+```apex
+import os
+import random
+
+token = random.secure_token_hex(16)
+
+if token == false
+    os.output("Could not generate secure token")
+else
+    os.output("Hex Token: {token}")
+```
+
+#### random.secure_randint(n)
+Returns a secure random integer in the range `[0, n)`. Uses a cryptographically secure source. Returns `false` on failure or if `n <= 0`.
+
+```apex
+import os
+import random
+
+val = random.secure_randint(100)
+
+if val == false
+    os.output("Could not generate secure random int")
+else
+    os.output("Secure random int: {val}")
+```
+
+#### random.compare_digest(a, b)
+Compares two strings in constant time to prevent timing attacks. Useful for comparing security tokens or hashes. Returns `true` if they match, `false` otherwise. Both arguments must be strings.
+
+```apex
+import os
+import random
+
+secret = "my_secret_token"
+input = "my_secret_token"
+
+if random.compare_digest(secret, input)
+    os.output("Access granted")
+else
+    os.output("Access denied")
+```
+
+## Codecs Library (codecs)
+The Codecs library provides encoding and decoding functions for various formats. Import it with `import codecs`.
+
+### Base64 Encoding
+#### codecs.base_write(data)
+Encodes a string to standard Base64. Returns the encoded string, or `false` on failure.
+
+```apex
+import os
+import codecs
+
+encoded = codecs.base_write("Hello World")
+
+if encoded == false
+    os.output("Encoding failed")
+else
+    os.output(encoded)  // SGVsbG8gV29ybGQ=
+```
+
+#### codecs.base_read(data)
+Decodes a standard Base64 string. Returns the decoded string, or `false` on failure.
+
+```apex
+import os
+import codecs
+
+decoded = codecs.base_read("SGVsbG8gV29ybGQ=")
+
+if decoded == false
+    os.output("Decoding failed")
+else
+    os.output(decoded)  // Hello World
+```
+
+#### codecs.baseurl_write(data)
+Encodes a string to URL-safe Base64 (using `-` and `_` instead of `+` and `/`). Returns the encoded string, or `false` on failure.
+
+```apex
+import os
+import codecs
+
+encoded = codecs.baseurl_write("Hello World?")
+
+if encoded == false
+    os.output("Encoding failed")
+else
+    os.output(encoded)
+```
+
+#### codecs.baseurl_read(data)
+Decodes a URL-safe Base64 string. Returns the decoded string, or `false` on failure.
+
+```apex
+import os
+import codecs
+
+decoded = codecs.baseurl_read(encoded)
+
+if decoded == false
+    os.output("Decoding failed")
+else
+    os.output(decoded)
+```
+
+### JSON Encoding
+#### codecs.json_write(value)
+Converts an Apex value (number, bool, string, table) to a JSON string. Returns the JSON string, or `false` on failure. Tables are encoded as objects `{}` if they have named keys, or arrays `[]` if they only have sequential numeric keys.
+
+```apex
+import os
+import codecs
+
+data = ["name" = "Alice", "age" = 30]
+json_str = codecs.json_write(data)
+
+if json_str == false
+    os.output("JSON encoding failed")
+else
+    os.output(json_str)  // {"name": "Alice", "age": 30}
+```
+
+#### codecs.json_read(json_string)
+Parses a JSON string into an Apex value. Returns the parsed value (table, number, bool, string), or `false` on failure.
+
+```apex
+import os
+import codecs
+
+json_str = "{\"name\": \"Alice\", \"age\": 30}"
+data = codecs.json_read(json_str)
+
+if data == false
+    os.output("JSON parsing failed")
+else
+    os.output("Name: {data["name"]}")
+```
+
+### CSV Encoding
+#### codecs.csv_write(table, has_header, delimiter)
+Converts a table of tables to a CSV string. `has_header` (bool) determines if the first row is treated as headers. `delimiter` (string) specifies the separator (default `,`). Returns the CSV string, or `false` on failure.
+
+```apex
+import os
+import codecs
+
+data = [
+    1 = ["name" = "Alice", "age" = 30],
+    2 = ["name" = "Bob", "age" = 25]
+]
+
+csv_str = codecs.csv_write(data, true, ",")
+
+if csv_str == false
+    os.output("CSV encoding failed")
+else
+    os.output(csv_str)
+```
+
+#### codecs.csv_read(csv_string, has_header, delimiter)
+Parses a CSV string into a table of tables. `has_header` (bool) determines if the first row contains column names. `delimiter` (string) specifies the separator (default `,`). Returns a table of rows, or `false` on failure.
+
+```apex
+import os
+import codecs
+
+csv_str = "name,age\nAlice,30\nBob,25"
+data = codecs.csv_read(csv_str, true, ",")
+
+if data == false
+    os.output("CSV parsing failed")
+else
+    os.output("First name: {data["1"]["name"]}")
+```
+
+### XML Encoding
+#### codecs.xml_write(table)
+Converts a table representing an XML structure to an XML string. The table should have a `__tag` key for the element name, `@key` keys for attributes, and `#text` for text content. Nested elements are stored with numeric keys. Returns the XML string, or `false` on failure.
+
+```apex
+import os
+import codecs
+
+xml_data = [
+    "__tag" = "root",
+    "@id" = "1",
+    1 = [
+        "__tag" = "child",
+        "#text" = "Hello"
+    ]
+]
+
+xml_str = codecs.xml_write(xml_data)
+
+if xml_str == false
+    os.output("XML encoding failed")
+else
+    os.output(xml_str)
+```
+
+#### codecs.xml_read(xml_string)
+Parses an XML string into a table structure. Returns the root element as a table, or `false` on failure.
+
+```apex
+import os
+import codecs
+
+xml_str = "<root id='1'><child>Hello</child></root>"
+data = codecs.xml_read(xml_str)
+
+if data == false
+    os.output("XML parsing failed")
+else
+    os.output("Tag: {data["__tag"]}")
 ```
