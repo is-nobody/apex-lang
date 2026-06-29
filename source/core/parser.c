@@ -599,7 +599,8 @@ void parser_exit_scope(Parser* parser) {
 
 bool parser_declare_symbol(Parser* parser, const char* name, ParserSymbolKind kind,
                            ValueType type, int param_count, int line, int column) {
-
+    (void)line;
+    (void)column;
     symbols_grow(parser);
     int i = parser->symbols.count++;
     parser->symbols.names[i] = strdup(name);
@@ -1805,19 +1806,18 @@ static ASTNode* parse_for_statement(Parser* parser) {
     int var_col = for_kw->column;
     bool is_table_iter = false;
 
-    // Check for infinite loop: for\n    body
+    // Use explicit condition (e.g., 'for running == true')
     if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_INDENT)) {
-        parser->loop_depth++;
-        if (parser->loop_depth > APEX_MAX_LOOP_DEPTH) {
-            parser_error_at(parser, for_kw->line, for_kw->column, 3,
-                "Loop nesting exceeds maximum depth of %d", APEX_MAX_LOOP_DEPTH);
+        parser_error_at(parser, for_kw->line, for_kw->column, 3,
+            "Use an explicit condition for 'for' (e.g., 'for running == true').");
+        // Skip block to prevent cascade errors
+        if (match(parser, TOKEN_NEWLINE)) {
+            while (!check(parser, TOKEN_EOF) && !check(parser, TOKEN_DEDENT)) {
+                advance(parser);
+            }
+            match(parser, TOKEN_DEDENT);
         }
-        if (check(parser, TOKEN_NEWLINE)) {
-            advance(parser);
-        }
-        ASTNode* body = parse_block(parser, true, "for");
-        parser->loop_depth--;
-        return ast_create_for(NULL, NULL, NULL, NULL, NULL, body, for_kw->line, for_kw->column);
+        return NULL;
     }
 
     if (!check(parser, TOKEN_IDENTIFIER)) {

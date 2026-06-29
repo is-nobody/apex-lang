@@ -28,8 +28,7 @@ This manual is minimalistic. Each section builds on the previous ones. For the b
 - [4.2 For Table Iteration](#42-for-table-iteration)
 - [4.3 For Condition](#43-for-condition)
 - [4.4 Break](#44-break)
-- [4.5 For Infinity](#45-for-infinity)
-- [4.6 Continue](#46-continue)
+- [4.5 Continue](#45-continue)
 
 ### 5. Functions
 - [5.1 Function Statement](#51-function-statement)
@@ -540,7 +539,6 @@ Sometimes you need to do the same thing many times. Print "Hello" ten times. Kee
 | `for x = start, end` | You know the exact range | `for i = 1, 5` |
 | `for k = table` | Iterate over table items | `for k = my_table` |
 | `for condition` | Repeat while condition is true | `for counter <= 10` |
-| `for` | Infinite loop (use `break` to exit) | `for` |
 
 ## 4.1 For Counter
 The `for` statement creates a numeric loop. You specify a variable, a starting number, and an ending number. The loop runs once for each number in that range, including the end value.
@@ -607,20 +605,7 @@ for i = 1, 10
     os.output(i)
 ```
 
-## 4.5 For Infinity
-When you just write `for` with no condition, the loop runs forever until you explicitly stop it with `break`.
-
-```apex
-import os
-
-for
-    response = os.input("Type 'quit' to exit: ")
-    if response == "quit"
-        break
-    os.output("You typed: {response}")
-```
-
-## 4.6 Continue
+## 4.5 Continue
 `continue` skips the rest of the current iteration and moves to the next number.
 
 ```apex

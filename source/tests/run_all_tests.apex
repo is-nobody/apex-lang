@@ -26,7 +26,6 @@ apex source/tests/conditionals/logical/or.apex
 # LOOPS
 apex source/tests/loops/for_condition.apex
 apex source/tests/loops/for_counter.apex
-apex source/tests/loops/for_infinity.apex
 apex source/tests/loops/for_table.apex
 
 # TYPE CONVERSION

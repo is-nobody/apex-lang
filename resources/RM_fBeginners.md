@@ -29,8 +29,7 @@ This manual is written with step-by-step learning in mind and strives to be mini
 - [4.2 For Table Iteration](#42-for-table-iteration)
 - [4.3 For Condition](#43-for-condition)
 - [4.4 Break](#44-break)
-- [4.5 For Infinity](#45-for-infinity)
-- [4.6 Continue](#46-continue)
+- [4.5 Continue](#45-continue)
 
 ### 5. Functions
 - [5.1 Function Statement](#51-function-statement)
@@ -723,7 +722,6 @@ Sometimes you need to do the same thing many times. Print "Hello" ten times. Kee
 | `for x = start, end` | You know the exact range | `for i = 1, 5` |
 | `for k = table` | Iterate over table items | `for k = my_table` |
 | `for condition` | Repeat while condition is true | `for counter <= 10` |
-| `for` | Infinite loop (use `break` to exit) | `for` |
 
 ## 4.1 For Counter
 The `for` statement creates a numeric loop. You specify a variable, a starting number, and an ending number. The loop runs once for each number in that range, including the end value.
@@ -810,27 +808,7 @@ This prints 1, 2, 3, 4. When `i` becomes 5, `break` stops the loop entirely. Not
 
 Use `break` when you found what you were looking for and don't need to continue.
 
-## 4.5 For Infinity
-When you just write `for` with no condition, the loop runs forever until you explicitly stop it with `break`.
-
-```apex
-import os
-
-for
-    response = os.input("Type 'quit' to exit: ")
-    if response == "quit"
-        break
-    os.output("You typed: {response}")
-```
-
-This keeps asking for input until the user types "quit". The `break` statement immediately exits the loop.
-
-Infinite loops are useful when:
-- You don't know when the loop should end
-- The exit condition is complex or checked in the middle of the loop
-- You're waiting for user input or an external event
-
-## 4.6 Continue
+## 4.5 Continue
 `continue` skips the rest of the current iteration and moves to the next number.
 
 ```apex
