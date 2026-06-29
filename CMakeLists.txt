@@ -52,7 +52,6 @@ set(BASE_FLAGS
 # performance flags for gcc/clang (linux/macos/mingw)
 set(HIGH_PERF_FLAGS
     -O3
-    -march=native
     -flto
 )
 
@@ -74,6 +73,7 @@ if(MINGW OR WIN32)
     target_compile_definitions(apex PRIVATE
         _WIN32_WINNT=0x0601
         WIN32_LEAN_AND_MEAN
+        _CRT_SECURE_NO_WARNINGS
     )
 endif()
 
@@ -90,6 +90,8 @@ elseif(MSVC)
     target_link_libraries(apex PRIVATE shlwapi)
 elseif(APPLE)
     target_link_libraries(apex PRIVATE m z dl)
+elseif(WIN32)
+    target_link_libraries(apex PRIVATE shlwapi)
 else()
     target_link_libraries(apex PRIVATE m z dl)
 endif()

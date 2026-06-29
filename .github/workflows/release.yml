@@ -19,71 +19,62 @@ jobs:
           - os: ubuntu-24.04-arm
             target: arm64_linux
 
-          - os: macos-13
+          - os: macos-latest
             target: x86_64_macos
+            arch: x86_64
 
           - os: macos-latest
             target: arm64_macos
+            arch: arm64
 
           - os: windows-latest
             target: x86_64_windows
-            arch: x64
 
           - os: windows-latest
             target: arm64_windows
-            arch: arm64
 
     steps:
       - uses: actions/checkout@v4
 
-      # --- Version ---
       - name: Get version
         id: ver
-        run: echo "v=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+        shell: bash
+        run: echo "v=${{ github.ref_name }}"
 
-      # --- Linux Native ---
-      - name: Build (Linux)
-        if: runner.os == 'Linux'
+      - name: Build (Linux / macOS)
+        if: runner.os != 'Windows'
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_STATIC=ON
+          if [ "${{ runner.os }}" == "macOS" ]; then
+            export CFLAGS="-arch ${{ matrix.arch }}"
+          fi
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build --parallel
 
-      # --- macOS Native ---
-      - name: Build (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_STATIC=ON
-          cmake --build build --parallel
-
-      # --- Windows MSVC ---
-      - name: Configure MSVC (Windows)
+      - name: Configure (Windows)
         if: runner.os == 'Windows'
         run: |
+          $target = if ("${{ matrix.target }}" -eq "arm64_windows") { "aarch64-w64-windows-msvc" } else { "x86_64-w64-windows-msvc" }
           cmake -S . -B build `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DBUILD_STATIC=ON `
-            -A ${{ matrix.arch }}
+            -G "Ninja" `
+            -DCMAKE_C_COMPILER=clang `
+            -DCMAKE_C_FLAGS="--target=$target" `
+            -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build MSVC (Windows)
+      - name: Build (Windows)
         if: runner.os == 'Windows'
-        run: cmake --build build --config Release --parallel
+        run: cmake --build build --parallel
 
-      # --- Prepare binary for upload ---
       - name: Prepare binary (Windows)
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          VERSION="${{ steps.ver.outputs.v }}"
-          TARGET="${{ matrix.target }}"
-          cp build/Release/apex.exe "apex_${VERSION}_${TARGET}.exe"
+          cp build/apex.exe "apex_${{ steps.ver.outputs.v }}_${{ matrix.target }}.exe"
 
       - name: Prepare binary (Linux/macOS)
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          VERSION="${{ steps.ver.outputs.v }}"
-          TARGET="${{ matrix.target }}"
-          cp build/apex "apex_${VERSION}_${TARGET}"
+          cp build/apex "apex_${{ steps.ver.outputs.v }}_${{ matrix.target }}"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -98,7 +89,8 @@ jobs:
 
       - name: Get version
         id: ver
-        run: echo "v=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+        shell: bash
+        run: echo "v=${{ github.ref_name }}"
 
       - name: Create source archive
         run: |
@@ -124,7 +116,8 @@ jobs:
 
       - name: Get version
         id: ver
-        run: echo "v=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+        shell: bash
+        run: echo "v=${{ github.ref_name }}"
 
       - uses: softprops/action-gh-release@v2
         with:

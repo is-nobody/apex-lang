@@ -7,6 +7,13 @@
 #include <string.h>
 #include <ctype.h>
 
+#ifdef _WIN32
+  #include <string.h>
+  #define strcasecmp _stricmp
+#else
+  #include <strings.h>
+#endif
+
 // human-readable names for all token types, used in debug output
 static const char* token_type_names[] = {
     "FUNCTION", "IF", "ELIF", "ELSE", "FOR",

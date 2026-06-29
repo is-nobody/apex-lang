@@ -23,6 +23,12 @@
 #ifndef F_OK
 #define F_OK 0
 #endif
+#ifndef S_ISREG
+#define S_ISREG(mode) ((mode) & _S_IFREG)
+#endif
+#ifndef S_ISDIR
+#define S_ISDIR(mode) ((mode) & _S_IFDIR)
+#endif
 #else
 #include <unistd.h>
 #include <sys/stat.h>
