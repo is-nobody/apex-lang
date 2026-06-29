@@ -90,9 +90,28 @@ jobs:
           name: apex_${{ steps.ver.outputs.v }}_${{ matrix.target }}${{ contains(matrix.target, 'windows') && '.exe' || '' }}
           path: apex_${{ steps.ver.outputs.v }}_${{ matrix.target }}${{ contains(matrix.target, 'windows') && '.exe' || '' }}
 
+  source:
+    name: Package Source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version
+        id: ver
+        run: echo "v=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Create source archive
+        run: |
+          git archive --format=zip --output="apex_${{ steps.ver.outputs.v }}_source.zip" HEAD
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apex_${{ steps.ver.outputs.v }}_source
+          path: apex_${{ steps.ver.outputs.v }}_source.zip
+
   release:
     name: Create Release
-    needs: build
+    needs: [build, source]
     runs-on: ubuntu-latest
     permissions:
       contents: write
