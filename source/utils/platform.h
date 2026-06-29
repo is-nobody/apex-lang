@@ -2,7 +2,13 @@
 #define PLATFORM_H
 
 #include <stdbool.h>
-#include <unistd.h>
+
+#ifdef _WIN32
+  #include <windows.h>
+  typedef SSIZE_T ssize_t;
+#else
+  #include <unistd.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {
