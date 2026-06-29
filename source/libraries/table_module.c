@@ -150,7 +150,7 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         return true;
     }
     
-    // table.merge — FAST PATH for array parts
+    // table.merge — FAST PATH for array parts (FIXED)
     if (strcmp(name, "table.merge") == 0) {
         if (arg_count >= 2 && args[1].type == VAL_TABLE) {
             *result = vm_make_table();
@@ -158,23 +158,25 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
             Table* src1 = args[0].table;
             Table* src2 = args[1].table;
             
-            // Fast path: merge array parts
-            int max_array = src1->array_count > src2->array_count ? src1->array_count : src2->array_count;
-            if (max_array > 0) {
-                dst->array_count = max_array;
-                dst->array_capacity = max_array > 8 ? max_array : 8;
+            int total_array = src1->array_count + src2->array_count;
+            if (total_array > 0) {
+                dst->array_count = total_array;
+                dst->array_capacity = total_array > 8 ? total_array : 8;
                 dst->array_part = (Value*)calloc(dst->array_capacity, sizeof(Value));
                 
-                for (int i = 0; i < max_array; i++) {
-                    if (i < src2->array_count && src2->array_part[i].type != VAL_BOOL) {
-                        dst->array_part[i] = src2->array_part[i];
-                    } else if (i < src1->array_count) {
-                        dst->array_part[i] = src1->array_part[i];
-                    } else {
-                        dst->array_part[i].type = VAL_BOOL;
-                        dst->array_part[i].boolean = false;
-                    }
+                for (int i = 0; i < src1->array_count; i++) {
+                    dst->array_part[i] = src1->array_part[i];
                     value_incref(&dst->array_part[i]);
+                }
+                
+                for (int i = 0; i < src2->array_count; i++) {
+                    dst->array_part[src1->array_count + i] = src2->array_part[i];
+                    value_incref(&dst->array_part[src1->array_count + i]);
+                }
+                
+                for (int i = total_array; i < dst->array_capacity; i++) {
+                    dst->array_part[i].type = VAL_BOOL;
+                    dst->array_part[i].boolean = false;
                 }
             }
             
