@@ -599,12 +599,6 @@ void parser_exit_scope(Parser* parser) {
 
 bool parser_declare_symbol(Parser* parser, const char* name, ParserSymbolKind kind,
                            ValueType type, int param_count, int line, int column) {
-    if (symbol_index_in_scope(parser, name, parser->symbols.current_scope) >= 0) {
-        const char* what = kind == PARSER_SYM_FUNCTION ? "Function" : "Variable";
-        parser_error_at(parser, line, column, (int)strlen(name),
-                        "%s '%s' already declared in this scope", what, name);
-        return false;
-    }
 
     symbols_grow(parser);
     int i = parser->symbols.count++;
