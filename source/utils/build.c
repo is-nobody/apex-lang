@@ -43,7 +43,7 @@ static PlatformInfo get_current_platform(void) {
 }
 
 static void get_stub_filename(const char* os, const char* arch, char* out_buf, size_t buf_size) {
-    snprintf(out_buf, buf_size, "apex_%s_%s", arch, os);
+    snprintf(out_buf, buf_size, "apex_26.06_%s_%s", arch, os);
     if (strcmp(os, "windows") == 0) {
         strcat(out_buf, ".exe");
     }
