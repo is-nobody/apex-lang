@@ -7,22 +7,23 @@
 
 static bool is_initialized = false;
 
+// initializes the apex runtime with platform-specific setup
 void apex_init(void) {
     if (is_initialized) return;
     
-    // Initialize platform-specific features (path handling, etc.)
     platform_init();
     
     is_initialized = true;
 }
 
+// shuts down the apex runtime and releases global resources
 void apex_shutdown(void) {
     if (!is_initialized) return;
     
-    // Add any global cleanup here if needed in the future
     is_initialized = false;
 }
 
+// executes a source code string with the given filename for error context
 bool apex_execute(const char* source_code, const char* filename) {
     if (!is_initialized) {
         apex_init();
@@ -36,6 +37,7 @@ bool apex_execute(const char* source_code, const char* filename) {
     return execute_source_string(source_code, filename);
 }
 
+// executes a source file by its filesystem path
 bool apex_execute_file(const char* filepath) {
     if (!is_initialized) {
         apex_init();
@@ -46,6 +48,5 @@ bool apex_execute_file(const char* filepath) {
         return false;
     }
 
-    // Use the filepath as the filename identifier for error reporting
     return execute_source(filepath, filepath);
 }

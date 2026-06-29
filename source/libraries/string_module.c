@@ -5,17 +5,16 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+// dispatcher for string manipulation built-in functions
 bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     (void)vm;
     if (arg_count < 1) return false;
     
-    // string.len — return the length of a string
     if (strcmp(name, "string.len") == 0) {
         *result = vm_make_number(args[0].type == VAL_STRING ? strlen(args[0].string->chars) : 0);
         return true;
     }
     
-    // string.upper — convert string to uppercase
     if (strcmp(name, "string.upper") == 0) {
         if (args[0].type == VAL_STRING) {
             char* str = strdup(args[0].string->chars);
@@ -26,7 +25,6 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
     
-    // string.lower — convert string to lowercase
     if (strcmp(name, "string.lower") == 0) {
         if (args[0].type == VAL_STRING) {
             char* str = strdup(args[0].string->chars);
@@ -37,7 +35,6 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
     
-    // string.trim — remove leading and trailing whitespace
     if (strcmp(name, "string.trim") == 0) {
         if (args[0].type == VAL_STRING) {
             const char* str = args[0].string->chars;
@@ -56,7 +53,6 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
     
-    // string.find — locate substring, returns index or -1
     if (strcmp(name, "string.find") == 0) {
         if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
             char* pos = strstr(args[0].string->chars, args[1].string->chars);
@@ -65,7 +61,6 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
     
-    // string.replace — replace first occurrence of substring
     if (strcmp(name, "string.replace") == 0) {
         if (arg_count >= 3 && args[0].type == VAL_STRING && 
             args[1].type == VAL_STRING && args[2].type == VAL_STRING) {
@@ -88,7 +83,6 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
     
-    // string.sub — extract substring from start to end index
     if (strcmp(name, "string.sub") == 0) {
         if (arg_count >= 3 && args[0].type == VAL_STRING) {
             int start = args[1].type == VAL_NUMBER ? (int)args[1].number : 0;
@@ -111,7 +105,6 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
     
-    // string.split — split string by separator, returns 1-indexed table
     if (strcmp(name, "string.split") == 0) {
         if (args[0].type == VAL_STRING) {
             const char* sep = " ";
@@ -135,7 +128,6 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
     
-    // string.join — join table elements into a single string
     if (strcmp(name, "string.join") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_TABLE) {
             const char* sep = "";
@@ -146,12 +138,10 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             char buffer[65536] = "";
             Table* table = args[0].table;
             
-            // Get sorted keys
             int count;
             char** keys = table_keys(table, &count);
             
             if (keys && count > 0) {
-                // Sort keys (numeric by order, strings lexicographically)
                 qsort(keys, count, sizeof(char*), compare_keys);
                 
                 bool first = true;

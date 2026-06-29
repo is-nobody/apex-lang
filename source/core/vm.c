@@ -12,7 +12,6 @@
 #include <string.h>
 #include <math.h>
 
-// ========== Forward Declarations ==========
 static StringObject* string_create(const char* chars, int length);
 static void string_destroy(StringObject* str);
 void value_incref(Value* v);
@@ -20,7 +19,7 @@ void value_decref(Value* v);
 static bool string_equal(StringObject* a, StringObject* b);
 static const char* value_to_cstr(Value* v, char* buf, int buf_size);
 
-// ========== Object Pool Implementation ==========
+// initializes the object pool with empty arrays
 void object_pool_init(ObjectPool* pool) {
     pool->string_pool_count = 0;
     pool->table_pool_count = 0;
@@ -28,21 +27,20 @@ void object_pool_init(ObjectPool* pool) {
     memset(pool->table_pool, 0, sizeof(pool->table_pool));
 }
 
+// frees all objects remaining in the pool
 void object_pool_free(ObjectPool* pool) {
-    // Free remaining strings in pool
     for (int i = 0; i < pool->string_pool_count; i++) {
         free(pool->string_pool[i]);
     }
     pool->string_pool_count = 0;
-    // Free remaining tables in pool
     for (int i = 0; i < pool->table_pool_count; i++) {
         table_destroy(pool->table_pool[i]);
     }
     pool->table_pool_count = 0;
 }
 
+// creates a string from the pool if available, otherwise allocates new
 StringObject* string_create_pooled(ObjectPool* pool, const char* chars, int length) {
-    // Try to reuse from pool (for strings shorter than POOL_STRING_SIZE)
     if (length < POOL_STRING_SIZE && pool->string_pool_count > 0) {
         StringObject* str = pool->string_pool[--pool->string_pool_count];
         if (str->length >= length) {
@@ -53,13 +51,13 @@ StringObject* string_create_pooled(ObjectPool* pool, const char* chars, int leng
             str->hash_computed = false;
             return str;
         } else {
-            // Too small, free it and allocate new
             free(str);
         }
     }
     return string_create(chars, length);
 }
 
+// returns a string to the pool for reuse if it's small enough
 void string_destroy_pooled(ObjectPool* pool, StringObject* str) {
     if (!str) return;
     if (str->length < POOL_STRING_SIZE && pool->string_pool_count < POOL_MAX_ITEMS) {
@@ -69,6 +67,7 @@ void string_destroy_pooled(ObjectPool* pool, StringObject* str) {
     }
 }
 
+// creates a table from the pool if available, otherwise allocates new
 Table* table_create_pooled(ObjectPool* pool, int capacity) {
     if (pool->table_pool_count > 0) {
         Table* table = pool->table_pool[--pool->table_pool_count];
@@ -88,10 +87,10 @@ Table* table_create_pooled(ObjectPool* pool, int capacity) {
     return table_create(capacity);
 }
 
+// returns a table to the pool for reuse after clearing it
 void table_destroy_pooled(ObjectPool* pool, Table* table) {
     if (!table) return;
     if (pool->table_pool_count < POOL_MAX_ITEMS / 4) {
-        // Clean and reuse
         table_clear(table);
         pool->table_pool[pool->table_pool_count++] = table;
     } else {
@@ -99,7 +98,7 @@ void table_destroy_pooled(ObjectPool* pool, Table* table) {
     }
 }
 
-// ========== String Intern Table Implementation ==========
+// djb2 hash function for string interning
 static unsigned int intern_hash(const char* chars, int length) {
     unsigned int hash = 5381;
     for (int i = 0; i < length; i++) {
@@ -108,18 +107,20 @@ static unsigned int intern_hash(const char* chars, int length) {
     return hash;
 }
 
+// initializes the string intern table with a fixed size
 void string_intern_table_init(StringInternTable* it) {
     it->capacity = INTERN_INITIAL_SIZE;
     it->count = 0;
     it->buckets = calloc(INTERN_INITIAL_SIZE, sizeof(StringObject*));
 }
 
+// frees all interned strings and the table itself
 void string_intern_table_free(StringInternTable* it) {
     for (int i = 0; i < it->capacity; i++) {
         StringObject* str = it->buckets[i];
         while (str) {
             StringObject* next = (StringObject*)((uintptr_t)str->hash_computed ? 
-                NULL : NULL); // We'll just free all
+                NULL : NULL);
             string_destroy(str);
             str = next;
         }
@@ -130,6 +131,7 @@ void string_intern_table_free(StringInternTable* it) {
     it->count = 0;
 }
 
+// resizes the intern table when load factor exceeds the threshold
 static void intern_table_resize(StringInternTable* it, int new_capacity) {
     StringObject** old_buckets = it->buckets;
     int old_capacity = it->capacity;
@@ -141,9 +143,8 @@ static void intern_table_resize(StringInternTable* it, int new_capacity) {
     for (int i = 0; i < old_capacity; i++) {
         StringObject* str = old_buckets[i];
         while (str) {
-            StringObject* next = NULL; // Simplified - no chain in our simple impl
+            StringObject* next = NULL;
             unsigned int idx = intern_hash(str->chars, str->length) % new_capacity;
-            // Simple insertion (no chaining, just find new slot)
             while (it->buckets[idx] != NULL) {
                 idx = (idx + 1) % new_capacity;
             }
@@ -155,11 +156,11 @@ static void intern_table_resize(StringInternTable* it, int new_capacity) {
     free(old_buckets);
 }
 
+// interns a string, returning a canonical object with linear probing
 StringObject* string_intern(StringInternTable* it, const char* chars, int length) {
     if (!it || !chars) return NULL;
     
     if (it->count > 50000) {
-        // Table is too large, just create without interning
         StringObject* new_str = string_create(chars, length);
         new_str->hash = intern_hash(chars, length);
         new_str->hash_computed = true;
@@ -173,13 +174,11 @@ StringObject* string_intern(StringInternTable* it, const char* chars, int length
     unsigned int hash = intern_hash(chars, length);
     unsigned int idx = hash % it->capacity;
     
-    // Linear probing
     for (int i = 0; i < it->capacity; i++) {
         unsigned int probe_idx = (idx + i) % it->capacity;
         StringObject* existing = it->buckets[probe_idx];
         
         if (existing == NULL) {
-            // Not found, insert
             StringObject* new_str = string_create(chars, length);
             new_str->hash = hash;
             new_str->hash_computed = true;
@@ -190,15 +189,14 @@ StringObject* string_intern(StringInternTable* it, const char* chars, int length
         
         if (existing->length == length && 
             memcmp(existing->chars, chars, length) == 0) {
-            // Found! Return existing
             return existing;
         }
     }
     
-    return NULL; // Should never happen if resize works
+    return NULL;
 }
 
-// ========== String Object Implementation ==========
+// allocates a new string object with refcount and flexible array
 static StringObject* string_create(const char* chars, int length) {
     StringObject* str = (StringObject*)malloc(sizeof(StringObject) + length + 1);
     str->header.ref_count = 1;
@@ -211,6 +209,7 @@ static StringObject* string_create(const char* chars, int length) {
     return str;
 }
 
+// computes the hash of a string lazily
 static uint32_t string_get_hash(StringObject* str) {
     if (!str->hash_computed) {
         uint32_t h = 5381;
@@ -223,10 +222,12 @@ static uint32_t string_get_hash(StringObject* str) {
     return str->hash;
 }
 
+// frees a string object
 static void string_destroy(StringObject* str) {
     if (str) free(str);
 }
 
+// compares two strings by length, hash, and content
 static bool string_equal(StringObject* a, StringObject* b) {
     if (a == b) return true;
     if (!a || !b) return false;
@@ -235,6 +236,7 @@ static bool string_equal(StringObject* a, StringObject* b) {
     return memcmp(a->chars, b->chars, a->length) == 0;
 }
 
+// converts a value to a C string for concatenation
 static const char* value_to_cstr(Value* v, char* buf, int buf_size) {
     switch (v->type) {
         case VAL_STRING: return v->string->chars;
@@ -248,7 +250,7 @@ static const char* value_to_cstr(Value* v, char* buf, int buf_size) {
     }
 }
 
-// ========== Reference Counting ==========
+// increments the reference count of a reference-counted value
 void value_incref(Value* v) {
     if (v->type == VAL_STRING && v->string) {
         v->string->header.ref_count++;
@@ -257,6 +259,7 @@ void value_incref(Value* v) {
     }
 }
 
+// decrements the reference count and frees the object when it reaches zero
 void value_decref(Value* v) {
     if (!v) return;
     switch (v->type) {
@@ -279,11 +282,12 @@ void value_decref(Value* v) {
     v->boolean = false;
 }
 
-// ========== Value Functions ==========
+// constructs a numeric value
 Value vm_make_number(double value) {
     Value v; v.type = VAL_NUMBER; v.number = value; return v;
 }
 
+// constructs a string value
 Value vm_make_string(const char* value) {
     Value v;
     v.type = VAL_STRING;
@@ -291,10 +295,12 @@ Value vm_make_string(const char* value) {
     return v;
 }
 
+// constructs a boolean value
 Value vm_make_bool(bool value) {
     Value v; v.type = VAL_BOOL; v.boolean = value; return v;
 }
 
+// constructs a new empty table value
 Value vm_make_table() {
     Value v;
     v.type = VAL_TABLE;
@@ -302,15 +308,18 @@ Value vm_make_table() {
     return v;
 }
 
+// copies a value with proper reference counting
 Value vm_copy_value(Value value) {
     value_incref(&value);
     return value;
 }
 
+// frees a value and decrements its reference count
 void vm_free_value(Value* value) {
     value_decref(value);
 }
 
+// returns a type name string for a value
 const char* vm_value_type_name(Value* value) {
     switch (value->type) {
         case VAL_NUMBER: return "number";
@@ -322,11 +331,10 @@ const char* vm_value_type_name(Value* value) {
     }
 }
 
-// ========== Helper for Pretty Table Printing ==========
+// recursively prints a table with indentation for nested structures
 static void print_table_recursive(Table* table, int indent_level) {
     if (!table) return;
     
-    // Print opening bracket with indentation
     for (int i = 0; i < indent_level; i++) printf("    ");
     printf("[\n");
     
@@ -344,13 +352,9 @@ static void print_table_recursive(Table* table, int indent_level) {
         Value val;
         
         if (table_get(table, key, &val)) {
-            // Print indentation for the current item
             for (int j = 0; j < indent_level + 1; j++) printf("    ");
-            
-            // Print Key
             printf("%s = ", key);
             
-            // Print Value based on its type
             switch (val.type) {
                 case VAL_NUMBER: {
                     double num = val.number;
@@ -367,7 +371,6 @@ static void print_table_recursive(Table* table, int indent_level) {
                     printf("%s", val.boolean ? "true" : "false"); 
                     break;
                 case VAL_TABLE:
-                    // Recursively print nested table with increased indentation
                     print_table_recursive(val.table, indent_level + 1);
                     break;
                 default: 
@@ -375,7 +378,6 @@ static void print_table_recursive(Table* table, int indent_level) {
                     break;
             }
             
-            // Add comma separator if not the last item
             if (i < total_keys - 1) {
                 printf(",");
             }
@@ -387,11 +389,11 @@ static void print_table_recursive(Table* table, int indent_level) {
     
     free(keys);
     
-    // Print closing bracket with indentation
     for (int i = 0; i < indent_level; i++) printf("    ");
     printf("]");
 }
 
+// prints a value to stdout with formatting
 void vm_print_value(Value* value) {
     switch (value->type) {
         case VAL_NUMBER: {
@@ -409,7 +411,7 @@ void vm_print_value(Value* value) {
     }
 }
 
-// ========== Hash Table Implementation ==========
+// djb2 hash for string keys in tables
 static unsigned int hash_key(const char* key, int capacity) {
     unsigned int hash = 5381;
     int c;
@@ -417,6 +419,7 @@ static unsigned int hash_key(const char* key, int capacity) {
     return hash % capacity;
 }
 
+// creates a new hash table with separate array part for integer keys
 Table* table_create(int capacity) {
     Table* table = (Table*)malloc(sizeof(Table));
     table->header.ref_count = 1;
@@ -432,6 +435,7 @@ Table* table_create(int capacity) {
     return table;
 }
 
+// destroys a table and all its entries
 void table_destroy(Table* table) {
     if (!table) return;
     
@@ -457,9 +461,9 @@ void table_destroy(Table* table) {
     free(table);
 }
 
+// grows the array part to accommodate a needed index
 static void array_part_grow(Table* table, int needed_index) {
     if (table->array_part == NULL) {
-        // Lazy init
         table->array_capacity = TABLE_ARRAY_INIT;
         while (table->array_capacity <= needed_index) {
             table->array_capacity *= 2;
@@ -491,10 +495,10 @@ static void array_part_grow(Table* table, int needed_index) {
     table->array_capacity = new_capacity;
 }
 
+// sets a value by integer index in the array part
 bool table_set_int(Table* table, int index, Value value) {
     if (index < 0) return false;
     
-    // Lazy init or grow
     if (table->array_part == NULL || index >= table->array_capacity) {
         array_part_grow(table, index);
     }
@@ -509,6 +513,7 @@ bool table_set_int(Table* table, int index, Value value) {
     return true;
 }
 
+// gets a value by integer index from the array part
 bool table_get_int(Table* table, int index, Value* out_value) {
     if (!table || index < 0 || table->array_part == NULL || index >= table->array_count) 
         return false;
@@ -520,12 +525,13 @@ bool table_get_int(Table* table, int index, Value* out_value) {
     return true;
 }
 
+// appends a value to the end of the array part
 void table_append(Table* table, Value value) {
     table_set_int(table, table->array_count, value);
 }
 
+// sets a string-keyed value, with auto-resizing and duplicate detection
 bool table_set(Table* table, const char* key, Value value) {
-    // FAST CHECK: only try integer parsing if first char is digit
     if (key[0] >= '0' && key[0] <= '9') {
         char* endptr;
         long int_key = strtol(key, &endptr, 10);
@@ -534,7 +540,6 @@ bool table_set(Table* table, const char* key, Value value) {
         }
     }
     
-    // Hash part for string keys
     if ((double)(table->hash_count + 1) / table->capacity > TABLE_MAX_LOAD) {
         int old_capacity = table->capacity;
         TableEntry** old_entries = table->entries;
@@ -543,7 +548,6 @@ bool table_set(Table* table, const char* key, Value value) {
         table->entries = (TableEntry**)calloc(table->capacity, sizeof(TableEntry*));
         table->hash_count = 0;
         
-        // Reinsert all old entries directly (no recursion, no parsing)
         for (int i = 0; i < old_capacity; i++) {
             TableEntry* entry = old_entries[i];
             while (entry) {
@@ -560,7 +564,6 @@ bool table_set(Table* table, const char* key, Value value) {
         free(old_entries);
     }
     
-    // Now insert the new key
     unsigned int index = hash_key(key, table->capacity);
     TableEntry* entry = table->entries[index];
     while (entry) {
@@ -583,10 +586,10 @@ bool table_set(Table* table, const char* key, Value value) {
     return true;
 }
 
+// retrieves a string-keyed value from the table
 bool table_get(Table* table, const char* key, Value* out_value) {
     if (!table || !key) return false;
     
-    // FAST CHECK: only try integer parsing if first char is digit
     if (key[0] >= '0' && key[0] <= '9') {
         char* endptr;
         long int_key = strtol(key, &endptr, 10);
@@ -595,7 +598,6 @@ bool table_get(Table* table, const char* key, Value* out_value) {
         }
     }
     
-    // Hash lookup
     unsigned int index = hash_key(key, table->capacity);
     TableEntry* entry = table->entries[index];
     while (entry) {
@@ -611,14 +613,15 @@ bool table_get(Table* table, const char* key, Value* out_value) {
     return false;
 }
 
+// checks if a key exists in the table
 bool table_has(Table* table, const char* key) {
     return table_get(table, key, NULL);
 }
 
+// removes a key-value pair from the table
 void table_remove(Table* table, const char* key) {
     if (!table || !key) return;
     
-    // FAST CHECK: only try integer parsing if first char is digit
     if (key[0] >= '0' && key[0] <= '9') {
         char* endptr;
         long int_key = strtol(key, &endptr, 10);
@@ -637,7 +640,6 @@ void table_remove(Table* table, const char* key) {
         }
     }
     
-    // Remove from hash part
     unsigned int index = hash_key(key, table->capacity);
     TableEntry* entry = table->entries[index];
     TableEntry* prev = NULL;
@@ -656,10 +658,12 @@ void table_remove(Table* table, const char* key) {
     }
 }
 
+// returns the total number of entries in the table
 int table_size(Table* table) {
     return table ? table->array_count + table->hash_count : 0;
 }
 
+// returns an array of all keys in the table
 char** table_keys(Table* table, int* out_count) {
     if (!table || !out_count) return NULL;
     *out_count = 0;
@@ -672,7 +676,6 @@ char** table_keys(Table* table, int* out_count) {
     
     int idx = 0;
     
-    // Integer keys from array part
     for (int i = 0; i < table->array_count; i++) {
         if (table->array_part[i].type != VAL_BOOL || table->array_part[i].boolean) {
             char buf[32];
@@ -681,11 +684,10 @@ char** table_keys(Table* table, int* out_count) {
         }
     }
     
-    // String keys from hash part
     for (int i = 0; i < table->capacity; i++) {
         TableEntry* entry = table->entries[i];
         while (entry) {
-            keys[idx++] = entry->key; // Don't strdup, already owned
+            keys[idx++] = entry->key;
             entry = entry->next;
         }
     }
@@ -694,10 +696,10 @@ char** table_keys(Table* table, int* out_count) {
     return keys;
 }
 
+// clears all entries from the table
 void table_clear(Table* table) {
     if (!table) return;
     
-    // Clear hash entries
     for (int i = 0; i < table->capacity; i++) {
         TableEntry* entry = table->entries[i];
         while (entry) {
@@ -711,7 +713,6 @@ void table_clear(Table* table) {
     }
     table->hash_count = 0;
     
-    // Clear array part
     for (int i = 0; i < table->array_count; i++) {
         value_decref(&table->array_part[i]);
         table->array_part[i].type = VAL_BOOL;
@@ -720,12 +721,12 @@ void table_clear(Table* table) {
     table->array_count = 0;
 }
 
+// creates a shallow copy of the table
 Table* table_copy(Table* table) {
     if (!table) return NULL;
     
     Table* copy = table_create(table->capacity);
     
-    // Copy hash entries
     for (int i = 0; i < table->capacity; i++) {
         TableEntry* entry = table->entries[i];
         while (entry) {
@@ -734,7 +735,6 @@ Table* table_copy(Table* table) {
         }
     }
     
-    // Copy array part
     for (int i = 0; i < table->array_count; i++) {
         table_set_int(copy, i, table->array_part[i]);
     }
@@ -742,7 +742,7 @@ Table* table_copy(Table* table) {
     return copy;
 }
 
-// ========== String Builder ==========
+// dynamic string builder for efficient concatenation
 typedef struct {
     char* buffer;
     int length;
@@ -774,7 +774,7 @@ static void sb_free(StringBuilder* sb) {
     free(sb->buffer);
 }
 
-// ========== VM Implementation ==========
+// creates a new VM instance with register frames and intern table
 VM* vm_create(const char* source) {
     VM* vm = (VM*)calloc(1, sizeof(VM));
     if (!vm) return NULL;
@@ -804,6 +804,7 @@ VM* vm_create(const char* source) {
     return vm;
 }
 
+// destroys a VM and frees all resources
 void vm_destroy(VM* vm) {
     if (!vm) return;
     
@@ -830,7 +831,7 @@ void vm_destroy(VM* vm) {
     free(vm);
 }
 
-// ========== Built-in Functions ==========
+// dispatches built-in function calls to module-specific handlers
 static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     if (strncmp(name, "os.", 3) == 0) return os_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "sys.", 4) == 0) return sys_call_builtin(vm, name, arg_count, args, result);
@@ -902,7 +903,7 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
     return false;
 }
 
-// ========== Main Execution Loop ==========
+// main execution loop with direct threaded dispatch for performance
 bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     if (!vm || !chunk) return false;
 
@@ -999,7 +1000,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             case CONST_STRING: 
                 {
                     int len = (int)strlen(c->string_value);
-                    // Only intern medium strings, never short ones
                     if (len >= 16 && len <= 64 && vm->intern_table.count < 50000) {
                         regs[dest].type = VAL_STRING;
                         regs[dest].string = string_intern(&vm->intern_table, c->string_value, len);
@@ -1171,9 +1171,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             case VAL_NUMBER: {
                 double num = src->number;
                 
-                // Fast path: integer 0-100 from pre-created array
                 if (num == (int)num && num >= 0 && num <= 100) {
-                    // Create on first use, cache in static array
                     static StringObject* num_cache[101] = {NULL};
                     int idx = (int)num;
                     if (num_cache[idx] == NULL) {
@@ -1242,7 +1240,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         if (vm->call_depth >= VM_MAX_CALL_FRAMES) {
             vm->had_error = true;
             vm->running = false;
-            return false; // Prevent stack overflow
+            return false;
         }
         int func_addr = ip->operands[1];
         int arg_count = ip->operands[2];
@@ -1366,7 +1364,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         Table* table = vm->registers[table_reg].table;
         Value* key = &vm->registers[key_reg];
         
-        // FAST PATH: numeric integer key -> direct array access O(1)
         if (key->type == VAL_NUMBER) {
             double num = key->number;
             if (num >= 1 && num == (int)num) {
@@ -1375,7 +1372,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             }
         }
         
-        // SLOW PATH: convert to string
         const char* key_cstr = "";
         char num_buf[64];
         
@@ -1414,7 +1410,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         
         Table* table = table_val->table;
         
-        // FAST PATH: numeric integer key -> direct array access O(1)
         if (key->type == VAL_NUMBER) {
             double num = key->number;
             if (num >= 1 && num == (int)num && (int)num - 1 < 1000000000) {
@@ -1428,7 +1423,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             }
         }
         
-        // SLOW PATH: convert to string and hash lookup
         char key_str[256];
         if (key->type == VAL_STRING) {
             strcpy(key_str, key->string->chars);
@@ -1463,7 +1457,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             ip++; goto *dispatch_table[ip->opcode];
         }
         
-        // FAST PATH: try integer key from constant string
         const char* key_str = chunk->constants[key_idx].string_value;
         char* endptr;
         long int_key = strtol(key_str, &endptr, 10);
@@ -1478,7 +1471,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             }
         }
 
-        // SLOW PATH: hash lookup
         Value val;
         val.type = VAL_BOOL;
         val.boolean = false;
@@ -1499,7 +1491,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         Table* table = vm->registers[table_reg].table;
         Value* val = &vm->registers[val_reg];
         
-        // Ensure array_part exists (lazy init)
         if (table->array_part == NULL) {
             table->array_capacity = TABLE_ARRAY_INIT;
             table->array_part = (Value*)calloc(TABLE_ARRAY_INIT, sizeof(Value));
@@ -1532,9 +1523,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int rlen = (right->type == VAL_STRING) ? right->string->length : (int)strlen(rs);
         int total_len = llen + rlen;
         
-        // Smart interning: only for medium strings (16-64 chars)
-        // Too short: direct malloc is faster
-        // Too long: pollutes intern table
         if (total_len >= 16 && total_len <= 64 && vm->intern_table.count < 50000) {
             char combined[65];
             memcpy(combined, ls, llen);
@@ -1547,7 +1535,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             vm->registers[dest].string = interned;
             value_incref(&vm->registers[dest]);
         } else if (total_len < 16) {
-            // For very short strings: direct StringBuilder (faster than interning)
             StringBuilder sb;
             sb_init(&sb, total_len + 1);
             sb_append(&sb, ls, llen);
@@ -1557,7 +1544,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             vm->registers[dest].string = sb_to_string(&sb);
             sb_free(&sb);
         } else {
-            // For long strings: StringBuilder
             StringBuilder sb;
             sb_init(&sb, total_len + 1);
             sb_append(&sb, ls, llen);
@@ -1585,7 +1571,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int flag_or_exit = ip->operands[2];
         
         if (flag_or_exit == 0) {
-            // Range iteration
             int exit_addr = end_or_size_reg;
             
             if (vm->iterator_depth >= 0) {
@@ -1610,13 +1595,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             goto *dispatch_table[ip->opcode];
             
         } else {
-            // Table iteration
             int exit_addr = flag_or_exit;
             
             double index = vm->registers[var_reg].number;
             double size = vm->registers[end_or_size_reg].number;
             
-            // Increment index for table iteration
             index += 1.0;
             vm->registers[var_reg].number = index;
             
@@ -1698,7 +1681,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         if (vm->args_top >= VM_MAX_ARGS_STACK) {
             vm->had_error = true;
             vm->running = false;
-            return false; // Prevent args_stack overflow
+            return false;
         }
         int reg = ip->operands[0];
         Value* src = &vm->registers[reg];

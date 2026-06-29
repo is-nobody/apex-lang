@@ -3,8 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-// ========== Node Creation ==========
-
+// node factory with zero-initialized memory and source position tracking
 ASTNode* ast_create_node(ASTNodeType type, int line, int column) {
     ASTNode* node = (ASTNode*)calloc(1, sizeof(ASTNode));
     node->type = type;
@@ -13,30 +12,35 @@ ASTNode* ast_create_node(ASTNodeType type, int line, int column) {
     return node;
 }
 
+// wraps a numeric literal into an ast node, storing the raw double value
 ASTNode* ast_create_literal_number(double value, int line, int column) {
     ASTNode* node = ast_create_node(AST_LITERAL_NUMBER, line, column);
     node->literal_number.number_value = value;
     return node;
 }
 
+// duplicates the string so the ast owns its memory independently
 ASTNode* ast_create_literal_string(const char* value, int line, int column) {
     ASTNode* node = ast_create_node(AST_LITERAL_STRING, line, column);
     node->literal_string.string_value = strdup(value);
     return node;
 }
 
+// stores a boolean literal, used for conditions and direct values
 ASTNode* ast_create_literal_bool(bool value, int line, int column) {
     ASTNode* node = ast_create_node(AST_LITERAL_BOOL, line, column);
     node->literal_bool.bool_value = value;
     return node;
 }
 
+// identifier nodes hold variable or function names, duplicating for ownership
 ASTNode* ast_create_identifier(const char* name, int line, int column) {
     ASTNode* node = ast_create_node(AST_IDENTIFIER, line, column);
     node->identifier.name = strdup(name);
     return node;
 }
 
+// binary operation combines two subexpressions with a token operator
 ASTNode* ast_create_binary(TokenType op, ASTNode* left, ASTNode* right) {
     ASTNode* node = ast_create_node(AST_BINARY, left->line, left->column);
     node->binary.op = op;
@@ -45,6 +49,7 @@ ASTNode* ast_create_binary(TokenType op, ASTNode* left, ASTNode* right) {
     return node;
 }
 
+// unary operation applies to a single operand, e.g. negation or not
 ASTNode* ast_create_unary(TokenType op, ASTNode* operand) {
     ASTNode* node = ast_create_node(AST_UNARY, operand->line, operand->column);
     node->unary.op = op;
@@ -52,6 +57,7 @@ ASTNode* ast_create_unary(TokenType op, ASTNode* operand) {
     return node;
 }
 
+// function call with a callee expression and a list of argument nodes
 ASTNode* ast_create_call(ASTNode* callee, ASTNodeList* arguments) {
     ASTNode* node = ast_create_node(AST_CALL, callee->line, callee->column);
     node->call.callee = callee;
@@ -59,6 +65,7 @@ ASTNode* ast_create_call(ASTNode* callee, ASTNodeList* arguments) {
     return node;
 }
 
+// indexed access like array[key] or table[field], storing both object and index
 ASTNode* ast_create_index_access(ASTNode* object, ASTNode* index) {
     ASTNode* node = ast_create_node(AST_INDEX_ACCESS, object->line, object->column);
     node->access.object = object;
@@ -66,6 +73,7 @@ ASTNode* ast_create_index_access(ASTNode* object, ASTNode* index) {
     return node;
 }
 
+// table constructor with separate sequential items and key-value pairs
 ASTNode* ast_create_table_literal(ASTNodeList* items, ASTNodeList* key_values, int line, int column) {
     ASTNode* node = ast_create_node(AST_TABLE_LITERAL, line, column);
     node->table_literal.items = items ? items : ast_list_create();
@@ -73,6 +81,7 @@ ASTNode* ast_create_table_literal(ASTNodeList* items, ASTNodeList* key_values, i
     return node;
 }
 
+// handles both variable declaration and assignment, with optional access path for indexed targets
 ASTNode* ast_create_var_assign(const char* name, ASTNode* value, bool is_decl,
                                 ASTNode* access_path, int line, int column) {
     ASTNode* node = ast_create_node(is_decl ? AST_VAR_DECL : AST_ASSIGN, line, column);
@@ -83,6 +92,7 @@ ASTNode* ast_create_var_assign(const char* name, ASTNode* value, bool is_decl,
     return node;
 }
 
+// function declaration with optional name, parameter list, and body block
 ASTNode* ast_create_function(const char* name, ASTNodeList* params, ASTNode* body,
                               int line, int column) {
     ASTNode* node = ast_create_node(AST_FUNCTION_DECL, line, column);
@@ -92,6 +102,7 @@ ASTNode* ast_create_function(const char* name, ASTNodeList* params, ASTNode* bod
     return node;
 }
 
+// if statement with condition, then branch, optional elif chain, and optional else branch
 ASTNode* ast_create_if(ASTNode* condition, ASTNode* then_branch,
                        ASTNode* elif_chain, ASTNode* else_branch) {
     ASTNode* node = ast_create_node(AST_IF_STMT, condition->line, condition->column);
@@ -102,6 +113,7 @@ ASTNode* ast_create_if(ASTNode* condition, ASTNode* then_branch,
     return node;
 }
 
+// for loop with optional variable name, condition, start/end/step for numeric range, and body
 ASTNode* ast_create_for(const char* var_name, ASTNode* condition, ASTNode* start, ASTNode* end, ASTNode* step, ASTNode* body, int line, int column) {
     ASTNode* node = ast_create_node(AST_FOR_STMT, line, column);
     node->for_stmt.var_name = var_name ? strdup(var_name) : NULL;
@@ -113,24 +125,28 @@ ASTNode* ast_create_for(const char* var_name, ASTNode* condition, ASTNode* start
     return node;
 }
 
+// import statement stores the module path as a duplicated string
 ASTNode* ast_create_import(const char* module_path, int line, int column) {
     ASTNode* node = ast_create_node(AST_IMPORT_STMT, line, column);
     node->import_stmt.module_path = strdup(module_path);
     return node;
 }
 
+// return statement may carry an optional expression value
 ASTNode* ast_create_return(ASTNode* value, int line, int column) {
     ASTNode* node = ast_create_node(AST_RETURN_STMT, line, column);
     node->return_stmt.value = value;
     return node;
 }
 
+// string interpolation node holds a list of parts (strings and expressions)
 ASTNode* ast_create_string_interp(ASTNodeList* parts) {
     ASTNode* node = ast_create_node(AST_STRING_INTERP, 0, 0);
     node->string_interp.parts = parts;
     return node;
 }
 
+// block node groups a list of statements, using first statement's location as fallback
 ASTNode* ast_create_block(ASTNodeList* statements) {
     ASTNode* node = ast_create_node(AST_BLOCK, 
         statements->count > 0 ? statements->nodes[0]->line : 0,
@@ -139,18 +155,21 @@ ASTNode* ast_create_block(ASTNodeList* statements) {
     return node;
 }
 
+// expression statement wraps a standalone expression as a statement
 ASTNode* ast_create_expr_stmt(ASTNode* expression) {
     ASTNode* node = ast_create_node(AST_EXPR_STMT, expression->line, expression->column);
     node->expr_stmt.expression = expression;
     return node;
 }
 
+// parameter node holds a parameter name for function definitions
 ASTNode* ast_create_param(const char* name, int line, int column) {
     ASTNode* node = ast_create_node(AST_PARAM, line, column);
     node->param.name = strdup(name);
     return node;
 }
 
+// module block represents a separate module with its own name and body
 ASTNode* ast_create_module_block(const char* name, ASTNode* body, int line, int column) {
     ASTNode* node = ast_create_node(AST_MODULE_BLOCK, line, column);
     node->module_block.module_name = strdup(name);
@@ -158,8 +177,7 @@ ASTNode* ast_create_module_block(const char* name, ASTNode* body, int line, int 
     return node;
 }
 
-// ========== List Operations ==========
-
+// creates a dynamic array for ast nodes with an initial capacity of 8
 ASTNodeList* ast_list_create() {
     ASTNodeList* list = (ASTNodeList*)malloc(sizeof(ASTNodeList));
     list->capacity = 8;
@@ -168,6 +186,7 @@ ASTNodeList* ast_list_create() {
     return list;
 }
 
+// appends a node to the list, doubling capacity if needed
 void ast_list_add(ASTNodeList* list, ASTNode* node) {
     if (list->count >= list->capacity) {
         list->capacity *= 2;
@@ -176,15 +195,14 @@ void ast_list_add(ASTNodeList* list, ASTNode* node) {
     list->nodes[list->count++] = node;
 }
 
+// frees only the list container, not the nodes themselves (tree owns them)
 void ast_list_free(ASTNodeList* list) {
     if (!list) return;
-    // Nodes are owned by the tree, don't free them here
     free(list->nodes);
     free(list);
 }
 
-// ========== Free AST ==========
-
+// recursively frees an ast node and all its children, handling each type specifically
 void ast_free_node(ASTNode* node) {
     if (!node) return;
     
@@ -282,16 +300,17 @@ void ast_free_node(ASTNode* node) {
     free(node);
 }
 
+// public entry point to free the whole ast program tree
 void ast_free(ASTNode* program) {
     ast_free_node(program);
 }
 
-// ========== Debug Print ==========
-
+// helper to print indentation for the ast debug output
 static void print_indent(int indent) {
     for (int i = 0; i < indent; i++) printf("  ");
 }
 
+// recursive debug printer that shows the ast structure with indentation
 static void ast_print_impl(ASTNode* node, int indent) {
     if (!node) {
         print_indent(indent);
@@ -432,6 +451,7 @@ static void ast_print_impl(ASTNode* node, int indent) {
     }
 }
 
+// public wrapper for ast debug printing with given indent level
 void ast_print(ASTNode* node, int indent) {
     ast_print_impl(node, indent);
 }

@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+// compares two table keys, attempting numeric sort for integer keys
 int compare_keys(const void* a, const void* b) {
     const char* sa = *(const char**)a;
     const char* sb = *(const char**)b;
@@ -19,6 +20,7 @@ int compare_keys(const void* a, const void* b) {
     return strcmp(sa, sb);
 }
 
+// dispatches all table module built-in functions
 bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     (void)vm;
     if (arg_count < 1 || args[0].type != VAL_TABLE) return false;
@@ -39,7 +41,6 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         return true;
     }
     
-    // table.remove — FAST PATH for numeric keys
     if (strcmp(name, "table.remove") == 0) {
         if (arg_count >= 2) {
             if (args[1].type == VAL_NUMBER) {
@@ -57,7 +58,6 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
                     return true;
                 }
             }
-            // String or non-integer: old path
             char key[256] = {0};
             if (args[1].type == VAL_STRING) {
                 strcpy(key, args[1].string->chars);
@@ -118,13 +118,11 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         return true;
     }
     
-    // table.copy — FAST PATH for array part
     if (strcmp(name, "table.copy") == 0) {
         *result = vm_make_table();
         Table* src = args[0].table;
         Table* dst = result->table;
         
-        // Fast path: copy array part directly
         if (src->array_count > 0) {
             dst->array_count = src->array_count;
             dst->array_capacity = src->array_capacity > 0 ? src->array_capacity : 8;
@@ -139,7 +137,6 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
             }
         }
         
-        // Copy hash part
         for (int i = 0; i < src->capacity; i++) {
             TableEntry* entry = src->entries[i];
             while (entry) {
@@ -150,7 +147,6 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         return true;
     }
     
-    // table.merge — FAST PATH for array parts (FIXED)
     if (strcmp(name, "table.merge") == 0) {
         if (arg_count >= 2 && args[1].type == VAL_TABLE) {
             *result = vm_make_table();
@@ -180,7 +176,6 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
                 }
             }
             
-            // Merge hash parts (src2 overwrites src1)
             for (int i = 0; i < src1->capacity; i++) {
                 TableEntry* entry = src1->entries[i];
                 while (entry) {

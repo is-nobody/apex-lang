@@ -13,6 +13,7 @@
 #define ANSI_RED    "\033[31m"
 #define ANSI_RESET  "\033[0m"
 
+// prints a formatted error message in red
 void print_error(const char* format, ...) {
     fprintf(stderr, "%s[Error] ", ANSI_RED);
     va_list args;
@@ -25,8 +26,10 @@ void print_error(const char* format, ...) {
 static jmp_buf error_env;
 static int is_repl_mode = 0;
 
+// enables or disables repl error handling mode
 void set_repl_mode(int active) { is_repl_mode = active; }
 
+// throws an error, either via longjmp in repl mode or exit otherwise
 void throw_repl_error(void) {
     if (is_repl_mode) {
         longjmp(error_env, 1);
@@ -35,6 +38,7 @@ void throw_repl_error(void) {
     }
 }
 
+// cleans up all allocated resources in reverse order
 static void cleanup_all(Tokenizer* tok, Parser* par, ASTNode* ast,
                         CodeGenerator* cg, BytecodeChunk* chunk, VM* vm,
                         char* source) {
@@ -47,6 +51,7 @@ static void cleanup_all(Tokenizer* tok, Parser* par, ASTNode* ast,
     if (source) free(source);
 }
 
+// executes apex source code from a string
 bool execute_source_string(const char* source_code, const char* filename) {
     if (!source_code || !filename) return false;
     
@@ -87,6 +92,7 @@ bool execute_source_string(const char* source_code, const char* filename) {
     return ok;
 }
 
+// executes apex source code from a file path
 bool execute_source(const char* filepath, const char* filename) {
     if (!filepath || !filename) return false;
     

@@ -5,6 +5,7 @@
 
 #ifdef _WIN32
 #include <windows.h>
+// enables ansi color codes on windows terminals
 static void ensure_vt_support() {
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
     DWORD dwMode = 0;
@@ -17,6 +18,7 @@ static void ensure_vt_support() {
 #define ANSI_RED    "\033[31m"
 #define ANSI_RESET  "\033[0m"
 
+// prints a formatted error with source context and highlighted underline
 void print_error_with_context(const char* filename, const char* source, 
                               int line, int col, int len, 
                               const char* type, const char* message) {
@@ -24,7 +26,6 @@ void print_error_with_context(const char* filename, const char* source,
     ensure_vt_support();
     #endif
 
-    // 1. Find line with error
     int cur_line = 1;
     const char* line_start = source;
     const char* p = source;
@@ -42,10 +43,8 @@ void print_error_with_context(const char* filename, const char* source,
     memcpy(line_buf, line_start, line_len);
     line_buf[line_len] = '\0';
 
-    // 2. Header
     fprintf(stderr, "%s in %s on line %d:\n", type, filename, line);
 
-    // 3. Show line with error
     int err_start = col - 1;
     int err_end   = (len > 0) ? err_start + len : err_start + 1;
     if (err_start < 0) err_start = 0;
@@ -59,7 +58,6 @@ void print_error_with_context(const char* filename, const char* source,
     fwrite(line_buf + err_end, 1, line_len - err_end, stderr);
     fprintf(stderr, "\n");
 
-    // 4. ^~~~~
     fprintf(stderr, "    ");
     for (int i = 0; i < err_start; i++) fprintf(stderr, " ");
     fprintf(stderr, "%s^", ANSI_RED);
@@ -68,7 +66,6 @@ void print_error_with_context(const char* filename, const char* source,
     for (int i = 1; i < underline; i++) fprintf(stderr, "~");
     fprintf(stderr, "%s\n", ANSI_RESET);
 
-    // 5. Error message
     fprintf(stderr, "%s%s%s\n", ANSI_RED, message, ANSI_RESET);
 
     free(line_buf);

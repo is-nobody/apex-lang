@@ -5,60 +5,58 @@
 #include "bytecode.h"
 #include <stdbool.h>
 
+// code generator context holding all state needed during bytecode emission
 typedef struct {
-    BytecodeChunk* chunk;
+    BytecodeChunk* chunk;          // target bytecode chunk being populated
     
-    // Variable-to-register-slot mapping
     struct {
-        char** names;
-        int* registers;
+        char** names;              // local variable names for debug info
+        int* registers;            // register slot assigned to each local
         int count;
         int capacity;
-    } locals;
+    } locals;                      // maps local variable names to register slots
 
-    // Loop control stack
     struct {
-        int* break_jumps;
+        int* break_jumps;          // list of jump instructions to patch on loop exit
         int break_count;
         int break_capacity;
-        int continue_addr;
-        bool is_fast;
-    } loop_stack;
+        int continue_addr;         // target address for continue statements
+        bool is_fast;              // whether the loop uses fast range optimization
+    } loop_stack;                  // stack of active loops for break/continue resolution
 
-    // Register allocator state
-    int next_register;
-    int max_registers;
+    int next_register;             // next free register for allocation
+    int max_registers;             // highest register used so far
 
-    // Currently compiling function index
-    int current_function;
+    int current_function;          // index of the function currently being compiled
 
-    // Unique label counter
-    int label_counter;
+    int label_counter;             // unique id generator for synthetic labels
 
-    // Optimization: cached registers for common operations
     struct {
-        int zero_reg;
-        int one_reg;
-        int empty_str;
-    } cache;
+        int zero_reg;              // cached register holding 0
+        int one_reg;               // cached register holding 1
+        int empty_str;             // cached register holding empty string
+    } cache;                       // commonly used constants kept in registers
 
-    // Module tracking
-    char* current_module;
-    char** imported_modules;
+    char* current_module;          // name of the module being compiled
+    char** imported_modules;       // list of imported module names
     int module_count;
     int module_capacity;
-    char** module_globals;
+    char** module_globals;         // global variables specific to the current module
     int module_globals_count;
     int module_globals_capacity;
 
 } CodeGenerator;
 
-// API
+// creates a new code generator attached to a bytecode chunk
 CodeGenerator* codegen_create(BytecodeChunk* chunk);
+
+// frees all resources used by the code generator
 void codegen_destroy(CodeGenerator* cg);
+
+// generates bytecode from an ast, returns true on success
 bool codegen_generate(CodeGenerator* cg, ASTNode* ast);
 
-// Debug utility
+// prints the current local variable mapping for debugging
 void codegen_print_locals(CodeGenerator* cg);
 
 #endif // CODEGEN_H

@@ -4,6 +4,7 @@
 #include <string.h>
 #include <time.h>
 #include <errno.h>
+
 #ifdef _WIN32
 #include <windows.h>
 #include <direct.h>
@@ -32,7 +33,7 @@
 #include <sys/wait.h>
 #endif
 
-// Helper for recursive directory size (moved from files_module.c)
+// recursively calculates the total size of a directory in bytes
 static double calculate_dir_size(const char* path) {
     double total_size = 0;
 #ifdef _WIN32
@@ -80,12 +81,10 @@ static double calculate_dir_size(const char* path) {
     return total_size;
 }
 
+// dispatcher for operating system built-in functions
 bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     (void)vm;
     
-    // --- Original OS Functions ---
-
-    // --- I/O ---
     if (strcmp(name, "os.output") == 0) {
         if (arg_count >= 1) {
             vm_print_value(&args[0]);
@@ -95,6 +94,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         *result = vm_make_bool(false);
         return true;
     }
+    
     if (strcmp(name, "os.input") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             printf("%s", args[0].string->chars);
@@ -109,7 +109,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
-    // --- Time & Process Control ---
+    
     if (strcmp(name, "os.time") == 0) {
 #ifdef _WIN32
         struct _timeb tb;
@@ -122,6 +122,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
 #endif
         return true;
     }
+    
     if (strcmp(name, "os.wait") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
             double seconds = args[0].number;
@@ -138,19 +139,21 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         *result = vm_make_bool(false);
         return true;
     }
+    
     if (strcmp(name, "os.exit") == 0) {
         int code = 0;
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) code = (int)args[0].number;
         exit(code);
         return true;
     }
-    // --- Directory Navigation ---
+    
     if (strcmp(name, "os.get_current_folder") == 0) {
         char cwd[4096];
         if (getcwd(cwd, sizeof(cwd))) *result = vm_make_string(cwd);
         else *result = vm_make_bool(false);
         return true;
     }
+    
     if (strcmp(name, "os.set_current_folder") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             *result = vm_make_bool(chdir(args[0].string->chars) == 0);
@@ -159,7 +162,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
-    // --- Process Management ---
+    
     if (strcmp(name, "os.terminate_process") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
             int pid = (int)args[0].number;
@@ -179,6 +182,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
+    
     if (strcmp(name, "os.execute") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             int exit_code = system(args[0].string->chars);
@@ -189,9 +193,6 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         return true;
     }
 
-    // --- Merged Files Functions (now os.*) ---
-
-    // --- File Content ---
     if (strcmp(name, "os.read") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             FILE* f = fopen(args[0].string->chars, "rb");
@@ -214,6 +215,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
+    
     if (strcmp(name, "os.write") == 0) {
         if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
             FILE* f = fopen(args[0].string->chars, "wb");
@@ -229,6 +231,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
+    
     if (strcmp(name, "os.append") == 0) {
         if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
             FILE* f = fopen(args[0].string->chars, "ab");
@@ -244,7 +247,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
-    // --- File/Dir Info ---
+    
     if (strcmp(name, "os.exists") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             *result = vm_make_bool(access(args[0].string->chars, F_OK) == 0);
@@ -253,6 +256,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
+    
     if (strcmp(name, "os.isfile") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             struct stat st;
@@ -266,6 +270,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
+    
     if (strcmp(name, "os.isfolder") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             struct stat st;
@@ -279,6 +284,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
+    
     if (strcmp(name, "os.size") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             struct stat st;
@@ -298,6 +304,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
+    
     if (strcmp(name, "os.stat") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             struct stat st;
@@ -315,6 +322,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
+    
     if (strcmp(name, "os.filetype") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             FILE* f = fopen(args[0].string->chars, "rb");
@@ -356,7 +364,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
-    // --- File/Dir Operations ---
+    
     if (strcmp(name, "os.create_file") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             FILE* f = fopen(args[0].string->chars, "w");
@@ -371,6 +379,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
+    
     if (strcmp(name, "os.create_folder") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
 #ifdef _WIN32
@@ -383,7 +392,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
-    // --- Universal File/Dir Operations ---
+    
     if (strcmp(name, "os.delete") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             struct stat st;
@@ -403,6 +412,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
+    
     if (strcmp(name, "os.rename") == 0) {
         if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
             *result = vm_make_bool(rename(args[0].string->chars, args[1].string->chars) == 0);
@@ -411,7 +421,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
-    // --- Universal Move/Copy ---
+    
     if (strcmp(name, "os.move") == 0) {
         if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
             *result = vm_make_bool(rename(args[0].string->chars, args[1].string->chars) == 0);
@@ -420,6 +430,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
+    
     if (strcmp(name, "os.copy") == 0) {
         if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_STRING) {
             const char* src_path = args[0].string->chars;
@@ -434,7 +445,6 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             bool success = true;
 
             if (S_ISDIR(st.st_mode)) {
-                // --- Recursive Folder Copy ---
 #ifdef _WIN32
                 if (_mkdir(dst_path) != 0 && errno != EEXIST) {
                     *result = vm_make_bool(false);
@@ -498,7 +508,6 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
                 }
 #endif
             } else {
-                // --- Single File Copy ---
                 FILE* src = fopen(src_path, "rb");
                 if (!src) {
                     *result = vm_make_bool(false);
@@ -527,6 +536,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
+    
     if (strcmp(name, "os.items") == 0) {
         const char* path = ".";
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
@@ -567,6 +577,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
 #endif
         return true;
     }
+    
     if (strcmp(name, "os.parentfolder") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             const char* path = args[0].string->chars;
@@ -602,6 +613,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         }
         return true;
     }
+    
     if (strcmp(name, "os.access") == 0) {
         if (arg_count >= 2 && args[0].type == VAL_STRING && args[1].type == VAL_NUMBER) {
 #ifdef _WIN32

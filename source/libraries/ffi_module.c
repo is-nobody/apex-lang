@@ -15,16 +15,15 @@
     typedef void* LibHandle;
 #endif
 
+// dispatcher for foreign function interface built-ins
 bool ffi_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     (void)vm;
 
-    // ffi.open(path)
     if (strcmp(name, "ffi.open") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             const char* path = args[0].string->chars;
             char full_path[4096];
             
-            // If path doesn't contain a slash, prepend "./" to search in current directory
             if (strchr(path, '/') == NULL && strchr(path, '\\') == NULL) {
                 snprintf(full_path, sizeof(full_path), "./%s", path);
                 path = full_path;
@@ -44,7 +43,6 @@ bool ffi_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         return true;
     }
 
-    // ffi.call(lib_table, func_name, ...)
     if (strcmp(name, "ffi.call") == 0) {
         if (arg_count < 2) {
             *result = vm_make_bool(false);
@@ -74,7 +72,6 @@ bool ffi_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
             return true;
         }
 
-        // Simple FFI: assume function returns long and takes up to 4 long args
         typedef long (*generic_func_0)();
         typedef long (*generic_func_1)(long);
         typedef long (*generic_func_2)(long, long);
@@ -82,7 +79,7 @@ bool ffi_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         typedef long (*generic_func_4)(long, long, long, long);
 
         long res = 0;
-        int actual_args = arg_count - 2; // minus lib and name
+        int actual_args = arg_count - 2;
 
         switch (actual_args) {
             case 0:
@@ -109,13 +106,11 @@ bool ffi_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         return true;
     }
 
-    // ffi.errno()
     if (strcmp(name, "ffi.errno") == 0) {
         *result = vm_make_number(errno);
         return true;
     }
 
-    // ffi.malloc(size) — allocate memory, return pointer as number
     if (strcmp(name, "ffi.malloc") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
             size_t size = (size_t)args[0].number;
@@ -123,7 +118,7 @@ bool ffi_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
             if (ptr) {
                 *result = vm_make_number((double)(uintptr_t)ptr);
             } else {
-                *result = vm_make_number(0); // NULL on failure
+                *result = vm_make_number(0);
             }
         } else {
             *result = vm_make_number(0);
@@ -131,7 +126,6 @@ bool ffi_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         return true;
     }
 
-    // ffi.free(ptr) — free memory allocated by malloc
     if (strcmp(name, "ffi.free") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
             void* ptr = (void*)(uintptr_t)args[0].number;
@@ -143,7 +137,6 @@ bool ffi_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         return true;
     }
 
-    // ffi.strerror(code)
     if (strcmp(name, "ffi.strerror") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
             *result = vm_make_string(strerror((int)args[0].number));

@@ -2,8 +2,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 #define APEX_MAX_CALL_ARGS 64
 
+// checks if a module name is a built-in system module
 static bool is_known_builtin_module(const char* name) {
     return strcmp(name, "os") == 0 ||
            strcmp(name, "sys") == 0 || strcmp(name, "math") == 0 ||
@@ -12,7 +14,6 @@ static bool is_known_builtin_module(const char* name) {
            strcmp(name, "codecs") == 0;
 }
 
-// ========== Forward Declarations ==========
 static int codegen_expression(CodeGenerator* cg, ASTNode* node);
 static void codegen_statement(CodeGenerator* cg, ASTNode* node);
 static void codegen_block(CodeGenerator* cg, ASTNode* node);
@@ -21,7 +22,7 @@ static int codegen_optimized_condition(CodeGenerator* cg, ASTNode* condition, in
 static int codegen_index_assign(CodeGenerator* cg, ASTNode* node);
 static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node);
 
-// ========== Helpers ==========
+// allocates a new virtual register for temporary values
 static int alloc_register(CodeGenerator* cg) {
     int reg = cg->next_register++;
     if (reg >= cg->max_registers) {
@@ -30,20 +31,19 @@ static int alloc_register(CodeGenerator* cg) {
     return reg;
 }
 
+// releases a register if it's not a local variable and is the last allocated temp
 static void free_register(CodeGenerator* cg, int reg) {
-    // PROTECTION: Never free registers occupied by local variables!
     for (int i = 0; i < cg->locals.count; i++) {
         if (cg->locals.registers[i] == reg) {
-            return; // This is a local variable — don't touch it
+            return;
         }
     }
-    // Simplified: only decrement counter if this is the last temp register
     if (reg == cg->next_register - 1) {
         cg->next_register--;
     }
 }
 
-// Local variable management
+// finds the register holding a local variable by name, returns -1 if not found
 static int find_local(CodeGenerator* cg, const char* name) {
     if (!name) return -1;
     for (int i = 0; i < cg->locals.count; i++) {
@@ -54,6 +54,7 @@ static int find_local(CodeGenerator* cg, const char* name) {
     return -1;
 }
 
+// adds a local variable and assigns it a register, returns the register
 static int add_local(CodeGenerator* cg, const char* name) {
     int existing = find_local(cg, name);
     if (existing >= 0) return existing;
@@ -72,12 +73,12 @@ static int add_local(CodeGenerator* cg, const char* name) {
     return reg;
 }
 
-// Emit with line number info
+// emits an instruction with source line info for debugging
 static int emit(CodeGenerator* cg, Instruction inst, int line) {
     return bytecode_emit_line(cg->chunk, inst, line);
 }
 
-// ========== Code Generator ==========
+// creates a new code generator with preloaded constants in dedicated registers
 CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     CodeGenerator* cg = (CodeGenerator*)calloc(1, sizeof(CodeGenerator));
     cg->chunk = chunk;
@@ -86,11 +87,9 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->current_function = -1;
     cg->label_counter = 0;
     
-    // Initialize loop stack arrays
     cg->loop_stack.break_capacity = 16;
     cg->loop_stack.break_jumps = (int*)malloc(sizeof(int) * cg->loop_stack.break_capacity);
     
-    // Initialize module tracking
     cg->current_module = NULL;
     cg->imported_modules = NULL;
     cg->module_count = 0;
@@ -99,7 +98,6 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->module_globals_count = 0;
     cg->module_globals_capacity = 0;
 
-    // Preload frequently used constants
     cg->cache.zero_reg = alloc_register(cg);
     int zero_idx = bytecode_add_number_constant(chunk, 0.0);
     emit(cg, INST(OP_LOAD_CONST, cg->cache.zero_reg, zero_idx, 0), 0);
@@ -115,6 +113,7 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     return cg;
 }
 
+// frees all code generator resources including locals and module tracking arrays
 void codegen_destroy(CodeGenerator* cg) {
     if (!cg) return;
     
@@ -126,7 +125,6 @@ void codegen_destroy(CodeGenerator* cg) {
     
     free(cg->loop_stack.break_jumps);
     
-    // Free module tracking arrays
     for (int i = 0; i < cg->module_count; i++) {
         free(cg->imported_modules[i]);
     }
@@ -140,10 +138,9 @@ void codegen_destroy(CodeGenerator* cg) {
     free(cg);
 }
 
-// ========== Expression Code Generation ==========
+// emits a number literal, using immediate form for small integers
 static int codegen_literal_number(CodeGenerator* cg, ASTNode* node) {
     double val = node->literal_number.number_value;
-    // Small integers stored as immediate in the instruction
     if (val == (int)val && val >= 0 && val <= 255) {
         int reg = alloc_register(cg);
         emit(cg, INST(OP_LOAD_CONST_NUM, reg, (int)val, 0), node->line);
@@ -155,6 +152,7 @@ static int codegen_literal_number(CodeGenerator* cg, ASTNode* node) {
     return reg;
 }
 
+// emits a string literal by adding it to the constant pool
 static int codegen_literal_string(CodeGenerator* cg, ASTNode* node) {
     int reg = alloc_register(cg);
     int const_idx = bytecode_add_string_constant(cg->chunk,
@@ -163,16 +161,14 @@ static int codegen_literal_string(CodeGenerator* cg, ASTNode* node) {
     return reg;
 }
 
+// emits a boolean literal using the dedicated load-bool instruction
 static int codegen_literal_bool(CodeGenerator* cg, ASTNode* node) {
     int reg = alloc_register(cg);
-    if (node->literal_bool.bool_value) {
-        emit(cg, INST(OP_LOAD_BOOL, reg, 1, 0), node->line);
-    } else {
-        emit(cg, INST(OP_LOAD_BOOL, reg, 0, 0), node->line);
-    }
+    emit(cg, INST(OP_LOAD_BOOL, reg, node->literal_bool.bool_value ? 1 : 0, 0), node->line);
     return reg;
 }
 
+// emits an identifier, preferring local variables over globals
 static int codegen_identifier(CodeGenerator* cg, ASTNode* node) {
     const char* name = node->identifier.name;
     int local_reg = find_local(cg, name);
@@ -203,6 +199,7 @@ static int codegen_identifier(CodeGenerator* cg, ASTNode* node) {
     return reg;
 }
 
+// emits a function call, resolving builtins and user functions by name
 static int codegen_call(CodeGenerator* cg, ASTNode* node) {
     ASTNodeList* args_list = node->call.arguments;
     int arg_count = args_list->count;
@@ -240,7 +237,6 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
     }
     
     static const char* builtins[] = {
-        // os
         "os.output", "os.input",
         "os.time", "os.wait", "os.exit",
         "os.get_current_folder", "os.set_current_folder",
@@ -253,13 +249,9 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "os.move", "os.copy",
         "os.items", "os.parentfolder",
         "os.access",
-        
-        // sys
         "sys.platform", "sys.architecture", "sys.hostname", "sys.user",
         "sys.homedir", "sys.apex_version", "sys.executable", "sys.environment",
         "sys.disksize", "sys.tempdir", "sys.isterminal", "sys.process_id", 
-
-        // math
         "math.abs", "math.floor", "math.ceil", "math.round",
         "math.sqrt", "math.exp", "math.log",
         "math.sin", "math.cos", "math.tan",
@@ -269,34 +261,24 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "math.pow", "math.atan2",
         "math.radians", "math.degrees", "math.hypot",
         "math.gcd", "math.factorial",
-
-        // string
         "string.len", "string.lower", "string.upper",
         "string.sub", "string.split", "string.join",
         "string.trim", "string.find", "string.replace",
-
-        // table
         "table.remove", "table.has", "table.size",
         "table.keys", "table.values", "table.clear",
         "table.copy", "table.merge",
         "ffi.open", "ffi.call", "ffi.errno", "ffi.strerror",
         "ffi.malloc", "ffi.free",
-
-        // random
         "random.random", "random.randint", "random.choice", "random.shuffle",
         "random.sample", "random.gauss", "random.seed",
         "random.triangular", "random.expovariate", "random.betavariate",
         "random.secure_token_hex", "random.secure_token_bytes",
         "random.secure_randint", "random.compare_digest",
-
-        // codecs
         "codecs.json_read", "codecs.json_write",
         "codecs.csv_read", "codecs.csv_write",
         "codecs.xml_read", "codecs.xml_write",
         "codecs.base_read", "codecs.base_write",
         "codecs.baseurl_write", "codecs.baseurl_read",
-
-        // built-in
         "number", "string", "type",
         NULL
     };
@@ -336,6 +318,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
     return result_reg;
 }
 
+// emits string interpolation by concatenating parts with to-string conversions
 static int codegen_string_interp(CodeGenerator* cg, ASTNode* node) {
     if (node->string_interp.parts->count == 0) {
         int reg = alloc_register(cg);
@@ -371,6 +354,7 @@ static int codegen_string_interp(CodeGenerator* cg, ASTNode* node) {
     return result_reg;
 }
 
+// emits for loops, supporting both range loops and table iteration
 static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
     int prev_break_count = cg->loop_stack.break_count;
     int prev_continue_addr = cg->loop_stack.continue_addr;
@@ -379,72 +363,54 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
     cg->loop_stack.is_fast = (node->for_stmt.var_name != NULL);
 
     if (node->for_stmt.var_name) {
-        // Check if this is a Table Iteration: for k = table
         if (node->for_stmt.end == NULL && !node->for_stmt.condition) {
-            // --- Table Iteration: for key = table ---
             int table_reg = codegen_expression(cg, node->for_stmt.start);
-            
-            // Get keys table: keys = table.keys(table)
             int keys_table_reg = alloc_register(cg);
             int name_idx = bytecode_add_string_constant(cg->chunk, "table.keys");
             emit(cg, INST(OP_PUSH_ARG, table_reg, 0, 0), node->line);
             emit(cg, INST(OP_CALL_BUILTIN, keys_table_reg, name_idx, 1), node->line);
 
-            // Get size of keys table: size = table.size(keys)
             int size_reg = alloc_register(cg);
             name_idx = bytecode_add_string_constant(cg->chunk, "table.size");
             emit(cg, INST(OP_PUSH_ARG, keys_table_reg, 0, 0), node->line);
             emit(cg, INST(OP_CALL_BUILTIN, size_reg, name_idx, 1), node->line);
 
-            // Create user variable register
             int var_reg = add_local(cg, node->for_stmt.var_name);
-            
-            // Create dedicated index register (starts at 0)
             int index_reg = alloc_register(cg);
             int zero_idx = bytecode_add_number_constant(cg->chunk, 0.0);
             emit(cg, INST(OP_LOAD_CONST, index_reg, zero_idx, 0), node->line);
 
-            // Initialize the for loop
             emit(cg, INST(OP_FOR_INIT, index_reg, size_reg, cg->cache.one_reg), node->line);
 
             int loop_start = bytecode_current_offset(cg->chunk);
             cg->loop_stack.continue_addr = loop_start;
 
-            // FOR_NEXT: increment index, check if <= size, exit if not
             int for_next_instr = bytecode_current_offset(cg->chunk);
             emit(cg, INST(OP_FOR_NEXT, index_reg, size_reg, 0), node->line);
 
-            // Get key from keys table: keys_table[index]
             int key_reg = alloc_register(cg);
             emit(cg, INST(OP_TABLE_GET, key_reg, keys_table_reg, index_reg), node->line);
 
-            // Move KEY to user's variable (not value)
             emit(cg, INST(OP_MOVE, var_reg, key_reg, 0), node->line);
 
             free_register(cg, key_reg);
 
-            // Execute loop body
             codegen_block(cg, node->for_stmt.body);
 
-            // Jump back to FOR_NEXT
             emit(cg, INST(OP_JUMP, loop_start, 0, 0), node->line);
 
-            // Patch exit address for FOR_NEXT
             int exit_addr = bytecode_current_offset(cg->chunk);
             cg->chunk->code[for_next_instr].operands[2] = exit_addr;
 
-            // Free all registers
             free_register(cg, table_reg);
             free_register(cg, keys_table_reg);
             free_register(cg, size_reg);
             free_register(cg, index_reg);
             
-            // Patch break jumps to exit address
             for (int i = 0; i < cg->loop_stack.break_count; i++) {
                 bytecode_patch_jump(cg->chunk, cg->loop_stack.break_jumps[i], exit_addr);
             }
         } else {
-            // --- Range Loop: for x = start, end, [step] ---
             int start_reg = codegen_expression(cg, node->for_stmt.start);
             int end_reg = codegen_expression(cg, node->for_stmt.end);
             int step_reg;
@@ -479,14 +445,12 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             if (!node->for_stmt.step) free_register(cg, step_reg);
         }
         
-        // Patch break jumps for BOTH range and table loops
         int exit_addr = bytecode_current_offset(cg->chunk);
         for (int i = 0; i < cg->loop_stack.break_count; i++) {
             bytecode_patch_jump(cg->chunk, cg->loop_stack.break_jumps[i], exit_addr);
         }
 
     } else {
-        // --- Condition or Infinite Loop ---
         ASTNode* condition = node->for_stmt.condition;
         int left_reg = -1;
         int right_reg = -1;
@@ -556,6 +520,7 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
     cg->loop_stack.is_fast = prev_is_fast;
 }
 
+// main expression dispatcher that handles all expression node types
 static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
     if (!node) {
         int reg = alloc_register(cg);
@@ -636,24 +601,20 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
                 const char* obj_name = node->access.object->identifier.name;
                 const char* member_name = NULL;
 
-                // Case 1: lib.pi (dot access -> IDENTIFIER)
                 if (node->access.member->type == AST_IDENTIFIER) {
                     member_name = node->access.member->identifier.name;
                 }
-                // Case 2: lib["pi"] (bracket access -> STRING)
                 else if (node->access.member->type == AST_LITERAL_STRING) {
                     member_name = node->access.member->literal_string.string_value;
                 }
 
                 if (member_name) {
-                    // Check user-imported modules
                     for (int i = 0; i < cg->module_count; i++) {
                         if (strcmp(cg->imported_modules[i], obj_name) == 0) {
                             is_module_access = true;
                             break;
                         }
                     }
-                    // Check built-in modules
                     if (!is_module_access && is_known_builtin_module(obj_name)) {
                         is_module_access = true;
                     }
@@ -674,18 +635,14 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
                 return reg;
             }
 
-            // Fallback: regular table access
             int obj_reg = codegen_expression(cg, node->access.object);
             int result_reg = alloc_register(cg);
             
             if (node->access.member->type == AST_IDENTIFIER) {
-                // Check if this identifier is a LOCAL VARIABLE
                 int local_reg = find_local(cg, node->access.member->identifier.name);
                 if (local_reg >= 0) {
-                    // It's a variable — use its value as key
                     emit(cg, INST(OP_TABLE_GET, result_reg, obj_reg, local_reg), node->line);
                 } else {
-                    // Check if it's a GLOBAL VARIABLE
                     int global_idx = bytecode_get_global(cg->chunk, node->access.member->identifier.name);
                     if (global_idx >= 0) {
                         int key_reg = alloc_register(cg);
@@ -693,7 +650,6 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
                         emit(cg, INST(OP_TABLE_GET, result_reg, obj_reg, key_reg), node->line);
                         free_register(cg, key_reg);
                     } else {
-                        // Not a variable — treat as string literal key
                         int key_idx = bytecode_add_string_constant(cg->chunk,
                             node->access.member->identifier.name);
                         emit(cg, INST(OP_TABLE_GET_CONST, result_reg, obj_reg, key_idx), node->line);
@@ -712,14 +668,12 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
             int table_reg = alloc_register(cg);
             emit(cg, INST(OP_NEW_TABLE, table_reg, 0, 0), node->line);
 
-            // Positional items (array-like)
             for (int i = 0; i < node->table_literal.items->count; i++) {
                 int value_reg = codegen_expression(cg, node->table_literal.items->nodes[i]);
                 emit(cg, INST(OP_TABLE_APPEND, table_reg, value_reg, 0), node->line);
                 free_register(cg, value_reg);
             }
 
-            // Key-value pairs (keys are ALWAYS AST_LITERAL_STRING now)
             for (int i = 0; i < node->table_literal.key_values->count; i++) {
                 ASTNode* kv = node->table_literal.key_values->nodes[i];
                 const char* key_str = kv->binary.left->literal_string.string_value;
@@ -742,6 +696,7 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
     }
 }
 
+// registers a module-scoped global variable for name resolution
 static void add_module_global(CodeGenerator* cg, const char* full_name) {
     for (int i = 0; i < cg->module_globals_count; i++) {
         if (strcmp(cg->module_globals[i], full_name) == 0) return;
@@ -753,11 +708,10 @@ static void add_module_global(CodeGenerator* cg, const char* full_name) {
     cg->module_globals[cg->module_globals_count++] = strdup(full_name);
 }
 
-// ========== Statement Code Generation ==========
+// emits a variable declaration, storing in locals for functions or globals at top level
 static void codegen_var_decl(CodeGenerator* cg, ASTNode* node) {
     int value_reg = codegen_expression(cg, node->var_assign.value);
     
-    // Index 0 is the global scope (__entry__), indices > 0 are user functions.
     if (cg->current_function > 0) { 
         int local_reg = add_local(cg, node->var_assign.name);
         emit(cg, INST(OP_MOVE, local_reg, value_reg, 0), node->line);
@@ -775,20 +729,18 @@ static void codegen_var_decl(CodeGenerator* cg, ASTNode* node) {
     free_register(cg, value_reg);
 }
 
+// emits assignment, optimizing numeric self-assignment patterns
 static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node) {
     if (node->var_assign.access_path) {
         return codegen_index_assign(cg, node);
     }
 
-    // Safety check for invalid AST
     if (!node->var_assign.name) {
         return codegen_expression(cg, node->var_assign.value);
     }
 
     int local_reg = find_local(cg, node->var_assign.name);
     if (local_reg >= 0) {
-        // === OPTIMIZATION: Numeric Self-Assignment (x = x op y) ===
-        // Note: The parser now guarantees that TOKEN_PLUS is only used for numbers.
         if (node->var_assign.value->type == AST_BINARY) {
             ASTNode* bin = node->var_assign.value;
             if (bin->binary.left->type == AST_IDENTIFIER &&
@@ -815,14 +767,12 @@ static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node) {
             }
         }
 
-        // Standard assignment
         int value_reg = codegen_expression(cg, node->var_assign.value);
         emit(cg, INST(OP_MOVE, local_reg, value_reg, 0), node->line);
         free_register(cg, value_reg);
         return local_reg;
     }
 
-    // === GLOBAL VARIABLES ===
     int value_reg = codegen_expression(cg, node->var_assign.value);
     const char* var_name = node->var_assign.name;
     char global_name[512];
@@ -849,12 +799,13 @@ static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node) {
     return value_reg;
 }
 
-// Wrapper for statements that discards the result register
+// wrapper for assignments that discards the result register
 static void codegen_assign(CodeGenerator* cg, ASTNode* node) {
     int reg = codegen_assign_expr(cg, node);
     free_register(cg, reg);
 }
 
+// emits if/elif/else chain with optimized condition evaluation
 static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
     int jump_to_else = codegen_optimized_condition(cg, node->if_stmt.condition, node->line);
     if (jump_to_else < 0) {
@@ -911,6 +862,7 @@ static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
     }
 }
 
+// tries to optimize comparison conditions into direct jump instructions
 static int codegen_optimized_condition(CodeGenerator* cg, ASTNode* condition, int line) {
     if (condition->type == AST_BINARY) {
         TokenType op = condition->binary.op;
@@ -938,10 +890,10 @@ static int codegen_optimized_condition(CodeGenerator* cg, ASTNode* condition, in
     return -1;
 }
 
+// emits indexed assignment like table[index] = value with nested access support
 static int codegen_index_assign(CodeGenerator* cg, ASTNode* node) {
     ASTNode* access = node->var_assign.access_path;
     
-    // Check for module global variable assignment (e.g., math.pi = 3.14)
     if (access->type == AST_INDEX_ACCESS &&
         access->access.object->type == AST_IDENTIFIER &&
         access->access.member->type == AST_IDENTIFIER) {
@@ -963,7 +915,6 @@ static int codegen_index_assign(CodeGenerator* cg, ASTNode* node) {
         }
     }
 
-    // Standard table assignment
     ASTNode* value_node = node->var_assign.value;
     ASTNode* chain[256];
     int chain_len = 0;
@@ -995,6 +946,7 @@ static int codegen_index_assign(CodeGenerator* cg, ASTNode* node) {
     return val_reg;
 }
 
+// emits a break statement, patching jumps to loop exit later
 static void codegen_break(CodeGenerator* cg, ASTNode* node) {
     if (cg->loop_stack.break_count < cg->loop_stack.break_capacity) {
         if (cg->loop_stack.is_fast) {
@@ -1008,15 +960,16 @@ static void codegen_break(CodeGenerator* cg, ASTNode* node) {
     }
 }
 
+// emits a continue statement jumping to the loop's continue address
 static void codegen_continue(CodeGenerator* cg, ASTNode* node) {
     emit(cg, INST(OP_JUMP, cg->loop_stack.continue_addr, 0, 0), node->line);
 }
 
+// emits a function declaration with proper body compilation and state isolation
 static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     const char* func_name = node->function_decl.name;
     char global_name[512];
     
-    // 1. Handle module prefix
     if (cg->current_module) {
         snprintf(global_name, sizeof(global_name), "%s.%s", cg->current_module, func_name);
         func_name = global_name;
@@ -1034,14 +987,12 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     emit(cg, INST(OP_STORE_GLOBAL, temp_reg, global_idx, 0), node->line);
     free_register(cg, temp_reg);
 
-    // 2. NOW emit the JUMP to skip over the function body
     int jump_over = bytecode_current_offset(cg->chunk);
     emit(cg, INST(OP_JUMP, 0, 0, 0), node->line);
     
     int func_addr = bytecode_current_offset(cg->chunk);
     cg->chunk->functions[func_idx].address = func_addr;
 
-    // 3. Save current state (locals, registers)
     int prev_function = cg->current_function;
     int prev_next_register = cg->next_register;
     int prev_max_registers = cg->max_registers;
@@ -1058,7 +1009,6 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
         }
     }
 
-    // 4. Reset for function body
     for (int i = 0; i < cg->locals.count; i++) free(cg->locals.names[i]);
     free(cg->locals.names);
     free(cg->locals.registers);
@@ -1070,16 +1020,13 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     cg->max_registers = 0;
     cg->current_function = func_idx;
 
-    // 5. Register parameters as locals
     for (int i = 0; i < node->function_decl.params->count; i++) {
         ASTNode* param = node->function_decl.params->nodes[i];
         add_local(cg, param->param.name);
     }
 
-    // 6. Generate function body
     codegen_block(cg, node->function_decl.body);
 
-    // 7. Only emit default return if the function doesn't already end with one
     bool ends_with_return = false;
     if (cg->chunk->code_count > 0) {
         Opcode last_op = cg->chunk->code[cg->chunk->code_count - 1].opcode;
@@ -1096,7 +1043,6 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
         free_register(cg, false_reg);
     }
 
-    // 8. Save local variable names for IR debugging
     cg->chunk->functions[func_idx].local_count = cg->locals.count;
     if (cg->locals.count > 0) {
         cg->chunk->functions[func_idx].local_names = (char**)malloc(sizeof(char*) * cg->locals.count);
@@ -1107,7 +1053,6 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
         cg->chunk->functions[func_idx].local_names = NULL;
     }
 
-    // 9. Restore previous state
     for (int i = 0; i < cg->locals.count; i++) free(cg->locals.names[i]);
     free(cg->locals.names);
     free(cg->locals.registers);
@@ -1120,10 +1065,10 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     cg->max_registers = prev_max_registers;
     cg->current_function = prev_function;
 
-    // 10. Patch the JUMP to point here (after the function body)
     bytecode_patch_jump(cg->chunk, jump_over, bytecode_current_offset(cg->chunk));
 }
 
+// emits a return statement with optional value
 static void codegen_return(CodeGenerator* cg, ASTNode* node) {
     if (node->return_stmt.value) {
         int value_reg = codegen_expression(cg, node->return_stmt.value);
@@ -1133,11 +1078,13 @@ static void codegen_return(CodeGenerator* cg, ASTNode* node) {
     }
 }
 
+// emits an expression statement, discarding the result
 static void codegen_expr_statement(CodeGenerator* cg, ASTNode* node) {
     int result_reg = codegen_expression(cg, node->expr_stmt.expression);
     free_register(cg, result_reg);
 }
 
+// statement dispatcher that routes each ast node type to its codegen function
 static void codegen_statement(CodeGenerator* cg, ASTNode* node) {
     if (!node) return;
     switch (node->type) {
@@ -1170,6 +1117,7 @@ static void codegen_statement(CodeGenerator* cg, ASTNode* node) {
     }
 }
 
+// emits a block of statements sequentially
 static void codegen_block(CodeGenerator* cg, ASTNode* node) {
     if (!node || (node->type != AST_BLOCK && node->type != AST_PROGRAM)) return;
     for (int i = 0; i < node->block.statements->count; i++) {
@@ -1178,7 +1126,7 @@ static void codegen_block(CodeGenerator* cg, ASTNode* node) {
     }
 }
 
-// ========== Public API ==========
+// public entry point that generates bytecode from an ast
 bool codegen_generate(CodeGenerator* cg, ASTNode* ast) {
     if (!cg || !ast) return false;
     
@@ -1195,6 +1143,7 @@ bool codegen_generate(CodeGenerator* cg, ASTNode* ast) {
     return true;
 }
 
+// prints the current local variable mapping for debugging
 void codegen_print_locals(CodeGenerator* cg) {
     printf("\n=== Local Variables ===\n");
     for (int i = 0; i < cg->locals.count; i++) {

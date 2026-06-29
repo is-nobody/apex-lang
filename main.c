@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <errno.h>
+
 #ifdef _WIN32
 #include <io.h>
 #include <windows.h>
@@ -16,14 +17,15 @@
 #include <unistd.h>
 #include <limits.h>
 #endif
+
 #include "execute.h"
 #include "repl.h"
 #include "platform.h"
 #include "commands.h"
 
-// Marker used in the build process
 #define MARKER "__APEX_BIN_PAYLOAD__"
 
+// recursively creates directories for a given path
 static void mkdirp(const char* path) {
     char tmp[4096];
     snprintf(tmp, sizeof(tmp), "%s", path);
@@ -37,6 +39,7 @@ static void mkdirp(const char* path) {
     mkdir(tmp, 0755);
 }
 
+// extracts and executes embedded source from a compiled apex binary
 static int execute_embedded_source(void) {
     char exe_path[4096];
 #ifdef _WIN32
@@ -76,13 +79,11 @@ static int execute_embedded_source(void) {
     }
     fclose(f);
 
-    // Create temporary directory
     char temp_dir[4096];
 #ifdef _WIN32
     char temp_base[MAX_PATH];
     DWORD len = GetTempPathA(MAX_PATH, temp_base);
     
-    // Robust fallback if MSYS2 env vars point to a deleted folder
     if (len == 0 || GetFileAttributesA(temp_base) == INVALID_FILE_ATTRIBUTES) {
         const char* userprofile = getenv("USERPROFILE");
         if (userprofile) {
@@ -118,7 +119,6 @@ static int execute_embedded_source(void) {
         char full_path[8192];
         snprintf(full_path, sizeof(full_path), "%s/%s", temp_dir, name);
         
-        // Create subdirectories if needed
         char* last_slash = strrchr(full_path, '/');
         if (last_slash) {
             *last_slash = '\0';
@@ -136,7 +136,6 @@ static int execute_embedded_source(void) {
     }
     free(payload);
 
-    // Execute the extracted main script
     bool ok = execute_source(main_script, main_script);
     
     platform_delete_temp_file(temp_dir);
@@ -144,7 +143,7 @@ static int execute_embedded_source(void) {
     return ok ? 0 : 1;
 }
 
-// Execute code from stdin (pipe)
+// executes code piped from stdin
 static int execute_from_stdin(void) {
     char* temp_path = NULL;
     size_t buf_size = 4096;
@@ -177,17 +176,15 @@ static int execute_from_stdin(void) {
     return ok ? 0 : 1;
 }
 
+// main entry point: checks for embedded binary, then commands, then file or repl
 int main(int argc, char** argv) {
-    // 1. Check if this is a compiled Apex binary
     int embedded_result = execute_embedded_source();
     if (embedded_result >= 0) {
         return embedded_result;
     }
 
-    // 2. Normal Interpreter Logic
     platform_init();
 
-    // Handle specific commands (version, build, etc.)
     int cmd_result = handle_commands(argc, argv);
     if (cmd_result >= 0) {
         return cmd_result;
@@ -195,15 +192,12 @@ int main(int argc, char** argv) {
 
     int result = 0;
 
-    // Execute file passed as argument
     if (argc > 1) {
         result = execute_source(argv[1], argv[1]) ? 0 : 1;
     }
-    // Read from stdin (pipe/redirect)
     else if (!isatty(STDIN_FILENO)) {
         result = execute_from_stdin();
     }
-    // Interactive mode (REPL)
     else {
         repl_run();
     }

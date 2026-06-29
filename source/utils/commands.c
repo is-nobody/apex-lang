@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <ctype.h>
+
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -16,7 +17,6 @@
 #include <sys/stat.h>
 #endif
 
-// Detect compiler for the version string
 #if defined(__clang__)
 #define COMPILER_INFO "Clang " __clang_version__
 #elif defined(__GNUC__)
@@ -27,20 +27,18 @@
 #define COMPILER_INFO "Unknown Compiler"
 #endif
 
+// dispatches cli commands like 'version' and 'build'
 int handle_commands(int argc, char** argv) {
     if (argc < 2) return -1;
 
-    // --- VERSION COMMAND ---
     if (strcmp(argv[1], "version") == 0) {
         printf("Apex 26.06 [%s] on %s\n", COMPILER_INFO, platform_get_name());
         return 0;
     }
 
-    // --- BUILD COMMAND ---
     if (strcmp(argv[1], "build") == 0) {
         return build_command(argc, argv);
     }
 
-    // Not a recognized command, fallback to default behavior
     return -1;
 }

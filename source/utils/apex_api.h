@@ -7,33 +7,16 @@
 extern "C" {
 #endif
 
-/**
- * Initializes the Apex runtime environment.
- * Call this once at the start of your application.
- */
+// initializes the apex runtime environment, call once at application start
 void apex_init(void);
 
-/**
- * Shuts down the Apex runtime and frees global resources.
- * Call this before your application exits.
- */
+// shuts down the apex runtime and frees global resources
 void apex_shutdown(void);
 
-/**
- * Executes Apex source code from a string.
- * 
- * @param source_code The Apex code to execute.
- * @param filename    A name for the script (used in error messages).
- * @return true if execution was successful, false otherwise.
- */
+// executes apex source code from a string with a filename for error context
 bool apex_execute(const char* source_code, const char* filename);
 
-/**
- * Executes Apex code from a file.
- * 
- * @param filepath The path to the .apex file.
- * @return true if execution was successful, false otherwise.
- */
+// executes an apex source file from the given filesystem path
 bool apex_execute_file(const char* filepath);
 
 #ifdef __cplusplus

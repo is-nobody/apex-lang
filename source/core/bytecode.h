@@ -4,119 +4,101 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// ========== Opcode Definitions ==========
+// all supported vm opcodes, grouped by functionality for clarity
 typedef enum {
-    // === Stack & Register Management ===
-    OP_NOP,              // no operation
-    OP_LOAD_CONST,       // Rdest = constant[index]
-    OP_MOVE,             // Rdest = Rsrc
+    OP_NOP,              // no operation, used as a placeholder or padding
+    OP_LOAD_CONST,       // loads a constant from the pool into a register
+    OP_MOVE,             // copies a value from one register to another
     
-    // === Arithmetic (3-address, register-based) ===
-    OP_ADD,              // Rdest = Rleft + Rright
-    OP_SUB,              // Rdest = Rleft - Rright
-    OP_MUL,              // Rdest = Rleft * Rright
-    OP_DIV,              // Rdest = Rleft / Rright
-    OP_MOD,              // Rdest = Rleft % Rright
-    OP_NEG,              // Rdest = -Rsrc (unary minus)
+    OP_ADD,              // arithmetic addition: rdst = rleft + rright
+    OP_SUB,              // subtraction: rdst = rleft - rright
+    OP_MUL,              // multiplication: rdst = rleft * rright
+    OP_DIV,              // division: rdst = rleft / rright
+    OP_MOD,              // modulo: rdst = rleft % rright
+    OP_NEG,              // unary negation: rdst = -rsrc
     
-    // === Comparison (returns boolean in Rdest) ===
-    OP_CMP_EQ,           // Rdest = (Rleft == Rright)
-    OP_CMP_NEQ,          // Rdest = (Rleft != Rright)
-    OP_CMP_LT,           // Rdest = (Rleft < Rright)
-    OP_CMP_GT,           // Rdest = (Rleft > Rright)
-    OP_CMP_LTE,          // Rdest = (Rleft <= Rright)
-    OP_CMP_GTE,          // Rdest = (Rleft >= Rright)
+    OP_CMP_EQ,           // equality comparison: rdst = (rleft == rright)
+    OP_CMP_NEQ,          // inequality: rdst = (rleft != rright)
+    OP_CMP_LT,           // less-than: rdst = (rleft < rright)
+    OP_CMP_GT,           // greater-than: rdst = (rleft > rright)
+    OP_CMP_LTE,          // less-or-equal: rdst = (rleft <= rright)
+    OP_CMP_GTE,          // greater-or-equal: rdst = (rleft >= rright)
     
-    // === Logical ===
-    OP_AND,              // Rdest = Rleft AND Rright
-    OP_OR,               // Rdest = Rleft OR Rright
-    OP_NOT,              // Rdest = NOT Rsrc
+    OP_AND,              // logical and: rdst = rleft && rright
+    OP_OR,               // logical or: rdst = rleft || rright
+    OP_NOT,              // logical not: rdst = !rsrc
     
-    // === Type Conversion ===
-    OP_TO_NUMBER,        // Rdest = number(Rsrc)
-    OP_TO_STRING,        // Rdest = string(Rsrc)
-    OP_TO_BOOL,          // Rdest = bool(Rsrc)
+    OP_TO_NUMBER,        // converts rsrc to a number, storing in rdst
+    OP_TO_STRING,        // converts rsrc to a string, storing in rdst
+    OP_TO_BOOL,          // converts rsrc to a boolean, storing in rdst
     
-    // === Control Flow ===
-    OP_JUMP,             // PC = address (unconditional jump)
-    OP_JUMP_IF_TRUE,     // if Rcond then PC = address
-    OP_JUMP_IF_FALSE,    // if !Rcond then PC = address
+    OP_JUMP,             // unconditional branch to address
+    OP_JUMP_IF_TRUE,     // branch if rcond is truthy
+    OP_JUMP_IF_FALSE,    // branch if rcond is falsy
     
-    // === Functions ===
-    OP_CALL,             // call function at address, store result in Rdest
-    OP_CALL_BUILTIN,     // call builtin by index, result in Rdest
-    OP_RETURN,           // return Rvalue
-    OP_RETURN_VOID,      // return without value
-    OP_PUSH_ARG,         // push argument onto call stack
+    OP_CALL,             // calls a function at address, result goes to rdst
+    OP_CALL_BUILTIN,     // calls a built-in by index, result to rdst
+    OP_RETURN,           // returns a value from the current function
+    OP_RETURN_VOID,      // returns without a value
+    OP_PUSH_ARG,         // pushes an argument onto the call stack
 
-    // === Memory Operations ===
-    OP_LOAD_GLOBAL,      // Rdest = global[name_index]
-    OP_STORE_GLOBAL,     // global[name_index] = Rsrc
+    OP_LOAD_GLOBAL,      // loads a global variable into a register
+    OP_STORE_GLOBAL,     // stores a register value into a global variable
     
-    // === Table Operations ===
-    OP_NEW_TABLE,        // Rdest = new table()
+    OP_NEW_TABLE,        // creates a new empty table in rdst
     OP_TABLE_SET,        // table[key_reg] = value_reg
-    OP_TABLE_SET_CONST,  // table[const_idx] = value (constant key)
-    OP_TABLE_GET,        // Rdest = table[key_reg]
-    OP_TABLE_GET_CONST,  // Rdest = table[const_idx] (constant key)
-    OP_TABLE_APPEND,     // table.append(value_reg)
+    OP_TABLE_SET_CONST,  // table[constant_key] = value_reg
+    OP_TABLE_GET,        // rdst = table[key_reg]
+    OP_TABLE_GET_CONST,  // rdst = table[constant_key]
+    OP_TABLE_APPEND,     // appends a value to a table as a positional item
     
-    // === String Operations ===
-    OP_CONCAT,           // Rdest = Rleft + Rright (string concatenation)
+    OP_CONCAT,           // string concatenation: rdst = rleft + rright
 
-    // === Loop Optimizations ===
-    OP_POP_ITER,         // clean up loop state
-    OP_JUMP_IF_LT,       // if R[op1] <  R[op2] then jump op0
-    OP_JUMP_IF_LTE,      // if R[op1] <= R[op2] then jump op0
-    OP_JUMP_IF_GT,       // if R[op1] >  R[op2] then jump op0
-    OP_JUMP_IF_GTE,      // if R[op1] >= R[op2] then jump op0
-    OP_JUMP_IF_EQ,       // if R[op1] == R[op2] then jump op0
-    OP_JUMP_IF_NEQ,      // if R[op1] != R[op2] then jump op0
-    OP_FOR_INIT,         // initialize for-loop (faster than CALL range())
-    OP_FOR_NEXT,         // get next element, jump if end reached
+    OP_POP_ITER,         // cleans up iterator state when leaving a loop
+    OP_JUMP_IF_LT,       // branch if r[op1] < r[op2] (for range loops)
+    OP_JUMP_IF_LTE,      // branch if r[op1] <= r[op2]
+    OP_JUMP_IF_GT,       // branch if r[op1] > r[op2]
+    OP_JUMP_IF_GTE,      // branch if r[op1] >= r[op2]
+    OP_JUMP_IF_EQ,       // branch if r[op1] == r[op2]
+    OP_JUMP_IF_NEQ,      // branch if r[op1] != r[op2]
+    OP_FOR_INIT,         // initializes a numeric for-loop state
+    OP_FOR_NEXT,         // advances loop and branches if the end is reached
     
-    // === Misc ===
-    OP_HALT,             // stop VM execution
+    OP_HALT,             // stops vm execution
     
-    // === Extended (optimizations) ===
-    OP_LOAD_BOOL,        // Rdest = true/false (fast bool load)
-    
-    OP_LOAD_CONST_NUM,   // R[op0] = op1 (immediate number)
+    OP_LOAD_BOOL,        // loads true/false directly with an immediate operand
+    OP_LOAD_CONST_NUM,   // loads an immediate number into rdst (optimized path)
 
-    OP_COUNT,
+    OP_COUNT,            // total number of opcodes, used for bounds checking
 } Opcode;
 
-// ========== Instruction Format ==========
-// Fixed-size instructions for fast decoding and cache-friendly access.
-// Each instruction is exactly 16 bytes (4 x int32_t).
-
+// fixed-size 16-byte instruction (opcode + three 32-bit operands) for fast decoding
 typedef struct {
-    Opcode opcode;       // 4 bytes
-    int32_t operands[3]; // 12 bytes (3 operands, 4 bytes each)
-    // operands[0] = destination register / jump offset
-    // operands[1] = source register / constant index
-    // operands[2] = extra operand / flags
+    Opcode opcode;
+    int32_t operands[3]; // usually: dst, src, extra / jump target / constant index
 } Instruction;
 
-// Convenience macros for creating instructions
+// convenience macros for constructing instructions with varying operand counts
 #define INST(op, a, b, c) ((Instruction){op, {a, b, c}})
 #define INST2(op, a, b)   ((Instruction){op, {a, b, 0}})
 #define INST1(op, a)      ((Instruction){op, {a, 0, 0}})
 #define INST0(op)         ((Instruction){op, {0, 0, 0}})
 
-// ========== Bytecode Chunk ==========
+// limits for vm resource pools to prevent unbounded growth
 #define MAX_REGISTERS 256
 #define MAX_CONSTANTS 65536
 #define MAX_GLOBALS   65536
 #define MAX_LOCALS    256
 
+// types of values that can be stored in the constant pool
 typedef enum {
-    CONST_NUMBER,
-    CONST_STRING,
-    CONST_BOOL,
-    CONST_FUNCTION,    // index into function table
+    CONST_NUMBER,        // double-precision floating point
+    CONST_STRING,        // interned string pointer
+    CONST_BOOL,          // boolean true/false
+    CONST_FUNCTION,      // function index into the function table
 } ConstantType;
 
+// a constant pool entry with a type and a type-specific value
 typedef struct {
     ConstantType type;
     union {
@@ -127,55 +109,52 @@ typedef struct {
     };
 } Constant;
 
+// global variable entry with a name and its index in the globals table
 typedef struct {
     char* name;
     int index;
 } GlobalVar;
 
+// local variable entry with name, slot, and scope depth for debug info
 typedef struct {
     char* name;
-    int slot;           // register/stack slot index
+    int slot;
     int scope_level;
 } LocalVar;
 
+// function metadata: name, entry address, arity, and local variable info
 typedef struct {
     char* name;
-    int address;        // bytecode address
-    int arity;          // number of parameters
-    int local_count;    // number of local variables
-    char** local_names; // stores names of local variables for debugging
+    int address;
+    int arity;
+    int local_count;
+    char** local_names;
 } FunctionInfo;
 
+// bytecode chunk holds all code, constants, globals, functions, and debug data
 typedef struct {
-    // Bytecode buffer
     Instruction* code;
     int code_capacity;
     int code_count;
     
-    // Constant pool
     Constant* constants;
     int const_capacity;
     int const_count;
     
-    // Global variable table
     GlobalVar* globals;
     int global_capacity;
     int global_count;
     
-    // Function table
     FunctionInfo* functions;
     int func_capacity;
     int func_count;
     
-    // Currently compiling function index
     int current_function;
     
-    // Debug: instruction -> source line mapping
     int* line_info;
     int line_capacity;
     int line_count;
     
-    // Optimization: string interning pool
     struct {
         char** strings;
         int count;
@@ -184,36 +163,46 @@ typedef struct {
     
 } BytecodeChunk;
 
-// ========== Bytecode API ==========
+// creates a new bytecode chunk with default capacities
 BytecodeChunk* bytecode_create();
+
+// frees all memory used by a bytecode chunk
 void bytecode_destroy(BytecodeChunk* chunk);
 
-// Emit instructions
+// emits an instruction, returning its offset in the code buffer
 int bytecode_emit(BytecodeChunk* chunk, Instruction inst);
+
+// emits an instruction with source line info for debugging
 int bytecode_emit_line(BytecodeChunk* chunk, Instruction inst, int line);
 
-// Constant management
+// adds a constant to the pool, deduplicating identical values
 int bytecode_add_constant(BytecodeChunk* chunk, Constant constant);
+
+// convenience wrappers for adding typed constants
 int bytecode_add_number_constant(BytecodeChunk* chunk, double value);
 int bytecode_add_string_constant(BytecodeChunk* chunk, const char* value);
 int bytecode_add_bool_constant(BytecodeChunk* chunk, bool value);
 
-// Global variable management
+// adds or retrieves a global variable by name
 int bytecode_add_global(BytecodeChunk* chunk, const char* name);
 int bytecode_get_global(BytecodeChunk* chunk, const char* name);
 
-// Function management
+// registers a function with its name and arity
 int bytecode_add_function(BytecodeChunk* chunk, const char* name, int arity);
 
-// String interning (saves memory by deduplication)
+// interns a string in the pool to share identical string instances
 const char* bytecode_intern_string(BytecodeChunk* chunk, const char* str);
 
-// Jump patching for forward references
+// patches a jump instruction to a resolved target address
 void bytecode_patch_jump(BytecodeChunk* chunk, int jump_instruction, int target_address);
+
+// returns the current code offset (useful for jump targets)
 int bytecode_current_offset(BytecodeChunk* chunk);
 
-// Debug disassembly
+// prints a detailed disassembly of the bytecode chunk
 void bytecode_disassemble(BytecodeChunk* chunk);
+
+// returns the human-readable name of an opcode
 const char* opcode_name(Opcode op);
 
 #endif // BYTECODE_H

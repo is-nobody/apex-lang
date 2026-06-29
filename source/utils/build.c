@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <ctype.h>
+
 #ifdef _WIN32
 #include <windows.h>
 #include <direct.h>
@@ -18,11 +19,13 @@
 
 #define MARKER "__APEX_BIN_PAYLOAD__"
 
+// platform descriptor for target builds
 typedef struct {
     const char* os;
     const char* arch;
 } PlatformInfo;
 
+// detects the current platform at runtime
 static PlatformInfo get_current_platform(void) {
     PlatformInfo info = {"unknown", "unknown"};
 #if defined(_WIN32)
@@ -33,7 +36,6 @@ static PlatformInfo get_current_platform(void) {
     info.os = "linux";
 #endif
 
-    // Simplified: map all x86 variants to "x86" and all ARM variants to "arm"
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
     info.arch = "x86-64";
 #elif defined(__aarch64__) || defined(_M_ARM64) || defined(__arm__) || defined(_M_ARM)
@@ -42,6 +44,7 @@ static PlatformInfo get_current_platform(void) {
     return info;
 }
 
+// builds the stub filename for the target platform
 static void get_stub_filename(const char* os, const char* arch, char* out_buf, size_t buf_size) {
     snprintf(out_buf, buf_size, "apex_26.06_%s_%s", arch, os);
     if (strcmp(os, "windows") == 0) {
@@ -49,6 +52,7 @@ static void get_stub_filename(const char* os, const char* arch, char* out_buf, s
     }
 }
 
+// converts a dotted module path to a filesystem path
 static bool resolve_module_path(const char* source_dir, const char* module_path, char* out_path, int out_size) {
     char relative[1024];
     size_t len = 0;
@@ -76,6 +80,7 @@ static bool resolve_module_path(const char* source_dir, const char* module_path,
     return true;
 }
 
+// extracts a relative path from a full path
 static void get_relative_path(const char* base_dir, const char* full_path, char* out_rel, int out_size) {
     size_t base_len = strlen(base_dir);
     if (strncmp(full_path, base_dir, base_len) == 0) {
@@ -93,6 +98,7 @@ static void get_relative_path(const char* base_dir, const char* full_path, char*
     }
 }
 
+// recursively scans for import statements and collects dependencies
 static void scan_imports(const char* source_dir, const char* filepath,
                          char*** out_paths, int* out_count, int* out_cap) {
     FILE* f = fopen(filepath, "rb");
@@ -151,6 +157,7 @@ static void scan_imports(const char* source_dir, const char* filepath,
     free(content);
 }
 
+// reads a file into memory and returns its size
 static char* read_file(const char* path, long* out_size) {
     FILE* f = fopen(path, "rb");
     if (!f) return NULL;
@@ -166,6 +173,7 @@ static char* read_file(const char* path, long* out_size) {
     return buf;
 }
 
+// main build command that bundles source files into a standalone executable
 int build_command(int argc, char** argv) {
     if (argc < 3) {
         fprintf(stderr, "\033[31mError: Missing arguments.\nUsage: apex build <filename.apex>\n       apex build <os> <arch> <filename.apex>\033[0m\n");
@@ -176,7 +184,6 @@ int build_command(int argc, char** argv) {
     const char* target_arch = NULL;
     const char* filename = NULL;
 
-    // Smart parsing: check if argv[2] is a known OS
     if (strcmp(argv[2], "windows") == 0 || strcmp(argv[2], "linux") == 0 || strcmp(argv[2], "macos") == 0) {
         if (argc < 5) {
             fprintf(stderr, "\033[31mError: Missing arguments.\nUsage: apex build <os> <arch> <filename.apex>\033[0m\n");
@@ -186,11 +193,9 @@ int build_command(int argc, char** argv) {
         target_arch = argv[3];
         filename = argv[4];
     } else {
-        // Native build syntax
         filename = argv[2];
     }
 
-    // Check if source file exists
     FILE* f_check = fopen(filename, "rb");
     if (!f_check) {
         fprintf(stderr, "\033[31mError: Source file '%s' does not exist.\033[0m\n", filename);
@@ -198,13 +203,11 @@ int build_command(int argc, char** argv) {
     }
     fclose(f_check);
 
-    // Determine target platform
     PlatformInfo current = get_current_platform();
     PlatformInfo target;
     
     if (target_os) {
         target.os = target_os;
-        // Validate architecture: only x86 and arm are allowed now
         if (strcmp(target_arch, "x86-64") != 0 && strcmp(target_arch, "arm64") != 0) {
             fprintf(stderr, "\033[31mError: Invalid architecture '%s'. Use 'x86-64' or 'arm64'.\033[0m\n", target_arch);
             return 1;
@@ -217,12 +220,11 @@ int build_command(int argc, char** argv) {
     printf("\033[36mBuilding for: %s %s\033[0m\n", target.os, target.arch);
     printf("\033[32mBuilding %s...\033[0m\n", filename);
 
-    // Generate strict output name: <filename>_<arch>_<os>[.exe]
     char base_name[4096];
     strncpy(base_name, filename, sizeof(base_name) - 1);
     base_name[sizeof(base_name) - 1] = '\0';
     char* dot = strrchr(base_name, '.');
-    if (dot != NULL) *dot = '\0'; // Strip .apex
+    if (dot != NULL) *dot = '\0';
 
     char final_output[4096];
     snprintf(final_output, sizeof(final_output), "%s_%s_%s", base_name, target.arch, target.os);
@@ -233,7 +235,6 @@ int build_command(int argc, char** argv) {
     char stub_filename[256];
     get_stub_filename(target.os, target.arch, stub_filename, sizeof(stub_filename));
 
-    // Resolve directory of the current executable
     char self_path[4096];
 #ifdef _WIN32
     GetModuleFileNameA(NULL, self_path, sizeof(self_path));
@@ -299,7 +300,6 @@ int build_command(int argc, char** argv) {
     fwrite(self_code, 1, self_size, out);
     free(self_code);
 
-    // Write VFS Payload
     uint32_t num_files = (uint32_t)dep_count;
     fwrite(&num_files, 4, 1, out);
     long total_payload_size = 4;

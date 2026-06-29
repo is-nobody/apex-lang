@@ -4,25 +4,19 @@
 #include <stdbool.h>
 #include <stdarg.h>
 
-/**
- * Prints red color message about error.
- */
+// prints a red-colored error message with formatting
 void print_error(const char* format, ...);
 
+// executes source code from a string with the given filename for error context
 bool execute_source_string(const char* source_code, const char* filename);
 
-/**
- * Executes Apex source code.
- * @param source   Source code string
- * @param filename Source file name or identifier
- * @return true on success, false on failure
- */
+// executes source code from a file path
 bool execute_source(const char* source, const char* filename);
 
-/** Enables or disables safe mode for REPL */
+// enables or disables repl mode (prevents exit on errors)
 void set_repl_mode(int active);
 
-/** Called from tokenizer.c / parser.c instead of exit(1) */
+// throws a repl-compatible error instead of exiting the process
 void throw_repl_error(void);
 
 #endif // EXECUTE_H

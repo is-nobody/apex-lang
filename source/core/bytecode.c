@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-// ========== Opcode Names ==========
+// human-readable names for each opcode, used in disassembly and debugging
 static const char* opcode_names[] = {
     [OP_NOP]              = "NOP",
     [OP_LOAD_CONST]       = "LOAD_CONST",
@@ -57,6 +57,7 @@ static const char* opcode_names[] = {
     [OP_LOAD_CONST_NUM]   = "LOAD_CONST_NUM",
 };
 
+// returns the name of an opcode, or "unknown" if out of range
 const char* opcode_name(Opcode op) {
     if (op >= 0 && op < OP_COUNT && opcode_names[op]) {
         return opcode_names[op];
@@ -64,37 +65,30 @@ const char* opcode_name(Opcode op) {
     return "UNKNOWN";
 }
 
-// ========== Bytecode Chunk Implementation ==========
-
+// creates a new bytecode chunk with initial capacity for code, constants, globals, and debug info
 BytecodeChunk* bytecode_create() {
     BytecodeChunk* chunk = (BytecodeChunk*)calloc(1, sizeof(BytecodeChunk));
     
-    // Instruction buffer
     chunk->code_capacity = 1024;
     chunk->code = (Instruction*)malloc(sizeof(Instruction) * chunk->code_capacity);
     chunk->code_count = 0;
     
-    // Constant pool
     chunk->const_capacity = 256;
     chunk->constants = (Constant*)malloc(sizeof(Constant) * chunk->const_capacity);
     chunk->const_count = 0;
     
-    // Global variable table
     chunk->global_capacity = 64;
     chunk->globals = (GlobalVar*)malloc(sizeof(GlobalVar) * chunk->global_capacity);
     chunk->global_count = 0;
     
-    // Function table
     chunk->func_capacity = 16;
     chunk->functions = (FunctionInfo*)malloc(sizeof(FunctionInfo) * chunk->func_capacity);
     chunk->func_count = 0;
     
-    // Line number debug info
     chunk->line_capacity = 1024;
     chunk->line_info = (int*)malloc(sizeof(int) * chunk->line_capacity);
     chunk->line_count = 0;
     
-    // String pool for interning
     chunk->string_pool.capacity = 64;
     chunk->string_pool.strings = (char**)malloc(sizeof(char*) * chunk->string_pool.capacity);
     chunk->string_pool.count = 0;
@@ -102,16 +96,15 @@ BytecodeChunk* bytecode_create() {
     return chunk;
 }
 
+// frees all memory associated with a bytecode chunk, including its pools and nested structures
 void bytecode_destroy(BytecodeChunk* chunk) {
     if (!chunk) return;
     
     free(chunk->code);
     
-    // Free constants (strings in the pool are handled separately below)
     for (int i = 0; i < chunk->const_count; i++) {
         if (chunk->constants[i].type == CONST_STRING) {
             if (chunk->constants[i].string_value) {
-                // Only free if not in the string pool
                 bool in_pool = false;
                 for (int j = 0; j < chunk->string_pool.count; j++) {
                     if (chunk->string_pool.strings[j] == chunk->constants[i].string_value) {
@@ -127,13 +120,11 @@ void bytecode_destroy(BytecodeChunk* chunk) {
     }
     free(chunk->constants);
     
-    // Free global variables
     for (int i = 0; i < chunk->global_count; i++) {
         free(chunk->globals[i].name);
     }
     free(chunk->globals);
     
-    // Free functions
     for (int i = 0; i < chunk->func_count; i++) {
         free(chunk->functions[i].name);
         if (chunk->functions[i].local_names) {
@@ -147,7 +138,6 @@ void bytecode_destroy(BytecodeChunk* chunk) {
     
     free(chunk->line_info);
     
-    // Free string pool
     for (int i = 0; i < chunk->string_pool.count; i++) {
         free(chunk->string_pool.strings[i]);
     }
@@ -156,8 +146,7 @@ void bytecode_destroy(BytecodeChunk* chunk) {
     free(chunk);
 }
 
-// ========== Emit Instructions ==========
-
+// appends an instruction to the code buffer, resizing if necessary
 int bytecode_emit(BytecodeChunk* chunk, Instruction inst) {
     if (chunk->code_count >= chunk->code_capacity) {
         chunk->code_capacity *= 2;
@@ -170,6 +159,7 @@ int bytecode_emit(BytecodeChunk* chunk, Instruction inst) {
     return offset;
 }
 
+// emits an instruction with line number debug info for source correlation
 int bytecode_emit_line(BytecodeChunk* chunk, Instruction inst, int line) {
     int offset = bytecode_emit(chunk, inst);
     
@@ -179,7 +169,6 @@ int bytecode_emit_line(BytecodeChunk* chunk, Instruction inst, int line) {
                                          sizeof(int) * chunk->line_capacity);
     }
     
-    // Fill any gaps
     while (chunk->line_count < chunk->code_count - 1) {
         chunk->line_info[chunk->line_count++] = line;
     }
@@ -188,10 +177,8 @@ int bytecode_emit_line(BytecodeChunk* chunk, Instruction inst, int line) {
     return offset;
 }
 
-// ========== Constants Management ==========
-
+// adds a constant to the pool, deduplicating identical values to save space
 int bytecode_add_constant(BytecodeChunk* chunk, Constant constant) {
-    // Check for duplicates (interning)
     for (int i = 0; i < chunk->const_count; i++) {
         if (chunk->constants[i].type == constant.type) {
             switch (constant.type) {
@@ -228,24 +215,26 @@ int bytecode_add_constant(BytecodeChunk* chunk, Constant constant) {
     return index;
 }
 
+// convenience wrapper for adding a number constant
 int bytecode_add_number_constant(BytecodeChunk* chunk, double value) {
     Constant c = {.type = CONST_NUMBER, .number_value = value};
     return bytecode_add_constant(chunk, c);
 }
 
+// convenience wrapper for adding a string constant with interning
 int bytecode_add_string_constant(BytecodeChunk* chunk, const char* value) {
     const char* interned = bytecode_intern_string(chunk, value);
     Constant c = {.type = CONST_STRING, .string_value = (char*)interned};
     return bytecode_add_constant(chunk, c);
 }
 
+// convenience wrapper for adding a boolean constant
 int bytecode_add_bool_constant(BytecodeChunk* chunk, bool value) {
     Constant c = {.type = CONST_BOOL, .bool_value = value};
     return bytecode_add_constant(chunk, c);
 }
 
-// ========== Globals ==========
-
+// registers a global variable by name, returning its index or creating a new entry
 int bytecode_add_global(BytecodeChunk* chunk, const char* name) {
     int existing = bytecode_get_global(chunk, name);
     if (existing >= 0) return existing;
@@ -264,6 +253,7 @@ int bytecode_add_global(BytecodeChunk* chunk, const char* name) {
     return index;
 }
 
+// looks up a global variable by name, returning -1 if not found
 int bytecode_get_global(BytecodeChunk* chunk, const char* name) {
     for (int i = 0; i < chunk->global_count; i++) {
         if (strcmp(chunk->globals[i].name, name) == 0) {
@@ -273,8 +263,7 @@ int bytecode_get_global(BytecodeChunk* chunk, const char* name) {
     return -1;
 }
 
-// ========== Functions ==========
-
+// adds a function definition with its name, arity, and current code address
 int bytecode_add_function(BytecodeChunk* chunk, const char* name, int arity) {
     if (chunk->func_count >= chunk->func_capacity) {
         chunk->func_capacity *= 2;
@@ -293,8 +282,7 @@ int bytecode_add_function(BytecodeChunk* chunk, const char* name, int arity) {
     return index;
 }
 
-// ========== String Interning ==========
-
+// interns a string in the chunk's pool, returning a persistent pointer
 const char* bytecode_intern_string(BytecodeChunk* chunk, const char* str) {
     for (int i = 0; i < chunk->string_pool.count; i++) {
         if (strcmp(chunk->string_pool.strings[i], str) == 0) {
@@ -314,18 +302,17 @@ const char* bytecode_intern_string(BytecodeChunk* chunk, const char* str) {
     return copy;
 }
 
-// ========== Jump Patching ==========
-
+// patches a jump instruction to point to a new target address
 void bytecode_patch_jump(BytecodeChunk* chunk, int jump_instruction, int target_address) {
     chunk->code[jump_instruction].operands[0] = target_address;
 }
 
+// returns the current code size, used for jump targets and offset calculations
 int bytecode_current_offset(BytecodeChunk* chunk) {
     return chunk->code_count;
 }
 
-// ========== Disassembler ==========
-
+// prints a full disassembly of the bytecode chunk with annotations
 void bytecode_disassemble(BytecodeChunk* chunk) {
     printf("\n=== Bytecode Disassembly (%d instructions) ===\n", chunk->code_count);
     printf("Functions: %d, Globals: %d, Constants: %d\n\n",
@@ -347,7 +334,6 @@ void bytecode_disassemble(BytecodeChunk* chunk) {
                inst->operands[1],
                inst->operands[2]);
         
-        // Annotate with constant/global/function info depending on opcode
         switch (inst->opcode) {
             case OP_LOAD_CONST:
                 if (inst->operands[1] < chunk->const_count) {
@@ -396,7 +382,6 @@ void bytecode_disassemble(BytecodeChunk* chunk) {
         printf("\n");
     }
     
-    // Print constant pool
     printf("\n=== Constant Pool ===\n");
     for (int i = 0; i < chunk->const_count; i++) {
         Constant* c = &chunk->constants[i];
@@ -409,7 +394,6 @@ void bytecode_disassemble(BytecodeChunk* chunk) {
         }
     }
     
-    // Print globals table
     printf("\n=== Globals ===\n");
     for (int i = 0; i < chunk->global_count; i++) {
         printf("[%d] %s\n", i, chunk->globals[i].name);

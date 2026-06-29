@@ -7,6 +7,7 @@
 #include <string.h>
 #include <ctype.h>
 
+// human-readable names for all token types, used in debug output
 static const char* token_type_names[] = {
     "FUNCTION", "IF", "ELIF", "ELSE", "FOR",
     "BREAK", "CONTINUE", "RETURN", "IMPORT",
@@ -19,6 +20,7 @@ static const char* token_type_names[] = {
     "NEWLINE", "EOF", "INDENT", "DEDENT",
 };
 
+// keyword lookup table for case-sensitive language keywords
 typedef struct {
     const char* keyword;
     TokenType type;
@@ -42,6 +44,7 @@ static KeywordEntry keywords[] = {
     {NULL, TOKEN_EOF}
 };
 
+// returns the string name for a token type, used for debugging
 const char* token_type_name(TokenType type) {
     if (type >= 0 && type < (int)(sizeof(token_type_names) / sizeof(token_type_names[0]))) {
         return token_type_names[type];
@@ -49,8 +52,8 @@ const char* token_type_name(TokenType type) {
     return "UNKNOWN";
 }
 
+// prints a token's details including escaped special characters for readability
 void token_print(Token* token) {
-    // INDENT and DEDENT have no value
     if (token->type == TOKEN_INDENT) {
         printf("%-20s %-25s %-8d %-8d\n", "INDENT", "", token->line, token->column);
         return;
@@ -60,7 +63,6 @@ void token_print(Token* token) {
         return;
     }
     
-    // Escape special characters for display
     char display_value[512];
     int j = 0;
     for (int i = 0; token->value[i] != '\0' && j < 510; i++) {
@@ -79,7 +81,6 @@ void token_print(Token* token) {
     }
     display_value[j] = '\0';
     
-    // Format quoted string
     char quoted_value[520];
     snprintf(quoted_value, sizeof(quoted_value), "'%s'", display_value);
     
@@ -90,6 +91,7 @@ void token_print(Token* token) {
            token->column);
 }
 
+// creates a tokenizer instance with initial capacity and source tracking
 Tokenizer* tokenizer_create(const char* source, const char* filename) {
     Tokenizer* tokenizer = (Tokenizer*)malloc(sizeof(Tokenizer));
     tokenizer->source = strdup(source);
@@ -107,6 +109,7 @@ Tokenizer* tokenizer_create(const char* source, const char* filename) {
     return tokenizer;
 }
 
+// frees all tokenizer resources including tokens and source strings
 void tokenizer_destroy(Tokenizer* tokenizer) {
     if (tokenizer) {
         free(tokenizer->source);
@@ -119,6 +122,7 @@ void tokenizer_destroy(Tokenizer* tokenizer) {
     }
 }
 
+// reports a tokenizer error with source context and throws a repl error
 static void tokenizer_error(Tokenizer* tokenizer, int len, const char* message) {
     print_error_with_context(tokenizer->filename, tokenizer->source,
                              tokenizer->line, tokenizer->column, len,
@@ -126,6 +130,7 @@ static void tokenizer_error(Tokenizer* tokenizer, int len, const char* message) 
     throw_repl_error();
 }
 
+// peeks at a character ahead in the source without consuming it
 static char peek(Tokenizer* tokenizer, int offset) {
     int index = tokenizer->pos + offset;
     if (index >= (int)strlen(tokenizer->source)) {
@@ -134,6 +139,7 @@ static char peek(Tokenizer* tokenizer, int offset) {
     return tokenizer->source[index];
 }
 
+// consumes and returns the next character, updating line and column positions
 static char advance(Tokenizer* tokenizer) {
     if (tokenizer->pos >= (int)strlen(tokenizer->source)) {
         return '\0';
@@ -148,6 +154,7 @@ static char advance(Tokenizer* tokenizer) {
     return c;
 }
 
+// adds a new token to the dynamic array, resizing if necessary
 static void add_token(Tokenizer* tokenizer, TokenType type, const char* value, int line, int column) {
     if (tokenizer->token_count >= tokenizer->token_capacity) {
         tokenizer->token_capacity *= 2;
@@ -161,6 +168,7 @@ static void add_token(Tokenizer* tokenizer, TokenType type, const char* value, i
     tokenizer->token_count++;
 }
 
+// skips spaces, tabs, and carriage returns without producing tokens
 static void skip_whitespace(Tokenizer* tokenizer) {
     char c = peek(tokenizer, 0);
     while (c == ' ' || c == '\t' || c == '\r') {
@@ -169,6 +177,7 @@ static void skip_whitespace(Tokenizer* tokenizer) {
     }
 }
 
+// consumes a line comment starting with '//' until the end of the line
 static void skip_comment(Tokenizer* tokenizer) {
     advance(tokenizer); // skip first '/'
     advance(tokenizer); // skip second '/'
@@ -180,6 +189,7 @@ static void skip_comment(Tokenizer* tokenizer) {
     }
 }
 
+// reads a quoted string literal with escape sequence handling
 static char* read_string(Tokenizer* tokenizer) {
     advance(tokenizer); // skip opening quote
     char* buffer = (char*)malloc(256);
@@ -245,18 +255,17 @@ static char* read_string(Tokenizer* tokenizer) {
     return buffer;
 }
 
+// reads a numeric literal including integer, float, and scientific notation
 static char* read_number(Tokenizer* tokenizer) {
     char* buffer = (char*)malloc(64);
     int buf_pos = 0;
     char c = peek(tokenizer, 0);
     
-    // Integer part
     while (isdigit(c)) {
         buffer[buf_pos++] = advance(tokenizer);
         c = peek(tokenizer, 0);
     }
 
-    // Fractional part
     if (c == '.' && isdigit(peek(tokenizer, 1))) {
         buffer[buf_pos++] = advance(tokenizer);
         c = peek(tokenizer, 0);
@@ -266,15 +275,13 @@ static char* read_number(Tokenizer* tokenizer) {
         }
     }
 
-    // Exponent part (Scientific Notation)
     if (c == 'e' || c == 'E') {
-        // Lookahead to ensure it's actually an exponent (followed by digit or sign+digit)
         char next = peek(tokenizer, 1);
         if (isdigit(next) || ((next == '+' || next == '-') && isdigit(peek(tokenizer, 2)))) {
-            buffer[buf_pos++] = advance(tokenizer); // consume 'e' or 'E'
+            buffer[buf_pos++] = advance(tokenizer);
             c = peek(tokenizer, 0);
             if (c == '+' || c == '-') {
-                buffer[buf_pos++] = advance(tokenizer); // consume sign
+                buffer[buf_pos++] = advance(tokenizer);
                 c = peek(tokenizer, 0);
             }
             while (isdigit(c)) {
@@ -288,6 +295,7 @@ static char* read_number(Tokenizer* tokenizer) {
     return buffer;
 }
 
+// reads an identifier or keyword starting with a letter or underscore
 static char* read_identifier(Tokenizer* tokenizer) {
     char* buffer = (char*)malloc(256);
     int buf_pos = 0;
@@ -302,12 +310,11 @@ static char* read_identifier(Tokenizer* tokenizer) {
     return buffer;
 }
 
+// checks if an identifier is a keyword, returns the appropriate token type
 static TokenType lookup_keyword(const char* identifier) {
-    // Case-insensitive literal checks
     if (strcasecmp(identifier, "true") == 0) return TOKEN_TRUE;
     if (strcasecmp(identifier, "false") == 0) return TOKEN_FALSE;
     
-    // Keywords are case-sensitive
     for (int i = 0; keywords[i].keyword != NULL; i++) {
         if (strcmp(identifier, keywords[i].keyword) == 0) {
             return keywords[i].type;
@@ -317,6 +324,7 @@ static TokenType lookup_keyword(const char* identifier) {
     return TOKEN_IDENTIFIER;
 }
 
+// main tokenization loop that processes the entire source and returns tokens
 Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
     while (tokenizer->pos < (int)strlen(tokenizer->source)) {
         skip_whitespace(tokenizer);
@@ -333,7 +341,6 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
         advance(tokenizer);
         add_token(tokenizer, TOKEN_NEWLINE, "\n", line, col);
         
-        // Skip blank lines
         while (tokenizer->pos  < (int)strlen(tokenizer->source)) {
             char nc = peek(tokenizer, 0);
             if (nc == ' ' || nc == '\t' || nc == '\r') {
@@ -348,7 +355,6 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
             }
         }
         
-        // ONLY apply indentation rules at top level (not inside parentheses)
         if (tokenizer->paren_depth == 0) {
             int current_indent = 0;
             if (tokenizer->pos < (int)strlen(tokenizer->source)) {
@@ -376,13 +382,11 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
         continue;
     }
         
-        // Skip line comments
         if (c == '/' && peek(tokenizer, 1) == '/') {
             skip_comment(tokenizer);
             continue;
         }
         
-        // String literal
         if (c == '"') {
             char* string_value = read_string(tokenizer);
             add_token(tokenizer, TOKEN_STRING, string_value, line, col);
@@ -390,7 +394,6 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
             continue;
         }
         
-        // Number literal
         if (isdigit(c)) {
             char* number_value = read_number(tokenizer);
             add_token(tokenizer, TOKEN_NUMBER, number_value, line, col);
@@ -398,7 +401,6 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
             continue;
         }
         
-        // Identifier or keyword
         if (isalpha(c) || c == '_') {
             char* identifier = read_identifier(tokenizer);
             TokenType type = lookup_keyword(identifier);
@@ -407,7 +409,6 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
             continue;
         }
         
-        // Two-character operators
         if (c == '=' && peek(tokenizer, 1) == '=') {
             advance(tokenizer);
             advance(tokenizer);
@@ -436,7 +437,6 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
             continue;
         }
         
-        // Single-character tokens
         switch (c) {
             case '+': advance(tokenizer); add_token(tokenizer, TOKEN_PLUS, "+", line, col); continue;
             case '-': advance(tokenizer); add_token(tokenizer, TOKEN_MINUS, "-", line, col); continue;
@@ -458,7 +458,7 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
                 continue;
             case '[': 
                 advance(tokenizer); 
-                tokenizer->paren_depth++; // Suppress INDENT/DEDENT inside tables
+                tokenizer->paren_depth++;
                 add_token(tokenizer, TOKEN_LBRACKET, "[", line, col); 
                 continue;
             case ']': 
@@ -478,20 +478,17 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
         tokenizer_error(tokenizer, 1, error_msg);
     }
     
-    // Generate DEDENT for all unclosed indents at the end of the file
     while (tokenizer->indent_depth > 1) {
         add_token(tokenizer, TOKEN_DEDENT, " ", tokenizer->line, tokenizer->column);
         tokenizer->indent_depth--;
     }
 
-    // Add trailing NEWLINE if source doesn't end with \n or EOF
     if (tokenizer->token_count > 0) {
         Token* last = &tokenizer->tokens[tokenizer->token_count - 1];
         if (last->type != TOKEN_NEWLINE && last->type != TOKEN_EOF) {
             add_token(tokenizer, TOKEN_NEWLINE, "\n", tokenizer->line, tokenizer->column);
         }
     } else if (tokenizer->token_count == 0) {
-        // Empty file: add NEWLINE before EOF
         add_token(tokenizer, TOKEN_NEWLINE, "\n", tokenizer->line, tokenizer->column);
     }
     

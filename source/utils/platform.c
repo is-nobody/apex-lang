@@ -10,7 +10,6 @@
 #include <io.h>
 #include <shellapi.h>
 
-// Only use #pragma comment for MSVC. MinGW/GCC handles linking via CMake.
 #ifdef _MSC_VER
 #pragma comment(lib, "shell32.lib")
 #endif
@@ -18,15 +17,13 @@
 static HANDLE hStdin;
 static DWORD prev_mode;
 
-// Helper to get a guaranteed valid temp directory on Windows
+// finds a valid temporary directory path on windows
 static void get_valid_temp_path(char* out_path, size_t size) {
     DWORD len = GetTempPathA(size, out_path);
-    // Check if the path actually exists (MSYS2 env vars might point to deleted folders)
     if (len > 0 && GetFileAttributesA(out_path) != INVALID_FILE_ATTRIBUTES) {
         return;
     }
     
-    // Fallback 1: User's AppData Temp
     const char* userprofile = getenv("USERPROFILE");
     if (userprofile) {
         snprintf(out_path, size, "%s\\AppData\\Local\\Temp", userprofile);
@@ -35,11 +32,11 @@ static void get_valid_temp_path(char* out_path, size_t size) {
         }
     }
     
-    // Fallback 2: System Temp
     strcpy(out_path, "C:\\Windows\\Temp");
     CreateDirectoryA(out_path, NULL);
 }
 
+// recursively deletes a directory using shell operations
 static void delete_directory_recursive(const char* path) {
     SHFILEOPSTRUCT file_op = {
         NULL, FO_DELETE, path, "",
@@ -49,38 +46,46 @@ static void delete_directory_recursive(const char* path) {
     SHFileOperation(&file_op);
 }
 
+// initializes windows console handles for raw input
 void platform_init(void) {
     hStdin = GetStdHandle(STD_INPUT_HANDLE);
 }
 
+// enables raw input mode on windows (no echo, no line buffering)
 void terminal_enable_raw_mode(void) {
     GetConsoleMode(hStdin, &prev_mode);
     SetConsoleMode(hStdin, prev_mode & ~(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT));
 }
 
+// restores the previous console mode
 void terminal_disable_raw_mode(void) {
     SetConsoleMode(hStdin, prev_mode);
 }
 
+// checks if a key has been pressed
 bool terminal_has_input(void) {
     return _kbhit() != 0;
 }
 
+// reads a character without blocking, returns -1 if none available
 int terminal_read_char(void) {
     if (_kbhit()) return _getch();
     return -1;
 }
 
+// blocks until a character is read
 ssize_t terminal_read_blocking(char* c) {
     DWORD nread;
     if (ReadConsole(hStdin, c, 1, &nread, NULL)) return nread;
     return -1;
 }
 
+// returns the platform name string
 const char* platform_get_name(void) {
     return "Windows";
 }
 
+// creates a temporary file with the given data and returns its path
 char* platform_create_temp_file(const char* data, size_t len) {
     char temp_path[MAX_PATH];
     char temp_file[MAX_PATH];
@@ -107,6 +112,7 @@ char* platform_create_temp_file(const char* data, size_t len) {
     return strdup(temp_file);
 }
 
+// deletes a temporary file or directory
 void platform_delete_temp_file(const char* path) {
     if (!path) return;
     if (!DeleteFileA(path)) {
@@ -122,6 +128,7 @@ void platform_delete_temp_file(const char* path) {
 #include <ftw.h>
 #include <unistd.h>
 
+// callback for nftw to recursively delete files and directories
 static int unlink_cb(const char *fpath, const struct stat *sb, int typeflag, struct FTW *ftwbuf) {
     (void)sb;
     (void)typeflag;
@@ -131,8 +138,10 @@ static int unlink_cb(const char *fpath, const struct stat *sb, int typeflag, str
 
 static struct termios orig_termios;
 
+// no special initialization needed on unix
 void platform_init(void) {}
 
+// enables raw terminal mode on unix (no echo, no canonical processing)
 void terminal_enable_raw_mode(void) {
     tcgetattr(STDIN_FILENO, &orig_termios);
     struct termios raw = orig_termios;
@@ -142,10 +151,12 @@ void terminal_enable_raw_mode(void) {
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 
+// restores the original terminal settings
 void terminal_disable_raw_mode(void) {
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
 }
 
+// checks if input is available on stdin using select
 bool terminal_has_input(void) {
     struct timeval tv = {0, 0};
     fd_set fds;
@@ -154,6 +165,7 @@ bool terminal_has_input(void) {
     return select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv) > 0;
 }
 
+// reads a character if available, returns -1 otherwise
 int terminal_read_char(void) {
     if (terminal_has_input()) {
         char c;
@@ -162,10 +174,12 @@ int terminal_read_char(void) {
     return -1;
 }
 
+// blocks until a character is read
 ssize_t terminal_read_blocking(char* c) {
     return read(STDIN_FILENO, c, 1);
 }
 
+// returns the unix platform name
 const char* platform_get_name(void) {
 #ifdef __ANDROID__
     return "Android";
@@ -185,6 +199,7 @@ const char* platform_get_name(void) {
 #endif
 }
 
+// creates a temporary file in /tmp with the given data
 char* platform_create_temp_file(const char* data, size_t len) {
     char temp_file[] = "/tmp/apex_XXXXXX";
     int fd = mkstemp(temp_file);
@@ -208,6 +223,7 @@ char* platform_create_temp_file(const char* data, size_t len) {
     return strdup(temp_file);
 }
 
+// deletes a temporary file or directory recursively
 void platform_delete_temp_file(const char* path) {
     if (!path) return;
     if (unlink(path) != 0) {

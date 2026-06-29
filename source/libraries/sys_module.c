@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 #ifdef _WIN32
 #include <windows.h>
 #include <io.h> 
@@ -17,10 +18,10 @@
 #endif
 #endif
 
+// dispatcher for system information built-in functions
 bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     (void)vm;
 
-    // --- Environment ---
     if (strcmp(name, "sys.environment") == 0) {
         *result = vm_make_table();
 #ifdef _WIN32
@@ -54,7 +55,6 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         return true;
     }
 
-    // --- Process ID ---
     if (strcmp(name, "sys.process_id") == 0) {
 #ifdef _WIN32
         *result = vm_make_number(GetCurrentProcessId());
@@ -64,7 +64,6 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         return true;
     }
 
-    // --- System Info ---
     if (strcmp(name, "sys.platform") == 0) {
         const char* platform = NULL;
 #ifdef _WIN32

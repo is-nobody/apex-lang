@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.15)
 project(Apex VERSION 26.06 LANGUAGES C)
 
-# Use GNU extensions for POSIX function support (readlink, setenv, etc.)
+# enables gnu extensions for posix functions (readlink, setenv, etc.)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
 
-# List of all source files, including new directories
+# all source files grouped by module
 set(SOURCES
     main.c
     source/utils/execute.c
@@ -34,7 +34,7 @@ set(SOURCES
 
 add_executable(apex ${SOURCES})
 
-# Header search paths (#include "vm.h" will work from any directory)
+# header search paths for #include "vm.h" from any directory
 target_include_directories(apex PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/source/core
@@ -43,41 +43,33 @@ target_include_directories(apex PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/source/package_manager
 )
 
-# ==========================================================
-# COMPILER FLAGS FOR MAXIMUM SPEED
-# ==========================================================
-
-# Base flags for all builds
+# baseline warnings and posix compatibility
 set(BASE_FLAGS 
     -Wall -Wextra
     -D_DEFAULT_SOURCE
 )
 
-# High-performance flags for GCC/Clang (Linux/macOS/MinGW)
+# performance flags for gcc/clang (linux/macos/mingw)
 set(HIGH_PERF_FLAGS
-    -O3                 # Maximum optimization level
-    -march=native       # Optimize for current CPU (AVX/SSE/etc.)
-    -flto               # Link-Time Optimization (inter-procedural optimization)
+    -O3
+    -march=native
+    -flto
 )
 
-# Apply flags based on compiler
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(apex PRIVATE ${BASE_FLAGS} ${HIGH_PERF_FLAGS})
     
-    # Enable LTO support in linker
     if(CMAKE_BUILD_TYPE STREQUAL "Release")
         target_link_options(apex PRIVATE -flto)
     endif()
 elseif(MSVC)
-    # MSVC equivalents
     target_compile_options(apex PRIVATE /O2 /Ot /GL /fp:fast /MD)
     target_link_options(apex PRIVATE /LTCG)
 else()
-    # Fallback for other compilers
     target_compile_options(apex PRIVATE ${BASE_FLAGS} -O2)
 endif()
 
-# Windows-specific: suppress MinGW POSIX deprecation warnings
+# windows-specific defines to suppress deprecation warnings
 if(MINGW OR WIN32)
     target_compile_definitions(apex PRIVATE
         _WIN32_WINNT=0x0601
@@ -85,12 +77,10 @@ if(MINGW OR WIN32)
     )
 endif()
 
-# Generate compile_commands.json for IDE support (VSCode, CLion)
+# generates compile_commands.json for ide support
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# ==========================================================
-# OS-SPECIFIC LIBRARY LINKING (DYNAMIC ONLY)
-# ==========================================================
+# os-specific library linking
 if(MINGW)
     target_link_libraries(apex PRIVATE shlwapi ws2_32)
     set_target_properties(apex PROPERTIES
@@ -104,7 +94,7 @@ else()
     target_link_libraries(apex PRIVATE m z dl)
 endif()
 
-# Strip debug symbols in Release mode (reduces binary size)
+# strips debug symbols in release builds
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     add_custom_command(TARGET apex POST_BUILD
         COMMAND ${CMAKE_STRIP} $<TARGET_FILE:apex>
@@ -112,7 +102,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
     )
 endif()
 
-# Windows cross-compilation: set .exe extension explicitly
+# sets .exe extension explicitly for windows cross-compilation
 if(MINGW)
     set_target_properties(apex PROPERTIES
         SUFFIX ".exe"
@@ -120,23 +110,18 @@ if(MINGW)
     )
 endif()
 
-# ==========================================================
-# PACKAGING
-# ==========================================================
-
-# 1. Install rules
+# installation rules
 install(TARGETS apex RUNTIME DESTINATION bin)
 
-# 2. Package metadata
+# package metadata
 set(CPACK_PACKAGE_NAME "apex")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_PACKAGE_CONTACT "dev@apex-lang.org")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Apex Language Interpreter")
 set(CPACK_PACKAGE_DESCRIPTION "High-performance interpreted language with REPL and stdlib.")
 
-# Platform-specific package settings
+# platform-specific package settings
 if(MINGW)
-    # Windows packages
     set(CPACK_GENERATOR "ZIP;NSIS")
     set(CPACK_PACKAGE_FILE_NAME "apex-${PROJECT_VERSION}-win64")
     set(CPACK_NSIS_DISPLAY_NAME "Apex Language")
@@ -148,31 +133,26 @@ if(MINGW)
         "Delete '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\Apex.lnk'"
     )
 elseif(APPLE)
-    # macOS packages
     set(CPACK_GENERATOR "TGZ;DragNDrop")
     set(CPACK_PACKAGE_FILE_NAME "apex-${PROJECT_VERSION}-macos")
 else()
-    # Linux packages
     set(CPACK_GENERATOR "DEB;RPM;TGZ")
     set(CPACK_PACKAGE_FILE_NAME "apex-${PROJECT_VERSION}-linux")
     
-    # Debian-specific metadata
     set(CPACK_DEBIAN_PACKAGE_SECTION "devel")
     
-    # RPM-specific metadata
     set(CPACK_RPM_PACKAGE_LICENSE "MIT")
     set(CPACK_RPM_PACKAGE_GROUP "Development/Languages")
 endif()
 
-# Include the packaging module
 include(CPack)
 
 #[[
-# standard command for build (linux, etc.)
+# standard build command for linux
 cmake -S . -B build/linux -DCMAKE_BUILD_TYPE=Release
 cmake --build build/linux --parallel
 
-# build via MinGW binary for Windows from Linux
+# cross-compilation for windows from linux via mingw
 cmake -S . -B build/windows \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_SYSTEM_NAME=Windows \

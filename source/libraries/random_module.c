@@ -12,6 +12,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+// fills a buffer with cryptographically secure random bytes
 static void get_secure_bytes(unsigned char* buffer, size_t length) {
 #if defined(_WIN32)
     for (size_t i = 0; i < length; i++) {
@@ -26,7 +27,6 @@ static void get_secure_bytes(unsigned char* buffer, size_t length) {
         fclose(f);
         if (read_count == length) return;
     }
-    // fallback
     static int seeded = 0;
     if (!seeded) {
         srand((unsigned int)time(NULL) ^ (unsigned int)clock());
@@ -37,6 +37,7 @@ static void get_secure_bytes(unsigned char* buffer, size_t length) {
 #endif
 }
 
+// converts bytes to a hex string
 static void bytes_to_hex(const unsigned char* bytes, size_t len, char* out) {
     static const char hex_chars[] = "0123456789abcdef";
     for (size_t i = 0; i < len; i++) {
@@ -46,6 +47,7 @@ static void bytes_to_hex(const unsigned char* bytes, size_t len, char* out) {
     out[len * 2] = '\0';
 }
 
+// constant-time comparison to prevent timing attacks
 static bool constant_time_compare(const char* a, const char* b, size_t len_a, size_t len_b) {
     if (len_a != len_b) return false;
     volatile unsigned char result = 0;
@@ -55,6 +57,7 @@ static bool constant_time_compare(const char* a, const char* b, size_t len_a, si
     return result == 0;
 }
 
+// creates a string object with binary-safe length
 static StringObject* create_string_with_length(const char* chars, int length) {
     StringObject* str = (StringObject*)malloc(sizeof(StringObject) + length + 1);
     if (!str) return NULL;
@@ -68,10 +71,9 @@ static StringObject* create_string_with_length(const char* chars, int length) {
     return str;
 }
 
-// Internal state for seed
 static int random_seeded = 0;
 
-// Helper to ensure srand is called at least once
+// ensures the random generator is seeded at least once
 static void ensure_seeded() {
     if (!random_seeded) {
         srand((unsigned int)time(NULL));
@@ -79,7 +81,7 @@ static void ensure_seeded() {
     }
 }
 
-// Helper to get double from Value, return 0.0 and set error flag if not number
+// safely extracts a number from a value, returns false on type mismatch
 static double get_number_safe(Value* v, bool* ok) {
     if (v->type == VAL_NUMBER) {
         *ok = true;
@@ -89,7 +91,7 @@ static double get_number_safe(Value* v, bool* ok) {
     return 0.0;
 }
 
-// Helper to get integer range [min, max] inclusive
+// returns a random integer in [min, max] inclusive
 static int randint_range(int min, int max) {
     if (min > max) {
         int temp = min;
@@ -99,7 +101,7 @@ static int randint_range(int min, int max) {
     return min + (rand() % (max - min + 1));
 }
 
-// Gamma distribution generator (Marsaglia and Tsang's method)
+// generates a gamma-distributed random number (Marsaglia-Tsang method)
 static double random_gamma(double shape) {
     if (shape < 1.0) {
         double u = (double)rand() / ((double)RAND_MAX + 1.0);
@@ -127,20 +129,17 @@ static double random_gamma(double shape) {
     }
 }
 
+// dispatcher for random number generation built-in functions
 bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     (void)vm;
     ensure_seeded();
 
-    // --- Standard Random Functions ---
-
-    // --- random.random() ---
     if (strcmp(name, "random.random") == 0) {
         if (arg_count != 0) { *result = vm_make_bool(false); return true; }
         *result = vm_make_number((double)rand() / ((double)RAND_MAX + 1.0));
         return true;
     }
 
-    // --- random.randint(a, b) ---
     if (strcmp(name, "random.randint") == 0) {
         if (arg_count != 2) { *result = vm_make_bool(false); return true; }
         bool ok1, ok2;
@@ -151,7 +150,6 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
 
-    // --- random.choice(seq) ---
     if (strcmp(name, "random.choice") == 0) {
         if (arg_count != 1 || args[0].type != VAL_TABLE) { *result = vm_make_bool(false); return true; }
         Table* t = args[0].table;
@@ -163,7 +161,7 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         int idx = rand() % count;
         Value val;
         if (table_get(t, keys[idx], &val)) {
-            *result = val; // table_get already incref'd
+            *result = val;
         } else {
             *result = vm_make_bool(false);
         }
@@ -171,7 +169,6 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
 
-    // --- random.shuffle(seq) ---
     if (strcmp(name, "random.shuffle") == 0) {
         if (arg_count != 1 || args[0].type != VAL_TABLE) { *result = vm_make_bool(false); return true; }
         Table* t = args[0].table;
@@ -204,7 +201,6 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
 
-    // --- random.sample(seq, k) ---
     if (strcmp(name, "random.sample") == 0) {
         if (arg_count != 2 || args[0].type != VAL_TABLE || args[1].type != VAL_NUMBER) {
             *result = vm_make_bool(false); return true;
@@ -238,7 +234,6 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
 
-    // --- random.gauss(mu, sigma) ---
     if (strcmp(name, "random.gauss") == 0) {
         if (arg_count != 2) { *result = vm_make_bool(false); return true; }
         bool ok1, ok2;
@@ -253,7 +248,6 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
 
-    // --- random.seed(a) ---
     if (strcmp(name, "random.seed") == 0) {
         if (arg_count == 1 && args[0].type == VAL_NUMBER) {
             srand((unsigned int)args[0].number);
@@ -265,7 +259,6 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
 
-    // --- random.triangular(low, high, mode) ---
     if (strcmp(name, "random.triangular") == 0) {
         double low = 0.0, high = 1.0, mode = 0.5;
         if (arg_count >= 1) {
@@ -293,7 +286,6 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
 
-    // --- random.expovariate(lambd) ---
     if (strcmp(name, "random.expovariate") == 0) {
         if (arg_count != 1 || args[0].type != VAL_NUMBER) { *result = vm_make_bool(false); return true; }
         double lambd = args[0].number;
@@ -304,7 +296,6 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
 
-    // --- random.betavariate(alpha, beta) ---
     if (strcmp(name, "random.betavariate") == 0) {
         if (arg_count != 2) { *result = vm_make_bool(false); return true; }
         bool ok1, ok2;
@@ -318,7 +309,6 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
 
-    // --- random.secure_token_bytes(n) ---
     if (strcmp(name, "random.secure_token_bytes") == 0) {
         if (arg_count != 1 || args[0].type != VAL_NUMBER) {
             *result = vm_make_bool(false);
@@ -335,7 +325,6 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             return true;
         }
         get_secure_bytes(buffer, n);
-        // Create string object manually to support null bytes
         StringObject* str_obj = create_string_with_length((const char*)buffer, n);
         free(buffer);
         if (!str_obj) {
@@ -347,9 +336,8 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
 
-    // --- random.secure_token_hex(nbytes) ---
     if (strcmp(name, "random.secure_token_hex") == 0) {
-        int nbytes = 16; // Default
+        int nbytes = 16;
         if (arg_count == 1) {
             if (args[0].type != VAL_NUMBER) {
                 *result = vm_make_bool(false);
@@ -383,7 +371,6 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
 
-    // --- random.secure_randint(n) ---
     if (strcmp(name, "random.secure_randint") == 0) {
         if (arg_count != 1 || args[0].type != VAL_NUMBER) {
             *result = vm_make_bool(false);
@@ -400,13 +387,11 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
 
-    // --- random.compare_digest(a, b) ---
     if (strcmp(name, "random.compare_digest") == 0) {
         if (arg_count != 2) {
             *result = vm_make_bool(false);
             return true;
         }
-        // Both must be strings
         if (args[0].type != VAL_STRING || args[1].type != VAL_STRING) {
             *result = vm_make_bool(false);
             return true;

@@ -2,7 +2,7 @@
 const vscode = require('vscode');
 
 function activate(context) {
-    // Run file command - uses terminal
+    // run file command using a terminal
     const runFile = vscode.commands.registerCommand('apex.runFile', async () => {
         const editor = vscode.window.activeTextEditor;
         if (!editor || editor.document.languageId !== 'apex') {
@@ -13,7 +13,6 @@ function activate(context) {
         const filePath = editor.document.uri.fsPath;
         await editor.document.save();
 
-        // Get or create a terminal
         let terminal = vscode.window.terminals.find(t => t.name === 'Apex');
         if (!terminal) {
             terminal = vscode.window.createTerminal('Apex');
@@ -23,18 +22,15 @@ function activate(context) {
         terminal.sendText(`apex "${filePath}"`);
     });
 
-    // Hover provider
+    // hover provider for documentation and type hints
     const hover = vscode.languages.registerHoverProvider('apex', {
         provideHover(document, position) {
             const range = document.getWordRangeAtPosition(position);
-            // Handle dotted access (e.g., os.output) by getting the full word including dots
             const fullRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_.]+/);
             const word = document.getText(fullRange);
-            // Fallback to simple word if regex doesn't match or for keywords
             const simpleWord = document.getText(range);
 
             const docs = {
-                // Keywords
                 'function': 'Declares a function.\n\n```apex\nfunction name(params)\n    // code\n    return value\n```',
                 'if': 'Conditional statement.\n\n```apex\nif condition\n    // code\nelif other_condition\n    // code\nelse\n    // code\n```',
                 'elif': 'Else-if branch in conditional statements.',
@@ -48,14 +44,12 @@ function activate(context) {
                 'or': 'Logical OR operator.',
                 'not': 'Logical NOT operator.',
                 
-                // Literals & Types
                 'true': 'Boolean literal — true.',
                 'false': 'Boolean literal — false.',
                 'number': 'Converts a value to a number.\n\n```apex\nnumber("42")  // 42\n```',
                 'string': 'Converts a value to a string.\n\n```apex\nstring(42)  // "42"\n```',
                 'type': 'Returns the type name of a value as a string.\n\n```apex\ntype(10)  // "number"\n```',
 
-                // Modules
                 'os': 'OS library — system interaction, file I/O, and process management.\n\nFunctions: output, input, time, wait, exit, get_current_folder, set_current_folder, terminate_process, execute, read, write, append, exists, isfile, isfolder, size, stat, filetype, create_file, create_folder, delete, rename, move, copy, items, parentfolder, access.',
                 'sys': 'System information library.\n\nFunctions: platform, architecture, hostname, user, homedir, apex_version, executable, environment, disksize, tempdir, isterminal, process_id.',
                 'math': 'Math library — mathematical functions.\n\nFunctions: abs, floor, ceil, round, sqrt, exp, log, sin, cos, tan, pi, e, inf, pow, gcd, factorial, isnan, isinf, trunc, atan2, radians, degrees, hypot.',
@@ -66,12 +60,10 @@ function activate(context) {
                 'codecs': 'Data encoding/decoding.\n\nFunctions: json_read, json_write, csv_read, csv_write, xml_read, xml_write, base_write, base_read, baseurl_write, baseurl_read.',
             };
 
-            // Check for specific module properties/functions first
             if (docs[word]) {
                 return new vscode.Hover(docs[word]);
             }
             
-            // Check for simple keywords if dotted lookup failed
             if (docs[simpleWord]) {
                 return new vscode.Hover(docs[simpleWord]);
             }
@@ -80,7 +72,7 @@ function activate(context) {
         }
     });
 
-    // Completion provider
+    // completion provider for keywords and library functions
     const completion = vscode.languages.registerCompletionItemProvider('apex', {
         provideCompletionItems() {
             const keywords = [
@@ -112,9 +104,7 @@ function activate(context) {
                 items.push(item);
             });
 
-            // Library functions (Comprehensive list based on C modules)
             const libFuncs = [
-                // os (includes former files functionality)
                 'os.output', 'os.input',
                 'os.time', 'os.wait', 'os.exit', 
                 'os.get_current_folder', 'os.set_current_folder',
@@ -125,14 +115,10 @@ function activate(context) {
                 'os.create_file', 'os.create_folder', 
                 'os.delete', 'os.rename', 'os.move', 'os.copy',
                 'os.items', 'os.parentfolder', 'os.access',
-
-                // sys
                 'sys.platform', 'sys.architecture', 'sys.hostname', 'sys.user',
                 'sys.homedir', 'sys.apex_version', 'sys.executable', 
                 'sys.environment', 'sys.disksize', 'sys.tempdir', 
                 'sys.isterminal', 'sys.process_id',
-
-                // math
                 'math.abs', 'math.floor', 'math.ceil', 'math.round',
                 'math.sqrt', 'math.exp', 'math.log',
                 'math.sin', 'math.cos', 'math.tan',
@@ -142,36 +128,24 @@ function activate(context) {
                 'math.pow', 'math.atan2',
                 'math.radians', 'math.degrees', 'math.hypot',
                 'math.gcd', 'math.factorial',
-
-                // string
                 'string.len', 'string.lower', 'string.upper',
                 'string.sub', 'string.split', 'string.join',
                 'string.trim', 'string.find', 'string.replace',
-
-                // table
                 'table.remove', 'table.has', 'table.size',
                 'table.keys', 'table.values', 'table.clear',
                 'table.copy', 'table.merge',
-
-                // ffi
                 'ffi.open', 'ffi.call', 'ffi.errno', 'ffi.strerror',
                 'ffi.malloc', 'ffi.free',
-
-                // random
                 'random.random', 'random.randint', 'random.choice', 'random.shuffle',
                 'random.sample', 'random.gauss', 'random.seed',
                 'random.triangular', 'random.expovariate', 'random.betavariate',
                 'random.secure_token_hex', 'random.secure_token_bytes',
                 'random.secure_randint', 'random.compare_digest',
-
-                // codecs
                 'codecs.json_read', 'codecs.json_write',
                 'codecs.csv_read', 'codecs.csv_write',
                 'codecs.xml_read', 'codecs.xml_write',
                 'codecs.base_write', 'codecs.base_read',
                 'codecs.baseurl_write', 'codecs.baseurl_read',
-
-                // built-in
                 'number', 'string', 'type'
             ];
 
@@ -184,7 +158,7 @@ function activate(context) {
         }
     });
 
-    // Document symbols (outline)
+    // document symbols for outline view
     const symbols = vscode.languages.registerDocumentSymbolProvider('apex', {
         provideDocumentSymbols(document) {
             const result = [];

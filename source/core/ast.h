@@ -4,118 +4,115 @@
 #include "tokenizer.h"
 #include <stdbool.h>
 
-// ========== AST Node Types ==========
+// all ast node kinds representing either statements or expressions
 typedef enum {
-    // Statements
-    AST_PROGRAM,           // root node — top-level program
-    AST_IMPORT_STMT,       // import "module"
-    AST_VAR_DECL,          // x = 5 (new variable declaration)
-    AST_ASSIGN,            // x = 5 (existing variable) or x.field = 5
-    AST_FUNCTION_DECL,     // function name(params) { body }
-    AST_RETURN_STMT,       // return value
-    AST_IF_STMT,           // if / elif / else chain
-    AST_FOR_STMT,          // for var in iterable { body }
-    AST_BREAK_STMT,        // break
-    AST_CONTINUE_STMT,     // continue
-    AST_EXPR_STMT,         // standalone expression used as a statement
+    AST_PROGRAM,           // root node holding the whole module's top-level statements
+    AST_IMPORT_STMT,       // import "module" — loads another module by path
+    AST_VAR_DECL,          // x = 5 where x is being introduced as a new variable
+    AST_ASSIGN,            // x = 5 for existing variable, or x.field = 5 for field update
+    AST_FUNCTION_DECL,     // function name(params) { body } — defines a callable
+    AST_RETURN_STMT,       // return value — exits the current function
+    AST_IF_STMT,           // if condition { ... } with optional elif/else chains
+    AST_FOR_STMT,          // for var in iterable { body } — loop construct
+    AST_BREAK_STMT,        // break — exits the nearest enclosing loop
+    AST_CONTINUE_STMT,     // continue — jumps to the next loop iteration
+    AST_EXPR_STMT,         // expression used as a statement, e.g. a function call on its own
     
-    // Expressions
-    AST_BINARY,            // a + b, a == b, etc.
-    AST_UNARY,             // -a, not a
-    AST_LITERAL_NUMBER,    // 42, 3.14
-    AST_LITERAL_STRING,    // "hello"
-    AST_LITERAL_BOOL,      // true, false
-    AST_IDENTIFIER,        // variable name reference
-    AST_CALL,              // function(args)
-    AST_INDEX_ACCESS,      // table[index] (bracket notation)
-    AST_TABLE_LITERAL,     // (1, 2, 3) or (key = value, ...)
-    AST_STRING_INTERP,     // "Hello {name}"
+    AST_BINARY,            // a + b, a == b, etc. — combines two expressions with an operator
+    AST_UNARY,             // -a, not a — applies a unary operator to a single expression
+    AST_LITERAL_NUMBER,    // 42, 3.14 — numeric constant
+    AST_LITERAL_STRING,    // "hello" — string constant
+    AST_LITERAL_BOOL,      // true, false — boolean constant
+    AST_IDENTIFIER,        // variable name reference, resolved in scope
+    AST_CALL,              // function(args) — invokes a callee with arguments
+    AST_INDEX_ACCESS,      // table[index] — bracket notation for array or table access
+    AST_TABLE_LITERAL,     // (1, 2, 3) or (key = value, ...) — table constructor
+    AST_STRING_INTERP,     // "Hello {name}" — interpolated string with embedded expressions
     
-    AST_MODULE_BLOCK,
+    AST_MODULE_BLOCK,      // container for a separate module's top-level body
 
-    // Internal
-    AST_BLOCK,             // { statement; statement; ... }
-    AST_PARAM,             // function parameter with optional type annotation
+    AST_BLOCK,             // { statement; statement; ... } — groups multiple statements
+    AST_PARAM,             // function parameter, holds its name for lookup
 } ASTNodeType;
 
-// ========== Forward Declarations ==========
+// forward declarations for recursive structures
 typedef struct ASTNode ASTNode;
 typedef struct ASTNodeList ASTNodeList;
 
-// ========== AST Node ==========
+// main ast node with a type discriminator, source location, and a type-specific payload
 struct ASTNode {
     ASTNodeType type;
     int line;
     int column;
     
     union {
-        // String literal value
+        // string literal value, duplicated so the node owns its memory
         struct {
             char* string_value;
         } literal_string;
         
-        // Numeric literal value
+        // numeric literal value stored as a double for simplicity
         struct {
             double number_value;
         } literal_number;
         
-        // Boolean literal value
+        // boolean literal value, used directly in conditions
         struct {
             bool bool_value;
         } literal_bool;
         
-        // Variable name reference
+        // identifier reference, duplicated string for ownership
         struct {
             char* name;
         } identifier;
         
-        // Binary operation (arithmetic, comparison, logical)
+        // binary operation with a token operator and two child expressions
         struct {
             TokenType op;
             ASTNode* left;
             ASTNode* right;
         } binary;
         
-        // Unary operation (negation, logical not)
+        // unary operation with an operator and a single operand
         struct {
             TokenType op;
             ASTNode* operand;
         } unary;
         
-        // Function or method call
+        // call node with a callee expression and a list of argument nodes
         struct {
             ASTNode* callee;
             ASTNodeList* arguments;
         } call;
         
-        // Table member/index access (shared by both access types)
+        // index access storing the object and the index expression (bracket notation)
         struct {
             ASTNode* object;
             ASTNode* member;
         } access;
         
-        // Table literal constructor
+        // table literal with separate lists for positional items and key-value pairs
         struct {
-            ASTNodeList* items;       // positional items (array-like)
-            ASTNodeList* key_values;  // key = value pairs (dict-like)
+            ASTNodeList* items;       // sequential array-like elements
+            ASTNodeList* key_values;  // named field assignments
         } table_literal;
         
-        // Variable assignment or declaration
+        // variable assignment or declaration, with optional access path for fields
         struct {
             char* name;
             ASTNode* value;
-            bool is_declaration;      // true = new variable, false = reassign
-            ASTNode* access_path;     // non-NULL for compound assignments (x.field = val)
+            bool is_declaration;      // distinguishes declaration from reassignment
+            ASTNode* access_path;     // non-null for x.field = val to track the target
         } var_assign;
         
-        // Function definition
+        // function declaration with name, parameters, and body block
         struct {
             char* name;
             ASTNodeList* params;
-            ASTNode* body;            // block node
+            ASTNode* body;
         } function_decl;
         
-        // If/elif/else conditional
+        // if statement with condition, then branch, optional elif chain, and else branch
         struct {
             ASTNode* condition;
             ASTNode* then_branch;
@@ -123,68 +120,69 @@ struct ASTNode {
             ASTNode* else_branch;
         } if_stmt;
         
-        // Single elif branch (linked into if_stmt)
+        // single elif branch linked into the elif chain of an if statement
         struct {
             ASTNode* condition;
             ASTNode* body;
             ASTNode* next_elif;
         } elif_branch;
         
-        // For-in loop
+        // for loop with optional variable, condition, range bounds, and step
         struct {
-            char* var_name;      // NULL if not range loop
-            ASTNode* condition;  // NULL if range or infinite loop
+            char* var_name;      // null when not a numeric range loop
+            ASTNode* condition;  // null for range or infinite loops
             ASTNode* start;
             ASTNode* end;
             ASTNode* step;
             ASTNode* body;
         } for_stmt;
         
-        // Module import
+        // import statement storing the module path as a duplicated string
         struct {
             char* module_path;
         } import_stmt;
         
+        // module block with its own name and body for nested modules
         struct {
             char* module_name;
             ASTNode* body;
         } module_block;
 
-        // Function return
+        // return statement with an optional return value expression
         struct {
-            ASTNode* value;           // NULL if bare return (no value)
+            ASTNode* value;           // null for bare return with no value
         } return_stmt;
         
-        // String interpolation ("Hello {name}")
+        // string interpolation with a list of alternating string literals and expressions
         struct {
-            ASTNodeList* parts;       // alternating string literals and expressions
+            ASTNodeList* parts;
         } string_interp;
         
-        // Block of statements
+        // block node holding a list of statements executed sequentially
         struct {
             ASTNodeList* statements;
         } block;
         
-        // Function parameter definition
+        // parameter definition holding the parameter name for function signatures
         struct {
             char* name;
         } param;
         
-        // Wraps an expression as a statement
+        // expression statement wrapper to treat any expression as a statement
         struct {
             ASTNode* expression;
         } expr_stmt;
     };
 };
 
-// ========== Dynamic Array for Node Lists ==========
+// dynamic array used for lists of ast nodes (statements, arguments, etc.)
 struct ASTNodeList {
     ASTNode** nodes;
     int count;
     int capacity;
 };
 
-// ========== Node Creation ==========
+// creation functions for each ast node type, all taking source location info
 ASTNode* ast_create_node(ASTNodeType type, int line, int column);
 ASTNode* ast_create_literal_number(double value, int line, int column);
 ASTNode* ast_create_literal_string(const char* value, int line, int column);
@@ -213,16 +211,16 @@ ASTNode* ast_create_expr_stmt(ASTNode* expression);
 ASTNode* ast_create_param(const char* name, int line, int column);
 ASTNode* ast_create_module_block(const char* name, ASTNode* body, int line, int column);
 
-// ========== List Operations ==========
+// list management functions for dynamic arrays of ast nodes
 ASTNodeList* ast_list_create();
 void ast_list_add(ASTNodeList* list, ASTNode* node);
 void ast_list_free(ASTNodeList* list);
 
-// ========== Free AST ==========
+// memory deallocation for the entire ast tree
 void ast_free_node(ASTNode* node);
 void ast_free(ASTNode* program);
 
-// ========== Debug ==========
+// debug utility to print the ast structure with indentation
 void ast_print(ASTNode* node, int indent);
 
 #endif // AST_H

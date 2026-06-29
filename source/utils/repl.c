@@ -12,12 +12,13 @@
 
 static volatile sig_atomic_t g_should_exit = 0;
 
-// Marked as unused attribute to silence warnings if compiler thinks it's only defined but not used in some configs
+// signal handler for clean shutdown on sigint or sigtstp
 static __attribute__((unused)) void signal_handler(int sig) {
     (void)sig;
     g_should_exit = 1;
 }
 
+// sets up signal handlers for interrupt and stop signals
 static void setup_signals(void) {
 #ifndef _WIN32
     struct sigaction sa;
@@ -30,12 +31,14 @@ static void setup_signals(void) {
 #endif
 }
 
+// redraws the current input line with cursor positioning
 static void redraw_line(const char* line, int cursor_pos) {
     printf("\r\033[K> %s", line);
     printf("\033[%dG", 3 + cursor_pos);
     fflush(stdout);
 }
 
+// executes a block of code from a temporary file
 static void execute_code(const char* code, const char* display_name) {
     if (!code || strlen(code) == 0) return;
     
@@ -51,6 +54,7 @@ static void execute_code(const char* code, const char* display_name) {
     free(temp_path);
 }
 
+// runs the interactive read-eval-print loop with line editing
 void repl_run(void) {
     setup_signals();
     printf("Apex 26.06 on %s. Type code, always ready.\n", platform_get_name());
@@ -72,9 +76,7 @@ void repl_run(void) {
         ssize_t n = terminal_read_blocking(&c);
         
         if (n <= 0) {
-            // Handle EOF or error
             if (n == 0) {
-                // EOF received (Ctrl+D)
                 break;
             }
 #ifndef _WIN32
@@ -83,12 +85,10 @@ void repl_run(void) {
             break;
         }
         
-        // Ctrl+C or Ctrl+D
         if (c == 4 || c == 3) {
             break;
         }
         
-        // Enter
         if (c == '\r' || c == '\n') {
             printf("\n");
             line[pos] = '\0';
@@ -102,7 +102,6 @@ void repl_run(void) {
             }
             pos = 0;
             
-            // If no more input is pending in the buffer, execute
             if (!terminal_has_input()) {
                 if (total_len > 0) {
                     execute_code(full_input, "REPL");
@@ -113,7 +112,6 @@ void repl_run(void) {
                 fflush(stdout);
             }
         }
-        // Backspace
         else if (c == 127 || c == '\b') {
             if (pos > 0) {
                 memmove(&line[pos-1], &line[pos], strlen(&line[pos]) + 1);
@@ -121,7 +119,6 @@ void repl_run(void) {
                 redraw_line(line, pos);
             }
         }
-        // Printable characters
         else if (c >= 32 && c < 127 && pos < MAX_LINE - 1) {
             line[pos++] = c;
             line[pos] = '\0';

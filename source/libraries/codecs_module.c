@@ -6,9 +6,10 @@
 #include <math.h>
 #include <stdint.h>
 
-// ========== Helper: Base64 (Standard) ==========
+// standard base64 character set with padding
 static const char b64_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
 
+// encodes binary data to base64 with proper padding
 static void base64_encode(const unsigned char* data, int len, char* out) {
     int i = 0, j = 0;
     uint32_t buffer = 0;
@@ -35,6 +36,7 @@ static void base64_encode(const unsigned char* data, int len, char* out) {
     out[j] = '\0';
 }
 
+// decodes a single base64 character, returns -1 on invalid
 static int base64_decode_char(char c) {
     if (c >= 'A' && c <= 'Z') return c - 'A';
     if (c >= 'a' && c <= 'z') return c - 'a' + 26;
@@ -45,6 +47,7 @@ static int base64_decode_char(char c) {
     return -1;
 }
 
+// decodes a base64 string into binary data
 static bool base64_decode(const char* str, unsigned char* out, int* out_len) {
     int len = strlen(str);
     if (len == 0) {
@@ -72,9 +75,10 @@ static bool base64_decode(const char* str, unsigned char* out, int* out_len) {
     return true;
 }
 
-// ========== Helper: Base64 URL Safe ==========
+// url-safe base64 character set (uses - and _ instead of + and /)
 static const char b64url_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_=";
 
+// encodes binary data to url-safe base64 without padding
 static void base64url_encode(const unsigned char* data, int len, char* out) {
     int i = 0, j = 0;
     uint32_t buffer = 0;
@@ -98,6 +102,7 @@ static void base64url_encode(const unsigned char* data, int len, char* out) {
     out[j] = '\0';
 }
 
+// decodes a url-safe base64 character
 static int base64url_decode_char(char c) {
     if (c >= 'A' && c <= 'Z') return c - 'A';
     if (c >= 'a' && c <= 'z') return c - 'a' + 26;
@@ -108,6 +113,7 @@ static int base64url_decode_char(char c) {
     return -1;
 }
 
+// decodes a url-safe base64 string
 static bool base64url_decode(const char* str, unsigned char* out, int* out_len) {
     int len = strlen(str);
     if (len == 0) {
@@ -135,7 +141,7 @@ static bool base64url_decode(const char* str, unsigned char* out, int* out_len) 
     return true;
 }
 
-// ========== String Builder ==========
+// dynamic string builder for efficient text assembly
 typedef struct {
     char* buffer;
     int length;
@@ -183,11 +189,12 @@ static void sb_free(StringBuilder* sb) {
     sb->length = 0;
 }
 
-// ========== JSON Implementation ==========
+// skips whitespace in a json string
 static void skip_ws(const char** s) {
     while (**s && isspace((unsigned char)**s)) (*s)++;
 }
 
+// parses a json string with escape sequence handling
 static bool parse_string_raw(const char** s, char** out_str, int* out_len) {
     if (**s != '"') return false;
     (*s)++;
@@ -235,6 +242,7 @@ static bool parse_string_raw(const char** s, char** out_str, int* out_len) {
     return true;
 }
 
+// parses a json number
 static bool parse_number(const char** s, Value* out_value) {
     char* endptr;
     double val = strtod(*s, &endptr);
@@ -244,6 +252,7 @@ static bool parse_number(const char** s, Value* out_value) {
     return true;
 }
 
+// recursive json parser that builds vm values
 static bool json_parse_value(VM* vm, const char** json_str, Value* out_value) {
     skip_ws(json_str);
     if (!**json_str) return false;
@@ -344,6 +353,7 @@ static bool json_parse_value(VM* vm, const char** json_str, Value* out_value) {
     return false;
 }
 
+// appends a json-escaped string to the builder
 static void append_escaped(StringBuilder* sb, const char* str) {
     sb_append(sb, "\"", 1);
     while (*str) {
@@ -372,6 +382,7 @@ static void append_escaped(StringBuilder* sb, const char* str) {
     sb_append(sb, "\"", 1);
 }
 
+// recursively encodes a vm value to json
 static void json_encode_value(VM* vm, Value* value, StringBuilder* sb) {
     if (!value) {
         sb_append(sb, "false", 5);
@@ -403,11 +414,9 @@ static void json_encode_value(VM* vm, Value* value, StringBuilder* sb) {
                 break;
             }
             
-            // Check if it's an array (only array_part, no hash keys)
             bool is_array = (t->array_count > 0 && t->hash_count == 0);
             
             if (is_array) {
-                // Output as JSON array
                 sb_append(sb, "[", 1);
                 for (int i = 0; i < t->array_count; i++) {
                     if (i > 0) sb_append(sb, ", ", 2);
@@ -415,11 +424,9 @@ static void json_encode_value(VM* vm, Value* value, StringBuilder* sb) {
                 }
                 sb_append(sb, "]", 1);
             } else {
-                // Output as JSON object
                 sb_append(sb, "{", 1);
                 bool first = true;
                 
-                // First array_part
                 for (int i = 0; i < t->array_count; i++) {
                     if (!first) sb_append(sb, ", ", 2);
                     first = false;
@@ -430,7 +437,6 @@ static void json_encode_value(VM* vm, Value* value, StringBuilder* sb) {
                     json_encode_value(vm, &t->array_part[i], sb);
                 }
                 
-                // Then hash part
                 for (int i = 0; i < t->capacity; i++) {
                     TableEntry* entry = t->entries[i];
                     while (entry) {
@@ -452,7 +458,7 @@ static void json_encode_value(VM* vm, Value* value, StringBuilder* sb) {
     }
 }
 
-// ========== CSV Implementation ==========
+// csv parser state with position and delimiter
 typedef struct {
     const char* data;
     int pos;
@@ -474,6 +480,7 @@ static bool csv_has_next(CsvParser* p) {
     return p->data && p->pos < p->len;
 }
 
+// checks if a string looks like a number
 static bool is_numeric(const char* str) {
     if (!str || *str == '\0') return false;
     char* endptr;
@@ -481,10 +488,12 @@ static bool is_numeric(const char* str) {
     return *endptr == '\0';
 }
 
+// checks if a string is a boolean literal
 static bool is_bool(const char* str) {
     return (strcmp(str, "true") == 0 || strcmp(str, "false") == 0);
 }
 
+// parses a csv field into a typed vm value
 static Value csv_parse_value(const char* str) {
     if (!str) return vm_make_bool(false);
     if (is_numeric(str)) {
@@ -496,6 +505,7 @@ static Value csv_parse_value(const char* str) {
     return vm_make_string(str);
 }
 
+// extracts a single csv field with quoted field support
 static char* csv_parse_field(CsvParser* p) {
     StringBuilder sb;
     sb_init(&sb, 64);
@@ -550,15 +560,17 @@ static char* csv_parse_field(CsvParser* p) {
     return result;
 }
 
-// ========== XML Implementation ==========
+// xml parser state
 typedef struct {
     const char* p;
 } XmlParser;
 
+// skips whitespace in xml
 static void xml_skip_ws(XmlParser* xp) {
     while (*xp->p && isspace((unsigned char)*xp->p)) xp->p++;
 }
 
+// parses xml attributes into a table with @ prefix
 static void xml_parse_attrs(VM* vm, XmlParser* xp, Table* t) {
     (void)vm;
     xml_skip_ws(xp);
@@ -595,6 +607,7 @@ static void xml_parse_attrs(VM* vm, XmlParser* xp, Table* t) {
     }
 }
 
+// parses a single xml element recursively
 static Value xml_parse_element(VM* vm, XmlParser* xp) {
     xml_skip_ws(xp);
     if (*xp->p != '<') return vm_make_bool(false);
@@ -660,6 +673,7 @@ static Value xml_parse_element(VM* vm, XmlParser* xp) {
     return vm_make_bool(false);
 }
 
+// recursively writes an xml node from a vm table
 static void xml_write_node(VM* vm, Value v, int depth, StringBuilder* sb) {
     if (v.type != VAL_TABLE) return;
     
@@ -736,9 +750,8 @@ static void xml_write_node(VM* vm, Value v, int depth, StringBuilder* sb) {
     }
 }
 
-// ========== Public API ==========
+// main dispatcher for all codecs module built-in functions
 bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
-    // codecs.base_write
     if (strcmp(name, "codecs.base_write") == 0) {
         if (arg_count < 1 || args[0].type != VAL_STRING) {
             *result = vm_make_bool(false);
@@ -755,7 +768,6 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
     
-    // codecs.base_read
     if (strcmp(name, "codecs.base_read") == 0) {
         if (arg_count < 1 || args[0].type != VAL_STRING) {
             *result = vm_make_bool(false);
@@ -776,7 +788,6 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
 
-    // codecs.baseurl_write
     if (strcmp(name, "codecs.baseurl_write") == 0) {
         if (arg_count < 1 || args[0].type != VAL_STRING) {
             *result = vm_make_bool(false);
@@ -793,7 +804,6 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
     
-    // codecs.baseurl_read
     if (strcmp(name, "codecs.baseurl_read") == 0) {
         if (arg_count < 1 || args[0].type != VAL_STRING) {
             *result = vm_make_bool(false);
@@ -814,7 +824,6 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
 
-    // codecs.json_read
     if (strcmp(name, "codecs.json_read") == 0) {
         if (arg_count < 1 || args[0].type != VAL_STRING) {
             *result = vm_make_bool(false);
@@ -828,7 +837,6 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
     
-    // codecs.json_write
     if (strcmp(name, "codecs.json_write") == 0) {
         if (arg_count < 1) {
             *result = vm_make_string("");
@@ -842,7 +850,6 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
 
-    // codecs.csv_read
     if (strcmp(name, "codecs.csv_read") == 0) {
         if (arg_count < 1 || args[0].type != VAL_STRING) {
             *result = vm_make_bool(false);
@@ -931,7 +938,6 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
     
-    // codecs.csv_write
     if (strcmp(name, "codecs.csv_write") == 0) {
         if (arg_count < 1 || args[0].type != VAL_TABLE) {
             *result = vm_make_bool(false);
@@ -1026,7 +1032,6 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
 
-    // codecs.xml_read
     if (strcmp(name, "codecs.xml_read") == 0) {
         if (arg_count < 1 || args[0].type != VAL_STRING) {
             *result = vm_make_bool(false);
@@ -1046,7 +1051,6 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;
     }
 
-    // codecs.xml_write
     if (strcmp(name, "codecs.xml_write") == 0) {
         if (arg_count < 1 || args[0].type != VAL_TABLE) {
             *result = vm_make_bool(false);

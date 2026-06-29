@@ -8,6 +8,7 @@
 #include <stdarg.h>
 #include <math.h>
 #include <limits.h>
+
 #ifdef _WIN32
     #include <io.h>
     #ifndef F_OK
@@ -22,11 +23,11 @@
         #define PATH_MAX 4096
     #endif
 #endif
+
 #define APEX_MAX_CALL_DEPTH 512
 #define APEX_MAX_LOOP_DEPTH 512
 #define APEX_MAX_CALL_ARGS 64
 
-// ========== Forward Declarations ==========
 static Token* current_token(Parser* parser);
 static ASTNode* parse_program(Parser* parser);
 static ASTNode* parse_statement(Parser* parser);
@@ -38,15 +39,16 @@ static int symbol_index_recursive(Parser* parser, const char* name);
 static const char* binary_op_name(TokenType op);
 static ASTNode* parse_call(Parser* parser, ASTNode* callee);
 
+// estimates the source length of a node for error reporting
 static int get_node_len(ASTNode* node) {
     if (!node) return 1;
     switch (node->type) {
         case AST_LITERAL_STRING:
-            return (int)strlen(node->literal_string.string_value) + 2; // +2 for quotes
+            return (int)strlen(node->literal_string.string_value) + 2;
         case AST_IDENTIFIER:
             return (int)strlen(node->identifier.name);
         case AST_LITERAL_BOOL:
-            return node->literal_bool.bool_value ? 4 : 5; // "true" or "false"
+            return node->literal_bool.bool_value ? 4 : 5;
         case AST_LITERAL_NUMBER: {
             char buf[64];
             snprintf(buf, sizeof(buf), "%g", node->literal_number.number_value);
@@ -69,21 +71,20 @@ static int get_node_len(ASTNode* node) {
             return get_node_len(node->access.object) + get_node_len(node->access.member) + 2;
         }
         case AST_TABLE_LITERAL: {
-            int len = 2; // "[]"
+            int len = 2;
             for (int i = 0; i < node->table_literal.items->count; i++) {
-                if (i > 0) len += 2; // ", "
+                if (i > 0) len += 2;
                 len += get_node_len(node->table_literal.items->nodes[i]);
             }
-            // If there are key-value pairs instead
             for (int i = 0; i < node->table_literal.key_values->count; i++) {
-                if (i > 0 || node->table_literal.items->count > 0) len += 2; // ", "
+                if (i > 0 || node->table_literal.items->count > 0) len += 2;
                 ASTNode* kv = node->table_literal.key_values->nodes[i];
-                len += get_node_len(kv->binary.left) + 3 + get_node_len(kv->binary.right); // "key = value"
+                len += get_node_len(kv->binary.left) + 3 + get_node_len(kv->binary.right);
             }
             return len;
         }
         case AST_STRING_INTERP: {
-            int len = 2; // quotes
+            int len = 2;
             for (int i = 0; i < node->string_interp.parts->count; i++) {
                 len += get_node_len(node->string_interp.parts->nodes[i]);
             }
@@ -94,8 +95,7 @@ static int get_node_len(ASTNode* node) {
     }
 }
 
-// ========== Built-in function signatures ==========
-
+// built-in function signatures for argument count and type validation
 typedef struct {
     const char* name;
     int min_args;
@@ -104,7 +104,6 @@ typedef struct {
 } BuiltinSig;
 
 static const BuiltinSig BUILTINS[] = {
-    // os
     {"os.output", 0, 1, TYPE_ANY},
     {"os.input", 0, 1, TYPE_ANY},
     {"os.time", 0, 0, TYPE_ANY},
@@ -132,8 +131,6 @@ static const BuiltinSig BUILTINS[] = {
     {"os.items", 0, 1, TYPE_STRING},
     {"os.parentfolder", 1, 1, TYPE_STRING},
     {"os.access", 2, 2, TYPE_STRING},
-
-    // sys
     {"sys.platform", 0, 0, TYPE_ANY},
     {"sys.architecture", 0, 0, TYPE_ANY},
     {"sys.hostname", 0, 0, TYPE_ANY},
@@ -146,8 +143,6 @@ static const BuiltinSig BUILTINS[] = {
     {"sys.isterminal", 0, 0, TYPE_ANY},
     {"sys.process_id", 0, 0, TYPE_ANY},
     {"sys.environment", 0, 0, TYPE_ANY},
-
-    // math
     {"math.abs", 1, 1, TYPE_NUMBER},
     {"math.floor", 1, 1, TYPE_NUMBER},
     {"math.ceil", 1, 1, TYPE_NUMBER},
@@ -174,8 +169,6 @@ static const BuiltinSig BUILTINS[] = {
     {"math.gcd", 2, 2, TYPE_NUMBER},
     {"math.hypot", 2, 2, TYPE_NUMBER},
     {"math.factorial", 1, 1, TYPE_NUMBER},
-
-    // string
     {"string.len", 1, 1, TYPE_STRING},
     {"string.lower", 1, 1, TYPE_STRING},
     {"string.upper", 1, 1, TYPE_STRING},
@@ -185,8 +178,6 @@ static const BuiltinSig BUILTINS[] = {
     {"string.trim", 1, 1, TYPE_STRING},
     {"string.find", 2, 2, TYPE_STRING},
     {"string.replace", 3, 3, TYPE_STRING},
-
-    // table
     {"table.remove", 2, 2, TYPE_TABLE},
     {"table.has", 2, 2, TYPE_TABLE},
     {"table.size", 1, 1, TYPE_TABLE},
@@ -195,16 +186,12 @@ static const BuiltinSig BUILTINS[] = {
     {"table.clear", 1, 1, TYPE_TABLE},
     {"table.copy", 1, 1, TYPE_TABLE},
     {"table.merge", 2, 2, TYPE_TABLE},
-
-    // ffi
     {"ffi.open", 1, 1, TYPE_STRING},
     {"ffi.call", 2, 64, TYPE_ANY},
     {"ffi.errno", 0, 0, TYPE_ANY},
     {"ffi.strerror", 0, 1, TYPE_NUMBER},
     {"ffi.malloc", 1, 1, TYPE_NUMBER},
     {"ffi.free", 1, 1, TYPE_NUMBER},
-
-    // random
     {"random.random", 0, 0, TYPE_ANY},
     {"random.randint", 2, 2, TYPE_NUMBER},
     {"random.choice", 1, 1, TYPE_TABLE},
@@ -219,8 +206,6 @@ static const BuiltinSig BUILTINS[] = {
     {"random.secure_token_bytes", 1, 1, TYPE_NUMBER},
     {"random.secure_randint", 1, 1, TYPE_NUMBER},
     {"random.compare_digest", 2, 2, TYPE_STRING},
-
-    // codecs
     {"codecs.json_read", 1, 1, TYPE_STRING},
     {"codecs.json_write", 1, 1, TYPE_ANY},
     {"codecs.csv_read", 1, 3, TYPE_STRING},
@@ -231,13 +216,12 @@ static const BuiltinSig BUILTINS[] = {
     {"codecs.base_read", 1, 1, TYPE_STRING},
     {"codecs.baseurl_write", 1, 1, TYPE_STRING},
     {"codecs.baseurl_read", 1, 1, TYPE_STRING},
-
-    // built-in
     {"number", 1, 1, TYPE_ANY},
     {"string", 1, 1, TYPE_ANY},
     {"type", 1, 1, TYPE_ANY}
 };
 
+// looks up a built-in function signature by name
 static const BuiltinSig* lookup_builtin(const char* name) {
     for (size_t i = 0; i < sizeof(BUILTINS) / sizeof(BUILTINS[0]); i++) {
         if (strcmp(BUILTINS[i].name, name) == 0) {
@@ -247,8 +231,7 @@ static const BuiltinSig* lookup_builtin(const char* name) {
     return NULL;
 }
 
-// ========== Error reporting ==========
-
+// reports a parse error at a specific source position with formatting
 void parser_error_at(Parser* parser, int line, int column, int len,
                      const char* format, ...) {
     char buffer[1024];
@@ -263,18 +246,19 @@ void parser_error_at(Parser* parser, int line, int column, int len,
     throw_repl_error();
 }
 
+// reports a parse error at the current token position
 void parser_error(Parser* parser, const char* message) {
     Token* token = current_token(parser);
     int len = token->value ? (int)strlen(token->value) : 1;
     parser_error_at(parser, token->line, token->column, len, "%s", message);
 }
 
+// returns true if any error was encountered during parsing
 bool parser_had_errors(const Parser* parser) {
     return parser->error_count > 0;
 }
 
-// ========== Type utilities ==========
-
+// returns a string name for a value type
 static const char* type_name(ValueType type) {
     switch (type) {
         case TYPE_NUMBER: return "number";
@@ -289,14 +273,17 @@ static const char* type_name(ValueType type) {
     }
 }
 
+// checks if a type is numeric (for arithmetic operations)
 static bool is_numeric_type(ValueType type) {
     return type == TYPE_NUMBER;
 }
 
+// checks if a type supports comparison operations
 static bool is_comparable_type(ValueType type) {
     return type == TYPE_NUMBER || type == TYPE_STRING || type == TYPE_BOOLEAN;
 }
 
+// returns the string representation of a binary operator token
 static const char* binary_op_name(TokenType op) {
     switch (op) {
         case TOKEN_PLUS: return "+";
@@ -316,6 +303,7 @@ static const char* binary_op_name(TokenType op) {
     }
 }
 
+// sets the source directory for module resolution
 static void parser_set_source_dir(Parser* parser, const char* filename) {
     parser->source_dir = (char*)malloc(PATH_MAX);
     if (!parser->source_dir) return;
@@ -343,7 +331,7 @@ static void parser_set_source_dir(Parser* parser, const char* filename) {
     }
 }
 
-// ========== Constant Evaluation Utilities ==========
+// evaluates a numeric constant expression, returns true if successful
 static bool evaluate_numeric_constant(Parser* parser, ASTNode* node, double* out_value) {
     if (!node) return false;
     switch (node->type) {
@@ -393,12 +381,13 @@ static bool evaluate_numeric_constant(Parser* parser, ASTNode* node, double* out
     }
 }
 
+// checks if an expression has side effects (calls, assignments)
 static bool expr_has_side_effect(ASTNode* node) {
     if (!node) return false;
     switch (node->type) {
         case AST_CALL:
-        case AST_ASSIGN:       // Handles member assignments like user.age = 31
-        case AST_VAR_DECL:     // Handles variable declarations
+        case AST_ASSIGN:
+        case AST_VAR_DECL:
             return true;
         case AST_BINARY:
             return expr_has_side_effect(node->binary.left) ||
@@ -434,6 +423,7 @@ static bool expr_has_side_effect(ASTNode* node) {
     }
 }
 
+// warns about expression statements that have no effect
 static void parser_check_expr_statement(Parser* parser, ASTNode* expr) {
     if (!parser->semantic_checks || !expr) return;
     
@@ -453,6 +443,7 @@ static void parser_check_expr_statement(Parser* parser, ASTNode* expr) {
     }
 }
 
+// checks if a module name is a built-in system module
 static bool is_builtin_module_root(const char* name) {
     return strcmp(name, "os") == 0 || 
            strcmp(name, "sys") == 0 ||
@@ -464,6 +455,7 @@ static bool is_builtin_module_root(const char* name) {
            strcmp(name, "codecs") == 0;
 }
 
+// builds a filesystem path for a module from its dotted name
 static bool build_module_path(Parser* parser, const char* module_path, char* out_path, int out_size) {
     char relative[1024];
     size_t len = 0;
@@ -503,6 +495,7 @@ static bool build_module_path(Parser* parser, const char* module_path, char* out
     return true;
 }
 
+// validates that an imported module file exists on disk
 static void parser_validate_import_file(Parser* parser, const char* module_path, int line, int column) {
     if (!parser->semantic_checks || !parser->source_dir || !module_path) return;
     if (strcmp(parser->filename, "stdin") == 0 || strcmp(parser->filename, "<interpolation>") == 0) return;
@@ -529,6 +522,7 @@ static void parser_validate_import_file(Parser* parser, const char* module_path,
     }
 }
 
+// sets or clears a symbol's constant value
 static void parser_symbol_set_const(Parser* parser, int idx, bool known, double value) {
     if (idx < 0) return;
     parser->symbols.const_known[idx] = known;
@@ -539,8 +533,7 @@ static void parser_symbol_clear_const(Parser* parser, int idx) {
     parser_symbol_set_const(parser, idx, false, 0.0);
 }
 
-// ========== Symbol Management ==========
-
+// grows the symbol table when capacity is reached
 static void symbols_grow(Parser* parser) {
     if (parser->symbols.count < parser->symbols.capacity) return;
     parser->symbols.capacity = parser->symbols.capacity == 0 ? 16 : parser->symbols.capacity * 2;
@@ -554,6 +547,7 @@ static void symbols_grow(Parser* parser) {
     s->const_values = (double*)realloc(s->const_values, sizeof(double) * s->capacity);
 }
 
+// finds a symbol index in a specific scope
 static int symbol_index_in_scope(Parser* parser, const char* name, int scope) {
     for (int i = 0; i < parser->symbols.count; i++) {
         if (parser->symbols.scope_levels[i] == scope &&
@@ -564,6 +558,7 @@ static int symbol_index_in_scope(Parser* parser, const char* name, int scope) {
     return -1;
 }
 
+// finds a symbol by name searching from innermost to outermost scope
 static int symbol_index_recursive(Parser* parser, const char* name) {
     for (int scope = parser->symbols.current_scope; scope >= 0; scope--) {
         int idx = symbol_index_in_scope(parser, name, scope);
@@ -572,10 +567,12 @@ static int symbol_index_recursive(Parser* parser, const char* name) {
     return -1;
 }
 
+// enters a new lexical scope
 void parser_enter_scope(Parser* parser) {
     parser->symbols.current_scope++;
 }
 
+// exits the current lexical scope, removing all symbols declared there
 void parser_exit_scope(Parser* parser) {
     int i = 0;
     while (i < parser->symbols.count) {
@@ -598,6 +595,7 @@ void parser_exit_scope(Parser* parser) {
     parser->symbols.current_scope--;
 }
 
+// declares a new symbol in the current scope
 bool parser_declare_symbol(Parser* parser, const char* name, ParserSymbolKind kind,
                            ValueType type, int param_count, int line, int column) {
     (void)line;
@@ -614,10 +612,12 @@ bool parser_declare_symbol(Parser* parser, const char* name, ParserSymbolKind ki
     return true;
 }
 
+// checks if a symbol is declared in any accessible scope
 bool parser_is_declared(Parser* parser, const char* name) {
     return symbol_index_recursive(parser, name) >= 0;
 }
 
+// registers an imported module as a symbol in the current scope
 static void parser_register_import(Parser* parser, const char* module_path, int line, int column) {
     char path_copy[1024];
     strncpy(path_copy, module_path, sizeof(path_copy) - 1);
@@ -629,8 +629,7 @@ static void parser_register_import(Parser* parser, const char* module_path, int 
     }
 }
 
-// ========== Parser Utilities ==========
-
+// creates a new parser instance for a token stream
 Parser* parser_create(Token* tokens, int count, const char* filename, const char* source) {
     Parser* parser = (Parser*)malloc(sizeof(Parser));
     parser->tokens = tokens;
@@ -638,7 +637,6 @@ Parser* parser_create(Token* tokens, int count, const char* filename, const char
     parser->current = 0;
     parser->filename = strdup(filename);
     
-    // Initialize symbol table
     parser->symbols.names = NULL;
     parser->symbols.scope_levels = NULL;
     parser->symbols.kinds = NULL;
@@ -660,12 +658,12 @@ Parser* parser_create(Token* tokens, int count, const char* filename, const char
     return parser;
 }
 
+// destroys a parser and frees all associated resources
 void parser_destroy(Parser* parser) {
     if (parser) {
         free(parser->filename);
         free(parser->source_dir);
 
-        // Free symbol table
         for (int i = 0; i < parser->symbols.count; i++) {
             free(parser->symbols.names[i]);
         }
@@ -681,21 +679,25 @@ void parser_destroy(Parser* parser) {
     }
 }
 
+// peeks at a token ahead without consuming it
 static Token* peek(Parser* parser, int offset) {
     int idx = parser->current + offset;
     if (idx >= parser->count) return &parser->tokens[parser->count - 1];
     return &parser->tokens[idx];
 }
 
+// returns the current token without consuming it
 static Token* current_token(Parser* parser) {
     return peek(parser, 0);
 }
 
+// advances to the next token and returns the previous one
 static Token* advance(Parser* parser) {
     if (parser->current >= parser->count) return &parser->tokens[parser->count - 1];
     return &parser->tokens[parser->current++];
 }
 
+// checks if the current token is of the given type
 static bool check(Parser* parser, TokenType type) {
     if (current_token(parser)->type == TOKEN_EOF) {
         return type == TOKEN_EOF; 
@@ -703,11 +705,13 @@ static bool check(Parser* parser, TokenType type) {
     return current_token(parser)->type == type;
 }
 
+// checks if the next token is of the given type
 static bool check_next(Parser* parser, TokenType type) {
     if (peek(parser, 1)->type == TOKEN_EOF) return false;
     return peek(parser, 1)->type == type;
 }
 
+// consumes a token if it matches the expected type
 static bool match(Parser* parser, TokenType type) {
     if (check(parser, type)) {
         advance(parser);
@@ -716,6 +720,7 @@ static bool match(Parser* parser, TokenType type) {
     return false;
 }
 
+// consumes a token or reports an error if the type doesn't match
 static Token* consume(Parser* parser, TokenType type, const char* message) {
     if (check(parser, type)) {
         return advance(parser);
@@ -724,14 +729,14 @@ static Token* consume(Parser* parser, TokenType type, const char* message) {
     return NULL;
 }
 
+// skips over newline tokens
 static void skip_newlines(Parser* parser) {
     while (check(parser, TOKEN_NEWLINE)) {
         advance(parser);
     }
 }
 
-// ========== Semantic checks during parse ==========
-
+// infers the type of a binary operation with type checking
 static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
     ValueType left_type = infer_expression_type(parser, node->binary.left);
     ValueType right_type = infer_expression_type(parser, node->binary.right);
@@ -763,7 +768,6 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
 
     switch (node->binary.op) {
         case TOKEN_PLUS:
-            // No string concatenation allowed
             if (left_type == TYPE_STRING || right_type == TYPE_STRING) {
                 parser_error_at(parser, node->line, node->column, get_node_len(node),
                     "Arithmetic '+' requires numbers. For strings, use interpolation.");
@@ -830,6 +834,7 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
     }
 }
 
+// infers the type of a unary operation with type checking
 static ValueType infer_unary_type(Parser* parser, ASTNode* node) {
     ValueType operand_type = infer_expression_type(parser, node->unary.operand);
     if (operand_type == TYPE_ANY) {
@@ -858,6 +863,7 @@ static ValueType infer_unary_type(Parser* parser, ASTNode* node) {
     }
 }
 
+// resolves the name of a callable expression
 static const char* resolve_call_name(ASTNode* callee, char* buffer, size_t buflen) {
     if (callee->type == AST_IDENTIFIER) {
         return callee->identifier.name;
@@ -873,7 +879,7 @@ static const char* resolve_call_name(ASTNode* callee, char* buffer, size_t bufle
     return NULL;
 }
 
-// helper to check if a root name is a known built-in module
+// checks if a name is a known built-in module root
 static bool is_known_builtin_module(const char* name) {
     return strcmp(name, "os") == 0 ||
            strcmp(name, "sys") == 0 ||
@@ -885,10 +891,10 @@ static bool is_known_builtin_module(const char* name) {
            strcmp(name, "codecs") == 0;
 }
 
+// infers the return type of a function call with signature validation
 static ValueType infer_call_type(Parser* parser, ASTNode* node) {
     ValueType callee_type = infer_expression_type(parser, node->call.callee);
     
-    // If the callee itself is invalid (e.g., undefined variable), report that first
     if (callee_type == TYPE_ERROR) {
         return TYPE_ERROR;
     }
@@ -896,7 +902,6 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
     char full_name[256] = "";
     const char* func_name = resolve_call_name(node->call.callee, full_name, sizeof(full_name));
 
-    // Check type conversion builtins FIRST (before TYPE_FUNCTION check)
     if (func_name && (strcmp(func_name, "number") == 0 || 
                       strcmp(func_name, "string") == 0 || 
                       strcmp(func_name, "type") == 0)) {
@@ -916,7 +921,6 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
         if (strcmp(func_name, "type") == 0) return TYPE_STRING;
     }
 
-    // Now check if callee is callable (skip for number/string/type which are handled above)
     if (callee_type != TYPE_FUNCTION && callee_type != TYPE_ANY && 
         callee_type != TYPE_UNKNOWN) {
         int err_len = get_node_len(node->call.callee);
@@ -927,7 +931,6 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
     }
 
     if (func_name) {
-        // 1. Check against explicit Built-in Signatures
         const BuiltinSig* builtin = lookup_builtin(func_name);
         if (builtin) {
             int actual = node->call.arguments->count;
@@ -941,7 +944,6 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
                 parser_error_at(parser, node->line, node->column, 0, "Too many arguments (%d), maximum is %d", actual, APEX_MAX_CALL_ARGS);
             }
             
-            // Type checking for first argument if specified
             if (actual >= 1 && builtin->arg_type != TYPE_ANY) {
                 ASTNode* arg = node->call.arguments->nodes[0];
                 ValueType arg_t = infer_expression_type(parser, arg);
@@ -953,7 +955,6 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
             return TYPE_ANY;
         }
 
-        // 2. Check if it's a User-Defined Function
         int sym_idx = symbol_index_recursive(parser, func_name);
         if (sym_idx >= 0 && parser->symbols.kinds[sym_idx] == PARSER_SYM_FUNCTION) {
             int expected = parser->symbols.param_counts[sym_idx];
@@ -966,7 +967,6 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
             return TYPE_ANY;
         }
 
-        // 3. STRICT CHECK: Is it a call on a known Built-in Module?
         char root_module[64] = {0};
         const char* dot_pos = strchr(func_name, '.');
         if (dot_pos) {
@@ -984,7 +984,6 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
         }
     }
 
-    // Argument inference for dynamic/unknown calls
     for (int i = 0; i < node->call.arguments->count; i++) {
         infer_expression_type(parser, node->call.arguments->nodes[i]);
     }
@@ -992,14 +991,13 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
     return TYPE_UNKNOWN;
 }
 
+// infers the type of an index access expression
 static ValueType infer_index_access_type(Parser* parser, ASTNode* node) {
-    // If this is module access, type is ANY (function or value)
     if (node->access.object->type == AST_IDENTIFIER && 
         node->access.member->type == AST_IDENTIFIER) {
         return TYPE_ANY; 
     }
     
-    // Regular table access
     ValueType object_type = infer_expression_type(parser, node->access.object);
     if (object_type == TYPE_ERROR) return TYPE_ERROR;
     if (object_type != TYPE_TABLE && object_type != TYPE_UNKNOWN && object_type != TYPE_ANY) {
@@ -1012,6 +1010,7 @@ static ValueType infer_index_access_type(Parser* parser, ASTNode* node) {
     return TYPE_UNKNOWN;
 }
 
+// main type inference dispatcher for all expression types
 static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
     if (!node) return TYPE_UNKNOWN;
 
@@ -1026,24 +1025,20 @@ static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
             const char* name = node->identifier.name;
             int idx = symbol_index_recursive(parser, name);
             
-            // 1. Check user-defined symbols
             if (idx >= 0) {
                 return parser->symbols.types[idx];
             }
 
-            // 2. Check built-in functions (like 'number', 'string', 'type')
             if (lookup_builtin(name)) {
                 return TYPE_FUNCTION;
             }
 
-            // 3. If this is a built-in module root but NOT imported - ERROR!
             if (is_builtin_module_root(name)) {
                 parser_error_at(parser, node->line, node->column, (int)strlen(name),
                                 "Module '%s' is not imported. Use 'import %s' first", name, name);
                 return TYPE_ERROR;
             }
 
-            // 4. If none of the above, it's truly undefined
             parser_error_at(parser, node->line, node->column, (int)strlen(name),
                             "Undefined variable or function '%s'", name);
             return TYPE_ERROR;
@@ -1058,8 +1053,6 @@ static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
             }
             for (int i = 0; i < node->table_literal.key_values->count; i++) {
                 ASTNode* kv = node->table_literal.key_values->nodes[i];
-                // The left side is a table key (identifier), not a variable reference.
-                // Only type-check the value (right side).
                 infer_expression_type(parser, kv->binary.right);
             }
             return TYPE_TABLE;
@@ -1081,11 +1074,13 @@ static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
     }
 }
 
+// public API for type checking an expression
 ValueType parser_check_expression(Parser* parser, ASTNode* node) {
     if (!parser->semantic_checks) return TYPE_UNKNOWN;
     return infer_expression_type(parser, node);
 }
 
+// validates that a condition expression is boolean and explicit
 static void parser_check_condition(Parser* parser, ASTNode* condition, const char* context) {
     if (!parser->semantic_checks) return;
     ValueType cond_type = infer_expression_type(parser, condition);
@@ -1116,6 +1111,7 @@ static void parser_check_condition(Parser* parser, ASTNode* condition, const cha
     }
 }
 
+// validates that an expression is a number
 static void parser_check_number_expr(Parser* parser, ASTNode* expr, const char* context) {
     if (!parser->semantic_checks) return;
     ValueType t = infer_expression_type(parser, expr);
@@ -1125,6 +1121,7 @@ static void parser_check_number_expr(Parser* parser, ASTNode* expr, const char* 
     }
 }
 
+// returns the length of a source line for error reporting
 static int get_line_length(const char* source, int line_num) {
     if (!source) return 0;
     int current_line = 1;
@@ -1145,22 +1142,22 @@ static int get_line_length(const char* source, int line_num) {
     return 0;
 }
 
-// ========== Expression Parsing (Pratt Parser) ==========
-
+// Pratt parser precedence levels
 typedef enum {
     PREC_NONE,
-    PREC_ASSIGNMENT,   // =
-    PREC_OR,           // or
-    PREC_AND,          // and
-    PREC_EQUALITY,     // == !=
-    PREC_COMPARISON,   // < > <= >=
-    PREC_TERM,         // + -
-    PREC_FACTOR,       // * / %
-    PREC_UNARY,        // - not
-    PREC_CALL,         // . () []
+    PREC_ASSIGNMENT,
+    PREC_OR,
+    PREC_AND,
+    PREC_EQUALITY,
+    PREC_COMPARISON,
+    PREC_TERM,
+    PREC_FACTOR,
+    PREC_UNARY,
+    PREC_CALL,
     PREC_PRIMARY
 } Precedence;
 
+// returns the precedence of a token type for Pratt parsing
 static Precedence get_precedence(TokenType type) {
     switch (type) {
         case TOKEN_EQUAL: return PREC_ASSIGNMENT;
@@ -1181,40 +1178,32 @@ static Precedence get_precedence(TokenType type) {
     }
 }
 
-// Forward declarations for Pratt parser
 static ASTNode* parse_prefix(Parser* parser);
 static ASTNode* parse_infix(Parser* parser, ASTNode* left);
 static ASTNode* parse_precedence(Parser* parser, Precedence precedence);
 
-// ========== Primary Expressions ==========
-
+// parses a number literal token
 static ASTNode* parse_number(Parser* parser) {
     Token* token = advance(parser);
     double value = atof(token->value);
     return ast_create_literal_number(value, token->line, token->column);
 }
 
-
+// parses a string expression with interpolation support
 static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, int line, int column) {
-    // Create a temporary tokenizer for the expression inside {}
     Tokenizer* temp_tokenizer = tokenizer_create(expr_str, parser->filename);
     temp_tokenizer->line = line;
     
     int temp_count;
     Token* temp_tokens = tokenizer_tokenize(temp_tokenizer, &temp_count);
     
-    // Adjust columns of all tokens to match absolute position in source file
     for (int i = 0; i < temp_count; i++) {
         temp_tokens[i].column += column;
     }
 
-    // Pass the ORIGINAL source code of the whole file so error context 
-    // can show the full line, not just the interpolation part.
     Parser* temp_parser = parser_create(temp_tokens, temp_count, parser->filename, parser->source);
     temp_parser->semantic_checks = true; 
 
-    // Copy symbols from parent parser to temp parser so variables like 'env' are visible
-    // We only need to copy up to current_scope to avoid leaking future declarations
     for (int i = 0; i < parser->symbols.count; i++) {
         if (parser->symbols.scope_levels[i] <= parser->symbols.current_scope) {
             parser_declare_symbol(temp_parser, 
@@ -1222,32 +1211,28 @@ static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, in
                                   parser->symbols.kinds[i], 
                                   parser->symbols.types[i], 
                                   parser->symbols.param_counts[i],
-                                  parser->symbols.names[i] ? 0 : 0, // Line/Col don't matter much here for lookup
+                                  0,
                                   0);
             
-            // Copy const info if needed
             int new_idx = temp_parser->symbols.count - 1;
             temp_parser->symbols.const_known[new_idx] = parser->symbols.const_known[i];
             temp_parser->symbols.const_values[new_idx] = parser->symbols.const_values[i];
         }
     }
-    // Set the scope level to match parent so lookups work correctly
     temp_parser->symbols.current_scope = parser->symbols.current_scope;
 
     ASTNode* expr = parse_expression(temp_parser);
     
-    // Cleanup
     parser_destroy(temp_parser);
     tokenizer_destroy(temp_tokenizer);
     return expr;
 }
 
+// parses a string literal with interpolation detection
 static ASTNode* parse_string(Parser* parser) {
     Token* token = advance(parser);
     const char* value = token->value;
     
-    // Check for interpolation or escape sequences
-    // We look for '{' for interpolation AND '\' for escapes
     if (!strchr(value, '{') && !strchr(value, '\\')) {
         return ast_create_literal_string(value, token->line, token->column);
     }
@@ -1260,9 +1245,7 @@ static ASTNode* parse_string(Parser* parser) {
         if (*p == '\\' && *(p + 1) != '\0') {
             char next_char = *(p + 1);
             
-            // Handle \{ and \} explicitly here
             if (next_char == '{' || next_char == '}') {
-                // Add preceding text
                 if (p > start) {
                     int len = p - start;
                     char* lit = (char*)malloc(len + 1);
@@ -1275,30 +1258,17 @@ static ASTNode* parse_string(Parser* parser) {
                     free(lit);
                 }
                 
-                // Add the escaped character as a literal string part
                 char escaped_char[2] = { next_char, '\0' };
                 ASTNode* char_node = ast_create_literal_string(escaped_char, token->line, token->column + (p - value));
                 ast_list_add(parts, char_node);
                 
-                p += 2; // Skip both '\' and the character
+                p += 2;
                 start = p;
                 continue;
             }
             
-            // If it's a standard escape like \n that wasn't handled by tokenizer?
-            // The tokenizer ALREADY handles \n, \t etc. So if we see \n here, 
-            // it means the source had \\n (literal backslash + n).
-            // So we just treat it as a literal backslash followed by n.
-            // But wait, if tokenizer converted \n to 0x0A, we won't see '\' here.
-            // So any '\' we see here is a LITERAL backslash from the source code.
-            
-            // Just move past the backslash and let the next char be processed normally
-            // OR handle it as a literal backslash if you want to preserve it.
-            // For now, let's just skip the backslash if it's not \{ or \}
-            // Actually, better to keep it as is if it's not a special interpolation escape.
              p++; 
         } else if (*p == '{') {
-            // Real interpolation start
             if (p > start) {
                 int len = p - start;
                 char* lit = (char*)malloc(len + 1);
@@ -1345,19 +1315,22 @@ static ASTNode* parse_string(Parser* parser) {
     return ast_create_string_interp(parts);
 }
 
+// parses a boolean literal
 static ASTNode* parse_bool(Parser* parser) {
     Token* token = advance(parser);
     return ast_create_literal_bool(
         token->type == TOKEN_TRUE, token->line, token->column);
 }
 
+// parses an identifier
 static ASTNode* parse_identifier(Parser* parser) {
     Token* token = advance(parser);
     return ast_create_identifier(token->value, token->line, token->column);
 }
 
+// parses a table literal with positional items and key-value pairs
 static ASTNode* parse_table_literal(Parser* parser) {
-    Token* open_bracket = advance(parser); // consume '['
+    Token* open_bracket = advance(parser);
     int line = open_bracket->line;
     int column = open_bracket->column;
 
@@ -1371,7 +1344,6 @@ static ASTNode* parse_table_literal(Parser* parser) {
         while (true) {
             skip_newlines(parser);
 
-            // Allow IDENTIFIER, STRING, or NUMBER as key if followed by '='
             bool is_key = (check(parser, TOKEN_IDENTIFIER) || 
                            check(parser, TOKEN_STRING) || 
                            check(parser, TOKEN_NUMBER)) &&
@@ -1380,9 +1352,8 @@ static ASTNode* parse_table_literal(Parser* parser) {
             if (is_key) {
                 has_key_values = true;
                 Token* key_token = advance(parser);
-                advance(parser); // consume '='
+                advance(parser);
 
-                // CRITICAL: Always create STRING keys for tables
                 ASTNode* key_node = ast_create_literal_string(
                     key_token->value, key_token->line, key_token->column);
 
@@ -1391,10 +1362,9 @@ static ASTNode* parse_table_literal(Parser* parser) {
                 ast_list_add(key_values, kv_node);
             } else {
                 if (has_key_values) {
-                    // FIX: Report error at the location of the current token (the mixed item)
                     Token* bad_token = current_token(parser);
                     int len = bad_token->value ? (int)strlen(bad_token->value) : 1;
-                    if (bad_token->type == TOKEN_STRING) len += 2; // Account for quotes
+                    if (bad_token->type == TOKEN_STRING) len += 2;
                     
                     parser_error_at(parser, bad_token->line, bad_token->column, len,
                                     "Cannot mix ordered items after key-value pairs");
@@ -1415,8 +1385,9 @@ static ASTNode* parse_table_literal(Parser* parser) {
     return ast_create_table_literal(items, key_values, line, column);
 }
 
+// parses a parenthesized expression
 static ASTNode* parse_group(Parser* parser) {
-    advance(parser); // consume '('
+    advance(parser);
     skip_newlines(parser);
     ASTNode* expr = parse_expression(parser);
     skip_newlines(parser);
@@ -1424,8 +1395,9 @@ static ASTNode* parse_group(Parser* parser) {
     return expr;
 }
 
+// parses index access using brackets
 static ASTNode* parse_index_access(Parser* parser, ASTNode* object) {
-    advance(parser); // consume '['
+    advance(parser);
     skip_newlines(parser);
     ASTNode* index = parse_expression(parser);
     skip_newlines(parser);
@@ -1433,23 +1405,21 @@ static ASTNode* parse_index_access(Parser* parser, ASTNode* object) {
     return ast_create_index_access(object, index);
 }
 
+// parses dot member access with module validation
 static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
-    advance(parser); // consume '.'
+    advance(parser);
     Token* token = current_token(parser);
     
     bool is_module = false;
     if (object->type == AST_IDENTIFIER) {
-        // Check if the module has been imported
         int idx = symbol_index_recursive(parser, object->identifier.name);
         if (idx >= 0 && parser->symbols.kinds[idx] == PARSER_SYM_MODULE) {
             is_module = true;
         } else if (is_known_builtin_module(object->identifier.name)) {
-            // Module is known but NOT imported - ERROR!
             parser_error_at(parser, object->line, object->column, 
                           get_node_len(object),
                           "Module '%s' is not imported. Use 'import %s' first", 
                           object->identifier.name, object->identifier.name);
-            // Skip tokens to prevent cascade of errors
             if (token->type == TOKEN_IDENTIFIER || token->type == TOKEN_NUMBER) 
                 advance(parser);
             return object;
@@ -1468,7 +1438,6 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
     if (token->type == TOKEN_IDENTIFIER || token->type == TOKEN_NUMBER || 
         (token->type >= TOKEN_FUNCTION && token->type <= TOKEN_FALSE)) {
         
-        // Save token info for error reporting
         int member_line = token->line;
         int member_col = token->column;
         char* member_name = strdup(token->value);
@@ -1477,12 +1446,10 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
         ASTNode* member_node = ast_create_identifier(token->value, token->line, token->column);
         ASTNode* access_node = ast_create_index_access(object, member_node);
         
-        // Build full name for lookup: "module.member"
         char full_name[256];
         snprintf(full_name, sizeof(full_name), "%s.%s", 
                  object->identifier.name, member_name);
         
-        // Check if it's a function or constant (works for both builtin and user modules)
         const BuiltinSig* builtin = lookup_builtin(full_name);
         int sym_idx = symbol_index_recursive(parser, full_name);
         
@@ -1493,8 +1460,8 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
                             parser->symbols.kinds[sym_idx] == PARSER_SYM_PARAMETER));
         
         if (is_function) {
-            // It's a function - MUST have parentheses
             if (check(parser, TOKEN_LPAREN)) {
+                free(member_name);
                 return parse_call(parser, access_node);
             } else {
                 parser_error_at(parser, member_line, member_col, 
@@ -1505,7 +1472,6 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
                 return access_node;
             }
         } else if (is_variable) {
-            // It's a variable/constant - parentheses NOT allowed
             if (check(parser, TOKEN_LPAREN)) {
                 parser_error_at(parser, member_line, member_col, 
                               (int)strlen(member_name),
@@ -1514,13 +1480,11 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
                 free(member_name);
                 return access_node;
             }
-            // No parentheses - OK
             free(member_name);
             return access_node;
         } else {
-            // Unknown member (shouldn't happen if module was parsed correctly)
-            // Allow both for flexibility
             if (check(parser, TOKEN_LPAREN)) {
+                free(member_name);
                 return parse_call(parser, access_node);
             }
             free(member_name);
@@ -1531,8 +1495,7 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
     return object;
 }
 
-// ========== Prefix Parsers ==========
-
+// parses a prefix expression (primary or unary)
 static ASTNode* parse_prefix(Parser* parser) {
     Token* token = current_token(parser);
     switch (token->type) {
@@ -1541,8 +1504,8 @@ static ASTNode* parse_prefix(Parser* parser) {
         case TOKEN_TRUE:
         case TOKEN_FALSE:      return parse_bool(parser);
         case TOKEN_IDENTIFIER: return parse_identifier(parser);
-        case TOKEN_LBRACKET:   return parse_table_literal(parser); // bracket tables
-        case TOKEN_LPAREN:     return parse_group(parser);         // only grouping
+        case TOKEN_LBRACKET:   return parse_table_literal(parser);
+        case TOKEN_LPAREN:     return parse_group(parser);
         case TOKEN_MINUS: {
             advance(parser);
             ASTNode* operand = parse_precedence(parser, PREC_UNARY);
@@ -1570,28 +1533,28 @@ static ASTNode* parse_prefix(Parser* parser) {
     }
 }
 
-// ========== Infix Parsers ==========
-
+// parses a function call
 static ASTNode* parse_call(Parser* parser, ASTNode* callee) {
-    advance(parser); // consume '('
+    advance(parser);
     ASTNodeList* arguments = ast_list_create();
     
-    skip_newlines(parser); // <--- Skip newlines after '('
+    skip_newlines(parser);
     if (!check(parser, TOKEN_RPAREN)) {
         while (true) {
-            skip_newlines(parser); // <--- Skip newlines before argument
+            skip_newlines(parser);
             ast_list_add(arguments, parse_expression(parser));
             
-            skip_newlines(parser); // <--- Skip newlines before ',' or ')'
+            skip_newlines(parser);
             if (!match(parser, TOKEN_COMMA)) break;
-            skip_newlines(parser); // Skip newlines after ','
+            skip_newlines(parser);
         }
     }
-    skip_newlines(parser); // <--- Skip newlines before final ')'
+    skip_newlines(parser);
     consume(parser, TOKEN_RPAREN, "Expected ')' after arguments");
     return ast_create_call(callee, arguments);
 }
 
+// parses an infix expression (binary, call, or access)
 static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
     Token* token = current_token(parser);
     
@@ -1645,14 +1608,12 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
     }
 }
 
-// ========== Pratt Parser Core ==========
-
+// core Pratt parser that handles precedence climbing
 static ASTNode* parse_precedence(Parser* parser, Precedence precedence) {
     ASTNode* left = parse_prefix(parser);
     while (true) {
         Token* token = current_token(parser);
         Precedence current_prec = get_precedence(token->type);
-        // Check for call and index access (higher precedence)
         if (token->type == TOKEN_LPAREN || token->type == TOKEN_LBRACKET || token->type == TOKEN_DOT) {
             current_prec = PREC_CALL;
         }
@@ -1662,12 +1623,12 @@ static ASTNode* parse_precedence(Parser* parser, Precedence precedence) {
     return left;
 }
 
+// parses an expression using Pratt parser
 static ASTNode* parse_expression(Parser* parser) {
     skip_newlines(parser);
     if (check(parser, TOKEN_EOF)) {
         return NULL;
     }
-    // Use PREC_NONE so the '=' operator is actually parsed
     ASTNode* expr = parse_precedence(parser, PREC_NONE);
     if (expr) {
         parser_check_expression(parser, expr);
@@ -1675,9 +1636,7 @@ static ASTNode* parse_expression(Parser* parser) {
     return expr;
 }
 
-// ========== Statement Parsing ==========
-
-
+// parses a variable declaration or assignment
 static ASTNode* parse_var_decl_or_assign(Parser* parser) {
     Token* name = current_token(parser);
     advance(parser);
@@ -1756,6 +1715,7 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
                                  name->line, name->column);
 }
 
+// parses a function declaration with parameters and body
 static ASTNode* parse_function(Parser* parser) {
     advance(parser);
     Token* name = consume(parser, TOKEN_IDENTIFIER, "Expected function name");
@@ -1799,6 +1759,7 @@ static ASTNode* parse_function(Parser* parser) {
     return ast_create_function(name->value, params, body, name->line, name->column);
 }
 
+// parses an if statement with elif and else clauses
 static ASTNode* parse_if_statement(Parser* parser) {
     advance(parser);
     ASTNode* condition = parse_expression(parser);
@@ -1853,6 +1814,15 @@ static ASTNode* parse_if_statement(Parser* parser) {
     return ast_create_if(condition, then_branch, elif_chain, elif_chain ? NULL : else_branch);
 }
 
+// checks if a token type is a valid import segment
+static bool is_valid_import_segment(TokenType type) {
+    if (type == TOKEN_IDENTIFIER) return true;
+    if (type >= TOKEN_FUNCTION && type <= TOKEN_FALSE) return true;
+    if (type == TOKEN_NUMBER || type == TOKEN_STRING) return true;
+    return false;
+}
+
+// parses a for loop with range, table, or condition-based iteration
 static ASTNode* parse_for_statement(Parser* parser) {
     Token* for_kw = advance(parser);
     skip_newlines(parser);
@@ -1863,11 +1833,9 @@ static ASTNode* parse_for_statement(Parser* parser) {
     int var_col = for_kw->column;
     bool is_table_iter = false;
 
-    // Use explicit condition (e.g., 'for running == true')
     if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_INDENT)) {
         parser_error_at(parser, for_kw->line, for_kw->column, 3,
             "Use an explicit condition for 'for' (e.g., 'for running == true').");
-        // Skip block to prevent cascade errors
         if (match(parser, TOKEN_NEWLINE)) {
             while (!check(parser, TOKEN_EOF) && !check(parser, TOKEN_DEDENT)) {
                 advance(parser);
@@ -1903,29 +1871,21 @@ static ASTNode* parse_for_statement(Parser* parser) {
         return NULL;
     }
 
-    // Lookahead: check if it's IDENT = ...
     if (check(parser, TOKEN_IDENTIFIER)) {
         Token* id_tok = advance(parser);
         var_line = id_tok->line;
         var_col = id_tok->column;
         if (match(parser, TOKEN_EQUAL)) {
-            // Peek ahead to determine type of loop
-            // Range: for i = 0, 10  OR  for i = -5, -1
-            // Table: for k = my_table
-            
             bool is_number_next = check(parser, TOKEN_NUMBER);
-            // Check for negative number: - <number>
             if (!is_number_next && check(parser, TOKEN_MINUS) && peek(parser, 1)->type == TOKEN_NUMBER) {
                 is_number_next = true;
             }
 
             if (is_number_next) {
-                // Likely a range loop
                 var_name = strdup(id_tok->value);
                 start = parse_expression(parser);
                 parser_check_number_expr(parser, start, "For loop start");
                 
-                // If there is a comma, it is definitely a range loop
                 if (check(parser, TOKEN_COMMA)) {
                     consume(parser, TOKEN_COMMA, "Expected ',' after start value");
                     end = parse_expression(parser);
@@ -1939,7 +1899,6 @@ static ASTNode* parse_for_statement(Parser* parser) {
                         }
                     }
                 } else {
-                    // No comma found - highlight the unexpected token
                     Token* bad = current_token(parser);
                     int len = bad->value ? (int)strlen(bad->value) : 1;
                     if (bad->type == TOKEN_STRING) len += 2;
@@ -1949,26 +1908,21 @@ static ASTNode* parse_for_statement(Parser* parser) {
                     free(var_name); var_name = NULL;
                 }
             } else {
-                // Not a number, so it's a table/variable: for k = items
                 var_name = strdup(id_tok->value);
                 start = parse_expression(parser);
                 is_table_iter = true;
             }
         } else {
-            // Not followed by '=', check if it's a comparison (condition-based loop)
             Token* next = current_token(parser);
             
-            // If next token is a comparison operator, it's a condition
             if (next->type == TOKEN_EQUAL_EQUAL || next->type == TOKEN_NOT_EQUAL ||
                 next->type == TOKEN_LESS || next->type == TOKEN_GREATER ||
                 next->type == TOKEN_LESS_EQUAL || next->type == TOKEN_GREATER_EQUAL ||
                 next->type == TOKEN_AND || next->type == TOKEN_OR) {
-                // It's a condition-based for loop: for i < 10
-                parser->current--; // Go back to identifier
+                parser->current--;
                 condition = parse_expression(parser);
                 parser_check_condition(parser, condition, "For");
             } else {
-                // Neither '=' nor comparison - syntax error
                 int len = next->value ? (int)strlen(next->value) : 1;
                 if (next->type == TOKEN_STRING) len += 2;
                 
@@ -1977,7 +1931,7 @@ static ASTNode* parse_for_statement(Parser* parser) {
                 while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
                     advance(parser);
                 }
-                free(id_tok->value); // Cleanup
+                free(id_tok->value);
                 return NULL;
             }
         }
@@ -1991,8 +1945,6 @@ static ASTNode* parse_for_statement(Parser* parser) {
 
     parser_enter_scope(parser);
     if (var_name) {
-        // For table iteration, type is ANY (could be string key or number key)
-        // For range loop, type is NUMBER
         ValueType vtype = is_table_iter ? TYPE_ANY : TYPE_NUMBER;
         parser_declare_symbol(parser, var_name, PARSER_SYM_VARIABLE, vtype, 0, var_line, var_col);
     }
@@ -2004,13 +1956,7 @@ static ASTNode* parse_for_statement(Parser* parser) {
     return ast_create_for(var_name, condition, start, end, step, body, for_kw->line, for_kw->column);
 }
 
-static bool is_valid_import_segment(TokenType type) {
-    if (type == TOKEN_IDENTIFIER) return true;
-    if (type >= TOKEN_FUNCTION && type <= TOKEN_FALSE) return true;
-    if (type == TOKEN_NUMBER || type == TOKEN_STRING) return true;
-    return false;
-}
-
+// parses an import statement with module file loading
 static ASTNode* parse_import_statement(Parser* parser) {
     Token* import_kw = advance(parser);
     char* module_path = (char*)malloc(128);
@@ -2060,10 +2006,9 @@ static ASTNode* parse_import_statement(Parser* parser) {
 
     if (is_builtin_module_root(first_segment)) {
         free(module_path);
-        return import_node; // Builtin modules don't need file loading
+        return import_node;
     }
 
-    // User module: load and parse file
     char full_path[PATH_MAX];
     if (!build_module_path(parser, module_path, full_path, sizeof(full_path))) {
         parser_error(parser, "Module path too long");
@@ -2114,15 +2059,12 @@ static ASTNode* parse_import_statement(Parser* parser) {
         parser->error_count += mod_parser->error_count;
     }
 
-    // ===== NEW: Register all module-level functions and variables =====
-    // Walk through the module's symbol table (scope 0 = module level)
     for (int i = 0; i < mod_parser->symbols.count; i++) {
         if (mod_parser->symbols.scope_levels[i] == 0) {
             char full_name[512];
             snprintf(full_name, sizeof(full_name), "%s.%s", 
                      first_segment, mod_parser->symbols.names[i]);
             
-            // Register in parent parser's symbol table
             parser_declare_symbol(parser, full_name, 
                                 mod_parser->symbols.kinds[i],
                                 mod_parser->symbols.types[i],
@@ -2139,10 +2081,11 @@ static ASTNode* parse_import_statement(Parser* parser) {
 
     if (!mod_ast) return import_node;
 
-    ast_free_node(import_node); // Free the dummy import node
+    ast_free_node(import_node);
     return ast_create_module_block(first_segment, mod_ast, import_kw->line, import_kw->column);
 }
 
+// parses a return statement
 static ASTNode* parse_return_statement(Parser* parser) {
     Token* return_kw = advance(parser);
 
@@ -2152,7 +2095,6 @@ static ASTNode* parse_return_statement(Parser* parser) {
     }
 
     ASTNode* value = NULL;
-    // Check if there's an expression on the same line
     if (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
         value = parse_expression(parser);
     }
@@ -2160,6 +2102,7 @@ static ASTNode* parse_return_statement(Parser* parser) {
     return ast_create_return(value, return_kw->line, return_kw->column);
 }
 
+// parses a break statement
 static ASTNode* parse_break_statement(Parser* parser) {
     Token* break_kw = advance(parser);
     if (parser->semantic_checks && parser->loop_depth == 0) {
@@ -2169,6 +2112,7 @@ static ASTNode* parse_break_statement(Parser* parser) {
     return ast_create_node(AST_BREAK_STMT, break_kw->line, break_kw->column);
 }
 
+// parses a continue statement
 static ASTNode* parse_continue_statement(Parser* parser) {
     Token* cont_kw = advance(parser);
     if (parser->semantic_checks && parser->loop_depth == 0) {
@@ -2178,6 +2122,7 @@ static ASTNode* parse_continue_statement(Parser* parser) {
     return ast_create_node(AST_CONTINUE_STMT, cont_kw->line, cont_kw->column);
 }
 
+// parses a single statement, dispatching by token type
 static ASTNode* parse_statement(Parser* parser) {
     skip_newlines(parser);
     
@@ -2217,16 +2162,11 @@ static ASTNode* parse_statement(Parser* parser) {
             return parse_continue_statement(parser);
             
         case TOKEN_IDENTIFIER: {
-            // Check if this is a simple variable assignment (e.g., x = 10).
-            // If the next token is '=', it's a simple assignment.
-            // If it's '.', it's a member access (e.g., x.y = 10 or x.y()), 
-            // which should be parsed as an expression.
             if (peek(parser, 1)->type == TOKEN_EQUAL) {
                 ASTNode* node = parse_var_decl_or_assign(parser);
                 if (node) return node;
             }
 
-            // Parse as expression (function call, module access, or member access assignment)
             ASTNode* expr = parse_expression(parser);
             if (expr) {
                 parser_check_expr_statement(parser, expr);
@@ -2247,6 +2187,7 @@ static ASTNode* parse_statement(Parser* parser) {
     }
 }
 
+// parses a block of statements with indentation
 static ASTNode* parse_block(Parser* parser, bool require_indent, const char* after_keyword) {
     ASTNodeList* statements = ast_list_create();
 
@@ -2288,13 +2229,13 @@ static ASTNode* parse_block(Parser* parser, bool require_indent, const char* aft
     return ast_create_block(statements);
 }
 
+// parses the entire program as a sequence of statements
 static ASTNode* parse_program(Parser* parser) {
     ASTNodeList* statements = ast_list_create();
     
     int prev_pos = -1;
     
     while (!check(parser, TOKEN_EOF)) {
-        // Infinite loop guard
         if (parser->current == prev_pos) {
             break;
         }
@@ -2305,7 +2246,6 @@ static ASTNode* parse_program(Parser* parser) {
             ast_list_add(statements, stmt);
         }
         
-        // Consume NEWLINE
         skip_newlines(parser);
     }
     
@@ -2314,9 +2254,7 @@ static ASTNode* parse_program(Parser* parser) {
     return program;
 }
 
-
-// ========== Main Parse Function ==========
-
+// main public parse function
 ASTNode* parser_parse(Parser* parser) {
     return parse_program(parser);
 }

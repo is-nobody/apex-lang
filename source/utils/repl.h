@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+// runs the interactive read-eval-print loop with raw terminal input
 void repl_run(void);
 
 #ifdef __cplusplus
