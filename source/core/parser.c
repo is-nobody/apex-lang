@@ -1198,11 +1198,12 @@ static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, in
     Token* temp_tokens = tokenizer_tokenize(temp_tokenizer, &temp_count);
     
     for (int i = 0; i < temp_count; i++) {
+        temp_tokens[i].line = line;
         temp_tokens[i].column += column;
     }
 
     Parser* temp_parser = parser_create(temp_tokens, temp_count, parser->filename, parser->source);
-    temp_parser->semantic_checks = true; 
+    temp_parser->semantic_checks = true;
 
     for (int i = 0; i < parser->symbols.count; i++) {
         if (parser->symbols.scope_levels[i] <= parser->symbols.current_scope) {
@@ -1223,6 +1224,8 @@ static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, in
 
     ASTNode* expr = parse_expression(temp_parser);
     
+    parser->error_count += temp_parser->error_count;
+    
     parser_destroy(temp_parser);
     tokenizer_destroy(temp_tokenizer);
     return expr;
@@ -1241,25 +1244,33 @@ static ASTNode* parse_string(Parser* parser) {
     const char* p = value;
     const char* start = value;
     
+    int line_offset = 0; 
+
     while (*p) {
+        if (*p == '\n') {
+            line_offset++;
+            p++;
+            continue;
+        }
+
         if (*p == '\\' && *(p + 1) != '\0') {
             char next_char = *(p + 1);
             
             if (next_char == '{' || next_char == '}') {
                 if (p > start) {
-                    int len = p - start;
+                    int len = (int)(p - start);
                     char* lit = (char*)malloc(len + 1);
                     strncpy(lit, start, len);
                     lit[len] = '\0';
                     if (len > 0) {
-                        ASTNode* str_node = ast_create_literal_string(lit, token->line, token->column);
+                        ASTNode* str_node = ast_create_literal_string(lit, token->line + line_offset, token->column);
                         ast_list_add(parts, str_node);
                     }
                     free(lit);
                 }
                 
                 char escaped_char[2] = { next_char, '\0' };
-                ASTNode* char_node = ast_create_literal_string(escaped_char, token->line, token->column + (p - value));
+                ASTNode* char_node = ast_create_literal_string(escaped_char, token->line + line_offset, token->column + (int)(p - value));
                 ast_list_add(parts, char_node);
                 
                 p += 2;
@@ -1267,15 +1278,15 @@ static ASTNode* parse_string(Parser* parser) {
                 continue;
             }
             
-             p++; 
+            p++; 
         } else if (*p == '{') {
             if (p > start) {
-                int len = p - start;
+                int len = (int)(p - start);
                 char* lit = (char*)malloc(len + 1);
                 strncpy(lit, start, len);
                 lit[len] = '\0';
                 if (len > 0) {
-                    ASTNode* str_node = ast_create_literal_string(lit, token->line, token->column);
+                    ASTNode* str_node = ast_create_literal_string(lit, token->line + line_offset, token->column);
                     ast_list_add(parts, str_node);
                 }
                 free(lit);
@@ -1285,14 +1296,21 @@ static ASTNode* parse_string(Parser* parser) {
             const char* expr_end = strchr(expr_start, '}');
             
             if (expr_end) {
-                int expr_len = expr_end - expr_start;
+                int expr_len = (int)(expr_end - expr_start);
                 char* expr_str = (char*)malloc(expr_len + 1);
                 strncpy(expr_str, expr_start, expr_len);
                 expr_str[expr_len] = '\0';
                 
+                const char* line_start = p;
+                while (line_start > value && *(line_start - 1) != '\n') {
+                    line_start--;
+                }
+                int col_offset = (int)(expr_start - line_start);
+                
                 ASTNode* expr_node = parse_string_expression(parser, expr_str,
-                                                              token->line,
-                                                              token->column + (expr_start - value));
+                    token->line + line_offset, 
+                    col_offset);
+                
                 if (expr_node) {
                     ast_list_add(parts, expr_node);
                 }
@@ -1308,7 +1326,7 @@ static ASTNode* parse_string(Parser* parser) {
     }
     
     if (p > start) {
-        ASTNode* str_node = ast_create_literal_string(start, token->line, token->column);
+        ASTNode* str_node = ast_create_literal_string(start, token->line + line_offset, token->column);
         ast_list_add(parts, str_node);
     }
     
