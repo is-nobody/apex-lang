@@ -71,7 +71,7 @@ Hello, Friend
 Congratulations! You've successfully written and run your first Apex program.
 
 ### Code Breakdown: "Hello, Friend"
-`import os` — imports the built-in OS (Operating System) library. This library provides functions for interacting with the system, such as outputting text. You can learn more about available functions in the section [9.1 OS Library](#91-os-library-os).
+`import os` — imports the built-in OS (Operating System) library. This library provides functions for interacting with the system, such as outputting text. You can learn more about available functions in the [Library Reference](Library_Reference.md).
 
 `os.output` — calls the `output` function from the imported `os` library. This function output text to the terminal.
 
@@ -793,7 +793,7 @@ This prints 1, 2, 3, 4, 5. The loop checks the condition before each iteration. 
 **Important:** You must manually update the variable in the condition, or you'll create an infinite loop!
 
 ## 4.4 Break
-`break` exits the loop immediately — same as in `while`.
+`break` exits the loop immediately.
 
 ```apex
 import os
@@ -1040,6 +1040,6 @@ When you import a file, you get everything from it:
 
 # Conclusion
 ## What's Next?
-Now you know the basics of Apex! The best next step is to explore the built-in libraries—check out the **Library Reference**. Start with the must-haves: `os`, `string`, `table`.
+Now you know the basics of Apex! The best next step is to explore the built-in libraries—check out the [Library Reference](Library_Reference.md). Start with the must-haves: `os`, `string`, `table`.
 
 Remember: Don't be afraid to experiment and make mistakes — that's the best way to learn. Happy coding in Apex!
