@@ -14,13 +14,13 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            target: x86_64_linux
+            target: x86-64_linux
 
           - os: ubuntu-24.04-arm
             target: arm64_linux
 
           - os: macos-latest
-            target: x86_64_macos
+            target: x86-64_macos
             arch: x86_64
 
           - os: macos-latest
@@ -28,7 +28,7 @@ jobs:
             arch: arm64
 
           - os: windows-latest
-            target: x86_64_windows
+            target: x86-64_windows
 
           - os: windows-latest
             target: arm64_windows
