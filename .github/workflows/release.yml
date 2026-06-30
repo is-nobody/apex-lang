@@ -39,7 +39,7 @@ jobs:
       - name: Get version
         id: ver
         shell: bash
-        run: echo "v=${{ github.ref_name }}"
+        run: echo "v=${{ github.ref_name }}" >> $GITHUB_OUTPUT
 
       - name: Build (Linux / macOS)
         if: runner.os != 'Windows'
@@ -81,29 +81,9 @@ jobs:
           name: apex_${{ steps.ver.outputs.v }}_${{ matrix.target }}${{ contains(matrix.target, 'windows') && '.exe' || '' }}
           path: apex_${{ steps.ver.outputs.v }}_${{ matrix.target }}${{ contains(matrix.target, 'windows') && '.exe' || '' }}
 
-  source:
-    name: Package Source
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Get version
-        id: ver
-        shell: bash
-        run: echo "v=${{ github.ref_name }}"
-
-      - name: Create source archive
-        run: |
-          git archive --format=zip --output="apex_${{ steps.ver.outputs.v }}_source.zip" HEAD
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: apex_${{ steps.ver.outputs.v }}_source
-          path: apex_${{ steps.ver.outputs.v }}_source.zip
-
   release:
     name: Create Release
-    needs: [build, source]
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -117,7 +97,7 @@ jobs:
       - name: Get version
         id: ver
         shell: bash
-        run: echo "v=${{ github.ref_name }}"
+        run: echo "v=${{ github.ref_name }}" >> $GITHUB_OUTPUT
 
       - uses: softprops/action-gh-release@v2
         with:
