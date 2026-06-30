@@ -1,6 +1,6 @@
 {
-  "name": "apex-language",
-  "displayName": "Apex",
+  "name": "apex-lang",
+  "displayName": "apex-lang",
   "description": "Language support for the Apex programming language",
   "version": "26.0.6",
   "icon": "logo.png",
