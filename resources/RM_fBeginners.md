@@ -1,4 +1,4 @@
-# Apex Reference Manual for Beginners (26.06)
+# Apex Reference Manual for Beginners (26.07)
 This manual is written with step-by-step learning in mind and strives to be minimalistic. Each section builds on the previous ones. For the best experience, follow the order. If you see a note like "see section X" — that's a hint that you might want to go here if something feels unfamiliar. Don't skip ahead to functions or loops before you understand variables and conditions. Everything connects.
 
 ## Table of Contents

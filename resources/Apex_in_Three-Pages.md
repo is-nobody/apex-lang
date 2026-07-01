@@ -1,4 +1,4 @@
-# Apex in Three Pages (26.06)
+# Apex in Three Pages (26.07)
 ## Types & Variables
 Strict typing: type is fixed at initialization. No implicit coercion.
 ```apex
