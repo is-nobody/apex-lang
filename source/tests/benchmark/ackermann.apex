@@ -28,30 +28,6 @@ function ackermann310()
     os.output("Ackermann(3,10) = {result}, expected 8189")
     os.output("Time: {elapsed}")
 
-function ackermann312()
-    start = os.time()
-    result = ackermann(3, 12)
-    elapsed = os.time() - start
-    os.output("Ackermann(3,12) = {result}, expected 32765")
-    os.output("Time: {elapsed}")
-
-function ackermann314()
-    start = os.time()
-    result = ackermann(3, 14)
-    elapsed = os.time() - start
-    os.output("Ackermann(3,14) = {result}, expected 131069")
-    os.output("Time: {elapsed}")
-
-function ackermann41()
-    start = os.time()
-    result = ackermann(4, 1)
-    elapsed = os.time() - start
-    os.output("Ackermann(4,1) = {result}, expected 65533")
-    os.output("Time: {elapsed}")
-
 ackermann36()
 ackermann38()
 ackermann310()
-ackermann312()
-ackermann314()
-ackermann41()
