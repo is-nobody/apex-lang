@@ -32,7 +32,7 @@ function ackermann312()
     start = os.time()
     result = ackermann(3, 12)
     elapsed = os.time() - start
-    os.output("Ackermann(3,12) = {result}, expected 131069")
+    os.output("Ackermann(3,12) = {result}, expected 32765")
     os.output("Time: {elapsed}")
 
 function ackermann314()
