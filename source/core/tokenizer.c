@@ -157,6 +157,18 @@ static void skip_comment(Tokenizer* tokenizer) {
     }
 }
 
+// consumes a shebang line starting with '#!' until the end of the line
+static void skip_shebang(Tokenizer* tokenizer) {
+    advance(tokenizer); // skip '#'
+    advance(tokenizer); // skip '!'
+    
+    char c = peek(tokenizer, 0);
+    while (c != '\0' && c != '\n' && c != '\r') {
+        advance(tokenizer);
+        c = peek(tokenizer, 0);
+    }
+}
+
 // reads a quoted string literal with escape sequence handling
 static char* read_string(Tokenizer* tokenizer) {
     advance(tokenizer); // skip opening quote
@@ -353,6 +365,16 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
         if (c == '/' && peek(tokenizer, 1) == '/') {
             skip_comment(tokenizer);
             continue;
+        }
+        
+        // ignore shebang only on the first line, otherwise throw an error
+        if (c == '#' && peek(tokenizer, 1) == '!') {
+            if (tokenizer->line == 1 && tokenizer->pos == 0) {
+                skip_shebang(tokenizer);
+                continue;
+            } else {
+                tokenizer_error(tokenizer, 2, "Shebang (#!) is only allowed on the first line");
+            }
         }
         
         if (c == '"') {
