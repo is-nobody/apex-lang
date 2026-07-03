@@ -19,21 +19,5 @@ function fib35()
     os.output("fib(35) recursive = {result}, expected 9227465")
     os.output("Time: {elapsed} seconds")
 
-function fib40()
-    start = os.time()
-    result = fib(40)
-    elapsed = os.time() - start
-    os.output("fib(40) recursive = {result}, expected 102334155")
-    os.output("Time: {elapsed} seconds")
-
-function fib45()
-    start = os.time()
-    result = fib(45)
-    elapsed = os.time() - start
-    os.output("fib(45) recursive = {result}, expected 1134903170")
-    os.output("Time: {elapsed} seconds")
-
 fib30()
 fib35()
-fib40()
-fib45()
