@@ -1199,7 +1199,7 @@ static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, in
     
     for (int i = 0; i < temp_count; i++) {
         temp_tokens[i].line = line;
-        temp_tokens[i].column += column;
+        temp_tokens[i].column += column - 1;
     }
 
     Parser* temp_parser = parser_create(temp_tokens, temp_count, parser->filename, parser->source);
@@ -1301,15 +1301,11 @@ static ASTNode* parse_string(Parser* parser) {
                 strncpy(expr_str, expr_start, expr_len);
                 expr_str[expr_len] = '\0';
                 
-                const char* line_start = p;
-                while (line_start > value && *(line_start - 1) != '\n') {
-                    line_start--;
-                }
-                int col_offset = (int)(expr_start - line_start);
-                
+                int absolute_col = token->column + 1 + (int)(expr_start - value);
+
                 ASTNode* expr_node = parse_string_expression(parser, expr_str,
-                    token->line + line_offset, 
-                    col_offset);
+                    token->line + line_offset,
+                    absolute_col);
                 
                 if (expr_node) {
                     ast_list_add(parts, expr_node);
