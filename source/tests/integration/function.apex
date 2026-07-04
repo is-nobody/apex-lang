@@ -58,7 +58,7 @@ function no_return()
         x = 42
     
     result = do_nothing()
-    assert_equal(result, false, "do_nothing()")
+    assert_equal(result, none, "do_nothing()")
 
 function nested_calls()
     function multiply(a, b)

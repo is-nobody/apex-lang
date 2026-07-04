@@ -890,14 +890,14 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
                     snprintf(buffer, sizeof(buffer), "%g", args[0].number);
                     *result = vm_make_string(buffer);
                     break;
+                case VAL_NONE:
+                    *result = vm_make_string("none");
+                    break;
                 case VAL_BOOL:
                     *result = vm_make_string(args[0].boolean ? "true" : "false");
                     break;
                 case VAL_STRING:
                     *result = vm_copy_value(args[0]);
-                    break;
-                case VAL_NONE:
-                    *result = vm_make_string("none");
                     break;
                 default:
                     *result = vm_make_string("");
@@ -1236,6 +1236,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
                 }
                 break;
             }
+            case VAL_NONE:
+                regs[dest] = vm_make_string("none");
+                break;
             case VAL_BOOL: 
                 regs[dest] = vm_make_string(src->boolean ? "true" : "false"); 
                 break;
@@ -1362,7 +1365,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];
             regs = vm->registers;
             value_decref(&regs[dest_reg]);
-            regs[dest_reg].type = VAL_BOOL; regs[dest_reg].boolean = false;
+            regs[dest_reg].type = VAL_NONE;
             ip = &vm->code[return_addr]; goto *dispatch_table[ip->opcode];
         }
         vm->running = false; goto OP_HALT_LABEL;

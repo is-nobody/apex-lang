@@ -1047,11 +1047,10 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     }
 
     if (!ends_with_return) {
-        int false_idx = bytecode_add_bool_constant(cg->chunk, false);
-        int false_reg = alloc_register(cg);
-        emit(cg, INST(OP_LOAD_CONST, false_reg, false_idx, 0), node->line);
-        emit(cg, INST(OP_RETURN, false_reg, 0, 0), node->line);
-        free_register(cg, false_reg);
+        int none_idx = bytecode_add_none_constant(cg->chunk);
+        int none_reg = alloc_register(cg);
+        emit(cg, INST(OP_LOAD_CONST, none_reg, none_idx, 0), node->line);
+        emit(cg, INST(OP_RETURN, none_reg, 0, 0), node->line);
     }
 
     cg->chunk->functions[func_idx].local_count = cg->locals.count;
