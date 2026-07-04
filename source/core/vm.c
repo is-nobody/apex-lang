@@ -1050,32 +1050,57 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_ADD_LABEL: {
         int dest = ip->operands[0];
-        regs[dest].type = VAL_NUMBER;
-        regs[dest].number = regs[ip->operands[1]].number + regs[ip->operands[2]].number;
+        if (regs[ip->operands[1]].type == VAL_NUMBER && regs[ip->operands[2]].type == VAL_NUMBER) {
+            regs[dest].type = VAL_NUMBER;
+            regs[dest].number = regs[ip->operands[1]].number + regs[ip->operands[2]].number;
+        } else {
+            value_decref(&regs[dest]);
+            regs[dest].type = VAL_NONE;
+        }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_SUB_LABEL: {
         int dest = ip->operands[0];
-        regs[dest].type = VAL_NUMBER;
-        regs[dest].number = regs[ip->operands[1]].number - regs[ip->operands[2]].number;
+        if (regs[ip->operands[1]].type == VAL_NUMBER && regs[ip->operands[2]].type == VAL_NUMBER) {
+            regs[dest].type = VAL_NUMBER;
+            regs[dest].number = regs[ip->operands[1]].number - regs[ip->operands[2]].number;
+        } else {
+            value_decref(&regs[dest]);
+            regs[dest].type = VAL_NONE;
+        }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_MUL_LABEL: {
         int dest = ip->operands[0];
-        regs[dest].type = VAL_NUMBER;
-        regs[dest].number = regs[ip->operands[1]].number * regs[ip->operands[2]].number;
+        if (regs[ip->operands[1]].type == VAL_NUMBER && regs[ip->operands[2]].type == VAL_NUMBER) {
+            regs[dest].type = VAL_NUMBER;
+            regs[dest].number = regs[ip->operands[1]].number * regs[ip->operands[2]].number;
+        } else {
+            value_decref(&regs[dest]);
+            regs[dest].type = VAL_NONE;
+        }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_DIV_LABEL: {
         int dest = ip->operands[0];
-        regs[dest].type = VAL_NUMBER;
-        regs[dest].number = regs[ip->operands[1]].number / regs[ip->operands[2]].number;
+        if (regs[ip->operands[1]].type == VAL_NUMBER && regs[ip->operands[2]].type == VAL_NUMBER) {
+            regs[dest].type = VAL_NUMBER;
+            regs[dest].number = regs[ip->operands[1]].number / regs[ip->operands[2]].number;
+        } else {
+            value_decref(&regs[dest]);
+            regs[dest].type = VAL_NONE;
+        }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_MOD_LABEL: {
         int dest = ip->operands[0];
-        regs[dest].type = VAL_NUMBER;
-        regs[dest].number = fmod(regs[ip->operands[1]].number, regs[ip->operands[2]].number);
+        if (regs[ip->operands[1]].type == VAL_NUMBER && regs[ip->operands[2]].type == VAL_NUMBER) {
+            regs[dest].type = VAL_NUMBER;
+            regs[dest].number = fmod(regs[ip->operands[1]].number, regs[ip->operands[2]].number);
+        } else {
+            value_decref(&regs[dest]);
+            regs[dest].type = VAL_NONE;
+        }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_NEG_LABEL: {
