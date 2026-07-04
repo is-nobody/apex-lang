@@ -21,15 +21,15 @@ function number_from_decimal_string()
 
 function number_from_true()
     result = number(true)
-    assert_equal(result, false, "number(true)")
+    assert_equal(result, none, "number(true)")
 
 function number_from_false()
     result = number(false)
-    assert_equal(result, false, "number(false)")
+    assert_equal(result, none, "number(false)")
 
 function number_from_invalid_string()
     result = number("hello")
-    assert_equal(result, false, "number(\"hello\")")
+    assert_equal(result, none, "number(\"hello\")")
 
 function number_from_negative_string()
     result = number("-5")
@@ -41,7 +41,7 @@ function number_from_zero_string()
 
 function number_from_none()
     result = number(none)
-    assert_equal(result, false, "number(none)")
+    assert_equal(result, none, "number(none)")
 
 number_from_int_string()
 number_from_decimal_string()

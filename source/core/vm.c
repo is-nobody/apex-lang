@@ -861,7 +861,7 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
                     double val = strtod(args[0].string->chars, &endptr);
                     
                     if (endptr == args[0].string->chars || *endptr != '\0') {
-                        *result = vm_make_bool(false);
+                        *result = vm_make_none();
                     } else {
                         *result = vm_make_number(val);
                     }
@@ -871,14 +871,14 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
                     *result = vm_copy_value(args[0]);
                     break;
                 case VAL_BOOL:
-                    *result = vm_make_bool(false);
+                    *result = vm_make_none();
                     break;
                 default:
-                    *result = vm_make_bool(false);
+                    *result = vm_make_none();
                     break;
             }
         } else {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
         }
         return true;
     }
@@ -910,7 +910,7 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
         if (arg_count >= 1) {
             *result = vm_make_string(vm_value_type_name(&args[0]));
         } else {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
         }
         return true;
     }
@@ -1325,7 +1325,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             vm->registers[dest_reg] = result;
         } else {
             value_decref(&vm->registers[dest_reg]);
-            vm->registers[dest_reg] = vm_make_bool(false);
+            vm->registers[dest_reg] = vm_make_none();
         }
         if (dest_reg >= vm->register_count) vm->register_count = dest_reg + 1;
         ip++; goto *dispatch_table[ip->opcode];
