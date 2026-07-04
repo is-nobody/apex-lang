@@ -151,10 +151,10 @@ function mixed_keys()
 function key_existence()
     user = ["name" = "Alice", "age" = 30]
     
-    has_name = user["name"] != false
+    has_name = user["name"] != none
     assert_equal(has_name, true, "has_name")
     
-    has_city = user["city"] != false
+    has_city = user["city"] != none
     assert_equal(has_city, false, "has_city")
 
 function special_values()

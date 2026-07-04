@@ -1444,8 +1444,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         
         if (table_val->type != VAL_TABLE) {
             value_decref(&vm->registers[dest]);
-            vm->registers[dest].type = VAL_BOOL;
-            vm->registers[dest].boolean = false;
+            vm->registers[dest].type = VAL_NONE;
             ip++; goto *dispatch_table[ip->opcode];
         }
         
@@ -1472,15 +1471,13 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
         
         Value val;
-        val.type = VAL_BOOL;
-        val.boolean = false;
+        val.type = VAL_NONE;
         if (table_get(table, key_str, &val)) {
             value_decref(&vm->registers[dest]);
             vm->registers[dest] = val;
         } else {
             value_decref(&vm->registers[dest]);
-            vm->registers[dest].type = VAL_BOOL;
-            vm->registers[dest].boolean = false;
+            vm->registers[dest].type = VAL_NONE;
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
@@ -1493,8 +1490,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         
         if (table_val->type != VAL_TABLE) {
             value_decref(&vm->registers[dest]);
-            vm->registers[dest].type = VAL_BOOL;
-            vm->registers[dest].boolean = false;
+            vm->registers[dest].type = VAL_NONE;
             ip++; goto *dispatch_table[ip->opcode];
         }
         
@@ -1513,15 +1509,13 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
 
         Value val;
-        val.type = VAL_BOOL;
-        val.boolean = false;
+        val.type = VAL_NONE;
         if (table_get(table_val->table, key_str, &val)) {
             value_decref(&vm->registers[dest]);
             vm->registers[dest] = val;
         } else {
             value_decref(&vm->registers[dest]);
-            vm->registers[dest].type = VAL_BOOL;
-            vm->registers[dest].boolean = false;
+            vm->registers[dest].type = VAL_NONE;
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
