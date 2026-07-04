@@ -198,6 +198,8 @@ int bytecode_add_constant(BytecodeChunk* chunk, Constant constant) {
                         return i;
                     }
                     break;
+                case CONST_NONE:
+                    return i;
                 default:
                     break;
             }
@@ -225,6 +227,12 @@ int bytecode_add_number_constant(BytecodeChunk* chunk, double value) {
 int bytecode_add_string_constant(BytecodeChunk* chunk, const char* value) {
     const char* interned = bytecode_intern_string(chunk, value);
     Constant c = {.type = CONST_STRING, .string_value = (char*)interned};
+    return bytecode_add_constant(chunk, c);
+}
+
+// convenience wrapper for adding a none/null constant
+int bytecode_add_none_constant(BytecodeChunk* chunk) {
+    Constant c = {.type = CONST_NONE};
     return bytecode_add_constant(chunk, c);
 }
 

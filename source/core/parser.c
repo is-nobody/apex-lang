@@ -45,6 +45,8 @@ static int get_node_len(ASTNode* node) {
     switch (node->type) {
         case AST_LITERAL_STRING:
             return (int)strlen(node->literal_string.string_value) + 2;
+        case AST_LITERAL_NONE:
+            return 4;
         case AST_IDENTIFIER:
             return (int)strlen(node->identifier.name);
         case AST_LITERAL_BOOL:
@@ -263,6 +265,7 @@ static const char* type_name(ValueType type) {
     switch (type) {
         case TYPE_NUMBER: return "number";
         case TYPE_STRING: return "string";
+        case TYPE_NONE: return "none";
         case TYPE_BOOLEAN: return "boolean";
         case TYPE_TABLE: return "table";
         case TYPE_FUNCTION: return "function";
@@ -280,7 +283,7 @@ static bool is_numeric_type(ValueType type) {
 
 // checks if a type supports comparison operations
 static bool is_comparable_type(ValueType type) {
-    return type == TYPE_NUMBER || type == TYPE_STRING || type == TYPE_BOOLEAN;
+    return type == TYPE_NUMBER || type == TYPE_STRING || type == TYPE_BOOLEAN || type == TYPE_NONE;
 }
 
 // returns the string representation of a binary operator token
@@ -791,6 +794,9 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
             return TYPE_NUMBER;
 
         case TOKEN_EQUAL_EQUAL: case TOKEN_NOT_EQUAL:
+            if (left_type == TYPE_NONE || right_type == TYPE_NONE) {
+                return TYPE_BOOLEAN;
+            }
             if (!is_comparable_type(left_type) || !is_comparable_type(right_type)) {
                 parser_error_at(parser, node->binary.left->line, node->binary.left->column, get_node_len(node->binary.left),
                                 "Cannot compare types %s and %s", type_name(left_type), type_name(right_type));
@@ -1017,6 +1023,7 @@ static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
     switch (node->type) {
         case AST_LITERAL_NUMBER: return TYPE_NUMBER;
         case AST_LITERAL_STRING: return TYPE_STRING;
+        case AST_LITERAL_NONE: return TYPE_NONE;
         case AST_LITERAL_BOOL: return TYPE_BOOLEAN;
         case AST_ASSIGN:
         case AST_VAR_DECL:
@@ -1329,6 +1336,12 @@ static ASTNode* parse_string(Parser* parser) {
     return ast_create_string_interp(parts);
 }
 
+// parses a none/null literal
+static ASTNode* parse_none(Parser* parser) {
+    Token* token = advance(parser);
+    return ast_create_literal_none(token->line, token->column);
+}
+
 // parses a boolean literal
 static ASTNode* parse_bool(Parser* parser) {
     Token* token = advance(parser);
@@ -1515,6 +1528,7 @@ static ASTNode* parse_prefix(Parser* parser) {
     switch (token->type) {
         case TOKEN_NUMBER:     return parse_number(parser);
         case TOKEN_STRING:     return parse_string(parser);
+        case TOKEN_NONE:       return parse_none(parser);
         case TOKEN_TRUE:
         case TOKEN_FALSE:      return parse_bool(parser);
         case TOKEN_IDENTIFIER: return parse_identifier(parser);

@@ -17,6 +17,7 @@ typedef enum {
     TOKEN_OR,            // logical 'or' operator
     TOKEN_NOT,           // logical 'not' operator
     
+    TOKEN_NONE,          // 'none' value
     TOKEN_TRUE,          // boolean literal 'true'
     TOKEN_FALSE,         // boolean literal 'false'
     TOKEN_NUMBER,        // numeric literal (integer or float)

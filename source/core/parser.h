@@ -9,6 +9,7 @@ typedef enum {
     TYPE_UNKNOWN,        // type not yet determined
     TYPE_NUMBER,         // numeric values (integers and floats)
     TYPE_STRING,         // string values
+    TYPE_NONE,           // none/null type
     TYPE_BOOLEAN,        // true/false
     TYPE_TABLE,          // table/array/dictionary
     TYPE_FUNCTION,       // callable function

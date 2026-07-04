@@ -32,6 +32,7 @@
 typedef enum {
     VAL_NUMBER,          // double-precision floating point
     VAL_STRING,          // interned string object
+    VAL_NONE,            // null/nil value
     VAL_BOOL,            // boolean true or false
     VAL_TABLE,           // table/array with both hash and array parts
     VAL_FUNCTION,        // compiled function reference (by address)
@@ -137,7 +138,7 @@ typedef struct {
     
     StringInternTable intern_table; // global string interning table
     ObjectPool obj_pool;      // object recycling pool
-    
+
     const char* source;       // source code for error reporting
 } VM;
 

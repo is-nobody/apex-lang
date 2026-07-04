@@ -35,12 +35,17 @@ function string_from_zero()
     result = string(0)
     assert_equal(result, "0", "string(0)")
 
+function string_from_none()
+    result = string(none)
+    assert_equal(result, "none", "string(none)")
+
 string_from_int()
 string_from_decimal()
 string_from_true()
 string_from_false()
 string_from_negative()
 string_from_zero()
+string_from_none()
 
 if tests_failed == 0
     os.output("[OK] type_conversion/string.apex")

@@ -295,6 +295,23 @@ function gc_short_lived()
         sum = sum + temp[5]
     assert_equal(sum, 250025000, "Sum gc short lived")
 
+function table_with_none()
+    t = [1, none, "hello", none, 42]
+    
+    assert_equal(t[2], none, "t[2] is none")
+    assert_equal(t[4], none, "t[4] is none")
+    assert_equal(t[2] == t[4], true, "none == none")
+    assert_equal(t[2] == false, false, "none != false")
+    
+    t[2] = 99
+    assert_equal(t[2], 99, "t[2] changed to 99")
+    
+    none_count = 0
+    for i = 1, 5
+        if t[i] == none
+            none_count = none_count + 1
+    assert_equal(none_count, 1, "only one none left")
+
 empty_table()
 ordered_list()
 key_value()
@@ -319,6 +336,7 @@ matrix_multiplication()
 hashtable_numeric_keys()
 map_filter_reduce()
 gc_short_lived()
+table_with_none()
 
 if tests_failed == 0
     os.output("[OK] integration/table.apex")

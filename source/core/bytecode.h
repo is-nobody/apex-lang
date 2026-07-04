@@ -94,6 +94,7 @@ typedef struct {
 typedef enum {
     CONST_NUMBER,        // double-precision floating point
     CONST_STRING,        // interned string pointer
+    CONST_NONE,          // none/null constant
     CONST_BOOL,          // boolean true/false
     CONST_FUNCTION,      // function index into the function table
 } ConstantType;
@@ -181,6 +182,7 @@ int bytecode_add_constant(BytecodeChunk* chunk, Constant constant);
 // convenience wrappers for adding typed constants
 int bytecode_add_number_constant(BytecodeChunk* chunk, double value);
 int bytecode_add_string_constant(BytecodeChunk* chunk, const char* value);
+int bytecode_add_none_constant(BytecodeChunk* chunk);
 int bytecode_add_bool_constant(BytecodeChunk* chunk, bool value);
 
 // adds or retrieves a global variable by name

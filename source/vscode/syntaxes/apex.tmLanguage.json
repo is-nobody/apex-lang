@@ -9,7 +9,7 @@
     { "include": "#strings" },
     { "include": "#numbers" },
     { "include": "#keywords" },
-    { "include": "#boolean" },
+    { "include": "#constants" },
     { "include": "#operators" },
     { "include": "#function-def" },
     { "include": "#function-call" },
@@ -60,11 +60,11 @@
         }
       ]
     },
-    "boolean": {
+    "constants": {
       "patterns": [
         {
-          "name": "constant.language.boolean.apex",
-          "match": "\\b(true|false)\\b"
+          "name": "constant.language.apex",
+          "match": "\\b(true|false|none)\\b"
         }
       ]
     },

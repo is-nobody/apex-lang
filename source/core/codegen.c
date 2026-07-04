@@ -161,6 +161,14 @@ static int codegen_literal_string(CodeGenerator* cg, ASTNode* node) {
     return reg;
 }
 
+// emits a none/null literal by adding it to the constant pool
+static int codegen_literal_none(CodeGenerator* cg, ASTNode* node) {
+    int reg = alloc_register(cg);
+    int none_idx = bytecode_add_none_constant(cg->chunk);
+    emit(cg, INST(OP_LOAD_CONST, reg, none_idx, 0), node->line);
+    return reg;
+}
+
 // emits a boolean literal using the dedicated load-bool instruction
 static int codegen_literal_bool(CodeGenerator* cg, ASTNode* node) {
     int reg = alloc_register(cg);
@@ -537,6 +545,9 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
 
         case AST_LITERAL_STRING:
             return codegen_literal_string(cg, node);
+
+        case AST_LITERAL_NONE:
+            return codegen_literal_none(cg, node);
 
         case AST_LITERAL_BOOL:
             return codegen_literal_bool(cg, node);

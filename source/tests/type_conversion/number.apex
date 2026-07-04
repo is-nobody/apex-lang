@@ -39,6 +39,10 @@ function number_from_zero_string()
     result = number("0")
     assert_equal(result, 0, "number(\"0\")")
 
+function number_from_none()
+    result = number(none)
+    assert_equal(result, false, "number(none)")
+
 number_from_int_string()
 number_from_decimal_string()
 number_from_true()
@@ -46,6 +50,7 @@ number_from_false()
 number_from_invalid_string()
 number_from_negative_string()
 number_from_zero_string()
+number_from_none()
 
 if tests_failed == 0
     os.output("[OK] type_conversion/number.apex")

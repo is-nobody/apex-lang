@@ -22,6 +22,7 @@ typedef enum {
     AST_UNARY,             // -a, not a — applies a unary operator to a single expression
     AST_LITERAL_NUMBER,    // 42, 3.14 — numeric constant
     AST_LITERAL_STRING,    // "hello" — string constant
+    AST_LITERAL_NONE,      // none literal — represents null/nil value
     AST_LITERAL_BOOL,      // true, false — boolean constant
     AST_IDENTIFIER,        // variable name reference, resolved in scope
     AST_CALL,              // function(args) — invokes a callee with arguments
@@ -186,6 +187,7 @@ struct ASTNodeList {
 ASTNode* ast_create_node(ASTNodeType type, int line, int column);
 ASTNode* ast_create_literal_number(double value, int line, int column);
 ASTNode* ast_create_literal_string(const char* value, int line, int column);
+ASTNode* ast_create_literal_none(int line, int column);
 ASTNode* ast_create_literal_bool(bool value, int line, int column);
 ASTNode* ast_create_identifier(const char* name, int line, int column);
 ASTNode* ast_create_binary(TokenType op, ASTNode* left, ASTNode* right);

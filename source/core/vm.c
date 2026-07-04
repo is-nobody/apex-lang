@@ -243,6 +243,8 @@ static const char* value_to_cstr(Value* v, char* buf, int buf_size) {
         case VAL_NUMBER:
             snprintf(buf, buf_size, "%.15g", v->number);
             return buf;
+        case VAL_NONE:
+            return "none";
         case VAL_BOOL:
             return v->boolean ? "true" : "false";
         default:
@@ -295,6 +297,13 @@ Value vm_make_string(const char* value) {
     return v;
 }
 
+// constructs a none/null value (represents absence of a value)
+Value vm_make_none() {
+    Value v;
+    v.type = VAL_NONE;
+    return v;
+}
+
 // constructs a boolean value
 Value vm_make_bool(bool value) {
     Value v; v.type = VAL_BOOL; v.boolean = value; return v;
@@ -324,6 +333,7 @@ const char* vm_value_type_name(Value* value) {
     switch (value->type) {
         case VAL_NUMBER: return "number";
         case VAL_STRING: return "string";
+        case VAL_NONE:   return "none";
         case VAL_BOOL:   return "boolean";
         case VAL_TABLE:  return "table";
         case VAL_FUNCTION: return "function";
@@ -403,6 +413,7 @@ void vm_print_value(Value* value) {
             break;
         }
         case VAL_STRING: printf("%s", value->string->chars); break;
+        case VAL_NONE: printf("none"); break;
         case VAL_BOOL: printf("%s", value->boolean ? "true" : "false"); break;
         case VAL_TABLE: 
             print_table_recursive(value->table, 0);
@@ -885,6 +896,9 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
                 case VAL_STRING:
                     *result = vm_copy_value(args[0]);
                     break;
+                case VAL_NONE:
+                    *result = vm_make_string("none");
+                    break;
                 default:
                     *result = vm_make_string("");
                     break;
@@ -1010,6 +1024,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
                     }
                 }
                 break;
+            case CONST_NONE:
+                regs[dest].type = VAL_NONE;
+                break;
             case CONST_BOOL: 
                 regs[dest].type = VAL_BOOL; 
                 regs[dest].boolean = c->bool_value; 
@@ -1072,11 +1089,20 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         Value* left = &regs[ip->operands[1]];
         Value* right = &regs[ip->operands[2]];
         int result = 0;
-        switch (left->type) {
-            case VAL_NUMBER: result = (left->number == right->number); break;
-            case VAL_STRING: result = string_equal(left->string, right->string); break;
-            case VAL_BOOL:   result = (left->boolean == right->boolean); break;
-            default: break;
+        
+        if (left->type == VAL_NONE && right->type == VAL_NONE) {
+            result = 1;
+        }
+        else if (left->type == VAL_NONE || right->type == VAL_NONE) {
+            result = 0;
+        }
+        else {
+            switch (left->type) {
+                case VAL_NUMBER: result = (left->number == right->number); break;
+                case VAL_STRING: result = string_equal(left->string, right->string); break;
+                case VAL_BOOL:   result = (left->boolean == right->boolean); break;
+                default: break;
+            }
         }
         regs[dest].type = VAL_BOOL;
         regs[dest].boolean = result;
@@ -1087,11 +1113,20 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         Value* left = &regs[ip->operands[1]];
         Value* right = &regs[ip->operands[2]];
         int result = 1;
-        switch (left->type) {
-            case VAL_NUMBER: result = (left->number != right->number); break;
-            case VAL_STRING: result = !string_equal(left->string, right->string); break;
-            case VAL_BOOL:   result = (left->boolean != right->boolean); break;
-            default: break;
+        
+        if (left->type == VAL_NONE && right->type == VAL_NONE) {
+            result = 0;
+        }
+        else if (left->type == VAL_NONE || right->type == VAL_NONE) {
+            result = 1;
+        }
+        else {
+            switch (left->type) {
+                case VAL_NUMBER: result = (left->number != right->number); break;
+                case VAL_STRING: result = !string_equal(left->string, right->string); break;
+                case VAL_BOOL:   result = (left->boolean != right->boolean); break;
+                default: break;
+            }
         }
         regs[dest].type = VAL_BOOL;
         regs[dest].boolean = result;
@@ -1651,11 +1686,18 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         Value* left = &regs[ip->operands[1]];
         Value* right = &regs[ip->operands[2]];
         bool jump = false;
-        switch (left->type) {
-            case VAL_NUMBER: jump = (left->number == right->number); break;
-            case VAL_STRING: jump = string_equal(left->string, right->string); break;
-            case VAL_BOOL:   jump = (left->boolean == right->boolean); break;
-            default: break;
+        
+        if (left->type == VAL_NONE && right->type == VAL_NONE) {
+            jump = true;
+        } else if (left->type == VAL_NONE || right->type == VAL_NONE) {
+            jump = false;
+        } else {
+            switch (left->type) {
+                case VAL_NUMBER: jump = (left->number == right->number); break;
+                case VAL_STRING: jump = string_equal(left->string, right->string); break;
+                case VAL_BOOL:   jump = (left->boolean == right->boolean); break;
+                default: break;
+            }
         }
         if (jump) {
             ip = &vm->code[target];
@@ -1663,16 +1705,24 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
+
     OP_JUMP_IF_NEQ_LABEL: {
         int target = ip->operands[0];
         Value* left = &regs[ip->operands[1]];
         Value* right = &regs[ip->operands[2]];
-        bool jump = true;
-        switch (left->type) {
-            case VAL_NUMBER: jump = (left->number != right->number); break;
-            case VAL_STRING: jump = !string_equal(left->string, right->string); break;
-            case VAL_BOOL:   jump = (left->boolean != right->boolean); break;
-            default: break;
+        bool jump = false;
+        
+        if (left->type == VAL_NONE && right->type == VAL_NONE) {
+            jump = false;
+        } else if (left->type == VAL_NONE || right->type == VAL_NONE) {
+            jump = true;
+        } else {
+            switch (left->type) {
+                case VAL_NUMBER: jump = (left->number != right->number); break;
+                case VAL_STRING: jump = !string_equal(left->string, right->string); break;
+                case VAL_BOOL:   jump = (left->boolean != right->boolean); break;
+                default: break;
+            }
         }
         if (jump) {
             ip = &vm->code[target];

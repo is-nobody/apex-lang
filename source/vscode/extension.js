@@ -43,7 +43,8 @@ function activate(context) {
                 'and': 'Logical AND operator.',
                 'or': 'Logical OR operator.',
                 'not': 'Logical NOT operator.',
-                
+
+                'none': 'Represents the absence of a value.',
                 'true': 'Boolean literal — true.',
                 'false': 'Boolean literal — false.',
                 'number': 'Converts a value to a number.\n\n```apex\nnumber("42")  // 42\n```',
@@ -78,7 +79,7 @@ function activate(context) {
             const keywords = [
                 'function', 'if', 'elif', 'else', 'for', 'break',
                 'continue', 'return', 'import', 'and', 'or', 'not',
-                'true', 'false'
+                'true', 'false', 'none'
             ];
 
             const libs = [

@@ -26,6 +26,12 @@ ASTNode* ast_create_literal_string(const char* value, int line, int column) {
     return node;
 }
 
+// none literal has no associated value since it represents a single null/nil value
+ASTNode* ast_create_literal_none(int line, int column) {
+    ASTNode* node = ast_create_node(AST_LITERAL_NONE, line, column);
+    return node;
+}
+
 // stores a boolean literal, used for conditions and direct values
 ASTNode* ast_create_literal_bool(bool value, int line, int column) {
     ASTNode* node = ast_create_node(AST_LITERAL_BOOL, line, column);
