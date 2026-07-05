@@ -1,4 +1,3 @@
-// string_conversion.apex
 import os
 
 tests_passed = 0
