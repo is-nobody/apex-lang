@@ -1,4 +1,3 @@
-// for_table.apex
 import os
 
 tests_passed = 0
