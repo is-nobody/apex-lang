@@ -35,7 +35,7 @@ function activate(context) {
                 'if': 'Conditional statement.\n\n```apex\nif condition\n    // code\nelif other_condition\n    // code\nelse\n    // code\n```',
                 'elif': 'Else-if branch in conditional statements.',
                 'else': 'Default branch in conditional statements.',
-                'for': 'For loop (inclusive end value).\n\n```apex\nfor i = 1, 10\n    // code\n\nfor i = 10, 1, -1\n    // code\n\nfor k = my_table\n    // iterate keys\n```',
+                'for': 'Numeric, table, and conditional loops.\n\n```apex\n// Numeric loop\nfor i = 1, 10\nfor i = 10, 1, -1\n\n// Table loop\nfor k = my_table\n\n// Conditional loop\nfor x < 10\n```',
                 'return': 'Returns a value from a function.',
                 'break': 'Exits the current loop immediately.',
                 'continue': 'Skips the rest of the current loop iteration.',
