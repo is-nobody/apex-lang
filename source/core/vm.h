@@ -148,6 +148,9 @@ Value vm_make_number(double value);
 // creates a value from a string (interns it)
 Value vm_make_string(const char* value);
 
+// creates a none/null value (represents absence of a value)
+Value vm_make_none(void);
+
 // creates a boolean value
 Value vm_make_bool(bool value);
 
