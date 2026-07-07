@@ -50,17 +50,22 @@ static int base64_decode_char(char c) {
 // decodes a base64 string into binary data
 static bool base64_decode(const char* str, unsigned char* out, int* out_len) {
     int len = strlen(str);
-    if (len == 0) {
-        *out_len = 0;
-        return true;
+    if (len == 0) { *out_len = 0; return true; }
+    
+    for (int i = 0; i < len; i++) {
+        if (str[i] != '=' && base64_decode_char(str[i]) < 0) return false;
     }
     
     uint32_t buffer = 0;
     int bits_left = 0;
     *out_len = 0;
+    int padding = 0;
     
     for (int i = 0; i < len; i++) {
-        if (str[i] == '=') break;
+        if (str[i] == '=') { 
+            padding++; 
+            continue; 
+        }
         int val = base64_decode_char(str[i]);
         if (val < 0) return false;
         
@@ -72,6 +77,26 @@ static bool base64_decode(const char* str, unsigned char* out, int* out_len) {
             bits_left -= 8;
         }
     }
+    
+    if (padding > 0) {
+        int eq_pos = -1;
+        for (int i = len - 1; i >= 0; i--) {
+            if (str[i] == '=') eq_pos = i;
+            else break;
+        }
+        if (eq_pos > 0 && str[eq_pos - 1] != '=') {
+            return false;
+        }
+        if ((len - padding) % 4 != 0) {
+            return false;
+        }
+        if (padding > 2) return false;
+        *out_len -= padding;
+        if (*out_len < 0) *out_len = 0;
+    } else {
+        if (len % 4 != 0) return false;
+    }
+    
     return true;
 }
 
@@ -495,7 +520,7 @@ static bool is_bool(const char* str) {
 
 // parses a csv field into a typed vm value
 static Value csv_parse_value(const char* str) {
-    if (!str) return vm_make_bool(false);
+    if (!str) return vm_make_none();
     if (is_numeric(str)) {
         return vm_make_number(atof(str));
     }
@@ -608,9 +633,10 @@ static void xml_parse_attrs(VM* vm, XmlParser* xp, Table* t) {
 }
 
 // parses a single xml element recursively
+// parses a single xml element recursively
 static Value xml_parse_element(VM* vm, XmlParser* xp) {
     xml_skip_ws(xp);
-    if (*xp->p != '<') return vm_make_bool(false);
+    if (*xp->p != '<') return vm_make_none();
     xp->p++;
     
     char tag[128] = {0};
@@ -619,7 +645,7 @@ static Value xml_parse_element(VM* vm, XmlParser* xp) {
         tag[ti++] = *xp->p++;
     }
     tag[ti] = '\0';
-    if (!*tag) return vm_make_bool(false);
+    if (!*tag) return vm_make_none();
     
     Value elem = vm_make_table();
     table_set(elem.table, "__tag", vm_make_string(tag));
@@ -637,21 +663,36 @@ static Value xml_parse_element(VM* vm, XmlParser* xp) {
         if (self_closing) return elem;
         
         int index = 1;
+        bool parse_error = false;
+        
         while (*xp->p) {
             if (*xp->p == '<') {
                 if (*(xp->p + 1) == '/') {
                     xp->p += 2;
-                    while (*xp->p && *xp->p != '>') xp->p++;
+                    char close_tag[128] = {0};
+                    int ci = 0;
+                    while (*xp->p && *xp->p != '>' && ci < 127) {
+                        close_tag[ci++] = *xp->p++;
+                    }
+                    close_tag[ci] = '\0';
+                    if (strcmp(tag, close_tag) != 0) {
+                        parse_error = true;
+                        break;
+                    }
                     if (*xp->p == '>') xp->p++;
-                    break;
+                    return elem;
                 } else {
                     Value child = xml_parse_element(vm, xp);
+                    if (child.type == VAL_NONE) {
+                        parse_error = true;
+                        break;
+                    }
                     if (child.type == VAL_TABLE) {
                         char k[32];
                         snprintf(k, sizeof(k), "%d", index++);
                         table_set(elem.table, k, child);
-                        value_decref(&child);
                     }
+                    value_decref(&child);
                 }
             } else {
                 StringBuilder text_sb;
@@ -667,10 +708,15 @@ static Value xml_parse_element(VM* vm, XmlParser* xp) {
             }
             xml_skip_ws(xp);
         }
+        
+        if (parse_error) {
+            value_decref(&elem);
+            return vm_make_none();
+        }
         return elem;
     }
     value_decref(&elem);
-    return vm_make_bool(false);
+    return vm_make_none();
 }
 
 // recursively writes an xml node from a vm table
@@ -754,14 +800,14 @@ static void xml_write_node(VM* vm, Value v, int depth, StringBuilder* sb) {
 bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     if (strcmp(name, "codecs.base_write") == 0) {
         if (arg_count < 1 || args[0].type != VAL_STRING) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
         const char* input = args[0].string->chars;
         int input_len = args[0].string->length;
         int out_size = ((input_len + 2) / 3) * 4 + 1;
         char* out = (char*)malloc(out_size);
-        if (!out) { *result = vm_make_bool(false); return true; }
+        if (!out) { *result = vm_make_none(); return true; }
         base64_encode((const unsigned char*)input, input_len, out);
         *result = vm_make_string(out);
         free(out);
@@ -770,19 +816,19 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
     
     if (strcmp(name, "codecs.base_read") == 0) {
         if (arg_count < 1 || args[0].type != VAL_STRING) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
         const char* input = args[0].string->chars;
         int input_len = args[0].string->length;
         unsigned char* out = (unsigned char*)malloc(input_len + 1);
-        if (!out) { *result = vm_make_bool(false); return true; }
+        if (!out) { *result = vm_make_none(); return true; }
         int out_len = 0;
         if (base64_decode(input, out, &out_len)) {
             out[out_len] = '\0';
             *result = vm_make_string((char*)out);
         } else {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
         }
         free(out);
         return true;
@@ -790,14 +836,14 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
 
     if (strcmp(name, "codecs.baseurl_write") == 0) {
         if (arg_count < 1 || args[0].type != VAL_STRING) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
         const char* input = args[0].string->chars;
         int input_len = args[0].string->length;
         int out_size = ((input_len + 2) / 3) * 4 + 1;
         char* out = (char*)malloc(out_size);
-        if (!out) { *result = vm_make_bool(false); return true; }
+        if (!out) { *result = vm_make_none(); return true; }
         base64url_encode((const unsigned char*)input, input_len, out);
         *result = vm_make_string(out);
         free(out);
@@ -806,19 +852,19 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
     
     if (strcmp(name, "codecs.baseurl_read") == 0) {
         if (arg_count < 1 || args[0].type != VAL_STRING) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
         const char* input = args[0].string->chars;
         int input_len = args[0].string->length;
         unsigned char* out = (unsigned char*)malloc(input_len + 1);
-        if (!out) { *result = vm_make_bool(false); return true; }
+        if (!out) { *result = vm_make_none(); return true; }
         int out_len = 0;
         if (base64url_decode(input, out, &out_len)) {
             out[out_len] = '\0';
             *result = vm_make_string((char*)out);
         } else {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
         }
         free(out);
         return true;
@@ -826,20 +872,20 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
 
     if (strcmp(name, "codecs.json_read") == 0) {
         if (arg_count < 1 || args[0].type != VAL_STRING) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
         const char* json_str = args[0].string->chars;
         if (json_parse_value(vm, &json_str, result)) {
             return true;
         }
-        *result = vm_make_bool(false);
+        *result = vm_make_none();
         return true;
     }
     
     if (strcmp(name, "codecs.json_write") == 0) {
         if (arg_count < 1) {
-            *result = vm_make_string("");
+            *result = vm_make_none();
             return true;
         }
         StringBuilder sb;
@@ -852,7 +898,7 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
 
     if (strcmp(name, "codecs.csv_read") == 0) {
         if (arg_count < 1 || args[0].type != VAL_STRING) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
         const char* data = args[0].string->chars;
@@ -865,7 +911,7 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             delimiter = args[2].string->chars[0];
             
         if (len <= 0) {
-            *result = vm_make_table();
+            *result = vm_make_none();
             return true;
         }
         
@@ -940,7 +986,7 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
     
     if (strcmp(name, "codecs.csv_write") == 0) {
         if (arg_count < 1 || args[0].type != VAL_TABLE) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
         Table* data = args[0].table;
@@ -959,7 +1005,7 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         
         Value first_row_val;
         if (!table_get(data, "1", &first_row_val) || first_row_val.type != VAL_TABLE) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
         
@@ -1034,7 +1080,7 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
 
     if (strcmp(name, "codecs.xml_read") == 0) {
         if (arg_count < 1 || args[0].type != VAL_STRING) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
         const char* xml = args[0].string->chars;
@@ -1045,20 +1091,24 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         if (root.type == VAL_TABLE) {
             *result = root;
         } else {
-            value_decref(&root);
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
         }
         return true;
     }
 
     if (strcmp(name, "codecs.xml_write") == 0) {
         if (arg_count < 1 || args[0].type != VAL_TABLE) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
         StringBuilder sb;
         sb_init(&sb, 256);
         xml_write_node(vm, args[0], 0, &sb);
+        if (sb.length == 0) {
+            sb_free(&sb);
+            *result = vm_make_none();
+            return true;
+        }
         *result = vm_make_string(sb.buffer);
         sb_free(&sb);
         return true;
