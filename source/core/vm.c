@@ -341,6 +341,97 @@ const char* vm_value_type_name(Value* value) {
     }
 }
 
+// converts a table to string with indentation, matching print_table_recursive format
+static char* table_to_string(Table* table) {
+    static char buffer[65536];
+    static int pos = 0;
+    static int recursion_depth = 0;
+    
+    if (recursion_depth == 0) {
+        pos = 0;
+        buffer[0] = '\0';
+    }
+    recursion_depth++;
+    
+    for (int i = 0; i < recursion_depth - 1; i++) {
+        pos += snprintf(buffer + pos, sizeof(buffer) - pos, "    ");
+    }
+    pos += snprintf(buffer + pos, sizeof(buffer) - pos, "[\n");
+    
+    int key_count;
+    char** keys = table_keys(table, &key_count);
+    
+    if (key_count == 0) {
+        for (int i = 0; i < recursion_depth; i++) {
+            pos += snprintf(buffer + pos, sizeof(buffer) - pos, "    ");
+        }
+        pos += snprintf(buffer + pos, sizeof(buffer) - pos, "]");
+        recursion_depth--;
+        if (recursion_depth == 0) {
+            buffer[pos] = '\0';
+        }
+        return buffer;
+    }
+    
+    for (int i = 0; i < key_count; i++) {
+        const char* key = keys[i];
+        Value val;
+        
+        if (table_get(table, key, &val)) {
+            for (int j = 0; j < recursion_depth; j++) {
+                pos += snprintf(buffer + pos, sizeof(buffer) - pos, "    ");
+            }
+            pos += snprintf(buffer + pos, sizeof(buffer) - pos, "%s = ", key);
+            
+            switch (val.type) {
+                case VAL_NUMBER: {
+                    double num = val.number;
+                    if (fabs(num) >= 1e6 || fabs(num - (long long)num) < 1e-9) 
+                        pos += snprintf(buffer + pos, sizeof(buffer) - pos, "%.0f", num);
+                    else 
+                        pos += snprintf(buffer + pos, sizeof(buffer) - pos, "%.15g", num);
+                    break;
+                }
+                case VAL_STRING: 
+                    pos += snprintf(buffer + pos, sizeof(buffer) - pos, "\"%s\"", val.string->chars); 
+                    break;
+                case VAL_BOOL: 
+                    pos += snprintf(buffer + pos, sizeof(buffer) - pos, "%s", val.boolean ? "true" : "false"); 
+                    break;
+                case VAL_TABLE:
+                    table_to_string(val.table);
+                    break;
+                case VAL_NONE:
+                    pos += snprintf(buffer + pos, sizeof(buffer) - pos, "none");
+                    break;
+                default: 
+                    pos += snprintf(buffer + pos, sizeof(buffer) - pos, "unknown"); 
+                    break;
+            }
+            
+            if (i < key_count - 1) {
+                pos += snprintf(buffer + pos, sizeof(buffer) - pos, ",");
+            }
+            pos += snprintf(buffer + pos, sizeof(buffer) - pos, "\n");
+            
+            value_decref(&val);
+        }
+    }
+    
+    free(keys);
+    
+    for (int i = 0; i < recursion_depth - 1; i++) {
+        pos += snprintf(buffer + pos, sizeof(buffer) - pos, "    ");
+    }
+    pos += snprintf(buffer + pos, sizeof(buffer) - pos, "]");
+    
+    recursion_depth--;
+    if (recursion_depth == 0) {
+        buffer[pos] = '\0';
+    }
+    return buffer;
+}
+
 // recursively prints a table with indentation for nested structures
 static void print_table_recursive(Table* table, int indent_level) {
     if (!table) return;
@@ -898,6 +989,9 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
                     break;
                 case VAL_STRING:
                     *result = vm_copy_value(args[0]);
+                    break;
+                case VAL_TABLE:
+                    *result = vm_make_string(table_to_string(args[0].table));
                     break;
                 default:
                     *result = vm_make_string("");

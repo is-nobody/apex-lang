@@ -911,17 +911,6 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
     if (func_name && (strcmp(func_name, "number") == 0 || 
                       strcmp(func_name, "string") == 0 || 
                       strcmp(func_name, "type") == 0)) {
-        if (node->call.arguments->count >= 1) {
-            ASTNode* arg = node->call.arguments->nodes[0];
-            ValueType arg_type = infer_expression_type(parser, arg);
-            
-            if (arg_type == TYPE_TABLE && strcmp(func_name, "type") != 0) {
-                int len = get_node_len(arg);
-                parser_error_at(parser, arg->line, arg->column, len,
-                    "Cannot convert table to %s", func_name);
-                return TYPE_ERROR;
-            }
-        }
         if (strcmp(func_name, "number") == 0) return TYPE_NUMBER;
         if (strcmp(func_name, "string") == 0) return TYPE_STRING;
         if (strcmp(func_name, "type") == 0) return TYPE_STRING;
