@@ -1712,12 +1712,9 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
         } else if (value) {
             ValueType new_type = infer_expression_type(parser, value);
             ValueType old_type = parser->symbols.types[idx];
-            if (old_type != TYPE_UNKNOWN && new_type != TYPE_UNKNOWN &&
-                new_type != TYPE_ERROR && old_type != new_type) {
-                parser_error_at(parser, name->line, name->column, (int)strlen(name->value),
-                                "Cannot change type of variable '%s' from %s to %s",
-                                name->value, type_name(old_type), type_name(new_type));
-            } else if (old_type == TYPE_UNKNOWN && new_type != TYPE_ERROR) {
+            if (old_type == TYPE_UNKNOWN && new_type != TYPE_ERROR) {
+                parser->symbols.types[idx] = new_type;
+            } else if (new_type != TYPE_ERROR && new_type != TYPE_UNKNOWN) {
                 parser->symbols.types[idx] = new_type;
             }
             parser_symbol_clear_const(parser, idx);
