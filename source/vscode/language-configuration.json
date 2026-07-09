@@ -16,8 +16,11 @@
     { "open": "[", "close": "]" },
     { "open": "\"", "close": "\"" }
   ],
+  "folding": {
+    "offSide": true
+  },
   "indentationRules": {
     "increaseIndentPattern": "^\\s*(function|if|elif|else|for)\\b.*$",
-    "decreaseIndentPattern": "^\\s*(elif|else)\\b.*$"
+    "decreaseIndentPattern": ""
   }
 }
