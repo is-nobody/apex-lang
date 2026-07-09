@@ -638,7 +638,20 @@ bool table_set(Table* table, const char* key, Value value) {
         char* endptr;
         long int_key = strtol(key, &endptr, 10);
         if (*endptr == '\0' && int_key > 0 && int_key <= 1000000000) {
-            return table_set_int(table, (int)(int_key - 1), value);
+            int idx = (int)(int_key - 1);
+            
+            if (table->array_part == NULL) {
+                if (idx < TABLE_ARRAY_INIT * 2) {
+                    return table_set_int(table, idx, value);
+                }
+            } else if (idx < table->array_capacity) {
+                return table_set_int(table, idx, value);
+            } else {
+                int gap = idx - table->array_count;
+                if (gap <= table->array_count * 2 && gap <= 1024) {
+                    return table_set_int(table, idx, value);
+                }
+            }
         }
     }
     
@@ -654,12 +667,10 @@ bool table_set(Table* table, const char* key, Value value) {
             TableEntry* entry = old_entries[i];
             while (entry) {
                 TableEntry* next = entry->next;
-                
                 unsigned int idx = hash_key(entry->key, table->capacity);
                 entry->next = table->entries[idx];
                 table->entries[idx] = entry;
                 table->hash_count++;
-                
                 entry = next;
             }
         }
@@ -696,7 +707,16 @@ bool table_get(Table* table, const char* key, Value* out_value) {
         char* endptr;
         long int_key = strtol(key, &endptr, 10);
         if (*endptr == '\0' && int_key > 0) {
-            return table_get_int(table, (int)(int_key - 1), out_value);
+            int idx = (int)(int_key - 1);
+            if (table->array_part != NULL && idx < table->array_count) {
+                if (table->array_part[idx].type != VAL_BOOL || table->array_part[idx].boolean) {
+                    if (out_value) {
+                        *out_value = table->array_part[idx];
+                        value_incref(out_value);
+                    }
+                    return true;
+                }
+            }
         }
     }
     
