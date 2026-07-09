@@ -1,4 +1,3 @@
-// ffi_test.apex
 import ffi
 import os
 import sys
@@ -20,47 +19,47 @@ function load_library()
         lib_name = "source/tests/libraries/libtest.dll"
     
     lib = ffi.open(lib_name)
-    assert_equal(lib != false, true, "ffi.open valid library")
-    if lib != false
+    assert_equal(lib != none, true, "ffi.open valid library")
+    if lib != none
         return lib
     
-    return false
+    return none
 
 function add_positive(lib)
-    if lib == false
+    if lib == none
         return
     res = ffi.call(lib, "add", 10, 20)
     assert_equal(res, 30, "ffi.call add 10+20")
 
 function add_negative(lib)
-    if lib == false
+    if lib == none
         return
     res = ffi.call(lib, "add", -5, 5)
     assert_equal(res, 0, "ffi.call add -5+5")
 
 function malloc_free()
     ptr = ffi.malloc(64)
-    assert_equal(ptr != false, true, "ffi.malloc returns pointer")
-    if ptr != false
+    assert_equal(ptr != none, true, "ffi.malloc returns pointer")
+    if ptr != none
         ffi.free(ptr)
         assert_equal(true, true, "ffi.free executed")
 
 function errno()
     err_code = ffi.errno()
-    assert_equal(err_code != false, true, "ffi.errno returns value")
-    if err_code != false
+    assert_equal(err_code != none, true, "ffi.errno returns value")
+    if err_code != none
         msg = ffi.strerror(err_code)
-        assert_equal(msg != false, true, "ffi.strerror returns string")
+        assert_equal(msg != none, true, "ffi.strerror returns string")
 
 function non_existent_function(lib)
-    if lib == false
+    if lib == none
         return
     bad_res = ffi.call(lib, "non_existent_function", 1)
-    assert_equal(bad_res, false, "ffi.call non-existent function")
+    assert_equal(bad_res, none, "ffi.call non-existent function")
 
 function invalid_library()
     bad_lib = ffi.open("lib_that_does_not_exist.so")
-    assert_equal(bad_lib, false, "ffi.open invalid library")
+    assert_equal(bad_lib, none, "ffi.open invalid library")
 
 lib = load_library()
 add_positive(lib)

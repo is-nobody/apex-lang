@@ -31,21 +31,21 @@ bool ffi_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
 
             void* handle = dlopen(path, RTLD_LAZY);
             if (!handle) {
-                *result = vm_make_bool(false);
+                *result = vm_make_none();
             } else {
                 *result = vm_make_table();
                 table_set(result->table, "_handle", vm_make_number((double)(uintptr_t)handle));
                 table_set(result->table, "path", vm_make_string(args[0].string->chars));
             }
         } else {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
         }
         return true;
     }
 
     if (strcmp(name, "ffi.call") == 0) {
         if (arg_count < 2) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
 
@@ -53,13 +53,13 @@ bool ffi_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         Value* name_val = &args[1];
 
         if (lib_val->type != VAL_TABLE || name_val->type != VAL_STRING) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
 
         Value handle_val;
         if (!table_get(lib_val->table, "_handle", &handle_val) || handle_val.type != VAL_NUMBER) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
 
@@ -68,7 +68,7 @@ bool ffi_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         
         void* func_ptr = dlsym(handle, func_name);
         if (!func_ptr) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
 
@@ -98,7 +98,7 @@ bool ffi_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
                 res = ((generic_func_4)func_ptr)((long)args[2].number, (long)args[3].number, (long)args[4].number, (long)args[5].number);
                 break;
             default:
-                *result = vm_make_bool(false);
+                *result = vm_make_none();
                 return true;
         }
 
@@ -118,10 +118,10 @@ bool ffi_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
             if (ptr) {
                 *result = vm_make_number((double)(uintptr_t)ptr);
             } else {
-                *result = vm_make_number(0);
+                *result = vm_make_none();
             }
         } else {
-            *result = vm_make_number(0);
+            *result = vm_make_none();
         }
         return true;
     }
@@ -129,11 +129,11 @@ bool ffi_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
     if (strcmp(name, "ffi.free") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
             void* ptr = (void*)(uintptr_t)args[0].number;
-            if (ptr != NULL) {
-                free(ptr);
-            }
+            free(ptr);  // safe for NULL
+            *result = vm_make_bool(true);
+        } else {
+            *result = vm_make_none();
         }
-        *result = vm_make_bool(true);
         return true;
     }
 
