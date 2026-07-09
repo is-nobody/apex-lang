@@ -14,7 +14,8 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             *result = vm_make_number(fabs(args[0].number));
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.floor") == 0) {
@@ -22,7 +23,8 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             *result = vm_make_number(floor(args[0].number));
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.ceil") == 0) {
@@ -30,7 +32,8 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             *result = vm_make_number(ceil(args[0].number));
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.round") == 0) {
@@ -39,20 +42,30 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             int decimals = 0;
             if (arg_count >= 2 && args[1].type == VAL_NUMBER) {
                 decimals = (int)args[1].number;
+                if (decimals < 0) {
+                    *result = vm_make_none();
+                    return true;
+                }
             }
             double factor = pow(10.0, decimals);
             *result = vm_make_number(round(num * factor) / factor);
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.sqrt") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
+            if (args[0].number < 0) {
+                *result = vm_make_number(NAN);
+                return true;
+            }
             *result = vm_make_number(sqrt(args[0].number));
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.exp") == 0) {
@@ -60,7 +73,8 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             *result = vm_make_number(exp(args[0].number));
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.log") == 0) {
@@ -68,10 +82,19 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             double x = args[0].number;
             double res;
             
+            if (x < 0) {
+                *result = vm_make_number(NAN);
+                return true;
+            }
+            if (x == 0) {
+                *result = vm_make_number(-INFINITY);
+                return true;
+            }
+            
             if (arg_count >= 2 && args[1].type == VAL_NUMBER) {
                 double base = args[1].number;
                 if (base <= 0 || base == 1.0) {
-                    *result = vm_make_number(NAN);
+                    *result = vm_make_none();
                     return true;
                 }
                 res = log(x) / log(base);
@@ -81,7 +104,8 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             *result = vm_make_number(res);
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.sin") == 0) {
@@ -89,7 +113,8 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             *result = vm_make_number(sin(args[0].number));
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.cos") == 0) {
@@ -97,7 +122,8 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             *result = vm_make_number(cos(args[0].number));
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.tan") == 0) {
@@ -105,23 +131,34 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             *result = vm_make_number(tan(args[0].number));
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.asin") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
+            if (args[0].number < -1 || args[0].number > 1) {
+                *result = vm_make_number(NAN);
+                return true;
+            }
             *result = vm_make_number(asin(args[0].number));
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.acos") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
+            if (args[0].number < -1 || args[0].number > 1) {
+                *result = vm_make_number(NAN);
+                return true;
+            }
             *result = vm_make_number(acos(args[0].number));
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.atan") == 0) {
@@ -129,7 +166,8 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             *result = vm_make_number(atan(args[0].number));
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.pi") == 0) {
@@ -152,7 +190,8 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             *result = vm_make_bool(isnan(args[0].number));
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.isinf") == 0) {
@@ -160,7 +199,8 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             *result = vm_make_bool(isinf(args[0].number));
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.trunc") == 0) {
@@ -168,15 +208,21 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             *result = vm_make_number(trunc(args[0].number));
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.pow") == 0) {
         if (arg_count >= 2 && args[0].type == VAL_NUMBER && args[1].type == VAL_NUMBER) {
+            if (args[0].number == 0 && args[1].number == 0) {
+                *result = vm_make_number(1.0);
+                return true;
+            }
             *result = vm_make_number(pow(args[0].number, args[1].number));
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.atan2") == 0) {
@@ -184,7 +230,8 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             *result = vm_make_number(atan2(args[0].number, args[1].number));
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.radians") == 0) {
@@ -192,7 +239,8 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             *result = vm_make_number(args[0].number * M_PI / 180.0);
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.degrees") == 0) {
@@ -200,7 +248,8 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             *result = vm_make_number(args[0].number * 180.0 / M_PI);
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.hypot") == 0) {
@@ -208,7 +257,8 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             *result = vm_make_number(hypot(args[0].number, args[1].number));
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.gcd") == 0) {
@@ -223,14 +273,21 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             *result = vm_make_number((double)a);
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     if (strcmp(name, "math.factorial") == 0) {
         if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
             double n = args[0].number;
-            if (n < 0 || n != floor(n)) return false;
-            if (n > 170) return false;
+            if (n < 0 || n != floor(n)) {
+                *result = vm_make_number(NAN);
+                return true;
+            }
+            if (n > 170) {
+                *result = vm_make_number(INFINITY);
+                return true;
+            }
             double res = 1.0;
             for (double i = 2.0; i <= n; i++) {
                 res *= i;
@@ -238,7 +295,8 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             *result = vm_make_number(res);
             return true;
         }
-        return false;
+        *result = vm_make_none();
+        return true;
     }
     
     return false;
