@@ -38,6 +38,10 @@ function string_from_none()
     result = string(none)
     assert_equal(result, "none", "string(none)")
 
+function string_from_table()
+    result = string(["cherry"])
+    assert_equal(result, "[\n    1 = \"cherry\"\n]", "string([\"cherry\"])")
+
 string_from_int()
 string_from_decimal()
 string_from_true()
@@ -45,6 +49,7 @@ string_from_false()
 string_from_negative()
 string_from_zero()
 string_from_none()
+string_from_table()
 
 if tests_failed == 0
     os.output("[OK] type_conversion/string.apex")

@@ -42,6 +42,10 @@ function number_from_none()
     result = number(none)
     assert_equal(result, none, "number(none)")
 
+function number_from_table()
+    result = number(["number"])
+    assert_equal(result, none, "number([\"cherry\"])")
+
 number_from_int_string()
 number_from_decimal_string()
 number_from_true()
@@ -50,6 +54,7 @@ number_from_invalid_string()
 number_from_negative_string()
 number_from_zero_string()
 number_from_none()
+number_from_table()
 
 if tests_failed == 0
     os.output("[OK] type_conversion/number.apex")
