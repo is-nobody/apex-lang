@@ -312,6 +312,56 @@ function table_with_none()
             none_count = none_count + 1
     assert_equal(none_count, 1, "only one none left")
 
+function sparse_numeric()
+    t = []
+    t["100000000"] = 52
+    assert_equal(t["100000000"], 52, "sparse_numeric_get")
+    t["100000000"] = 99
+    assert_equal(t["100000000"], 99, "sparse_numeric_update")
+
+function none_after_key_not_found()
+    t = []
+    t["1"] = 10
+    t["2"] = 20
+    t["2"] = none
+    assert_equal(t["2"], none, "set_none_override")
+    assert_equal(t["3"], none, "missing_key_is_none")
+    assert_equal(t["999999"], none, "sparse_missing_is_none")
+
+function overwrite_with_none()
+    t = ["a" = 1, "b" = 2]
+    t["a"] = none
+    assert_equal(t["a"], none, "overwrite_with_none")
+    t["a"] = 100
+    assert_equal(t["a"], 100, "overwrite_none_back")
+
+function none_in_array()
+    t = [1, none, 3]
+    assert_equal(t[1], 1, "none_arr_1")
+    assert_equal(t[2], none, "none_arr_2")
+    assert_equal(t[3], 3, "none_arr_3")
+    t[2] = 2
+    assert_equal(t[2], 2, "none_arr_2_filled")
+    t[2] = none
+    assert_equal(t[2], none, "none_arr_2_back_to_none")
+
+function nested_sparse()
+    outer = []
+    outer["key"] = []
+    outer["key"]["1000000"] = "far"
+    assert_equal(outer["key"]["1000000"], "far", "nested_sparse")
+
+function mixed_numeric_and_string_keys()
+    t = ["a" = 1, "b" = 2]
+    t["1"] = "one"
+    t["2"] = "two"
+    assert_equal(t["a"], 1, "mixed_str_a")
+    assert_equal(t["b"], 2, "mixed_str_b")
+    assert_equal(t["1"], "one", "mixed_num_1")
+    assert_equal(t["2"], "two", "mixed_num_2")
+    assert_equal(t[1], "one", "mixed_index_1")
+    assert_equal(t[2], "two", "mixed_index_2")
+    
 empty_table()
 ordered_list()
 key_value()
@@ -337,6 +387,12 @@ hashtable_numeric_keys()
 map_filter_reduce()
 gc_short_lived()
 table_with_none()
+sparse_numeric()
+none_after_key_not_found()
+overwrite_with_none()
+none_in_array()
+nested_sparse()
+mixed_numeric_and_string_keys()
 
 if tests_failed == 0
     os.output("[OK] integration/table.apex")

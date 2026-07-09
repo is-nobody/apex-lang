@@ -341,36 +341,61 @@ const char* vm_value_type_name(Value* value) {
     }
 }
 
+// dynamic string builder for efficient concatenation
+typedef struct {
+    char* buffer;
+    int length;
+    int capacity;
+} StringBuilder;
+
+static void sb_init(StringBuilder* sb, int initial_capacity) {
+    sb->capacity = initial_capacity > 16 ? initial_capacity : 16;
+    sb->buffer = (char*)malloc(sb->capacity);
+    sb->length = 0;
+    sb->buffer[0] = '\0';
+}
+
+static void sb_append(StringBuilder* sb, const char* str, int len) {
+    if (sb->length + len + 1 > sb->capacity) {
+        sb->capacity = (sb->length + len + 1) * 2;
+        sb->buffer = (char*)realloc(sb->buffer, sb->capacity);
+    }
+    memcpy(sb->buffer + sb->length, str, len);
+    sb->length += len;
+    sb->buffer[sb->length] = '\0';
+}
+
+static StringObject* sb_to_string(StringBuilder* sb) {
+    return string_create(sb->buffer, sb->length);
+}
+
+static void sb_free(StringBuilder* sb) {
+    free(sb->buffer);
+}
+
+static void table_to_string_builder(Table* table, StringBuilder* sb, int indent_level);
+
 // converts a table to string with indentation, matching print_table_recursive format
 static char* table_to_string(Table* table) {
-    static char buffer[65536];
-    static int pos = 0;
-    static int recursion_depth = 0;
-    
-    if (recursion_depth == 0) {
-        pos = 0;
-        buffer[0] = '\0';
-    }
-    recursion_depth++;
-    
-    for (int i = 0; i < recursion_depth - 1; i++) {
-        pos += snprintf(buffer + pos, sizeof(buffer) - pos, "    ");
-    }
-    pos += snprintf(buffer + pos, sizeof(buffer) - pos, "[\n");
+    StringBuilder sb;
+    sb_init(&sb, 4096);
+    table_to_string_builder(table, &sb, 0);
+    char* result = strdup(sb.buffer);
+    sb_free(&sb);
+    return result;
+}
+
+static void table_to_string_builder(Table* table, StringBuilder* sb, int indent_level) {
+    for (int i = 0; i < indent_level; i++) sb_append(sb, "    ", 4);
+    sb_append(sb, "[\n", 2);
     
     int key_count;
     char** keys = table_keys(table, &key_count);
     
     if (key_count == 0) {
-        for (int i = 0; i < recursion_depth; i++) {
-            pos += snprintf(buffer + pos, sizeof(buffer) - pos, "    ");
-        }
-        pos += snprintf(buffer + pos, sizeof(buffer) - pos, "]");
-        recursion_depth--;
-        if (recursion_depth == 0) {
-            buffer[pos] = '\0';
-        }
-        return buffer;
+        for (int i = 0; i < indent_level + 1; i++) sb_append(sb, "    ", 4);
+        sb_append(sb, "]", 1);
+        return;
     }
     
     for (int i = 0; i < key_count; i++) {
@@ -378,120 +403,76 @@ static char* table_to_string(Table* table) {
         Value val;
         
         if (table_get(table, key, &val)) {
-            for (int j = 0; j < recursion_depth; j++) {
-                pos += snprintf(buffer + pos, sizeof(buffer) - pos, "    ");
+            for (int j = 0; j < indent_level + 1; j++) sb_append(sb, "    ", 4);
+            
+            char num_buf[64];
+            if (key[0] >= '0' && key[0] <= '9') {
+                char* endptr;
+                long n = strtol(key, &endptr, 10);
+                if (*endptr == '\0' && n > 0) {
+                    sb_append(sb, key, strlen(key));
+                } else {
+                    sb_append(sb, "\"", 1);
+                    sb_append(sb, key, strlen(key));
+                    sb_append(sb, "\"", 1);
+                }
+            } else {
+                sb_append(sb, key, strlen(key));
             }
-            pos += snprintf(buffer + pos, sizeof(buffer) - pos, "%s = ", key);
+            
+            sb_append(sb, " = ", 3);
             
             switch (val.type) {
                 case VAL_NUMBER: {
                     double num = val.number;
                     if (fabs(num) >= 1e6 || fabs(num - (long long)num) < 1e-9) 
-                        pos += snprintf(buffer + pos, sizeof(buffer) - pos, "%.0f", num);
+                        snprintf(num_buf, sizeof(num_buf), "%.0f", num);
                     else 
-                        pos += snprintf(buffer + pos, sizeof(buffer) - pos, "%.15g", num);
+                        snprintf(num_buf, sizeof(num_buf), "%.15g", num);
+                    sb_append(sb, num_buf, strlen(num_buf));
                     break;
                 }
                 case VAL_STRING: 
-                    pos += snprintf(buffer + pos, sizeof(buffer) - pos, "\"%s\"", val.string->chars); 
+                    sb_append(sb, "\"", 1);
+                    sb_append(sb, val.string->chars, val.string->length);
+                    sb_append(sb, "\"", 1);
                     break;
                 case VAL_BOOL: 
-                    pos += snprintf(buffer + pos, sizeof(buffer) - pos, "%s", val.boolean ? "true" : "false"); 
+                    sb_append(sb, val.boolean ? "true" : "false", val.boolean ? 4 : 5);
                     break;
                 case VAL_TABLE:
-                    table_to_string(val.table);
+                    table_to_string_builder(val.table, sb, indent_level + 1);
                     break;
                 case VAL_NONE:
-                    pos += snprintf(buffer + pos, sizeof(buffer) - pos, "none");
+                    sb_append(sb, "none", 4);
                     break;
                 default: 
-                    pos += snprintf(buffer + pos, sizeof(buffer) - pos, "unknown"); 
+                    sb_append(sb, "unknown", 7);
                     break;
             }
             
-            if (i < key_count - 1) {
-                pos += snprintf(buffer + pos, sizeof(buffer) - pos, ",");
-            }
-            pos += snprintf(buffer + pos, sizeof(buffer) - pos, "\n");
+            if (i < key_count - 1) sb_append(sb, ",", 1);
+            sb_append(sb, "\n", 1);
             
             value_decref(&val);
         }
+        free((void*)keys[i]);
     }
     
     free(keys);
     
-    for (int i = 0; i < recursion_depth - 1; i++) {
-        pos += snprintf(buffer + pos, sizeof(buffer) - pos, "    ");
-    }
-    pos += snprintf(buffer + pos, sizeof(buffer) - pos, "]");
-    
-    recursion_depth--;
-    if (recursion_depth == 0) {
-        buffer[pos] = '\0';
-    }
-    return buffer;
+    for (int i = 0; i < indent_level; i++) sb_append(sb, "    ", 4);
+    sb_append(sb, "]", 1);
 }
 
 // recursively prints a table with indentation for nested structures
 static void print_table_recursive(Table* table, int indent_level) {
+    (void)indent_level;
     if (!table) return;
     
-    for (int i = 0; i < indent_level; i++) printf("    ");
-    printf("[\n");
-    
-    int total_keys = 0;
-    char** keys = table_keys(table, &total_keys);
-    
-    if (total_keys == 0) {
-        for (int i = 0; i < indent_level + 1; i++) printf("    ");
-        printf("]\n");
-        return;
-    }
-    
-    for (int i = 0; i < total_keys; i++) {
-        const char* key = keys[i];
-        Value val;
-        
-        if (table_get(table, key, &val)) {
-            for (int j = 0; j < indent_level + 1; j++) printf("    ");
-            printf("%s = ", key);
-            
-            switch (val.type) {
-                case VAL_NUMBER: {
-                    double num = val.number;
-                    if (fabs(num) >= 1e6 || fabs(num - (long long)num) < 1e-9) 
-                        printf("%.0f", num);
-                    else 
-                        printf("%.15g", num);
-                    break;
-                }
-                case VAL_STRING: 
-                    printf("\"%s\"", val.string->chars); 
-                    break;
-                case VAL_BOOL: 
-                    printf("%s", val.boolean ? "true" : "false"); 
-                    break;
-                case VAL_TABLE:
-                    print_table_recursive(val.table, indent_level + 1);
-                    break;
-                default: 
-                    printf("unknown"); 
-                    break;
-            }
-            
-            if (i < total_keys - 1) {
-                printf(",");
-            }
-            printf("\n");
-            
-            value_decref(&val);
-        }
-    }
-    
-    free(keys);
-    
-    for (int i = 0; i < indent_level; i++) printf("    ");
-    printf("]");
+    char* str = table_to_string(table);
+    printf("%s", str);
+    free(str);
 }
 
 // prints a value to stdout with formatting
@@ -529,11 +510,9 @@ Table* table_create(int capacity) {
     table->capacity = capacity < 8 ? 8 : capacity;
     table->hash_count = 0;
     table->entries = (TableEntry**)calloc(table->capacity, sizeof(TableEntry*));
-    
     table->array_capacity = 0;
     table->array_part = NULL;
     table->array_count = 0;
-    
     return table;
 }
 
@@ -570,7 +549,7 @@ static void array_part_grow(Table* table, int needed_index) {
         while (table->array_capacity <= needed_index) {
             table->array_capacity *= 2;
         }
-        table->array_part = (Value*)calloc(table->array_capacity, sizeof(Value));
+        table->array_part = (Value*)malloc(table->array_capacity * sizeof(Value));
         for (int i = 0; i < table->array_capacity; i++) {
             table->array_part[i].type = VAL_BOOL;
             table->array_part[i].boolean = false;
@@ -583,7 +562,7 @@ static void array_part_grow(Table* table, int needed_index) {
         new_capacity *= 2;
     }
     
-    Value* new_array = (Value*)calloc(new_capacity, sizeof(Value));
+    Value* new_array = (Value*)malloc(new_capacity * sizeof(Value));
     for (int i = 0; i < table->array_count; i++) {
         new_array[i] = table->array_part[i];
     }
@@ -749,14 +728,16 @@ void table_remove(Table* table, const char* key) {
         long int_key = strtol(key, &endptr, 10);
         if (*endptr == '\0' && int_key > 0 && table->array_part != NULL && int_key - 1 < table->array_count) {
             int idx = (int)(int_key - 1);
-            value_decref(&table->array_part[idx]);
-            table->array_part[idx].type = VAL_BOOL;
-            table->array_part[idx].boolean = false;
-            
-            while (table->array_count > 0 && 
-                   table->array_part[table->array_count - 1].type == VAL_BOOL &&
-                   !table->array_part[table->array_count - 1].boolean) {
-                table->array_count--;
+            if (table->array_part[idx].type != VAL_BOOL || table->array_part[idx].boolean) {
+                value_decref(&table->array_part[idx]);
+                table->array_part[idx].type = VAL_BOOL;
+                table->array_part[idx].boolean = false;
+                
+                while (table->array_count > 0 && 
+                       table->array_part[table->array_count - 1].type == VAL_BOOL &&
+                       !table->array_part[table->array_count - 1].boolean) {
+                    table->array_count--;
+                }
             }
             return;
         }
@@ -782,16 +763,32 @@ void table_remove(Table* table, const char* key) {
 
 // returns the total number of entries in the table
 int table_size(Table* table) {
-    return table ? table->array_count + table->hash_count : 0;
+    if (!table) return 0;
+    int count = table->hash_count;
+    for (int i = 0; i < table->array_count; i++) {
+        if (table->array_part[i].type != VAL_BOOL || table->array_part[i].boolean) {
+            count++;
+        }
+    }
+    return count;
 }
 
 // returns an array of all keys in the table
 char** table_keys(Table* table, int* out_count) {
     if (!table || !out_count) return NULL;
-    *out_count = 0;
     
-    int total = table->array_count + table->hash_count;
-    if (total == 0) return NULL;
+    int total = 0;
+    for (int i = 0; i < table->array_count; i++) {
+        if (table->array_part[i].type != VAL_BOOL || table->array_part[i].boolean) {
+            total++;
+        }
+    }
+    total += table->hash_count;
+    
+    if (total == 0) {
+        *out_count = 0;
+        return NULL;
+    }
     
     char** keys = (char**)malloc(sizeof(char*) * total);
     if (!keys) return NULL;
@@ -809,7 +806,7 @@ char** table_keys(Table* table, int* out_count) {
     for (int i = 0; i < table->capacity; i++) {
         TableEntry* entry = table->entries[i];
         while (entry) {
-            keys[idx++] = entry->key;
+            keys[idx++] = strdup(entry->key);
             entry = entry->next;
         }
     }
@@ -835,12 +832,15 @@ void table_clear(Table* table) {
     }
     table->hash_count = 0;
     
-    for (int i = 0; i < table->array_count; i++) {
-        value_decref(&table->array_part[i]);
-        table->array_part[i].type = VAL_BOOL;
-        table->array_part[i].boolean = false;
+    if (table->array_part) {
+        for (int i = 0; i < table->array_count; i++) {
+            value_decref(&table->array_part[i]);
+        }
+        free(table->array_part);
+        table->array_part = NULL;
+        table->array_capacity = 0;
+        table->array_count = 0;
     }
-    table->array_count = 0;
 }
 
 // creates a shallow copy of the table
@@ -862,38 +862,6 @@ Table* table_copy(Table* table) {
     }
     
     return copy;
-}
-
-// dynamic string builder for efficient concatenation
-typedef struct {
-    char* buffer;
-    int length;
-    int capacity;
-} StringBuilder;
-
-static void sb_init(StringBuilder* sb, int initial_capacity) {
-    sb->capacity = initial_capacity > 16 ? initial_capacity : 16;
-    sb->buffer = (char*)malloc(sb->capacity);
-    sb->length = 0;
-    sb->buffer[0] = '\0';
-}
-
-static void sb_append(StringBuilder* sb, const char* str, int len) {
-    if (sb->length + len + 1 > sb->capacity) {
-        sb->capacity = (sb->length + len + 1) * 2;
-        sb->buffer = (char*)realloc(sb->buffer, sb->capacity);
-    }
-    memcpy(sb->buffer + sb->length, str, len);
-    sb->length += len;
-    sb->buffer[sb->length] = '\0';
-}
-
-static StringObject* sb_to_string(StringBuilder* sb) {
-    return string_create(sb->buffer, sb->length);
-}
-
-static void sb_free(StringBuilder* sb) {
-    free(sb->buffer);
 }
 
 // creates a new VM instance with register frames and intern table
@@ -1692,7 +1660,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int rlen = (right->type == VAL_STRING) ? right->string->length : (int)strlen(rs);
         int total_len = llen + rlen;
         
-        if (total_len >= 16 && total_len <= 64 && vm->intern_table.count < 50000) {
+        if (total_len >= 16 && total_len <= 64) {
             char combined[65];
             memcpy(combined, ls, llen);
             memcpy(combined + llen, rs, rlen);
@@ -1703,15 +1671,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             vm->registers[dest].type = VAL_STRING;
             vm->registers[dest].string = interned;
             value_incref(&vm->registers[dest]);
-        } else if (total_len < 16) {
-            StringBuilder sb;
-            sb_init(&sb, total_len + 1);
-            sb_append(&sb, ls, llen);
-            sb_append(&sb, rs, rlen);
-            value_decref(&vm->registers[dest]);
-            vm->registers[dest].type = VAL_STRING;
-            vm->registers[dest].string = sb_to_string(&sb);
-            sb_free(&sb);
         } else {
             StringBuilder sb;
             sb_init(&sb, total_len + 1);
