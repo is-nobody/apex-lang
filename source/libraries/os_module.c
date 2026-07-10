@@ -97,7 +97,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             printf("\n");
             fflush(stdout);
         }
-        *result = vm_make_bool(false);
+        *result = vm_make_none();
         return true;
     }
     
@@ -142,7 +142,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             nanosleep(&ts, NULL);
 #endif
         }
-        *result = vm_make_bool(false);
+        *result = vm_make_none();
         return true;
     }
     
@@ -156,7 +156,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     if (strcmp(name, "os.get_current_folder") == 0) {
         char cwd[4096];
         if (getcwd(cwd, sizeof(cwd))) *result = vm_make_string(cwd);
-        else *result = vm_make_bool(false);
+        else *result = vm_make_none();
         return true;
     }
     
@@ -194,7 +194,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             int exit_code = system(args[0].string->chars);
             *result = vm_make_number(exit_code);
         } else {
-            *result = vm_make_number(-1);
+            *result = vm_make_none();
         }
         return true;
     }
@@ -214,10 +214,10 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
                 *result = vm_make_string(buffer);
                 free(buffer);
             } else {
-                *result = vm_make_bool(false);
+                *result = vm_make_none();
             }
         } else {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
         }
         return true;
     }
@@ -300,13 +300,13 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
                 } else if (S_ISDIR(st.st_mode)) {
                     *result = vm_make_number(calculate_dir_size(args[0].string->chars));
                 } else {
-                    *result = vm_make_bool(false);
+                    *result = vm_make_none();
                 }
             } else {
-                *result = vm_make_bool(false);
+                *result = vm_make_none();
             }
         } else {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
         }
         return true;
     }
@@ -321,10 +321,10 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
                 table_set(result->table, "ctime", vm_make_number(st.st_ctime));
                 table_set(result->table, "isdir", vm_make_bool(S_ISDIR(st.st_mode) ? true : false));
             } else {
-                *result = vm_make_bool(false);
+                *result = vm_make_none();
             }
         } else {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
         }
         return true;
     }
@@ -333,14 +333,14 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             FILE* f = fopen(args[0].string->chars, "rb");
             if (!f) {
-                *result = vm_make_bool(false);
+                *result = vm_make_none();
                 return true;
             }
             unsigned char header[16];
             size_t read_bytes = fread(header, 1, 16, f);
             fclose(f);
             if (read_bytes == 0) {
-                *result = vm_make_bool(false);
+                *result = vm_make_none();
             } else if (read_bytes >= 4 && header[0] == '%' && header[1] == 'P' && header[2] == 'D' && header[3] == 'F') {
                 *result = vm_make_string("PDF document");
             } else if (read_bytes >= 8 && header[0] == 0x89 && header[1] == 'P' && header[2] == 'N' && header[3] == 'G' && header[4] == '\r' && header[5] == '\n' && header[6] == 0x1A && header[7] == '\n') {
@@ -366,7 +366,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
                 *result = vm_make_string(is_text ? "Plain text" : "Unknown binary");
             }
         } else {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
         }
         return true;
     }
@@ -548,14 +548,15 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         if (arg_count >= 1 && args[0].type == VAL_STRING) {
             path = args[0].string->chars;
         }
-        *result = vm_make_table();
-#ifdef _WIN32
+        
+    #ifdef _WIN32
         WIN32_FIND_DATA fd;
         HANDLE hFind;
         char search_path[4096];
         snprintf(search_path, sizeof(search_path), "%s\\*", path);
         hFind = FindFirstFile(search_path, &fd);
         if (hFind != INVALID_HANDLE_VALUE) {
+            *result = vm_make_table();
             int idx = 1;
             do {
                 char key[32];
@@ -564,11 +565,12 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             } while (FindNextFile(hFind, &fd));
             FindClose(hFind);
         } else {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
         }
 #else
         DIR* dir = opendir(path);
         if (dir) {
+            *result = vm_make_table();
             struct dirent* entry;
             int idx = 1;
             while ((entry = readdir(dir)) != NULL) {
@@ -578,7 +580,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             }
             closedir(dir);
         } else {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
         }
 #endif
         return true;
@@ -615,7 +617,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
                 *result = vm_make_string(".");
             }
         } else {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
         }
         return true;
     }
