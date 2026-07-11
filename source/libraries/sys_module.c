@@ -97,7 +97,7 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         platform = "Unix";
 #endif
         if (platform) *result = vm_make_string(platform);
-        else *result = vm_make_bool(false);
+        else *result = vm_make_none();
         return true;
     }
 
@@ -123,7 +123,7 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         }
 #endif
         if (arch) *result = vm_make_string(arch);
-        else *result = vm_make_bool(false);
+        else *result = vm_make_none();
         return true;
     }
 
@@ -132,10 +132,10 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
 #ifdef _WIN32
         DWORD size = sizeof(hostname);
         if (GetComputerName(hostname, &size)) *result = vm_make_string(hostname);
-        else *result = vm_make_bool(false);
+        else *result = vm_make_none();
 #else
         if (gethostname(hostname, sizeof(hostname)) == 0) *result = vm_make_string(hostname);
-        else *result = vm_make_bool(false);
+        else *result = vm_make_none();
 #endif
         return true;
     }
@@ -145,12 +145,12 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         char username[256];
         DWORD size = sizeof(username);
         if (GetUserName(username, &size)) *result = vm_make_string(username);
-        else *result = vm_make_bool(false);
+        else *result = vm_make_none();
 #else
         char* username = getenv("USER");
         if (!username) username = getenv("LOGNAME");
         if (username) *result = vm_make_string(username);
-        else *result = vm_make_bool(false);
+        else *result = vm_make_none();
 #endif
         return true;
     }
@@ -168,11 +168,11 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
             }
         }
         if (home) *result = vm_make_string(home);
-        else *result = vm_make_bool(false);
+        else *result = vm_make_none();
 #else
         char* home = getenv("HOME");
         if (home) *result = vm_make_string(home);
-        else *result = vm_make_bool(false);
+        else *result = vm_make_none();
 #endif
         return true;
     }
@@ -186,17 +186,17 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         char path[4096];
 #ifdef _WIN32
         if (GetModuleFileName(NULL, path, sizeof(path)) != 0) *result = vm_make_string(path);
-        else *result = vm_make_bool(false);
+        else *result = vm_make_none();
 #elif __linux__
         ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
         if (len != -1) { path[len] = '\0'; *result = vm_make_string(path); }
-        else *result = vm_make_bool(false);
+        else *result = vm_make_none();
 #elif __APPLE__
         uint32_t size = sizeof(path);
         if (_NSGetExecutablePath(path, &size) == 0) *result = vm_make_string(path);
-        else *result = vm_make_bool(false);
+        else *result = vm_make_none();
 #else
-        *result = vm_make_bool(false);
+        *result = vm_make_none();
 #endif
         return true;
     }
@@ -222,7 +222,7 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
             result->type = VAL_TABLE;
             result->table = t;
         } else {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
         }
 #elif defined(__linux__) || defined(__APPLE__) || defined(__unix__)
         struct statvfs buf;
@@ -242,10 +242,10 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
             result->type = VAL_TABLE;
             result->table = t;
         } else {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
         }
 #else
-        *result = vm_make_bool(false);
+        *result = vm_make_none();
 #endif
         return true;
     }
@@ -265,7 +265,7 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         if (GetTempPath(sizeof(path), path) != 0) {
             *result = vm_make_string(path);
         } else {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
         }
 #else
         const char* tmp = getenv("TMPDIR");
