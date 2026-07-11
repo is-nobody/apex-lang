@@ -83,6 +83,85 @@ function string_replace()
     result = string.replace("Hello World", "xyz", "abc")
     assert_equal(result, "Hello World", "string.replace not found")
 
+function string_all_none_checks()
+    num = 123
+    bool_val = true
+    nil_val = none
+    
+    function test_len(val)
+        result = string.len(val)
+        return result
+    
+    assert_equal(test_len(num), none, "len(number)")
+    assert_equal(test_len(bool_val), none, "len(bool)")
+    assert_equal(test_len(nil_val), none, "len(none)")
+    
+    function test_upper(val)
+        return string.upper(val)
+    
+    assert_equal(test_upper(num), none, "upper(number)")
+    assert_equal(test_upper(bool_val), none, "upper(bool)")
+    assert_equal(test_upper(nil_val), none, "upper(none)")
+    
+    function test_lower(val)
+        return string.lower(val)
+    
+    assert_equal(test_lower(num), none, "lower(number)")
+    assert_equal(test_lower(bool_val), none, "lower(bool)")
+    assert_equal(test_lower(nil_val), none, "lower(none)")
+    
+    function test_trim(val)
+        return string.trim(val)
+    
+    assert_equal(test_trim(num), none, "trim(number)")
+    assert_equal(test_trim(bool_val), none, "trim(bool)")
+    assert_equal(test_trim(nil_val), none, "trim(none)")
+    
+    function test_find(a, b)
+        return string.find(a, b)
+    
+    assert_equal(test_find(num, "test"), none, "find(num,str)")
+    assert_equal(test_find("test", num), none, "find(str,num)")
+    assert_equal(test_find(bool_val, "test"), none, "find(bool,str)")
+    assert_equal(test_find("test", bool_val), none, "find(str,bool)")
+    assert_equal(test_find(nil_val, "test"), none, "find(none,str)")
+    assert_equal(test_find("test", nil_val), none, "find(str,none)")
+    
+    function test_replace(a, b, c)
+        return string.replace(a, b, c)
+    
+    assert_equal(test_replace(num, "a", "b"), none, "replace(num,str,str)")
+    assert_equal(test_replace("test", num, "b"), none, "replace(str,num,str)")
+    assert_equal(test_replace("test", "a", num), none, "replace(str,str,num)")
+    assert_equal(test_replace(nil_val, "a", "b"), none, "replace(none,str,str)")
+    assert_equal(test_replace("test", nil_val, "b"), none, "replace(str,none,str)")
+    assert_equal(test_replace("test", "a", nil_val), none, "replace(str,str,none)")
+    
+    function test_sub(a, b, c)
+        return string.sub(a, b, c)
+    
+    assert_equal(test_sub(num, 0, 5), none, "sub(num,int,int)")
+    assert_equal(test_sub("test", "0", 5), none, "sub(str,str,int)")
+    assert_equal(test_sub("test", 0, "5"), none, "sub(str,int,str)")
+    assert_equal(test_sub(nil_val, 0, 5), none, "sub(none,int,int)")
+    assert_equal(test_sub("test", nil_val, 5), none, "sub(str,none,int)")
+    assert_equal(test_sub("test", 0, nil_val), none, "sub(str,int,none)")
+    
+    function test_split(val)
+        return string.split(val, ",")
+    
+    assert_equal(test_split(num), none, "split(number)")
+    assert_equal(test_split(bool_val), none, "split(bool)")
+    assert_equal(test_split(nil_val), none, "split(none)")
+    
+    function test_join(val, sep)
+        return string.join(val, sep)
+    
+    assert_equal(test_join(num, ","), none, "join(number,str)")
+    assert_equal(test_join(bool_val, ","), none, "join(bool,str)")
+    assert_equal(test_join(nil_val, ","), none, "join(none,str)")
+    assert_equal(test_join("not table", ","), none, "join(string,str)")
+
 string_len()
 string_lower()
 string_upper()
@@ -92,6 +171,7 @@ string_join()
 string_trim()
 string_find()
 string_replace()
+string_all_none_checks()
 
 if tests_failed == 0
     os.output("[OK] libraries/string.apex")
