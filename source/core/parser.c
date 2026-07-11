@@ -786,7 +786,7 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
                 return TYPE_ERROR;
             }
             if (!is_numeric_type(left_type) || !is_numeric_type(right_type)) {
-                parser_error_at(parser, node->binary.left->line, node->binary.left->column, get_node_len(node->binary.left),
+                parser_error_at(parser, node->line, node->column, get_node_len(node),
                     "Arithmetic operator '+' requires number operands, got %s and %s",
                     type_name(left_type), type_name(right_type));
                 return TYPE_ERROR;
@@ -795,7 +795,7 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
             
         case TOKEN_MINUS: case TOKEN_STAR: case TOKEN_SLASH: case TOKEN_PERCENT:
             if (!is_numeric_type(left_type) || !is_numeric_type(right_type)) {
-                parser_error_at(parser, node->binary.left->line, node->binary.left->column, get_node_len(node->binary.left),
+                parser_error_at(parser, node->line, node->column, get_node_len(node),
                     "Arithmetic operator '%s' requires number operands, got %s and %s",
                     binary_op_name(node->binary.op), type_name(left_type), type_name(right_type));
                 return TYPE_ERROR;
@@ -820,9 +820,9 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
 
         case TOKEN_LESS: case TOKEN_GREATER: case TOKEN_LESS_EQUAL: case TOKEN_GREATER_EQUAL:
             if (!is_numeric_type(left_type) || !is_numeric_type(right_type)) {
-                parser_error_at(parser, node->binary.left->line, node->binary.left->column, get_node_len(node->binary.left),
-                                "Comparison operator '%s' requires number operands, got %s and %s",
-                                binary_op_name(node->binary.op), type_name(left_type), type_name(right_type));
+                parser_error_at(parser, node->line, node->column, get_node_len(node),
+                    "Comparison operator '%s' requires number operands, got %s and %s",
+                    binary_op_name(node->binary.op), type_name(left_type), type_name(right_type));
                 return TYPE_ERROR;
             }
             return TYPE_BOOLEAN;
