@@ -236,6 +236,13 @@ static const BuiltinSig* lookup_builtin(const char* name) {
 // reports a parse error at a specific source position with formatting
 void parser_error_at(Parser* parser, int line, int column, int len,
                      const char* format, ...) {
+    if (parser->last_error_line == line && parser->last_error_column == column) {
+        return;
+    }
+    
+    parser->last_error_line = line;
+    parser->last_error_column = column;
+    
     char buffer[1024];
     va_list args;
     va_start(args, format);
@@ -245,7 +252,6 @@ void parser_error_at(Parser* parser, int line, int column, int len,
     parser->error_count++;
     print_error_with_context(parser->filename, parser->source,
                              line, column, len, "Parse Error", buffer);
-    throw_repl_error();
 }
 
 // reports a parse error at the current token position
@@ -658,6 +664,9 @@ Parser* parser_create(Token* tokens, int count, const char* filename, const char
     parser->source_dir = NULL;
     parser_set_source_dir(parser, filename);
 
+    parser->last_error_line = -1;
+    parser->last_error_column = -1;
+
     return parser;
 }
 
@@ -1029,10 +1038,8 @@ static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
                 return TYPE_FUNCTION;
             }
 
-            if (is_builtin_module_root(name)) {
-                parser_error_at(parser, node->line, node->column, (int)strlen(name),
-                                "Module '%s' is not imported. Use 'import %s' first", name, name);
-                return TYPE_ERROR;
+            if (is_known_builtin_module(name)) {
+                return TYPE_UNKNOWN;
             }
 
             parser_error_at(parser, node->line, node->column, (int)strlen(name),
@@ -2189,6 +2196,11 @@ static ASTNode* parse_statement(Parser* parser) {
             return NULL;
         }
         
+        case TOKEN_INDENT:
+        case TOKEN_DEDENT:
+            advance(parser);
+            return NULL;
+
         default: {
             ASTNode* expr = parse_expression(parser);
             if (expr) {
@@ -2223,6 +2235,11 @@ static ASTNode* parse_block(Parser* parser, bool require_indent, const char* aft
     }
 
     while (!check(parser, TOKEN_EOF) && !check(parser, TOKEN_DEDENT)) {
+        if (check(parser, TOKEN_INDENT)) {
+            advance(parser);
+            continue;
+        }
+        
         int before = parser->current;
         ASTNode* stmt = parse_statement(parser);
         if (stmt) {

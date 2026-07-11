@@ -56,6 +56,9 @@ struct Parser {
     int loop_depth;          // nesting depth of loops (for break/continue checks)
     int function_depth;      // nesting depth of functions (for return checks)
     bool semantic_checks;    // whether to perform type checking and constant folding
+
+    int last_error_line;
+    int last_error_column;
 };
 
 // creates a parser instance for the given token stream and source info

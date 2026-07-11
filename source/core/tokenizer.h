@@ -1,6 +1,7 @@
-// tokenizer.h
 #ifndef TOKENIZER_H
 #define TOKENIZER_H
+
+#include <stdbool.h>
 
 // all token types recognized by the lexer, including keywords, literals, and delimiters
 typedef enum {
@@ -61,18 +62,19 @@ typedef struct {
 
 // tokenizer state tracking source scan position, indentation, and output buffer
 typedef struct {
-    char* source;        // the entire source code string
-    char* filename;      // source file name for error reporting
-    int pos;             // current position in the source
-    int line;            // current line number
-    int column;          // current column number
-    Token* tokens;       // dynamically growing array of tokens
-    int token_count;     // number of tokens collected so far
-    int token_capacity;  // allocated capacity of the tokens array
-    int indent_stack[256]; // stack for tracking indentation levels
-    int indent_depth;    // current indentation depth index
-    int pending_newline; // flag to defer newline emission after indentation
-    int paren_depth;     // depth of parentheses to ignore newline significance
+    char* source;            // the entire source code string
+    char* filename;          // source file name for error reporting
+    int pos;                 // current position in the source
+    int line;                // current line number
+    int column;              // current column number
+    Token* tokens;           // dynamically growing array of tokens
+    int token_count;         // number of tokens collected so far
+    int token_capacity;      // allocated capacity of the tokens array
+    int indent_stack[256];   // stack for tracking indentation levels
+    int indent_depth;        // current indentation depth index
+    int pending_newline;     // flag to defer newline emission after indentation
+    int paren_depth;         // depth of parentheses to ignore newline significance
+    bool has_error;          // whether an error occurred during tokenization
 } Tokenizer;
 
 // creates a tokenizer instance for the given source string and filename
@@ -86,5 +88,8 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* token_count);
 
 // returns a human-readable name for a token type
 const char* token_type_name(TokenType type);
+
+// returns whether an error occurred during tokenization
+bool tokenizer_has_error(Tokenizer* tokenizer);
 
 #endif // TOKENIZER_H

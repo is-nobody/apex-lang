@@ -75,6 +75,7 @@ Tokenizer* tokenizer_create(const char* source, const char* filename) {
     tokenizer->indent_depth = 1;
     tokenizer->pending_newline = 0;
     tokenizer->paren_depth = 0;
+    tokenizer->has_error = false;
     return tokenizer;
 }
 
@@ -93,10 +94,10 @@ void tokenizer_destroy(Tokenizer* tokenizer) {
 
 // reports a tokenizer error with source context and throws a repl error
 static void tokenizer_error(Tokenizer* tokenizer, int len, const char* message) {
+    tokenizer->has_error = true;
     print_error_with_context(tokenizer->filename, tokenizer->source,
                              tokenizer->line, tokenizer->column, len,
                              "Tokenizer Error", message);
-    throw_repl_error();
 }
 
 // peeks at a character ahead in the source without consuming it
@@ -305,6 +306,11 @@ static TokenType lookup_keyword(const char* identifier) {
     return TOKEN_IDENTIFIER;
 }
 
+// returns whether an error occurred during tokenization
+bool tokenizer_has_error(Tokenizer* tokenizer) {
+    return tokenizer->has_error;
+}
+
 // main tokenization loop that processes the entire source and returns tokens
 Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
     while (tokenizer->pos < (int)strlen(tokenizer->source)) {
@@ -467,6 +473,7 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
         char error_msg[64];
         snprintf(error_msg, sizeof(error_msg), "Unexpected character: '%c'", c);
         tokenizer_error(tokenizer, 1, error_msg);
+        advance(tokenizer);
     }
     
     while (tokenizer->indent_depth > 1) {

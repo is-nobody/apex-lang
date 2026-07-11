@@ -59,7 +59,6 @@ void repl_run(void) {
     setup_signals();
     printf("Apex 26.07 on %s. Type code, always ready.\n", platform_get_name());
     
-    set_repl_mode(1);
     terminal_enable_raw_mode();
     
     char full_input[MAX_INPUT];
@@ -127,6 +126,5 @@ void repl_run(void) {
     }
     
     terminal_disable_raw_mode();
-    set_repl_mode(0);
     printf("\n");
 }

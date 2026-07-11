@@ -23,21 +23,6 @@ void print_error(const char* format, ...) {
     fprintf(stderr, "%s\n", ANSI_RESET);
 }
 
-static jmp_buf error_env;
-static int is_repl_mode = 0;
-
-// enables or disables repl error handling mode
-void set_repl_mode(int active) { is_repl_mode = active; }
-
-// throws an error, either via longjmp in repl mode or exit otherwise
-void throw_repl_error(void) {
-    if (is_repl_mode) {
-        longjmp(error_env, 1);
-    } else {
-        exit(1);
-    }
-}
-
 // cleans up all allocated resources in reverse order
 static void cleanup_all(Tokenizer* tok, Parser* par, ASTNode* ast,
                         CodeGenerator* cg, BytecodeChunk* chunk, VM* vm,
@@ -62,15 +47,14 @@ bool execute_source_string(const char* source_code, const char* filename) {
     BytecodeChunk* chunk = NULL;
     VM* vm = NULL;
 
-    if (is_repl_mode && setjmp(error_env) != 0) {
-        cleanup_all(tokenizer, parser, ast, cg, chunk, vm, NULL);
-        return false;
-    }
-
     tokenizer = tokenizer_create(source_code, filename);
     int token_count;
     Token* tokens = tokenizer_tokenize(tokenizer, &token_count);
-    if (!tokens) { cleanup_all(tokenizer, NULL, NULL, NULL, NULL, NULL, NULL); return false; }
+
+    if (tokenizer_has_error(tokenizer) || !tokens) {
+        cleanup_all(tokenizer, NULL, NULL, NULL, NULL, NULL, NULL);
+        return false;
+    }
 
     parser = parser_create(tokens, token_count, filename, source_code);
     ast = parser_parse(parser);
@@ -129,16 +113,12 @@ bool execute_source(const char* filepath, const char* filename) {
     BytecodeChunk* chunk = NULL;
     VM* vm = NULL;
     
-    if (is_repl_mode && setjmp(error_env) != 0) {
-        cleanup_all(tokenizer, parser, ast, cg, chunk, vm, source);
-        return false;
-    }
-    
     tokenizer = tokenizer_create(source, filename);
     int token_count;
     Token* tokens = tokenizer_tokenize(tokenizer, &token_count);
-    if (!tokens) {
-        cleanup_all(tokenizer, NULL, NULL, NULL, NULL, NULL, source);
+
+    if (tokenizer_has_error(tokenizer) || !tokens) {
+        cleanup_all(tokenizer, NULL, NULL, NULL, NULL, NULL, NULL);
         return false;
     }
     
