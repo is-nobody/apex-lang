@@ -20,11 +20,11 @@ function betavariate_range()
 
 function betavariate_negative_alpha()
     res = random.betavariate(-1, 2)
-    assert_equal(res, false, "betavariate negative alpha")
+    assert_equal(res, none, "betavariate negative alpha")
 
 function betavariate_negative_beta()
     res = random.betavariate(2, -1)
-    assert_equal(res, false, "betavariate negative beta")
+    assert_equal(res, none, "betavariate negative beta")
 
 function choice_valid()
     t = [10, 20, 30, 40, 50]
@@ -37,7 +37,7 @@ function choice_valid()
 function choice_empty()
     empty_t = []
     res = random.choice(empty_t)
-    assert_equal(res, false, "choice empty table")
+    assert_equal(res, none, "choice empty table")
 
 function compare_digest()
     a = "secret_token_123"
@@ -52,7 +52,7 @@ function expovariate_positive()
 
 function expovariate_zero_lambda()
     res = random.expovariate(0.0)
-    assert_equal(res, false, "expovariate zero lambda")
+    assert_equal(res, none, "expovariate zero lambda")
 
 function gauss_returns_number()
     g = random.gauss(0, 1)
@@ -93,7 +93,7 @@ function sample_k_zero()
 function sample_k_too_large()
     t_samp = [1, 2, 3]
     res = random.sample(t_samp, 20)
-    assert_equal(res, false, "sample k > size")
+    assert_equal(res, none, "sample k > size")
 
 function secure_randint()
     n = 100
@@ -127,7 +127,7 @@ function shuffle_single_element()
 function shuffle_empty()
     t_empty = []
     res = random.shuffle(t_empty)
-    assert_equal(res, false, "shuffle empty")
+    assert_equal(res, none, "shuffle empty")
 
 function secure_token_bytes()
     n = 16

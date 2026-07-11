@@ -135,45 +135,45 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
     ensure_seeded();
 
     if (strcmp(name, "random.random") == 0) {
-        if (arg_count != 0) { *result = vm_make_bool(false); return true; }
+        if (arg_count != 0) { *result = vm_make_none(); return true; }
         *result = vm_make_number((double)rand() / ((double)RAND_MAX + 1.0));
         return true;
     }
 
     if (strcmp(name, "random.randint") == 0) {
-        if (arg_count != 2) { *result = vm_make_bool(false); return true; }
+        if (arg_count != 2) { *result = vm_make_none(); return true; }
         bool ok1, ok2;
         double a = get_number_safe(&args[0], &ok1);
         double b = get_number_safe(&args[1], &ok2);
-        if (!ok1 || !ok2) { *result = vm_make_bool(false); return true; }
+        if (!ok1 || !ok2) { *result = vm_make_none(); return true; }
         *result = vm_make_number((double)randint_range((int)a, (int)b));
         return true;
     }
 
     if (strcmp(name, "random.choice") == 0) {
-        if (arg_count != 1 || args[0].type != VAL_TABLE) { *result = vm_make_bool(false); return true; }
+        if (arg_count != 1 || args[0].type != VAL_TABLE) { *result = vm_make_none(); return true; }
         Table* t = args[0].table;
         int size = table_size(t);
-        if (size == 0) { *result = vm_make_bool(false); return true; }
+        if (size == 0) { *result = vm_make_none(); return true; }
         int count;
         char** keys = table_keys(t, &count);
-        if (!keys || count == 0) { *result = vm_make_bool(false); return true; }
+        if (!keys || count == 0) { *result = vm_make_none(); return true; }
         int idx = rand() % count;
         Value val;
         if (table_get(t, keys[idx], &val)) {
             *result = val;
         } else {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
         }
         free(keys);
         return true;
     }
 
     if (strcmp(name, "random.shuffle") == 0) {
-        if (arg_count != 1 || args[0].type != VAL_TABLE) { *result = vm_make_bool(false); return true; }
+        if (arg_count != 1 || args[0].type != VAL_TABLE) { *result = vm_make_none(); return true; }
         Table* t = args[0].table;
         int size = table_size(t);
-        if (size <= 1) { *result = vm_make_bool(false); return true; }
+        if (size <= 1) { *result = vm_make_none(); return true; }
         char ki[32], kj[32];
         Value vi, vj;
         for (int i = size; i > 1; i--) {
@@ -197,22 +197,22 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
                 vm_free_value(&vj);
             }
         }
-        *result = vm_make_bool(false);
+        *result = vm_make_none();
         return true;
     }
 
     if (strcmp(name, "random.sample") == 0) {
         if (arg_count != 2 || args[0].type != VAL_TABLE || args[1].type != VAL_NUMBER) {
-            *result = vm_make_bool(false); return true;
+            *result = vm_make_none(); return true;
         }
         Table* src = args[0].table;
         int k = (int)args[1].number;
         int size = table_size(src);
-        if (k < 0 || k > size) { *result = vm_make_bool(false); return true; }
+        if (k < 0 || k > size) { *result = vm_make_none(); return true; }
         if (k == 0) { *result = vm_make_table(); return true; }
         int count;
         char** keys = table_keys(src, &count);
-        if (!keys) { *result = vm_make_bool(false); return true; }
+        if (!keys) { *result = vm_make_none(); return true; }
         Table* res_table = table_create(k);
         int* indices = (int*)malloc(sizeof(int) * count);
         for (int i = 0; i < count; i++) indices[i] = i;
@@ -235,11 +235,11 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
     }
 
     if (strcmp(name, "random.gauss") == 0) {
-        if (arg_count != 2) { *result = vm_make_bool(false); return true; }
+        if (arg_count != 2) { *result = vm_make_none(); return true; }
         bool ok1, ok2;
         double mu = get_number_safe(&args[0], &ok1);
         double sigma = get_number_safe(&args[1], &ok2);
-        if (!ok1 || !ok2) { *result = vm_make_bool(false); return true; }
+        if (!ok1 || !ok2) { *result = vm_make_none(); return true; }
         double u1 = (double)rand() / ((double)RAND_MAX + 1.0);
         double u2 = (double)rand() / ((double)RAND_MAX + 1.0);
         if (u1 < 1e-10) u1 = 1e-10;
@@ -255,22 +255,22 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         } else {
             srand((unsigned int)time(NULL));
         }
-        *result = vm_make_bool(false);
+        *result = vm_make_none();
         return true;
     }
 
     if (strcmp(name, "random.triangular") == 0) {
         double low = 0.0, high = 1.0, mode = 0.5;
         if (arg_count >= 1) {
-            if (args[0].type != VAL_NUMBER) { *result = vm_make_bool(false); return true; }
+            if (args[0].type != VAL_NUMBER) { *result = vm_make_none(); return true; }
             low = args[0].number;
         }
         if (arg_count >= 2) {
-            if (args[1].type != VAL_NUMBER) { *result = vm_make_bool(false); return true; }
+            if (args[1].type != VAL_NUMBER) { *result = vm_make_none(); return true; }
             high = args[1].number;
         }
         if (arg_count >= 3) {
-            if (args[2].type != VAL_NUMBER) { *result = vm_make_bool(false); return true; }
+            if (args[2].type != VAL_NUMBER) { *result = vm_make_none(); return true; }
             mode = args[2].number;
         }
         if (high == low) { *result = vm_make_number(low); return true; }
@@ -287,9 +287,9 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
     }
 
     if (strcmp(name, "random.expovariate") == 0) {
-        if (arg_count != 1 || args[0].type != VAL_NUMBER) { *result = vm_make_bool(false); return true; }
+        if (arg_count != 1 || args[0].type != VAL_NUMBER) { *result = vm_make_none(); return true; }
         double lambd = args[0].number;
-        if (lambd == 0.0) { *result = vm_make_bool(false); return true; }
+        if (lambd == 0.0) { *result = vm_make_none(); return true; }
         double u = (double)rand() / ((double)RAND_MAX + 1.0);
         if (u < 1e-10) u = 1e-10;
         *result = vm_make_number(-log(u) / lambd);
@@ -297,38 +297,44 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
     }
 
     if (strcmp(name, "random.betavariate") == 0) {
-        if (arg_count != 2) { *result = vm_make_bool(false); return true; }
+        if (arg_count != 2) { *result = vm_make_none(); return true; }
         bool ok1, ok2;
         double alpha = get_number_safe(&args[0], &ok1);
         double beta = get_number_safe(&args[1], &ok2);
-        if (!ok1 || !ok2 || alpha <= 0.0 || beta <= 0.0) { *result = vm_make_bool(false); return true; }
+        if (!ok1 || !ok2 || alpha <= 0.0 || beta <= 0.0) {
+            *result = vm_make_none();
+            return true;
+        }
         double x = random_gamma(alpha);
         double y = random_gamma(beta);
-        if (x + y == 0.0) { *result = vm_make_bool(false); return true; }
+        if (x + y == 0.0) {
+            *result = vm_make_none();
+            return true;
+        }
         *result = vm_make_number(x / (x + y));
         return true;
     }
 
     if (strcmp(name, "random.secure_token_bytes") == 0) {
         if (arg_count != 1 || args[0].type != VAL_NUMBER) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
         int n = (int)args[0].number;
         if (n < 0) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
         unsigned char* buffer = (unsigned char*)malloc(n > 0 ? n : 1);
         if (!buffer) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
         get_secure_bytes(buffer, n);
         StringObject* str_obj = create_string_with_length((const char*)buffer, n);
         free(buffer);
         if (!str_obj) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
         result->type = VAL_STRING;
@@ -340,28 +346,28 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         int nbytes = 16;
         if (arg_count == 1) {
             if (args[0].type != VAL_NUMBER) {
-                *result = vm_make_bool(false);
+                *result = vm_make_none();
                 return true;
             }
             nbytes = (int)args[0].number;
             if (nbytes < 0) {
-                *result = vm_make_bool(false);
+                *result = vm_make_none();
                 return true;
             }
         } else if (arg_count > 1) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
         unsigned char* buffer = (unsigned char*)malloc(nbytes > 0 ? nbytes : 1);
         if (!buffer) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
         get_secure_bytes(buffer, nbytes);
         char* hex_str = (char*)malloc(nbytes * 2 + 1);
         if (!hex_str) {
             free(buffer);
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
         bytes_to_hex(buffer, nbytes, hex_str);
@@ -373,12 +379,12 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
 
     if (strcmp(name, "random.secure_randint") == 0) {
         if (arg_count != 1 || args[0].type != VAL_NUMBER) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
         int n = (int)args[0].number;
         if (n <= 0) {
-            *result = vm_make_bool(false);
+            *result = vm_make_none();
             return true;
         }
         unsigned char rb;
