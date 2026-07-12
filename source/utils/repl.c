@@ -65,40 +65,43 @@ void repl_run(void) {
     char line[MAX_LINE];
     int total_len = 0;
     int pos = 0;
+    int byte_pos = 0;
     full_input[0] = '\0';
+    line[0] = '\0';
     
     printf("> ");
     fflush(stdout);
     
     while (!g_should_exit) {
-        char c;
-        ssize_t n = terminal_read_blocking(&c);
+        unsigned char c;
+        ssize_t n = terminal_read_blocking((char*)&c);
         
         if (n <= 0) {
-            if (n == 0) {
-                break;
-            }
+            if (n == 0) break;
 #ifndef _WIN32
             if (errno == EINTR) continue;
 #endif
             break;
         }
         
+        // Ctrl+D or Ctrl+C
         if (c == 4 || c == 3) {
             break;
         }
         
+        // Enter
         if (c == '\r' || c == '\n') {
             printf("\n");
-            line[pos] = '\0';
-            if (pos > 0) {
-                if (total_len + pos + 2 < MAX_INPUT) {
-                    memcpy(full_input + total_len, line, pos);
-                    total_len += pos;
+            line[byte_pos] = '\0';
+            if (byte_pos > 0) {
+                if (total_len + byte_pos + 2 < MAX_INPUT) {
+                    memcpy(full_input + total_len, line, byte_pos);
+                    total_len += byte_pos;
                     full_input[total_len++] = '\n';
                     full_input[total_len] = '\0';
                 }
             }
+            byte_pos = 0;
             pos = 0;
             
             if (!terminal_has_input()) {
@@ -112,15 +115,38 @@ void repl_run(void) {
             }
         }
         else if (c == 127 || c == '\b') {
-            if (pos > 0) {
-                memmove(&line[pos-1], &line[pos], strlen(&line[pos]) + 1);
-                pos--;
+            if (byte_pos > 0) {
+                int start = byte_pos - 1;
+                while (start > 0 && (line[start] & 0xC0) == 0x80) {
+                    start--;
+                }
+                memmove(&line[start], &line[byte_pos], MAX_LINE - byte_pos);
+                byte_pos = start;
+                line[byte_pos] = '\0';
+                pos = 0;
+                int i = 0;
+                while (i < byte_pos) {
+                    unsigned char ch = (unsigned char)line[i];
+                    if ((ch & 0x80) == 0) {
+                        i += 1;
+                    } else if ((ch & 0xE0) == 0xC0) {
+                        i += 2;
+                    } else if ((ch & 0xF0) == 0xE0) {
+                        i += 3;
+                    } else if ((ch & 0xF8) == 0xF0) {
+                        i += 4;
+                    } else {
+                        i += 1;
+                    }
+                    pos++;
+                }
                 redraw_line(line, pos);
             }
         }
-        else if (c >= 32 && c < 127 && pos < MAX_LINE - 1) {
-            line[pos++] = c;
-            line[pos] = '\0';
+        else if (c >= 32 && byte_pos < MAX_LINE - 4) {
+            line[byte_pos++] = c;
+            line[byte_pos] = '\0';
+            pos++;
             redraw_line(line, pos);
         }
     }

@@ -281,11 +281,21 @@ static char* read_number(Tokenizer* tokenizer) {
 static char* read_identifier(Tokenizer* tokenizer) {
     char* buffer = (char*)malloc(256);
     int buf_pos = 0;
+    int buf_size = 256;
     
     char c = peek(tokenizer, 0);
-    while (c != '\0' && (isalnum(c) || c == '_')) {
-        buffer[buf_pos++] = advance(tokenizer);
-        c = peek(tokenizer, 0);
+    while (c != '\0') {
+        unsigned char uc = (unsigned char)c;
+        if (isalnum(c) || c == '_' || uc >= 0x80) {
+            if (buf_pos + 4 >= buf_size) {
+                buf_size *= 2;
+                buffer = (char*)realloc(buffer, buf_size);
+            }
+            buffer[buf_pos++] = advance(tokenizer);
+            c = peek(tokenizer, 0);
+        } else {
+            break;
+        }
     }
     
     buffer[buf_pos] = '\0';
@@ -398,7 +408,7 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
             continue;
         }
         
-        if (isalpha(c) || c == '_') {
+        if (isalpha(c) || c == '_' || (unsigned char)c >= 0x80) {
             char* identifier = read_identifier(tokenizer);
             TokenType type = lookup_keyword(identifier);
             add_token(tokenizer, type, identifier, line, col);

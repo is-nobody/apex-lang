@@ -8,6 +8,7 @@
 - Variables can now change type on reassignment
 
 ## New Features
+- **Multi-language support** — variable names, string literals, and error reporting now fully support UTF-8, allowing code to be written in any language (Cyrillic, Arabic, Chinese, Japanese, etc.).
 - **Table to string conversion** — `string()` now supports tables.
 - **Shebang support** — scripts can start with `#!`.
 - **Indentation-based folding** in the VS Code extension.
