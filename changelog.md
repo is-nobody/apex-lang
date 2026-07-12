@@ -1,3 +1,28 @@
+# Apex 26.07 (07.31.2026)
+**Second release of the Apex programming language.**
+
+## Behavior Changes
+- **`none` type** — a new data type replacing `false` to represent the absence of a value. All built-in modules (`os`, `sys`, `string`, `random`, `math`, `ffi`, `codecs`) now return `none` instead of `false` on errors.
+- Accessing a missing table key now returns `none`
+- Functions without an explicit `return` now return `none`
+- Variables can now change type on reassignment
+
+## New Features
+- **Table to string conversion** — `string()` now supports tables.
+- **Shebang support** — scripts can start with `#!`.
+- **Indentation-based folding** in the VS Code extension.
+- **Resilient tokenization and parsing** — tokenization and parsing continue after the first error, reporting multiple errors in a single pass.
+- **Improved error messages** — the entire expression is now highlighted on arithmetic type errors.
+- **Stack overflow detection** — runtime error messages for stack overflow.
+- **Increased max call frames** from 1024 to 8192.
+
+## Bug Fixes
+- **Sparse numeric keys**: correct removal with holes, accurate size calculation
+- **Fall through to hash lookup** when a numeric key is not found in the array part of a table
+- **Column offset** corrected for expressions inside string interpolation
+
+---
+
 # Apex 26.06 (06.30.2026)
 **First release of the Apex programming language.**
 
