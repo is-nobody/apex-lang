@@ -1,8 +1,7 @@
 # Apex Language Roadmap
-## Compiler
-- Compile to native machine code
-- Static linking
-- Cross-compile (Windows, macOS, Linux)
+## Build
+- Build for Android
+- Build for iOS
 
 ## UI
 - Declarative syntax (window, button, text, input)
