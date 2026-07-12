@@ -1,10 +1,10 @@
-# Apex 26.06
+# Apex 26.06 (06.30.2026)
 **First release of the Apex programming language.**
 
 ## Core Language Features
 ### Syntax & Structure
 - **Indentation-based blocks**: 4-space indentation required for code blocks
-- **No curly braces or end keywords**: Clean, Python-like syntax
+- **No curly braces or end keywords**: Clean, indent-based syntax
 - **Explicit boolean conditions**: All `if` and `for` conditions must be explicit boolean expressions (no truthy/falsy values)
 - **Static typing enforcement**: Variable types cannot change after declaration
 
