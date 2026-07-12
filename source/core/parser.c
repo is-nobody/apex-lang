@@ -1684,7 +1684,6 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
     }
 
     bool is_declaration = !parser_is_declared(parser, name->value);
-    int current_idx = symbol_index_in_scope(parser, name->value, parser->symbols.current_scope);
 
     if (!parser->semantic_checks) {
         return ast_create_var_assign(name->value, value, is_declaration, NULL,
@@ -1692,14 +1691,11 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
     }
 
     if (is_declaration) {
-        if (current_idx >= 0) {
-            parser_error_at(parser, name->line, name->column, (int)strlen(name->value),
-                "Variable '%s' already declared in this scope", name->value);
-        } else if (value) {
+        if (value) {
             ValueType value_type = infer_expression_type(parser, value);
             if (value_type != TYPE_ERROR) {
                 parser_declare_symbol(parser, name->value, PARSER_SYM_VARIABLE,
-                                      value_type, 0, name->line, name->column);
+                                    value_type, 0, name->line, name->column);
                 int idx = symbol_index_recursive(parser, name->value);
                 if (idx >= 0 && value->type == AST_LITERAL_NUMBER) {
                     parser_symbol_set_const(parser, idx, true,
@@ -1709,11 +1705,8 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
         }
     } else {
         int idx = symbol_index_recursive(parser, name->value);
-        if (idx < 0) {
-            parser_error_at(parser, name->line, name->column, (int)strlen(name->value),
-                "Assignment to undefined variable '%s'", name->value);
-        } else if (parser->symbols.kinds[idx] != PARSER_SYM_VARIABLE &&
-                   parser->symbols.kinds[idx] != PARSER_SYM_PARAMETER) {
+        if (parser->symbols.kinds[idx] != PARSER_SYM_VARIABLE &&
+            parser->symbols.kinds[idx] != PARSER_SYM_PARAMETER) {
             parser_error_at(parser, name->line, name->column, (int)strlen(name->value),
                 "Cannot assign to '%s' (not a variable)", name->value);
         } else if (value) {

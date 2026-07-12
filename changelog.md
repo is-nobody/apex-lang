@@ -21,6 +21,7 @@
 - **Sparse numeric keys**: correct removal with holes, accurate size calculation
 - **Fall through to hash lookup** when a numeric key is not found in the array part of a table
 - **Column offset** corrected for expressions inside string interpolation
+- **Variable redeclaration check** — removed redundant "Variable already declared in this scope" and "Assignment to undefined variable" errors
 
 ---
 
