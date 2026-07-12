@@ -55,6 +55,11 @@ The Apex runtime includes a powerful set of built-in modules:
 | **codecs** | Data encoding |
 
 ## Release Notes
+### 26.07 (July 31, 2026)
+- Syntax highlighting for shebang (`#!`) at the beginning of scripts.
+- Indentation-based folding for code blocks.
+- Syntax highlighting for the new `none` data type.
+
 ### 26.06 (June 30, 2026)
 - Initial release.
 - Syntax highlighting for Apex language.
