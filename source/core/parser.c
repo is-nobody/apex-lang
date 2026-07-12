@@ -941,7 +941,7 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
             if (actual < builtin->min_args || actual > builtin->max_args) {
                 int err_len = get_node_len(node->call.callee);
                 parser_error_at(parser, node->call.callee->line, node->call.callee->column, err_len > 0 ? err_len : 1,
-                    "Function '%s' expects %d to %d arguments, got %d",
+                    "Function '%s' expected %d to %d arguments, got %d",
                     func_name, builtin->min_args, builtin->max_args, actual);
             }
             if (actual > APEX_MAX_CALL_ARGS) {
@@ -966,7 +966,7 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
             if (expected != actual) {
                 int err_len = get_node_len(node->call.callee);
                 parser_error_at(parser, node->call.callee->line, node->call.callee->column, err_len > 0 ? err_len : 1,
-                    "Function '%s' expects %d arguments, got %d", func_name, expected, actual);
+                    "Function '%s' expected %d arguments, got %d", func_name, expected, actual);
             }
             return TYPE_ANY;
         }
