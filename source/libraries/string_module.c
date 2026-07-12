@@ -15,6 +15,108 @@ static int utf8_char_len(unsigned char c) {
     return 1; // invalid UTF-8, treat as single byte
 }
 
+// decodes a UTF-8 sequence into a Unicode code point
+// returns the number of bytes consumed
+static int utf8_decode(const char* s, unsigned int* codepoint) {
+    unsigned char c = (unsigned char)s[0];
+    
+    if (c < 0x80) {
+        *codepoint = c;
+        return 1;
+    }
+    if ((c & 0xE0) == 0xC0) {
+        *codepoint = ((c & 0x1F) << 6) | (s[1] & 0x3F);
+        return 2;
+    }
+    if ((c & 0xF0) == 0xE0) {
+        *codepoint = ((c & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F);
+        return 3;
+    }
+    if ((c & 0xF8) == 0xF0) {
+        *codepoint = ((c & 0x07) << 18) | ((s[1] & 0x3F) << 12) | ((s[2] & 0x3F) << 6) | (s[3] & 0x3F);
+        return 4;
+    }
+    *codepoint = c;
+    return 1;
+}
+
+// checks if a Unicode code point is a letter (supports Latin, Cyrillic, and more)
+// checks if a Unicode code point is a letter (all modern writing systems)
+static bool unicode_is_letter(unsigned int cp) {
+    return (cp >= 'A' && cp <= 'Z') ||
+           (cp >= 'a' && cp <= 'z') ||
+           // Latin Extended (European languages)
+           (cp >= 0x00C0 && cp <= 0x024F) ||
+           // Cyrillic (Russian, Ukrainian, Serbian, etc.)
+           (cp >= 0x0400 && cp <= 0x04FF) ||
+           // Greek
+           (cp >= 0x0370 && cp <= 0x03FF) ||
+           // Armenian
+           (cp >= 0x0530 && cp <= 0x058F) ||
+           // Hebrew
+           (cp >= 0x0590 && cp <= 0x05FF) ||
+           // Arabic + Persian + Urdu
+           (cp >= 0x0600 && cp <= 0x06FF) ||
+           (cp >= 0x0750 && cp <= 0x077F) ||
+           (cp >= 0xFB50 && cp <= 0xFDFF) ||
+           // Devanagari (Hindi, Nepali, etc.)
+           (cp >= 0x0900 && cp <= 0x097F) ||
+           // Bengali
+           (cp >= 0x0980 && cp <= 0x09FF) ||
+           // Gurmukhi (Punjabi)
+           (cp >= 0x0A00 && cp <= 0x0A7F) ||
+           // Gujarati
+           (cp >= 0x0A80 && cp <= 0x0AFF) ||
+           // Tamil
+           (cp >= 0x0B80 && cp <= 0x0BFF) ||
+           // Telugu
+           (cp >= 0x0C00 && cp <= 0x0C7F) ||
+           // Kannada
+           (cp >= 0x0C80 && cp <= 0x0CFF) ||
+           // Malayalam
+           (cp >= 0x0D00 && cp <= 0x0D7F) ||
+           // Sinhala
+           (cp >= 0x0D80 && cp <= 0x0DFF) ||
+           // Thai
+           (cp >= 0x0E00 && cp <= 0x0E7F) ||
+           // Lao
+           (cp >= 0x0E80 && cp <= 0x0EFF) ||
+           // Tibetan
+           (cp >= 0x0F00 && cp <= 0x0FFF) ||
+           // Myanmar (Burmese)
+           (cp >= 0x1000 && cp <= 0x109F) ||
+           // Georgian
+           (cp >= 0x10A0 && cp <= 0x10FF) ||
+           // Hangul Jamo + Syllables (Korean)
+           (cp >= 0x1100 && cp <= 0x11FF) ||
+           (cp >= 0x3130 && cp <= 0x318F) ||
+           (cp >= 0xAC00 && cp <= 0xD7AF) ||
+           // Ethiopic (Amharic, Tigrinya, etc.)
+           (cp >= 0x1200 && cp <= 0x137F) ||
+           (cp >= 0x2D80 && cp <= 0x2DDF) ||
+           // Cherokee
+           (cp >= 0x13A0 && cp <= 0x13FF) ||
+           // Canadian Aboriginal Syllabics
+           (cp >= 0x1400 && cp <= 0x167F) ||
+           // Khmer (Cambodian)
+           (cp >= 0x1780 && cp <= 0x17FF) ||
+           // Mongolian
+           (cp >= 0x1800 && cp <= 0x18AF) ||
+           // Hiragana + Katakana (Japanese)
+           (cp >= 0x3040 && cp <= 0x30FF) ||
+           // CJK Unified Ideographs (Chinese, Japanese, Korean)
+           (cp >= 0x3400 && cp <= 0x4DBF) ||
+           (cp >= 0x4E00 && cp <= 0x9FFF) ||
+           (cp >= 0xF900 && cp <= 0xFAFF) ||
+           // Halfwidth and Fullwidth Forms
+           (cp >= 0xFF00 && cp <= 0xFFEF);
+}
+
+// checks if a Unicode code point is a digit
+static bool unicode_is_digit(unsigned int cp) {
+    return (cp >= '0' && cp <= '9');
+}
+
 // returns the number of characters (code points) in a UTF-8 string
 static size_t utf8_strlen(const char* s) {
     if (!s) return 0;
@@ -47,7 +149,38 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             *result = vm_make_none();
             return true;
         }
-        *result = vm_make_number(args[0].string->length);
+        size_t char_count = utf8_strlen(args[0].string->chars);
+        *result = vm_make_number((double)char_count);
+        return true;
+    }
+    
+    if (strcmp(name, "string.isletter") == 0) {
+        if (arg_count < 1 || args[0].type != VAL_STRING) {
+            *result = vm_make_none();
+            return true;
+        }
+        if (args[0].string->length == 0) {
+            *result = vm_make_bool(false);
+            return true;
+        }
+        unsigned int cp;
+        utf8_decode(args[0].string->chars, &cp);
+        *result = vm_make_bool(unicode_is_letter(cp));
+        return true;
+    }
+    
+    if (strcmp(name, "string.isnumber") == 0) {
+        if (arg_count < 1 || args[0].type != VAL_STRING) {
+            *result = vm_make_none();
+            return true;
+        }
+        if (args[0].string->length == 0) {
+            *result = vm_make_bool(false);
+            return true;
+        }
+        unsigned int cp;
+        utf8_decode(args[0].string->chars, &cp);
+        *result = vm_make_bool(unicode_is_digit(cp));
         return true;
     }
     

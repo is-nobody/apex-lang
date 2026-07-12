@@ -174,6 +174,8 @@ static const BuiltinSig BUILTINS[] = {
     {"string.len", 1, 1, TYPE_STRING},
     {"string.lower", 1, 1, TYPE_STRING},
     {"string.upper", 1, 1, TYPE_STRING},
+    {"string.isletter", 1, 1, TYPE_STRING},
+    {"string.isnumber", 1, 1, TYPE_STRING},
     {"string.sub", 3, 3, TYPE_STRING},
     {"string.split", 2, 2, TYPE_STRING},
     {"string.join", 2, 2, TYPE_STRING},
