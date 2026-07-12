@@ -1,4 +1,4 @@
-# Apex 26.07 (07.31.2026)
+# Apex 26.07 (31 July, 2026)
 **Second release of the Apex programming language.**
 
 ## Behavior Changes
@@ -25,7 +25,7 @@
 
 ---
 
-# Apex 26.06 (06.30.2026)
+# Apex 26.06 (30 June, 2026)
 **First release of the Apex programming language.**
 
 ## Core Language Features
