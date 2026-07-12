@@ -22,6 +22,10 @@
         {
           "name": "comment.line.double-slash.apex",
           "match": "//.*$"
+        },
+        {
+          "name": "comment.line.shebang.apex",
+          "match": "^#!.*$"
         }
       ]
     },
