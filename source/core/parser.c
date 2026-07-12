@@ -207,7 +207,6 @@ static const BuiltinSig BUILTINS[] = {
     {"random.expovariate", 1, 1, TYPE_NUMBER},
     {"random.betavariate", 2, 2, TYPE_NUMBER},
     {"random.secure_token_hex", 0, 1, TYPE_NUMBER},
-    {"random.secure_token_bytes", 1, 1, TYPE_NUMBER},
     {"random.secure_randint", 1, 1, TYPE_NUMBER},
     {"random.compare_digest", 2, 2, TYPE_STRING},
     {"codecs.json_read", 1, 1, TYPE_STRING},

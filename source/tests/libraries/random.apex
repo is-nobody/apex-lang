@@ -129,11 +129,6 @@ function shuffle_empty()
     res = random.shuffle(t_empty)
     assert_equal(res, none, "shuffle empty")
 
-function secure_token_bytes()
-    n = 16
-    bytes_str = random.secure_token_bytes(n)
-    assert_equal(string.len(bytes_str), n, "secure_token_bytes length")
-
 function secure_token_hex()
     nbytes = 16
     hex_str = random.secure_token_hex(nbytes)
@@ -171,7 +166,6 @@ seed_no_args()
 shuffle_preserves_size()
 shuffle_single_element()
 shuffle_empty()
-secure_token_bytes()
 secure_token_hex()
 triangular_range()
 triangular_defaults()

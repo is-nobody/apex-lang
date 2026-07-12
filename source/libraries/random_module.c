@@ -57,20 +57,6 @@ static bool constant_time_compare(const char* a, const char* b, size_t len_a, si
     return result == 0;
 }
 
-// creates a string object with binary-safe length
-static StringObject* create_string_with_length(const char* chars, int length) {
-    StringObject* str = (StringObject*)malloc(sizeof(StringObject) + length + 1);
-    if (!str) return NULL;
-    str->header.ref_count = 1;
-    str->header.type = VAL_STRING;
-    str->length = length;
-    str->hash_computed = false;
-    str->hash = 0;
-    memcpy(str->chars, chars, length);
-    str->chars[length] = '\0';
-    return str;
-}
-
 static int random_seeded = 0;
 
 // ensures the random generator is seeded at least once
@@ -312,33 +298,6 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             return true;
         }
         *result = vm_make_number(x / (x + y));
-        return true;
-    }
-
-    if (strcmp(name, "random.secure_token_bytes") == 0) {
-        if (arg_count != 1 || args[0].type != VAL_NUMBER) {
-            *result = vm_make_none();
-            return true;
-        }
-        int n = (int)args[0].number;
-        if (n < 0) {
-            *result = vm_make_none();
-            return true;
-        }
-        unsigned char* buffer = (unsigned char*)malloc(n > 0 ? n : 1);
-        if (!buffer) {
-            *result = vm_make_none();
-            return true;
-        }
-        get_secure_bytes(buffer, n);
-        StringObject* str_obj = create_string_with_length((const char*)buffer, n);
-        free(buffer);
-        if (!str_obj) {
-            *result = vm_make_none();
-            return true;
-        }
-        result->type = VAL_STRING;
-        result->string = str_obj;
         return true;
     }
 

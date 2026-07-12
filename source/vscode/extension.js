@@ -57,7 +57,7 @@ function activate(context) {
                 'string': 'String manipulation library.\n\nFunctions: len, lower, upper, sub, split, join, trim, find, replace.',
                 'table': 'Table (hash map/array) library.\n\nFunctions: remove, has, size, keys, values, clear, copy, merge.',
                 'ffi': 'Foreign Function Interface.\n\nFunctions: open, call, errno, strerror, malloc, free.',
-                'random': 'Random generation.\n\nFunctions: random, randint, choice, shuffle, sample, gauss, seed, triangular, expovariate, betavariate, secure_token_bytes, secure_token_hex, secure_randint, compare_digest.',
+                'random': 'Random generation.\n\nFunctions: random, randint, choice, shuffle, sample, gauss, seed, triangular, expovariate, betavariate, secure_token_hex, secure_randint, compare_digest.',
                 'codecs': 'Data encoding/decoding.\n\nFunctions: json_read, json_write, csv_read, csv_write, xml_read, xml_write, base_write, base_read, baseurl_write, baseurl_read.',
             };
 
@@ -140,8 +140,7 @@ function activate(context) {
                 'random.random', 'random.randint', 'random.choice', 'random.shuffle',
                 'random.sample', 'random.gauss', 'random.seed',
                 'random.triangular', 'random.expovariate', 'random.betavariate',
-                'random.secure_token_hex', 'random.secure_token_bytes',
-                'random.secure_randint', 'random.compare_digest',
+                'random.secure_token_hex', 'random.secure_randint', 'random.compare_digest',
                 'codecs.json_read', 'codecs.json_write',
                 'codecs.csv_read', 'codecs.csv_write',
                 'codecs.xml_read', 'codecs.xml_write',

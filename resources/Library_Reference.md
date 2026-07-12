@@ -1399,22 +1399,6 @@ os.output("Beta sample: {probability}")
 ```
 
 ### Secure Randomness
-#### random.secure_token_bytes(n)
-Returns a string of `n` random bytes generated using a cryptographically secure source (`/dev/urandom` on Linux/macOS, `rand_s` on Windows). Returns `false` on failure.
-
-```apex
-import os
-import random
-import string
-
-token = random.secure_token_bytes(16)
-
-if token == false
-    os.output("Could not generate secure token")
-else
-    os.output("Generated {string.len(token)} random bytes")
-```
-
 #### random.secure_token_hex(nbytes)
 Returns a hexadecimal string representation of `nbytes` random bytes generated using a cryptographically secure source. Defaults to 16 bytes if no argument is provided. Returns `false` on failure.
 
