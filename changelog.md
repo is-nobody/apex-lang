@@ -9,6 +9,7 @@
 
 ## New Features
 - **Multi-language support** — variable names, string literals, and error reporting now fully support UTF-8, allowing code to be written in any language (Cyrillic, Arabic, Chinese, Japanese, etc.).
+- **UTF-8 string operations** — `string.len()` and `string.sub()` now work with characters instead of bytes, with full Unicode support for all scripts and emoji.
 - **Table to string conversion** — `string()` now supports tables.
 - **Shebang support** — scripts can start with `#!`.
 - **Indentation-based folding** in the VS Code extension.

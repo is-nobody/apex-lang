@@ -4,6 +4,38 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
+
+// returns the byte length of a UTF-8 character from its first byte
+static int utf8_char_len(unsigned char c) {
+    if (c < 0x80) return 1;           // ASCII
+    if ((c & 0xE0) == 0xC0) return 2; // 2-byte sequence
+    if ((c & 0xF0) == 0xE0) return 3; // 3-byte sequence (Cyrillic, etc.)
+    if ((c & 0xF8) == 0xF0) return 4; // 4-byte sequence
+    return 1; // invalid UTF-8, treat as single byte
+}
+
+// returns the number of characters (code points) in a UTF-8 string
+static size_t utf8_strlen(const char* s) {
+    if (!s) return 0;
+    size_t len = 0;
+    while (*s) {
+        len++;
+        s += utf8_char_len((unsigned char)*s);
+    }
+    return len;
+}
+
+// returns the byte offset of the n-th character in a UTF-8 string
+static size_t utf8_byte_offset(const char* s, size_t char_pos) {
+    if (!s) return 0;
+    const char* start = s;
+    while (*s && char_pos > 0) {
+        s += utf8_char_len((unsigned char)*s);
+        char_pos--;
+    }
+    return s - start;
+}
 
 // dispatcher for string manipulation built-in functions
 bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
@@ -15,7 +47,7 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             *result = vm_make_none();
             return true;
         }
-        *result = vm_make_number(strlen(args[0].string->chars));
+        *result = vm_make_number(args[0].string->length);
         return true;
     }
     
@@ -69,7 +101,11 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             return true;
         }
         char* pos = strstr(args[0].string->chars, args[1].string->chars);
-        *result = vm_make_number(pos ? (pos - args[0].string->chars) : -1);
+        if (pos) {
+            *result = vm_make_number(pos - args[0].string->chars);
+        } else {
+            *result = vm_make_number(-1);
+        }
         return true;
     }
     
@@ -106,19 +142,29 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             *result = vm_make_none();
             return true;
         }
-        int start = (int)args[1].number;
-        size_t end = (size_t)args[2].number;
+        int start_char = (int)args[1].number;
+        size_t end_char = (size_t)args[2].number;
+        const char* str = args[0].string->chars;
+        size_t char_count = utf8_strlen(str);
         
-        if (start < 0) start = 0;
-        size_t len = strlen(args[0].string->chars);
-        if (end > len) end = len;
-        if ((size_t)start >= end) {
+        if (start_char < 0) start_char = 0;
+        if (end_char > char_count) end_char = char_count;
+        if ((size_t)start_char >= end_char) {
             *result = vm_make_string("");
         } else {
-            int sub_len = end - start;
+            size_t start_byte = utf8_byte_offset(str, start_char);
+            size_t end_byte = utf8_byte_offset(str, end_char);
+            size_t sub_len = end_byte - start_byte;
+            
             char* sub = (char*)malloc(sub_len + 1);
-            strncpy(sub, args[0].string->chars + start, sub_len);
+            if (!sub) {
+                *result = vm_make_none();
+                return true;
+            }
+            
+            memcpy(sub, str + start_byte, sub_len);
             sub[sub_len] = '\0';
+            
             *result = vm_make_string(sub);
             free(sub);
         }
