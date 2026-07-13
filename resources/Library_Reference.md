@@ -1065,51 +1065,68 @@ string.replace("remove-this", "-this", "")        // "remove"
 ## Table Library (table)
 The Table library provides functions for working with tables. Import it with `import table`.
 
+### table.size(t)
+Returns the number of items in the table. Always returns a number (0 if empty).
+
+```apex
+import table
+
+user = ["name" = "Alice", "age" = 30]
+os.output(table.size(user))          // 2
+
+colors = ["red", "green", "blue"]
+os.output(table.size(colors))        // 3
+
+empty = []
+os.output(table.size(empty))         // 0
+```
+
+### table.has(t, key)
+Returns `true` if the table has the specified key or index. Returns `none` if the key is not a string.
+
+```apex
+import table
+
+user = ["name" = "Alice", "age" = 30]
+result = table.has(user, "name")
+
+if result == none
+    os.output("Invalid key type")
+else if result == true
+    os.output("Key exists")
+else
+    os.output("Key does not exist")
+```
+
 ### table.remove(t, key)
-Removes an item from a table by key or index. Returns `true` if the key existed and was removed, `false` otherwise.
+Removes an item from a table by key. Returns `true` if the key existed and was removed, `false` otherwise. Returns `none` if the key is not a string.
 
 ```apex
 import table
 
 user = ["name" = "Alice", "age" = 30, "active" = true]
-table.remove(user, "age")
+result = table.remove(user, "age")
+
+if result == none
+    os.output("Invalid key type")
+else if result == true
+    os.output("Key removed")
+else
+    os.output("Key did not exist")
 // user is now ["name" = "Alice", "active" = true]
 
 colors = ["red", "green", "blue"]
-table.remove(colors, 2)
-// colors is now ["red", "blue"]
-```
+result = table.remove(colors, 2)
 
-### table.has(t, key)
-Returns `true` if the table has the specified key or index.
-
-```apex
-import table
-
-user = ["name" = "Alice", "age" = 30]
-table.has(user, "name")   // true
-table.has(user, "city")   // false
-table.has(user, 1)        // true (ordered item at position 1)
-```
-
-### table.size(t)
-Returns the number of items in the table.
-
-```apex
-import table
-
-user = ["name" = "Alice", "age" = 30]
-table.size(user)          // 2
-
-colors = ["red", "green", "blue"]
-table.size(colors)        // 3
-
-empty = []
-table.size(empty)         // 0
+if result == none
+    os.output("Invalid key type")
+else
+    // Note: key "2" doesn't exist in this table structure
+    os.output("Removed: {result}")  // false
 ```
 
 ### table.keys(t)
-Returns a table of all keys in the table as strings. For ordered items without keys, their positions are converted to strings. Keys are sorted numerically if possible, otherwise lexicographically.
+Returns a table of all keys in the table as strings. For ordered items without keys, their positions are converted to strings. Keys are sorted numerically if possible, otherwise lexicographically. Always returns a table (empty if source is empty).
 
 ```apex
 import table
@@ -1119,10 +1136,13 @@ keys = table.keys(user)   // ["name", "age", "active"]
 
 colors = ["red", "green", "blue"]
 keys = table.keys(colors) // ["1", "2", "3"]
+
+empty = []
+keys = table.keys(empty)  // []
 ```
 
 ### table.values(t)
-Returns a table of all values in the table in order. Keys are sorted numerically if possible, otherwise lexicographically.
+Returns a table of all values in the table in order. Keys are sorted numerically if possible, otherwise lexicographically. Always returns a table (empty if source is empty).
 
 ```apex
 import table
@@ -1132,10 +1152,13 @@ values = table.values(user)   // ["Alice", 30, true]
 
 colors = ["red", "green", "blue"]
 values = table.values(colors) // ["red", "green", "blue"]
+
+empty = []
+values = table.values(empty)  // []
 ```
 
 ### table.clear(t)
-Removes all items from the table.
+Removes all items from the table. Always returns `none`.
 
 ```apex
 import table
@@ -1145,26 +1168,39 @@ table.clear(user)         // user is now []
 ```
 
 ### table.copy(t)
-Returns a shallow copy of the table. Changes to the copy don't affect the original.
+Returns a shallow copy of the table. Changes to the copy don't affect the original. Always returns a table.
+
+**Important**: This function may return `false` as a valid value if the source table contains `false`. Always check for `none` to detect errors (though this function never returns `none`).
 
 ```apex
 import table
 
 original = ["name" = "Alice", "age" = 30]
 duplicate = table.copy(original)
-duplicate["name"] = "Bob"
-// original["name"] is still "Alice"
+
+if duplicate == none
+    os.output("Copy failed")  // never happens
+else
+    duplicate["name"] = "Bob"
+    // original["name"] is still "Alice"
 ```
 
 ### table.merge(t1, t2)
-Merges two tables into a new table. If keys conflict, values from the second table overwrite the first.
+Merges two tables into a new table. If keys conflict, values from the second table overwrite the first. Returns `none` if the second argument is not a table.
+
+**Important**: This function may return `false` as a valid value if the merged table contains `false`. Always check for `none` to detect errors.
 
 ```apex
 import table
 
 t1 = ["name" = "Alice", "age" = 30]
 t2 = ["city" = "Dubai", "age" = 31]
-merged = table.merge(t1, t2)  // ["name" = "Alice", "age" = 31, "city" = "Dubai"]
+merged = table.merge(t1, t2)
+
+if merged == none
+    os.output("Merge failed: second argument is not a table")
+else
+    // merged is ["name" = "Alice", "age" = 31, "city" = "Dubai"]
 ```
 
 ## FFI Library (ffi)
