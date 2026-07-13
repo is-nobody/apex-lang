@@ -255,10 +255,10 @@ info = os.stat("data.txt")
 if info == none
     os.output("File does not exist")
 else
-    os.output("Size: {info["size"]} bytes")
-    os.output("Modified: {info["mtime"]}")
-    os.output("Created: {info["ctime"]}")
-    os.output("Is directory: {info["isdir"]}")
+    os.output("Size: {info['size']} bytes")
+    os.output("Modified: {info['mtime']}")
+    os.output("Created: {info['ctime']}")
+    os.output("Is directory: {info['isdir']}")
 ```
 
 ### Rename, Move, Copy
@@ -535,8 +535,8 @@ info = sys.disksize(".")
 if info == none
     os.output("Could not get disk info")
 else
-    os.output("Total: {info["total"]} MB")
-    os.output("Free: {info["free"]} MB")
+    os.output("Total: {info['total']} MB")
+    os.output("Free: {info['free']} MB")
 ```
 
 #### sys.tempdir()
@@ -562,8 +562,8 @@ import os
 import sys
 
 env_vars = sys.environment()
-os.output("HOME = {env_vars["HOME"]}")
-os.output("PATH = {env_vars["PATH"]}")
+os.output("HOME = {env_vars['HOME']}")
+os.output("PATH = {env_vars['PATH']}")
 ```
 
 #### sys.process_id()
@@ -945,11 +945,11 @@ import string
 
 result = string.split("apple,banana,orange", ",")
 if result != none
-    os.output(result["1"])   // "apple"
+    os.output(result['1'])   // "apple"
 
-string.split("hello world apex", " ")   // ["hello", "world", "apex"]
-string.split("one two three")           // ["one", "two", "three"]
-string.split("word")                    // ["word"]
+string.split("hello world apex", " ")   // ['hello", "world", "apex']
+string.split("one two three")           // ['one", "two", "three']
+string.split("word")                    // ['word']
 ```
 
 Practical example — processing user input:
@@ -964,9 +964,9 @@ parts = string.split(user_input, ",")
 if parts == none
     os.output("Invalid input")
 else
-    os.output("First number: {parts["1"]}")
-    os.output("Second number: {parts["2"]}")
-    os.output("Third number: {parts["3"]}")
+    os.output("First number: {parts['1']}")
+    os.output("Second number: {parts['2']}")
+    os.output("Third number: {parts['3']}")
 ```
 
 ### string.join(parts, separator)
@@ -975,7 +975,7 @@ Does the opposite of `split` — takes a table of strings and joins them into on
 ```apex
 import string
 
-words = ["Hello", "World"]
+words = ['Hello", "World']
 result = string.join(words, " ")
 if result != none
     os.output(result)        // "Hello World"
@@ -983,7 +983,7 @@ if result != none
 string.join(words, "-")      // "Hello-World"
 string.join(words)           // "HelloWorld" (no separator)
 
-tags = ["apex", "programming", "language"]
+tags = ['apex", "programming", "language']
 string.join(tags, ", ")      // "apex, programming, language"
 ```
 
@@ -1096,10 +1096,10 @@ Returns the number of items in the table. Always returns a number (0 if empty).
 ```apex
 import table
 
-user = ["name" = "Alice", "age" = 30]
+user = ['name" = "Alice", "age" = 30]
 os.output(table.size(user))          // 2
 
-colors = ["red", "green", "blue"]
+colors = ['red", "green", "blue']
 os.output(table.size(colors))        // 3
 
 empty = []
@@ -1112,7 +1112,7 @@ Returns `true` if the table has the specified key or index. Returns `none` if th
 ```apex
 import table
 
-user = ["name" = "Alice", "age" = 30]
+user = ['name" = "Alice", "age" = 30]
 result = table.has(user, "name")
 
 if result == none
@@ -1129,7 +1129,7 @@ Removes an item from a table by key. Returns `true` if the key existed and was r
 ```apex
 import table
 
-user = ["name" = "Alice", "age" = 30, "active" = true]
+user = ['name" = "Alice", "age" = 30, "active" = true]
 result = table.remove(user, "age")
 
 if result == none
@@ -1138,9 +1138,9 @@ else if result == true
     os.output("Key removed")
 else
     os.output("Key did not exist")
-// user is now ["name" = "Alice", "active" = true]
+// user is now ['name" = "Alice", "active" = true]
 
-colors = ["red", "green", "blue"]
+colors = ['red", "green", "blue']
 result = table.remove(colors, 2)
 
 if result == none
@@ -1156,11 +1156,11 @@ Returns a table of all keys in the table as strings. For ordered items without k
 ```apex
 import table
 
-user = ["name" = "Alice", "age" = 30, "active" = true]
-keys = table.keys(user)   // ["name", "age", "active"]
+user = ['name" = "Alice", "age" = 30, "active" = true]
+keys = table.keys(user)   // ['name", "age", "active']
 
-colors = ["red", "green", "blue"]
-keys = table.keys(colors) // ["1", "2", "3"]
+colors = ['red", "green", "blue']
+keys = table.keys(colors) // ['1", "2", "3']
 
 empty = []
 keys = table.keys(empty)  // []
@@ -1172,11 +1172,11 @@ Returns a table of all values in the table in order. Keys are sorted numerically
 ```apex
 import table
 
-user = ["name" = "Alice", "age" = 30, "active" = true]
-values = table.values(user)   // ["Alice", 30, true]
+user = ['name" = "Alice", "age" = 30, "active" = true]
+values = table.values(user)   // ['Alice", 30, true]
 
-colors = ["red", "green", "blue"]
-values = table.values(colors) // ["red", "green", "blue"]
+colors = ['red", "green", "blue']
+values = table.values(colors) // ['red", "green", "blue']
 
 empty = []
 values = table.values(empty)  // []
@@ -1188,7 +1188,7 @@ Removes all items from the table. Always returns `none`.
 ```apex
 import table
 
-user = ["name" = "Alice", "age" = 30]
+user = ['name" = "Alice", "age" = 30]
 table.clear(user)         // user is now []
 ```
 
@@ -1200,14 +1200,14 @@ Returns a shallow copy of the table. Changes to the copy don't affect the origin
 ```apex
 import table
 
-original = ["name" = "Alice", "age" = 30]
+original = ['name" = "Alice", "age" = 30]
 duplicate = table.copy(original)
 
 if duplicate == none
     os.output("Copy failed")  // never happens
 else
-    duplicate["name"] = "Bob"
-    // original["name"] is still "Alice"
+    duplicate['name'] = "Bob"
+    // original['name'] is still "Alice"
 ```
 
 ### table.merge(t1, t2)
@@ -1218,14 +1218,14 @@ Merges two tables into a new table. If keys conflict, values from the second tab
 ```apex
 import table
 
-t1 = ["name" = "Alice", "age" = 30]
-t2 = ["city" = "Dubai", "age" = 31]
+t1 = ['name" = "Alice", "age" = 30]
+t2 = ['city" = "Dubai", "age" = 31]
 merged = table.merge(t1, t2)
 
 if merged == none
     os.output("Merge failed: second argument is not a table")
 else
-    // merged is ["name" = "Alice", "age" = 31, "city" = "Dubai"]
+    // merged is ['name" = "Alice", "age" = 31, "city" = "Dubai']
 ```
 
 ## FFI Library (ffi)
@@ -1246,7 +1246,7 @@ lib = ffi.open("libc.so.6")
 if lib == none
     os.output("Could not load library")
 else
-    os.output("Library loaded: {lib["path"]}")
+    os.output("Library loaded: {lib['path']}")
 ```
 
 ### Calling Functions
@@ -1393,7 +1393,7 @@ Returns a random element from a non-empty table `seq`. Returns `none` if the tab
 import os
 import random
 
-colors = ["red", "green", "blue"]
+colors = ['red", "green", "blue']
 pick = random.choice(colors)
 
 if pick == none
@@ -1602,7 +1602,7 @@ Converts an Apex value (number, bool, string, table) to a JSON string. Returns t
 import os
 import codecs
 
-data = ["name" = "Alice", "age" = 30]
+data = ['name" = "Alice", "age" = 30]
 json_str = codecs.json_write(data)
 
 if json_str == none
@@ -1624,7 +1624,7 @@ data = codecs.json_read(json_str)
 if data == none
     os.output("JSON parsing failed")
 else
-    os.output("Name: {data["name"]}")
+    os.output("Name: {data['name']}")
 ```
 
 ### CSV Encoding
@@ -1636,8 +1636,8 @@ import os
 import codecs
 
 data = [
-    1 = ["name" = "Alice", "age" = 30],
-    2 = ["name" = "Bob", "age" = 25]
+    1 = ['name" = "Alice", "age" = 30],
+    2 = ['name" = "Bob", "age" = 25]
 ]
 
 csv_str = codecs.csv_write(data, true, ",")
@@ -1661,7 +1661,7 @@ data = codecs.csv_read(csv_str, true, ",")
 if data == none
     os.output("CSV parsing failed")
 else
-    os.output("First name: {data["1"]["name"]}")
+    os.output("First name: {data['1']['name']}")
 ```
 
 ### XML Encoding
@@ -1702,5 +1702,5 @@ data = codecs.xml_read(xml_str)
 if data == none
     os.output("XML parsing failed")
 else
-    os.output("Tag: {data["__tag"]}")
+    os.output("Tag: {data['__tag']}")
 ```
