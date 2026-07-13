@@ -103,6 +103,45 @@ function for_doubling()
         counter = counter * 2
     assert_equal(result, "124816", "doubling 1 to 16")
 
+function for_condition_index_access()
+    state = [pos = 0, max = 5]
+    result = ""
+    for state["pos"] < state["max"]
+        result = "{result}{state[\"pos\"]}"
+        state["pos"] = state["pos"] + 1
+    assert_equal(result, "01234", "condition loop with index access")
+
+function for_condition_break_in_if()
+    state = [pos = 0]
+    result = ""
+    for state["pos"] < 10
+        if state["pos"] == 5
+            break
+        result = "{result}{state[\"pos\"]}"
+        state["pos"] = state["pos"] + 1
+    assert_equal(result, "01234", "break inside if within condition loop")
+
+function for_condition_continue_in_if()
+    state = [pos = 0]
+    result = ""
+    for state["pos"] < 6
+        state["pos"] = state["pos"] + 1
+        if state["pos"] == 3
+            continue
+        result = "{result}{state[\"pos\"]}"
+    assert_equal(result, "12456", "continue inside if within condition loop")
+
+function for_condition_nested_if_break()
+    state = [pos = 0, limit = 8]
+    result = ""
+    for state["pos"] < state["limit"]
+        if state["pos"] > 2
+            if state["pos"] == 5
+                break
+        result = "{result}{state[\"pos\"]}"
+        state["pos"] = state["pos"] + 1
+    assert_equal(result, "01234", "nested if with break in condition loop")
+
 for_basic_count_up()
 for_count_down()
 for_with_step()
@@ -114,6 +153,10 @@ for_accumulator()
 for_negative()
 for_negative_decrement()
 for_doubling()
+for_condition_index_access()
+for_condition_break_in_if()
+for_condition_continue_in_if()
+for_condition_nested_if_break()
 
 if tests_failed == 0
     os.output("[OK] loops/for_condition.apex")

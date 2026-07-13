@@ -1888,6 +1888,7 @@ static bool is_valid_import_segment(TokenType type) {
 static ASTNode* parse_for_statement(Parser* parser) {
     Token* for_kw = advance(parser);
     skip_newlines(parser);
+
     ASTNode* condition = NULL;
     char* var_name = NULL;
     ASTNode* start = NULL, *end = NULL, *step = NULL;
@@ -1897,7 +1898,7 @@ static ASTNode* parse_for_statement(Parser* parser) {
 
     if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_INDENT)) {
         parser_error_at(parser, for_kw->line, for_kw->column, 3,
-            "Use an explicit condition for 'for' (e.g., 'for running == true').");
+                        "Use an explicit condition for 'for' (e.g., 'for running == true').");
         if (match(parser, TOKEN_NEWLINE)) {
             while (!check(parser, TOKEN_EOF) && !check(parser, TOKEN_DEDENT)) {
                 advance(parser);
@@ -1910,11 +1911,9 @@ static ASTNode* parse_for_statement(Parser* parser) {
     if (!check(parser, TOKEN_IDENTIFIER)) {
         Token* bad_token = current_token(parser);
         int len = bad_token->value ? (int)strlen(bad_token->value) : 1;
-        
         if (bad_token->type == TOKEN_STRING) {
             len += 2;
         }
-        
         const char* got = NULL;
         switch (bad_token->type) {
             case TOKEN_NUMBER: got = "number"; break;
@@ -1923,86 +1922,66 @@ static ASTNode* parse_for_statement(Parser* parser) {
             case TOKEN_FALSE: got = "boolean"; break;
             default: got = token_type_name(bad_token->type); break;
         }
-        
         parser_error_at(parser, bad_token->line, bad_token->column, len,
-                    "Expected variable name, got %s", got);
-        
+                        "Expected variable name or condition, got %s", got);
         while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
             advance(parser);
         }
         return NULL;
     }
 
-    if (check(parser, TOKEN_IDENTIFIER)) {
+    bool is_loop_var = check_next(parser, TOKEN_EQUAL);
+
+    if (is_loop_var) {
         Token* id_tok = advance(parser);
         var_line = id_tok->line;
         var_col = id_tok->column;
-        if (match(parser, TOKEN_EQUAL)) {
-            bool is_number_next = check(parser, TOKEN_NUMBER);
-            if (!is_number_next && check(parser, TOKEN_MINUS) && peek(parser, 1)->type == TOKEN_NUMBER) {
-                is_number_next = true;
-            }
+        advance(parser);
+        bool is_number_next = check(parser, TOKEN_NUMBER);
+        if (!is_number_next && check(parser, TOKEN_MINUS) && peek(parser, 1)->type == TOKEN_NUMBER) {
+            is_number_next = true;
+        }
 
-            if (is_number_next) {
-                var_name = strdup(id_tok->value);
-                start = parse_expression(parser);
-                parser_check_number_expr(parser, start, "For loop start");
-                
-                if (check(parser, TOKEN_COMMA)) {
-                    consume(parser, TOKEN_COMMA, "Expected ',' after start value");
-                    end = parse_expression(parser);
-                    parser_check_number_expr(parser, end, "For loop end");
-                    if (match(parser, TOKEN_COMMA)) {
-                        step = parse_expression(parser);
-                        parser_check_number_expr(parser, step, "For loop step");
-                        double step_val;
-                        if (step && evaluate_numeric_constant(parser, step, &step_val) && step_val == 0.0) {
-                            parser_error_at(parser, step->line, step->column, 0, "For loop step cannot be zero");
-                        }
+        if (is_number_next) {
+            var_name = strdup(id_tok->value);
+            start = parse_expression(parser);
+            parser_check_number_expr(parser, start, "For loop start");
+
+            if (check(parser, TOKEN_COMMA)) {
+                consume(parser, TOKEN_COMMA, "Expected ',' after start value");
+                end = parse_expression(parser);
+                parser_check_number_expr(parser, end, "For loop end");
+
+                if (match(parser, TOKEN_COMMA)) {
+                    step = parse_expression(parser);
+                    parser_check_number_expr(parser, step, "For loop step");
+                    double step_val;
+                    if (step && evaluate_numeric_constant(parser, step, &step_val) && step_val == 0.0) {
+                        parser_error_at(parser, step->line, step->column, 0, "For loop step cannot be zero");
                     }
-                } else {
-                    Token* bad = current_token(parser);
-                    int len = bad->value ? (int)strlen(bad->value) : 1;
-                    if (bad->type == TOKEN_STRING) len += 2;
-                    
-                    parser_error_at(parser, bad->line, bad->column, len,
-                                "Expected ',' after start value");
-                    free(var_name); var_name = NULL;
                 }
             } else {
-                var_name = strdup(id_tok->value);
-                start = parse_expression(parser);
-                is_table_iter = true;
+                Token* bad = current_token(parser);
+                int len = bad->value ? (int)strlen(bad->value) : 1;
+                if (bad->type == TOKEN_STRING) len += 2;
+                parser_error_at(parser, bad->line, bad->column, len,
+                                "Expected ',' after start value");
+                free(var_name); var_name = NULL;
             }
         } else {
-            Token* next = current_token(parser);
-            
-            if (next->type == TOKEN_EQUAL_EQUAL || next->type == TOKEN_NOT_EQUAL ||
-                next->type == TOKEN_LESS || next->type == TOKEN_GREATER ||
-                next->type == TOKEN_LESS_EQUAL || next->type == TOKEN_GREATER_EQUAL ||
-                next->type == TOKEN_AND || next->type == TOKEN_OR) {
-                parser->current--;
-                condition = parse_expression(parser);
-                parser_check_condition(parser, condition, "For");
-            } else {
-                int len = next->value ? (int)strlen(next->value) : 1;
-                if (next->type == TOKEN_STRING) len += 2;
-                
-                parser_error_at(parser, next->line, next->column, len,
-                              "Expected '=' after variable name in for loop");
-                while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
-                    advance(parser);
-                }
-                free(id_tok->value);
-                return NULL;
-            }
+            var_name = strdup(id_tok->value);
+            start = parse_expression(parser);
+            is_table_iter = true;
         }
+    } else {
+        condition = parse_expression(parser);
+        parser_check_condition(parser, condition, "For");
     }
 
     parser->loop_depth++;
     if (parser->loop_depth > APEX_MAX_LOOP_DEPTH) {
         parser_error_at(parser, for_kw->line, for_kw->column, 3,
-        "Loop nesting exceeds maximum depth of %d", APEX_MAX_LOOP_DEPTH);
+                        "Loop nesting exceeds maximum depth of %d", APEX_MAX_LOOP_DEPTH);
     }
 
     parser_enter_scope(parser);
