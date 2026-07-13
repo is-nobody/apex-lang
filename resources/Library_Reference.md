@@ -1172,7 +1172,7 @@ The FFI library lets you call functions from shared libraries (.so on Linux, .dl
 
 ### Loading Libraries
 #### ffi.open(path)
-Loads a shared library from the given path and returns a table representing the library. The table contains `_handle` (internal numeric handle) and `path` (the library path). Returns `false` if the library cannot be loaded.
+Loads a shared library from the given path and returns a table representing the library. The table contains `_handle` (internal numeric handle) and `path` (the library path). Returns `none` if the library cannot be loaded.
 
 If the path does not contain a slash or backslash, "./" is prepended to search in the current directory.
 
@@ -1182,7 +1182,7 @@ import ffi
 
 lib = ffi.open("libc.so.6")
 
-if lib == false
+if lib == none
     os.output("Could not load library")
 else
     os.output("Library loaded: {lib["path"]}")
@@ -1192,7 +1192,9 @@ else
 #### ffi.call(lib_table, func_name, ...)
 Calls a function from a loaded library. The first argument is the library table returned by `ffi.open()`, the second is the function name as a string, followed by optional arguments.
 
-Functions are assumed to return `long` and accept up to 4 `long` arguments. Arguments are converted to numbers before passing. Returns the result as a number, or `false` on failure.
+Functions are assumed to return `long` and accept up to 4 `long` arguments. Arguments are converted to numbers before passing. Returns the result as a number, or `none` on failure.
+
+**Important**: This function may return `0` as a valid result. Always check for `none` to detect errors.
 
 ```apex
 import os
@@ -1200,12 +1202,12 @@ import ffi
 
 lib = ffi.open("libc.so.6")
 
-if lib == false
+if lib == none
     os.output("Could not load libc")
 else
     pid = ffi.call(lib, "getpid")
     
-    if pid == false
+    if pid == none
         os.output("Failed to call getpid")
     else
         os.output("Process ID: {pid}")
@@ -1213,7 +1215,7 @@ else
 
 ### Error Handling
 #### ffi.errno()
-Returns the current value of `errno` as a number. Use this after a failed FFI call to get the error code.
+Returns the current value of `errno` as a number. Always succeeds.
 
 ```apex
 import os
@@ -1221,13 +1223,13 @@ import ffi
 
 lib = ffi.open("nonexistent.so")
 
-if lib == false
+if lib == none
     err = ffi.errno()
     os.output("Error code: {err}")
 ```
 
 #### ffi.strerror(code)
-Returns a human-readable error message for the given error code. If no code is provided, uses the current `errno`.
+Returns a human-readable error message for the given error code. If no code is provided, uses the current `errno`. Always returns a string.
 
 ```apex
 import os
@@ -1235,7 +1237,7 @@ import ffi
 
 lib = ffi.open("nonexistent.so")
 
-if lib == false
+if lib == none
     err = ffi.errno()
     msg = ffi.strerror(err)
     os.output("Error: {msg}")
@@ -1243,7 +1245,7 @@ if lib == false
 
 ### Memory Management
 #### ffi.malloc(size)
-Allocates `size` bytes of memory and returns the pointer as a number. Returns `0` if allocation fails.
+Allocates `size` bytes of memory and returns the pointer as a number. Returns `none` if allocation fails.
 
 ```apex
 import os
@@ -1251,7 +1253,7 @@ import ffi
 
 ptr = ffi.malloc(1024)
 
-if ptr == 0
+if ptr == none
     os.output("Memory allocation failed")
 else
     os.output("Allocated memory at: {ptr}")
@@ -1259,7 +1261,7 @@ else
 ```
 
 #### ffi.free(ptr)
-Frees memory previously allocated by `ffi.malloc()`. Takes the pointer number as an argument. Does nothing if the pointer is `0` (NULL). Always returns `true`.
+Frees memory previously allocated by `ffi.malloc()`. Takes the pointer number as an argument. Does nothing if the pointer is `0` (NULL). Returns `none` if the argument is invalid, otherwise returns `true`.
 
 ```apex
 import os
@@ -1267,9 +1269,12 @@ import ffi
 
 ptr = ffi.malloc(512)
 
-if ptr != 0
-    ffi.free(ptr)
-    os.output("Memory freed")
+if ptr != none
+    result = ffi.free(ptr)
+    if result == true
+        os.output("Memory freed")
+    else
+        os.output("Failed to free memory")
 ```
 
 ## Random Library (random)
