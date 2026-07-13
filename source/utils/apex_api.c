@@ -24,29 +24,39 @@ void apex_shutdown(void) {
 }
 
 // executes a source code string with the given filename for error context
-bool apex_execute(const char* source_code, const char* filename) {
-    if (!is_initialized) {
-        apex_init();
-    }
-
-    if (!source_code || !filename) {
-        print_error("Invalid arguments provided to apex_execute");
-        return false;
-    }
-
-    return execute_source_string(source_code, filename);
-}
-
-// executes a source file by its filesystem path
-bool apex_execute_file(const char* filepath) {
+bool apex_execute(const char* filepath, const char* source_code) {
     if (!is_initialized) {
         apex_init();
     }
 
     if (!filepath) {
-        print_error("Invalid filepath provided to apex_execute_file");
+        print_error("Invalid filepath provided to apex_execute");
         return false;
     }
 
-    return execute_source(filepath, filepath);
+    if (!source_code) {
+        return execute_source(filepath, filepath);
+    }
+
+    char tmp_path[512];
+    snprintf(tmp_path, sizeof(tmp_path), "/tmp/apex_exec_%d.apex", getpid());
+
+    FILE* f = fopen(tmp_path, "wb");
+    if (!f) {
+        print_error("Failed to create temporary file for execution");
+        return false;
+    }
+
+    size_t len = strlen(source_code);
+    if (fwrite(source_code, 1, len, f) != len) {
+        print_error("Failed to write source to temporary file");
+        fclose(f);
+        remove(tmp_path);
+        return false;
+    }
+    fclose(f);
+
+    bool result = execute_source(tmp_path, filepath);
+    remove(tmp_path);
+    return result;
 }

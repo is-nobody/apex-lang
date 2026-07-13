@@ -36,46 +36,6 @@ static void cleanup_all(Tokenizer* tok, Parser* par, ASTNode* ast,
     if (source) free(source);
 }
 
-// executes apex source code from a string
-bool execute_source_string(const char* source_code, const char* filename) {
-    if (!source_code || !filename) return false;
-    
-    Tokenizer* tokenizer = NULL;
-    Parser* parser = NULL;
-    ASTNode* ast = NULL;
-    CodeGenerator* cg = NULL;
-    BytecodeChunk* chunk = NULL;
-    VM* vm = NULL;
-
-    tokenizer = tokenizer_create(source_code, filename);
-    int token_count;
-    Token* tokens = tokenizer_tokenize(tokenizer, &token_count);
-
-    if (tokenizer_has_error(tokenizer) || !tokens) {
-        cleanup_all(tokenizer, NULL, NULL, NULL, NULL, NULL, NULL);
-        return false;
-    }
-
-    parser = parser_create(tokens, token_count, filename, source_code);
-    ast = parser_parse(parser);
-    if (!ast || parser_had_errors(parser)) {
-        cleanup_all(tokenizer, parser, ast, NULL, NULL, NULL, NULL);
-        return false;
-    }
-
-    chunk = bytecode_create();
-    cg = codegen_create(chunk);
-    if (!codegen_generate(cg, ast)) {
-        cleanup_all(tokenizer, parser, ast, cg, chunk, NULL, NULL);
-        return false;
-    }
-
-    vm = vm_create(source_code);
-    bool ok = vm_execute(vm, chunk);
-    cleanup_all(tokenizer, parser, ast, cg, chunk, vm, NULL);
-    return ok;
-}
-
 // executes apex source code from a file path
 bool execute_source(const char* filepath, const char* filename) {
     if (!filepath || !filename) return false;
@@ -117,8 +77,8 @@ bool execute_source(const char* filepath, const char* filename) {
     int token_count;
     Token* tokens = tokenizer_tokenize(tokenizer, &token_count);
 
-    if (tokenizer_has_error(tokenizer) || !tokens) {
-        cleanup_all(tokenizer, NULL, NULL, NULL, NULL, NULL, NULL);
+    if (!tokens || tokenizer_has_error(tokenizer)) {
+        cleanup_all(tokenizer, NULL, NULL, NULL, NULL, NULL, source);
         return false;
     }
     

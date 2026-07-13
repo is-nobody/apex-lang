@@ -13,11 +13,8 @@ void apex_init(void);
 // shuts down the apex runtime and frees global resources
 void apex_shutdown(void);
 
-// executes apex source code from a string with a filename for error context
-bool apex_execute(const char* source_code, const char* filename);
-
-// executes an apex source file from the given filesystem path
-bool apex_execute_file(const char* filepath);
+// execute from file or from string
+bool apex_execute(const char* filename, const char* source_code);
 
 #ifdef __cplusplus
 }
