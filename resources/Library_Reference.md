@@ -1277,7 +1277,7 @@ The Random library provides functions for generating pseudo-random numbers and p
 
 ### Seeding
 #### random.seed(value)
-Initializes the random number generator with a specific seed value. Using the same seed will produce the same sequence of random numbers, which is useful for reproducibility. If called without arguments, it seeds using the current system time.
+Initializes the random number generator with a specific seed value. Using the same seed will produce the same sequence of random numbers, which is useful for reproducibility. If called without arguments, it seeds using the current system time. Always returns `none`.
 
 ```apex
 import os
@@ -1295,7 +1295,7 @@ if r1 == r2
 
 ### Basic Generation
 #### random.random()
-Returns a random floating-point number in the range `[0.0, 1.0)`.
+Returns a random floating-point number in the range `[0.0, 1.0)`. Always succeeds.
 
 ```apex
 import os
@@ -1306,19 +1306,22 @@ os.output("Random float: {val}")
 ```
 
 #### random.randint(a, b)
-Returns a random integer `N` such that `a <= N <= b`. If `a > b`, the bounds are swapped automatically.
+Returns a random integer `N` such that `a <= N <= b`. If `a > b`, the bounds are swapped automatically. Returns `none` if arguments are not numbers.
 
 ```apex
 import os
 import random
 
 dice = random.randint(1, 6)
-os.output("You rolled a {dice}")
+if dice != none
+    os.output("You rolled a {dice}")
 ```
 
 ### Sequence Operations
 #### random.choice(seq)
-Returns a random element from a non-empty table `seq`. Returns `false` if the table is empty or the argument is not a table.
+Returns a random element from a non-empty table `seq`. Returns `none` if the table is empty or the argument is not a table.
+
+**Important**: This function may return `false` as a valid value if the table contains `false`. Always check for `none` to detect errors.
 
 ```apex
 import os
@@ -1326,23 +1329,31 @@ import random
 
 colors = ["red", "green", "blue"]
 pick = random.choice(colors)
-os.output("Selected color: {pick}")
+
+if pick == none
+    os.output("No elements in table")
+else
+    os.output("Selected color: {pick}")
 ```
 
 #### random.shuffle(seq)
-Shuffles the elements of a table `seq` in place. The table must use sequential numeric keys (e.g., `[1, 2, 3]`). Returns `false` on error.
+Shuffles the elements of a table `seq` in place. The table must use sequential numeric keys (e.g., `[1, 2, 3]`). Returns `none` on success or error (check `none` for error detection).
 
 ```apex
 import os
 import random
 
 deck = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-random.shuffle(deck)
-os.output("Shuffled deck: {deck}")
+result = random.shuffle(deck)
+
+if result == none
+    os.output("Shuffled deck: {deck}")
+else
+    os.output("Failed to shuffle")
 ```
 
 #### random.sample(seq, k)
-Returns a new table containing `k` unique elements chosen from the table `seq`. Used for random sampling without replacement. Returns `false` if `k` is larger than the size of `seq`.
+Returns a new table containing `k` unique elements chosen from the table `seq`. Used for random sampling without replacement. Returns `none` if `k` is larger than the size of `seq` or arguments are invalid.
 
 ```apex
 import os
@@ -1350,57 +1361,65 @@ import random
 
 pool = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
 winners = random.sample(pool, 3)
-os.output("Winners: {winners}")
+
+if winners == none
+    os.output("Sampling failed")
+else
+    os.output("Winners: {winners}")
 ```
 
 ### Distributions
 #### random.gauss(mu, sigma)
-Returns a random floating-point number from a Gaussian (normal) distribution with mean `mu` and standard deviation `sigma`.
+Returns a random floating-point number from a Gaussian (normal) distribution with mean `mu` and standard deviation `sigma`. Returns `none` if arguments are not numbers.
 
 ```apex
 import os
 import random
 
 height = random.gauss(175, 10)
-os.output("Simulated height: {height} cm")
+if height != none
+    os.output("Simulated height: {height} cm")
 ```
 
 #### random.triangular(low, high, mode)
-Returns a random floating-point number from a triangular distribution. `low` and `high` default to 0 and 1, while `mode` defaults to the midpoint between them.
+Returns a random floating-point number from a triangular distribution. `low` and `high` default to 0 and 1, while `mode` defaults to the midpoint between them. Returns `none` if arguments are not numbers.
 
 ```apex
 import os
 import random
 
 val = random.triangular(0, 10, 5)
-os.output("Triangular sample: {val}")
+if val != none
+    os.output("Triangular sample: {val}")
 ```
 
 #### random.expovariate(lambd)
-Returns a random floating-point number from an exponential distribution with rate parameter `lambd`. Returns `false` if `lambd` is zero.
+Returns a random floating-point number from an exponential distribution with rate parameter `lambd`. Returns `none` if `lambd` is zero or not a number.
 
 ```apex
 import os
 import random
 
 wait_time = random.expovariate(0.5)
-os.output("Expected wait: {wait_time} minutes")
+if wait_time != none
+    os.output("Expected wait: {wait_time} minutes")
 ```
 
 #### random.betavariate(alpha, beta)
-Returns a random floating-point number from a Beta distribution with parameters `alpha` and `beta`. Both parameters must be greater than zero. Returns `false` otherwise.
+Returns a random floating-point number from a Beta distribution with parameters `alpha` and `beta`. Both parameters must be greater than zero. Returns `none` otherwise.
 
 ```apex
 import os
 import random
 
 probability = random.betavariate(2, 5)
-os.output("Beta sample: {probability}")
+if probability != none
+    os.output("Beta sample: {probability}")
 ```
 
 ### Secure Randomness
 #### random.secure_token_hex(nbytes)
-Returns a hexadecimal string representation of `nbytes` random bytes generated using a cryptographically secure source. Defaults to 16 bytes if no argument is provided. Returns `false` on failure.
+Returns a hexadecimal string representation of `nbytes` random bytes generated using a cryptographically secure source. Defaults to 16 bytes if no argument is provided. Returns `none` on failure.
 
 ```apex
 import os
@@ -1408,14 +1427,14 @@ import random
 
 token = random.secure_token_hex(16)
 
-if token == false
+if token == none
     os.output("Could not generate secure token")
 else
     os.output("Hex Token: {token}")
 ```
 
 #### random.secure_randint(n)
-Returns a secure random integer in the range `[0, n)`. Uses a cryptographically secure source. Returns `false` on failure or if `n <= 0`.
+Returns a secure random integer in the range `[0, n)`. Uses a cryptographically secure source. Returns `none` on failure or if `n <= 0`.
 
 ```apex
 import os
@@ -1423,14 +1442,14 @@ import random
 
 val = random.secure_randint(100)
 
-if val == false
+if val == none
     os.output("Could not generate secure random int")
 else
     os.output("Secure random int: {val}")
 ```
 
 #### random.compare_digest(a, b)
-Compares two strings in constant time to prevent timing attacks. Useful for comparing security tokens or hashes. Returns `true` if they match, `false` otherwise. Both arguments must be strings.
+Compares two strings in constant time to prevent timing attacks. Useful for comparing security tokens or hashes. Returns `true` if they match, `false` otherwise. Both arguments must be strings. Always succeeds.
 
 ```apex
 import os
@@ -1439,7 +1458,7 @@ import random
 secret = "my_secret_token"
 input = "my_secret_token"
 
-if random.compare_digest(secret, input)
+if random.compare_digest(secret, input) == true
     os.output("Access granted")
 else
     os.output("Access denied")
