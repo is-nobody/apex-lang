@@ -1087,6 +1087,7 @@ ValueType parser_check_expression(Parser* parser, ASTNode* node) {
 // validates that a condition expression is boolean and explicit
 static void parser_check_condition(Parser* parser, ASTNode* condition, const char* context) {
     if (!parser->semantic_checks) return;
+    
     ValueType cond_type = infer_expression_type(parser, condition);
     
     if (cond_type != TYPE_BOOLEAN && cond_type != TYPE_ANY && cond_type != TYPE_UNKNOWN) {
@@ -1095,23 +1096,60 @@ static void parser_check_condition(Parser* parser, ASTNode* condition, const cha
         return;
     }
 
-    bool is_explicit_condition = false;
+    bool all_explicit = true;
+    ASTNode* nodes_to_check[256];
+    int node_count = 0;
+    nodes_to_check[node_count++] = condition;
     
-    if (condition->type == AST_BINARY) {
-        TokenType op = condition->binary.op;
-        if (op == TOKEN_EQUAL_EQUAL || op == TOKEN_NOT_EQUAL || 
-            op == TOKEN_LESS || op == TOKEN_GREATER || 
-            op == TOKEN_LESS_EQUAL || op == TOKEN_GREATER_EQUAL ||
-            op == TOKEN_AND || op == TOKEN_OR) {
+    while (node_count > 0) {
+        ASTNode* current = nodes_to_check[--node_count];
+        if (!current) continue;
+        
+        if (current->type == AST_BINARY && (current->binary.op == TOKEN_AND || current->binary.op == TOKEN_OR)) {
+            nodes_to_check[node_count++] = current->binary.left;
+            nodes_to_check[node_count++] = current->binary.right;
+            continue;
+        }
+        
+        bool is_explicit = false;
+        
+        if (current->type == AST_BINARY) {
+            TokenType op = current->binary.op;
+            if (op == TOKEN_EQUAL_EQUAL || op == TOKEN_NOT_EQUAL || 
+                op == TOKEN_LESS || op == TOKEN_GREATER || 
+                op == TOKEN_LESS_EQUAL || op == TOKEN_GREATER_EQUAL) {
+                is_explicit = true;
+            }
+        } else if (current->type == AST_UNARY && current->unary.op == TOKEN_NOT) {
+            is_explicit = true;
+        }
+        
+        if (!is_explicit) {
+            parser_error_at(parser, current->line, current->column, get_node_len(current),
+                "%s requires explicit condition (e.g., 'var == true' or 'var != false')", context);
+            all_explicit = false;
+        }
+    }
+    
+    if (all_explicit) {
+        bool is_explicit_condition = false;
+        
+        if (condition->type == AST_BINARY) {
+            TokenType op = condition->binary.op;
+            if (op == TOKEN_EQUAL_EQUAL || op == TOKEN_NOT_EQUAL || 
+                op == TOKEN_LESS || op == TOKEN_GREATER || 
+                op == TOKEN_LESS_EQUAL || op == TOKEN_GREATER_EQUAL ||
+                op == TOKEN_AND || op == TOKEN_OR) {
+                is_explicit_condition = true;
+            }
+        } else if (condition->type == AST_UNARY && condition->unary.op == TOKEN_NOT) {
             is_explicit_condition = true;
         }
-    } else if (condition->type == AST_UNARY && condition->unary.op == TOKEN_NOT) {
-        is_explicit_condition = true;
-    }
-
-    if (!is_explicit_condition) {
-        parser_error_at(parser, condition->line, condition->column, get_node_len(condition),
-            "%s requires explicit condition (e.g., 'var == true' or 'var != false')", context);
+        
+        if (!is_explicit_condition) {
+            parser_error_at(parser, condition->line, condition->column, get_node_len(condition),
+                "%s requires explicit condition (e.g., 'var == true' or 'var != false')", context);
+        }
     }
 }
 

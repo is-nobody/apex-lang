@@ -23,6 +23,8 @@
 - **Fall through to hash lookup** when a numeric key is not found in the array part of a table
 - **Column offset** corrected for expressions inside string interpolation
 - **Variable redeclaration check** — removed redundant "Variable already declared in this scope" and "Assignment to undefined variable" errors
+- **Enforced explicit boolean conditions** in `if` and `for` statements, ensuring logical operators (`and`/`or`) are properly validated alongside comparison operators.
+- **Eliminated duplicate semantic errors** in string interpolation by disabling checks in temporary parsers and implementing an error position history buffer.
 
 ---
 
