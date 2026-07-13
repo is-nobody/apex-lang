@@ -764,6 +764,14 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
     ValueType left_type = infer_expression_type(parser, node->binary.left);
     ValueType right_type = infer_expression_type(parser, node->binary.right);
 
+    if (node->binary.op == TOKEN_PLUS) {
+        if (left_type == TYPE_STRING || right_type == TYPE_STRING) {
+            parser_error_at(parser, node->line, node->column, get_node_len(node),
+                "Arithmetic '+' requires numbers. For strings, use interpolation.");
+            return TYPE_ERROR;
+        }
+    }
+
     if (left_type == TYPE_ANY || right_type == TYPE_ANY) {
         switch (node->binary.op) {
             case TOKEN_PLUS:
