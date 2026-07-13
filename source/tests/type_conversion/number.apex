@@ -12,11 +12,11 @@ function assert_equal(actual, expected, name)
 
 function number_from_int_string()
     result = number("42")
-    assert_equal(result, 42, "number(\"42\")")
+    assert_equal(result, 42, "number('42')")
 
 function number_from_decimal_string()
     result = number("3.14")
-    assert_equal(result, 3.14, "number(\"3.14\")")
+    assert_equal(result, 3.14, "number('3.14')")
 
 function number_from_true()
     result = number(true)
@@ -28,15 +28,15 @@ function number_from_false()
 
 function number_from_invalid_string()
     result = number("hello")
-    assert_equal(result, none, "number(\"hello\")")
+    assert_equal(result, none, "number('hello')")
 
 function number_from_negative_string()
     result = number("-5")
-    assert_equal(result, -5, "number(\"-5\")")
+    assert_equal(result, -5, "number('-5')")
 
 function number_from_zero_string()
     result = number("0")
-    assert_equal(result, 0, "number(\"0\")")
+    assert_equal(result, 0, "number('0')")
 
 function number_from_none()
     result = number(none)
@@ -44,7 +44,7 @@ function number_from_none()
 
 function number_from_table()
     result = number(["number"])
-    assert_equal(result, none, "number([\"cherry\"])")
+    assert_equal(result, none, "number(['cherry'])")
 
 number_from_int_string()
 number_from_decimal_string()

@@ -173,7 +173,9 @@ static void skip_shebang(Tokenizer* tokenizer) {
 
 // reads a quoted string literal with escape sequence handling
 static char* read_string(Tokenizer* tokenizer) {
+    char quote_char = peek(tokenizer, 0);
     advance(tokenizer); // skip opening quote
+    
     char* buffer = (char*)malloc(256);
     if (!buffer) return NULL;
     int buf_size = 256;
@@ -197,6 +199,7 @@ static char* read_string(Tokenizer* tokenizer) {
                 case 't': char_to_add = '\t'; break;
                 case 'r': char_to_add = '\r'; break;
                 case '"': char_to_add = '"'; break;
+                case '\'': char_to_add = '\''; break;
                 case '\\': char_to_add = '\\'; break;
                 default: 
                     if (next_c == '{' || next_c == '}') {
@@ -221,7 +224,7 @@ static char* read_string(Tokenizer* tokenizer) {
             continue;
         }
         
-        if (c == '"') {
+        if (c == quote_char) {
             advance(tokenizer); 
             break;
         }
@@ -394,7 +397,7 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
             }
         }
         
-        if (c == '"') {
+        if (c == '"' || c == '\'') {
             char* string_value = read_string(tokenizer);
             add_token(tokenizer, TOKEN_STRING, string_value, line, col);
             free(string_value);

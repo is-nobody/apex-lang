@@ -27,9 +27,9 @@ colors = [
     "green" = lib.add(2, 2)
 ]
 
-assert_equal(colors["red"], math.pi(), "colors[\"red\"]")
-assert_equal(colors["blue"], math.e(), "colors[\"blue\"]")
-assert_equal(colors["green"], 4, "colors[\"green\"]")
+assert_equal(colors["red"], math.pi(), "colors['red']")
+assert_equal(colors["blue"], math.e(), "colors['blue']")
+assert_equal(colors["green"], 4, "colors['green']")
 
 if tests_failed == 0
     os.output("[OK] integration/import.apex")

@@ -45,6 +45,17 @@
               "match": "\\{[a-zA-Z_][a-zA-Z0-9_\\s\\+\\-\\*\\/]*\\}"
             }
           ]
+        },
+        {
+          "name": "string.quoted.single.apex",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.apex",
+              "match": "\\\\."
+            }
+          ]
         }
       ]
     },

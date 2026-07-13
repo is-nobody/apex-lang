@@ -25,13 +25,13 @@ function ordered_list()
 
 function key_value()
     user = ["name" = "Alice", "age" = 30, "active" = true]
-    assert_equal(user["name"], "Alice", "user[\"name\"]")
-    assert_equal(user["age"], 30, "user[\"age\"]")
-    assert_equal(user["active"], true, "user[\"active\"]")
+    assert_equal(user["name"], "Alice", "user['name']")
+    assert_equal(user["age"], 30, "user['age']")
+    assert_equal(user["active"], true, "user['active']")
 
 function add_keys()
     user = ["name" = "Alice"]
-    assert_equal(user["name"], "Alice", "Before: user[\"name\"]")
+    assert_equal(user["name"], "Alice", "Before: user['name']")
     
     user["age"] = 30
     assert_equal(user["age"], 30, "Added age")
@@ -44,21 +44,21 @@ function add_keys()
 
 function update_values()
     user = ["name" = "Alice", "age" = 30]
-    assert_equal(user["age"], 30, "Before: user[\"age\"]")
+    assert_equal(user["age"], 30, "Before: user['age']")
     
     user["age"] = 31
-    assert_equal(user["age"], 31, "After: user[\"age\"]")
+    assert_equal(user["age"], 31, "After: user['age']")
     
     user["name"] = "Bob"
-    assert_equal(user["name"], "Bob", "After: user[\"name\"]")
+    assert_equal(user["name"], "Bob", "After: user['name']")
 
 function mixed_tables()
     person = ["Alice", "Manager", "department" = "Engineering", "years" = 5]
     
     assert_equal(person[1], "Alice", "person[1]")
     assert_equal(person[2], "Manager", "person[2]")
-    assert_equal(person["department"], "Engineering", "person[\"department\"]")
-    assert_equal(person["years"], 5, "person[\"years\"]")
+    assert_equal(person["department"], "Engineering", "person['department']")
+    assert_equal(person["years"], 5, "person['years']")
     
     person[3] = "Senior"
     assert_equal(person[3], "Senior", "Added position 3")
@@ -73,15 +73,15 @@ function nested_tables()
         ]
     ]
     
-    assert_equal(company["name"], "Apex", "company[\"name\"]")
-    assert_equal(company["employees"][1], "Alice", "company[\"employees\"][1]")
-    assert_equal(company["employees"][2], "Bob", "company[\"employees\"][2]")
-    assert_equal(company["employees"][3], "Charlie", "company[\"employees\"][3]")
-    assert_equal(company["address"]["street"], "1 Sheikh Mohammed bin Rashid Boulevard", "company[\"address\"][\"street\"]")
-    assert_equal(company["address"]["city"], "Dubai", "company[\"address\"][\"city\"]")
+    assert_equal(company["name"], "Apex", "company['name']")
+    assert_equal(company["employees"][1], "Alice", "company['employees'][1]")
+    assert_equal(company["employees"][2], "Bob", "company['employees'][2]")
+    assert_equal(company["employees"][3], "Charlie", "company['employees'][3]")
+    assert_equal(company["address"]["street"], "1 Sheikh Mohammed bin Rashid Boulevard", "company['address']['street']")
+    assert_equal(company["address"]["city"], "Dubai", "company['address']['city']")
     
     company["address"]["city"] = "Abu Dhabi"
-    assert_equal(company["address"]["city"], "Abu Dhabi", "After change: company[\"address\"][\"city\"]")
+    assert_equal(company["address"]["city"], "Abu Dhabi", "After change: company['address']['city']")
 
 function mixed_types()
     mixed = [42, "hello", true, 3.14, [-5, -10]]
@@ -122,8 +122,8 @@ function function_returning_table()
         return ["x" = x, "y" = y]
     
     point = create_point(10, 20)
-    assert_equal(point["x"], 10, "point[\"x\"]")
-    assert_equal(point["y"], 20, "point[\"y\"]")
+    assert_equal(point["x"], 10, "point['x']")
+    assert_equal(point["y"], 20, "point['y']")
 
 function modify_table_in_function()
     function add_status(user, status)
@@ -133,17 +133,17 @@ function modify_table_in_function()
     user = ["name" = "Alice", "age" = 30]
     add_status(user, "active")
     
-    assert_equal(user["name"], "Alice", "user[\"name\"]")
-    assert_equal(user["age"], 30, "user[\"age\"]")
-    assert_equal(user["status"], "active", "user[\"status\"]")
-    assert_equal(user["modified"], true, "user[\"modified\"]")
+    assert_equal(user["name"], "Alice", "user['name']")
+    assert_equal(user["age"], 30, "user['age']")
+    assert_equal(user["status"], "active", "user['status']")
+    assert_equal(user["modified"], true, "user['modified']")
 
 function mixed_keys()
     data = ["first", "second", "name" = "Test", "count" = 42]
     assert_equal(data[1], "first", "data[1]")
     assert_equal(data[2], "second", "data[2]")
-    assert_equal(data["name"], "Test", "data[\"name\"]")
-    assert_equal(data["count"], 42, "data[\"count\"]")
+    assert_equal(data["name"], "Test", "data['name']")
+    assert_equal(data["count"], 42, "data['count']")
     
     data[3] = "third"
     assert_equal(data[3], "third", "data[3]")
@@ -159,20 +159,20 @@ function key_existence()
 
 function special_values()
     special = ["empty" = "", "zero" = 0, "false_val" = false, "negative" = -1]
-    assert_equal(special["empty"], "", "special[\"empty\"]")
-    assert_equal(special["zero"], 0, "special[\"zero\"]")
-    assert_equal(special["false_val"], false, "special[\"false_val\"]")
-    assert_equal(special["negative"], -1, "special[\"negative\"]")
+    assert_equal(special["empty"], "", "special['empty']")
+    assert_equal(special["zero"], 0, "special['zero']")
+    assert_equal(special["false_val"], false, "special['false_val']")
+    assert_equal(special["negative"], -1, "special['negative']")
 
 function manual_copy()
     original = ["name" = "Alice", "age" = 30]
     copy = ["name" = original["name"], "age" = original["age"]]
     
     copy["name"] = "Bob"
-    assert_equal(original["name"], "Alice", "original[\"name\"]")
-    assert_equal(copy["name"], "Bob", "copy[\"name\"]")
-    assert_equal(original["age"], 30, "original[\"age\"]")
-    assert_equal(copy["age"], 30, "copy[\"age\"]")
+    assert_equal(original["name"], "Alice", "original['name']")
+    assert_equal(copy["name"], "Bob", "copy['name']")
+    assert_equal(original["age"], 30, "original['age']")
+    assert_equal(copy["age"], 30, "copy['age']")
 
 function table_as_value()
     school = [
@@ -184,7 +184,7 @@ function table_as_value()
         ]
     ]
     
-    assert_equal(school["name"], "Apex Academy", "school[\"name\"]")
+    assert_equal(school["name"], "Apex Academy", "school['name']")
     assert_equal(school["students"][1]["name"], "Alice", "student 1 name")
     assert_equal(school["students"][1]["grade"], 95, "student 1 grade")
     assert_equal(school["students"][2]["name"], "Bob", "student 2 name")

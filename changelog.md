@@ -17,6 +17,7 @@
 - **Improved error messages** — the entire expression is now highlighted on arithmetic type errors.
 - **Stack overflow detection** — runtime error messages for stack overflow.
 - **Increased max call frames** from 1024 to 8192.
+- **Single-quoted strings** — string literals can now be written using either double (`"..."`) or single (`'...'`) quotes, with full escape sequence support and VS Code auto-closing.
 
 ## Bug Fixes
 - **Sparse numeric keys**: correct removal with holes, accurate size calculation

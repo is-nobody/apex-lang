@@ -48,10 +48,10 @@ function string_params()
         return "Hello, {name}!"
     
     result = greet("Alice")
-    assert_equal(result, "Hello, Alice!", "greet(\"Alice\")")
+    assert_equal(result, "Hello, Alice!", "greet('Alice')")
     
     result = greet("")
-    assert_equal(result, "Hello, !", "greet(\"\")")
+    assert_equal(result, "Hello, !", "greet('')")
 
 function no_return()
     function do_nothing()

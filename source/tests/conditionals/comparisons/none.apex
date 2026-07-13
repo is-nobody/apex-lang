@@ -28,11 +28,11 @@ function none_not_equal_number()
 
 function none_equal_string()
     result = none == "hello"
-    assert_equal(result, false, "none == \"hello\"")
+    assert_equal(result, false, "none == 'hello'")
 
 function none_not_equal_string()
     result = none != "hello"
-    assert_equal(result, true, "none != \"hello\"")
+    assert_equal(result, true, "none != 'hello'")
 
 function none_equal_boolean()
     result = none == true

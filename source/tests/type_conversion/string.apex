@@ -40,7 +40,7 @@ function string_from_none()
 
 function string_from_table()
     result = string(["cherry"])
-    assert_equal(result, "[\n    1 = \"cherry\"\n]", "string([\"cherry\"])")
+    assert_equal(result, "[\n    1 = \"cherry\"\n]", "string(['cherry'])")
 
 string_from_int()
 string_from_decimal()
