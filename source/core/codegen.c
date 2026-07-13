@@ -699,6 +699,41 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
         case AST_STRING_INTERP:
             return codegen_string_interp(cg, node);
 
+        case AST_TERNARY: {
+            ASTNode* condition = node->ternary.condition;
+            ASTNode* true_expr = node->ternary.true_expr;
+            ASTNode* false_expr = node->ternary.false_expr;
+            
+            int dest_reg = alloc_register(cg);
+            
+            int cond_reg = codegen_expression(cg, condition);
+            
+            int jump_to_false = bytecode_current_offset(cg->chunk);
+            emit(cg, INST(OP_JUMP_IF_FALSE, 0, cond_reg, 0), node->line);
+            free_register(cg, cond_reg);
+            
+            int true_reg = codegen_expression(cg, true_expr);
+            
+            emit(cg, INST(OP_MOVE, dest_reg, true_reg, 0), node->line);
+            free_register(cg, true_reg);
+            
+            int jump_to_end = bytecode_current_offset(cg->chunk);
+            emit(cg, INST(OP_JUMP, 0, 0, 0), node->line);
+            
+            int false_addr = bytecode_current_offset(cg->chunk);
+            bytecode_patch_jump(cg->chunk, jump_to_false, false_addr);
+            
+            int false_reg = codegen_expression(cg, false_expr);
+            
+            emit(cg, INST(OP_MOVE, dest_reg, false_reg, 0), node->line);
+            free_register(cg, false_reg);
+            
+            int end_addr = bytecode_current_offset(cg->chunk);
+            bytecode_patch_jump(cg->chunk, jump_to_end, end_addr);
+            
+            return dest_reg;
+        }
+
         default: {
             int reg = alloc_register(cg);
             emit(cg, INST(OP_LOAD_BOOL, reg, 0, 0), node->line);

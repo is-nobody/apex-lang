@@ -152,6 +152,18 @@ ASTNode* ast_create_string_interp(ASTNodeList* parts) {
     return node;
 }
 
+// ternary node: condition ? true_expr : false_expr
+ASTNode* ast_create_ternary(ASTNode* condition, ASTNode* true_expr, ASTNode* false_expr, int line, int column) {
+    ASTNode* node = (ASTNode*)calloc(1, sizeof(ASTNode));
+    node->type = AST_TERNARY;
+    node->line = line;
+    node->column = column;
+    node->ternary.condition = condition;
+    node->ternary.true_expr = true_expr;
+    node->ternary.false_expr = false_expr;
+    return node;
+}
+
 // block node groups a list of statements, using first statement's location as fallback
 ASTNode* ast_create_block(ASTNodeList* statements) {
     ASTNode* node = ast_create_node(AST_BLOCK, 
@@ -299,6 +311,11 @@ void ast_free_node(ASTNode* node) {
             break;
         case AST_PARAM:
             free(node->param.name);
+            break;
+        case AST_TERNARY:
+            ast_free_node(node->ternary.condition);
+            ast_free_node(node->ternary.true_expr);
+            ast_free_node(node->ternary.false_expr);
             break;
         default:
             break;

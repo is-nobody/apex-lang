@@ -10,6 +10,7 @@ os.execute("apex source/tests/arithmetic/priority_parentheses.apex")
 // CONDITIONALS
 // IF-ELIF-ELSE
 os.execute("apex source/tests/conditionals/if-elif-else/if_single.apex")
+os.execute("apex source/tests/conditionals/if-elif-else/if_ternary.apex")
 os.execute("apex source/tests/conditionals/if-elif-else/if_elif_else.apex")
 os.execute("apex source/tests/conditionals/if-elif-else/if_else.apex")
 os.execute("apex source/tests/conditionals/if-elif-else/nested_if.apex")

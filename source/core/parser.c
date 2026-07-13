@@ -38,6 +38,7 @@ static ValueType infer_expression_type(Parser* parser, ASTNode* node);
 static int symbol_index_recursive(Parser* parser, const char* name);
 static const char* binary_op_name(TokenType op);
 static ASTNode* parse_call(Parser* parser, ASTNode* callee);
+static void parser_check_condition(Parser* parser, ASTNode* condition, const char* context);
 
 // estimates the source length of a node for error reporting
 static int get_node_len(ASTNode* node) {
@@ -1027,7 +1028,6 @@ static ValueType infer_index_access_type(Parser* parser, ASTNode* node) {
 // main type inference dispatcher for all expression types
 static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
     if (!node) return TYPE_UNKNOWN;
-
     switch (node->type) {
         case AST_LITERAL_NUMBER: return TYPE_NUMBER;
         case AST_LITERAL_STRING: return TYPE_STRING;
@@ -1039,19 +1039,15 @@ static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
         case AST_IDENTIFIER: {
             const char* name = node->identifier.name;
             int idx = symbol_index_recursive(parser, name);
-            
             if (idx >= 0) {
                 return parser->symbols.types[idx];
             }
-
             if (lookup_builtin(name)) {
                 return TYPE_FUNCTION;
             }
-
             if (is_known_builtin_module(name)) {
                 return TYPE_UNKNOWN;
             }
-
             parser_error_at(parser, node->line, node->column, (int)strlen(name),
                             "Undefined variable or function '%s'", name);
             return TYPE_ERROR;
@@ -1079,10 +1075,24 @@ static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
             }
             return TYPE_STRING;
         }
+        case AST_TERNARY: {
+            ValueType true_type = infer_expression_type(parser, node->ternary.true_expr);
+            ValueType false_type = infer_expression_type(parser, node->ternary.false_expr);
+            
+            parser_check_condition(parser, node->ternary.condition, "Ternary");
+            
+            if (true_type == false_type) {
+                return true_type;
+            }
+            if (true_type == TYPE_ANY || false_type == TYPE_ANY) {
+                return TYPE_ANY;
+            }
+            return TYPE_UNKNOWN;
+        }
         case AST_FUNCTION_DECL: return TYPE_FUNCTION;
         default:
             parser_error_at(parser, node->line, node->column, 0,
-                "Unexpected expression type %d", node->type);
+                            "Unexpected expression type %d", node->type);
             return TYPE_ERROR;
     }
 }
@@ -1214,6 +1224,7 @@ static Precedence get_precedence(TokenType type) {
         case TOKEN_EQUAL: return PREC_ASSIGNMENT;
         case TOKEN_OR: return PREC_OR;
         case TOKEN_AND: return PREC_AND;
+        case TOKEN_IF: return PREC_OR;
         case TOKEN_EQUAL_EQUAL:
         case TOKEN_NOT_EQUAL: return PREC_EQUALITY;
         case TOKEN_LESS:
@@ -1629,7 +1640,7 @@ static ASTNode* parse_call(Parser* parser, ASTNode* callee) {
 // parses an infix expression (binary, call, or access)
 static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
     Token* token = current_token(parser);
-    
+
     switch (token->type) {
         case TOKEN_LPAREN:
             return parse_call(parser, left);
@@ -1637,6 +1648,21 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
             return parse_index_access(parser, left);
         case TOKEN_DOT:
             return parse_member_access(parser, left);
+        
+        case TOKEN_IF: {
+            advance(parser);
+            
+            ASTNode* condition = parse_expression(parser);
+            
+            parser_check_condition(parser, condition, "Ternary");
+            
+            consume(parser, TOKEN_ELSE, "Expected 'else' in ternary expression");
+            
+            ASTNode* false_expr = parse_precedence(parser, PREC_OR);
+            
+            return ast_create_ternary(condition, left, false_expr, token->line, token->column);
+        }
+
         case TOKEN_PLUS:
         case TOKEN_MINUS:
         case TOKEN_STAR:

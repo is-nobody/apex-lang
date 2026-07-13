@@ -29,7 +29,7 @@ typedef enum {
     AST_INDEX_ACCESS,      // table[index] — bracket notation for array or table access
     AST_TABLE_LITERAL,     // (1, 2, 3) or (key = value, ...) — table constructor
     AST_STRING_INTERP,     // "Hello {name}" — interpolated string with embedded expressions
-    
+    AST_TERNARY,           // condition ? true_expr : false_expr — ternary conditional operator
     AST_MODULE_BLOCK,      // container for a separate module's top-level body
 
     AST_BLOCK,             // { statement; statement; ... } — groups multiple statements
@@ -169,6 +169,13 @@ struct ASTNode {
             char* name;
         } param;
         
+        // ternary expression
+        struct {
+            ASTNode* condition;
+            ASTNode* true_expr;
+            ASTNode* false_expr;
+        } ternary;
+
         // expression statement wrapper to treat any expression as a statement
         struct {
             ASTNode* expression;
@@ -206,6 +213,7 @@ ASTNode* ast_create_for(const char* var_name, ASTNode* condition, ASTNode* start
 ASTNode* ast_create_import(const char* module_path, int line, int column);
 ASTNode* ast_create_return(ASTNode* value, int line, int column);
 ASTNode* ast_create_string_interp(ASTNodeList* parts);
+ASTNode* ast_create_ternary(ASTNode* condition, ASTNode* true_expr, ASTNode* false_expr, int line, int column);
 ASTNode* ast_create_type_check(const char* param_name, const char* type_name, 
                                 int line, int column);
 ASTNode* ast_create_block(ASTNodeList* statements);

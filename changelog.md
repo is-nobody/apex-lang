@@ -18,6 +18,7 @@
 - **Stack overflow detection** — runtime error messages for stack overflow.
 - **Increased max call frames** from 1024 to 8192.
 - **Single-quoted strings** — string literals can now be written using either double (`"..."`) or single (`'...'`) quotes, with full escape sequence support and VS Code auto-closing.
+- **Ternary expressions** — added support for one-line conditional expressions (`value_if_true if condition else value_if_false`).
 
 ## Bug Fixes
 - **Sparse numeric keys**: correct removal with holes, accurate size calculation
