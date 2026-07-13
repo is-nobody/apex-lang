@@ -2278,47 +2278,44 @@ static ASTNode* parse_statement(Parser* parser) {
 // parses a block of statements with indentation
 static ASTNode* parse_block(Parser* parser, bool require_indent, const char* after_keyword) {
     ASTNodeList* statements = ast_list_create();
-
+    
     if (require_indent) {
         skip_newlines(parser);
-
         if (!match(parser, TOKEN_INDENT)) {
             Token* tok = current_token(parser);
-            
-            int line_len = get_line_length(parser->source, tok->line);
-            int len = line_len - (tok->column - 1);
-            if (len < 1) len = 1;
-
-            parser_error_at(parser, tok->line, tok->column, len,
-                            "Expected indented block after '%s' (next line must start with 4 spaces)",
-                            after_keyword ? after_keyword : "block");
+            int len = get_line_length(parser->source, tok->line) - tok->column + 1;
+            parser_error_at(parser, tok->line, tok->column, len < 1 ? 1 : len,
+                            "Expected indented block after '%s'", after_keyword ? after_keyword : "block");
             return ast_create_block(statements);
         }
     }
 
     while (!check(parser, TOKEN_EOF) && !check(parser, TOKEN_DEDENT)) {
-        if (check(parser, TOKEN_INDENT)) {
-            advance(parser);
-            continue;
+        if (check(parser, TOKEN_INDENT)) { advance(parser); continue; }
+
+        if (statements->count > 0) {
+            ASTNode* last = statements->nodes[statements->count - 1];
+            if (last->type == AST_RETURN_STMT || last->type == AST_BREAK_STMT || last->type == AST_CONTINUE_STMT) {
+                Token* tok = current_token(parser);
+                parser_error_at(parser, tok->line, tok->column, tok->value ? (int)strlen(tok->value) : 1,
+                                "Unreachable code after control flow statement");
+                while (!check(parser, TOKEN_EOF) && !check(parser, TOKEN_DEDENT)) advance(parser);
+                break;
+            }
         }
-        
+
         int before = parser->current;
         ASTNode* stmt = parse_statement(parser);
-        if (stmt) {
-            ast_list_add(statements, stmt);
-        }
+        if (stmt) ast_list_add(statements, stmt);
+        
         if (parser->current == before && !check(parser, TOKEN_EOF) && !check(parser, TOKEN_DEDENT)) {
             Token* tok = current_token(parser);
-            int len = tok->value ? (int)strlen(tok->value) : 1;
-            parser_error_at(parser, tok->line, tok->column, len,
-                "Unexpected token in block");
+            parser_error_at(parser, tok->line, tok->column, tok->value ? (int)strlen(tok->value) : 1, "Unexpected token in block");
             advance(parser);
         }
         skip_newlines(parser);
     }
-
     match(parser, TOKEN_DEDENT);
-
     return ast_create_block(statements);
 }
 
