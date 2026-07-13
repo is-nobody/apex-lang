@@ -5,6 +5,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
+  #include <process.h>
+  #define getpid _getpid
+#else
+  #include <unistd.h>
+#endif
+
 static bool is_initialized = false;
 
 // initializes the apex runtime with platform-specific setup
