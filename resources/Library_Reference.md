@@ -409,210 +409,18 @@ else
     os.output("Permissions changed successfully")
 ```
 
-## System Library (sys)
-The System library provides static or rarely changing system information. Import it with `import sys`.
 
-### System Info
-#### sys.platform()
-Returns a string identifying your operating system, such as `"Windows"`, `"macOS"`, `"iOS"`, `"tvOS"`, `"watchOS"`, `"Android"`, `"Linux"`, `"FreeBSD"`, `"OpenBSD"`, `"NetBSD"`, `"QNX"`, or `"Unix"`. Returns `false` if the platform cannot be detected.
-
-```apex
-import os
-import sys
-
-system = sys.platform()
-
-if system == false
-    os.output("Could not detect platform")
-else
-    os.output("You're running on {system}")
-```
-
-#### sys.architecture()
-Returns a string identifying the system's processor architecture. Possible return values:
-
-- `"x86-64"` — 64-bit x86 (AMD64/Intel 64)
-- `"arm64"` — 64-bit ARM (includes systems where `uname -m` reports `aarch64`, mapped to `"arm64"`)
-- `"x86"` — 32-bit x86
-- `"arm"` — 32-bit ARM
-
-Returns `false` if the architecture cannot be detected.
-
-```apex
-import os
-import sys
-
-arch = sys.architecture()
-
-if arch == false
-    os.output("Could not get architecture")
-else
-    os.output("System Architecture: {arch}")
-```
-
-#### sys.hostname()
-Returns the system's hostname as a string. Returns `false` on failure.
-
-```apex
-import os
-import sys
-
-name = sys.hostname()
-
-if name == false
-    os.output("Could not get hostname")
-else
-    os.output("Hostname: {name}")
-```
-
-#### sys.user()
-Returns the current user's login name as a string. Returns `false` if it can't be determined.
-
-```apex
-import os
-import sys
-
-username = sys.user()
-
-if username == false
-    os.output("Could not get username")
-else
-    os.output("Logged in as: {username}")
-```
-
-#### sys.homedir()
-Returns the current user's home directory path as a string. Returns `false` if it can't be determined.
-
-```apex
-import os
-import sys
-
-home = sys.homedir()
-
-if home == false
-    os.output("Could not get home directory")
-else
-    os.output("Home folder: {home}")
-```
-
-#### sys.isterminal(fd)
-Checks if the file descriptor goes to a terminal. By default checks stdout (fd 1). Pass a number to check a different file descriptor: `0` for stdin, `2` for stderr. Returns `true` if the output goes to a terminal, `false` if it's redirected to a file or pipe.
-
-```apex
-import os
-import sys
-
-if sys.isterminal() == false
-    os.output("Output is not a terminal")
-else
-    os.output("Output is a terminal")
-```
-
-#### sys.apex_version()
-Returns the current Apex interpreter version as a string.
-
-```apex
-import os
-import sys
-
-version = sys.apex_version()
-
-os.output("Apex Version: {version}")
-```
-
-#### sys.executable()
-Returns the full path to the currently running Apex executable. Returns `false` on failure.
-
-```apex
-import os
-import sys
-
-path = sys.executable()
-
-if path == false
-    os.output("Could not get executable path")
-else
-    os.output("Running from: {path}")
-```
-
-#### sys.disksize(path)
-Returns a table with disk usage information for the volume containing the given path. If no path is provided, uses the current directory. The table contains:
-- `total` — Total size in MB
-- `used` — Used space in MB
-- `free` — Free space in MB
-
-Returns a table on success, `false` on failure.
-
-```apex
-import os
-import sys
-
-info = sys.disksize(".")
-
-if info == false
-    os.output("Could not get disk info")
-else
-    os.output("Total: {info["total"]} MB")
-    os.output("Free: {info["free"]} MB")
-```
-
-#### sys.tempdir()
-Returns the path to the system's temporary directory. On Unix-like systems, checks the `TMPDIR`, `TMP`, and `TEMP` environment variables, falling back to `/tmp`. Returns `false` on failure.
-
-```apex
-import os
-import sys
-
-temp_dir = sys.tempdir()
-
-if temp_dir == false
-    os.output("Could not get temporary directory")
-else
-    os.output("Temporary directory: {temp_dir}")
-```
-
-#### sys.environment()
-Returns a table containing all environment variables as key-value pairs.
-
-```apex
-import os
-import sys
-
-env_vars = sys.environment()
-
-if env_vars == false
-    os.output("Could not get environment variables")
-else
-    os.output("HOME = {env_vars["HOME"]}")
-    os.output("PATH = {env_vars["PATH"]}")
-```
-
-#### sys.process_id()
-Returns the current process ID as a number.
-
-```apex
-import os
-import sys
-
-pid = sys.process_id()
-
-if pid == false
-    os.output("Could not get process ID")
-else
-    os.output("Process ID: {pid}")
-```
 
 ## Math Library (math)
 The Math library provides mathematical functions beyond basic arithmetic. Import it with `import math`.
 
 ### Constants
-#### math.pi
+#### math.pi()
 Returns the mathematical constant π (pi), approximately 3.14159. Pi represents the ratio of a circle's circumference to its diameter.
 
 ```apex
 import math
-
-math.pi    // 3.141592653589793
+math.pi()    // 3.141592653589793
 ```
 
 #### math.e
@@ -620,8 +428,7 @@ Returns Euler's number (e), approximately 2.71828. This constant is the base of 
 
 ```apex
 import math
-
-math.e    // 2.718281828459045
+math.e()    // 2.718281828459045
 ```
 
 #### math.inf
@@ -629,13 +436,12 @@ Returns positive infinity. This represents a value larger than any finite number
 
 ```apex
 import math
-
-math.inf    // inf
+math.inf()    // inf
 ```
 
 ### Rounding and Truncation
 #### math.abs(x)
-Returns the absolute value of a number — how far it is from zero, ignoring the sign.
+Returns the absolute value of a number — how far it is from zero, ignoring the sign. Returns `none` if the argument is not a number.
 
 ```apex
 import math
@@ -646,7 +452,7 @@ math.abs(-3.14)    // 3.14
 ```
 
 #### math.floor(x)
-Rounds a number down to the nearest whole number. Think of it as "cut off the decimal part, go lower."
+Rounds a number down to the nearest whole number. Returns `none` if the argument is not a number.
 
 ```apex
 import math
@@ -657,7 +463,7 @@ math.floor(-2.3)    // -3 (goes down, so more negative)
 ```
 
 #### math.ceil(x)
-Rounds a number up to the nearest whole number. Think of it as "push up to the next integer."
+Rounds a number up to the nearest whole number. Returns `none` if the argument is not a number.
 
 ```apex
 import math
@@ -668,7 +474,7 @@ math.ceil(-2.3)     // -2 (goes up toward zero)
 ```
 
 #### math.round(x, digits)
-Rounds a number to the nearest whole number, or to a specific number of decimal places. The `digits` parameter is optional — without it, rounds to a whole number. At exactly .5, rounds up.
+Rounds a number to the nearest whole number, or to a specific number of decimal places. The `digits` parameter is optional — without it, rounds to a whole number. At exactly .5, rounds up. Returns `none` on error.
 
 ```apex
 import math
@@ -681,7 +487,7 @@ math.round(3.14159, 3)  // 3.142
 ```
 
 #### math.trunc(x)
-Truncates a number by removing the decimal part — just chops off everything after the decimal point. Unlike `math.floor`, truncation always moves toward zero.
+Truncates a number by removing the decimal part. Returns `none` if the argument is not a number.
 
 ```apex
 import math
@@ -693,7 +499,7 @@ math.trunc(0.9)     // 0
 
 ### Powers and Roots
 #### math.sqrt(x)
-Returns the square root of a number. Returns `NaN` for negative numbers. You can check the result with `math.isnan()`.
+Returns the square root of a number. Returns `NaN` for negative numbers. Returns `none` if the argument is not a number. You can check the result with `math.isnan()`.
 
 ```apex
 import math
@@ -704,7 +510,7 @@ math.sqrt(-1)      // NaN
 ```
 
 #### math.pow(base, exponent)
-Raises a number to a power. Returns `base` raised to the `exponent`.
+Raises a number to a power. Returns `base` raised to the `exponent`. Returns `none` on error.
 
 ```apex
 import math
@@ -715,7 +521,7 @@ math.pow(10, -1)   // 0.1
 ```
 
 #### math.exp(x)
-Returns `e` raised to the power of `x`. This is the exponential function, the inverse of the natural logarithm.
+Returns `e` raised to the power of `x`. Returns `none` if the argument is not a number.
 
 ```apex
 import math
@@ -726,7 +532,7 @@ math.exp(2)        // 7.38905609893065
 ```
 
 #### math.hypot(x, y)
-Returns the hypotenuse of a right triangle given the lengths of the two legs. Mathematically equivalent to `math.sqrt(x * x + y * y)` but avoids overflow for very large numbers.
+Returns the hypotenuse of a right triangle given the lengths of the two legs. Returns `none` on error.
 
 ```apex
 import math
@@ -738,7 +544,7 @@ math.hypot(1, 1)   // 1.4142135623730951
 
 ### Logarithms
 #### math.log(x, base)
-Returns the logarithm of `x`. Without a base, uses the natural logarithm (base `e`). With a base, calculates the logarithm with that base. Returns `NaN` for zero or negative inputs.
+Returns the logarithm of `x`. Without a base, uses the natural logarithm (base `e`). With a base, calculates the logarithm with that base. Returns `NaN` for zero or negative inputs. Returns `none` on error.
 
 ```apex
 import math
@@ -751,7 +557,7 @@ math.log(-5)                 // NaN
 ```
 
 ### Trigonometry
-All trigonometric functions work with **radians**, not degrees. Radians are another way to measure angles — a full circle is 2π radians, which equals 360 degrees. Use `math.radians()` and `math.degrees()` to convert between them.
+All trigonometric functions work with **radians**, not degrees. Use `math.radians()` and `math.degrees()` to convert between them. All functions return `none` on error.
 
 #### math.sin(x)
 Returns the sine of `x` radians.
@@ -760,8 +566,8 @@ Returns the sine of `x` radians.
 import math
 
 math.sin(0)                // 0
-math.sin(math.pi / 2)      // 1
-math.sin(math.pi)          // ~0
+math.sin(math.pi() / 2)    // 1
+math.sin(math.pi())        // ~0
 ```
 
 #### math.cos(x)
@@ -771,8 +577,8 @@ Returns the cosine of `x` radians.
 import math
 
 math.cos(0)                // 1
-math.cos(math.pi / 2)      // ~0
-math.cos(math.pi)          // -1
+math.cos(math.pi() / 2)    // ~0
+math.cos(math.pi())        // -1
 ```
 
 #### math.tan(x)
@@ -782,12 +588,11 @@ Returns the tangent of `x` radians.
 import math
 
 math.tan(0)                // 0
-math.tan(math.pi / 4)      // ~1
-math.tan(math.pi)          // ~0
+math.tan(math.pi() / 4)    // ~1
 ```
 
 #### math.asin(x)
-Returns the arcsine of `x` in radians — the angle whose sine is `x`. Input must be between -1 and 1. Returns `NaN` for values outside this range.
+Returns the arcsine of `x` in radians. Input must be between -1 and 1. Returns `NaN` for values outside this range. Returns `none` on error.
 
 ```apex
 import math
@@ -798,7 +603,7 @@ math.asin(2)               // NaN
 ```
 
 #### math.acos(x)
-Returns the arccosine of `x` in radians — the angle whose cosine is `x`. Input must be between -1 and 1. Returns `NaN` for values outside this range.
+Returns the arccosine of `x` in radians. Input must be between -1 and 1. Returns `NaN` for values outside this range. Returns `none` on error.
 
 ```apex
 import math
@@ -809,7 +614,7 @@ math.acos(2)               // NaN
 ```
 
 #### math.atan(x)
-Returns the arctangent of `x` in radians — the angle whose tangent is `x`.
+Returns the arctangent of `x` in radians. Returns `none` on error.
 
 ```apex
 import math
@@ -819,7 +624,7 @@ math.atan(1)               // 0.7853981633974483 (π/4)
 ```
 
 #### math.atan2(y, x)
-Returns the arctangent of `y/x` in radians, using the signs of both arguments to determine the correct quadrant. This is more useful than `math.atan(y/x)` when you need to know which quadrant the angle is in.
+Returns the arctangent of `y/x` in radians, using the signs of both arguments to determine the correct quadrant. Returns `none` on error.
 
 ```apex
 import math
@@ -831,7 +636,7 @@ math.atan2(-1, 0)          // -1.5707963267948966 (-π/2)
 
 ### Angle Conversion
 #### math.radians(degrees)
-Converts degrees to radians.
+Converts degrees to radians. Returns `none` on error.
 
 ```apex
 import math
@@ -842,19 +647,19 @@ math.radians(360)          // 6.283185307179586 (2π)
 ```
 
 #### math.degrees(radians)
-Converts radians to degrees.
+Converts radians to degrees. Returns `none` on error.
 
 ```apex
 import math
 
-math.degrees(math.pi)      // 180
-math.degrees(math.pi / 2)  // 90
-math.degrees(1)            // 57.29577951308232
+math.degrees(math.pi())      // 180
+math.degrees(math.pi() / 2)  // 90
+math.degrees(1)              // 57.29577951308232
 ```
 
 ### Number Theory
 #### math.gcd(a, b)
-Returns the greatest common divisor of two numbers — the largest number that divides both evenly. Both arguments are converted to positive integers before calculation.
+Returns the greatest common divisor of two numbers. Both arguments are converted to positive integers before calculation. Returns `none` on error.
 
 ```apex
 import math
@@ -865,7 +670,7 @@ math.gcd(48, 18)           // 6
 ```
 
 #### math.factorial(n)
-Returns the factorial of a non-negative integer `n` (the product of all positive integers from 1 to `n`). The maximum allowed input is 170 — larger values will overflow and return `false`. Returns `false` for negative or non-integer inputs.
+Returns the factorial of a non-negative integer `n` (the product of all positive integers from 1 to `n`). The maximum allowed input is 170 — larger values will return `inf`. Returns `none` on error.
 
 ```apex
 import math
@@ -874,14 +679,14 @@ math.factorial(0)          // 1
 math.factorial(1)          // 1
 math.factorial(5)          // 120
 math.factorial(10)         // 3628800
-math.factorial(-3)         // false
-math.factorial(2.5)        // false
-math.factorial(171)        // false (too large)
+math.factorial(-3)         // none
+math.factorial(2.5)        // none
+math.factorial(171)        // inf (too large)
 ```
 
 ### Number Testing
 #### math.isnan(x)
-Returns `true` if the value is NaN (Not a Number), `false` otherwise. NaN typically results from operations like `sqrt(-1)` or `0/0`. NaN is the only value that is not equal to itself.
+Returns `true` if the value is NaN (Not a Number), `false` otherwise. NaN typically results from operations like `sqrt(-1)` or `0/0`. Returns `none` if the argument is not a number.
 
 ```apex
 import math
@@ -892,13 +697,13 @@ math.isnan(42)             // false
 ```
 
 #### math.isinf(x)
-Returns `true` if the value is positive or negative infinity, `false` otherwise. Infinity often results from division by zero or overflowing calculations.
+Returns `true` if the value is positive or negative infinity, `false` otherwise. Infinity often results from division by zero or overflowing calculations. Returns `none` if the argument is not a number.
 
 ```apex
 import math
 
-math.isinf(math.inf)       // true
-math.isinf(-math.inf)      // true
+math.isinf(math.inf())     // true
+math.isinf(-math.inf())    // true
 math.isinf(1000)           // false
 math.isinf(0)              // false
 ```
