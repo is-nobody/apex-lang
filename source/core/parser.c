@@ -1650,7 +1650,7 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
             return parse_member_access(parser, left);
         
         case TOKEN_IF: {
-            advance(parser);
+            Token* if_token = advance(parser);
             
             ASTNode* condition = parse_expression(parser);
             
@@ -1660,7 +1660,16 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
             
             ASTNode* false_expr = parse_precedence(parser, PREC_OR);
             
-            return ast_create_ternary(condition, left, false_expr, token->line, token->column);
+            if (check(parser, TOKEN_ELSE) || check(parser, TOKEN_IF)) {
+                Token* next_token = current_token(parser);
+                int remaining_len = get_line_length(parser->source, next_token->line) - (next_token->column - 1);
+                if (remaining_len < 1) remaining_len = 1;
+                parser_error_at(parser, next_token->line, next_token->column, remaining_len,
+                    "Only one 'else' allowed in ternary expression. Use if/elif/else for multiple conditions");
+                while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) advance(parser);
+                return ast_create_ternary(condition, left, false_expr, if_token->line, if_token->column);
+            }
+            return ast_create_ternary(condition, left, false_expr, if_token->line, if_token->column);
         }
 
         case TOKEN_PLUS:

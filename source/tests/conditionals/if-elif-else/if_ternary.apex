@@ -24,11 +24,6 @@ function ternary_string_result()
     greeting = "Hello Apex" if name == "Apex" else "Hello Stranger"
     assert_equal(greeting, "Hello Apex", "ternary_string_result")
 
-function ternary_nested()
-    val = 15
-    category = "Low" if val < 10 else "Medium" if val < 20 else "High"
-    assert_equal(category, "Medium", "ternary_nested")
-
 function ternary_numeric_result()
     a = 5
     b = 10
@@ -43,7 +38,6 @@ function ternary_explicit_condition()
 ternary_basic_boolean()
 ternary_variable_comparison()
 ternary_string_result()
-ternary_nested()
 ternary_numeric_result()
 ternary_explicit_condition()
 
