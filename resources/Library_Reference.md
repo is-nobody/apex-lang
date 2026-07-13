@@ -1,14 +1,14 @@
 # Apex Library Reference
 Apex comes with several built-in libraries. These are ready-to-use tools that solve common tasks: you don't need to write everything from scratch — just import the library you need and use it.
 
-**Important:** All functions evaluate to `false` on error. Handle it with `if var == false` condition check.
+**Important:** Most functions return `none` on error. However, some functions may return `false` as a valid value (e.g., when a table contains `false`).
 
 ## OS Library (os)
 The OS library lets you interact with the operating system, manage processes, and handle standard I/O. Import it with `import os`.
 
 ### Basic I/O
 #### os.output(value)
-Prints a value to the terminal followed by a newline.
+Prints a value to the terminal followed by a newline. Always returns `none`.
 
 ```apex
 import os
@@ -19,54 +19,42 @@ os.output(true)                // true
 ```
 
 #### os.input(prompt)
-Waits for the user to type something and press Enter. Returns what they typed as a string. You can provide an optional prompt message. The value from `os.input()` is always a string — even if the user types numbers. Use `number()` to convert it if you need to do math. If the user enters something that isn't a number, `number()` returns `false` on failure.
+Waits for the user to type something and press Enter. Returns what they typed as a string, or an empty string on error (e.g., end of input). You can provide an optional prompt message.
 
 ```apex
 import os
 
 name = os.input("What is your name? ")
-
-if name == false
-    os.output("Could not read input")
-else
-    os.output("Hello, {name}")
+os.output("Hello, {name}")
 ```
 
 ### Time and Process Control
 #### os.time()
-Returns the current time as a number — seconds since January 1, 1970 (with microsecond precision). Useful for measuring how long something takes.
+Returns the current time as a number — seconds since January 1, 1970 (with microsecond precision). Always succeeds.
 
 ```apex
 import os
 
 start = os.time()
-
-if start == false
-    os.output("Could not get system time")
-else
-    end = os.time()
-    elapsed = end - start
-    os.output("Took {elapsed} seconds")
+// ... do some work ...
+end = os.time()
+elapsed = end - start
+os.output("Took {elapsed} seconds")
 ```
 
 #### os.wait(seconds)
-Pauses the program for the given number of seconds. You can use decimals for fractions of a second. Negative values are treated as `0`.
+Pauses the program for the given number of seconds. You can use decimals for fractions of a second. Negative values are treated as `0`. Always returns `none`.
 
 ```apex
 import os
 
 os.output("Starting...")
-
-result = os.wait(2.5)
-
-if result == false
-    os.output("Wait interrupted")
-else
-    os.output("Done waiting")
+os.wait(2.5)
+os.output("Done waiting")
 ```
 
 #### os.exit(code)
-Exits the program immediately. The `code` is optional — `0` means success, other numbers mean an error. If no code is given, uses `0`.
+Exits the program immediately. The `code` is optional — `0` means success, other numbers mean an error. If no code is given, uses `0`. Never returns.
 
 ```apex
 import os
@@ -78,16 +66,45 @@ else
     os.output("Critical file found, continuing...")
 ```
 
+### Process Management
+#### os.execute(command)
+Runs a system command as if you typed it in the terminal. Returns the command's exit code as a number, or `none` if the command could not be executed.
+
+```apex
+import os
+
+exit_code = os.execute("echo Hello from terminal")
+
+if exit_code == none
+    os.output("Could not execute command")
+else
+    os.output("Command exited with code: {exit_code}")
+```
+
+#### os.terminate_process(pid)
+Terminates the process with the given PID. Returns `true` on success, `false` on failure.
+
+```apex
+import os
+
+result = os.terminate_process(12345)
+
+if result == false
+    os.output("Could not terminate process")
+else
+    os.output("Process terminated successfully")
+```
+
 ### Directory Navigation
 #### os.get_current_folder()
-Returns the current directory as a string — where your program is running from. Returns `false` on failure.
+Returns the current directory as a string. Returns `none` on failure.
 
 ```apex
 import os
 
 current_folder = os.get_current_folder()
 
-if current_folder == false
+if current_folder == none
     os.output("Could not get current directory")
 else
     os.output("Running from: {current_folder}")
@@ -107,48 +124,16 @@ else
     os.output("Directory changed successfully")
 ```
 
-### Process Management
-#### os.terminate_process(pid)
-Terminates the process with the given PID. Returns `true` on success, `false` on failure.
-
-```apex
-import os
-
-result = os.terminate_process(12345)
-
-if result == false
-    os.output("Could not terminate process")
-else
-    os.output("Process terminated successfully")
-```
-
-#### os.execute(command)
-Runs a system command as if you typed it in the terminal. Returns the command's exit code. Available commands depend on your operating system. Returns `-1` on failure to execute.
-
-```apex
-import os
-
-exit_code = os.execute("echo Hello from terminal")
-
-if exit_code == -1
-    os.output("Could not execute command")
-else
-    os.output("Command exited with code: {exit_code}")
-```
-
-## Files Library (files)
-The Files functionality is integrated into the `os` library. Import it with `import os`.
-
 ### File Read/Write
 #### os.read(filename)
-Reads the entire contents of a file and returns it as a string. Returns `false` if the file cannot be read.
+Reads the entire contents of a file and returns it as a string. Returns `none` if the file cannot be read.
 
 ```apex
 import os
 
 content = os.read("story.txt")
 
-if content == false
+if content == none
     os.output("Could not read the file")
 else
     os.output(content)
@@ -226,28 +211,28 @@ else
 ```
 
 #### os.size(path)
-Returns the size of a file or directory in bytes. For directories, it calculates the total size recursively. Returns a number on success, `false` if the path doesn't exist.
+Returns the size of a file or directory in bytes. For directories, it calculates the total size recursively. Returns a number on success, `none` if the path doesn't exist.
 
 ```apex
 import os
 
 size = os.size("movie.mp4")
 
-if size == false
+if size == none
     os.output("Could not get size")
 else
     os.output("Size: {size} bytes")
 ```
 
 #### os.filetype(path)
-Detects the file type by its contents (magic bytes). Returns a string describing the type, or `false` if the file is not found. Recognizes: `PDF document`, `PNG image`, `JPEG image`, `GIF image`, `ZIP archive`, `ELF executable`, `Windows executable`, `Plain text`, `Unknown binary`.
+Detects the file type by its contents (magic bytes). Returns a string describing the type, or `none` if the file is not found. Recognizes: `PDF document`, `PNG image`, `JPEG image`, `GIF image`, `ZIP archive`, `ELF executable`, `Windows executable`, `Plain text`, `Unknown binary`.
 
 ```apex
 import os
 
 filetype = os.filetype("document.pdf")
 
-if filetype == false
+if filetype == none
     os.output("Could not detect file type")
 else
     os.output("File type: {filetype}")
@@ -260,14 +245,14 @@ Returns a table with information about a file or folder. The table contains thes
 - `ctime` — creation time (timestamp)
 - `isdir` — `true` if it's a folder, `false` if it's a file
 
-Returns a table on success, `false` on failure.
+Returns a table on success, `none` on failure.
 
 ```apex
 import os
 
 info = os.stat("data.txt")
 
-if info == false
+if info == none
     os.output("File does not exist")
 else
     os.output("Size: {info["size"]} bytes")
@@ -276,7 +261,7 @@ else
     os.output("Is directory: {info["isdir"]}")
 ```
 
-### Rename and Move
+### Rename, Move, Copy
 #### os.rename(old_name, new_name)
 Renames a file or directory. Returns `true` on success, `false` on failure.
 
@@ -305,7 +290,6 @@ else
     os.output("Moved successfully")
 ```
 
-### Copy
 #### os.copy(source, destination)
 Copies a file or recursively copies a directory with all its contents. Returns `true` on success, `false` on failure.
 
@@ -363,32 +347,32 @@ else
     os.output("Deleted successfully")
 ```
 
-### Directory Navigation
+### Directory Contents
 #### os.items(path)
-Returns a table of names — all files and folders inside the given folder. If no path is given, lists the current folder. Returns `false` on failure.
+Returns a table of names — all files and folders inside the given folder. If no path is given, lists the current folder. Returns `none` on failure.
 
 ```apex
 import os
 
 items = os.items(".")
 
-if items == false
+if items == none
     os.output("Could not list directory contents")
 else
-    os.output("Contents of current directory:")
+    os.output("Contents:")
     for item in items
         os.output("  {item}")
 ```
 
 #### os.parentfolder(path)
-Returns the parent directory of the given path. For root paths like `/` or `C:\`, returns the root itself. If no directory separator is found in the path, returns `"."`. Returns `false` if no path is provided or on failure.
+Returns the parent directory of the given path. For root paths like `/` or `C:\`, returns the root itself. If no directory separator is found in the path, returns `"."`. Returns `none` on failure or if no path is provided.
 
 ```apex
 import os
 
 parent = os.parentfolder("/home/user/projects")
 
-if parent == false
+if parent == none
     os.output("Could not get parent folder")
 else
     os.output("Parent folder: {parent}")
