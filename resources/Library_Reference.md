@@ -1450,7 +1450,7 @@ The Codecs library provides encoding and decoding functions for various formats.
 
 ### Base64 Encoding
 #### codecs.base_write(data)
-Encodes a string to standard Base64. Returns the encoded string, or `false` on failure.
+Encodes a string to standard Base64. Returns the encoded string, or `none` on failure.
 
 ```apex
 import os
@@ -1458,14 +1458,14 @@ import codecs
 
 encoded = codecs.base_write("Hello World")
 
-if encoded == false
+if encoded == none
     os.output("Encoding failed")
 else
     os.output(encoded)  // SGVsbG8gV29ybGQ=
 ```
 
 #### codecs.base_read(data)
-Decodes a standard Base64 string. Returns the decoded string, or `false` on failure.
+Decodes a standard Base64 string. Returns the decoded string, or `none` on failure.
 
 ```apex
 import os
@@ -1473,14 +1473,14 @@ import codecs
 
 decoded = codecs.base_read("SGVsbG8gV29ybGQ=")
 
-if decoded == false
+if decoded == none
     os.output("Decoding failed")
 else
     os.output(decoded)  // Hello World
 ```
 
 #### codecs.baseurl_write(data)
-Encodes a string to URL-safe Base64 (using `-` and `_` instead of `+` and `/`). Returns the encoded string, or `false` on failure.
+Encodes a string to URL-safe Base64 (using `-` and `_` instead of `+` and `/`). Returns the encoded string, or `none` on failure.
 
 ```apex
 import os
@@ -1488,14 +1488,14 @@ import codecs
 
 encoded = codecs.baseurl_write("Hello World?")
 
-if encoded == false
+if encoded == none
     os.output("Encoding failed")
 else
     os.output(encoded)
 ```
 
 #### codecs.baseurl_read(data)
-Decodes a URL-safe Base64 string. Returns the decoded string, or `false` on failure.
+Decodes a URL-safe Base64 string. Returns the decoded string, or `none` on failure.
 
 ```apex
 import os
@@ -1503,7 +1503,7 @@ import codecs
 
 decoded = codecs.baseurl_read(encoded)
 
-if decoded == false
+if decoded == none
     os.output("Decoding failed")
 else
     os.output(decoded)
@@ -1511,7 +1511,7 @@ else
 
 ### JSON Encoding
 #### codecs.json_write(value)
-Converts an Apex value (number, bool, string, table) to a JSON string. Returns the JSON string, or `false` on failure. Tables are encoded as objects `{}` if they have named keys, or arrays `[]` if they only have sequential numeric keys.
+Converts an Apex value (number, bool, string, table) to a JSON string. Returns the JSON string, or `none` on failure. Tables are encoded as objects `{}` if they have named keys, or arrays `[]` if they only have sequential numeric keys.
 
 ```apex
 import os
@@ -1520,14 +1520,14 @@ import codecs
 data = ["name" = "Alice", "age" = 30]
 json_str = codecs.json_write(data)
 
-if json_str == false
+if json_str == none
     os.output("JSON encoding failed")
 else
     os.output(json_str)  // {"name": "Alice", "age": 30}
 ```
 
 #### codecs.json_read(json_string)
-Parses a JSON string into an Apex value. Returns the parsed value (table, number, bool, string), or `false` on failure.
+Parses a JSON string into an Apex value. Returns the parsed value (table, number, bool, string), or `none` on failure.
 
 ```apex
 import os
@@ -1536,7 +1536,7 @@ import codecs
 json_str = "{\"name\": \"Alice\", \"age\": 30}"
 data = codecs.json_read(json_str)
 
-if data == false
+if data == none
     os.output("JSON parsing failed")
 else
     os.output("Name: {data["name"]}")
@@ -1544,7 +1544,7 @@ else
 
 ### CSV Encoding
 #### codecs.csv_write(table, has_header, delimiter)
-Converts a table of tables to a CSV string. `has_header` (bool) determines if the first row is treated as headers. `delimiter` (string) specifies the separator (default `,`). Returns the CSV string, or `false` on failure.
+Converts a table of tables to a CSV string. `has_header` (bool) determines if the first row is treated as headers. `delimiter` (string) specifies the separator (default `,`). Returns the CSV string, or `none` on failure.
 
 ```apex
 import os
@@ -1557,14 +1557,14 @@ data = [
 
 csv_str = codecs.csv_write(data, true, ",")
 
-if csv_str == false
+if csv_str == none
     os.output("CSV encoding failed")
 else
     os.output(csv_str)
 ```
 
 #### codecs.csv_read(csv_string, has_header, delimiter)
-Parses a CSV string into a table of tables. `has_header` (bool) determines if the first row contains column names. `delimiter` (string) specifies the separator (default `,`). Returns a table of rows, or `false` on failure.
+Parses a CSV string into a table of tables. `has_header` (bool) determines if the first row contains column names. `delimiter` (string) specifies the separator (default `,`). Returns a table of rows, or `none` on failure.
 
 ```apex
 import os
@@ -1573,7 +1573,7 @@ import codecs
 csv_str = "name,age\nAlice,30\nBob,25"
 data = codecs.csv_read(csv_str, true, ",")
 
-if data == false
+if data == none
     os.output("CSV parsing failed")
 else
     os.output("First name: {data["1"]["name"]}")
@@ -1581,7 +1581,7 @@ else
 
 ### XML Encoding
 #### codecs.xml_write(table)
-Converts a table representing an XML structure to an XML string. The table should have a `__tag` key for the element name, `@key` keys for attributes, and `#text` for text content. Nested elements are stored with numeric keys. Returns the XML string, or `false` on failure.
+Converts a table representing an XML structure to an XML string. The table should have a `__tag` key for the element name, `@key` keys for attributes, and `#text` for text content. Nested elements are stored with numeric keys. Returns the XML string, or `none` on failure.
 
 ```apex
 import os
@@ -1598,14 +1598,14 @@ xml_data = [
 
 xml_str = codecs.xml_write(xml_data)
 
-if xml_str == false
+if xml_str == none
     os.output("XML encoding failed")
 else
     os.output(xml_str)
 ```
 
 #### codecs.xml_read(xml_string)
-Parses an XML string into a table structure. Returns the root element as a table, or `false` on failure.
+Parses an XML string into a table structure. Returns the root element as a table, or `none` on failure.
 
 ```apex
 import os
@@ -1614,7 +1614,7 @@ import codecs
 xml_str = "<root id='1'><child>Hello</child></root>"
 data = codecs.xml_read(xml_str)
 
-if data == false
+if data == none
     os.output("XML parsing failed")
 else
     os.output("Tag: {data["__tag"]}")
