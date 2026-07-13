@@ -1816,20 +1816,27 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
 static ASTNode* parse_function(Parser* parser) {
     advance(parser);
     Token* name = consume(parser, TOKEN_IDENTIFIER, "Expected function name");
+    if (!name) return NULL;
 
     consume(parser, TOKEN_LPAREN, "Expected '(' after function name");
-
     ASTNodeList* params = ast_list_create();
-
     if (!check(parser, TOKEN_RPAREN)) {
         while (true) {
+            if (check(parser, TOKEN_RPAREN) || check(parser, TOKEN_EOF)) {
+                break; 
+            }
+            
             Token* param_name = consume(parser, TOKEN_IDENTIFIER, "Expected parameter name");
+            if (!param_name) {
+                break; 
+            }
+            
             ASTNode* param = ast_create_param(param_name->value, param_name->line, param_name->column);
             ast_list_add(params, param);
+            
             if (!match(parser, TOKEN_COMMA)) break;
         }
     }
-
     consume(parser, TOKEN_RPAREN, "Expected ')' after parameters");
 
     parser_declare_symbol(parser, name->value, PARSER_SYM_FUNCTION,

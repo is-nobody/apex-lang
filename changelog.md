@@ -28,6 +28,7 @@
 - **Enforced explicit boolean conditions** in `if` and `for` statements, ensuring logical operators (`and`/`or`) are properly validated alongside comparison operators.
 - **Eliminated duplicate semantic errors** in string interpolation by disabling checks in temporary parsers and implementing an error position history buffer.
 - **Condition-based `for` loops** — support arbitrary boolean expressions; fixed double-free crash and false `break`/`continue` errors in nested blocks.
+- **Trailing comma in function parameters**: fixed segmentation fault when parsing function definitions with a trailing comma (e.g., `function add(a,)`) by adding null-checks and proper loop termination in the parser.
 
 ---
 
