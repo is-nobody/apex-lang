@@ -907,51 +907,55 @@ math.isinf(0)              // false
 The String library helps you work with text — measure length, change case, find words, split and combine strings, and more. Import it with `import string`.
 
 ### string.len(s)
-Returns the number of characters in a string. Spaces and punctuation count as characters too.
+Returns the number of characters in a string. Spaces and punctuation count as characters too. Returns `none` if the argument is not a string.
 
 ```apex
 import string
 
-string.len("hello")        // 5
-string.len("")             // 0
-string.len("hi there")     // 8 (space counts)
-string.len("Apex!")        // 5
+result = string.len("hello")
+if result != none
+    os.output(result)        // 5
+
+string.len("")               // 0
+string.len("hi there")       // 8 (space counts)
+string.len("Apex!")          // 5
 ```
 
 ### string.lower(s)
-Converts every character in the string to lowercase. Useful when you want to compare text without worrying about capitalization.
+Converts every character in the string to lowercase. Returns `none` if the argument is not a string.
 
 ```apex
 import string
 
-string.lower("HELLO")      // "hello"
-string.lower("Hello")      // "hello"
-string.lower("Apex 123")   // "apex 123"
+string.lower("HELLO")        // "hello"
+string.lower("Hello")        // "hello"
+string.lower("Apex 123")     // "apex 123"
 ```
 
 ### string.upper(s)
-Converts every character in the string to uppercase.
+Converts every character in the string to uppercase. Returns `none` if the argument is not a string.
 
 ```apex
 import string
 
-string.upper("hello")      // "HELLO"
-string.upper("Hello")      // "HELLO"
-string.upper("apex 123")   // "APEX 123"
+string.upper("hello")        // "HELLO"
+string.upper("Hello")        // "HELLO"
+string.upper("apex 123")     // "APEX 123"
 ```
 
 ### string.sub(s, start, end)
-Extracts a portion of a string — from `start` to `end`, but not including `end`. Think of it as "give me characters from position start up to just before end."
-
-Positions start counting from `0`, not `1`. The first character is at position 0.
+Extracts a portion of a string — from `start` to `end`, but not including `end`. Positions start counting from `0`. Returns `none` on error.
 
 ```apex
 import string
 
 text = "Hello, World"
-string.sub(text, 0, 5)     // "Hello"
-string.sub(text, 7, 12)    // "World"
-string.sub(text, 0, 1)     // "H" (first character only)
+result = string.sub(text, 0, 5)
+if result != none
+    os.output(result)        // "Hello"
+
+string.sub(text, 7, 12)      // "World"
+string.sub(text, 0, 1)       // "H" (first character only)
 ```
 
 If `start` is negative, it's treated as `0`. If `end` is larger than the string length, it stops at the end.
@@ -959,19 +963,22 @@ If `start` is negative, it's treated as `0`. If `end` is larger than the string 
 ```apex
 import string
 
-string.sub("Apex", 1, 10)  // "pex" (end is bigger than string, stops at end)
+string.sub("Apex", 1, 10)    // "pex" (end is bigger than string, stops at end)
 ```
 
 ### string.split(s, separator)
-Splits a string into a table of substrings. The separator is the character (or characters) where the split happens. If no separator is given, splits on whitespace.
+Splits a string into a table of substrings. The separator is the character (or characters) where the split happens. If no separator is given, splits on whitespace. Returns `none` if the argument is not a string.
 
 ```apex
 import string
 
-string.split("apple,banana,orange", ",")     // ["apple", "banana", "orange"]
-string.split("hello world apex", " ")        // ["hello", "world", "apex"]
-string.split("one two three")                // ["one", "two", "three"]
-string.split("word")                         // ["word"]
+result = string.split("apple,banana,orange", ",")
+if result != none
+    os.output(result["1"])   // "apple"
+
+string.split("hello world apex", " ")   // ["hello", "world", "apex"]
+string.split("one two three")           // ["one", "two", "three"]
+string.split("word")                    // ["word"]
 ```
 
 Practical example — processing user input:
@@ -982,38 +989,45 @@ import string
 
 user_input = os.input("Enter three numbers separated by commas: ")
 parts = string.split(user_input, ",")
-os.output("First number: {parts["1"]}")
-os.output("Second number: {parts["2"]}")
-os.output("Third number: {parts["3"]}")
+
+if parts == none
+    os.output("Invalid input")
+else
+    os.output("First number: {parts["1"]}")
+    os.output("Second number: {parts["2"]}")
+    os.output("Third number: {parts["3"]}")
 ```
 
 ### string.join(parts, separator)
-Does the opposite of `split` — takes a table of strings and joins them into one string with a separator between each. The separator is optional — if not given, nothing is placed between parts.
+Does the opposite of `split` — takes a table of strings and joins them into one string with a separator between each. The separator is optional. Returns `none` if the first argument is not a table.
 
 ```apex
 import string
 
 words = ["Hello", "World"]
-string.join(words, " ")       // "Hello World"
-string.join(words, "-")       // "Hello-World"
-string.join(words)            // "HelloWorld" (no separator)
+result = string.join(words, " ")
+if result != none
+    os.output(result)        // "Hello World"
+
+string.join(words, "-")      // "Hello-World"
+string.join(words)           // "HelloWorld" (no separator)
 
 tags = ["apex", "programming", "language"]
-string.join(tags, ", ")       // "apex, programming, language"
+string.join(tags, ", ")      // "apex, programming, language"
 ```
 
 ### string.trim(s)
-Removes whitespace (spaces, tabs, newlines) from the beginning and end of a string. The middle spaces are left alone.
+Removes whitespace (spaces, tabs, newlines) from the beginning and end of a string. The middle spaces are left alone. Returns `none` if the argument is not a string.
 
 ```apex
 import string
 
-string.trim("  hello  ")      // "hello"
+string.trim("  hello  ")          // "hello"
 string.trim("   apex   lang   ")  // "apex   lang" (inner spaces kept)
-string.trim("\n  text \n")    // "text"
+string.trim("\n  text \n")        // "text"
 ```
 
-Very useful when cleaning user input — users often accidentally type extra spaces:
+Very useful when cleaning user input:
 
 ```apex
 import os
@@ -1021,19 +1035,26 @@ import string
 
 name = os.input("Enter your name: ")
 name = string.trim(name)
-os.output("Hello, {name}")
+
+if name == none
+    os.output("Invalid input")
+else
+    os.output("Hello, {name}")
 ```
 
 ### string.find(s, search)
-Searches for `search` inside `s` and returns the position of the first match. Returns `-1` if not found. Position starts from `0`.
+Searches for `search` inside `s` and returns the position of the first match. Returns `-1` if not found. Position starts from `0`. Returns `none` on error.
 
 ```apex
 import string
 
 text = "Hello, World"
-string.find(text, "World")    // 7
-string.find(text, "o")        // 4 (first 'o' is at position 4)
-string.find(text, "Apex")     // -1 (not found)
+result = string.find(text, "World")
+if result != none
+    os.output(result)        // 7
+
+string.find(text, "o")       // 4 (first 'o' is at position 4)
+string.find(text, "Apex")    // -1 (not found)
 ```
 
 You can use the result to check if something exists in a string:
@@ -1043,23 +1064,56 @@ import os
 import string
 
 email = "alice@example.com"
-if string.find(email, "@") != -1
+pos = string.find(email, "@")
+
+if pos == none
+    os.output("Error checking email")
+else if pos != -1
     os.output("Valid email format")
 else
     os.output("Missing @ symbol")
 ```
 
 ### string.replace(s, old, new)
-Replaces the **first** occurrence of `old` with `new` in the string. If `old` isn't found, returns the original string unchanged.
+Replaces the **first** occurrence of `old` with `new` in the string. If `old` isn't found, returns the original string unchanged. Returns `none` on error.
 
 ```apex
 import string
 
-string.replace("Hello World", "World", "Apex")    // "Hello Apex"
-string.replace("banana", "a", "o")                // "bonana" (only first 'a')
-string.replace("hello", "x", "y")                 // "hello" (nothing changed)
+result = string.replace("Hello World", "World", "Apex")
+if result != none
+    os.output(result)        // "Hello Apex"
 
-string.replace("remove-this", "-this", "")        // "remove"
+string.replace("banana", "a", "o")          // "bonana" (only first 'a')
+string.replace("hello", "x", "y")           // "hello" (nothing changed)
+string.replace("remove-this", "-this", "")  // "remove"
+```
+
+### string.isletter(s)
+Checks if the first character of the string is a letter (supports all modern writing systems: Latin, Cyrillic, Arabic, Chinese, Japanese, Korean, Hebrew, Greek, Devanagari, and many more). Returns `none` on error.
+
+```apex
+import string
+
+string.isletter("Hello")    // true
+string.isletter("Привет")   // true (Cyrillic)
+string.isletter("مرحبا")    // true (Arabic)
+string.isletter("你好")      // true (Chinese)
+string.isletter("123")      // false (number)
+string.isletter("!")        // false (punctuation)
+string.isletter("")         // false (empty string)
+```
+
+### string.isnumber(s)
+Checks if the first character of the string is a digit (0-9). Returns `none` on error.
+
+```apex
+import string
+
+string.isnumber("123")      // true
+string.isnumber("5hello")   // true (first char is '5')
+string.isnumber("abc")      // false
+string.isnumber("")         // false
 ```
 
 ## Table Library (table)
