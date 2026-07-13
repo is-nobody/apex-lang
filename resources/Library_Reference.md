@@ -409,7 +409,189 @@ else
     os.output("Permissions changed successfully")
 ```
 
+## System Library (sys)
+The System library provides static or rarely changing system information. Import it with `import sys`.
 
+### System Info
+#### sys.platform()
+Returns a string identifying your operating system, such as `"Windows"`, `"macOS"`, `"iOS"`, `"tvOS"`, `"watchOS"`, `"Android"`, `"Linux"`, `"FreeBSD"`, `"OpenBSD"`, `"NetBSD"`, `"QNX"`, or `"Unix"`. Returns `none` if the platform cannot be detected.
+
+```apex
+import os
+import sys
+
+system = sys.platform()
+
+if system == none
+    os.output("Could not detect platform")
+else
+    os.output("You're running on {system}")
+```
+
+#### sys.architecture()
+Returns a string identifying the system's processor architecture. Possible return values:
+
+- `"x86-64"` — 64-bit x86 (AMD64/Intel 64)
+- `"arm64"` — 64-bit ARM (includes systems where `uname -m` reports `aarch64`, mapped to `"arm64"`)
+- `"x86"` — 32-bit x86
+- `"arm"` — 32-bit ARM
+
+Returns `none` if the architecture cannot be detected.
+
+```apex
+import os
+import sys
+
+arch = sys.architecture()
+
+if arch == none
+    os.output("Could not get architecture")
+else
+    os.output("System Architecture: {arch}")
+```
+
+#### sys.hostname()
+Returns the system's hostname as a string. Returns `none` on failure.
+
+```apex
+import os
+import sys
+
+name = sys.hostname()
+
+if name == none
+    os.output("Could not get hostname")
+else
+    os.output("Hostname: {name}")
+```
+
+#### sys.user()
+Returns the current user's login name as a string. Returns `none` if it can't be determined.
+
+```apex
+import os
+import sys
+
+username = sys.user()
+
+if username == none
+    os.output("Could not get username")
+else
+    os.output("Logged in as: {username}")
+```
+
+#### sys.homedir()
+Returns the current user's home directory path as a string. Returns `none` if it can't be determined.
+
+```apex
+import os
+import sys
+
+home = sys.homedir()
+
+if home == none
+    os.output("Could not get home directory")
+else
+    os.output("Home folder: {home}")
+```
+
+#### sys.isterminal(fd)
+Checks if the file descriptor goes to a terminal. By default checks stdout (fd 1). Pass a number to check a different file descriptor: `0` for stdin, `2` for stderr. Returns `true` if the output goes to a terminal, `false` if it's redirected to a file or pipe. Always succeeds.
+
+```apex
+import os
+import sys
+
+if sys.isterminal() == true
+    os.output("Output is a terminal")
+else
+    os.output("Output is not a terminal")
+```
+
+#### sys.apex_version()
+Returns the current Apex interpreter version as a string. Always succeeds.
+
+```apex
+import os
+import sys
+
+version = sys.apex_version()
+os.output("Apex Version: {version}")
+```
+
+#### sys.executable()
+Returns the full path to the currently running Apex executable. Returns `none` on failure.
+
+```apex
+import os
+import sys
+
+path = sys.executable()
+
+if path == none
+    os.output("Could not get executable path")
+else
+    os.output("Running from: {path}")
+```
+
+#### sys.disksize(path)
+Returns a table with disk usage information for the volume containing the given path. If no path is provided, uses the current directory. The table contains:
+- `total` — Total size in MB
+- `used` — Used space in MB
+- `free` — Free space in MB
+
+Returns a table on success, `none` on failure.
+
+```apex
+import os
+import sys
+
+info = sys.disksize(".")
+
+if info == none
+    os.output("Could not get disk info")
+else
+    os.output("Total: {info["total"]} MB")
+    os.output("Free: {info["free"]} MB")
+```
+
+#### sys.tempdir()
+Returns the path to the system's temporary directory. On Unix-like systems, checks the `TMPDIR`, `TMP`, and `TEMP` environment variables, falling back to `/tmp`. Returns `none` on failure.
+
+```apex
+import os
+import sys
+
+temp_dir = sys.tempdir()
+
+if temp_dir == none
+    os.output("Could not get temporary directory")
+else
+    os.output("Temporary directory: {temp_dir}")
+```
+
+#### sys.environment()
+Returns a table containing all environment variables as key-value pairs. Always returns a table (empty if no variables).
+
+```apex
+import os
+import sys
+
+env_vars = sys.environment()
+os.output("HOME = {env_vars["HOME"]}")
+os.output("PATH = {env_vars["PATH"]}")
+```
+
+#### sys.process_id()
+Returns the current process ID as a number. Always succeeds.
+
+```apex
+import os
+import sys
+
+pid = sys.process_id()
+os.output("Process ID: {pid}")
+```
 
 ## Math Library (math)
 The Math library provides mathematical functions beyond basic arithmetic. Import it with `import math`.
