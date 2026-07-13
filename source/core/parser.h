@@ -1,6 +1,6 @@
 #ifndef PARSER_H
 #define PARSER_H
-
+#define ERROR_HISTORY_SIZE 16
 #include "ast.h"
 #include <stdbool.h>
 
@@ -59,6 +59,10 @@ struct Parser {
 
     int last_error_line;
     int last_error_column;
+
+    int last_error_lines[ERROR_HISTORY_SIZE];
+    int last_error_columns[ERROR_HISTORY_SIZE];
+    int last_error_idx;
 };
 
 // creates a parser instance for the given token stream and source info

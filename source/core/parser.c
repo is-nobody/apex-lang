@@ -237,13 +237,17 @@ static const BuiltinSig* lookup_builtin(const char* name) {
 // reports a parse error at a specific source position with formatting
 void parser_error_at(Parser* parser, int line, int column, int len,
                      const char* format, ...) {
-    if (parser->last_error_line == line && parser->last_error_column == column) {
-        return;
+    for (int i = 0; i < ERROR_HISTORY_SIZE; i++) {
+        if (parser->last_error_lines[i] == line && 
+            parser->last_error_columns[i] == column) {
+            return; 
+        }
     }
     
-    parser->last_error_line = line;
-    parser->last_error_column = column;
-    
+    parser->last_error_lines[parser->last_error_idx] = line;
+    parser->last_error_columns[parser->last_error_idx] = column;
+    parser->last_error_idx = (parser->last_error_idx + 1) % ERROR_HISTORY_SIZE;
+
     char buffer[1024];
     va_list args;
     va_start(args, format);
@@ -665,6 +669,11 @@ Parser* parser_create(Token* tokens, int count, const char* filename, const char
     parser->source_dir = NULL;
     parser_set_source_dir(parser, filename);
 
+    for (int i = 0; i < ERROR_HISTORY_SIZE; i++) {
+        parser->last_error_lines[i] = -1;
+        parser->last_error_columns[i] = -1;
+    }
+    parser->last_error_idx = 0;
     parser->last_error_line = -1;
     parser->last_error_column = -1;
 
@@ -1245,7 +1254,7 @@ static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, in
     }
 
     Parser* temp_parser = parser_create(temp_tokens, temp_count, parser->filename, parser->source);
-    temp_parser->semantic_checks = true;
+    temp_parser->semantic_checks = false;
 
     for (int i = 0; i < parser->symbols.count; i++) {
         if (parser->symbols.scope_levels[i] <= parser->symbols.current_scope) {
