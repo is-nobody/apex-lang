@@ -53,6 +53,8 @@ set(BASE_FLAGS
 set(HIGH_PERF_FLAGS
     -O3
     -flto
+    -march=native
+    -mtune=native
 )
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
