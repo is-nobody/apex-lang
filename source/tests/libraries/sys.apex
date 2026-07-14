@@ -43,7 +43,7 @@ function environment()
         p = sys.platform()
         if p == "Windows"
             has_user = table.has(e, "USERNAME")
-            has_path = table.has(e, "PATH")
+            has_path = table.has(e, "Path")
             has_home = table.has(e, "USERPROFILE")
             assert_equal(has_user, true, "environment has USERNAME")
             assert_equal(has_path, true, "environment has PATH")
