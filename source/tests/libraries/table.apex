@@ -80,7 +80,7 @@ function table_merge()
         assert_equal(m["y"], 999, "table.merge overwrite y")
         assert_equal(m["z"], 3, "table.merge add z")
 
-function table_none_checks()
+function table_checks()
     t = ["name" = "Alice", "age" = 30]
     num = 123
     bool_val = true
@@ -99,9 +99,9 @@ function table_none_checks()
     assert_equal(test_has(num, "name"), none, "has(number,str)")
     assert_equal(test_has(bool_val, "name"), none, "has(bool,str)")
     assert_equal(test_has(nil_val, "name"), none, "has(none,str)")
-    assert_equal(test_has(t, num), none, "has(table,number)")
-    assert_equal(test_has(t, bool_val), none, "has(table,bool)")
-    assert_equal(test_has(t, nil_val), none, "has(table,none)")
+    assert_equal(test_has(t, num), false, "has(table,number)")
+    assert_equal(test_has(t, bool_val), false, "has(table,bool)")
+    assert_equal(test_has(t, nil_val), false, "has(table,none)")
     assert_equal(test_has(num, bool_val), none, "has(number,bool)")
     assert_equal(test_has(nil_val, nil_val), none, "has(none,none)")
     
@@ -111,9 +111,9 @@ function table_none_checks()
     assert_equal(test_remove(num, "name"), none, "remove(number,str)")
     assert_equal(test_remove(bool_val, "name"), none, "remove(bool,str)")
     assert_equal(test_remove(nil_val, "name"), none, "remove(none,str)")
-    assert_equal(test_remove(t, num), none, "remove(table,number)")
-    assert_equal(test_remove(t, bool_val), none, "remove(table,bool)")
-    assert_equal(test_remove(t, nil_val), none, "remove(table,none)")
+    assert_equal(test_remove(t, num), false, "remove(table,number)")
+    assert_equal(test_remove(t, bool_val), false, "remove(table,bool)")
+    assert_equal(test_remove(t, nil_val), false, "remove(table,none)")
     assert_equal(test_remove(num, bool_val), none, "remove(number,bool)")
     assert_equal(test_remove(nil_val, nil_val), none, "remove(none,none)")
     
@@ -165,7 +165,7 @@ table_remove()
 table_clear()
 table_copy()
 table_merge()
-table_none_checks()
+table_checks()
 
 if tests_failed == 0
     os.output("[OK] libraries/table.apex")

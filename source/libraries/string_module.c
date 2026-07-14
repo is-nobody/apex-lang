@@ -320,9 +320,9 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         int idx = 1;
         
         while (token) {
-            char key[32];
-            snprintf(key, sizeof(key), "%d", idx++);
-            table_set(result->table, key, vm_make_string(token));
+            Value k = vm_make_number((double)idx++);
+            table_set(result->table, k, vm_make_string(token));
+            value_decref(&k);
             token = strtok(NULL, sep);
         }
         free(str);
@@ -343,13 +343,12 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         Table* table = args[0].table;
         
         int count;
-        char** keys = table_keys(table, &count);
-        
+        Value* keys = table_keys(table, &count);
+
         if (keys && count > 0) {
-            qsort(keys, count, sizeof(char*), compare_keys);
-            
+            qsort(keys, count, sizeof(Value), compare_keys);
             bool first = true;
-            
+
             for (int i = 0; i < count; i++) {
                 Value val;
                 if (table_get(table, keys[i], &val)) {
@@ -374,10 +373,10 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
                     }
                     value_decref(&val);
                 }
+                value_decref(&keys[i]);
             }
             free(keys);
         }
-        
         *result = vm_make_string(buffer);
         return true;
     }

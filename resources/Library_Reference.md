@@ -1107,7 +1107,7 @@ os.output(table.size(empty))         // 0
 ```
 
 ### table.has(t, key)
-Returns `true` if the table has the specified key or index. Returns `none` if the key is not a string.
+Returns `true` if the table has the specified key. Returns `false` if the key does not exist. Returns `none` if the first argument is not a table. Keys are type-sensitive. The number `1` and the string `"1"` are different keys.
 
 ```apex
 import table
@@ -1124,7 +1124,7 @@ else
 ```
 
 ### table.remove(t, key)
-Removes an item from a table by key. Returns `true` if the key existed and was removed, `false` otherwise. Returns `none` if the key is not a string.
+Removes an item from a table by key. Returns `true` if the key existed and was removed, `false` if the key did not exist. Returns `none` if the first argument is not a table. Keys are type-sensitive. The number `1` and the string `"1"` are different keys.
 
 ```apex
 import table

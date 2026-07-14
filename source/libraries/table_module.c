@@ -5,19 +5,15 @@
 
 // compares two table keys, attempting numeric sort for integer keys
 int compare_keys(const void* a, const void* b) {
-    const char* sa = *(const char**)a;
-    const char* sb = *(const char**)b;
-    
-    char* enda = NULL;
-    char* endb = NULL;
-    long na = strtol(sa, &enda, 10);
-    long nb = strtol(sb, &endb, 10);
-    
-    if (enda != NULL && *enda == '\0' && endb != NULL && *endb == '\0') {
-        return (na > nb) - (na < nb);
+    const Value* va = (const Value*)a;
+    const Value* vb = (const Value*)b;
+    if (va->type == VAL_NUMBER && vb->type == VAL_NUMBER) {
+        return (va->number > vb->number) - (va->number < vb->number);
     }
-    
-    return strcmp(sa, sb);
+    if (va->type == VAL_STRING && vb->type == VAL_STRING) {
+        return strcmp(va->string->chars, vb->string->chars);
+    }
+    return (va->type > vb->type) - (va->type < vb->type);
 }
 
 // dispatches all table module built-in functions
@@ -42,11 +38,7 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
             return true;
         }
         
-        if (args[1].type == VAL_STRING) {
-            *result = vm_make_bool(table_has(table, args[1].string->chars));
-        } else {
-            *result = vm_make_none();
-        }
+        *result = vm_make_bool(table_has(table, args[1]));
         return true;
     }
     
@@ -56,26 +48,23 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
             return true;
         }
         
-        if (args[1].type == VAL_STRING) {
-            bool existed = table_has(table, args[1].string->chars);
-            table_remove(table, args[1].string->chars);
-            *result = vm_make_bool(existed);
-        } else {
-            *result = vm_make_none();
-        }
+        bool existed = table_has(table, args[1]);
+        table_remove(table, args[1]);
+        *result = vm_make_bool(existed);
         return true;
     }
     
     if (strcmp(name, "table.keys") == 0) {
         *result = vm_make_table();
         int count;
-        char** keys = table_keys(table, &count);
+        Value* keys = table_keys(table, &count);
         if (keys && count > 0) {
-            qsort(keys, count, sizeof(char*), compare_keys);
+            qsort(keys, count, sizeof(Value), compare_keys);
             for (int i = 0; i < count; i++) {
-                char key_str[32];
-                snprintf(key_str, sizeof(key_str), "%d", i + 1);
-                table_set(result->table, key_str, vm_make_string(keys[i]));
+                Value idx_key = vm_make_number((double)(i + 1));
+                table_set(result->table, idx_key, vm_copy_value(keys[i]));
+                value_decref(&keys[i]);
+                value_decref(&idx_key);
             }
             free(keys);
         }
@@ -85,17 +74,17 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
     if (strcmp(name, "table.values") == 0) {
         *result = vm_make_table();
         int count;
-        char** keys = table_keys(table, &count);
+        Value* keys = table_keys(table, &count);
         if (keys && count > 0) {
-            qsort(keys, count, sizeof(char*), compare_keys);
+            qsort(keys, count, sizeof(Value), compare_keys);
             for (int i = 0; i < count; i++) {
                 Value val;
                 if (table_get(table, keys[i], &val)) {
-                    char key_str[32];
-                    snprintf(key_str, sizeof(key_str), "%d", i + 1);
-                    table_set(result->table, key_str, val);
-                    value_decref(&val);
+                    Value idx_key = vm_make_number((double)(i + 1));
+                    table_set(result->table, idx_key, val);
+                    value_decref(&idx_key);
                 }
+                value_decref(&keys[i]);
             }
             free(keys);
         }

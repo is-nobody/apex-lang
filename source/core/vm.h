@@ -67,7 +67,8 @@ typedef struct Value {
 
 // hash table entry with chaining for collisions
 typedef struct TableEntry {
-    char* key;               // string key (interned)
+    Value key;               // string key (interned)
+    uint32_t hash;
     Value value;             // associated value
     struct TableEntry* next; // next entry in the chain
 } TableEntry;
@@ -176,22 +177,22 @@ Table* table_create(int capacity);
 void table_destroy(Table* table);
 
 // sets a string-keyed value in the table, returns true on success
-bool table_set(Table* table, const char* key, Value value);
+bool table_set(Table* table, Value key, Value value);
 
 // gets a string-keyed value from the table, returns true if found
-bool table_get(Table* table, const char* key, Value* out_value);
+bool table_get(Table* table, Value key, Value* out_value);
 
 // checks if a string key exists in the table
-bool table_has(Table* table, const char* key);
+bool table_has(Table* table, Value key);
 
 // removes a string-keyed entry from the table
-void table_remove(Table* table, const char* key);
+void table_remove(Table* table, Value key);
 
 // returns the total number of entries in the table
 int table_size(Table* table);
 
 // returns an array of all string keys in the table
-char** table_keys(Table* table, int* out_count);
+Value* table_keys(Table* table, int* out_count);
 
 // removes all entries from the table
 void table_clear(Table* table);

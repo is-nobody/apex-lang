@@ -142,7 +142,7 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         int size = table_size(t);
         if (size == 0) { *result = vm_make_none(); return true; }
         int count;
-        char** keys = table_keys(t, &count);
+        Value* keys = table_keys(t, &count);
         if (!keys || count == 0) { *result = vm_make_none(); return true; }
         int idx = rand() % count;
         Value val;
@@ -151,6 +151,7 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         } else {
             *result = vm_make_none();
         }
+        for(int i=0; i<count; i++) value_decref(&keys[i]);
         free(keys);
         return true;
     }
@@ -160,12 +161,11 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         Table* t = args[0].table;
         int size = table_size(t);
         if (size <= 1) { *result = vm_make_none(); return true; }
-        char ki[32], kj[32];
         Value vi, vj;
         for (int i = size; i > 1; i--) {
             int j = rand() % i + 1;
-            snprintf(ki, sizeof(ki), "%d", i);
-            snprintf(kj, sizeof(kj), "%d", j);
+            Value ki = vm_make_number((double)i);
+            Value kj = vm_make_number((double)j);
             bool got_i = table_get(t, ki, &vi);
             bool got_j = table_get(t, kj, &vj);
             if (got_i && got_j) {
@@ -182,6 +182,8 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
                 table_remove(t, kj);
                 vm_free_value(&vj);
             }
+            value_decref(&ki);
+            value_decref(&kj);
         }
         *result = vm_make_none();
         return true;
@@ -197,7 +199,7 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         if (k < 0 || k > size) { *result = vm_make_none(); return true; }
         if (k == 0) { *result = vm_make_table(); return true; }
         int count;
-        char** keys = table_keys(src, &count);
+        Value* keys = table_keys(src, &count);
         if (!keys) { *result = vm_make_none(); return true; }
         Table* res_table = table_create(k);
         int* indices = (int*)malloc(sizeof(int) * count);
@@ -207,13 +209,14 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             int temp = indices[i]; indices[i] = indices[j]; indices[j] = temp;
             Value val;
             if (table_get(src, keys[indices[i]], &val)) {
-                char res_key[32];
-                snprintf(res_key, sizeof(res_key), "%d", i + 1);
+                Value res_key = vm_make_number((double)(i + 1));
                 table_set(res_table, res_key, val);
+                value_decref(&res_key);
                 vm_free_value(&val);
             }
         }
         free(indices);
+        for(int i=0; i<count; i++) value_decref(&keys[i]);
         free(keys);
         result->type = VAL_TABLE;
         result->table = res_table;

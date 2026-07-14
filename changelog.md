@@ -6,6 +6,7 @@
 - Accessing a missing table key now returns `none`
 - Functions without an explicit `return` now return `none`
 - Variables can now change type on reassignment
+- **Strict table key typing** — numeric keys (e.g., `1`) and string keys (e.g., `"1"`) are now distinct and separate. Tables no longer perform automatic conversion between numbers and strings for lookups or assignments.
 
 ## New Features
 - **Multi-language support** — variable names, string literals, and error reporting now fully support UTF-8, allowing code to be written in any language (Cyrillic, Arabic, Chinese, Japanese, etc.).
@@ -17,7 +18,7 @@
 - **Improved error messages** — the entire expression is now highlighted on arithmetic type errors.
 - **Stack overflow detection** — runtime error messages for stack overflow.
 - **Increased max call frames** from 1024 to 8192.
-- **Single-quoted strings** — string literals can now be written using either double (`"..."`) or single (`'...'`) quotes, with full escape sequence support and VS Code auto-closing.
+- **Single-quoted strings** — string literals can now be written using either double (`"..."`) or single (`'...'`) quotes, with full escape sequence support.
 - **Ternary expressions** — added support for one-line conditional expressions (`value if condition else value`).
 
 ## Bug Fixes

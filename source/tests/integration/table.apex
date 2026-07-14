@@ -353,13 +353,11 @@ function nested_sparse()
 
 function mixed_numeric_and_string_keys()
     t = ["a" = 1, "b" = 2]
-    t["1"] = "one"
-    t["2"] = "two"
+    t[1] = "one"
+    t[2] = "two"
     assert_equal(t["a"], 1, "mixed_str_a")
     assert_equal(t["b"], 2, "mixed_str_b")
-    assert_equal(t["1"], "one", "mixed_num_1")
-    assert_equal(t["2"], "two", "mixed_num_2")
-    assert_equal(t[1], "one", "mixed_index_1")
+    assert_equal(t[1], "one", "mixed_index_1") 
     assert_equal(t[2], "two", "mixed_index_2")
     
 empty_table()

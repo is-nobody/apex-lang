@@ -34,8 +34,8 @@ bool ffi_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
                 *result = vm_make_none();
             } else {
                 *result = vm_make_table();
-                table_set(result->table, "_handle", vm_make_number((double)(uintptr_t)handle));
-                table_set(result->table, "path", vm_make_string(args[0].string->chars));
+                Value k1 = vm_make_string("_handle"); table_set(result->table, k1, vm_make_number((double)(uintptr_t)handle)); value_decref(&k1);
+                Value k2 = vm_make_string("path"); table_set(result->table, k2, vm_make_string(args[0].string->chars)); value_decref(&k2);
             }
         } else {
             *result = vm_make_none();
@@ -57,8 +57,11 @@ bool ffi_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
             return true;
         }
 
+        Value k_handle = vm_make_string("_handle");
         Value handle_val;
-        if (!table_get(lib_val->table, "_handle", &handle_val) || handle_val.type != VAL_NUMBER) {
+        bool has_handle = table_get(lib_val->table, k_handle, &handle_val);
+        value_decref(&k_handle);
+        if (!has_handle || handle_val.type != VAL_NUMBER) {
             *result = vm_make_none();
             return true;
         }

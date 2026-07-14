@@ -36,7 +36,9 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
                         if (name) {
                         memcpy(name, env, name_len);
                         name[name_len] = '\0';
-                        table_set(result->table, name, vm_make_string(eq + 1));
+                        Value k = vm_make_string(name);
+                        table_set(result->table, k, vm_make_string(eq + 1));
+                        value_decref(&k);
                         free(name);
                         }
                 }
@@ -55,7 +57,9 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
                         if (name) {
                         memcpy(name, *env, name_len);
                         name[name_len] = '\0';
-                        table_set(result->table, name, vm_make_string(eq + 1));
+                        Value k = vm_make_string(name);
+                        table_set(result->table, k, vm_make_string(eq + 1));
+                        value_decref(&k);
                         free(name);
                         }
                 }
@@ -225,10 +229,10 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
             double used_mb = total_mb - free_mb;
 
             Table* t = table_create(8);
-            table_set(t, "total", vm_make_number(total_mb));
-            table_set(t, "used", vm_make_number(used_mb));
-            table_set(t, "free", vm_make_number(free_mb));
-            
+                Value k1 = vm_make_string("total"); table_set(t, k1, vm_make_number(total_mb)); value_decref(&k1);
+                Value k2 = vm_make_string("used"); table_set(t, k2, vm_make_number(used_mb)); value_decref(&k2);
+                Value k3 = vm_make_string("free"); table_set(t, k3, vm_make_number(free_mb)); value_decref(&k3);
+                
             result->type = VAL_TABLE;
             result->table = t;
         } else {
@@ -245,10 +249,10 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
             double used_mb = total_mb - free_mb;
 
             Table* t = table_create(8);
-            table_set(t, "total", vm_make_number(total_mb));
-            table_set(t, "used", vm_make_number(used_mb));
-            table_set(t, "free", vm_make_number(free_mb));
-            
+                Value k1 = vm_make_string("total"); table_set(t, k1, vm_make_number(total_mb)); value_decref(&k1);
+                Value k2 = vm_make_string("used"); table_set(t, k2, vm_make_number(used_mb)); value_decref(&k2);
+                Value k3 = vm_make_string("free"); table_set(t, k3, vm_make_number(free_mb)); value_decref(&k3);
+                
             result->type = VAL_TABLE;
             result->table = t;
         } else {

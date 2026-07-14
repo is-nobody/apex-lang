@@ -316,10 +316,10 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             struct stat st;
             if (stat(args[0].string->chars, &st) == 0) {
                 *result = vm_make_table();
-                table_set(result->table, "size", vm_make_number(st.st_size));
-                table_set(result->table, "mtime", vm_make_number(st.st_mtime));
-                table_set(result->table, "ctime", vm_make_number(st.st_ctime));
-                table_set(result->table, "isdir", vm_make_bool(S_ISDIR(st.st_mode) ? true : false));
+                Value k1 = vm_make_string("size"); table_set(result->table, k1, vm_make_number(st.st_size)); value_decref(&k1);
+                Value k2 = vm_make_string("mtime"); table_set(result->table, k2, vm_make_number(st.st_mtime)); value_decref(&k2);
+                Value k3 = vm_make_string("ctime"); table_set(result->table, k3, vm_make_number(st.st_ctime)); value_decref(&k3);
+                Value k4 = vm_make_string("isdir"); table_set(result->table, k4, vm_make_bool(S_ISDIR(st.st_mode) ? true : false)); value_decref(&k4);
             } else {
                 *result = vm_make_none();
             }
@@ -559,9 +559,9 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             *result = vm_make_table();
             int idx = 1;
             do {
-                char key[32];
-                snprintf(key, sizeof(key), "%d", idx++);
-                table_set(result->table, key, vm_make_string(fd.cFileName));
+                Value k = vm_make_number((double)idx++);
+                table_set(result->table, k, vm_make_string(fd.cFileName));
+                value_decref(&k);
             } while (FindNextFile(hFind, &fd));
             FindClose(hFind);
         } else {
@@ -574,9 +574,9 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             struct dirent* entry;
             int idx = 1;
             while ((entry = readdir(dir)) != NULL) {
-                char key[32];
-                snprintf(key, sizeof(key), "%d", idx++);
-                table_set(result->table, key, vm_make_string(entry->d_name));
+                Value k = vm_make_number((double)idx++);
+                table_set(result->table, k, vm_make_string(entry->d_name));
+                value_decref(&k);
             }
             closedir(dir);
         } else {
