@@ -1036,11 +1036,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_AND]              = &&OP_AND_LABEL,
         [OP_OR]               = &&OP_OR_LABEL,
         [OP_NOT]              = &&OP_NOT_LABEL,
-        [OP_TO_NUMBER]        = &&OP_TO_NUMBER_LABEL,
         [OP_TO_STRING]        = &&OP_TO_STRING_LABEL,
-        [OP_TO_BOOL]          = &&OP_TO_BOOL_LABEL,
         [OP_JUMP]             = &&OP_JUMP_LABEL,
-        [OP_JUMP_IF_TRUE]     = &&OP_JUMP_IF_TRUE_LABEL,
         [OP_JUMP_IF_FALSE]    = &&OP_JUMP_IF_FALSE_LABEL,
         [OP_CALL]             = &&OP_CALL_LABEL,
         [OP_CALL_BUILTIN]     = &&OP_CALL_BUILTIN_LABEL,
@@ -1278,29 +1275,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         regs[dest].boolean = !regs[ip->operands[1]].boolean;
         ip++; goto *dispatch_table[ip->opcode];
     }
-    OP_TO_NUMBER_LABEL: {
-        int dest = ip->operands[0];
-        Value* src = &regs[ip->operands[1]];
-        switch (src->type) {
-            case VAL_STRING:
-                regs[dest].type = VAL_NUMBER;
-                regs[dest].number = atof(src->string->chars);
-                break;
-            case VAL_NUMBER:
-                regs[dest].type = VAL_NUMBER;
-                regs[dest].number = src->number;
-                break;
-            case VAL_BOOL:
-                regs[dest].type = VAL_NUMBER;
-                regs[dest].number = src->boolean ? 1.0 : 0.0;
-                break;
-            default:
-                regs[dest].type = VAL_NUMBER;
-                regs[dest].number = 0.0;
-                break;
-        }
-        ip++; goto *dispatch_table[ip->opcode];
-    }
     OP_TO_STRING_LABEL: {
         int dest = ip->operands[0]; 
         Value* src = &regs[ip->operands[1]];
@@ -1356,23 +1330,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
-    OP_TO_BOOL_LABEL: {
-        int dest = ip->operands[0]; Value* src = &regs[ip->operands[1]];
-        regs[dest].type = VAL_BOOL;
-        switch (src->type) {
-            case VAL_BOOL: regs[dest].boolean = src->boolean; break;
-            case VAL_STRING: regs[dest].boolean = (src->string->length > 0); break;
-            case VAL_NUMBER: regs[dest].boolean = (src->number != 0.0); break;
-            default: regs[dest].boolean = false; break;
-        }
-        ip++; goto *dispatch_table[ip->opcode];
-    }
     OP_JUMP_LABEL: ip = &vm->code[ip->operands[0]]; goto *dispatch_table[ip->opcode];
-    OP_JUMP_IF_TRUE_LABEL: {
-        int cond_reg = ip->operands[1];
-        if (vm->registers[cond_reg].boolean) { ip = &vm->code[ip->operands[0]]; goto *dispatch_table[ip->opcode]; }
-        ip++; goto *dispatch_table[ip->opcode];
-    }
     OP_JUMP_IF_FALSE_LABEL: {
         int cond_reg = ip->operands[1];
         if (!vm->registers[cond_reg].boolean) { ip = &vm->code[ip->operands[0]]; goto *dispatch_table[ip->opcode]; }
