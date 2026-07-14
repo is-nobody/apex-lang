@@ -27,29 +27,39 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
 #ifdef _WIN32
         char* env_block = GetEnvironmentStrings();
         if (env_block) {
-            char* env = env_block;
-            while (*env) {
+                char* env = env_block;
+                while (*env) {
                 char* eq = strchr(env, '=');
                 if (eq) {
-                    *eq = '\0';
-                    table_set(result->table, env, vm_make_string(eq + 1));
-                    *eq = '=';
+                        size_t name_len = eq - env;
+                        char* name = (char*)malloc(name_len + 1);
+                        if (name) {
+                        memcpy(name, env, name_len);
+                        name[name_len] = '\0';
+                        table_set(result->table, name, vm_make_string(eq + 1));
+                        free(name);
+                        }
                 }
                 env += strlen(env) + 1;
-            }
-            FreeEnvironmentStrings(env_block);
+                }
+                FreeEnvironmentStrings(env_block);
         }
 #else
         extern char** environ;
         if (environ) {
-            for (char** env = environ; *env; env++) {
+                for (char** env = environ; *env; env++) {
                 char* eq = strchr(*env, '=');
                 if (eq) {
-                    *eq = '\0';
-                    table_set(result->table, *env, vm_make_string(eq + 1));
-                    *eq = '=';
+                        size_t name_len = eq - *env;
+                        char* name = (char*)malloc(name_len + 1);
+                        if (name) {
+                        memcpy(name, *env, name_len);
+                        name[name_len] = '\0';
+                        table_set(result->table, name, vm_make_string(eq + 1));
+                        free(name);
+                        }
                 }
-            }
+                }
         }
 #endif
         return true;

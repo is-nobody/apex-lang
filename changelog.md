@@ -31,6 +31,7 @@
 - **Trailing comma in function parameters**: fixed segmentation fault when parsing function definitions with a trailing comma (e.g., `function add(a,)`) by adding null-checks and proper loop termination in the parser.
 - **Unreachable code detection**: added compile-time error for statements following `return`, `break`, or `continue` in the same block to prevent dead code and logical errors.
 - **String concatenation enforcement**: `+` operator between string literal and `any`-typed variable (e.g. function parameter) now correctly raises a parse error, enforcing interpolation-only string building.
+- **Environment variable handling**: `sys.environment()` no longer mutates the original environment strings, fixing potential crashes on platforms with read-only environment memory.
 
 ---
 
