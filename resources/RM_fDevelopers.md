@@ -7,11 +7,12 @@ This manual is minimalistic. Each section builds on the previous ones. For the b
 - [Setting up workspace](#setting-up-workspace)
 
 ### 1. Variables & Data Types
-- [1.1 Numbers](#11-numbers)
-- [1.2 Booleans](#12-booleans)
-- [1.3 Strings](#13-strings)
-- [1.4 Tables](#14-tables)
-- [1.5 Type Conversion](#15-table-conversion)
+- [1.1 None](#11-none)
+- [1.2 Numbers](#12-numbers)
+- [1.3 Booleans](#13-booleans)
+- [1.4 Strings](#14-strings)
+- [1.5 Tables](#15-tables)
+- [1.6 Type Functions](#16-type-functions)
 
 ### 2. Operators
 - [2.1 Arithmetic Operators](#21-arithmetic-operators)
@@ -22,6 +23,7 @@ This manual is minimalistic. Each section builds on the previous ones. For the b
 - [3.1 If Statement](#31-if-statement)
 - [3.2 Elif Statement](#32-elif-statement)
 - [3.3 Else Statement](#33-else-statement)
+- [3.4 Ternary Statement](#34-ternary-statement)
 
 ### 4. For Loops
 - [4.1 For Counter](#41-for-counter)
@@ -74,18 +76,31 @@ Apex determines the type automatically. Main data types in language:
 
 | Type | Description | Example |
 |------|-------------|---------|
+| `none` | Intentional absence of a value | `x = none` |
 | `number` | Numbers (Wholes and decimals) | `x = 10`, `x = 3.14` |
 | `string` | Text, sequence of characters | `x = "hello"` |
 | `boolean` | True or false | `x = true`, `x = false` |
-| `table` | Universal container | `x = (1, 2, 3)`, `x = (name = "John")` |
+| `table` | Universal container | `x = [1, 2, 3]`, `x = [name = "John"]` |
 
-The type of a variable cannot change. If a variable was created as a `string`, it can never become a `number`.
+The type of a variable can change over time. A variable initially created as a `none` can later become a `string`.
 
-For `true` and `false` use lowercase.
+For `none`, `true` and `false` use lowercase.
 
 `//` means a comment.
 
-## 1.1 Numbers
+### 1.1 None
+In programming, you often need to explicitly say "there's nothing here." User not found. In Apex, this is called `none`.
+
+`none` is a separate data type and the only value of that type. It means the intentional absence of any value. It's like an empty box — it exists, but it's empty.
+
+```apex
+user = none
+result = none
+```
+
+Most often, `none` is used as a default value when a function returns no meaningful result, or to reset a variable's value.
+
+## 1.2 Numbers
 In Apex, you don't need to worry about whether a number is a whole number or a decimal. Apex figures out the rest. There is no limit to numbers.
 
 ### Whole Numbers
@@ -113,7 +128,7 @@ y = 3.5
 sum = x + y
 ```
 
-## 1.2 Booleans
+## 1.3 Booleans
 Booleans represent one of two possible values: `true` or `false`. You can create booleans in two ways: directly or through comparisons.
 
 Direct assignment:
@@ -133,7 +148,7 @@ is_adult = age > 18        // true — because 25 is greater than 18
 
 Whenever you use comparison operators (`==`, `!=`, `<`, `>`, `<=`, `>=`), the result is always a boolean. Booleans also come from logical operations that combine values.
 
-## 1.3 Strings
+## 1.4 Strings
 A string can be one character long, a thousand characters long, or even empty.
 
 ### Creating Strings
@@ -143,12 +158,6 @@ In Apex, strings are written inside double quotes `" "`:
 name = "Alice"
 message = "Hello, Friend"
 empty = ""
-```
-
-If you need double quotes inside them, just do it, Apex will take them calmly, since they are already inside the main double quotes:
-
-```apex
-inside = "He say: "I hate donuts!""
 ```
 
 ### Quotes inside Quotes
@@ -267,7 +276,7 @@ emailBody = "
 "
 ```
 
-## 1.4 Tables
+## 1.5 Tables
 A table is Apex's universal container. Think of it as a box that can hold multiple values. Need a list of names? Use a table. Need to store information about a user? Use a table. Need both in one place? Table. Tables are flexible — they work as ordered lists and key-value pairs. You can even mix both styles in the same table.
 
 ### Creating Tables
@@ -356,7 +365,7 @@ first_employee = company["employees"][1]            // "Alice"
 city = company["address"]["city"]                     // "Dubai"
 ```
 
-## 1.5 Type Conversion
+## 1.6 Type Functions
 Apex provides two built-in functions for explicit type conversion:
 
 | Function | What it does | Example |
@@ -382,11 +391,13 @@ Converts any value to its string representation.
 |-------|--------|
 | `42` | `"42"` |
 | `3.14` | `"3.14"` |
+| `none` | `"none"` |
 | `true` / `false` | `"true"` / `"false"` |
 
 ```apex
 string(42)      // "42"
 string(3.14)    // "3.14"
+string(none)    // "none"
 string(true)    // "true"
 string(false)   // "false"
 ```
@@ -397,6 +408,7 @@ Returns the name of the variable's type as a string. This is useful for debuggin
 ```apex
 type(42)        // "number"
 type("hello")   // "string"
+type(none)      // "none"
 type(true)      // "boolean"
 type([1, 2])    // "table"
 ```
@@ -526,6 +538,18 @@ if score >= 60
 else
     os.output("You failed.")
 ```
+
+### 3.4 Ternary Operator
+The ternary operator is a shorthand form for simple conditional expressions. It lets you choose one of two values depending on a condition. It's not a replacement for `if-else`, but a handy tool for cases when you need to assign a value to a variable based on a simple check.
+
+```apex
+import os
+temperature = 25
+weather = "hot" if temperature > 20 else "cold"
+os.output(weather)   // Output: hot
+```
+
+The ternary operator can only be used for short conditions. If the selection logic requires 2 or more checks, you must use regular `if-elif-else` blocks — 2 or more checks are not allowed in a ternary statement.
 
 # 4. For Loops
 ## 4.1 For Statement
