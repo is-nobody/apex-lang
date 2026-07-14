@@ -7,6 +7,7 @@
 - Functions without an explicit `return` now return `none`
 - Variables can now change type on reassignment
 - **Strict table key typing** — numeric keys (e.g., `1`) and string keys (e.g., `"1"`) are now distinct and separate. Tables no longer perform automatic conversion between numbers and strings for lookups or assignments.
+- **Local variable optimization** — variables are now preferentially compiled as local registers instead of globals. Global variables are reserved for module exports only.
 
 ## New Features
 - **Multi-language support** — variable names, string literals, and error reporting now fully support UTF-8, allowing code to be written in any language (Cyrillic, Arabic, Chinese, Japanese, etc.).
