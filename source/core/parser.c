@@ -759,6 +759,43 @@ static void skip_newlines(Parser* parser) {
     }
 }
 
+// checks if an expression is an explicit boolean condition
+static bool is_explicit_condition(ASTNode* node) {
+    if (!node) return false;
+    
+    if (node->type == AST_BINARY) {
+        TokenType op = node->binary.op;
+        if (op == TOKEN_EQUAL_EQUAL || op == TOKEN_NOT_EQUAL || 
+            op == TOKEN_LESS || op == TOKEN_GREATER || 
+            op == TOKEN_LESS_EQUAL || op == TOKEN_GREATER_EQUAL) {
+            return true;
+        }
+        if (op == TOKEN_AND || op == TOKEN_OR) {
+            return is_explicit_condition(node->binary.left) && 
+                   is_explicit_condition(node->binary.right);
+        }
+        return false;
+    }
+    
+    if (node->type == AST_UNARY && node->unary.op == TOKEN_NOT) {
+        return true;
+    }
+    
+    if (node->type == AST_LITERAL_BOOL) {
+        return true;
+    }
+    
+    if (node->type == AST_CALL) {
+        return false;
+    }
+    
+    if (node->type == AST_IDENTIFIER) {
+        return false;
+    }
+    
+    return false;
+}
+
 // infers the type of a binary operation with type checking
 static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
     ValueType left_type = infer_expression_type(parser, node->binary.left);
@@ -1696,6 +1733,21 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
             advance(parser);
             Precedence prec = get_precedence(token->type);
             ASTNode* right = parse_precedence(parser, prec);
+            
+            if (parser->semantic_checks && 
+                (token->type == TOKEN_AND || token->type == TOKEN_OR)) {
+                if (!is_explicit_condition(left)) {
+                    parser_error_at(parser, left->line, left->column, get_node_len(left),
+                        "Logical operator '%s' requires explicit condition (e.g., 'var == true' or 'var != false')",
+                        binary_op_name(token->type));
+                }
+                if (!is_explicit_condition(right)) {
+                    parser_error_at(parser, right->line, right->column, get_node_len(right),
+                        "Logical operator '%s' requires explicit condition (e.g., 'var == true' or 'var != false')",
+                        binary_op_name(token->type));
+                }
+            }
+            
             return ast_create_binary(token->type, left, right);
         }
         case TOKEN_EQUAL: {
