@@ -1155,8 +1155,10 @@ static void parser_check_condition(Parser* parser, ASTNode* condition, const cha
     ValueType cond_type = infer_expression_type(parser, condition);
     
     if (cond_type != TYPE_BOOLEAN && cond_type != TYPE_ANY && cond_type != TYPE_UNKNOWN) {
-        parser_error_at(parser, condition->line, condition->column, get_node_len(condition),
-            "%s condition must be boolean, got %s", context, type_name(cond_type));
+        if (cond_type != TYPE_ERROR) {
+            parser_error_at(parser, condition->line, condition->column, get_node_len(condition),
+                "%s condition must be boolean, got %s", context, type_name(cond_type));
+        }
         return;
     }
 
