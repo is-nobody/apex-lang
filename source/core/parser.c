@@ -2127,8 +2127,9 @@ static ASTNode* parse_import_statement(Parser* parser) {
             APPEND_PATH(next->value);
             advance(parser);
         } else {
+            parser_error(parser, "Expected module name after '.'");
             free(module_path);
-            parser_error(parser, "Expected identifier after '.'");
+            return NULL;
         }
     }
 
@@ -2152,6 +2153,10 @@ static ASTNode* parse_import_statement(Parser* parser) {
     build_module_path(parser, module_path, full_path, sizeof(full_path));
 
     FILE* f = fopen(full_path, "rb");
+    if (!f) {
+        free(module_path);
+        return import_node;
+    }
     fseek(f, 0, SEEK_END);
     long size = ftell(f);
     fseek(f, 0, SEEK_SET);
