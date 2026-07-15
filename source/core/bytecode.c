@@ -22,7 +22,6 @@ static const char* opcode_names[] = {
     [OP_AND]              = "AND",
     [OP_OR]               = "OR",
     [OP_NOT]              = "NOT",
-    [OP_TO_STRING]        = "TO_STRING",
     [OP_JUMP]             = "JUMP",
     [OP_JUMP_IF_FALSE]    = "JUMP_IF_FALSE",
     [OP_CALL]             = "CALL",

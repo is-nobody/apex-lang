@@ -27,8 +27,6 @@ typedef enum {
     OP_OR,               // logical or: rdst = rleft || rright
     OP_NOT,              // logical not: rdst = !rsrc
     
-    OP_TO_STRING,        // converts rsrc to a string, storing in rdst
-    
     OP_JUMP,             // unconditional branch to address
     OP_JUMP_IF_FALSE,    // branch if rcond is falsy
     

@@ -1035,7 +1035,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_AND]              = &&OP_AND_LABEL,
         [OP_OR]               = &&OP_OR_LABEL,
         [OP_NOT]              = &&OP_NOT_LABEL,
-        [OP_TO_STRING]        = &&OP_TO_STRING_LABEL,
         [OP_JUMP]             = &&OP_JUMP_LABEL,
         [OP_JUMP_IF_FALSE]    = &&OP_JUMP_IF_FALSE_LABEL,
         [OP_CALL]             = &&OP_CALL_LABEL,
@@ -1271,61 +1270,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int dest = ip->operands[0];
         regs[dest].type = VAL_BOOL;
         regs[dest].boolean = !regs[ip->operands[1]].boolean;
-        ip++; goto *dispatch_table[ip->opcode];
-    }
-    OP_TO_STRING_LABEL: {
-        int dest = ip->operands[0]; 
-        Value* src = &regs[ip->operands[1]];
-        char buffer[256];
-        value_decref(&regs[dest]);
-        switch (src->type) {
-            case VAL_NUMBER: {
-                double num = src->number;
-                
-                if (num == (int)num && num >= 0 && num <= 100) {
-                    static StringObject* num_cache[101] = {NULL};
-                    int idx = (int)num;
-                    if (num_cache[idx] == NULL) {
-                        char buf[4];
-                        int len = snprintf(buf, sizeof(buf), "%d", idx);
-                        num_cache[idx] = string_create_pooled(&vm->obj_pool, buf, len);
-                        num_cache[idx]->header.ref_count = 999999;
-                    }
-                    regs[dest].type = VAL_STRING;
-                    regs[dest].string = num_cache[idx];
-                    value_incref(&regs[dest]);
-                    break;
-                }
-                
-                int len;
-                if (fabs(num - (long long)num) < 1e-9 && fabs(num) < 1e15) {
-                    len = snprintf(buffer, sizeof(buffer), "%lld", (long long)num);
-                } else {
-                    len = snprintf(buffer, sizeof(buffer), "%.15g", num);
-                }
-                if (len >= 8 && len <= 32 && vm->intern_table.count < 50000) {
-                    regs[dest].type = VAL_STRING;
-                    regs[dest].string = string_intern(&vm->intern_table, buffer, len);
-                    value_incref(&regs[dest]);
-                } else {
-                    regs[dest] = vm_make_string(buffer);
-                }
-                break;
-            }
-            case VAL_NONE:
-                regs[dest] = vm_make_string("none");
-                break;
-            case VAL_BOOL: 
-                regs[dest] = vm_make_string(src->boolean ? "true" : "false"); 
-                break;
-            case VAL_STRING: 
-                regs[dest] = *src; 
-                value_incref(&regs[dest]); 
-                break;
-            default: 
-                regs[dest] = vm_make_string("false"); 
-                break;
-        }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_JUMP_LABEL: ip = &vm->code[ip->operands[0]]; goto *dispatch_table[ip->opcode];

@@ -328,21 +328,12 @@ static int codegen_string_interp(CodeGenerator* cg, ASTNode* node) {
         emit(cg, INST(OP_LOAD_CONST, reg, empty_idx, 0), node->line);
         return reg;
     }
-    
+
     int result_reg = -1;
     for (int i = 0; i < node->string_interp.parts->count; i++) {
         ASTNode* part = node->string_interp.parts->nodes[i];
-        int part_reg;
-        
-        if (part->type == AST_LITERAL_STRING) {
-            part_reg = codegen_literal_string(cg, part);
-        } else {
-            int expr_reg = codegen_expression(cg, part);
-            part_reg = alloc_register(cg);
-            emit(cg, INST(OP_TO_STRING, part_reg, expr_reg, 0), node->line);
-            free_register(cg, expr_reg);
-        }
-        
+        int part_reg = codegen_expression(cg, part);
+
         if (result_reg < 0) {
             result_reg = part_reg;
         } else {
