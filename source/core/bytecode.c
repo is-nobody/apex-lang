@@ -5,7 +5,6 @@
 
 // human-readable names for each opcode, used in disassembly and debugging
 static const char* opcode_names[] = {
-    [OP_NOP]              = "NOP",
     [OP_LOAD_CONST]       = "LOAD_CONST",
     [OP_MOVE]             = "MOVE",
     [OP_ADD]              = "ADD",

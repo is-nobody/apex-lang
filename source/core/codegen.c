@@ -456,24 +456,23 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
         ASTNode* condition = node->for_stmt.condition;
         int left_reg = -1;
         int right_reg = -1;
-        Opcode jump_op = OP_NOP;
         bool optimized = false;
         bool right_hoisted = false;
+        Opcode jump_op = OP_JUMP;
 
         if (condition) {
             if (condition->type == AST_BINARY) {
                 TokenType op = condition->binary.op;
                 switch (op) {
-                    case TOKEN_LESS:          jump_op = OP_JUMP_IF_GTE; break;
-                    case TOKEN_LESS_EQUAL:    jump_op = OP_JUMP_IF_GT;  break;
-                    case TOKEN_GREATER:       jump_op = OP_JUMP_IF_LTE; break;
-                    case TOKEN_GREATER_EQUAL: jump_op = OP_JUMP_IF_LT;  break;
-                    case TOKEN_EQUAL_EQUAL:   jump_op = OP_JUMP_IF_NEQ; break;
-                    case TOKEN_NOT_EQUAL:     jump_op = OP_JUMP_IF_EQ;  break;
-                    default: jump_op = OP_NOP; break;
+                    case TOKEN_LESS:          jump_op = OP_JUMP_IF_GTE; optimized = true; break;
+                    case TOKEN_LESS_EQUAL:    jump_op = OP_JUMP_IF_GT;  optimized = true; break;
+                    case TOKEN_GREATER:       jump_op = OP_JUMP_IF_LTE; optimized = true; break;
+                    case TOKEN_GREATER_EQUAL: jump_op = OP_JUMP_IF_LT;  optimized = true; break;
+                    case TOKEN_EQUAL_EQUAL:   jump_op = OP_JUMP_IF_NEQ; optimized = true; break;
+                    case TOKEN_NOT_EQUAL:     jump_op = OP_JUMP_IF_EQ;  optimized = true; break;
+                    default: break;
                 }
-                if (jump_op != OP_NOP) {
-                    optimized = true;
+                if (optimized) {
                     ASTNode* right_node = condition->binary.right;
                     if (right_node->type == AST_LITERAL_NUMBER ||
                         right_node->type == AST_LITERAL_STRING ||
@@ -784,18 +783,19 @@ static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node) {
                 strcmp(bin->binary.left->identifier.name, node->var_assign.name) == 0) {
                 
                 int right_reg = codegen_expression(cg, bin->binary.right);
-                Opcode op = OP_NOP;
+                bool can_optimize = true;
+                Opcode op;
                 
                 switch (bin->binary.op) {
-                    case TOKEN_PLUS:   op = OP_ADD; break;
-                    case TOKEN_MINUS:  op = OP_SUB; break;
-                    case TOKEN_STAR:   op = OP_MUL; break;
-                    case TOKEN_SLASH:  op = OP_DIV; break;
+                    case TOKEN_PLUS:    op = OP_ADD; break;
+                    case TOKEN_MINUS:   op = OP_SUB; break;
+                    case TOKEN_STAR:    op = OP_MUL; break;
+                    case TOKEN_SLASH:   op = OP_DIV; break;
                     case TOKEN_PERCENT: op = OP_MOD; break;
-                    default: break;
+                    default: can_optimize = false; break;
                 }
                 
-                if (op != OP_NOP) {
+                if (can_optimize) {
                     emit(cg, INST(op, local_reg, local_reg, right_reg), node->line);
                     free_register(cg, right_reg);
                     return local_reg;
@@ -903,7 +903,7 @@ static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
 static int codegen_optimized_condition(CodeGenerator* cg, ASTNode* condition, int line) {
     if (condition->type == AST_BINARY) {
         TokenType op = condition->binary.op;
-        Opcode jump_op = OP_NOP;
+        Opcode jump_op;
         
         switch (op) {
             case TOKEN_LESS:          jump_op = OP_JUMP_IF_GTE; break;

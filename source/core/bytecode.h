@@ -6,7 +6,6 @@
 
 // all supported vm opcodes, grouped by functionality for clarity
 typedef enum {
-    OP_NOP,              // no operation, used as a placeholder or padding
     OP_LOAD_CONST,       // loads a constant from the pool into a register
     OP_MOVE,             // copies a value from one register to another
     

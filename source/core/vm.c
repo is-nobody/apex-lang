@@ -1018,7 +1018,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     
     static void* dispatch_table[] = {
-        [OP_NOP]              = &&OP_NOP_LABEL,
         [OP_LOAD_CONST]       = &&OP_LOAD_CONST_LABEL,
         [OP_MOVE]             = &&OP_MOVE_LABEL,
         [OP_ADD]              = &&OP_ADD_LABEL,
@@ -1072,7 +1071,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     __builtin_prefetch(ip + 1, 0, 1);
     goto *dispatch_table[ip->opcode];
 
-    OP_NOP_LABEL: ip++; goto *dispatch_table[ip->opcode];
     OP_LOAD_CONST_NUM_LABEL: {
         int dest = ip->operands[0]; int value = ip->operands[1];
         regs[dest].type = VAL_NUMBER; regs[dest].number = (double)value;
