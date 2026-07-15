@@ -40,7 +40,6 @@ target_include_directories(apex PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/source/core
     ${CMAKE_CURRENT_SOURCE_DIR}/source/utils
     ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/package_manager
 )
 
 # baseline warnings and posix compatibility
