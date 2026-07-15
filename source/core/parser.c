@@ -2155,30 +2155,12 @@ static ASTNode* parse_import_statement(Parser* parser) {
     build_module_path(parser, module_path, full_path, sizeof(full_path));
 
     FILE* f = fopen(full_path, "rb");
-    if (!f) {
-        parser_error(parser, "Cannot open module file");
-        free(module_path);
-        return import_node;
-    }
-
     fseek(f, 0, SEEK_END);
     long size = ftell(f);
     fseek(f, 0, SEEK_SET);
     char* source = (char*)malloc(size + 1);
-    if (!source) { 
-        fclose(f); 
-        free(module_path); 
-        return import_node; 
-    }
-    
     size_t bytes_read = fread(source, 1, size, f);
-    if (bytes_read != (size_t)size) {
-        fclose(f);
-        free(source);
-        free(module_path);
-        parser_error(parser, "Failed to read module file");
-        return import_node;
-    }
+    (void)bytes_read;
     source[size] = '\0';
     fclose(f);
 
