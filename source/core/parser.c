@@ -26,7 +26,6 @@
 
 #define APEX_MAX_CALL_DEPTH 512
 #define APEX_MAX_LOOP_DEPTH 512
-#define APEX_MAX_CALL_ARGS 64
 
 static Token* current_token(Parser* parser);
 static ASTNode* parse_program(Parser* parser);
@@ -1005,10 +1004,6 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
                     "Function '%s' expected %d to %d arguments, got %d",
                     func_name, builtin->min_args, builtin->max_args, actual);
             }
-            if (actual > APEX_MAX_CALL_ARGS) {
-                parser_error_at(parser, node->line, node->column, 0, "Too many arguments (%d), maximum is %d", actual, APEX_MAX_CALL_ARGS);
-            }
-            
             if (actual >= 1 && builtin->arg_type != TYPE_ANY) {
                 ASTNode* arg = node->call.arguments->nodes[0];
                 ValueType arg_t = infer_expression_type(parser, arg);

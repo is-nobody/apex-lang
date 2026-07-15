@@ -3,8 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define APEX_MAX_CALL_ARGS 64
-
 // checks if a module name is a built-in system module
 static bool is_known_builtin_module(const char* name) {
     return strcmp(name, "os") == 0 ||
@@ -224,13 +222,6 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         snprintf(func_name, sizeof(func_name), "%s.%s",
                  callee->access.object->identifier.name,
                  callee->access.member->identifier.name);
-    }
-    
-    if (arg_count > APEX_MAX_CALL_ARGS) {
-        fprintf(stderr, "Compile error at line %d: too many arguments (%d), maximum is %d\n",
-                node->line, arg_count, APEX_MAX_CALL_ARGS);
-        if (arg_regs) free(arg_regs);
-        return -1;
     }
     
     int result_reg = alloc_register(cg);
