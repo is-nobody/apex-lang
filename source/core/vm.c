@@ -1416,7 +1416,15 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int table_reg = ip->operands[0];
         int key_reg = ip->operands[1];
         int val_reg = ip->operands[2];
-        Table* table = vm->registers[table_reg].table;
+        
+        Value* table_val = &vm->registers[table_reg];
+        if (table_val->type != VAL_TABLE) {
+            vm->had_error = true;
+            vm->running = false;
+            goto OP_HALT_LABEL;
+        }
+        
+        Table* table = table_val->table;
         Value key = vm->registers[key_reg];
         Value val = vm->registers[val_reg];
         table_set(table, key, val);

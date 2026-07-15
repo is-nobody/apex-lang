@@ -42,6 +42,7 @@
 - Normalized floating-point zero hashing: `-0.0` and `+0.0` no longer occupy different hash buckets.
 - Fixed potential memory leak in intern table cleanup.
 - Pooled tables properly reset capacity after returning to pool, preventing oversized reallocations.
+- Fixed segmentation fault in table assignment when table register contains non-table value: added type check.
 
 ---
 
