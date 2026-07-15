@@ -2,39 +2,46 @@
 **Second release of the Apex programming language.**
 
 ## Behavior Changes
-- **`none` type** — a new data type replacing `false` to represent the absence of a value. All built-in modules (`os`, `sys`, `string`, `random`, `math`, `ffi`, `codecs`) now return `none` instead of `false` on errors.
-- Accessing a missing table key now returns `none`
-- Functions without an explicit `return` now return `none`
-- Variables can now change type on reassignment
-- **Strict table key typing** — numeric keys (e.g., `1`) and string keys (e.g., `"1"`) are now distinct and separate. Tables no longer perform automatic conversion between numbers and strings for lookups or assignments.
-- **Local variable optimization** — variables are now preferentially compiled as local registers instead of globals. Global variables are reserved for module exports only.
+- `none` type: a new data type replacing `false` to represent the absence of a value.
+- Built-in modules (`os`, `sys`, `string`, `random`, `math`, `ffi`, `codecs`) now return `none` instead of `false` on errors.
+- Accessing a missing table key now returns `none`.
+- Functions without an explicit `return` now return `none`.
+- Variables can now change type on reassignment.
+- Strict table key typing: numeric keys and string keys are now distinct and separate.
+- Tables no longer perform automatic conversion between numbers and strings for lookups or assignments.
+- Local variable optimization: variables preferentially compiled as local registers; globals reserved for module exports.
 
 ## New Features
-- **Multi-language support** — variable names, string literals, and error reporting now fully support UTF-8, allowing code to be written in any language (Cyrillic, Arabic, Chinese, Japanese, etc.).
-- **UTF-8 string operations** — `string.len()` and `string.sub()` now work with characters instead of bytes, with full Unicode support for all scripts and emoji.
-- **Table to string conversion** — `string()` now supports tables.
-- **Shebang support** — scripts can start with `#!`.
-- **Indentation-based folding** in the VS Code extension.
-- **Resilient tokenization and parsing** — tokenization and parsing continue after the first error, reporting multiple errors in a single pass.
-- **Improved error messages** — the entire expression is now highlighted on arithmetic type errors.
-- **Stack overflow detection** — runtime error messages for stack overflow.
-- **Increased max call frames** from 1024 to 8192.
-- **Single-quoted strings** — string literals can now be written using either double (`"..."`) or single (`'...'`) quotes, with full escape sequence support.
-- **Ternary expressions** — added support for one-line conditional expressions (`value if condition else value`).
+- Multi-language support: variable names, string literals, and error reporting fully support UTF-8.
+- Code can be written in Cyrillic, Arabic, Chinese, Japanese, etc.
+- UTF-8 string operations: `string.len()` and `string.sub()` work with characters, not bytes.
+- Full Unicode support for all scripts and emoji.
+- `string()` now supports tables.
+- Shebang support: scripts can start with `#!`.
+- Indentation-based folding in the VS Code extension.
+- Resilient tokenization and parsing: multiple errors reported in a single pass.
+- Improved error messages: entire expression highlighted on arithmetic type errors.
+- Stack overflow detection with runtime error messages.
+- Increased max call frames from 1024 to 8192.
+- Single-quoted strings: use double or single quotes with full escape sequence support.
+- Ternary expressions: one-line conditional expressions (`value if condition == true else value`).
 
 ## Bug Fixes
-- **Sparse numeric keys**: correct removal with holes, accurate size calculation
-- **Fall through to hash lookup** when a numeric key is not found in the array part of a table
-- **Column offset** corrected for expressions inside string interpolation
-- **Variable redeclaration check** — removed redundant "Variable already declared in this scope" and "Assignment to undefined variable" errors
-- **Enforced explicit boolean conditions** in `if` and `for` statements, ensuring logical operators (`and`/`or`) are properly validated alongside comparison operators.
-- **Eliminated duplicate semantic errors** in string interpolation by disabling checks in temporary parsers and implementing an error position history buffer.
-- **Condition-based `for` loops** — support arbitrary boolean expressions; fixed double-free crash and false `break`/`continue` errors in nested blocks.
-- **Trailing comma in function parameters**: fixed segmentation fault when parsing function definitions with a trailing comma (e.g., `function add(a,)`) by adding null-checks and proper loop termination in the parser.
-- **Unreachable code detection**: added compile-time error for statements following `return`, `break`, or `continue` in the same block to prevent dead code and logical errors.
-- **String concatenation enforcement**: `+` operator between string literal and `any`-typed variable (e.g. function parameter) now correctly raises a parse error, enforcing interpolation-only string building.
-- **Environment variable handling**: `sys.environment()` no longer mutates the original environment strings, fixing potential crashes on platforms with read-only environment memory.
-- **Table VM stability fixes**: normalized floating-point zero hashing to prevent `-0.0` and `+0.0` from occupying different hash buckets despite comparing equal; fixed potential memory leak in intern table cleanup; pooled tables now properly reset capacity after being returned to the pool, preventing oversized reallocations on reuse.
+- Sparse numeric keys: correct removal with holes, accurate size calculation.
+- Fall through to hash lookup when numeric key not found in array part of table.
+- Column offset corrected for expressions inside string interpolation.
+- Removed redundant "Variable already declared in this scope" and "Assignment to undefined variable" errors.
+- Enforced explicit boolean conditions in `if` and `for` with proper validation of `and`/`or`.
+- Eliminated duplicate semantic errors in string interpolation via error position history buffer.
+- Condition-based `for` loops: support arbitrary boolean expressions; fixed double-free crash.
+- Fixed false `break`/`continue` errors in nested blocks.
+- Trailing comma in function parameters: fixed segmentation fault with null-checks.
+- Unreachable code detection: compile-time error for statements following `return`, `break`, or `continue`.
+- String concatenation enforcement: `+` with string literal and `any`-typed variable now raises parse error.
+- `sys.environment()` no longer mutates original environment strings; fixes crashes on read-only memory.
+- Normalized floating-point zero hashing: `-0.0` and `+0.0` no longer occupy different hash buckets.
+- Fixed potential memory leak in intern table cleanup.
+- Pooled tables properly reset capacity after returning to pool, preventing oversized reallocations.
 
 ---
 
@@ -42,84 +49,34 @@
 **First release of the Apex programming language.**
 
 ## Core Language Features
-### Syntax & Structure
-- **Indentation-based blocks**: 4-space indentation required for code blocks
-- **No curly braces or end keywords**: Clean, indent-based syntax
-- **Explicit boolean conditions**: All `if` and `for` conditions must be explicit boolean expressions (no truthy/falsy values)
-- **Static typing enforcement**: Variable types cannot change after declaration
-
-### Data Types
-- **number**: 64-bit floating-point (doubles)
-- **string**: UTF-8 with interpolation (`"Hello {name}"`)
-- **boolean**: `true` or `false`
-- **table**: Universal container — ordered arrays and key-value dictionaries
-- **function**: First-class with closures
-
-### Variables & Scope
-- **Dynamic scoping**
-- **Type inference** at declaration, enforced thereafter
-- **Constant optimization**: Numeric literals evaluated at compile-time
-
-### Operators
-- **Logical**: `and`, `or`, `not` (boolean operands only)
-- **String concatenation**: Via interpolation only (no `+` for strings)
-
-### Control Flow
-- **If/Elif/Else**: Multi-branch with explicit boolean conditions
-- **For loops**: Three variants:
-  - Range: `for i = start, end [, step]`
-  - Table iteration: `for key = table`
-  - Condition-based: `for condition == true`
-- **Break/Continue**
-- **Return**
-
-### Functions
-- **First-class**: Assign to variables, pass as arguments
-- **Nested functions**
-- **Built-in**: `number()`, `string()`, `type()`
-
-### Tables
-- **Mixed**: Positional items `[1, 2, 3]` and key-value pairs `[name = "Alice"]`
-- **Nested tables**
-
-### String Interpolation
-- **Embedded expressions**: `"Value: {x + y}"`
-- **Escape sequences**: `\{` and `\}` for literal braces
-- **Multiline strings**
-
-### Modules & Imports
-- **Import syntax**: `import module.path`
-- **Module isolation**: Separate namespaces
-- **Built-in modules**: os, sys, math, string, table, ffi, random, codecs
-- **User modules**: Subdirectories via dot notation
-- **Relative paths**: Relative to main file
+- Indentation-based blocks: 4-space indentation required for code blocks.
+- Explicit boolean conditions: all `if` and `for` conditions must be explicit boolean expressions, no truthy/falsy values.
+- Static typing enforcement: variable types cannot change after declaration.
+- Data types: `number` (64-bit floating-point doubles), `string` (UTF-8 with interpolation), `boolean` (`true` or `false`), `table` (universal container for ordered arrays and key-value dictionaries), `function` (first-class with closures).
+- Dynamic scoping for variables.
+- Type inference at declaration, enforced thereafter.
+- Constant optimization: numeric literals evaluated at compile-time.
+- Logical operators: `and`, `or`, `not` with boolean operands only.
+- String concatenation via interpolation only, no `+` for strings.
+- Control flow: `if`/`elif`/`else` multi-branch, `for` loops (range, table iteration, condition-based), `break`/`continue`, `return`.
+- First-class functions: assign to variables, pass as arguments, nested functions.
+- Built-in functions: `number()`, `string()`, `type()`.
+- Mixed tables: positional items `[1, 2, 3]` and key-value pairs `[name = "Alice"]`, nested tables.
+- String interpolation: embedded expressions `"Value: {x + y}"`, escape sequences `\{` and `\}`, multiline strings.
+- Module system: `import module.path` syntax, separate namespaces, user modules via dot notation, relative paths relative to main file.
+- Built-in modules: `os`, `sys`, `math`, `string`, `table`, `ffi`, `random`, `codecs`.
 
 ## Built-in Libraries
-### OS (`os`)
-- I/O, time, process control, file/directory operations, permissions
-
-### System (`sys`)
-- Platform info, runtime info, system resources, terminal detection
-
-### Math (`math`)
-- Constants, rounding, powers/roots, logarithms, trigonometry, number theory
-
-### String (`string`)
-- Length, case conversion, substring, search/replace, split/join, trimming
-
-### Table (`table`)
-- Manipulation, operations (clear, copy, merge)
-
-### FFI (`ffi`)
-- C library loading, function calls, memory management
-
-### Random (`random`)
-- Basic generation, seeding, sequence operations, distributions, secure randomness
-
-### Codecs (`codecs`)
-- Base64, JSON, CSV, XML encoding/decoding
+- `os`: I/O, time, process control, file/directory operations, permissions.
+- `sys`: platform info, runtime info, system resources, terminal detection.
+- `math`: constants, rounding, powers/roots, logarithms, trigonometry, number theory.
+- `string`: length, case conversion, substring, search/replace, split/join, trimming.
+- `table`: manipulation, clear, copy, merge operations.
+- `ffi`: C library loading, function calls, memory management.
+- `random`: basic generation, seeding, sequence operations, distributions, secure randomness.
+- `codecs`: Base64, JSON, CSV, XML encoding/decoding.
 
 ## Development Tools
-- **Cross-platform builds**: Windows, Linux, macOS
-- **REPL**: Interactive development with error context and module support
-- **Error handling**: Compile-time type/undefined/module checks; runtime failure with `false`; line/column context in messages
+- Cross-platform builds: Windows, Linux, macOS.
+- REPL: interactive development with error context and module support.
+- Error handling: compile-time type/undefined/module checks, runtime failure with `false`, line/column context in messages.
