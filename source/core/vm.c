@@ -92,6 +92,14 @@ void table_destroy_pooled(ObjectPool* pool, Table* table) {
     if (!table) return;
     if (pool->table_pool_count < POOL_MAX_ITEMS / 4) {
         table_clear(table);
+        
+        table->capacity = 8;
+        table->entries = NULL;
+        table->array_part = NULL;
+        table->array_capacity = 0;
+        table->array_count = 0;
+        table->hash_count = 0;
+        
         pool->table_pool[pool->table_pool_count++] = table;
     } else {
         table_destroy(table);
@@ -118,11 +126,9 @@ void string_intern_table_init(StringInternTable* it) {
 void string_intern_table_free(StringInternTable* it) {
     for (int i = 0; i < it->capacity; i++) {
         StringObject* str = it->buckets[i];
-        while (str) {
-            StringObject* next = (StringObject*)((uintptr_t)str->hash_computed ? 
-                NULL : NULL);
+        if (str) {
             string_destroy(str);
-            str = next;
+            it->buckets[i] = NULL;
         }
     }
     free(it->buckets);
@@ -385,8 +391,10 @@ static uint32_t hash_value_key(Value key) {
         }
         return key.string->hash;
     } else if (key.type == VAL_NUMBER) {
+        double num = key.number;
+        if (num == 0.0) num = 0.0;
         union { double d; uint64_t u; } u;
-        u.d = key.number;
+        u.d = num;
         uint32_t hash = 2166136261u;
         hash ^= (uint32_t)(u.u & 0xFFFFFFFF);
         hash *= 16777619u;
@@ -404,7 +412,10 @@ static bool key_equal(Value a, Value b) {
         if (a.string->length != b.string->length) return false;
         return memcmp(a.string->chars, b.string->chars, a.string->length) == 0;
     }
-    if (a.type == VAL_NUMBER) return a.number == b.number;
+    if (a.type == VAL_NUMBER) {
+        if (a.number == b.number) return true;
+        return false;
+    }
     return false;
 }
 

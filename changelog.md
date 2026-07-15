@@ -34,6 +34,7 @@
 - **Unreachable code detection**: added compile-time error for statements following `return`, `break`, or `continue` in the same block to prevent dead code and logical errors.
 - **String concatenation enforcement**: `+` operator between string literal and `any`-typed variable (e.g. function parameter) now correctly raises a parse error, enforcing interpolation-only string building.
 - **Environment variable handling**: `sys.environment()` no longer mutates the original environment strings, fixing potential crashes on platforms with read-only environment memory.
+- **Table VM stability fixes**: normalized floating-point zero hashing to prevent `-0.0` and `+0.0` from occupying different hash buckets despite comparing equal; fixed potential memory leak in intern table cleanup; pooled tables now properly reset capacity after being returned to the pool, preventing oversized reallocations on reuse.
 
 ---
 
