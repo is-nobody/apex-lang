@@ -472,7 +472,7 @@ static bool is_builtin_module_root(const char* name) {
 }
 
 // builds a filesystem path for a module from its dotted name
-static bool build_module_path(Parser* parser, const char* module_path, char* out_path, int out_size) {
+static void build_module_path(Parser* parser, const char* module_path, char* out_path, int out_size) {
     char relative[1024];
     size_t len = 0;
     relative[0] = '\0';
@@ -493,22 +493,19 @@ static bool build_module_path(Parser* parser, const char* module_path, char* out
             }
         }
         size_t seg_len = strlen(segment);
-        if (len + seg_len >= sizeof(relative)) return false;
         memcpy(relative + len, segment, seg_len);
         len += seg_len;
         relative[len] = '\0';
         segment = strtok(NULL, ".");
     }
     
-    if (len + 6 >= sizeof(relative)) return false;
     strcat(relative, ".apex");
     
 #ifdef _WIN32
-    if (snprintf(out_path, out_size, "%s\\%s", parser->source_dir, relative) >= out_size) return false;
+    snprintf(out_path, out_size, "%s\\%s", parser->source_dir, relative);
 #else
-    if (snprintf(out_path, out_size, "%s/%s", parser->source_dir, relative) >= out_size) return false;
+    snprintf(out_path, out_size, "%s/%s", parser->source_dir, relative);
 #endif
-    return true;
 }
 
 // validates that an imported module file exists on disk
@@ -526,13 +523,13 @@ static void parser_validate_import_file(Parser* parser, const char* module_path,
     if (is_builtin_module_root(first_segment)) return;
     
     char full_path[PATH_MAX];
-    if (!build_module_path(parser, module_path, full_path, sizeof(full_path))) return;
-    
-#ifdef _WIN32
+    build_module_path(parser, module_path, full_path, sizeof(full_path));
+
+    #ifdef _WIN32
     if (_access(full_path, F_OK) != 0) {
-#else
+    #else
     if (access(full_path, F_OK) != 0) {
-#endif
+    #endif
         parser_error_at(parser, line, column, (int)strlen(module_path),
                         "Module '%s' not found (expected '%s')", module_path, full_path);
     }
@@ -2155,11 +2152,7 @@ static ASTNode* parse_import_statement(Parser* parser) {
     }
 
     char full_path[PATH_MAX];
-    if (!build_module_path(parser, module_path, full_path, sizeof(full_path))) {
-        parser_error(parser, "Module path too long");
-        free(module_path);
-        return import_node;
-    }
+    build_module_path(parser, module_path, full_path, sizeof(full_path));
 
     FILE* f = fopen(full_path, "rb");
     if (!f) {
