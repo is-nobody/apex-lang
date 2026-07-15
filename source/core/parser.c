@@ -901,7 +901,6 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
             }
             return TYPE_BOOLEAN;
         default:
-            parser_error_at(parser, node->line, node->column, 0, "Unknown binary operator");
             return TYPE_ERROR;
     }
 }

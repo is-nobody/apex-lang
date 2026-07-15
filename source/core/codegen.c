@@ -550,8 +550,6 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
                 case TOKEN_AND:            op = OP_AND; break;
                 case TOKEN_OR:             op = OP_OR; break;
                 default:
-                    fprintf(stderr, "Error: Unknown binary operator %d\n", node->binary.op);
-                    op = OP_ADD;
                     break;
             }
             emit(cg, INST(op, result_reg, left_reg, right_reg), node->line);
