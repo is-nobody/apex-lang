@@ -1132,8 +1132,6 @@ static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
         }
         case AST_FUNCTION_DECL: return TYPE_FUNCTION;
         default:
-            parser_error_at(parser, node->line, node->column, 0,
-                            "Unexpected expression type %d", node->type);
             return TYPE_ERROR;
     }
 }
