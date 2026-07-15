@@ -359,7 +359,146 @@ function mixed_numeric_and_string_keys()
     assert_equal(t["b"], 2, "mixed_str_b")
     assert_equal(t[1], "one", "mixed_index_1") 
     assert_equal(t[2], "two", "mixed_index_2")
+
+function negative_zero_hash()
+    t = []
+    t[-0.0] = "minus"
+    t[0.0] = "plus"
     
+    assert_equal(t[0.0], "plus", "t[0.0] after overwrite")
+    assert_equal(t[-0.0], "plus", "t[-0.0] sees same value as t[0.0]")
+    
+    count = 0
+    for i = t
+        count = count + 1
+    assert_equal(count, 1, "negative_zero_hash: only one entry for +/-0.0")
+
+function negative_zero_key_equal()
+    t = []
+    t[0.0] = "value"
+    
+    v1 = t[-0.0]
+    v2 = t[0.0]
+    
+    assert_equal(v1, "value", "lookup with -0.0 finds value set with +0.0")
+    assert_equal(v2, "value", "lookup with +0.0 finds value set with +0.0")
+
+function intern_table_cleanup()
+    strings = []
+    for i = 1, 1000
+        s = ""
+        for j = 1, 20
+            s = "{s}x"
+        strings[i] = s
+    
+    assert_equal(true, true, "intern_table_cleanup: no crash on 1000 interned strings")
+
+function intern_table_collisions()
+    t = []
+    for i = 1, 500
+        key = "key_{i}"
+        t[key] = i
+    
+    count = 0
+    for i = 1, 500
+        key = "key_{i}"
+        if t[key] == i
+            count = count + 1
+    
+    assert_equal(count, 500, "intern_table_collisions: all 500 keys accessible")
+
+function pooled_table_capacity_reset()
+    big = []
+    for i = 1, 10000
+        big[i] = i
+    
+    for i = 1, 100
+        temp = []
+        temp[1] = i
+    
+    assert_equal(true, true, "pooled_table_capacity_reset: no OOM after big table pooling")
+
+function pooled_table_reuse()
+    for iter = 1, 50
+        t = []
+        for i = 1, 100
+            t[i] = i * iter
+        
+        sum = 0
+        for i = 1, 100
+            sum = sum + t[i]
+        assert_equal(sum > 0, true, "pooled_table_reuse iter {iter}: table functional")
+
+function nan_key_behavior()
+    t = []
+    nan = 0.0 / 0.0
+    
+    t[nan] = "ghost"
+    
+    result = t[nan]
+    assert_equal(result, none, "nan_key: lookup returns none (NaN != NaN)")
+    
+    count = 0
+    for i = t
+        count = count + 1
+    assert_equal(count, 1, "nan_key: entry exists in table")
+    
+    t[1] = "valid"
+    t[2] = "also valid"
+    assert_equal(t[1], "valid", "nan_key: valid key still works")
+    assert_equal(t[2], "also valid", "nan_key: second valid key works")
+
+function infinity_key_behavior()
+    t = []
+    pos_inf = 1.0 / 0.0
+    neg_inf = -1.0 / 0.0
+    
+    t[pos_inf] = "positive"
+    t[neg_inf] = "negative"
+    
+    assert_equal(t[pos_inf], "positive", "inf_key: positive infinity reachable")
+    assert_equal(t[neg_inf], "negative", "inf_key: negative infinity reachable")
+    
+    t[1] = "one"
+    assert_equal(t[1], "one", "inf_key: array_part still works")
+    
+    count = 0
+    for i = t
+        count = count + 1
+    assert_equal(count, 3, "inf_key: three entries total")
+
+function negative_zero_in_array()
+    t = []
+    t[1] = -0.0
+    t[2] = 0.0
+    
+    assert_equal(t[1], -0.0, "neg_zero_array: t[1] is -0.0")
+    assert_equal(t[2], 0.0, "neg_zero_array: t[2] is 0.0")
+    
+    v1 = t[1]
+    v2 = t[2]
+    assert_equal(v1 == v2, true, "neg_zero_array: -0.0 == 0.0")
+
+function zero_normalization_consistency()
+    t = []
+    t[-0.0] = "value"
+    result = t[0.0]
+    assert_equal(result, "value", "zero_norm: set with -0.0, get with 0.0")
+    
+    t2 = []
+    t2[0.0] = "another"
+    result2 = t2[-0.0]
+    assert_equal(result2, "another", "zero_norm: set with 0.0, get with -0.0")
+    
+    count1 = 0
+    for i = t
+        count1 = count1 + 1
+    count2 = 0
+    for i = t2
+        count2 = count2 + 1
+    assert_equal(count1, 1, "zero_norm: first table size 1")
+    assert_equal(count2, 1, "zero_norm: second table size 1")
+
 empty_table()
 ordered_list()
 key_value()
@@ -391,6 +530,16 @@ overwrite_with_none()
 none_in_array()
 nested_sparse()
 mixed_numeric_and_string_keys()
+negative_zero_hash()
+negative_zero_key_equal()
+intern_table_cleanup()
+intern_table_collisions()
+pooled_table_capacity_reset()
+pooled_table_reuse()
+nan_key_behavior()
+infinity_key_behavior()
+negative_zero_in_array()
+zero_normalization_consistency()
 
 if tests_failed == 0
     os.output("[OK] integration/table.apex")
