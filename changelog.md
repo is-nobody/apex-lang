@@ -26,6 +26,7 @@
 - Single-quoted strings: use double or single quotes with full escape sequence support.
 - Ternary expressions: one-line conditional expressions (`value if condition == true else value`).
 - Function equality comparison: `==` and `!=` operators now support comparing function values by reference.
+- Improved `for` loop errors: missing end/step values now report clear messages instead of generic or misleading errors.
 
 ## Bug Fixes
 - Sparse numeric keys: correct removal with holes, accurate size calculation.

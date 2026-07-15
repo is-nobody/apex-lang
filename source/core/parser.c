@@ -1695,6 +1695,12 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
             
             ASTNode* condition = parse_expression(parser);
             
+            if (!condition) {
+                parser_error_at(parser, if_token->line, if_token->column, 2,
+                                "Expected condition after 'if'");
+                return left;
+            }
+
             parser_check_condition(parser, condition, "Ternary");
             
             consume(parser, TOKEN_ELSE, "Expected 'else' in ternary expression");
@@ -1774,6 +1780,11 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
 // core Pratt parser that handles precedence climbing
 static ASTNode* parse_precedence(Parser* parser, Precedence precedence) {
     ASTNode* left = parse_prefix(parser);
+    
+    if (!left) {
+        return NULL;
+    }
+    
     while (true) {
         Token* token = current_token(parser);
         Precedence current_prec = get_precedence(token->type);
@@ -1781,7 +1792,14 @@ static ASTNode* parse_precedence(Parser* parser, Precedence precedence) {
             current_prec = PREC_CALL;
         }
         if (current_prec <= precedence) break;
-        left = parse_infix(parser, left);
+        
+        ASTNode* new_left = parse_infix(parser, left);
+        
+        if (!new_left) {
+            return left;
+        }
+        
+        left = new_left;
     }
     return left;
 }
@@ -1923,6 +1941,12 @@ static ASTNode* parse_function(Parser* parser) {
 static ASTNode* parse_if_statement(Parser* parser) {
     advance(parser);
     ASTNode* condition = parse_expression(parser);
+
+    if (!condition) {
+        parser_error(parser, "Expected condition after 'if'");
+        return NULL;
+    }
+
     parser_check_condition(parser, condition, "If");
 
     ASTNode* then_branch = parse_block(parser, true, "if");
@@ -2035,45 +2059,60 @@ static ASTNode* parse_for_statement(Parser* parser) {
         var_line = id_tok->line;
         var_col = id_tok->column;
         advance(parser);
-        bool is_number_next = check(parser, TOKEN_NUMBER);
-        if (!is_number_next && check(parser, TOKEN_MINUS) && peek(parser, 1)->type == TOKEN_NUMBER) {
-            is_number_next = true;
-        }
-
-        if (is_number_next) {
-            var_name = strdup(id_tok->value);
-            start = parse_expression(parser);
-            parser_check_number_expr(parser, start, "For loop start");
-
-            if (check(parser, TOKEN_COMMA)) {
-                consume(parser, TOKEN_COMMA, "Expected ',' after start value");
+        
+        var_name = strdup(id_tok->value);
+        start = parse_expression(parser);
+        
+        if (check(parser, TOKEN_COMMA)) {
+            consume(parser, TOKEN_COMMA, "Expected ',' after start value");
+            
+            Token* next = current_token(parser);
+            if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF) || 
+                check(parser, TOKEN_INDENT)) {
+                parser_error_at(parser, next->line, next->column, 
+                            next->value ? (int)strlen(next->value) : 1,
+                            "Expected end value after ','");
+                free(var_name);
+                var_name = NULL;
+            } else {
                 end = parse_expression(parser);
-                parser_check_number_expr(parser, end, "For loop end");
+                if (end) {
+                    parser_check_number_expr(parser, end, "For loop end");
+                } else {
+                    parser_error(parser, "Expected end value for range");
+                    free(var_name);
+                    var_name = NULL;
+                }
 
-                if (match(parser, TOKEN_COMMA)) {
-                    step = parse_expression(parser);
-                    parser_check_number_expr(parser, step, "For loop step");
-                    double step_val;
-                    if (step && evaluate_numeric_constant(parser, step, &step_val) && step_val == 0.0) {
-                        parser_error_at(parser, step->line, step->column, 0, "For loop step cannot be zero");
+                if (var_name && match(parser, TOKEN_COMMA)) {
+                    if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF) || 
+                        check(parser, TOKEN_INDENT)) {
+                        Token* bad = current_token(parser);
+                        parser_error_at(parser, bad->line, bad->column, 
+                                    bad->value ? (int)strlen(bad->value) : 1,
+                                    "Expected step value after ','");
+                    } else {
+                        step = parse_expression(parser);
+                        if (step) {
+                            parser_check_number_expr(parser, step, "For loop step");
+                            double step_val;
+                            if (step && evaluate_numeric_constant(parser, step, &step_val) && step_val == 0.0) {
+                                parser_error_at(parser, step->line, step->column, 0, "For loop step cannot be zero");
+                            }
+                        } else {
+                            parser_error(parser, "Expected step value after ','");
+                        }
                     }
                 }
-            } else {
-                Token* bad = current_token(parser);
-                int len = bad->value ? (int)strlen(bad->value) : 1;
-                if (bad->type == TOKEN_STRING) len += 2;
-                parser_error_at(parser, bad->line, bad->column, len,
-                                "Expected ',' after start value");
-                free(var_name); var_name = NULL;
             }
         } else {
-            var_name = strdup(id_tok->value);
-            start = parse_expression(parser);
             is_table_iter = true;
         }
     } else {
         condition = parse_expression(parser);
-        parser_check_condition(parser, condition, "For");
+        if (condition) {
+            parser_check_condition(parser, condition, "For");
+        }
     }
 
     parser->loop_depth++;
