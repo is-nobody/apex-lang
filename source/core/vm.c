@@ -1205,6 +1205,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         else if (left->type == VAL_NONE || right->type == VAL_NONE) {
             result = 0;
         }
+        else if (left->type == VAL_FUNCTION && right->type == VAL_FUNCTION) {
+            result = (left->function_index == right->function_index);
+        }
         else {
             switch (left->type) {
                 case VAL_NUMBER: result = (left->number == right->number); break;
@@ -1228,6 +1231,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
         else if (left->type == VAL_NONE || right->type == VAL_NONE) {
             result = 1;
+        }
+        else if (left->type == VAL_FUNCTION && right->type == VAL_FUNCTION) {
+            result = (left->function_index != right->function_index);
         }
         else {
             switch (left->type) {

@@ -62,6 +62,7 @@ typedef struct Value {
         int function_addr;   // bytecode address for function calls
         StringObject* string;
         struct Table* table;
+        int function_index;
     };
 } Value;
 

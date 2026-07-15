@@ -25,6 +25,7 @@
 - Increased max call frames from 1024 to 8192.
 - Single-quoted strings: use double or single quotes with full escape sequence support.
 - Ternary expressions: one-line conditional expressions (`value if condition == true else value`).
+- Function equality comparison: `==` and `!=` operators now support comparing function values by reference.
 
 ## Bug Fixes
 - Sparse numeric keys: correct removal with holes, accurate size calculation.

@@ -295,7 +295,9 @@ static bool is_numeric_type(ValueType type) {
 
 // checks if a type supports comparison operations
 static bool is_comparable_type(ValueType type) {
-    return type == TYPE_NUMBER || type == TYPE_STRING || type == TYPE_BOOLEAN || type == TYPE_NONE;
+    return type == TYPE_NUMBER || type == TYPE_STRING || 
+           type == TYPE_BOOLEAN || type == TYPE_NONE || 
+           type == TYPE_FUNCTION;
 }
 
 // returns the string representation of a binary operator token
@@ -860,6 +862,9 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
 
         case TOKEN_EQUAL_EQUAL: case TOKEN_NOT_EQUAL:
             if (left_type == TYPE_NONE || right_type == TYPE_NONE) {
+                return TYPE_BOOLEAN;
+            }
+            if (left_type == TYPE_FUNCTION && right_type == TYPE_FUNCTION) {
                 return TYPE_BOOLEAN;
             }
             if (!is_comparable_type(left_type) || !is_comparable_type(right_type)) {

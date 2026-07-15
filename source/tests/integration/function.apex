@@ -147,6 +147,24 @@ function early_return()
     result = abs_value(0)
     assert_equal(result, 0, "abs_value(0)")
 
+function test_function_equality()
+    function add(a, b)
+        return a + b
+    
+    function subtract(a, b)
+        return a - b
+    
+    func1 = add
+    func2 = add
+    func3 = subtract
+    
+    assert_equal(func1 == func2, true, "same function ==")
+    assert_equal(func1 == func3, false, "different function ==")
+    assert_equal(func1 != func2, false, "same function !=")
+    assert_equal(func1 != func3, true, "different function !=")
+    assert_equal(add == add, true, "direct function ==")
+    assert_equal(add == subtract, false, "direct function !=")
+
 no_params()
 single_param()
 multiple_params()
@@ -159,6 +177,7 @@ many_params()
 recursion()
 return_table()
 early_return()
+test_function_equality()
 
 if tests_failed == 0
     os.output("[OK] integration/function.apex")
