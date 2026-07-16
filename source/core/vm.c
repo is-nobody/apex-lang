@@ -962,9 +962,6 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
                 case VAL_NUMBER:
                     *result = vm_copy_value(args[0]);
                     break;
-                case VAL_BOOL:
-                    *result = vm_make_none();
-                    break;
                 default:
                     *result = vm_make_none();
                     break;
@@ -995,7 +992,7 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
                     *result = vm_make_string(table_to_string(args[0].table));
                     break;
                 default:
-                    *result = vm_make_string("");
+                    *result = vm_make_none();
                     break;
             }
         }

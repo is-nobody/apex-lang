@@ -49,6 +49,7 @@
 - Pooled tables properly reset capacity after returning to pool, preventing oversized reallocations.
 - Fixed segmentation fault in table assignment when table register contains non-table value: added type check.
 - Prevent segmentation fault on invalid expression syntax (e.g., `x = * 5` or `x = + 5`): parser now correctly handles failed prefix expression parsing and returns a proper error instead of crashing.
+- Simplified string() and number(): unsupported types now consistently return none via default case instead of explicit per-type handling
 
 ---
 
