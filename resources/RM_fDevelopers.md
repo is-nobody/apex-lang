@@ -332,7 +332,7 @@ user["active"] = true
 // [name = "Alice", age = 30, city = "Dubai", active = true]
 ```
 
-Updating a value works the same way — just assign a new value to an existing key or position. If you access a non-existent key, you will get an `false`. To remove an item from a table, use the `table.remove()` function from the table library (see section 7.5).
+Updating a value works the same way — just assign a new value to an existing key or position. If you access a non-existent key, you will get an `none`. To remove an item from a table, use the `table.remove()` function from the table library (see section 7.5).
 
 ### Mixed Tables
 Tables can combine ordered items and key-value pairs in the same table. Ordered items come first, then key-value pairs:
@@ -360,9 +360,9 @@ company = [
     ]
 ]
 // Access nested values
-company_name = company["name"]                     // "Apex"
-first_employee = company["employees"][1]            // "Alice"
-city = company["address"]["city"]                     // "Dubai"
+company_name = company["name"]                  // "Apex"
+first_employee = company["employees"][1]        // "Alice"
+city = company["address"]["city"]               // "Dubai"
 ```
 
 ## 1.6 Type Functions
@@ -372,6 +372,7 @@ Apex provides two built-in functions for explicit type conversion:
 |----------|--------------|---------|
 | `number(x)` | Converts to number | `number("42")` → `42` |
 | `string(x)` | Converts to string | `string(42)` → `"42"` |
+| `type(x)` | Returns the type name as a string | `type(42)` → `"number"` |
 
 ### number()
 Converts a value to number. You will get an `false` value if conversion fails.
@@ -379,12 +380,13 @@ Converts a value to number. You will get an `false` value if conversion fails.
 ```apex
 number("42")       // 42
 number("3.14")     // 3.14
-number(true)       // false (conversion fails)
-number(false)      // false (conversion fails)
-number("hello")    // false (conversion fails)
+number(true)       // none (conversion fails)
+number(false)      // none (conversion fails)
+number("hello")    // none (conversion fails)
+number([])         // none (conversion fails)
 ```
 
-### string(x)
+### string()
 Converts any value to its string representation.
 
 | Input | Output |
@@ -393,6 +395,7 @@ Converts any value to its string representation.
 | `3.14` | `"3.14"` |
 | `none` | `"none"` |
 | `true` / `false` | `"true"` / `"false"` |
+| `[]` | `"[]"` |
 
 ```apex
 string(42)      // "42"
@@ -400,6 +403,7 @@ string(3.14)    // "3.14"
 string(none)    // "none"
 string(true)    // "true"
 string(false)   // "false"
+string([])      // "[]"
 ```
 
 ### type()
@@ -439,15 +443,7 @@ Comparison operators compare two values and give you a boolean result: either `t
 | `<=` | Less than or equal | `3 <= 3` | `true` |
 | `>=` | Greater than or equal | `5 >= 5` | `true` |
 
-Comparison results are booleans — you can store them in variables.
-
-### String Comparisons
-You can compare strings, but only for similarity, using `==` and `!=`:
-
-```apex
-"Bob" == "Bob"     // true
-"Bob" != "Bob"     // false
-```
+Comparison operators `<`, `>`, `<=`, `>=` work only with numbers. Using them with strings, booleans, tables, functions, or none will result in a parse-time error. To check equality or inequality of any type, use `==` and `!=`.
 
 ## 2.3 Logical Operators
 Logical operators combine boolean values (`true` or `false`) to create more complex conditions.
@@ -678,7 +674,7 @@ result = add(5, 3)
 os.output(result)    // Prints: 8
 ```
 
-Functions without `return` return `false` automatically. Once `return` happens, the function exits. Nothing after it runs.
+Functions without `return` return `none` automatically. Once `return` happens, the function exits. Nothing after it runs.
 
 ### 5.4 Call
 Using a function is called calling it. You write the function name followed by parentheses.
