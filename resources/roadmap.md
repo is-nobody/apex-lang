@@ -1,14 +1,13 @@
-# Apex Language Roadmap
-## Build
+**Apex Language Roadmap**
 - Build for Android
 - Build for iOS
-
-## UI
-- Declarative syntax (window, button, text, input)
-- Events (click, change, close)
-- Layout (row, column, grid)
-
-## Tooling
+- Render library
+- UI library
 - Package manager
 - Language server (LSP)
 - Debug mode
+- WASM support
+- Code formatter before execute
+- match/case/default
+- os.args() function
+- os.date() function (return table)
