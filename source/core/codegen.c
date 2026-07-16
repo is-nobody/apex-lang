@@ -195,8 +195,27 @@ static int codegen_identifier(CodeGenerator* cg, ASTNode* node) {
         }
     }
     
-    local_reg = add_local(cg, name);
-    return local_reg;
+    int global_idx = bytecode_get_global(cg->chunk, name);
+    if (global_idx >= 0) {
+        if (cg->current_function == 0) {
+            int reg = add_local(cg, name);
+            emit(cg, INST(OP_LOAD_GLOBAL, reg, global_idx, 0), node->line);
+            return reg;
+        }
+        int reg = alloc_register(cg);
+        emit(cg, INST(OP_LOAD_GLOBAL, reg, global_idx, 0), node->line);
+        return reg;
+    }
+    
+    global_idx = bytecode_add_global(cg->chunk, name);
+    if (cg->current_function == 0) {
+        int reg = add_local(cg, name);
+        emit(cg, INST(OP_LOAD_GLOBAL, reg, global_idx, 0), node->line);
+        return reg;
+    }
+    int reg = alloc_register(cg);
+    emit(cg, INST(OP_LOAD_GLOBAL, reg, global_idx, 0), node->line);
+    return reg;
 }
 
 // emits a function call, resolving builtins and user functions by name
@@ -308,6 +327,16 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         }
         free(arg_regs);
     }
+
+    if (cg->current_function == 0) {
+        for (int i = 0; i < cg->chunk->global_count; i++) {
+            int local_reg = find_local(cg, cg->chunk->globals[i].name);
+            if (local_reg >= 0) {
+                emit(cg, INST(OP_LOAD_GLOBAL, local_reg, i, 0), node->line);
+            }
+        }
+    }
+
     return result_reg;
 }
 
@@ -731,16 +760,20 @@ static void add_module_global(CodeGenerator* cg, const char* full_name) {
 static void codegen_var_decl(CodeGenerator* cg, ASTNode* node) {
     int value_reg = codegen_expression(cg, node->var_assign.value);
     
-    int local_reg = add_local(cg, node->var_assign.name);
-    emit(cg, INST(OP_MOVE, local_reg, value_reg, 0), node->line);
+    const char* var_name = node->var_assign.name;
+    char global_name[512];
     
     if (cg->current_module) {
-        char full_name[512];
-        snprintf(full_name, sizeof(full_name), "%s.%s", cg->current_module, node->var_assign.name);
-        add_module_global(cg, full_name);
-        int global_idx = bytecode_add_global(cg->chunk, full_name);
-        emit(cg, INST(OP_STORE_GLOBAL, value_reg, global_idx, 0), node->line);
+        snprintf(global_name, sizeof(global_name), "%s.%s", cg->current_module, var_name);
+        var_name = global_name;
+        add_module_global(cg, global_name);
     }
+    
+    int global_idx = bytecode_add_global(cg->chunk, var_name);
+    emit(cg, INST(OP_STORE_GLOBAL, value_reg, global_idx, 0), node->line);
+    
+    int local_reg = add_local(cg, node->var_assign.name);
+    emit(cg, INST(OP_MOVE, local_reg, value_reg, 0), node->line);
     
     free_register(cg, value_reg);
 }
@@ -813,6 +846,7 @@ static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node) {
         global_idx = bytecode_add_global(cg->chunk, var_name);
     }
     emit(cg, INST(OP_STORE_GLOBAL, value_reg, global_idx, 0), node->line);
+    free_register(cg, value_reg);
     return value_reg;
 }
 
