@@ -1029,17 +1029,6 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
 
     int func_idx = bytecode_add_function(cg->chunk, func_name, node->function_decl.params->count);
 
-    if (cg->current_module) {
-        int global_idx = bytecode_add_global(cg->chunk, func_name);
-        int func_const_idx = bytecode_add_constant(cg->chunk,
-            (Constant){.type = CONST_FUNCTION, .function_index = func_idx});
-        
-        int temp_reg = alloc_register(cg);
-        emit(cg, INST(OP_LOAD_CONST, temp_reg, func_const_idx, 0), node->line);
-        emit(cg, INST(OP_STORE_GLOBAL, temp_reg, global_idx, 0), node->line);
-        free_register(cg, temp_reg);
-    }
-
     int jump_over = bytecode_current_offset(cg->chunk);
     emit(cg, INST(OP_JUMP, 0, 0, 0), node->line);
     
@@ -1118,6 +1107,23 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     cg->current_function = prev_function;
 
     bytecode_patch_jump(cg->chunk, jump_over, bytecode_current_offset(cg->chunk));
+
+    int func_const_idx = bytecode_add_constant(cg->chunk,
+        (Constant){.type = CONST_FUNCTION, .function_index = func_idx});
+    
+    int temp_reg = alloc_register(cg);
+    emit(cg, INST(OP_LOAD_CONST, temp_reg, func_const_idx, 0), node->line);
+    
+    int local_reg = add_local(cg, node->function_decl.name);
+    emit(cg, INST(OP_MOVE, local_reg, temp_reg, 0), node->line);
+    
+    if (cg->current_module) {
+        int global_idx = bytecode_get_global(cg->chunk, func_name);
+        if (global_idx < 0) global_idx = bytecode_add_global(cg->chunk, func_name);
+        emit(cg, INST(OP_STORE_GLOBAL, temp_reg, global_idx, 0), node->line);
+    }
+    
+    free_register(cg, temp_reg);
 }
 
 // emits a return statement with optional value

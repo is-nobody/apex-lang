@@ -1108,6 +1108,10 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
                     }
                 }
                 break;
+            case CONST_FUNCTION:
+                regs[dest].type = VAL_FUNCTION;
+                regs[dest].function_index = c->function_index;
+                break;
             case CONST_NONE:
                 regs[dest].type = VAL_NONE;
                 break;
