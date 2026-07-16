@@ -50,6 +50,7 @@
 - Fixed segmentation fault in table assignment when table register contains non-table value: added type check.
 - Prevent segmentation fault on invalid expression syntax (e.g., `x = * 5` or `x = + 5`): parser now correctly handles failed prefix expression parsing and returns a proper error instead of crashing.
 - Simplified string() and number(): unsupported types now consistently return none via default case instead of explicit per-type handling
+- Fixed segmentation fault in parser on binary operator with missing right operand (e.g., `or < c`): added null-check for failed expression parsing.
 
 ---
 

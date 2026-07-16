@@ -1736,6 +1736,10 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
             Precedence prec = get_precedence(token->type);
             ASTNode* right = parse_precedence(parser, prec);
             
+            if (!right) {
+                return left;
+            }
+            
             if (parser->semantic_checks && 
                 (token->type == TOKEN_AND || token->type == TOKEN_OR)) {
                 if (!is_explicit_condition(left)) {
