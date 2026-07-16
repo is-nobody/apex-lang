@@ -25,7 +25,7 @@ By contributing to Apex, you agree that your contributions will be licensed unde
 
 ## Development Setup
 ### Prerequisites
-- **Apex 26.07** - The language itself
+- **C Compiler** - The language itself
 - **Git** - For version control
 
 ### Install Apex
@@ -68,7 +68,7 @@ Branch naming examples:
 ### Project Structure
 | Location | Description |
 |----------|-------------|
-| [`main.apex`](main.apex) | Main entry point |
+| [`main.c`](main.c) | Main entry point |
 | [`source/`](source/) | Source code |
 | [`source/core`](source/core/) | Core components |
 | [`source/libraries/`](source/libraries/) | Built-in libraries |
@@ -101,10 +101,9 @@ Rules to follow:
 1. **Indentation:** Use 4 spaces (no tabs)
 2. **Function names:** Use `snake_case` (e.g., `get_user_data`)
 3. **Variable names:** Use `snake_case` (e.g., `user_score`)
-4. **Keywords:** Lowercase (`function`, `if`, `for`, `return`)
-5. **Operators:** Add spaces around them (`a + b`, not `a+b`)
-6. **Parentheses:** No space after function name (`greet(name)`, not `greet (name)`)
-7. **Comments:** Explain *why*, not only *what*
+4. **Operators:** Add spaces around them (`a + b`, not `a+b`)
+5. **Parentheses:** No space after function name (`greet(name)`, not `greet (name)`)
+6. **Comments:** Explain *why*, not only *what*
 
 ### Commit Messages
 Write clear, descriptive commit messages. Each commit message must include a type prefix:
@@ -115,7 +114,6 @@ Write clear, descriptive commit messages. Each commit message must include a typ
 | `fix` | Bug fix | `fix: resolve parser crash on empty input` |
 | `docs` | Documentation updates | `docs: update installation guide for macOS` |
 | `refactor` | Code restructuring (no behavior change) | `refactor: simplify tokenizer loop logic` |
-| `test` | Adding or updating tests | `test: add coverage for edge cases in string library` |
 
 Format:
 
@@ -142,7 +140,7 @@ git checkout -b feature/your-feature
 5. Commit your changes with a clear message
 
 ### Code Navigation Tips
-- Start with `main.apex` to understand the execution flow
+- Start with `main.c` to understand the execution flow
 - Look at similar features before implementing new ones
 - Use `os.output()` for debugging (remove before committing)
 - Check existing tests to understand function behavior
@@ -207,7 +205,7 @@ Once approved, your changes will be merged
 
 ## Getting Help
 ### Before Asking
-1. Check the `resources/docs/` folder
+1. Check the `resources/` folder
 2. Search existing issues and discussions
 3. Look at similar code in the project
 4. Read the [Apex Reference Manual for Developers](resources/RM_fDevelopers.md)
