@@ -132,7 +132,7 @@ function shuffle_empty()
 function secure_token_hex()
     nbytes = 16
     hex_str = random.secure_token_hex(nbytes)
-    assert_equal(string.len(hex_str), nbytes * 2, "secure_token_hex length")
+    assert_equal(string.length(hex_str), nbytes * 2, "secure_token_hex length")
 
 function triangular_range()
     tri = random.triangular(0, 10, 5)

@@ -12,11 +12,11 @@ function assert_equal(actual, expected, name)
         os.output("[ERROR] {name}: got {actual}, expected {expected}")
 
 function string_len()
-    len = string.len("Hello")
-    assert_equal(len, 5, "string.len Hello")
+    len = string.length("Hello")
+    assert_equal(len, 5, "string.length Hello")
     
-    len = string.len("")
-    assert_equal(len, 0, "string.len empty")
+    len = string.length("")
+    assert_equal(len, 0, "string.length empty")
 
 function string_lower()
     result = string.lower("HELLO")
@@ -131,7 +131,7 @@ function string_all_none_checks()
     nil_val = none
     
     function test_len(val)
-        result = string.len(val)
+        result = string.length(val)
         return result
     
     assert_equal(test_len(num), none, "len(number)")

@@ -877,19 +877,19 @@ math.isinf(0)              // false
 ## String Library (string)
 The String library helps you work with text — measure length, change case, find words, split and combine strings, and more. Import it with `import string`.
 
-### string.len(s)
+### string.length(s)
 Returns the number of characters in a string. Spaces and punctuation count as characters too. Returns `none` if the argument is not a string.
 
 ```apex
 import string
 
-result = string.len("hello")
+result = string.length("hello")
 if result != none
     os.output(result)        // 5
 
-string.len("")               // 0
-string.len("hi there")       // 8 (space counts)
-string.len("Apex!")          // 5
+string.length("")            // 0
+string.length("hi there")    // 8 (space counts)
+string.length("Apex!")       // 5
 ```
 
 ### string.lower(s)

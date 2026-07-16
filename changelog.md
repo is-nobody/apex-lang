@@ -10,11 +10,12 @@
 - Strict table key typing: numeric keys and string keys are now distinct and separate.
 - Tables no longer perform automatic conversion between numbers and strings for lookups or assignments.
 - Local variable optimization: variables preferentially compiled as local registers; globals reserved for module exports.
+- Renamed `string.len` to `string.length` for clarity and consistency.
 
 ## New Features
 - Multi-language support: variable names, string literals, and error reporting fully support UTF-8.
 - Code can be written in Cyrillic, Arabic, Chinese, Japanese, etc.
-- UTF-8 string operations: `string.len()` and `string.sub()` work with characters, not bytes.
+- UTF-8 string operations: `string.length()` and `string.sub()` work with characters, not bytes.
 - Full Unicode support for all scripts and emoji.
 - `string()` now supports tables.
 - Shebang support: scripts can start with `#!`.
@@ -27,6 +28,8 @@
 - Ternary expressions: one-line conditional expressions (`value if condition == true else value`).
 - Function equality comparison: `==` and `!=` operators now support comparing function values by reference.
 - Improved `for` loop errors: missing end/step values now report clear messages instead of generic or misleading errors.
+- Removed `random.secure_token_bytes` function.
+- New string functions: `string.isletter()` and `string.isnumber()` with full Unicode support for all scripts (Latin, Cyrillic, Arabic, CJK, Devanagari, and more).
 
 ## Bug Fixes
 - Sparse numeric keys: correct removal with holes, accurate size calculation.
@@ -45,6 +48,7 @@
 - Fixed potential memory leak in intern table cleanup.
 - Pooled tables properly reset capacity after returning to pool, preventing oversized reallocations.
 - Fixed segmentation fault in table assignment when table register contains non-table value: added type check.
+- Prevent segmentation fault on invalid expression syntax (e.g., `x = * 5` or `x = + 5`): parser now correctly handles failed prefix expression parsing and returns a proper error instead of crashing.
 
 ---
 

@@ -171,7 +171,7 @@ static const BuiltinSig BUILTINS[] = {
     {"math.gcd", 2, 2, TYPE_NUMBER},
     {"math.hypot", 2, 2, TYPE_NUMBER},
     {"math.factorial", 1, 1, TYPE_NUMBER},
-    {"string.len", 1, 1, TYPE_STRING},
+    {"string.length", 1, 1, TYPE_STRING},
     {"string.lower", 1, 1, TYPE_STRING},
     {"string.upper", 1, 1, TYPE_STRING},
     {"string.isletter", 1, 1, TYPE_STRING},

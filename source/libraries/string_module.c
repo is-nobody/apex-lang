@@ -144,7 +144,7 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
     (void)vm;
     if (arg_count < 1) return false;
     
-    if (strcmp(name, "string.len") == 0) {
+    if (strcmp(name, "string.length") == 0) {
         if (arg_count < 1 || args[0].type != VAL_STRING) {
             *result = vm_make_none();
             return true;
