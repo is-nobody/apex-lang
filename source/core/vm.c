@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <limits.h>
 
 StringObject* string_create(const char* chars, int length);
 static void string_destroy(StringObject* str);
@@ -111,6 +112,11 @@ void string_intern_table_init(StringInternTable* it) {
 
 // frees all interned strings and the table itself
 void string_intern_table_free(StringInternTable* it) {
+    for (int i = 0; i < it->capacity; i++) {
+        if (it->buckets[i]) {
+            free(it->buckets[i]);
+        }
+    }
     free(it->buckets);
     it->buckets = NULL;
     it->capacity = 0;
@@ -144,13 +150,6 @@ static void intern_table_resize(StringInternTable* it, int new_capacity) {
 StringObject* string_intern(StringInternTable* it, const char* chars, int length) {
     if (!it || !chars) return NULL;
     
-    if (it->count > 50000) {
-        StringObject* new_str = string_create(chars, length);
-        new_str->hash = intern_hash(chars, length);
-        new_str->hash_computed = true;
-        return new_str;
-    }
-
     if ((double)it->count / it->capacity > INTERN_MAX_LOAD) {
         intern_table_resize(it, it->capacity * 2);
     }
@@ -166,6 +165,7 @@ StringObject* string_intern(StringInternTable* it, const char* chars, int length
             StringObject* new_str = string_create(chars, length);
             new_str->hash = hash;
             new_str->hash_computed = true;
+            new_str->header.ref_count = INT_MAX;
             it->buckets[probe_idx] = new_str;
             it->count++;
             return new_str;
@@ -208,10 +208,7 @@ static uint32_t string_get_hash(StringObject* str) {
 
 // frees a string object
 static void string_destroy(StringObject* str) {
-    if (str) {
-        if (str->header.ref_count <= 0) return;
-        free(str);
-    }
+    if (str) free(str);
 }
 
 // compares two strings by length, hash, and content
@@ -243,7 +240,9 @@ static const char* value_to_cstr(Value v, char* buf, int buf_size) {
 void value_incref(Value v) {
     if (IS_STRING(v)) {
         StringObject* str = AS_STRING(v);
-        if (str) str->header.ref_count++;
+        if (str && str->header.ref_count != INT_MAX) {
+            str->header.ref_count++;
+        }
     } else if (IS_TABLE(v)) {
         Table* table = AS_TABLE(v);
         if (table) table->header.ref_count++;
@@ -254,8 +253,13 @@ void value_incref(Value v) {
 void value_decref(Value v) {
     if (IS_STRING(v)) {
         StringObject* str = AS_STRING(v);
-        if (str && --str->header.ref_count == 0) {
-            string_destroy(str);
+        if (str) {
+            if (str->header.ref_count == INT_MAX) {
+                return;
+            }
+            if (--str->header.ref_count == 0) {
+                string_destroy(str);
+            }
         }
     } else if (IS_TABLE(v)) {
         Table* table = AS_TABLE(v);

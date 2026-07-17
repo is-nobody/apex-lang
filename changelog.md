@@ -12,6 +12,8 @@
 - Local variable optimization: variables preferentially compiled as local registers; globals reserved for module exports.
 - Renamed `string.len` to `string.length` for clarity and consistency.
 - Internal value representation switched to NaN-boxing: all runtime values (numbers, strings, tables, booleans, none, functions) are stored in a single 64-bit field using IEEE 754 NaN space for type tagging, reducing memory usage and improving cache locality.
+- String interning now persistent: all interned strings are retained for the lifetime of the VM, eliminating use-after-free bugs and improving string comparison performance.
+- Removed string interning limit: previously, string interning was capped at 50,000 entries, after which strings were allocated individually, causing memory corruption on deallocation.
 
 ## New Features
 - Multi-language support: variable names, string literals, and error reporting fully support UTF-8.

@@ -118,12 +118,8 @@ static double random_gamma(double shape) {
 
 // helper to create an interned string value
 static Value make_string_val(VM* vm, const char* str) {
-    (void)vm;
     int len = (int)strlen(str);
-    if (len >= 16 && len <= 64 && vm->intern_table.count < 50000) {
-        return MAKE_STRING(string_intern(&vm->intern_table, str, len));
-    }
-    return MAKE_STRING(string_create(str, len));
+    return MAKE_STRING(string_intern(&vm->intern_table, str, len));
 }
 
 // dispatcher for random number generation built-in functions
