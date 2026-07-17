@@ -1096,10 +1096,10 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
                 value_decref(regs[dest]);
                 regs[dest] = MAKE_NONE();
             } else {
-                regs[dest] = result;
+                regs[dest] = MAKE_NUMBER(r);
             }
         } else {
-            regs[dest] = result;
+            regs[dest] = MAKE_NUMBER(r);
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
@@ -1121,10 +1121,10 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
                 value_decref(regs[dest]);
                 regs[dest] = MAKE_NONE();
             } else {
-                regs[dest] = result;
+                regs[dest] = MAKE_NUMBER(r);
             }
         } else {
-            regs[dest] = result;
+            regs[dest] = MAKE_NUMBER(r);
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
@@ -1146,10 +1146,10 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
                 value_decref(regs[dest]);
                 regs[dest] = MAKE_NONE();
             } else {
-                regs[dest] = result;
+                regs[dest] = MAKE_NUMBER(r);
             }
         } else {
-            regs[dest] = result;
+            regs[dest] = MAKE_NUMBER(r);
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
@@ -1171,10 +1171,10 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
                 value_decref(regs[dest]);
                 regs[dest] = MAKE_NONE();
             } else {
-                regs[dest] = result;
+                regs[dest] = MAKE_NUMBER(r);
             }
         } else {
-            regs[dest] = result;
+            regs[dest] = MAKE_NUMBER(r);
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
@@ -1196,10 +1196,10 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
                 value_decref(regs[dest]);
                 regs[dest] = MAKE_NONE();
             } else {
-                regs[dest] = result;
+                regs[dest] = MAKE_NUMBER(r);
             }
         } else {
-            regs[dest] = result;
+            regs[dest] = MAKE_NUMBER(r);
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
