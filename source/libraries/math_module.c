@@ -1,5 +1,6 @@
 #define _USE_MATH_DEFINES
 #include "math_module.h"
+#include "vm.h"
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
@@ -10,292 +11,289 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     (void)vm;
     
     if (strcmp(name, "math.abs") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            *result = vm_make_number(fabs(args[0].number));
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            *result = MAKE_NUMBER(fabs(AS_NUMBER(args[0])));
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.floor") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            *result = vm_make_number(floor(args[0].number));
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            *result = MAKE_NUMBER(floor(AS_NUMBER(args[0])));
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.ceil") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            *result = vm_make_number(ceil(args[0].number));
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            *result = MAKE_NUMBER(ceil(AS_NUMBER(args[0])));
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.round") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            double num = args[0].number;
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            double num = AS_NUMBER(args[0]);
             int decimals = 0;
-            if (arg_count >= 2 && args[1].type == VAL_NUMBER) {
-                decimals = (int)args[1].number;
+            if (arg_count >= 2 && IS_NUMBER(args[1])) {
+                decimals = (int)AS_NUMBER(args[1]);
                 if (decimals < 0) {
-                    *result = vm_make_none();
+                    *result = MAKE_NONE();
                     return true;
                 }
             }
             double factor = pow(10.0, decimals);
-            *result = vm_make_number(round(num * factor) / factor);
+            *result = MAKE_NUMBER(round(num * factor) / factor);
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.sqrt") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            if (args[0].number < 0) {
-                *result = vm_make_number(NAN);
-                return true;
-            }
-            *result = vm_make_number(sqrt(args[0].number));
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            double val = AS_NUMBER(args[0]);
+            *result = MAKE_NUMBER(sqrt(val));
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.exp") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            *result = vm_make_number(exp(args[0].number));
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            *result = MAKE_NUMBER(exp(AS_NUMBER(args[0])));
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.log") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            double x = args[0].number;
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            double x = AS_NUMBER(args[0]);
             double res;
             
             if (x < 0) {
-                *result = vm_make_number(NAN);
+                *result = MAKE_NUMBER(NAN);
                 return true;
             }
             if (x == 0) {
-                *result = vm_make_number(-INFINITY);
+                *result = MAKE_NUMBER(-INFINITY);
                 return true;
             }
             
-            if (arg_count >= 2 && args[1].type == VAL_NUMBER) {
-                double base = args[1].number;
+            if (arg_count >= 2 && IS_NUMBER(args[1])) {
+                double base = AS_NUMBER(args[1]);
                 if (base <= 0 || base == 1.0) {
-                    *result = vm_make_none();
+                    *result = MAKE_NONE();
                     return true;
                 }
                 res = log(x) / log(base);
             } else {
                 res = log(x);
             }
-            *result = vm_make_number(res);
+            *result = MAKE_NUMBER(res);
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.sin") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            *result = vm_make_number(sin(args[0].number));
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            *result = MAKE_NUMBER(sin(AS_NUMBER(args[0])));
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.cos") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            *result = vm_make_number(cos(args[0].number));
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            *result = MAKE_NUMBER(cos(AS_NUMBER(args[0])));
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.tan") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            *result = vm_make_number(tan(args[0].number));
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            *result = MAKE_NUMBER(tan(AS_NUMBER(args[0])));
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.asin") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            if (args[0].number < -1 || args[0].number > 1) {
-                *result = vm_make_number(NAN);
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            if (AS_NUMBER(args[0]) < -1 || AS_NUMBER(args[0]) > 1) {
+                *result = MAKE_NUMBER(NAN);
                 return true;
             }
-            *result = vm_make_number(asin(args[0].number));
+            *result = MAKE_NUMBER(asin(AS_NUMBER(args[0])));
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.acos") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            if (args[0].number < -1 || args[0].number > 1) {
-                *result = vm_make_number(NAN);
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            if (AS_NUMBER(args[0]) < -1 || AS_NUMBER(args[0]) > 1) {
+                *result = MAKE_NUMBER(NAN);
                 return true;
             }
-            *result = vm_make_number(acos(args[0].number));
+            *result = MAKE_NUMBER(acos(AS_NUMBER(args[0])));
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.atan") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            *result = vm_make_number(atan(args[0].number));
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            *result = MAKE_NUMBER(atan(AS_NUMBER(args[0])));
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.pi") == 0) {
-        *result = vm_make_number(M_PI);
+        *result = MAKE_NUMBER(M_PI);
         return true;
     }
     
     if (strcmp(name, "math.e") == 0) {
-        *result = vm_make_number(M_E);
+        *result = MAKE_NUMBER(M_E);
         return true;
     }
     
     if (strcmp(name, "math.inf") == 0) {
-        *result = vm_make_number(INFINITY);
+        *result = MAKE_NUMBER(INFINITY);
         return true;
     }
     
     if (strcmp(name, "math.isnan") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            *result = vm_make_bool(isnan(args[0].number));
+        if (arg_count >= 1 && (IS_NUMBER(args[0]) || IS_NAN(args[0]))) {
+            *result = MAKE_BOOL(IS_NAN(args[0]) || isnan(AS_NUMBER(args[0])));
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.isinf") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            *result = vm_make_bool(isinf(args[0].number));
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            *result = MAKE_BOOL(isinf(AS_NUMBER(args[0])));
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.trunc") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            *result = vm_make_number(trunc(args[0].number));
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            *result = MAKE_NUMBER(trunc(AS_NUMBER(args[0])));
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.pow") == 0) {
-        if (arg_count >= 2 && args[0].type == VAL_NUMBER && args[1].type == VAL_NUMBER) {
-            if (args[0].number == 0 && args[1].number == 0) {
-                *result = vm_make_number(1.0);
+        if (arg_count >= 2 && IS_NUMBER(args[0]) && IS_NUMBER(args[1])) {
+            if (AS_NUMBER(args[0]) == 0 && AS_NUMBER(args[1]) == 0) {
+                *result = MAKE_NUMBER(1.0);
                 return true;
             }
-            *result = vm_make_number(pow(args[0].number, args[1].number));
+            *result = MAKE_NUMBER(pow(AS_NUMBER(args[0]), AS_NUMBER(args[1])));
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.atan2") == 0) {
-        if (arg_count >= 2 && args[0].type == VAL_NUMBER && args[1].type == VAL_NUMBER) {
-            *result = vm_make_number(atan2(args[0].number, args[1].number));
+        if (arg_count >= 2 && IS_NUMBER(args[0]) && IS_NUMBER(args[1])) {
+            *result = MAKE_NUMBER(atan2(AS_NUMBER(args[0]), AS_NUMBER(args[1])));
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.radians") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            *result = vm_make_number(args[0].number * M_PI / 180.0);
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            *result = MAKE_NUMBER(AS_NUMBER(args[0]) * M_PI / 180.0);
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.degrees") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            *result = vm_make_number(args[0].number * 180.0 / M_PI);
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            *result = MAKE_NUMBER(AS_NUMBER(args[0]) * 180.0 / M_PI);
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.hypot") == 0) {
-        if (arg_count >= 2 && args[0].type == VAL_NUMBER && args[1].type == VAL_NUMBER) {
-            *result = vm_make_number(hypot(args[0].number, args[1].number));
+        if (arg_count >= 2 && IS_NUMBER(args[0]) && IS_NUMBER(args[1])) {
+            *result = MAKE_NUMBER(hypot(AS_NUMBER(args[0]), AS_NUMBER(args[1])));
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.gcd") == 0) {
-        if (arg_count >= 2 && args[0].type == VAL_NUMBER && args[1].type == VAL_NUMBER) {
-            long a = (long)fabs(args[0].number);
-            long b = (long)fabs(args[1].number);
+        if (arg_count >= 2 && IS_NUMBER(args[0]) && IS_NUMBER(args[1])) {
+            long a = (long)fabs(AS_NUMBER(args[0]));
+            long b = (long)fabs(AS_NUMBER(args[1]));
             while (b != 0) {
                 long t = b;
                 b = a % b;
                 a = t;
             }
-            *result = vm_make_number((double)a);
+            *result = MAKE_NUMBER((double)a);
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "math.factorial") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            double n = args[0].number;
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            double n = AS_NUMBER(args[0]);
             if (n < 0 || n != floor(n)) {
-                *result = vm_make_number(NAN);
+                *result = MAKE_NUMBER(NAN);
                 return true;
             }
             if (n > 170) {
-                *result = vm_make_number(INFINITY);
+                *result = MAKE_NUMBER(INFINITY);
                 return true;
             }
             double res = 1.0;
             for (double i = 2.0; i <= n; i++) {
                 res *= i;
             }
-            *result = vm_make_number(res);
+            *result = MAKE_NUMBER(res);
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     

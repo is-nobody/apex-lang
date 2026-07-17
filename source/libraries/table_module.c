@@ -1,4 +1,5 @@
 #include "table_module.h"
+#include "vm.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,64 +8,66 @@
 int compare_keys(const void* a, const void* b) {
     const Value* va = (const Value*)a;
     const Value* vb = (const Value*)b;
-    if (va->type == VAL_NUMBER && vb->type == VAL_NUMBER) {
-        return (va->number > vb->number) - (va->number < vb->number);
+    if (IS_NUMBER(*va) && IS_NUMBER(*vb)) {
+        double diff = AS_NUMBER(*va) - AS_NUMBER(*vb);
+        return (diff > 0) - (diff < 0);
     }
-    if (va->type == VAL_STRING && vb->type == VAL_STRING) {
-        return strcmp(va->string->chars, vb->string->chars);
+    if (IS_STRING(*va) && IS_STRING(*vb)) {
+        return strcmp(AS_STRING(*va)->chars, AS_STRING(*vb)->chars);
     }
-    return (va->type > vb->type) - (va->type < vb->type);
+    return 0;
 }
 
 // dispatches all table module built-in functions
 bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     (void)vm;
     
-    if (arg_count < 1 || args[0].type != VAL_TABLE) {
-        *result = vm_make_none();
+    if (arg_count < 1 || !IS_TABLE(args[0])) {
+        *result = MAKE_NONE();
         return true;
     }
     
-    Table* table = args[0].table;
+    Table* table = AS_TABLE(args[0]);
     
     if (strcmp(name, "table.size") == 0) {
-        *result = vm_make_number(table_size(table));
+        *result = MAKE_NUMBER(table_size(table));
         return true;
     }
     
     if (strcmp(name, "table.has") == 0) {
         if (arg_count < 2) {
-            *result = vm_make_none();
+            *result = MAKE_NONE();
             return true;
         }
         
-        *result = vm_make_bool(table_has(table, args[1]));
+        *result = MAKE_BOOL(table_has(table, args[1]));
         return true;
     }
     
     if (strcmp(name, "table.remove") == 0) {
         if (arg_count < 2) {
-            *result = vm_make_none();
+            *result = MAKE_NONE();
             return true;
         }
         
         bool existed = table_has(table, args[1]);
         table_remove(table, args[1]);
-        *result = vm_make_bool(existed);
+        *result = MAKE_BOOL(existed);
         return true;
     }
     
     if (strcmp(name, "table.keys") == 0) {
-        *result = vm_make_table();
+        Table* result_table = table_create(8);
+        *result = MAKE_TABLE(result_table);
         int count;
         Value* keys = table_keys(table, &count);
         if (keys && count > 0) {
             qsort(keys, count, sizeof(Value), compare_keys);
             for (int i = 0; i < count; i++) {
-                Value idx_key = vm_make_number((double)(i + 1));
-                table_set(result->table, idx_key, vm_copy_value(keys[i]));
-                value_decref(&keys[i]);
-                value_decref(&idx_key);
+                Value idx_key = MAKE_NUMBER((double)(i + 1));
+                table_set(result_table, idx_key, vm_copy_value(keys[i]));
+                value_decref(keys[i]);
+                value_decref(idx_key);
             }
             free(keys);
         }
@@ -72,7 +75,8 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
     }
     
     if (strcmp(name, "table.values") == 0) {
-        *result = vm_make_table();
+        Table* result_table = table_create(8);
+        *result = MAKE_TABLE(result_table);
         int count;
         Value* keys = table_keys(table, &count);
         if (keys && count > 0) {
@@ -80,11 +84,11 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
             for (int i = 0; i < count; i++) {
                 Value val;
                 if (table_get(table, keys[i], &val)) {
-                    Value idx_key = vm_make_number((double)(i + 1));
-                    table_set(result->table, idx_key, val);
-                    value_decref(&idx_key);
+                    Value idx_key = MAKE_NUMBER((double)(i + 1));
+                    table_set(result_table, idx_key, val);
+                    value_decref(idx_key);
                 }
-                value_decref(&keys[i]);
+                value_decref(keys[i]);
             }
             free(keys);
         }
@@ -93,25 +97,25 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
     
     if (strcmp(name, "table.clear") == 0) {
         table_clear(table);
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "table.copy") == 0) {
-        *result = vm_make_table();
-        Table* dst = result->table;
+        Table* dst = table_create(table->capacity > 0 ? table->capacity : 8);
+        *result = MAKE_TABLE(dst);
         
         if (table->array_count > 0) {
             dst->array_count = table->array_count;
             dst->array_capacity = table->array_capacity > 0 ? table->array_capacity : 8;
+            if (dst->array_part) free(dst->array_part);
             dst->array_part = (Value*)calloc(dst->array_capacity, sizeof(Value));
             for (int i = 0; i < table->array_count; i++) {
                 dst->array_part[i] = table->array_part[i];
-                value_incref(&dst->array_part[i]);
+                value_incref(dst->array_part[i]);
             }
             for (int i = table->array_count; i < dst->array_capacity; i++) {
-                dst->array_part[i].type = VAL_BOOL;
-                dst->array_part[i].boolean = false;
+                dst->array_part[i] = MAKE_BOOL(false);
             }
         }
         
@@ -126,35 +130,35 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
     }
     
     if (strcmp(name, "table.merge") == 0) {
-        if (arg_count < 2 || args[1].type != VAL_TABLE) {
-            *result = vm_make_none();
+        if (arg_count < 2 || !IS_TABLE(args[1])) {
+            *result = MAKE_NONE();
             return true;
         }
         
-        *result = vm_make_table();
-        Table* dst = result->table;
+        Table* dst = table_create(8);
+        *result = MAKE_TABLE(dst);
         Table* src1 = table;
-        Table* src2 = args[1].table;
+        Table* src2 = AS_TABLE(args[1]);
         
         int total_array = src1->array_count + src2->array_count;
         if (total_array > 0) {
             dst->array_count = total_array;
             dst->array_capacity = total_array > 8 ? total_array : 8;
+            if (dst->array_part) free(dst->array_part);
             dst->array_part = (Value*)calloc(dst->array_capacity, sizeof(Value));
             
             for (int i = 0; i < src1->array_count; i++) {
                 dst->array_part[i] = src1->array_part[i];
-                value_incref(&dst->array_part[i]);
+                value_incref(dst->array_part[i]);
             }
             
             for (int i = 0; i < src2->array_count; i++) {
                 dst->array_part[src1->array_count + i] = src2->array_part[i];
-                value_incref(&dst->array_part[src1->array_count + i]);
+                value_incref(dst->array_part[src1->array_count + i]);
             }
             
             for (int i = total_array; i < dst->array_capacity; i++) {
-                dst->array_part[i].type = VAL_BOOL;
-                dst->array_part[i].boolean = false;
+                dst->array_part[i] = MAKE_BOOL(false);
             }
         }
         

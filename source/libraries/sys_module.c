@@ -18,12 +18,21 @@
 #endif
 #endif
 
+// helper to create an interned string value
+static Value make_string_val(VM* vm, const char* str) {
+    (void)vm;
+    int len = (int)strlen(str);
+    if (len >= 16 && len <= 64 && vm->intern_table.count < 50000) {
+        return MAKE_STRING(string_intern(&vm->intern_table, str, len));
+    }
+    return MAKE_STRING(string_create(str, len));
+}
+
 // dispatcher for system information built-in functions
 bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
-    (void)vm;
-
     if (strcmp(name, "sys.environment") == 0) {
-        *result = vm_make_table();
+        Table* t = table_create(32);
+        *result = MAKE_TABLE(t);
 #ifdef _WIN32
         char* env_block = GetEnvironmentStrings();
         if (env_block) {
@@ -36,9 +45,9 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
                         if (name) {
                         memcpy(name, env, name_len);
                         name[name_len] = '\0';
-                        Value k = vm_make_string(name);
-                        table_set(result->table, k, vm_make_string(eq + 1));
-                        value_decref(&k);
+                        Value k = make_string_val(vm, name);
+                        table_set(t, k, make_string_val(vm, eq + 1));
+                        value_decref(k);
                         free(name);
                         }
                 }
@@ -57,9 +66,9 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
                         if (name) {
                         memcpy(name, *env, name_len);
                         name[name_len] = '\0';
-                        Value k = vm_make_string(name);
-                        table_set(result->table, k, vm_make_string(eq + 1));
-                        value_decref(&k);
+                        Value k = make_string_val(vm, name);
+                        table_set(t, k, make_string_val(vm, eq + 1));
+                        value_decref(k);
                         free(name);
                         }
                 }
@@ -71,9 +80,9 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
 
     if (strcmp(name, "sys.process_id") == 0) {
 #ifdef _WIN32
-        *result = vm_make_number(GetCurrentProcessId());
+        *result = MAKE_NUMBER(GetCurrentProcessId());
 #else
-        *result = vm_make_number(getpid());
+        *result = MAKE_NUMBER(getpid());
 #endif
         return true;
     }
@@ -110,8 +119,8 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
 #elif __unix__
         platform = "Unix";
 #endif
-        if (platform) *result = vm_make_string(platform);
-        else *result = vm_make_none();
+        if (platform) *result = make_string_val(vm, platform);
+        else *result = MAKE_NONE();
         return true;
     }
 
@@ -136,8 +145,8 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
             else if (strlen(buffer.machine) > 0) arch = buffer.machine;
         }
 #endif
-        if (arch) *result = vm_make_string(arch);
-        else *result = vm_make_none();
+        if (arch) *result = make_string_val(vm, arch);
+        else *result = MAKE_NONE();
         return true;
     }
 
@@ -145,11 +154,11 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         char hostname[256];
 #ifdef _WIN32
         DWORD size = sizeof(hostname);
-        if (GetComputerName(hostname, &size)) *result = vm_make_string(hostname);
-        else *result = vm_make_none();
+        if (GetComputerName(hostname, &size)) *result = make_string_val(vm, hostname);
+        else *result = MAKE_NONE();
 #else
-        if (gethostname(hostname, sizeof(hostname)) == 0) *result = vm_make_string(hostname);
-        else *result = vm_make_none();
+        if (gethostname(hostname, sizeof(hostname)) == 0) *result = make_string_val(vm, hostname);
+        else *result = MAKE_NONE();
 #endif
         return true;
     }
@@ -158,13 +167,13 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
 #ifdef _WIN32
         char username[256];
         DWORD size = sizeof(username);
-        if (GetUserName(username, &size)) *result = vm_make_string(username);
-        else *result = vm_make_none();
+        if (GetUserName(username, &size)) *result = make_string_val(vm, username);
+        else *result = MAKE_NONE();
 #else
         char* username = getenv("USER");
         if (!username) username = getenv("LOGNAME");
-        if (username) *result = vm_make_string(username);
-        else *result = vm_make_none();
+        if (username) *result = make_string_val(vm, username);
+        else *result = MAKE_NONE();
 #endif
         return true;
     }
@@ -181,44 +190,44 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
                 home = combined;
             }
         }
-        if (home) *result = vm_make_string(home);
-        else *result = vm_make_none();
+        if (home) *result = make_string_val(vm, home);
+        else *result = MAKE_NONE();
 #else
         char* home = getenv("HOME");
-        if (home) *result = vm_make_string(home);
-        else *result = vm_make_none();
+        if (home) *result = make_string_val(vm, home);
+        else *result = MAKE_NONE();
 #endif
         return true;
     }
 
     if (strcmp(name, "sys.apex_version") == 0) {
-        *result = vm_make_string("26.07");
+        *result = make_string_val(vm, "26.07");
         return true;
     }
 
     if (strcmp(name, "sys.executable") == 0) {
         char path[4096];
 #ifdef _WIN32
-        if (GetModuleFileName(NULL, path, sizeof(path)) != 0) *result = vm_make_string(path);
-        else *result = vm_make_none();
+        if (GetModuleFileName(NULL, path, sizeof(path)) != 0) *result = make_string_val(vm, path);
+        else *result = MAKE_NONE();
 #elif __linux__
         ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
-        if (len != -1) { path[len] = '\0'; *result = vm_make_string(path); }
-        else *result = vm_make_none();
+        if (len != -1) { path[len] = '\0'; *result = make_string_val(vm, path); }
+        else *result = MAKE_NONE();
 #elif __APPLE__
         uint32_t size = sizeof(path);
-        if (_NSGetExecutablePath(path, &size) == 0) *result = vm_make_string(path);
-        else *result = vm_make_none();
+        if (_NSGetExecutablePath(path, &size) == 0) *result = make_string_val(vm, path);
+        else *result = MAKE_NONE();
 #else
-        *result = vm_make_none();
+        *result = MAKE_NONE();
 #endif
         return true;
     }
 
     if (strcmp(name, "sys.disksize") == 0) {
         const char* path = ".";
-        if (arg_count >= 1 && args[0].type == VAL_STRING) {
-            path = args[0].string->chars;
+        if (arg_count >= 1 && IS_STRING(args[0])) {
+            path = AS_STRING(args[0])->chars;
         }
 
 #ifdef _WIN32
@@ -229,14 +238,13 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
             double used_mb = total_mb - free_mb;
 
             Table* t = table_create(8);
-                Value k1 = vm_make_string("total"); table_set(t, k1, vm_make_number(total_mb)); value_decref(&k1);
-                Value k2 = vm_make_string("used"); table_set(t, k2, vm_make_number(used_mb)); value_decref(&k2);
-                Value k3 = vm_make_string("free"); table_set(t, k3, vm_make_number(free_mb)); value_decref(&k3);
-                
-            result->type = VAL_TABLE;
-            result->table = t;
+            Value k1 = make_string_val(vm, "total"); table_set(t, k1, MAKE_NUMBER(total_mb)); value_decref(k1);
+            Value k2 = make_string_val(vm, "used"); table_set(t, k2, MAKE_NUMBER(used_mb)); value_decref(k2);
+            Value k3 = make_string_val(vm, "free"); table_set(t, k3, MAKE_NUMBER(free_mb)); value_decref(k3);
+            
+            *result = MAKE_TABLE(t);
         } else {
-            *result = vm_make_none();
+            *result = MAKE_NONE();
         }
 #elif defined(__linux__) || defined(__APPLE__) || defined(__unix__)
         struct statvfs buf;
@@ -249,27 +257,26 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
             double used_mb = total_mb - free_mb;
 
             Table* t = table_create(8);
-                Value k1 = vm_make_string("total"); table_set(t, k1, vm_make_number(total_mb)); value_decref(&k1);
-                Value k2 = vm_make_string("used"); table_set(t, k2, vm_make_number(used_mb)); value_decref(&k2);
-                Value k3 = vm_make_string("free"); table_set(t, k3, vm_make_number(free_mb)); value_decref(&k3);
-                
-            result->type = VAL_TABLE;
-            result->table = t;
+            Value k1 = make_string_val(vm, "total"); table_set(t, k1, MAKE_NUMBER(total_mb)); value_decref(k1);
+            Value k2 = make_string_val(vm, "used"); table_set(t, k2, MAKE_NUMBER(used_mb)); value_decref(k2);
+            Value k3 = make_string_val(vm, "free"); table_set(t, k3, MAKE_NUMBER(free_mb)); value_decref(k3);
+            
+            *result = MAKE_TABLE(t);
         } else {
-            *result = vm_make_none();
+            *result = MAKE_NONE();
         }
 #else
-        *result = vm_make_none();
+        *result = MAKE_NONE();
 #endif
         return true;
     }
 
     if (strcmp(name, "sys.isterminal") == 0) {
         int fd = 1;
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            fd = (int)args[0].number;
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            fd = (int)AS_NUMBER(args[0]);
         }
-        *result = vm_make_bool(isatty(fd));
+        *result = MAKE_BOOL(isatty(fd));
         return true;
     }
 
@@ -277,16 +284,16 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
 #ifdef _WIN32
         char path[4096];
         if (GetTempPath(sizeof(path), path) != 0) {
-            *result = vm_make_string(path);
+            *result = make_string_val(vm, path);
         } else {
-            *result = vm_make_none();
+            *result = MAKE_NONE();
         }
 #else
         const char* tmp = getenv("TMPDIR");
         if (!tmp) tmp = getenv("TMP");
         if (!tmp) tmp = getenv("TEMP");
         if (!tmp) tmp = "/tmp";
-        *result = vm_make_string(tmp);
+        *result = make_string_val(vm, tmp);
 #endif
         return true;
     }

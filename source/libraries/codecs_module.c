@@ -1,4 +1,5 @@
 #include "codecs_module.h"
+#include "vm.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -272,30 +273,31 @@ static bool parse_number(const char** s, Value* out_value) {
     char* endptr;
     double val = strtod(*s, &endptr);
     if (endptr == *s) return false;
-    *out_value = vm_make_number(val);
+    *out_value = MAKE_NUMBER(val);
     *s = endptr;
     return true;
 }
 
 // recursive json parser that builds vm values
 static bool json_parse_value(VM* vm, const char** json_str, Value* out_value) {
+    (void)vm;
     skip_ws(json_str);
     if (!**json_str) return false;
     
     char c = **json_str;
     
     if (strncmp(*json_str, "null", 4) == 0) {
-        *out_value = vm_make_bool(false);
+        *out_value = MAKE_BOOL(false);
         *json_str += 4;
         return true;
     }
     if (strncmp(*json_str, "true", 4) == 0) {
-        *out_value = vm_make_bool(true);
+        *out_value = MAKE_BOOL(true);
         *json_str += 4;
         return true;
     }
     if (strncmp(*json_str, "false", 5) == 0) {
-        *out_value = vm_make_bool(false);
+        *out_value = MAKE_BOOL(false);
         *json_str += 5;
         return true;
     }
@@ -304,7 +306,8 @@ static bool json_parse_value(VM* vm, const char** json_str, Value* out_value) {
         char* str_val = NULL;
         int len = 0;
         if (!parse_string_raw(json_str, &str_val, &len)) return false;
-        *out_value = vm_make_string(str_val);
+        StringObject* interned = string_intern(&vm->intern_table, str_val, len);
+        *out_value = MAKE_STRING(interned);
         free(str_val);
         return true;
     }
@@ -315,16 +318,20 @@ static bool json_parse_value(VM* vm, const char** json_str, Value* out_value) {
     
     if (c == '[') {
         (*json_str)++;
-        *out_value = vm_make_table();
+        Table* table = table_create(8);
+        *out_value = MAKE_TABLE(table);
         skip_ws(json_str);
         int index = 1;
         if (**json_str != ']') {
             while (1) {
                 Value item;
-                if (!json_parse_value(vm, json_str, &item)) return false;
-                Value k = vm_make_number((double)index++);
-                table_set(out_value->table, k, item);
-                value_decref(&k);
+                if (!json_parse_value(vm, json_str, &item)) {
+                    value_decref(*out_value);
+                    return false;
+                }
+                Value k = MAKE_NUMBER((double)index++);
+                table_set(table, k, item);
+                value_decref(item);
                 skip_ws(json_str);
                 if (**json_str == ',') {
                     (*json_str)++;
@@ -333,36 +340,49 @@ static bool json_parse_value(VM* vm, const char** json_str, Value* out_value) {
                 }
             }
         }
-        if (**json_str != ']') return false;
+        if (**json_str != ']') {
+            value_decref(*out_value);
+            return false;
+        }
         (*json_str)++;
         return true;
     }
     
     if (c == '{') {
         (*json_str)++;
-        *out_value = vm_make_table();
+        Table* table = table_create(8);
+        *out_value = MAKE_TABLE(table);
         skip_ws(json_str);
         if (**json_str != '}') {
             while (1) {
                 skip_ws(json_str);
-                if (**json_str != '"') return false;
+                if (**json_str != '"') {
+                    value_decref(*out_value);
+                    return false;
+                }
                 char* key_str = NULL;
                 int key_len = 0;
-                if (!parse_string_raw(json_str, &key_str, &key_len)) return false;
+                if (!parse_string_raw(json_str, &key_str, &key_len)) {
+                    value_decref(*out_value);
+                    return false;
+                }
                 skip_ws(json_str);
                 if (**json_str != ':') {
                     free(key_str);
+                    value_decref(*out_value);
                     return false;
                 }
                 (*json_str)++;
                 Value val;
                 if (!json_parse_value(vm, json_str, &val)) {
                     free(key_str);
+                    value_decref(*out_value);
                     return false;
                 }
-                Value k = vm_make_string(key_str);
-                table_set(out_value->table, k, val);
-                value_decref(&k);
+                Value k = MAKE_STRING(string_intern(&vm->intern_table, key_str, key_len));
+                table_set(table, k, val);
+                value_decref(k);
+                value_decref(val);
                 free(key_str);
                 skip_ws(json_str);
                 if (**json_str == ',') {
@@ -372,7 +392,10 @@ static bool json_parse_value(VM* vm, const char** json_str, Value* out_value) {
                 }
             }
         }
-        if (**json_str != '}') return false;
+        if (**json_str != '}') {
+            value_decref(*out_value);
+            return false;
+        }
         (*json_str)++;
         return true;
     }
@@ -410,84 +433,75 @@ static void append_escaped(StringBuilder* sb, const char* str) {
 }
 
 // recursively encodes a vm value to json
-static void json_encode_value(VM* vm, Value* value, StringBuilder* sb) {
-    if (!value) {
-        sb_append(sb, "false", 5);
-        return;
-    }
+static void json_encode_value(VM* vm, Value value, StringBuilder* sb) {
+    (void)vm;
     
-    switch (value->type) {
-        case VAL_NUMBER: {
-            char buf[64];
-            double num = value->number;
-            if (fabs(num - (long long)num) < 1e-9 && fabs(num) < 1e15) {
-                snprintf(buf, sizeof(buf), "%lld", (long long)num);
-            } else {
-                snprintf(buf, sizeof(buf), "%.15g", num);
-            }
-            sb_append(sb, buf, (int)strlen(buf));
-            break;
+    if (IS_NUMBER(value)) {
+        char buf[64];
+        double num = AS_NUMBER(value);
+        if (fabs(num - (long long)num) < 1e-9 && fabs(num) < 1e15) {
+            snprintf(buf, sizeof(buf), "%lld", (long long)num);
+        } else {
+            snprintf(buf, sizeof(buf), "%.15g", num);
         }
-        case VAL_BOOL:
-            sb_append(sb, value->boolean ? "true" : "false", value->boolean ? 4 : 5);
-            break;
-        case VAL_STRING:
-            append_escaped(sb, value->string->chars);
-            break;
-        case VAL_TABLE: {
-            Table* t = value->table;
-            if (TABLE_TOTAL_COUNT(t) == 0) {
-                sb_append(sb, "{}", 2);
-                break;
+        sb_append(sb, buf, (int)strlen(buf));
+    } else if (IS_BOOL(value)) {
+        sb_append(sb, AS_BOOL(value) ? "true" : "false", AS_BOOL(value) ? 4 : 5);
+    } else if (IS_STRING(value)) {
+        append_escaped(sb, AS_STRING(value)->chars);
+    } else if (IS_TABLE(value)) {
+        Table* t = AS_TABLE(value);
+        if (TABLE_TOTAL_COUNT(t) == 0) {
+            sb_append(sb, "{}", 2);
+            return;
+        }
+        
+        bool is_array = (t->array_count > 0 && t->hash_count == 0);
+        
+        if (is_array) {
+            sb_append(sb, "[", 1);
+            for (int i = 0; i < t->array_count; i++) {
+                if (i > 0) sb_append(sb, ", ", 2);
+                json_encode_value(vm, t->array_part[i], sb);
             }
+            sb_append(sb, "]", 1);
+        } else {
+            sb_append(sb, "{", 1);
+            bool first = true;
             
-            bool is_array = (t->array_count > 0 && t->hash_count == 0);
-            
-            if (is_array) {
-                sb_append(sb, "[", 1);
-                for (int i = 0; i < t->array_count; i++) {
-                    if (i > 0) sb_append(sb, ", ", 2);
-                    json_encode_value(vm, &t->array_part[i], sb);
-                }
-                sb_append(sb, "]", 1);
-            } else {
-                sb_append(sb, "{", 1);
-                bool first = true;
-                
-                for (int i = 0; i < t->array_count; i++) {
+            for (int i = 0; i < t->array_count; i++) {
+                if (!IS_BOOL(t->array_part[i]) || AS_BOOL(t->array_part[i])) {
                     if (!first) sb_append(sb, ", ", 2);
                     first = false;
                     char key[32];
                     snprintf(key, sizeof(key), "%d", i + 1);
                     append_escaped(sb, key);
                     sb_append(sb, ": ", 2);
-                    json_encode_value(vm, &t->array_part[i], sb);
+                    json_encode_value(vm, t->array_part[i], sb);
                 }
-                
-                for (int i = 0; i < t->capacity; i++) {
-                    TableEntry* entry = t->entries[i];
-                    while (entry) {
-                        if (!first) sb_append(sb, ", ", 2);
-                        first = false;
-                        if (entry->key.type == VAL_STRING) {
-                            append_escaped(sb, entry->key.string->chars);
-                        } else if (entry->key.type == VAL_NUMBER) {
-                            char num_buf[64];
-                            snprintf(num_buf, sizeof(num_buf), "%g", entry->key.number);
-                            append_escaped(sb, num_buf);
-                        }
-                        sb_append(sb, ": ", 2);
-                        json_encode_value(vm, &entry->value, sb);
-                        entry = entry->next;
-                    }
-                }
-                sb_append(sb, "}", 1);
             }
-            break;
+            
+            for (int i = 0; i < t->capacity; i++) {
+                TableEntry* entry = t->entries[i];
+                while (entry) {
+                    if (!first) sb_append(sb, ", ", 2);
+                    first = false;
+                    if (IS_STRING(entry->key)) {
+                        append_escaped(sb, AS_STRING(entry->key)->chars);
+                    } else if (IS_NUMBER(entry->key)) {
+                        char num_buf[64];
+                        snprintf(num_buf, sizeof(num_buf), "%g", AS_NUMBER(entry->key));
+                        append_escaped(sb, num_buf);
+                    }
+                    sb_append(sb, ": ", 2);
+                    json_encode_value(vm, entry->value, sb);
+                    entry = entry->next;
+                }
+            }
+            sb_append(sb, "}", 1);
         }
-        default:
-            sb_append(sb, "null", 4);
-            break;
+    } else {
+        sb_append(sb, "null", 4);
     }
 }
 
@@ -527,15 +541,15 @@ static bool is_bool(const char* str) {
 }
 
 // parses a csv field into a typed vm value
-static Value csv_parse_value(const char* str) {
-    if (!str) return vm_make_none();
+static Value csv_parse_value(VM* vm, const char* str) {
+    if (!str) return MAKE_NONE();
     if (is_numeric(str)) {
-        return vm_make_number(atof(str));
+        return MAKE_NUMBER(atof(str));
     }
     if (is_bool(str)) {
-        return vm_make_bool(strcmp(str, "true") == 0);
+        return MAKE_BOOL(strcmp(str, "true") == 0);
     }
-    return vm_make_string(str);
+    return MAKE_STRING(string_intern(&vm->intern_table, str, strlen(str)));
 }
 
 // extracts a single csv field with quoted field support
@@ -605,7 +619,6 @@ static void xml_skip_ws(XmlParser* xp) {
 
 // parses xml attributes into a table with @ prefix
 static void xml_parse_attrs(VM* vm, XmlParser* xp, Table* t) {
-    (void)vm;
     xml_skip_ws(xp);
     while (*xp->p && *xp->p != '>' && *xp->p != '/') {
         char key[128] = {0};
@@ -633,9 +646,11 @@ static void xml_parse_attrs(VM* vm, XmlParser* xp, Table* t) {
         
         char attr_key_buf[150];
         snprintf(attr_key_buf, sizeof(attr_key_buf), "@%s", key);
-        Value k = vm_make_string(attr_key_buf);
-        table_set(t, k, vm_make_string(val_sb.buffer));
-        value_decref(&k);
+        Value k = MAKE_STRING(string_intern(&vm->intern_table, attr_key_buf, strlen(attr_key_buf)));
+        Value v = MAKE_STRING(string_intern(&vm->intern_table, val_sb.buffer, val_sb.length));
+        table_set(t, k, v);
+        value_decref(k);
+        value_decref(v);
         sb_free(&val_sb);
         
         xml_skip_ws(xp);
@@ -643,10 +658,9 @@ static void xml_parse_attrs(VM* vm, XmlParser* xp, Table* t) {
 }
 
 // parses a single xml element recursively
-// parses a single xml element recursively
 static Value xml_parse_element(VM* vm, XmlParser* xp) {
     xml_skip_ws(xp);
-    if (*xp->p != '<') return vm_make_none();
+    if (*xp->p != '<') return MAKE_NONE();
     xp->p++;
     
     char tag[128] = {0};
@@ -655,12 +669,18 @@ static Value xml_parse_element(VM* vm, XmlParser* xp) {
         tag[ti++] = *xp->p++;
     }
     tag[ti] = '\0';
-    if (!*tag) return vm_make_none();
+    if (!*tag) return MAKE_NONE();
     
-    Value elem = vm_make_table();
-    Value k_tag = vm_make_string("__tag"); table_set(elem.table, k_tag, vm_make_string(tag)); value_decref(&k_tag);
+    Table* elem_table = table_create(8);
+    Value elem = MAKE_TABLE(elem_table);
     
-    xml_parse_attrs(vm, xp, elem.table);
+    Value k_tag = MAKE_STRING(string_intern(&vm->intern_table, "__tag", 5));
+    Value v_tag = MAKE_STRING(string_intern(&vm->intern_table, tag, strlen(tag)));
+    table_set(elem_table, k_tag, v_tag);
+    value_decref(k_tag);
+    value_decref(v_tag);
+    
+    xml_parse_attrs(vm, xp, elem_table);
     
     xml_skip_ws(xp);
     bool self_closing = false;
@@ -673,7 +693,6 @@ static Value xml_parse_element(VM* vm, XmlParser* xp) {
         if (self_closing) return elem;
         
         int index = 1;
-        bool parse_error = false;
         
         while (*xp->p) {
             if (*xp->p == '<') {
@@ -686,23 +705,23 @@ static Value xml_parse_element(VM* vm, XmlParser* xp) {
                     }
                     close_tag[ci] = '\0';
                     if (strcmp(tag, close_tag) != 0) {
-                        parse_error = true;
-                        break;
+                        value_decref(elem);
+                        return MAKE_NONE();
                     }
                     if (*xp->p == '>') xp->p++;
                     return elem;
                 } else {
                     Value child = xml_parse_element(vm, xp);
-                    if (child.type == VAL_NONE) {
-                        parse_error = true;
-                        break;
+                    if (IS_NONE(child)) {
+                        value_decref(elem);
+                        return MAKE_NONE();
                     }
-                    if (child.type == VAL_TABLE) {
-                        Value k = vm_make_number((double)index++);
-                        table_set(elem.table, k, child);
-                        value_decref(&k);
+                    if (IS_TABLE(child)) {
+                        Value k = MAKE_NUMBER((double)index++);
+                        table_set(elem_table, k, child);
+                        value_decref(k);
                     }
-                    value_decref(&child);
+                    value_decref(child);
                 }
             } else {
                 StringBuilder text_sb;
@@ -712,69 +731,77 @@ static Value xml_parse_element(VM* vm, XmlParser* xp) {
                     xp->p++;
                 }
                 if (text_sb.length > 0) {
-                    Value k_text = vm_make_string("#text"); table_set(elem.table, k_text, vm_make_string(text_sb.buffer)); value_decref(&k_text);
+                    Value k_text = MAKE_STRING(string_intern(&vm->intern_table, "#text", 5));
+                    Value v_text = MAKE_STRING(string_intern(&vm->intern_table, text_sb.buffer, text_sb.length));
+                    table_set(elem_table, k_text, v_text);
+                    value_decref(k_text);
+                    value_decref(v_text);
                 }
                 sb_free(&text_sb);
             }
             xml_skip_ws(xp);
         }
         
-        if (parse_error) {
-            value_decref(&elem);
-            return vm_make_none();
-        }
-        return elem;
+        value_decref(elem);
+        return MAKE_NONE();
     }
-    value_decref(&elem);
-    return vm_make_none();
+    value_decref(elem);
+    return MAKE_NONE();
 }
 
 // recursively writes an xml node from a vm table
 static void xml_write_node(VM* vm, Value v, int depth, StringBuilder* sb) {
-    if (v.type != VAL_TABLE) return;
+    if (!IS_TABLE(v)) return;
     
+    Table* table = AS_TABLE(v);
+    
+    Value k_tag = MAKE_STRING(string_intern(&vm->intern_table, "__tag", 5));
     Value tag_val;
-    Value k_tag = vm_make_string("__tag");
-    if (!table_get(v.table, k_tag, &tag_val) || tag_val.type != VAL_STRING) {
-        value_decref(&k_tag);
-        value_decref(&tag_val);
+    if (!table_get(table, k_tag, &tag_val) || !IS_STRING(tag_val)) {
+        value_decref(k_tag);
         return;
     }
+    value_decref(k_tag);
     
     for (int i = 0; i < depth; i++) sb_append(sb, "  ", 2);
     sb_append(sb, "<", 1);
-    sb_append(sb, tag_val.string->chars, tag_val.string->length);
-    value_decref(&tag_val);
+    StringObject* tag_str = AS_STRING(tag_val);
+    sb_append(sb, tag_str->chars, tag_str->length);
+    value_decref(tag_val);
     
-    for (int i = 0; i < v.table->capacity; i++) {
-        TableEntry* e = v.table->entries[i];
+    for (int i = 0; i < table->capacity; i++) {
+        TableEntry* e = table->entries[i];
         while (e) {
-            if (e->key.type == VAL_STRING && e->key.string->chars[0] == '@' && e->value.type == VAL_STRING) {
-                sb_append(sb, " ", 1);
-                sb_append(sb, e->key.string->chars + 1, e->key.string->length - 1);
-                sb_append(sb, "=\"", 2);
-                sb_append(sb, e->value.string->chars, e->value.string->length);
-                sb_append(sb, "\"", 1);
+            if (IS_STRING(e->key)) {
+                StringObject* key_str = AS_STRING(e->key);
+                if (key_str->chars[0] == '@' && IS_STRING(e->value)) {
+                    sb_append(sb, " ", 1);
+                    sb_append(sb, key_str->chars + 1, key_str->length - 1);
+                    sb_append(sb, "=\"", 2);
+                    StringObject* val_str = AS_STRING(e->value);
+                    sb_append(sb, val_str->chars, val_str->length);
+                    sb_append(sb, "\"", 1);
+                }
             }
             e = e->next;
         }
     }
     
     bool has_children = false;
+    Value k_text = MAKE_STRING(string_intern(&vm->intern_table, "#text", 5));
     Value text_val;
-    Value k_text = vm_make_string("#text");
-    bool has_text = table_get(v.table, k_text, &text_val);
-    value_decref(&k_text);
+    bool has_text = table_get(table, k_text, &text_val);
+    value_decref(k_text);
     
     for (int i = 1; ; i++) {
-        Value k = vm_make_number((double)i);
+        Value k = MAKE_NUMBER((double)i);
         Value child;
-        if (table_get(v.table, k, &child)) {
+        if (table_get(table, k, &child)) {
             has_children = true;
-            value_decref(&child);
-            value_decref(&k);
+            value_decref(child);
+            value_decref(k);
         } else {
-            value_decref(&k);
+            value_decref(k);
             break;
         }
     }
@@ -782,30 +809,39 @@ static void xml_write_node(VM* vm, Value v, int depth, StringBuilder* sb) {
     if (has_children || has_text) {
         sb_append(sb, ">", 1);
         if (has_text) {
-            sb_append(sb, text_val.string->chars, text_val.string->length);
-            value_decref(&text_val);
+            if (IS_STRING(text_val)) {
+                StringObject* text_str = AS_STRING(text_val);
+                sb_append(sb, text_str->chars, text_str->length);
+            }
+            value_decref(text_val);
         }
         if (has_children) sb_append(sb, "\n", 1);
         
         for (int i = 1; ; i++) {
-            Value k = vm_make_number((double)i);
+            Value k = MAKE_NUMBER((double)i);
             Value child;
-            if (table_get(v.table, k, &child)) {
-                value_decref(&k);
+            if (table_get(table, k, &child)) {
+                value_decref(k);
                 xml_write_node(vm, child, depth + 1, sb);
-                value_decref(&child);
+                value_decref(child);
             } else {
+                value_decref(k);
                 break;
             }
         }
         
         for (int i = 0; i < depth; i++) sb_append(sb, "  ", 2);
         sb_append(sb, "</", 2);
-        Value k_close = vm_make_string("__tag");
-        if (table_get(v.table, k_close, &tag_val)) {
-            value_decref(&k_close);
-            sb_append(sb, tag_val.string->chars, tag_val.string->length);
-            value_decref(&tag_val);
+        Value k_close = MAKE_STRING(string_intern(&vm->intern_table, "__tag", 5));
+        if (table_get(table, k_close, &tag_val)) {
+            value_decref(k_close);
+            if (IS_STRING(tag_val)) {
+                StringObject* close_str = AS_STRING(tag_val);
+                sb_append(sb, close_str->chars, close_str->length);
+            }
+            value_decref(tag_val);
+        } else {
+            value_decref(k_close);
         }
         sb_append(sb, ">\n", 2);
     } else {
@@ -816,124 +852,126 @@ static void xml_write_node(VM* vm, Value v, int depth, StringBuilder* sb) {
 // main dispatcher for all codecs module built-in functions
 bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     if (strcmp(name, "codecs.base_write") == 0) {
-        if (arg_count < 1 || args[0].type != VAL_STRING) {
-            *result = vm_make_none();
+        if (arg_count < 1 || !IS_STRING(args[0])) {
+            *result = MAKE_NONE();
             return true;
         }
-        const char* input = args[0].string->chars;
-        int input_len = args[0].string->length;
+        StringObject* input_str = AS_STRING(args[0]);
+        int input_len = input_str->length;
         int out_size = ((input_len + 2) / 3) * 4 + 1;
         char* out = (char*)malloc(out_size);
-        if (!out) { *result = vm_make_none(); return true; }
-        base64_encode((const unsigned char*)input, input_len, out);
-        *result = vm_make_string(out);
+        if (!out) { *result = MAKE_NONE(); return true; }
+        base64_encode((const unsigned char*)input_str->chars, input_len, out);
+        *result = MAKE_STRING(string_intern(&vm->intern_table, out, strlen(out)));
         free(out);
         return true;
     }
     
     if (strcmp(name, "codecs.base_read") == 0) {
-        if (arg_count < 1 || args[0].type != VAL_STRING) {
-            *result = vm_make_none();
+        if (arg_count < 1 || !IS_STRING(args[0])) {
+            *result = MAKE_NONE();
             return true;
         }
-        const char* input = args[0].string->chars;
-        int input_len = args[0].string->length;
+        StringObject* input_str = AS_STRING(args[0]);
+        int input_len = input_str->length;
         unsigned char* out = (unsigned char*)malloc(input_len + 1);
-        if (!out) { *result = vm_make_none(); return true; }
+        if (!out) { *result = MAKE_NONE(); return true; }
         int out_len = 0;
-        if (base64_decode(input, out, &out_len)) {
+        if (base64_decode(input_str->chars, out, &out_len)) {
             out[out_len] = '\0';
-            *result = vm_make_string((char*)out);
+            *result = MAKE_STRING(string_intern(&vm->intern_table, (char*)out, out_len));
         } else {
-            *result = vm_make_none();
+            *result = MAKE_NONE();
         }
         free(out);
         return true;
     }
 
     if (strcmp(name, "codecs.baseurl_write") == 0) {
-        if (arg_count < 1 || args[0].type != VAL_STRING) {
-            *result = vm_make_none();
+        if (arg_count < 1 || !IS_STRING(args[0])) {
+            *result = MAKE_NONE();
             return true;
         }
-        const char* input = args[0].string->chars;
-        int input_len = args[0].string->length;
+        StringObject* input_str = AS_STRING(args[0]);
+        int input_len = input_str->length;
         int out_size = ((input_len + 2) / 3) * 4 + 1;
         char* out = (char*)malloc(out_size);
-        if (!out) { *result = vm_make_none(); return true; }
-        base64url_encode((const unsigned char*)input, input_len, out);
-        *result = vm_make_string(out);
+        if (!out) { *result = MAKE_NONE(); return true; }
+        base64url_encode((const unsigned char*)input_str->chars, input_len, out);
+        *result = MAKE_STRING(string_intern(&vm->intern_table, out, strlen(out)));
         free(out);
         return true;
     }
     
     if (strcmp(name, "codecs.baseurl_read") == 0) {
-        if (arg_count < 1 || args[0].type != VAL_STRING) {
-            *result = vm_make_none();
+        if (arg_count < 1 || !IS_STRING(args[0])) {
+            *result = MAKE_NONE();
             return true;
         }
-        const char* input = args[0].string->chars;
-        int input_len = args[0].string->length;
+        StringObject* input_str = AS_STRING(args[0]);
+        int input_len = input_str->length;
         unsigned char* out = (unsigned char*)malloc(input_len + 1);
-        if (!out) { *result = vm_make_none(); return true; }
+        if (!out) { *result = MAKE_NONE(); return true; }
         int out_len = 0;
-        if (base64url_decode(input, out, &out_len)) {
+        if (base64url_decode(input_str->chars, out, &out_len)) {
             out[out_len] = '\0';
-            *result = vm_make_string((char*)out);
+            *result = MAKE_STRING(string_intern(&vm->intern_table, (char*)out, out_len));
         } else {
-            *result = vm_make_none();
+            *result = MAKE_NONE();
         }
         free(out);
         return true;
     }
 
     if (strcmp(name, "codecs.json_read") == 0) {
-        if (arg_count < 1 || args[0].type != VAL_STRING) {
-            *result = vm_make_none();
+        if (arg_count < 1 || !IS_STRING(args[0])) {
+            *result = MAKE_NONE();
             return true;
         }
-        const char* json_str = args[0].string->chars;
+        const char* json_str = AS_STRING(args[0])->chars;
         if (json_parse_value(vm, &json_str, result)) {
             return true;
         }
-        *result = vm_make_none();
+        *result = MAKE_NONE();
         return true;
     }
     
     if (strcmp(name, "codecs.json_write") == 0) {
         if (arg_count < 1) {
-            *result = vm_make_none();
+            *result = MAKE_NONE();
             return true;
         }
         StringBuilder sb;
         sb_init(&sb, 256);
-        json_encode_value(vm, &args[0], &sb);
-        *result = vm_make_string(sb.buffer);
+        json_encode_value(vm, args[0], &sb);
+        *result = MAKE_STRING(string_intern(&vm->intern_table, sb.buffer, sb.length));
         sb_free(&sb);
         return true;
     }
 
     if (strcmp(name, "codecs.csv_read") == 0) {
-        if (arg_count < 1 || args[0].type != VAL_STRING) {
-            *result = vm_make_none();
+        if (arg_count < 1 || !IS_STRING(args[0])) {
+            *result = MAKE_NONE();
             return true;
         }
-        const char* data = args[0].string->chars;
-        int len = args[0].string->length;
+        StringObject* input_str = AS_STRING(args[0]);
+        const char* data = input_str->chars;
+        int len = input_str->length;
         bool has_header = true;
         char delimiter = ',';
         
-        if (arg_count >= 2 && args[1].type == VAL_BOOL) has_header = args[1].boolean;
-        if (arg_count >= 3 && args[2].type == VAL_STRING && args[2].string->length > 0)
-            delimiter = args[2].string->chars[0];
+        if (arg_count >= 2 && IS_BOOL(args[1])) has_header = AS_BOOL(args[1]);
+        if (arg_count >= 3 && IS_STRING(args[2]) && AS_STRING(args[2])->length > 0)
+            delimiter = AS_STRING(args[2])->chars[0];
             
         if (len <= 0) {
-            *result = vm_make_none();
+            *result = MAKE_NONE();
             return true;
         }
         
         CsvParser parser = { .data = data, .pos = 0, .len = len, .delimiter = delimiter };
-        Value table_list = vm_make_table();
+        Table* table_list_table = table_create(8);
+        Value table_list = MAKE_TABLE(table_list_table);
         char** headers = NULL;
         int col_count = 0;
         
@@ -963,38 +1001,39 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
                 continue;
             }
             
-            Value row_table = vm_make_table();
+            Table* row_table = table_create(8);
+            Value row_table_val = MAKE_TABLE(row_table);
             if (has_header && headers && col_count > 0) {
                 for (int i = 0; i < col_count; i++) {
                     if (!csv_has_next(&parser)) break;
                     char* field = csv_parse_field(&parser);
-                    Value val = csv_parse_value(field);
+                    Value val = csv_parse_value(vm, field);
                     if (headers[i]) {
-                        Value k = vm_make_string(headers[i]);
-                        table_set(row_table.table, k, val);
-                        value_decref(&k);
+                        Value k = MAKE_STRING(string_intern(&vm->intern_table, headers[i], strlen(headers[i])));
+                        table_set(row_table, k, val);
+                        value_decref(k);
                     }
-                    value_decref(&val);
+                    value_decref(val);
                     free(field);
                 }
             } else {
                 int idx = 0;
                 while (csv_has_next(&parser)) {
-                    Value k = vm_make_number((double)(idx + 1));
+                    Value k = MAKE_NUMBER((double)(idx + 1));
                     char* field = csv_parse_field(&parser);
-                    Value val = csv_parse_value(field);
-                    table_set(row_table.table, k, val);
-                    value_decref(&k);
-                    value_decref(&val);
+                    Value val = csv_parse_value(vm, field);
+                    table_set(row_table, k, val);
+                    value_decref(k);
+                    value_decref(val);
                     free(field);
                     idx++;
                 }
             }
             
-            Value k_idx = vm_make_number((double)row_index++);
-            table_set(table_list.table, k_idx, row_table);
-            value_decref(&k_idx);
-            value_decref(&row_table);
+            Value k_idx = MAKE_NUMBER((double)row_index++);
+            table_set(table_list_table, k_idx, row_table_val);
+            value_decref(k_idx);
+            value_decref(row_table_val);
         }
         
         if (headers) {
@@ -1006,35 +1045,36 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
     }
     
     if (strcmp(name, "codecs.csv_write") == 0) {
-        if (arg_count < 1 || args[0].type != VAL_TABLE) {
-            *result = vm_make_none();
+        if (arg_count < 1 || !IS_TABLE(args[0])) {
+            *result = MAKE_NONE();
             return true;
         }
-        Table* data = args[0].table;
+        Table* data = AS_TABLE(args[0]);
         bool has_header = true;
         char delimiter = ',';
         
-        if (arg_count >= 2 && args[1].type == VAL_BOOL) has_header = args[1].boolean;
-        if (arg_count >= 3 && args[2].type == VAL_STRING && args[2].string->length > 0)
-            delimiter = args[2].string->chars[0];
+        if (arg_count >= 2 && IS_BOOL(args[1])) has_header = AS_BOOL(args[1]);
+        if (arg_count >= 3 && IS_STRING(args[2]) && AS_STRING(args[2])->length > 0)
+            delimiter = AS_STRING(args[2])->chars[0];
             
         int row_count = table_size(data);
         if (row_count == 0) {
-            *result = vm_make_string("");
+            *result = MAKE_STRING(string_intern(&vm->intern_table, "", 0));
             return true;
         }
         
-        Value k_first = vm_make_number(1.0);
+        Value k_first = MAKE_NUMBER(1.0);
         Value first_row_val;
-        if (!table_get(data, k_first, &first_row_val) || first_row_val.type != VAL_TABLE) {
-            value_decref(&k_first);
-            *result = vm_make_none();
+        if (!table_get(data, k_first, &first_row_val) || !IS_TABLE(first_row_val)) {
+            value_decref(k_first);
+            *result = MAKE_NONE();
             return true;
         }
-        value_decref(&k_first);
+        value_decref(k_first);
         
         int header_count = 0;
-        Value* headers = table_keys(first_row_val.table, &header_count);
+        Value* headers = table_keys(AS_TABLE(first_row_val), &header_count);
+        value_decref(first_row_val);
         
         StringBuilder sb;
         sb_init(&sb, 256);
@@ -1044,9 +1084,9 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
                 if (i > 0) sb_append_char(&sb, delimiter);
                 const char* h = "";
                 char h_buf[64];
-                if (headers[i].type == VAL_STRING) h = headers[i].string->chars;
-                else if (headers[i].type == VAL_NUMBER) {
-                    snprintf(h_buf, sizeof(h_buf), "%g", headers[i].number);
+                if (IS_STRING(headers[i])) h = AS_STRING(headers[i])->chars;
+                else if (IS_NUMBER(headers[i])) {
+                    snprintf(h_buf, sizeof(h_buf), "%g", AS_NUMBER(headers[i]));
                     h = h_buf;
                 }
                 bool needs_quote = strchr(h, delimiter) || strchr(h, '"') || strchr(h, '\n');
@@ -1065,10 +1105,10 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         }
         
         for (int r = 1; r <= row_count; r++) {
-            Value k_row = vm_make_number((double)r);
+            Value k_row = MAKE_NUMBER((double)r);
             Value row_val;
-            if (!table_get(data, k_row, &row_val) || row_val.type != VAL_TABLE) {
-                value_decref(&k_row);
+            if (!table_get(data, k_row, &row_val) || !IS_TABLE(row_val)) {
+                value_decref(k_row);
                 continue;
             }
             
@@ -1078,14 +1118,11 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
                 char buf[64];
                 const char* str_val = "";
                 
-                if (table_get(row_val.table, headers[i], &cell_val)) {
-                    switch (cell_val.type) {
-                        case VAL_NUMBER: snprintf(buf, sizeof(buf), "%g", cell_val.number); str_val = buf; break;
-                        case VAL_BOOL: str_val = cell_val.boolean ? "true" : "false"; break;
-                        case VAL_STRING: str_val = cell_val.string->chars; break;
-                        default: str_val = ""; break;
-                    }
-                    value_decref(&cell_val);
+                if (table_get(AS_TABLE(row_val), headers[i], &cell_val)) {
+                    if (IS_NUMBER(cell_val)) { snprintf(buf, sizeof(buf), "%g", AS_NUMBER(cell_val)); str_val = buf; }
+                    else if (IS_BOOL(cell_val)) str_val = AS_BOOL(cell_val) ? "true" : "false";
+                    else if (IS_STRING(cell_val)) str_val = AS_STRING(cell_val)->chars;
+                    value_decref(cell_val);
                 }
                 
                 bool needs_quote = strchr(str_val, delimiter) || strchr(str_val, '"') || strchr(str_val, '\n');
@@ -1101,37 +1138,41 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
                 }
             }
             if (r < row_count) sb_append(&sb, "\n", 1);
-            value_decref(&row_val);
-            value_decref(&k_row);
+            value_decref(row_val);
+            value_decref(k_row);
         }
 
-        if (headers) free(headers);
-        *result = vm_make_string(sb.buffer);
+        if (headers) {
+            for (int i = 0; i < header_count; i++) value_decref(headers[i]);
+            free(headers);
+        }
+        *result = MAKE_STRING(string_intern(&vm->intern_table, sb.buffer, sb.length));
         sb_free(&sb);
         return true;
     }
 
     if (strcmp(name, "codecs.xml_read") == 0) {
-        if (arg_count < 1 || args[0].type != VAL_STRING) {
-            *result = vm_make_none();
+        if (arg_count < 1 || !IS_STRING(args[0])) {
+            *result = MAKE_NONE();
             return true;
         }
-        const char* xml = args[0].string->chars;
+        const char* xml = AS_STRING(args[0])->chars;
         XmlParser xp;
         xp.p = xml;
         
         Value root = xml_parse_element(vm, &xp);
-        if (root.type == VAL_TABLE) {
+        if (IS_TABLE(root)) {
             *result = root;
         } else {
-            *result = vm_make_none();
+            value_decref(root);
+            *result = MAKE_NONE();
         }
         return true;
     }
 
     if (strcmp(name, "codecs.xml_write") == 0) {
-        if (arg_count < 1 || args[0].type != VAL_TABLE) {
-            *result = vm_make_none();
+        if (arg_count < 1 || !IS_TABLE(args[0])) {
+            *result = MAKE_NONE();
             return true;
         }
         StringBuilder sb;
@@ -1139,10 +1180,10 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         xml_write_node(vm, args[0], 0, &sb);
         if (sb.length == 0) {
             sb_free(&sb);
-            *result = vm_make_none();
+            *result = MAKE_NONE();
             return true;
         }
-        *result = vm_make_string(sb.buffer);
+        *result = MAKE_STRING(string_intern(&vm->intern_table, sb.buffer, sb.length));
         sb_free(&sb);
         return true;
     }

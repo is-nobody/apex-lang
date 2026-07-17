@@ -12,12 +12,15 @@
 #include <string.h>
 #include <math.h>
 
-static StringObject* string_create(const char* chars, int length);
+StringObject* string_create(const char* chars, int length);
 static void string_destroy(StringObject* str);
-void value_incref(Value* v);
-void value_decref(Value* v);
 static bool string_equal(StringObject* a, StringObject* b);
-static const char* value_to_cstr(Value* v, char* buf, int buf_size);
+static const char* value_to_cstr(Value v, char* buf, int buf_size);
+
+// returns the type of a NaN-boxed value
+ValueType_VM value_get_type(Value v) {
+    return (ValueType_VM)GET_TYPE(v);
+}
 
 // initializes the object pool with empty arrays
 void object_pool_init(ObjectPool* pool) {
@@ -41,30 +44,15 @@ void object_pool_free(ObjectPool* pool) {
 
 // creates a string from the pool if available, otherwise allocates new
 StringObject* string_create_pooled(ObjectPool* pool, const char* chars, int length) {
-    if (length < POOL_STRING_SIZE && pool->string_pool_count > 0) {
-        StringObject* str = pool->string_pool[--pool->string_pool_count];
-        if (str->length >= length) {
-            memcpy(str->chars, chars, length);
-            str->chars[length] = '\0';
-            str->length = length;
-            str->header.ref_count = 1;
-            str->hash_computed = false;
-            return str;
-        } else {
-            free(str);
-        }
-    }
+    (void)pool;
     return string_create(chars, length);
 }
 
 // returns a string to the pool for reuse if it's small enough
 void string_destroy_pooled(ObjectPool* pool, StringObject* str) {
+    (void)pool;
     if (!str) return;
-    if (str->length < POOL_STRING_SIZE && pool->string_pool_count < POOL_MAX_ITEMS) {
-        pool->string_pool[pool->string_pool_count++] = str;
-    } else {
-        string_destroy(str);
-    }
+    string_destroy(str);
 }
 
 // creates a table from the pool if available, otherwise allocates new
@@ -79,8 +67,7 @@ Table* table_create_pooled(ObjectPool* pool, int capacity) {
         table->array_part = calloc(TABLE_ARRAY_INIT, sizeof(Value));
         table->array_capacity = TABLE_ARRAY_INIT;
         for (int i = 0; i < TABLE_ARRAY_INIT; i++) {
-            table->array_part[i].type = VAL_BOOL;
-            table->array_part[i].boolean = false;
+            table->array_part[i] = MAKE_BOOL(false);
         }
         return table;
     }
@@ -124,13 +111,6 @@ void string_intern_table_init(StringInternTable* it) {
 
 // frees all interned strings and the table itself
 void string_intern_table_free(StringInternTable* it) {
-    for (int i = 0; i < it->capacity; i++) {
-        StringObject* str = it->buckets[i];
-        if (str) {
-            string_destroy(str);
-            it->buckets[i] = NULL;
-        }
-    }
     free(it->buckets);
     it->buckets = NULL;
     it->capacity = 0;
@@ -148,15 +128,13 @@ static void intern_table_resize(StringInternTable* it, int new_capacity) {
     
     for (int i = 0; i < old_capacity; i++) {
         StringObject* str = old_buckets[i];
-        while (str) {
-            StringObject* next = NULL;
+        if (str) {
             unsigned int idx = intern_hash(str->chars, str->length) % new_capacity;
             while (it->buckets[idx] != NULL) {
                 idx = (idx + 1) % new_capacity;
             }
             it->buckets[idx] = str;
             it->count++;
-            str = next;
         }
     }
     free(old_buckets);
@@ -203,7 +181,7 @@ StringObject* string_intern(StringInternTable* it, const char* chars, int length
 }
 
 // allocates a new string object with refcount and flexible array
-static StringObject* string_create(const char* chars, int length) {
+StringObject* string_create(const char* chars, int length) {
     StringObject* str = (StringObject*)malloc(sizeof(StringObject) + length + 1);
     str->header.ref_count = 1;
     str->header.type = VAL_STRING;
@@ -230,7 +208,10 @@ static uint32_t string_get_hash(StringObject* str) {
 
 // frees a string object
 static void string_destroy(StringObject* str) {
-    if (str) free(str);
+    if (str) {
+        if (str->header.ref_count <= 0) return;
+        free(str);
+    }
 }
 
 // compares two strings by length, hash, and content
@@ -243,108 +224,94 @@ static bool string_equal(StringObject* a, StringObject* b) {
 }
 
 // converts a value to a C string for concatenation
-static const char* value_to_cstr(Value* v, char* buf, int buf_size) {
-    switch (v->type) {
-        case VAL_STRING: return v->string->chars;
-        case VAL_NUMBER:
-            snprintf(buf, buf_size, "%.15g", v->number);
-            return buf;
-        case VAL_NONE:
-            return "none";
-        case VAL_BOOL:
-            return v->boolean ? "true" : "false";
-        default:
-            return "";
+static const char* value_to_cstr(Value v, char* buf, int buf_size) {
+    if (IS_NUMBER(v)) {
+        snprintf(buf, buf_size, "%.15g", AS_NUMBER(v));
+        return buf;
+    } else if (IS_STRING(v)) {
+        return AS_STRING(v)->chars;
+    } else if (IS_NONE(v)) {
+        return "none";
+    } else if (IS_BOOL(v)) {
+        return AS_BOOL(v) ? "true" : "false";
+    } else {
+        return "";
     }
 }
 
 // increments the reference count of a reference-counted value
-void value_incref(Value* v) {
-    if (v->type == VAL_STRING && v->string) {
-        v->string->header.ref_count++;
-    } else if (v->type == VAL_TABLE && v->table) {
-        v->table->header.ref_count++;
+void value_incref(Value v) {
+    if (IS_STRING(v)) {
+        StringObject* str = AS_STRING(v);
+        if (str) str->header.ref_count++;
+    } else if (IS_TABLE(v)) {
+        Table* table = AS_TABLE(v);
+        if (table) table->header.ref_count++;
     }
 }
 
 // decrements the reference count and frees the object when it reaches zero
-void value_decref(Value* v) {
-    if (!v) return;
-    switch (v->type) {
-        case VAL_STRING:
-            if (v->string && --v->string->header.ref_count == 0) {
-                string_destroy(v->string);
-            }
-            v->string = NULL;
-            break;
-        case VAL_TABLE:
-            if (v->table && --v->table->header.ref_count == 0) {
-                table_destroy(v->table);
-            }
-            v->table = NULL;
-            break;
-        default:
-            break;
+void value_decref(Value v) {
+    if (IS_STRING(v)) {
+        StringObject* str = AS_STRING(v);
+        if (str && --str->header.ref_count == 0) {
+            string_destroy(str);
+        }
+    } else if (IS_TABLE(v)) {
+        Table* table = AS_TABLE(v);
+        if (table && --table->header.ref_count == 0) {
+            table_destroy(table);
+        }
     }
-    v->type = VAL_BOOL;
-    v->boolean = false;
 }
 
-// constructs a numeric value
+// constructs a numeric value (unboxed double, NaN-boxed if NaN)
 Value vm_make_number(double value) {
-    Value v; v.type = VAL_NUMBER; v.number = value; return v;
+    return MAKE_NUMBER(value);
 }
 
-// constructs a string value
+// constructs a string value (pointer stored in NaN box)
 Value vm_make_string(const char* value) {
-    Value v;
-    v.type = VAL_STRING;
-    v.string = string_create(value, (int)strlen(value));
-    return v;
+    StringObject* str = string_create(value, (int)strlen(value));
+    return MAKE_STRING(str);
 }
 
-// constructs a none/null value (represents absence of a value)
-Value vm_make_none() {
-    Value v;
-    v.type = VAL_NONE;
-    return v;
+// constructs a none/null value (special NaN tag)
+Value vm_make_none(void) {
+    return MAKE_NONE();
 }
 
-// constructs a boolean value
+// constructs a boolean value (special NaN tag with boolean payload)
 Value vm_make_bool(bool value) {
-    Value v; v.type = VAL_BOOL; v.boolean = value; return v;
+    return MAKE_BOOL(value);
 }
 
-// constructs a new empty table value
-Value vm_make_table() {
-    Value v;
-    v.type = VAL_TABLE;
-    v.table = table_create(8);
-    return v;
+// constructs a new empty table value (pointer in NaN box)
+Value vm_make_table(void) {
+    Table* table = table_create(8);
+    return MAKE_TABLE(table);
 }
 
 // copies a value with proper reference counting
 Value vm_copy_value(Value value) {
-    value_incref(&value);
+    value_incref(value);
     return value;
 }
 
 // frees a value and decrements its reference count
-void vm_free_value(Value* value) {
+void vm_free_value(Value value) {
     value_decref(value);
 }
 
 // returns a type name string for a value
-const char* vm_value_type_name(Value* value) {
-    switch (value->type) {
-        case VAL_NUMBER: return "number";
-        case VAL_STRING: return "string";
-        case VAL_NONE:   return "none";
-        case VAL_BOOL:   return "boolean";
-        case VAL_TABLE:  return "table";
-        case VAL_FUNCTION: return "function";
-        default: return "unknown";
-    }
+const char* vm_value_type_name(Value value) {
+    if (IS_NUMBER(value) || IS_NAN(value)) return "number";
+    if (IS_STRING(value)) return "string";
+    if (IS_NONE(value)) return "none";
+    if (IS_BOOL(value)) return "bool";
+    if (IS_TABLE(value)) return "table";
+    if (IS_FUNCTION(value)) return "function";
+    return "unknown";
 }
 
 // dynamic string builder for efficient concatenation
@@ -380,18 +347,19 @@ static void sb_free(StringBuilder* sb) {
 }
 
 static uint32_t hash_value_key(Value key) {
-    if (key.type == VAL_STRING) {
-        if (!key.string->hash_computed) {
+    if (IS_STRING(key)) {
+        StringObject* str = AS_STRING(key);
+        if (!str->hash_computed) {
             uint32_t h = 5381;
-            for (int i = 0; i < key.string->length; i++) {
-                h = ((h << 5) + h) + (uint8_t)key.string->chars[i];
+            for (int i = 0; i < str->length; i++) {
+                h = ((h << 5) + h) + (uint8_t)str->chars[i];
             }
-            key.string->hash = h;
-            key.string->hash_computed = true;
+            str->hash = h;
+            str->hash_computed = true;
         }
-        return key.string->hash;
-    } else if (key.type == VAL_NUMBER) {
-        double num = key.number;
+        return str->hash;
+    } else if (IS_NUMBER(key)) {
+        double num = AS_NUMBER(key);
         if (num == 0.0) num = 0.0;
         union { double d; uint64_t u; } u;
         u.d = num;
@@ -406,16 +374,20 @@ static uint32_t hash_value_key(Value key) {
 }
 
 static bool key_equal(Value a, Value b) {
-    if (a.type != b.type) return false;
-    if (a.type == VAL_STRING) {
-        if (a.string == b.string) return true;
-        if (a.string->length != b.string->length) return false;
-        return memcmp(a.string->chars, b.string->chars, a.string->length) == 0;
+    if (IS_NAN(a) && IS_NAN(b)) return false;
+    if (IS_NAN(a) || IS_NAN(b)) return false;
+    
+    if (IS_STRING(a) && IS_STRING(b)) {
+        StringObject* sa = AS_STRING(a);
+        StringObject* sb = AS_STRING(b);
+        if (sa == sb) return true;
+        if (sa->length != sb->length) return false;
+        return memcmp(sa->chars, sb->chars, sa->length) == 0;
     }
-    if (a.type == VAL_NUMBER) {
-        if (a.number == b.number) return true;
-        return false;
+    if (IS_NUMBER(a) && IS_NUMBER(b)) {
+        return AS_NUMBER(a) == AS_NUMBER(b);
     }
+    if (a == b) return true;
     return false;
 }
 
@@ -449,53 +421,45 @@ static void table_to_string_builder(Table* table, StringBuilder* sb, int indent_
         if (table_get(table, key, &val)) {
             for (int j = 0; j < indent_level + 1; j++) sb_append(sb, "    ", 4);
             
-            if (key.type == VAL_STRING) {
+            if (IS_STRING(key)) {
                 sb_append(sb, "\"", 1);
-                sb_append(sb, key.string->chars, key.string->length);
+                sb_append(sb, AS_STRING(key)->chars, AS_STRING(key)->length);
                 sb_append(sb, "\"", 1);
-            } else if (key.type == VAL_NUMBER) {
+            } else if (IS_NUMBER(key)) {
                 char num_buf[64];
-                snprintf(num_buf, sizeof(num_buf), "%g", key.number);
+                snprintf(num_buf, sizeof(num_buf), "%g", AS_NUMBER(key));
                 sb_append(sb, num_buf, strlen(num_buf));
             }
             
             sb_append(sb, " = ", 3);
             
             char num_buf[64];
-            switch (val.type) {
-                case VAL_NUMBER: {
-                    double num = val.number;
-                    if (fabs(num) >= 1e6 || fabs(num - (long long)num) < 1e-9)
-                        snprintf(num_buf, sizeof(num_buf), "%.0f", num);
-                    else
-                        snprintf(num_buf, sizeof(num_buf), "%.15g", num);
-                    sb_append(sb, num_buf, strlen(num_buf));
-                    break;
-                }
-                case VAL_STRING:
-                    sb_append(sb, "\"", 1);
-                    sb_append(sb, val.string->chars, val.string->length);
-                    sb_append(sb, "\"", 1);
-                    break;
-                case VAL_BOOL:
-                    sb_append(sb, val.boolean ? "true" : "false", val.boolean ? 4 : 5);
-                    break;
-                case VAL_TABLE:
-                    table_to_string_builder(val.table, sb, indent_level + 1);
-                    break;
-                case VAL_NONE:
-                    sb_append(sb, "none", 4);
-                    break;
-                default:
-                    sb_append(sb, "unknown", 7);
-                    break;
+            if (IS_NUMBER(val)) {
+                double num = AS_NUMBER(val);
+                if (fabs(num) >= 1e6 || fabs(num - (long long)num) < 1e-9)
+                    snprintf(num_buf, sizeof(num_buf), "%.0f", num);
+                else
+                    snprintf(num_buf, sizeof(num_buf), "%.15g", num);
+                sb_append(sb, num_buf, strlen(num_buf));
+            } else if (IS_STRING(val)) {
+                sb_append(sb, "\"", 1);
+                sb_append(sb, AS_STRING(val)->chars, AS_STRING(val)->length);
+                sb_append(sb, "\"", 1);
+            } else if (IS_BOOL(val)) {
+                sb_append(sb, AS_BOOL(val) ? "true" : "false", AS_BOOL(val) ? 4 : 5);
+            } else if (IS_TABLE(val)) {
+                table_to_string_builder(AS_TABLE(val), sb, indent_level + 1);
+            } else if (IS_NONE(val)) {
+                sb_append(sb, "none", 4);
+            } else {
+                sb_append(sb, "unknown", 7);
             }
 
             if (i < key_count - 1) sb_append(sb, ",", 1);
             sb_append(sb, "\n", 1);
-            value_decref(&val);
+            value_decref(val);
         }
-        value_decref(&key);
+        value_decref(key);
     }
     free(keys);
 
@@ -514,21 +478,23 @@ static void print_table_recursive(Table* table, int indent_level) {
 }
 
 // prints a value to stdout with formatting
-void vm_print_value(Value* value) {
-    switch (value->type) {
-        case VAL_NUMBER: {
-            double num = value->number;
-            if (fabs(num) >= 1e6 || fabs(num - (long long)num) < 1e-9) printf("%.0f", num);
-            else printf("%.15g", num);
-            break;
-        }
-        case VAL_STRING: printf("%s", value->string->chars); break;
-        case VAL_NONE: printf("none"); break;
-        case VAL_BOOL: printf("%s", value->boolean ? "true" : "false"); break;
-        case VAL_TABLE: 
-            print_table_recursive(value->table, 0);
-            break;
-        case VAL_FUNCTION: printf("<function>"); break;
+void vm_print_value(Value value) {
+    if (IS_NAN(value)) {
+        printf("nan");
+    } else if (IS_NUMBER(value)) {
+        double num = AS_NUMBER(value);
+        if (fabs(num) >= 1e6 || fabs(num - (long long)num) < 1e-9) printf("%.0f", num);
+        else printf("%.15g", num);
+    } else if (IS_STRING(value)) {
+        printf("%s", AS_STRING(value)->chars);
+    } else if (IS_NONE(value)) {
+        printf("none");
+    } else if (IS_BOOL(value)) {
+        printf("%s", AS_BOOL(value) ? "true" : "false");
+    } else if (IS_TABLE(value)) {
+        print_table_recursive(AS_TABLE(value), 0);
+    } else if (IS_FUNCTION(value)) {
+        printf("<function>");
     }
 }
 
@@ -553,8 +519,8 @@ void table_destroy(Table* table) {
         TableEntry* entry = table->entries[i];
         while (entry) {
             TableEntry* next = entry->next;
-            value_decref(&entry->key);
-            value_decref(&entry->value);
+            value_decref(entry->key);
+            value_decref(entry->value);
             free(entry);
             entry = next;
         }
@@ -562,7 +528,7 @@ void table_destroy(Table* table) {
     free(table->entries);
     if (table->array_part) {
         for (int i = 0; i < table->array_count; i++) {
-            value_decref(&table->array_part[i]);
+            value_decref(table->array_part[i]);
         }
         free(table->array_part);
     }
@@ -578,8 +544,7 @@ static void array_part_grow(Table* table, int needed_index) {
         }
         table->array_part = (Value*)malloc(table->array_capacity * sizeof(Value));
         for (int i = 0; i < table->array_capacity; i++) {
-            table->array_part[i].type = VAL_BOOL;
-            table->array_part[i].boolean = false;
+            table->array_part[i] = MAKE_BOOL(false);
         }
         return;
     }
@@ -594,8 +559,7 @@ static void array_part_grow(Table* table, int needed_index) {
         new_array[i] = table->array_part[i];
     }
     for (int i = table->array_count; i < new_capacity; i++) {
-        new_array[i].type = VAL_BOOL;
-        new_array[i].boolean = false;
+        new_array[i] = MAKE_BOOL(false);
     }
     
     free(table->array_part);
@@ -611,9 +575,9 @@ bool table_set_int(Table* table, int index, Value value) {
         array_part_grow(table, index);
     }
     
-    value_decref(&table->array_part[index]);
+    value_decref(table->array_part[index]);
     table->array_part[index] = value;
-    value_incref(&table->array_part[index]);
+    value_incref(table->array_part[index]);
     
     if (index >= table->array_count) {
         table->array_count = index + 1;
@@ -628,7 +592,7 @@ bool table_get_int(Table* table, int index, Value* out_value) {
     
     if (out_value) {
         *out_value = table->array_part[index];
-        value_incref(out_value);
+        value_incref(*out_value);
     }
     return true;
 }
@@ -640,8 +604,8 @@ void table_append(Table* table, Value value) {
 
 // sets a string-keyed value, with auto-resizing and duplicate detection
 bool table_set(Table* table, Value key, Value value) {
-    if (key.type == VAL_NUMBER) {
-        double num = key.number;
+    if (IS_NUMBER(key)) {
+        double num = AS_NUMBER(key);
         if (num >= 1 && num == (int)num) {
             int idx = (int)num - 1;
             if (table->array_part == NULL) {
@@ -681,9 +645,9 @@ bool table_set(Table* table, Value key, Value value) {
     TableEntry* entry = table->entries[index];
     while (entry) {
         if (entry->hash == hash && key_equal(entry->key, key)) {
-            value_decref(&entry->value);
+            value_decref(entry->value);
             entry->value = value;
-            value_incref(&entry->value);
+            value_incref(entry->value);
             return true;
         }
         entry = entry->next;
@@ -691,10 +655,10 @@ bool table_set(Table* table, Value key, Value value) {
 
     entry = (TableEntry*)malloc(sizeof(TableEntry));
     entry->key = key;
-    value_incref(&entry->key);
+    value_incref(entry->key);
     entry->hash = hash;
     entry->value = value;
-    value_incref(&entry->value);
+    value_incref(entry->value);
     entry->next = table->entries[index];
     table->entries[index] = entry;
     table->hash_count++;
@@ -705,15 +669,15 @@ bool table_set(Table* table, Value key, Value value) {
 bool table_get(Table* table, Value key, Value* out_value) {
     if (!table) return false;
     
-    if (key.type == VAL_NUMBER) {
-        double num = key.number;
+    if (IS_NUMBER(key)) {
+        double num = AS_NUMBER(key);
         if (num >= 1 && num == (int)num) {
             int idx = (int)num - 1;
             if (table->array_part != NULL && idx < table->array_count) {
-                if (table->array_part[idx].type != VAL_BOOL || table->array_part[idx].boolean) {
+                if (!IS_BOOL(table->array_part[idx]) || AS_BOOL(table->array_part[idx])) {
                     if (out_value) {
                         *out_value = table->array_part[idx];
-                        value_incref(out_value);
+                        value_incref(*out_value);
                     }
                     return true;
                 }
@@ -729,7 +693,7 @@ bool table_get(Table* table, Value key, Value* out_value) {
         if (entry->hash == hash && key_equal(entry->key, key)) {
             if (out_value) {
                 *out_value = entry->value;
-                value_incref(out_value);
+                value_incref(*out_value);
             }
             return true;
         }
@@ -747,18 +711,17 @@ bool table_has(Table* table, Value key) {
 void table_remove(Table* table, Value key) {
     if (!table) return;
     
-    if (key.type == VAL_NUMBER) {
-        double num = key.number;
+    if (IS_NUMBER(key)) {
+        double num = AS_NUMBER(key);
         if (num >= 1 && num == (int)num && table->array_part != NULL) {
             int idx = (int)num - 1;
             if (idx < table->array_count) {
-                if (table->array_part[idx].type != VAL_BOOL || table->array_part[idx].boolean) {
-                    value_decref(&table->array_part[idx]);
-                    table->array_part[idx].type = VAL_BOOL;
-                    table->array_part[idx].boolean = false;
+                if (!IS_BOOL(table->array_part[idx]) || AS_BOOL(table->array_part[idx])) {
+                    value_decref(table->array_part[idx]);
+                    table->array_part[idx] = MAKE_BOOL(false);
                     while (table->array_count > 0 &&
-                           table->array_part[table->array_count - 1].type == VAL_BOOL &&
-                           !table->array_part[table->array_count - 1].boolean) {
+                           IS_BOOL(table->array_part[table->array_count - 1]) &&
+                           !AS_BOOL(table->array_part[table->array_count - 1])) {
                         table->array_count--;
                     }
                     return;
@@ -776,8 +739,8 @@ void table_remove(Table* table, Value key) {
         if (entry->hash == hash && key_equal(entry->key, key)) {
             if (prev) prev->next = entry->next;
             else table->entries[index] = entry->next;
-            value_decref(&entry->key);
-            value_decref(&entry->value);
+            value_decref(entry->key);
+            value_decref(entry->value);
             free(entry);
             table->hash_count--;
             return;
@@ -792,7 +755,7 @@ int table_size(Table* table) {
     if (!table) return 0;
     int count = table->hash_count;
     for (int i = 0; i < table->array_count; i++) {
-        if (table->array_part[i].type != VAL_BOOL || table->array_part[i].boolean) count++;
+        if (!IS_BOOL(table->array_part[i]) || AS_BOOL(table->array_part[i])) count++;
     }
     return count;
 }
@@ -802,7 +765,7 @@ Value* table_keys(Table* table, int* out_count) {
     if (!table || !out_count) return NULL;
     int total = 0;
     for (int i = 0; i < table->array_count; i++) {
-        if (table->array_part[i].type != VAL_BOOL || table->array_part[i].boolean) total++;
+        if (!IS_BOOL(table->array_part[i]) || AS_BOOL(table->array_part[i])) total++;
     }
     total += table->hash_count;
     if (total == 0) { *out_count = 0; return NULL; }
@@ -812,9 +775,8 @@ Value* table_keys(Table* table, int* out_count) {
     int idx = 0;
     
     for (int i = 0; i < table->array_count; i++) {
-        if (table->array_part[i].type != VAL_BOOL || table->array_part[i].boolean) {
-            keys[idx].type = VAL_NUMBER;
-            keys[idx].number = i + 1;
+        if (!IS_BOOL(table->array_part[i]) || AS_BOOL(table->array_part[i])) {
+            keys[idx] = MAKE_NUMBER(i + 1);
             idx++;
         }
     }
@@ -822,7 +784,7 @@ Value* table_keys(Table* table, int* out_count) {
         TableEntry* entry = table->entries[i];
         while (entry) {
             keys[idx] = entry->key;
-            value_incref(&keys[idx]);
+            value_incref(keys[idx]);
             idx++;
             entry = entry->next;
         }
@@ -838,8 +800,8 @@ void table_clear(Table* table) {
         TableEntry* entry = table->entries[i];
         while (entry) {
             TableEntry* next = entry->next;
-            value_decref(&entry->key);
-            value_decref(&entry->value);
+            value_decref(entry->key);
+            value_decref(entry->value);
             free(entry);
             entry = next;
         }
@@ -847,7 +809,7 @@ void table_clear(Table* table) {
     }
     table->hash_count = 0;
     if (table->array_part) {
-        for (int i = 0; i < table->array_count; i++) value_decref(&table->array_part[i]);
+        for (int i = 0; i < table->array_count; i++) value_decref(table->array_part[i]);
         free(table->array_part);
         table->array_part = NULL;
         table->array_capacity = 0;
@@ -867,11 +829,8 @@ Table* table_copy(Table* table) {
         }
     }
     for (int i = 0; i < table->array_count; i++) {
-        if (table->array_part[i].type != VAL_BOOL || table->array_part[i].boolean) {
-            Value key;
-            key.type = VAL_NUMBER;
-            key.number = i + 1;
-            table_set(copy, key, table->array_part[i]);
+        if (!IS_BOOL(table->array_part[i]) || AS_BOOL(table->array_part[i])) {
+            table_set(copy, MAKE_NUMBER(i + 1), table->array_part[i]);
         }
     }
     return copy;
@@ -896,9 +855,8 @@ VM* vm_create(const char* source) {
     vm->args_top = 0;
     vm->source = source;
 
-    for (int i = 0; i < VM_REGS_PER_FRAME; i++) {
-        vm->registers[i].type = VAL_BOOL;
-        vm->registers[i].boolean = false;
+    for (int i = 0; i < VM_MAX_FRAMES * VM_REGS_PER_FRAME; i++) {
+        vm->register_frames[i] = MAKE_NONE();
     }
     
     string_intern_table_init(&vm->intern_table);
@@ -916,15 +874,15 @@ void vm_destroy(VM* vm) {
     
     for (int f = 0; f < frames_to_clean; f++) {
         for (int i = 0; i < VM_REGS_PER_FRAME; i++) {
-            value_decref(&vm->register_frames[f * VM_REGS_PER_FRAME + i]);
+            value_decref(vm->register_frames[f * VM_REGS_PER_FRAME + i]);
         }
     }
 
     for (int i = 0; i < vm->global_count; i++) {
-        value_decref(&vm->globals[i]);
+        value_decref(vm->globals[i]);
     }
     for (int i = 0; i < vm->args_top; i++) {
-        value_decref(&vm->args_stack[i]);
+        value_decref(vm->args_stack[i]);
     }
     
     string_intern_table_free(&vm->intern_table);
@@ -947,62 +905,54 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
 
     if (strcmp(name, "number") == 0) {
         if (arg_count >= 1) {
-            switch (args[0].type) {
-                case VAL_STRING: {
-                    char* endptr;
-                    double val = strtod(args[0].string->chars, &endptr);
-                    
-                    if (endptr == args[0].string->chars || *endptr != '\0') {
-                        *result = vm_make_none();
-                    } else {
-                        *result = vm_make_number(val);
-                    }
-                    break;
+            if (IS_STRING(args[0])) {
+                char* endptr;
+                double val = strtod(AS_STRING(args[0])->chars, &endptr);
+                
+                if (endptr == AS_STRING(args[0])->chars || *endptr != '\0') {
+                    *result = MAKE_NONE();
+                } else {
+                    *result = MAKE_NUMBER(val);
                 }
-                case VAL_NUMBER:
-                    *result = vm_copy_value(args[0]);
-                    break;
-                default:
-                    *result = vm_make_none();
-                    break;
+            } else if (IS_NUMBER(args[0])) {
+                *result = args[0];
+                value_incref(*result);
+            } else {
+                *result = MAKE_NONE();
             }
         } else {
-            *result = vm_make_none();
+            *result = MAKE_NONE();
         }
         return true;
     }
     if (strcmp(name, "string") == 0) {
         if (arg_count >= 1) {
             char buffer[256];
-            switch (args[0].type) {
-                case VAL_NUMBER:
-                    snprintf(buffer, sizeof(buffer), "%g", args[0].number);
-                    *result = vm_make_string(buffer);
-                    break;
-                case VAL_NONE:
-                    *result = vm_make_string("none");
-                    break;
-                case VAL_BOOL:
-                    *result = vm_make_string(args[0].boolean ? "true" : "false");
-                    break;
-                case VAL_STRING:
-                    *result = vm_copy_value(args[0]);
-                    break;
-                case VAL_TABLE:
-                    *result = vm_make_string(table_to_string(args[0].table));
-                    break;
-                default:
-                    *result = vm_make_none();
-                    break;
+            if (IS_NUMBER(args[0])) {
+                snprintf(buffer, sizeof(buffer), "%g", AS_NUMBER(args[0]));
+                *result = MAKE_STRING(string_intern(&vm->intern_table, buffer, strlen(buffer)));
+            } else if (IS_NONE(args[0])) {
+                *result = MAKE_STRING(string_intern(&vm->intern_table, "none", 4));
+            } else if (IS_BOOL(args[0])) {
+                *result = MAKE_STRING(string_intern(&vm->intern_table, AS_BOOL(args[0]) ? "true" : "false", AS_BOOL(args[0]) ? 4 : 5));
+            } else if (IS_STRING(args[0])) {
+                *result = args[0];
+                value_incref(*result);
+            } else if (IS_TABLE(args[0])) {
+                char* table_str = table_to_string(AS_TABLE(args[0]));
+                *result = MAKE_STRING(string_intern(&vm->intern_table, table_str, strlen(table_str)));
+                free(table_str);
+            } else {
+                *result = MAKE_NONE();
             }
         }
         return true;
     }
     if (strcmp(name, "type") == 0) {
         if (arg_count >= 1) {
-            *result = vm_make_string(vm_value_type_name(&args[0]));
+            *result = MAKE_STRING(string_intern(&vm->intern_table, vm_value_type_name(args[0]), strlen(vm_value_type_name(args[0]))));
         } else {
-            *result = vm_make_none();
+            *result = MAKE_NONE();
         }
         return true;
     }
@@ -1021,8 +971,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     vm->global_count = chunk->global_count;
     vm->register_count = chunk->functions[0].local_count + 32;
     for (int i = 0; i < chunk->global_count; i++) {
-        vm->globals[i].type = VAL_BOOL;
-        vm->globals[i].boolean = false;
+        vm->globals[i] = MAKE_BOOL(false);
     }
     
     static void* dispatch_table[] = {
@@ -1080,41 +1029,33 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
 
     OP_LOAD_CONST_NUM_LABEL: {
         int dest = ip->operands[0]; int value = ip->operands[1];
-        regs[dest].type = VAL_NUMBER; regs[dest].number = (double)value;
+        regs[dest] = MAKE_NUMBER((double)value);
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_LOAD_CONST_LABEL: {
         int dest = ip->operands[0]; int const_idx = ip->operands[1];
         Constant* c = &chunk->constants[const_idx];
-        value_decref(&regs[dest]);
+        value_decref(regs[dest]);
         switch (c->type) {
             case CONST_NUMBER: 
-                regs[dest].type = VAL_NUMBER; 
-                regs[dest].number = c->number_value; 
+                regs[dest] = MAKE_NUMBER(c->number_value);
                 break;
             case CONST_STRING: 
                 {
                     int len = (int)strlen(c->string_value);
-                    if (len >= 16 && len <= 64 && vm->intern_table.count < 50000) {
-                        regs[dest].type = VAL_STRING;
-                        regs[dest].string = string_intern(&vm->intern_table, c->string_value, len);
-                        value_incref(&regs[dest]);
-                    } else {
-                        regs[dest].type = VAL_STRING;
-                        regs[dest].string = string_create(c->string_value, len);
-                    }
+                    StringObject* str = string_intern(&vm->intern_table, c->string_value, len);
+                    regs[dest] = MAKE_STRING(str);
+                    value_incref(regs[dest]);
                 }
                 break;
             case CONST_FUNCTION:
-                regs[dest].type = VAL_FUNCTION;
-                regs[dest].function_index = c->function_index;
+                regs[dest] = MAKE_FUNCTION(c->function_index);
                 break;
             case CONST_NONE:
-                regs[dest].type = VAL_NONE;
+                regs[dest] = MAKE_NONE();
                 break;
             case CONST_BOOL: 
-                regs[dest].type = VAL_BOOL; 
-                regs[dest].boolean = c->bool_value; 
+                regs[dest] = MAKE_BOOL(c->bool_value);
                 break;
             default: 
                 break;
@@ -1123,177 +1064,174 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_MOVE_LABEL: {
         int dest = ip->operands[0]; int src = ip->operands[1];
-        Value* sv = &regs[src];
-        if (sv->type == VAL_NUMBER || sv->type == VAL_BOOL) {
-            regs[dest] = *sv;
+        Value sv = regs[src];
+        if (IS_NUMBER(sv) || IS_BOOL(sv) || IS_NONE(sv)) {
+            regs[dest] = sv;
         } else {
-            value_decref(&regs[dest]);
-            regs[dest] = *sv;
-            value_incref(&regs[dest]);
+            value_decref(regs[dest]);
+            regs[dest] = sv;
+            value_incref(regs[dest]);
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_ADD_LABEL: {
         int dest = ip->operands[0];
-        if (regs[ip->operands[1]].type == VAL_NUMBER && regs[ip->operands[2]].type == VAL_NUMBER) {
-            regs[dest].type = VAL_NUMBER;
-            regs[dest].number = regs[ip->operands[1]].number + regs[ip->operands[2]].number;
+        Value left = regs[ip->operands[1]];
+        Value right = regs[ip->operands[2]];
+        if (IS_NUMBER(left) && IS_NUMBER(right)) {
+            regs[dest] = MAKE_NUMBER(AS_NUMBER(left) + AS_NUMBER(right));
         } else {
-            value_decref(&regs[dest]);
-            regs[dest].type = VAL_NONE;
+            value_decref(regs[dest]);
+            regs[dest] = MAKE_NONE();
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_SUB_LABEL: {
         int dest = ip->operands[0];
-        if (regs[ip->operands[1]].type == VAL_NUMBER && regs[ip->operands[2]].type == VAL_NUMBER) {
-            regs[dest].type = VAL_NUMBER;
-            regs[dest].number = regs[ip->operands[1]].number - regs[ip->operands[2]].number;
+        Value left = regs[ip->operands[1]];
+        Value right = regs[ip->operands[2]];
+        if (IS_NUMBER(left) && IS_NUMBER(right)) {
+            regs[dest] = MAKE_NUMBER(AS_NUMBER(left) - AS_NUMBER(right));
         } else {
-            value_decref(&regs[dest]);
-            regs[dest].type = VAL_NONE;
+            value_decref(regs[dest]);
+            regs[dest] = MAKE_NONE();
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_MUL_LABEL: {
         int dest = ip->operands[0];
-        if (regs[ip->operands[1]].type == VAL_NUMBER && regs[ip->operands[2]].type == VAL_NUMBER) {
-            regs[dest].type = VAL_NUMBER;
-            regs[dest].number = regs[ip->operands[1]].number * regs[ip->operands[2]].number;
+        Value left = regs[ip->operands[1]];
+        Value right = regs[ip->operands[2]];
+        if (IS_NUMBER(left) && IS_NUMBER(right)) {
+            regs[dest] = MAKE_NUMBER(AS_NUMBER(left) * AS_NUMBER(right));
         } else {
-            value_decref(&regs[dest]);
-            regs[dest].type = VAL_NONE;
+            value_decref(regs[dest]);
+            regs[dest] = MAKE_NONE();
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_DIV_LABEL: {
         int dest = ip->operands[0];
-        if (regs[ip->operands[1]].type == VAL_NUMBER && regs[ip->operands[2]].type == VAL_NUMBER) {
-            regs[dest].type = VAL_NUMBER;
-            regs[dest].number = regs[ip->operands[1]].number / regs[ip->operands[2]].number;
+        Value left = regs[ip->operands[1]];
+        Value right = regs[ip->operands[2]];
+        if (IS_NUMBER(left) && IS_NUMBER(right)) {
+            regs[dest] = MAKE_NUMBER(AS_NUMBER(left) / AS_NUMBER(right));
         } else {
-            value_decref(&regs[dest]);
-            regs[dest].type = VAL_NONE;
+            value_decref(regs[dest]);
+            regs[dest] = MAKE_NONE();
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_MOD_LABEL: {
         int dest = ip->operands[0];
-        if (regs[ip->operands[1]].type == VAL_NUMBER && regs[ip->operands[2]].type == VAL_NUMBER) {
-            regs[dest].type = VAL_NUMBER;
-            regs[dest].number = fmod(regs[ip->operands[1]].number, regs[ip->operands[2]].number);
+        Value left = regs[ip->operands[1]];
+        Value right = regs[ip->operands[2]];
+        if (IS_NUMBER(left) && IS_NUMBER(right)) {
+            regs[dest] = MAKE_NUMBER(fmod(AS_NUMBER(left), AS_NUMBER(right)));
         } else {
-            value_decref(&regs[dest]);
-            regs[dest].type = VAL_NONE;
+            value_decref(regs[dest]);
+            regs[dest] = MAKE_NONE();
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_NEG_LABEL: {
         int dest = ip->operands[0];
-        regs[dest].type = VAL_NUMBER;
-        regs[dest].number = -regs[ip->operands[1]].number;
+        regs[dest] = MAKE_NUMBER(-AS_NUMBER(regs[ip->operands[1]]));
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_CMP_EQ_LABEL: {
         int dest = ip->operands[0];
-        Value* left = &regs[ip->operands[1]];
-        Value* right = &regs[ip->operands[2]];
+        Value left = regs[ip->operands[1]];
+        Value right = regs[ip->operands[2]];
         int result = 0;
         
-        if (left->type == VAL_NONE && right->type == VAL_NONE) {
+        if (IS_NONE(left) && IS_NONE(right)) {
             result = 1;
         }
-        else if (left->type == VAL_NONE || right->type == VAL_NONE) {
+        else if (IS_NONE(left) || IS_NONE(right)) {
             result = 0;
         }
-        else if (left->type == VAL_FUNCTION && right->type == VAL_FUNCTION) {
-            result = (left->function_index == right->function_index);
+        else if (IS_FUNCTION(left) && IS_FUNCTION(right)) {
+            result = (AS_FUNCTION(left) == AS_FUNCTION(right));
         }
-        else {
-            switch (left->type) {
-                case VAL_NUMBER: result = (left->number == right->number); break;
-                case VAL_STRING: result = string_equal(left->string, right->string); break;
-                case VAL_BOOL:   result = (left->boolean == right->boolean); break;
-                default: break;
-            }
+        else if (IS_NUMBER(left) && IS_NUMBER(right)) {
+            result = (AS_NUMBER(left) == AS_NUMBER(right));
         }
-        regs[dest].type = VAL_BOOL;
-        regs[dest].boolean = result;
+        else if (IS_STRING(left) && IS_STRING(right)) {
+            result = string_equal(AS_STRING(left), AS_STRING(right));
+        }
+        else if (IS_BOOL(left) && IS_BOOL(right)) {
+            result = (AS_BOOL(left) == AS_BOOL(right));
+        }
+        regs[dest] = MAKE_BOOL(result);
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_CMP_NEQ_LABEL: {
         int dest = ip->operands[0];
-        Value* left = &regs[ip->operands[1]];
-        Value* right = &regs[ip->operands[2]];
+        Value left = regs[ip->operands[1]];
+        Value right = regs[ip->operands[2]];
         int result = 1;
         
-        if (left->type == VAL_NONE && right->type == VAL_NONE) {
+        if (IS_NONE(left) && IS_NONE(right)) {
             result = 0;
         }
-        else if (left->type == VAL_NONE || right->type == VAL_NONE) {
+        else if (IS_NONE(left) || IS_NONE(right)) {
             result = 1;
         }
-        else if (left->type == VAL_FUNCTION && right->type == VAL_FUNCTION) {
-            result = (left->function_index != right->function_index);
+        else if (IS_FUNCTION(left) && IS_FUNCTION(right)) {
+            result = (AS_FUNCTION(left) != AS_FUNCTION(right));
         }
-        else {
-            switch (left->type) {
-                case VAL_NUMBER: result = (left->number != right->number); break;
-                case VAL_STRING: result = !string_equal(left->string, right->string); break;
-                case VAL_BOOL:   result = (left->boolean != right->boolean); break;
-                default: break;
-            }
+        else if (IS_NUMBER(left) && IS_NUMBER(right)) {
+            result = (AS_NUMBER(left) != AS_NUMBER(right));
         }
-        regs[dest].type = VAL_BOOL;
-        regs[dest].boolean = result;
+        else if (IS_STRING(left) && IS_STRING(right)) {
+            result = !string_equal(AS_STRING(left), AS_STRING(right));
+        }
+        else if (IS_BOOL(left) && IS_BOOL(right)) {
+            result = (AS_BOOL(left) != AS_BOOL(right));
+        }
+        regs[dest] = MAKE_BOOL(result);
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_CMP_LT_LABEL: {
         int dest = ip->operands[0];
-        regs[dest].type = VAL_BOOL;
-        regs[dest].boolean = regs[ip->operands[1]].number < regs[ip->operands[2]].number;
+        regs[dest] = MAKE_BOOL(AS_NUMBER(regs[ip->operands[1]]) < AS_NUMBER(regs[ip->operands[2]]));
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_CMP_GT_LABEL: {
         int dest = ip->operands[0];
-        regs[dest].type = VAL_BOOL;
-        regs[dest].boolean = regs[ip->operands[1]].number > regs[ip->operands[2]].number;
+        regs[dest] = MAKE_BOOL(AS_NUMBER(regs[ip->operands[1]]) > AS_NUMBER(regs[ip->operands[2]]));
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_CMP_LTE_LABEL: {
         int dest = ip->operands[0];
-        regs[dest].type = VAL_BOOL;
-        regs[dest].boolean = regs[ip->operands[1]].number <= regs[ip->operands[2]].number;
+        regs[dest] = MAKE_BOOL(AS_NUMBER(regs[ip->operands[1]]) <= AS_NUMBER(regs[ip->operands[2]]));
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_CMP_GTE_LABEL: {
         int dest = ip->operands[0];
-        regs[dest].type = VAL_BOOL;
-        regs[dest].boolean = regs[ip->operands[1]].number >= regs[ip->operands[2]].number;
+        regs[dest] = MAKE_BOOL(AS_NUMBER(regs[ip->operands[1]]) >= AS_NUMBER(regs[ip->operands[2]]));
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_AND_LABEL: {
         int dest = ip->operands[0];
-        regs[dest].type = VAL_BOOL;
-        regs[dest].boolean = regs[ip->operands[1]].boolean && regs[ip->operands[2]].boolean;
+        regs[dest] = MAKE_BOOL(AS_BOOL(regs[ip->operands[1]]) && AS_BOOL(regs[ip->operands[2]]));
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_OR_LABEL: {
         int dest = ip->operands[0];
-        regs[dest].type = VAL_BOOL;
-        regs[dest].boolean = regs[ip->operands[1]].boolean || regs[ip->operands[2]].boolean;
+        regs[dest] = MAKE_BOOL(AS_BOOL(regs[ip->operands[1]]) || AS_BOOL(regs[ip->operands[2]]));
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_NOT_LABEL: {
         int dest = ip->operands[0];
-        regs[dest].type = VAL_BOOL;
-        regs[dest].boolean = !regs[ip->operands[1]].boolean;
+        regs[dest] = MAKE_BOOL(!AS_BOOL(regs[ip->operands[1]]));
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_JUMP_LABEL: ip = &vm->code[ip->operands[0]]; goto *dispatch_table[ip->opcode];
     OP_JUMP_IF_FALSE_LABEL: {
         int cond_reg = ip->operands[1];
-        if (!vm->registers[cond_reg].boolean) { ip = &vm->code[ip->operands[0]]; goto *dispatch_table[ip->opcode]; }
+        if (!AS_BOOL(vm->registers[cond_reg])) { ip = &vm->code[ip->operands[0]]; goto *dispatch_table[ip->opcode]; }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_CALL_LABEL: {
@@ -1338,16 +1276,16 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         bool ok = vm_call_builtin(vm, chunk->constants[name_idx].string_value, arg_count, args, &result);
         
         for (int i = 0; i < arg_count; i++) {
-            value_decref(&vm->args_stack[vm->args_top - arg_count + i]);
+            value_decref(vm->args_stack[vm->args_top - arg_count + i]);
         }
         vm->args_top -= arg_count;
 
         if (ok) {
-            value_decref(&vm->registers[dest_reg]);
+            value_decref(vm->registers[dest_reg]);
             vm->registers[dest_reg] = result;
         } else {
-            value_decref(&vm->registers[dest_reg]);
-            vm->registers[dest_reg] = vm_make_none();
+            value_decref(vm->registers[dest_reg]);
+            vm->registers[dest_reg] = MAKE_NONE();
         }
         if (dest_reg >= vm->register_count) vm->register_count = dest_reg + 1;
         ip++; goto *dispatch_table[ip->opcode];
@@ -1355,7 +1293,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     OP_RETURN_LABEL: {
         int value_reg = ip->operands[0];
         Value ret_val = regs[value_reg];
-        value_incref(&ret_val);
+        value_incref(ret_val);
         
         if (vm->call_depth > 0) {
             vm->call_depth--;
@@ -1366,14 +1304,14 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             
             vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;
             int dest_reg = vm->call_stack[vm->call_depth].dest_reg;
-            value_decref(&regs[dest_reg]);
+            value_decref(regs[dest_reg]);
             regs[dest_reg] = ret_val;
             
             ip = &vm->code[vm->call_stack[vm->call_depth].return_address];
             goto *dispatch_table[ip->opcode];
         }
         vm->running = false;
-        value_decref(&ret_val);
+        value_decref(ret_val);
         goto OP_HALT_LABEL;
     }
 
@@ -1386,8 +1324,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             vm->current_frame = vm->call_stack[vm->call_depth].frame_index;
             vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];
             regs = vm->registers;
-            value_decref(&regs[dest_reg]);
-            regs[dest_reg].type = VAL_NONE;
+            value_decref(regs[dest_reg]);
+            regs[dest_reg] = MAKE_NONE();
             ip = &vm->code[return_addr]; goto *dispatch_table[ip->opcode];
         }
         vm->running = false; goto OP_HALT_LABEL;
@@ -1395,28 +1333,28 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
 
     OP_LOAD_GLOBAL_LABEL: {
         int dest = ip->operands[0]; int idx = ip->operands[1];
-        Value* gv = &vm->globals[idx];
-        if (gv->type == VAL_NUMBER || gv->type == VAL_BOOL) {
-            regs[dest] = *gv;
+        Value gv = vm->globals[idx];
+        if (IS_NUMBER(gv) || IS_BOOL(gv) || IS_NONE(gv)) {
+            regs[dest] = gv;
         } else {
-            value_decref(&regs[dest]);
-            regs[dest] = *gv;
-            value_incref(&regs[dest]);
+            value_decref(regs[dest]);
+            regs[dest] = gv;
+            value_incref(regs[dest]);
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_STORE_GLOBAL_LABEL: {
         int src = ip->operands[0]; int idx = ip->operands[1];
-        Value* sv = &regs[src];
-        value_decref(&vm->globals[idx]);
-        vm->globals[idx] = *sv;
-        value_incref(&vm->globals[idx]);
+        Value sv = regs[src];
+        value_decref(vm->globals[idx]);
+        vm->globals[idx] = sv;
+        value_incref(vm->globals[idx]);
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_NEW_TABLE_LABEL: {
         int dest = ip->operands[0];
-        value_decref(&vm->registers[dest]);
-        vm->registers[dest] = vm_make_table();
+        value_decref(vm->registers[dest]);
+        vm->registers[dest] = MAKE_TABLE(table_create(8));
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_TABLE_SET_LABEL: {
@@ -1424,14 +1362,14 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int key_reg = ip->operands[1];
         int val_reg = ip->operands[2];
         
-        Value* table_val = &vm->registers[table_reg];
-        if (table_val->type != VAL_TABLE) {
+        Value table_val = vm->registers[table_reg];
+        if (!IS_TABLE(table_val)) {
             vm->had_error = true;
             vm->running = false;
             goto OP_HALT_LABEL;
         }
         
-        Table* table = table_val->table;
+        Table* table = AS_TABLE(table_val);
         Value key = vm->registers[key_reg];
         Value val = vm->registers[val_reg];
         table_set(table, key, val);
@@ -1441,10 +1379,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int table_reg = ip->operands[0];
         int key_idx = ip->operands[1];
         int val_reg = ip->operands[2];
-        Table* table = vm->registers[table_reg].table;
-        Value key;
-        key.type = VAL_STRING;
-        key.string = string_intern(&vm->intern_table, chunk->constants[key_idx].string_value, strlen(chunk->constants[key_idx].string_value));
+        Table* table = AS_TABLE(vm->registers[table_reg]);
+        Value key = MAKE_STRING(string_intern(&vm->intern_table, chunk->constants[key_idx].string_value, strlen(chunk->constants[key_idx].string_value)));
         table_set(table, key, vm->registers[val_reg]);
         ip++; goto *dispatch_table[ip->opcode];
     }
@@ -1452,21 +1388,21 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int dest = ip->operands[0];
         int table_reg = ip->operands[1];
         int key_reg = ip->operands[2];
-        Value* table_val = &vm->registers[table_reg];
+        Value table_val = vm->registers[table_reg];
         
-        if (table_val->type != VAL_TABLE) {
-            value_decref(&vm->registers[dest]);
-            vm->registers[dest].type = VAL_NONE;
+        if (!IS_TABLE(table_val)) {
+            value_decref(vm->registers[dest]);
+            vm->registers[dest] = MAKE_NONE();
             ip++; goto *dispatch_table[ip->opcode];
         }
         
-        Table* table = table_val->table;
+        Table* table = AS_TABLE(table_val);
         Value key = vm->registers[key_reg];
         Value val;
-        val.type = VAL_NONE;
+        val = MAKE_NONE();
         table_get(table, key, &val);
         
-        value_decref(&vm->registers[dest]);
+        value_decref(vm->registers[dest]);
         vm->registers[dest] = val;
         ip++; goto *dispatch_table[ip->opcode];
     }
@@ -1474,24 +1410,22 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int dest = ip->operands[0];
         int table_reg = ip->operands[1];
         int key_idx = ip->operands[2];
-        Value* table_val = &vm->registers[table_reg];
+        Value table_val = vm->registers[table_reg];
         
-        if (table_val->type != VAL_TABLE) {
-            value_decref(&vm->registers[dest]);
-            vm->registers[dest].type = VAL_NONE;
+        if (!IS_TABLE(table_val)) {
+            value_decref(vm->registers[dest]);
+            vm->registers[dest] = MAKE_NONE();
             ip++; goto *dispatch_table[ip->opcode];
         }
         
-        Table* table = table_val->table;
-        Value key;
-        key.type = VAL_STRING;
-        key.string = string_intern(&vm->intern_table, chunk->constants[key_idx].string_value, strlen(chunk->constants[key_idx].string_value));
+        Table* table = AS_TABLE(table_val);
+        Value key = MAKE_STRING(string_intern(&vm->intern_table, chunk->constants[key_idx].string_value, strlen(chunk->constants[key_idx].string_value)));
         
         Value val;
-        val.type = VAL_NONE;
+        val = MAKE_NONE();
         table_get(table, key, &val);
         
-        value_decref(&vm->registers[dest]);
+        value_decref(vm->registers[dest]);
         vm->registers[dest] = val;
         ip++; goto *dispatch_table[ip->opcode];
     }
@@ -1499,15 +1433,14 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int table_reg = ip->operands[0];
         int val_reg = ip->operands[1];
         
-        Table* table = vm->registers[table_reg].table;
-        Value* val = &vm->registers[val_reg];
+        Table* table = AS_TABLE(vm->registers[table_reg]);
+        Value val = vm->registers[val_reg];
         
         if (table->array_part == NULL) {
             table->array_capacity = TABLE_ARRAY_INIT;
             table->array_part = (Value*)calloc(TABLE_ARRAY_INIT, sizeof(Value));
             for (int i = 0; i < TABLE_ARRAY_INIT; i++) {
-                table->array_part[i].type = VAL_BOOL;
-                table->array_part[i].boolean = false;
+                table->array_part[i] = MAKE_BOOL(false);
             }
         }
         
@@ -1516,22 +1449,22 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             array_part_grow(table, idx);
         }
         
-        value_decref(&table->array_part[idx]);
-        table->array_part[idx] = *val;
-        value_incref(&table->array_part[idx]);
+        value_decref(table->array_part[idx]);
+        table->array_part[idx] = val;
+        value_incref(table->array_part[idx]);
         table->array_count++;
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_CONCAT_LABEL: {
         int dest = ip->operands[0];
-        Value* left  = &vm->registers[ip->operands[1]]; 
-        Value* right = &vm->registers[ip->operands[2]];
+        Value left  = vm->registers[ip->operands[1]]; 
+        Value right = vm->registers[ip->operands[2]];
         
         char lbuf[64], rbuf[64];
         const char* ls = value_to_cstr(left, lbuf, sizeof(lbuf));
         const char* rs = value_to_cstr(right, rbuf, sizeof(rbuf));
-        int llen = (left->type == VAL_STRING) ? left->string->length : (int)strlen(ls);
-        int rlen = (right->type == VAL_STRING) ? right->string->length : (int)strlen(rs);
+        int llen = IS_STRING(left) ? AS_STRING(left)->length : (int)strlen(ls);
+        int rlen = IS_STRING(right) ? AS_STRING(right)->length : (int)strlen(rs);
         int total_len = llen + rlen;
         
         if (total_len >= 16 && total_len <= 64) {
@@ -1541,18 +1474,16 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             combined[total_len] = '\0';
             
             StringObject* interned = string_intern(&vm->intern_table, combined, total_len);
-            value_decref(&vm->registers[dest]);
-            vm->registers[dest].type = VAL_STRING;
-            vm->registers[dest].string = interned;
-            value_incref(&vm->registers[dest]);
+            value_decref(vm->registers[dest]);
+            vm->registers[dest] = MAKE_STRING(interned);
+            value_incref(vm->registers[dest]);
         } else {
             StringBuilder sb;
             sb_init(&sb, total_len + 1);
             sb_append(&sb, ls, llen);
             sb_append(&sb, rs, rlen);
-            value_decref(&vm->registers[dest]);
-            vm->registers[dest].type = VAL_STRING;
-            vm->registers[dest].string = sb_to_string(&sb);
+            value_decref(vm->registers[dest]);
+            vm->registers[dest] = MAKE_STRING(sb_to_string(&sb));
             sb_free(&sb);
         }
         ip++; goto *dispatch_table[ip->opcode];
@@ -1562,9 +1493,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int end_reg = ip->operands[1];
         int step_reg = ip->operands[2];
         vm->iterator_depth++;
-        vm->iterator_stack[vm->iterator_depth].index = vm->registers[var_reg].number;
-        vm->iterator_stack[vm->iterator_depth].end   = vm->registers[end_reg].number;
-        vm->iterator_stack[vm->iterator_depth].step  = vm->registers[step_reg].number;
+        vm->iterator_stack[vm->iterator_depth].index = AS_NUMBER(vm->registers[var_reg]);
+        vm->iterator_stack[vm->iterator_depth].end   = AS_NUMBER(vm->registers[end_reg]);
+        vm->iterator_stack[vm->iterator_depth].step  = AS_NUMBER(vm->registers[step_reg]);
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_FOR_NEXT_LABEL: {
@@ -1580,8 +1511,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             double s = vm->iterator_stack[vm->iterator_depth].step;
 
             if ((s > 0 && c <= e) || (s < 0 && c >= e)) {
-                vm->registers[var_reg].type = VAL_NUMBER;
-                vm->registers[var_reg].number = c;
+                vm->registers[var_reg] = MAKE_NUMBER(c);
                 
                 vm->iterator_stack[vm->iterator_depth].index = c + s;
                 
@@ -1595,11 +1525,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         } else {
             int exit_addr = flag_or_exit;
             
-            double index = vm->registers[var_reg].number;
-            double size = vm->registers[end_or_size_reg].number;
+            double index = AS_NUMBER(vm->registers[var_reg]);
+            double size = AS_NUMBER(vm->registers[end_or_size_reg]);
             
             index += 1.0;
-            vm->registers[var_reg].number = index;
+            vm->registers[var_reg] = MAKE_NUMBER(index);
             
             if (index <= size) {
                 if (var_reg >= vm->register_count) vm->register_count = var_reg + 1;
@@ -1614,7 +1544,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     OP_POP_ITER_LABEL: if (vm->iterator_depth >= 0) vm->iterator_depth--; ip++; goto *dispatch_table[ip->opcode];
     OP_JUMP_IF_LT_LABEL: {
         int target = ip->operands[0];
-        if (regs[ip->operands[1]].number < regs[ip->operands[2]].number) {
+        if (AS_NUMBER(regs[ip->operands[1]]) < AS_NUMBER(regs[ip->operands[2]])) {
             ip = &vm->code[target];
             goto *dispatch_table[ip->opcode];
         }
@@ -1622,7 +1552,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_JUMP_IF_LTE_LABEL: {
         int target = ip->operands[0];
-        if (regs[ip->operands[1]].number <= regs[ip->operands[2]].number) {
+        if (AS_NUMBER(regs[ip->operands[1]]) <= AS_NUMBER(regs[ip->operands[2]])) {
             ip = &vm->code[target];
             goto *dispatch_table[ip->opcode];
         }
@@ -1630,7 +1560,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_JUMP_IF_GT_LABEL: {
         int target = ip->operands[0];
-        if (regs[ip->operands[1]].number > regs[ip->operands[2]].number) {
+        if (AS_NUMBER(regs[ip->operands[1]]) > AS_NUMBER(regs[ip->operands[2]])) {
             ip = &vm->code[target];
             goto *dispatch_table[ip->opcode];
         }
@@ -1638,26 +1568,25 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_JUMP_IF_GTE_LABEL: {
         int target = ip->operands[0];
-        if (vm->registers[ip->operands[1]].number >= vm->registers[ip->operands[2]].number) { ip = &vm->code[target]; goto *dispatch_table[ip->opcode]; }
+        if (AS_NUMBER(vm->registers[ip->operands[1]]) >= AS_NUMBER(vm->registers[ip->operands[2]])) { ip = &vm->code[target]; goto *dispatch_table[ip->opcode]; }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_JUMP_IF_EQ_LABEL: {
         int target = ip->operands[0];
-        Value* left = &regs[ip->operands[1]];
-        Value* right = &regs[ip->operands[2]];
+        Value left = regs[ip->operands[1]];
+        Value right = regs[ip->operands[2]];
         bool jump = false;
         
-        if (left->type == VAL_NONE && right->type == VAL_NONE) {
+        if (IS_NONE(left) && IS_NONE(right)) {
             jump = true;
-        } else if (left->type == VAL_NONE || right->type == VAL_NONE) {
+        } else if (IS_NONE(left) || IS_NONE(right)) {
             jump = false;
-        } else {
-            switch (left->type) {
-                case VAL_NUMBER: jump = (left->number == right->number); break;
-                case VAL_STRING: jump = string_equal(left->string, right->string); break;
-                case VAL_BOOL:   jump = (left->boolean == right->boolean); break;
-                default: break;
-            }
+        } else if (IS_NUMBER(left) && IS_NUMBER(right)) {
+            jump = (AS_NUMBER(left) == AS_NUMBER(right));
+        } else if (IS_STRING(left) && IS_STRING(right)) {
+            jump = string_equal(AS_STRING(left), AS_STRING(right));
+        } else if (IS_BOOL(left) && IS_BOOL(right)) {
+            jump = (AS_BOOL(left) == AS_BOOL(right));
         }
         if (jump) {
             ip = &vm->code[target];
@@ -1668,21 +1597,20 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
 
     OP_JUMP_IF_NEQ_LABEL: {
         int target = ip->operands[0];
-        Value* left = &regs[ip->operands[1]];
-        Value* right = &regs[ip->operands[2]];
+        Value left = regs[ip->operands[1]];
+        Value right = regs[ip->operands[2]];
         bool jump = false;
         
-        if (left->type == VAL_NONE && right->type == VAL_NONE) {
+        if (IS_NONE(left) && IS_NONE(right)) {
             jump = false;
-        } else if (left->type == VAL_NONE || right->type == VAL_NONE) {
+        } else if (IS_NONE(left) || IS_NONE(right)) {
             jump = true;
-        } else {
-            switch (left->type) {
-                case VAL_NUMBER: jump = (left->number != right->number); break;
-                case VAL_STRING: jump = !string_equal(left->string, right->string); break;
-                case VAL_BOOL:   jump = (left->boolean != right->boolean); break;
-                default: break;
-            }
+        } else if (IS_NUMBER(left) && IS_NUMBER(right)) {
+            jump = (AS_NUMBER(left) != AS_NUMBER(right));
+        } else if (IS_STRING(left) && IS_STRING(right)) {
+            jump = !string_equal(AS_STRING(left), AS_STRING(right));
+        } else if (IS_BOOL(left) && IS_BOOL(right)) {
+            jump = (AS_BOOL(left) != AS_BOOL(right));
         }
         if (jump) {
             ip = &vm->code[target];
@@ -1700,16 +1628,16 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             return false;
         }
         int reg = ip->operands[0];
-        Value* src = &vm->registers[reg];
-        vm->args_stack[vm->args_top] = *src;
-        value_incref(&vm->args_stack[vm->args_top]);
+        Value src = vm->registers[reg];
+        vm->args_stack[vm->args_top] = src;
+        value_incref(vm->args_stack[vm->args_top]);
         vm->args_top++;
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_HALT_LABEL: vm->running = false; return !vm->had_error;
     OP_LOAD_BOOL_LABEL: {
         int dest = ip->operands[0];
-        regs[dest].type = VAL_BOOL; regs[dest].boolean = ip->operands[1] != 0;
+        regs[dest] = MAKE_BOOL(ip->operands[1] != 0);
         ip++; goto *dispatch_table[ip->opcode];
     }
     return !vm->had_error;

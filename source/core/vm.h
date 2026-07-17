@@ -3,6 +3,8 @@
 
 #include "bytecode.h"
 #include <stdbool.h>
+#include <stdint.h>
+#include <math.h>
 
 // ========== VM Configuration Constants ==========
 
@@ -28,14 +30,69 @@
 // helper macro for total table entry count
 #define TABLE_TOTAL_COUNT(t) ((t)->array_count + (t)->hash_count)
 
-// ========== Value Types ==========
+// ========== NaN Boxing Value Representation ==========
+// uses IEEE 754 double NaN space to encode type tags in the mantissa bits
+// quiet NaN has bits 51 set, we use bits 48-50 for type tags
+
+#define SIGN_BIT        ((uint64_t)0x8000000000000000ULL)
+#define QNAN            ((uint64_t)0x7FF8000000000000ULL)
+
+// type tags stored in bits 48-50 of the NaN mantissa
+#define TAG_NONE        ((uint64_t)0)
+#define TAG_NULL        ((uint64_t)1)
+#define TAG_BOOL        ((uint64_t)2)
+#define TAG_STRING      ((uint64_t)3)
+#define TAG_TABLE       ((uint64_t)4)
+#define TAG_FUNCTION    ((uint64_t)5)
+#define TAG_NAN         ((uint64_t)6)
+
+// mask for extracting type tag (bits 48-50)
+#define TAG_MASK        ((uint64_t)0x7)
+#define TAG_SHIFT       ((uint64_t)48)
+
+// helper macros for constructing tagged values
+#define MAKE_QNAN(tag)       (QNAN | ((uint64_t)(tag) << TAG_SHIFT))
+#define MAKE_STRING(p)       (MAKE_QNAN(TAG_STRING) | ((uint64_t)(uintptr_t)(p) & ((uint64_t)0x0000FFFFFFFFFFFFULL)))
+#define MAKE_TABLE(p)        (MAKE_QNAN(TAG_TABLE)  | ((uint64_t)(uintptr_t)(p) & ((uint64_t)0x0000FFFFFFFFFFFFULL)))
+#define MAKE_FUNCTION(idx)   (MAKE_QNAN(TAG_FUNCTION) | ((uint64_t)(idx) & ((uint64_t)0x00000000FFFFFFFFULL)))
+#define MAKE_NONE()          (MAKE_QNAN(TAG_NONE))
+#define MAKE_BOOL(b)         (MAKE_QNAN(TAG_BOOL) | ((b) ? ((uint64_t)1) : ((uint64_t)0)))
+#define MAKE_NUMBER(n) ({ \
+    double _n = (n); \
+    uint64_t _u; \
+    if (isnan(_n)) { \
+        _u = MAKE_QNAN(TAG_NAN); \
+    } else { \
+        memcpy(&_u, &_n, 8); \
+    } \
+    _u; \
+})
+
+// extraction macros
+#define GET_TYPE(v)          (((v) & QNAN) == QNAN ? (ValueType_VM)(((v) >> TAG_SHIFT) & TAG_MASK) : VAL_NUMBER)
+#define AS_NUMBER(v)         (IS_NAN(v) ? NAN : ({ uint64_t _v = (v); double _d; memcpy(&_d, &_v, 8); _d; }))
+#define AS_STRING(v)         ((StringObject*)(uintptr_t)((v) & ((uint64_t)0x0000FFFFFFFFFFFFULL)))
+#define AS_TABLE(v)          ((Table*)(uintptr_t)((v) & ((uint64_t)0x0000FFFFFFFFFFFFULL)))
+#define AS_FUNCTION(v)       ((int)((v) & ((uint64_t)0x00000000FFFFFFFFULL)))
+#define AS_BOOL(v)           (((v) & 1) != 0)
+
+// type check macros
+#define IS_NUMBER(v)         (((v) & QNAN) != QNAN)
+#define IS_NAN(v)            (((v) & (QNAN | (TAG_MASK << TAG_SHIFT))) == MAKE_QNAN(TAG_NAN))
+#define IS_NONE(v)           ((v) == MAKE_QNAN(TAG_NONE))
+#define IS_BOOL(v)           (((v) & (QNAN | (TAG_MASK << TAG_SHIFT))) == MAKE_QNAN(TAG_BOOL))
+#define IS_STRING(v)         (((v) & (QNAN | (TAG_MASK << TAG_SHIFT))) == MAKE_QNAN(TAG_STRING))
+#define IS_TABLE(v)          (((v) & (QNAN | (TAG_MASK << TAG_SHIFT))) == MAKE_QNAN(TAG_TABLE))
+#define IS_FUNCTION(v)       (((v) & (QNAN | (TAG_MASK << TAG_SHIFT))) == MAKE_QNAN(TAG_FUNCTION))
+
+// value type enum kept for compatibility
 typedef enum {
-    VAL_NUMBER,          // double-precision floating point
-    VAL_STRING,          // interned string object
-    VAL_NONE,            // null/nil value
-    VAL_BOOL,            // boolean true or false
-    VAL_TABLE,           // table/array with both hash and array parts
-    VAL_FUNCTION,        // compiled function reference (by address)
+    VAL_NUMBER,          // double-precision floating point (unboxed)
+    VAL_STRING,          // interned string object (pointer tagged in NaN)
+    VAL_NONE,            // null/nil value (tagged NaN)
+    VAL_BOOL,            // boolean true or false (tagged NaN)
+    VAL_TABLE,           // table/array (pointer tagged in NaN)
+    VAL_FUNCTION,        // compiled function reference (tagged NaN)
 } ValueType_VM;
 
 // reference counting header for garbage-collected objects
@@ -53,18 +110,8 @@ typedef struct StringObject {
     char chars[];            // flexible array member for the actual string data
 } StringObject;
 
-// value union that can hold any runtime type
-typedef struct Value {
-    ValueType_VM type;
-    union {
-        double number;
-        bool boolean;
-        int function_addr;   // bytecode address for function calls
-        StringObject* string;
-        struct Table* table;
-        int function_index;
-    };
-} Value;
+// value is now a single 64-bit integer using NaN boxing
+typedef uint64_t Value;
 
 // hash table entry with chaining for collisions
 typedef struct TableEntry {
@@ -102,7 +149,7 @@ typedef struct {
 
 // main virtual machine state with registers, call stack, and execution context
 typedef struct {
-    Value* register_frames;  // flattened array of all register frames
+    Value* register_frames;  // flattened array of all register frames (now Value = uint64_t)
     Value* registers;        // pointer to current frame's registers
     int current_frame;       // index of the current frame in call_stack
     int register_count;      // total registers allocated for all frames
@@ -144,32 +191,32 @@ typedef struct {
     const char* source;       // source code for error reporting
 } VM;
 
-// creates a value from a double number
+// creates a value from a double number (stored unboxed if not NaN)
 Value vm_make_number(double value);
 
-// creates a value from a string (interns it)
+// creates a value from a string (interns it, stores pointer in NaN box)
 Value vm_make_string(const char* value);
 
-// creates a none/null value (represents absence of a value)
+// creates a none/null value (special NaN tag)
 Value vm_make_none(void);
 
-// creates a boolean value
+// creates a boolean value (special NaN tag with boolean payload)
 Value vm_make_bool(bool value);
 
-// creates a new empty table value
-Value vm_make_table();
+// creates a new empty table value (pointer in NaN box)
+Value vm_make_table(void);
 
 // copies a value with proper reference counting
 Value vm_copy_value(Value value);
 
 // decrements reference count and frees if zero
-void vm_free_value(Value* value);
+void vm_free_value(Value value);
 
 // returns a human-readable type name for a value
-const char* vm_value_type_name(Value* value);
+const char* vm_value_type_name(Value value);
 
 // prints a value to stdout for debugging
-void vm_print_value(Value* value);
+void vm_print_value(Value value);
 
 // creates a new table with the given initial hash capacity
 Table* table_create(int capacity);
@@ -246,10 +293,16 @@ void vm_destroy(VM* vm);
 // executes the given bytecode chunk in the vm
 bool vm_execute(VM* vm, BytecodeChunk* chunk);
 
-// increments the reference count of a value
-void value_incref(Value* v);
+// increments the reference count of a value (only for heap-allocated types)
+void value_incref(Value v);
 
-// decrements the reference count of a value
-void value_decref(Value* v);
+// decrements the reference count of a value (only for heap-allocated types)
+void value_decref(Value v);
+
+// returns the type of a NaN-boxed value
+ValueType_VM value_get_type(Value v);
+
+// creates a new string object (not interned, caller owns the reference)
+StringObject* string_create(const char* chars, int length);
 
 #endif // VM_H

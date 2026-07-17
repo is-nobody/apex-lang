@@ -1,3 +1,4 @@
+#include "ffi_module.h"
 #include "vm.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,13 +16,21 @@
     typedef void* LibHandle;
 #endif
 
+// helper to create an interned string value
+static Value make_string_val(VM* vm, const char* str) {
+    (void)vm;
+    int len = (int)strlen(str);
+    if (len >= 16 && len <= 64 && vm->intern_table.count < 50000) {
+        return MAKE_STRING(string_intern(&vm->intern_table, str, len));
+    }
+    return MAKE_STRING(string_create(str, len));
+}
+
 // dispatcher for foreign function interface built-ins
 bool ffi_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
-    (void)vm;
-
     if (strcmp(name, "ffi.open") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_STRING) {
-            const char* path = args[0].string->chars;
+        if (arg_count >= 1 && IS_STRING(args[0])) {
+            const char* path = AS_STRING(args[0])->chars;
             char full_path[4096];
             
             if (strchr(path, '/') == NULL && strchr(path, '\\') == NULL) {
@@ -31,47 +40,49 @@ bool ffi_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
 
             void* handle = dlopen(path, RTLD_LAZY);
             if (!handle) {
-                *result = vm_make_none();
+                *result = MAKE_NONE();
             } else {
-                *result = vm_make_table();
-                Value k1 = vm_make_string("_handle"); table_set(result->table, k1, vm_make_number((double)(uintptr_t)handle)); value_decref(&k1);
-                Value k2 = vm_make_string("path"); table_set(result->table, k2, vm_make_string(args[0].string->chars)); value_decref(&k2);
+                Table* t = table_create(8);
+                *result = MAKE_TABLE(t);
+                Value k1 = make_string_val(vm, "_handle"); table_set(t, k1, MAKE_NUMBER((double)(uintptr_t)handle)); value_decref(k1);
+                Value k2 = make_string_val(vm, "path"); table_set(t, k2, MAKE_STRING(string_intern(&vm->intern_table, AS_STRING(args[0])->chars, AS_STRING(args[0])->length))); value_decref(k2);
             }
         } else {
-            *result = vm_make_none();
+            *result = MAKE_NONE();
         }
         return true;
     }
 
     if (strcmp(name, "ffi.call") == 0) {
         if (arg_count < 2) {
-            *result = vm_make_none();
+            *result = MAKE_NONE();
             return true;
         }
 
-        Value* lib_val = &args[0];
-        Value* name_val = &args[1];
+        Value lib_val = args[0];
+        Value name_val = args[1];
 
-        if (lib_val->type != VAL_TABLE || name_val->type != VAL_STRING) {
-            *result = vm_make_none();
+        if (!IS_TABLE(lib_val) || !IS_STRING(name_val)) {
+            *result = MAKE_NONE();
             return true;
         }
 
-        Value k_handle = vm_make_string("_handle");
+        Value k_handle = make_string_val(vm, "_handle");
         Value handle_val;
-        bool has_handle = table_get(lib_val->table, k_handle, &handle_val);
-        value_decref(&k_handle);
-        if (!has_handle || handle_val.type != VAL_NUMBER) {
-            *result = vm_make_none();
+        bool has_handle = table_get(AS_TABLE(lib_val), k_handle, &handle_val);
+        value_decref(k_handle);
+        if (!has_handle || !IS_NUMBER(handle_val)) {
+            *result = MAKE_NONE();
             return true;
         }
 
-        LibHandle handle = (LibHandle)(uintptr_t)handle_val.number;
-        const char* func_name = name_val->string->chars;
+        LibHandle handle = (LibHandle)(uintptr_t)AS_NUMBER(handle_val);
+        value_decref(handle_val);
+        const char* func_name = AS_STRING(name_val)->chars;
         
         void* func_ptr = dlsym(handle, func_name);
         if (!func_ptr) {
-            *result = vm_make_none();
+            *result = MAKE_NONE();
             return true;
         }
 
@@ -89,62 +100,62 @@ bool ffi_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
                 res = ((generic_func_0)func_ptr)();
                 break;
             case 1:
-                res = ((generic_func_1)func_ptr)((long)args[2].number);
+                res = ((generic_func_1)func_ptr)((long)AS_NUMBER(args[2]));
                 break;
             case 2:
-                res = ((generic_func_2)func_ptr)((long)args[2].number, (long)args[3].number);
+                res = ((generic_func_2)func_ptr)((long)AS_NUMBER(args[2]), (long)AS_NUMBER(args[3]));
                 break;
             case 3:
-                res = ((generic_func_3)func_ptr)((long)args[2].number, (long)args[3].number, (long)args[4].number);
+                res = ((generic_func_3)func_ptr)((long)AS_NUMBER(args[2]), (long)AS_NUMBER(args[3]), (long)AS_NUMBER(args[4]));
                 break;
             case 4:
-                res = ((generic_func_4)func_ptr)((long)args[2].number, (long)args[3].number, (long)args[4].number, (long)args[5].number);
+                res = ((generic_func_4)func_ptr)((long)AS_NUMBER(args[2]), (long)AS_NUMBER(args[3]), (long)AS_NUMBER(args[4]), (long)AS_NUMBER(args[5]));
                 break;
             default:
-                *result = vm_make_none();
+                *result = MAKE_NONE();
                 return true;
         }
 
-        *result = vm_make_number((double)res);
+        *result = MAKE_NUMBER((double)res);
         return true;
     }
 
     if (strcmp(name, "ffi.errno") == 0) {
-        *result = vm_make_number(errno);
+        *result = MAKE_NUMBER(errno);
         return true;
     }
 
     if (strcmp(name, "ffi.malloc") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            size_t size = (size_t)args[0].number;
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            size_t size = (size_t)AS_NUMBER(args[0]);
             void* ptr = malloc(size);
             if (ptr) {
-                *result = vm_make_number((double)(uintptr_t)ptr);
+                *result = MAKE_NUMBER((double)(uintptr_t)ptr);
             } else {
-                *result = vm_make_none();
+                *result = MAKE_NONE();
             }
         } else {
-            *result = vm_make_none();
+            *result = MAKE_NONE();
         }
         return true;
     }
 
     if (strcmp(name, "ffi.free") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            void* ptr = (void*)(uintptr_t)args[0].number;
-            free(ptr);  // safe for NULL
-            *result = vm_make_bool(true);
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            void* ptr = (void*)(uintptr_t)AS_NUMBER(args[0]);
+            free(ptr);
+            *result = MAKE_BOOL(true);
         } else {
-            *result = vm_make_none();
+            *result = MAKE_NONE();
         }
         return true;
     }
 
     if (strcmp(name, "ffi.strerror") == 0) {
-        if (arg_count >= 1 && args[0].type == VAL_NUMBER) {
-            *result = vm_make_string(strerror((int)args[0].number));
+        if (arg_count >= 1 && IS_NUMBER(args[0])) {
+            *result = make_string_val(vm, strerror((int)AS_NUMBER(args[0])));
         } else {
-            *result = vm_make_string(strerror(errno));
+            *result = make_string_val(vm, strerror(errno));
         }
         return true;
     }

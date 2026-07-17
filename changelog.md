@@ -11,6 +11,7 @@
 - Tables no longer perform automatic conversion between numbers and strings for lookups or assignments.
 - Local variable optimization: variables preferentially compiled as local registers; globals reserved for module exports.
 - Renamed `string.len` to `string.length` for clarity and consistency.
+- Internal value representation switched to NaN-boxing: all runtime values (numbers, strings, tables, booleans, none, functions) are stored in a single 64-bit field using IEEE 754 NaN space for type tagging, reducing memory usage and improving cache locality.
 
 ## New Features
 - Multi-language support: variable names, string literals, and error reporting fully support UTF-8.

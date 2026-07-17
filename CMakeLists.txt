@@ -162,4 +162,8 @@ cmake -S . -B build/windows \
     -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc
 
 cmake --build build/windows --parallel
+
+# build debug version
+cmake -S . -B build/debug -DCMAKE_BUILD_TYPE=Debug
+cmake --build build/debug --parallel
 ]]
