@@ -17,7 +17,6 @@ function table_nested_access()
                 sum = sum + root[i][j][k]
     
     elapsed = os.time() - start
-    os.output("Sum: {sum}, expected 139013875000")
-    os.output("Time: {elapsed} seconds")
+    os.output("Table nested access: {sum}, elapsed {elapsed}")
 
 table_nested_access()

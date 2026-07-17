@@ -9,8 +9,7 @@ function table_copy_1m()
     start = os.time()
     copy = table.copy(t)
     elapsed = os.time() - start
-    os.output("Copy size: {table.size(copy)}, expected 10000000")
-    os.output("Time: {elapsed}")
+    os.output("Copy size: {table.size(copy)}, elapsed {elapsed}")
 
 function table_copy_10m()
     t = []
@@ -20,8 +19,7 @@ function table_copy_10m()
     start = os.time()
     copy = table.copy(t)
     elapsed = os.time() - start
-    os.output("Copy size: {table.size(copy)}, expected 10000000")
-    os.output("Time: {elapsed}")
+    os.output("Copy size: {table.size(copy)}, elapsed {elapsed}")
 
 table_copy_1m()
 table_copy_10m()

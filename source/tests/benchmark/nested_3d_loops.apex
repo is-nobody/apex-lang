@@ -17,7 +17,6 @@ function nested_3d_loops()
                 sum = sum + root[i][j][k]
     
     elapsed = os.time() - start
-    os.output("Sum: {sum}, expected 128787625000")
-    os.output("Time: {elapsed}")
+    os.output("Nested 3D loops: {sum}, elapsed {elapsed}")
 
 nested_3d_loops()

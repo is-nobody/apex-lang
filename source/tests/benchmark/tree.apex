@@ -9,15 +9,13 @@ function tree20()
     start = os.time()
     result = tree_sum(20)
     elapsed = os.time() - start
-    os.output("tree(20) = {result}, expected 1048575")
-    os.output("Time: {elapsed} seconds")
+    os.output("tree(20) = {result}, elapsed {elapsed}")
 
 function tree25()
     start = os.time()
     result = tree_sum(25)
     elapsed = os.time() - start
-    os.output("tree(25) = {result}, expected 33554431")
-    os.output("Time: {elapsed} seconds")
+    os.output("tree(25) = {result}, elapsed {elapsed}")
 
 tree20()
 tree25()

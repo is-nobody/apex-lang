@@ -11,22 +11,19 @@ function ackermann36()
     start = os.time()
     result = ackermann(3, 6)
     elapsed = os.time() - start
-    os.output("Ackermann(3,6) = {result}, expected 509")
-    os.output("Time: {elapsed}")
+    os.output("Ackermann(3,6) = {result}, elapsed {elapsed}")
 
 function ackermann38()
     start = os.time()
     result = ackermann(3, 8)
     elapsed = os.time() - start
-    os.output("Ackermann(3,8) = {result}, expected 2045")
-    os.output("Time: {elapsed}")
+    os.output("Ackermann(3,8) = {result}, elapsed {elapsed}")
 
 function ackermann310()
     start = os.time()
     result = ackermann(3, 10)
     elapsed = os.time() - start
-    os.output("Ackermann(3,10) = {result}, expected 8189")
-    os.output("Time: {elapsed}")
+    os.output("Ackermann(3,10) = {result}, elapsed {elapsed}")
 
 ackermann36()
 ackermann38()

@@ -22,7 +22,6 @@ function string_key_operations()
     
     elapsed = os.time() - start
     os.output("Has key_1: {has1}, expected false, Has key_3: {has3}, expected true")
-    os.output("Table size: {table.size(t)}, expected 499998")
-    os.output("Time: {elapsed} seconds")
+    os.output("Table size: {table.size(t)}, elapsed {elapsed}")
 
 string_key_operations()

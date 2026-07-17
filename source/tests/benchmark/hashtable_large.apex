@@ -12,7 +12,6 @@ function hashtable_large()
         sum = sum + t["item_{i}"]
     
     elapsed = os.time() - start
-    os.output("Sum: {sum}, expected 125000250000")
-    os.output("Time: {elapsed} seconds")
+    os.output("Hashtable large: {sum}, elapsed {elapsed}")
 
 hashtable_large()

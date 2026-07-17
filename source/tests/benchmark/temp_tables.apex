@@ -9,7 +9,6 @@ function temp_tables()
             temp[j] = i * j
         sum = sum + temp[5]
     elapsed = os.time() - start
-    os.output("Sum: {sum}, expected 2500002500000")
-    os.output("Time: {elapsed} seconds")
+    os.output("Temporary tables: {sum}, elapsed {elapsed}")
 
 temp_tables()
