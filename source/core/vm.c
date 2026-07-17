@@ -1076,61 +1076,126 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_ADD_LABEL: {
         int dest = ip->operands[0];
-        Value left = regs[ip->operands[1]];
-        Value right = regs[ip->operands[2]];
-        if (IS_NUMBER(left) && IS_NUMBER(right)) {
-            regs[dest] = MAKE_NUMBER(AS_NUMBER(left) + AS_NUMBER(right));
+        uint64_t left = regs[ip->operands[1]];
+        uint64_t right = regs[ip->operands[2]];
+        
+        double a, b;
+        memcpy(&a, &left, 8);
+        memcpy(&b, &right, 8);
+        double r = a + b;
+        
+        uint64_t result;
+        memcpy(&result, &r, 8);
+        
+        if (((result >> 52) & 0x7FF) == 0x7FF) {
+            if (((left & QNAN) == QNAN) || ((right & QNAN) == QNAN)) {
+                value_decref(regs[dest]);
+                regs[dest] = MAKE_NONE();
+            } else {
+                regs[dest] = result;
+            }
         } else {
-            value_decref(regs[dest]);
-            regs[dest] = MAKE_NONE();
+            regs[dest] = result;
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_SUB_LABEL: {
         int dest = ip->operands[0];
-        Value left = regs[ip->operands[1]];
-        Value right = regs[ip->operands[2]];
-        if (IS_NUMBER(left) && IS_NUMBER(right)) {
-            regs[dest] = MAKE_NUMBER(AS_NUMBER(left) - AS_NUMBER(right));
+        uint64_t left = regs[ip->operands[1]];
+        uint64_t right = regs[ip->operands[2]];
+        
+        double a, b;
+        memcpy(&a, &left, 8);
+        memcpy(&b, &right, 8);
+        double r = a - b;
+        
+        uint64_t result;
+        memcpy(&result, &r, 8);
+        
+        if (((result >> 52) & 0x7FF) == 0x7FF) {
+            if (((left & QNAN) == QNAN) || ((right & QNAN) == QNAN)) {
+                value_decref(regs[dest]);
+                regs[dest] = MAKE_NONE();
+            } else {
+                regs[dest] = result;
+            }
         } else {
-            value_decref(regs[dest]);
-            regs[dest] = MAKE_NONE();
+            regs[dest] = result;
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_MUL_LABEL: {
         int dest = ip->operands[0];
-        Value left = regs[ip->operands[1]];
-        Value right = regs[ip->operands[2]];
-        if (IS_NUMBER(left) && IS_NUMBER(right)) {
-            regs[dest] = MAKE_NUMBER(AS_NUMBER(left) * AS_NUMBER(right));
+        uint64_t left = regs[ip->operands[1]];
+        uint64_t right = regs[ip->operands[2]];
+        
+        double a, b;
+        memcpy(&a, &left, 8);
+        memcpy(&b, &right, 8);
+        double r = a * b;
+        
+        uint64_t result;
+        memcpy(&result, &r, 8);
+        
+        if (((result >> 52) & 0x7FF) == 0x7FF) {
+            if (((left & QNAN) == QNAN) || ((right & QNAN) == QNAN)) {
+                value_decref(regs[dest]);
+                regs[dest] = MAKE_NONE();
+            } else {
+                regs[dest] = result;
+            }
         } else {
-            value_decref(regs[dest]);
-            regs[dest] = MAKE_NONE();
+            regs[dest] = result;
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_DIV_LABEL: {
         int dest = ip->operands[0];
-        Value left = regs[ip->operands[1]];
-        Value right = regs[ip->operands[2]];
-        if (IS_NUMBER(left) && IS_NUMBER(right)) {
-            regs[dest] = MAKE_NUMBER(AS_NUMBER(left) / AS_NUMBER(right));
+        uint64_t left = regs[ip->operands[1]];
+        uint64_t right = regs[ip->operands[2]];
+        
+        double a, b;
+        memcpy(&a, &left, 8);
+        memcpy(&b, &right, 8);
+        double r = a / b;
+        
+        uint64_t result;
+        memcpy(&result, &r, 8);
+        
+        if (((result >> 52) & 0x7FF) == 0x7FF) {
+            if (((left & QNAN) == QNAN) || ((right & QNAN) == QNAN)) {
+                value_decref(regs[dest]);
+                regs[dest] = MAKE_NONE();
+            } else {
+                regs[dest] = result;
+            }
         } else {
-            value_decref(regs[dest]);
-            regs[dest] = MAKE_NONE();
+            regs[dest] = result;
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_MOD_LABEL: {
         int dest = ip->operands[0];
-        Value left = regs[ip->operands[1]];
-        Value right = regs[ip->operands[2]];
-        if (IS_NUMBER(left) && IS_NUMBER(right)) {
-            regs[dest] = MAKE_NUMBER(fmod(AS_NUMBER(left), AS_NUMBER(right)));
+        uint64_t left = regs[ip->operands[1]];
+        uint64_t right = regs[ip->operands[2]];
+        
+        double a, b;
+        memcpy(&a, &left, 8);
+        memcpy(&b, &right, 8);
+        double r = fmod(a, b);
+        
+        uint64_t result;
+        memcpy(&result, &r, 8);
+        
+        if (((result >> 52) & 0x7FF) == 0x7FF) {
+            if (((left & QNAN) == QNAN) || ((right & QNAN) == QNAN)) {
+                value_decref(regs[dest]);
+                regs[dest] = MAKE_NONE();
+            } else {
+                regs[dest] = result;
+            }
         } else {
-            value_decref(regs[dest]);
-            regs[dest] = MAKE_NONE();
+            regs[dest] = result;
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
