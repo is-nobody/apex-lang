@@ -12,13 +12,11 @@
 
 static volatile sig_atomic_t g_should_exit = 0;
 
-// signal handler for clean shutdown on sigint or sigtstp
 static __attribute__((unused)) void signal_handler(int sig) {
     (void)sig;
     g_should_exit = 1;
 }
 
-// sets up signal handlers for interrupt and stop signals
 static void setup_signals(void) {
 #ifndef _WIN32
     struct sigaction sa;
@@ -31,14 +29,43 @@ static void setup_signals(void) {
 #endif
 }
 
-// redraws the current input line with cursor positioning
+// returns the number of bytes in a utf-8 character
+static int utf8_char_bytes(unsigned char c) {
+    if (c < 0x80) return 1;
+    if ((c & 0xE0) == 0xC0) return 2;
+    if ((c & 0xF0) == 0xE0) return 3;
+    if ((c & 0xF8) == 0xF0) return 4;
+    return 1;
+}
+
+// counts characters in a byte string
+static int count_chars(const char* s, int byte_len) {
+    int chars = 0;
+    int i = 0;
+    while (i < byte_len) {
+        i += utf8_char_bytes((unsigned char)s[i]);
+        chars++;
+    }
+    return chars;
+}
+
+// redraws the current input line - cursor_pos is in CHARACTERS
 static void redraw_line(const char* line, int cursor_pos) {
+    int line_chars = count_chars(line, strlen(line));
+    
     printf("\r\033[K> %s", line);
-    printf("\033[%dG", 3 + cursor_pos);
+    
+    int chars_back = line_chars - cursor_pos;
+    
+    if (chars_back > 0) {
+        printf("\033[%dD", chars_back);
+    } else if (chars_back < 0) {
+        printf("\033[%dC", -chars_back);
+    }
+    
     fflush(stdout);
 }
 
-// executes a block of code from a temporary file
 static void execute_code(const char* code, const char* display_name) {
     if (!code || strlen(code) == 0) return;
     
@@ -54,7 +81,6 @@ static void execute_code(const char* code, const char* display_name) {
     free(temp_path);
 }
 
-// runs the interactive read-eval-print loop with line editing
 void repl_run(void) {
     setup_signals();
     printf("Apex 26.07 on %s. Type code, always ready.\n", platform_get_name());
@@ -64,7 +90,7 @@ void repl_run(void) {
     char full_input[MAX_INPUT];
     char line[MAX_LINE];
     int total_len = 0;
-    int pos = 0;
+    int char_pos = 0;
     int byte_pos = 0;
     full_input[0] = '\0';
     line[0] = '\0';
@@ -91,7 +117,7 @@ void repl_run(void) {
         
         // Enter
         if (c == '\r' || c == '\n') {
-            printf("\n");
+            printf("\r\n");
             line[byte_pos] = '\0';
             if (byte_pos > 0) {
                 if (total_len + byte_pos + 2 < MAX_INPUT) {
@@ -102,7 +128,8 @@ void repl_run(void) {
                 }
             }
             byte_pos = 0;
-            pos = 0;
+            char_pos = 0;
+            line[0] = '\0';
             
             if (!terminal_has_input()) {
                 if (total_len > 0) {
@@ -110,47 +137,39 @@ void repl_run(void) {
                 }
                 total_len = 0;
                 full_input[0] = '\0';
-                printf("> ");
-                fflush(stdout);
             }
+            printf("> ");
+            fflush(stdout);
+            continue;
         }
-        else if (c == 127 || c == '\b') {
+        
+        // Backspace
+        if (c == 127 || c == '\b') {
             if (byte_pos > 0) {
                 int start = byte_pos - 1;
-                while (start > 0 && (line[start] & 0xC0) == 0x80) {
+                while (start > 0 && ((unsigned char)line[start] & 0xC0) == 0x80) {
                     start--;
                 }
                 memmove(&line[start], &line[byte_pos], MAX_LINE - byte_pos);
                 byte_pos = start;
+                char_pos = count_chars(line, byte_pos);
                 line[byte_pos] = '\0';
-                pos = 0;
-                int i = 0;
-                while (i < byte_pos) {
-                    unsigned char ch = (unsigned char)line[i];
-                    if ((ch & 0x80) == 0) {
-                        i += 1;
-                    } else if ((ch & 0xE0) == 0xC0) {
-                        i += 2;
-                    } else if ((ch & 0xF0) == 0xE0) {
-                        i += 3;
-                    } else if ((ch & 0xF8) == 0xF0) {
-                        i += 4;
-                    } else {
-                        i += 1;
-                    }
-                    pos++;
-                }
-                redraw_line(line, pos);
+                redraw_line(line, char_pos);
             }
+            continue;
         }
-        else if (c >= 32 && byte_pos < MAX_LINE - 4) {
+        
+        // printable characters
+        if (c >= 32 && byte_pos < MAX_LINE - 4) {
+            memmove(&line[byte_pos + 1], &line[byte_pos], MAX_LINE - byte_pos - 1);
             line[byte_pos++] = c;
             line[byte_pos] = '\0';
-            pos++;
-            redraw_line(line, pos);
+            char_pos = count_chars(line, byte_pos);
+            redraw_line(line, char_pos);
+            continue;
         }
     }
     
     terminal_disable_raw_mode();
-    printf("\n");
+    printf("\r\n");
 }
