@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
+#include <time.h>
 #ifdef _WIN32
 #include <windows.h>
 #include <io.h>
@@ -308,6 +308,41 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
 #endif
         return true;
     }
+
+if (strcmp(name, "sys.date") == 0) {
+    Table* t = table_create(16);
+    *result = MAKE_TABLE(t);
     
+#ifdef _WIN32
+    SYSTEMTIME st;
+    GetSystemTime(&st);
+    
+    table_set(t, make_string_val(vm, "year"), MAKE_NUMBER(st.wYear));
+    table_set(t, make_string_val(vm, "month"), MAKE_NUMBER(st.wMonth));
+    table_set(t, make_string_val(vm, "week"), MAKE_NUMBER(st.wDayOfWeek));
+    table_set(t, make_string_val(vm, "day"), MAKE_NUMBER(st.wDay));
+    table_set(t, make_string_val(vm, "hour"), MAKE_NUMBER(st.wHour));
+    table_set(t, make_string_val(vm, "minute"), MAKE_NUMBER(st.wMinute));
+    table_set(t, make_string_val(vm, "second"), MAKE_NUMBER(st.wSecond));
+    table_set(t, make_string_val(vm, "millisecond"), MAKE_NUMBER(st.wMilliseconds));
+#else
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    struct tm* tm_info = gmtime(&tv.tv_sec);
+    
+    if (tm_info) {
+        table_set(t, make_string_val(vm, "year"), MAKE_NUMBER(tm_info->tm_year + 1900));
+        table_set(t, make_string_val(vm, "month"), MAKE_NUMBER(tm_info->tm_mon + 1));
+        table_set(t, make_string_val(vm, "week"), MAKE_NUMBER(tm_info->tm_wday));
+        table_set(t, make_string_val(vm, "day"), MAKE_NUMBER(tm_info->tm_mday));
+        table_set(t, make_string_val(vm, "hour"), MAKE_NUMBER(tm_info->tm_hour));
+        table_set(t, make_string_val(vm, "minute"), MAKE_NUMBER(tm_info->tm_min));
+        table_set(t, make_string_val(vm, "second"), MAKE_NUMBER(tm_info->tm_sec));
+        table_set(t, make_string_val(vm, "millisecond"), MAKE_NUMBER(tv.tv_usec / 1000));
+    }
+#endif
+    return true;
+}
+
     return false;
 }

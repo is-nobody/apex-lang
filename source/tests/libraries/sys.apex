@@ -99,6 +99,29 @@ function time()
     t = sys.time()
     assert_equal(type(t) == "number", true, "time returns number")
 
+function date()
+    d = sys.date()
+    is_table = type(d) == "table"
+    assert_equal(is_table, true, "date returns table")
+    if is_table == true
+        year_valid = d["year"] >= 2024 and d["year"] <= 2100
+        month_valid = d["month"] >= 1 and d["month"] <= 12
+        week_valid = d["week"] >= 0 and d["week"] <= 6
+        day_valid = d["day"] >= 1 and d["day"] <= 31
+        hour_valid = d["hour"] >= 0 and d["hour"] <= 23
+        minute_valid = d["minute"] >= 0 and d["minute"] <= 59
+        second_valid = d["second"] >= 0 and d["second"] <= 59
+        millisecond_valid = d["millisecond"] >= 0 and d["millisecond"] <= 999
+        
+        assert_equal(year_valid, true, "date year in range")
+        assert_equal(month_valid, true, "date month in range")
+        assert_equal(week_valid, true, "date week in range")
+        assert_equal(day_valid, true, "date day in range")
+        assert_equal(hour_valid, true, "date hour in range")
+        assert_equal(minute_valid, true, "date minute in range")
+        assert_equal(second_valid, true, "date second in range")
+        assert_equal(millisecond_valid, true, "date millisecond in range")
+
 apex_version()
 architecture()
 disksize()
@@ -112,6 +135,7 @@ process_id()
 tempdir()
 user()
 time()
+date()
 
 if tests_failed == 0
     os.output("[OK] libraries/sys.apex")

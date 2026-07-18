@@ -398,6 +398,31 @@ elapsed = end - start
 os.output("Took {elapsed} seconds")
 ```
 
+### sys.date()
+Returns the current UTC date and time as a table. All values are numbers. The table contains the following keys:
+
+- `year` — The current year (e.g., 2026)
+- `month` — The month as a number (1-12)
+- `week` — The day of the week as a number (0 = Sunday, 6 = Saturday)
+- `day` — The day of the month (1-31)
+- `hour` — The hour in 24-hour format (0-23)
+- `minute` — The minute (0-59)
+- `second` — The second (0-59)
+- `millisecond` — The millisecond (0-999)
+
+```apex
+import os
+import sys
+
+now = sys.date()
+
+os.output("Year: {now['year']}")
+os.output("Month: {now['month']}")
+os.output("Day: {now['day']}")
+os.output("Hour: {now['hour']}")
+os.output("Minute: {now['minute']}")
+```
+
 #### sys.platform()
 Returns a string identifying your operating system, such as `"Windows"`, `"macOS"`, `"iOS"`, `"tvOS"`, `"watchOS"`, `"Android"`, `"Linux"`, `"FreeBSD"`, `"OpenBSD"`, `"NetBSD"`, `"QNX"`, or `"Unix"`. Returns `none` if the platform cannot be detected.
 

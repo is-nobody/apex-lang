@@ -10,8 +10,10 @@
 - Strict table key typing: numeric keys and string keys are now distinct and separate.
 - Tables no longer perform automatic conversion between numbers and strings for lookups or assignments.
 - Local variable optimization: variables preferentially compiled as local registers; globals reserved for module exports.
+- New function `sys.date()` that returns a table with elements: `year`, `month`, `week`, `day`, `hour`, `second`, `millisecond` in UTC.
 - Renamed `string.len` to `string.length` for clarity and consistency.
 - Moved `os.time()` to `sys.time()` for better logical organization: time is a system property, not an OS operation.
+- Removed `random.secure_token_bytes` function.
 - Internal value representation switched to NaN-boxing: all runtime values (numbers, strings, tables, booleans, none, functions) are stored in a single 64-bit field using IEEE 754 NaN space for type tagging, reducing memory usage and improving cache locality.
 - String interning now persistent: all interned strings are retained for the lifetime of the VM, eliminating use-after-free bugs and improving string comparison performance.
 - Removed string interning limit: previously, string interning was capped at 50,000 entries, after which strings were allocated individually, causing memory corruption on deallocation.
@@ -33,7 +35,6 @@
 - Ternary expressions: one-line conditional expressions (`value if condition == true else value`).
 - Function equality comparison: `==` and `!=` operators now support comparing function values by reference.
 - Improved `for` loop errors: missing end/step values now report clear messages instead of generic or misleading errors.
-- Removed `random.secure_token_bytes` function.
 - New string functions: `string.isletter()` and `string.isnumber()` with full Unicode support for all scripts (Latin, Cyrillic, Arabic, CJK, Devanagari, and more).
 
 ## Bug Fixes

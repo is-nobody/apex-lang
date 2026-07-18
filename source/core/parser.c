@@ -161,6 +161,7 @@ static const BuiltinSig BUILTINS[] = {
     {"sys.process_id", 0, 0, TYPE_ANY},
     {"sys.environment", 0, 0, TYPE_ANY},
     {"sys.time", 0, 0, TYPE_ANY},
+    {"sys.date", 0, 0, TYPE_ANY},
     {"math.abs", 1, 1, TYPE_NUMBER},
     {"math.floor", 1, 1, TYPE_NUMBER},
     {"math.ceil", 1, 1, TYPE_NUMBER},

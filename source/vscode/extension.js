@@ -119,7 +119,7 @@ function activate(context) {
                 'sys.platform', 'sys.architecture', 'sys.hostname', 'sys.user',
                 'sys.homedir', 'sys.apex_version', 'sys.executable', 
                 'sys.environment', 'sys.disksize', 'sys.tempdir', 
-                'sys.isterminal', 'sys.process_id', 'sys.time',
+                'sys.isterminal', 'sys.process_id', 'sys.time', 'sys.date',
                 'math.abs', 'math.floor', 'math.ceil', 'math.round',
                 'math.sqrt', 'math.exp', 'math.log',
                 'math.sin', 'math.cos', 'math.tan',
