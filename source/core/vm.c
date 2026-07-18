@@ -1226,7 +1226,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_CMP_LT_LABEL: {
         int dest = ip->operands[0];
-        regs[dest] = MAKE_BOOL(AS_NUMBER(regs[ip->operands[1]]) < AS_NUMBER(regs[ip->operands[2]]));
+        du64 a = {.u = regs[ip->operands[1]]};
+        du64 b = {.u = regs[ip->operands[2]]};
+        regs[dest] = MAKE_BOOL(a.d < b.d);
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_CMP_GT_LABEL: {
@@ -1575,7 +1577,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     OP_POP_ITER_LABEL: if (vm->iterator_depth >= 0) vm->iterator_depth--; ip++; goto *dispatch_table[ip->opcode];
     OP_JUMP_IF_LT_LABEL: {
         int target = ip->operands[0];
-        if (AS_NUMBER(regs[ip->operands[1]]) < AS_NUMBER(regs[ip->operands[2]])) {
+        du64 a = {.u = regs[ip->operands[1]]};
+        du64 b = {.u = regs[ip->operands[2]]};
+        if (a.d < b.d) {
             ip = &vm->code[target];
             goto *dispatch_table[ip->opcode];
         }
