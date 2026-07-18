@@ -45,6 +45,7 @@ struct ASTNode {
     ASTNodeType type;
     int line;
     int column;
+    bool in_interpolation;
     
     union {
         // string literal value, duplicated so the node owns its memory

@@ -41,7 +41,11 @@ ASTNode* ast_create_literal_bool(bool value, int line, int column) {
 
 // identifier nodes hold variable or function names, duplicating for ownership
 ASTNode* ast_create_identifier(const char* name, int line, int column) {
-    ASTNode* node = ast_create_node(AST_IDENTIFIER, line, column);
+    ASTNode* node = (ASTNode*)calloc(1, sizeof(ASTNode));
+    node->type = AST_IDENTIFIER;
+    node->line = line;
+    node->column = column;
+    node->in_interpolation = false;
     node->identifier.name = strdup(name);
     return node;
 }
