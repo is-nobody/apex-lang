@@ -58,6 +58,7 @@
 - Simplified string() and number(): unsupported types now consistently return none via default case instead of explicit per-type handling
 - Fixed segmentation fault in parser on binary operator with missing right operand (e.g., `or < c`): added null-check for failed expression parsing.
 - Fixed error highlight length for undefined variables in string interpolation: now correctly includes braces `{var}` in the underline.
+- Fixed register clobbering in nested `and`/`or` with comparisons, returning `none` instead of boolean.
 
 ---
 

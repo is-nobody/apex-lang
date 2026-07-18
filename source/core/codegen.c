@@ -561,9 +561,55 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
             return codegen_identifier(cg, node);
 
         case AST_BINARY: {
+            if (node->binary.op == TOKEN_AND || node->binary.op == TOKEN_OR) {
+                if (node->binary.op == TOKEN_AND) {
+                    int left_reg = codegen_expression(cg, node->binary.left);
+                    int result_reg = alloc_register(cg);
+                    
+                    emit(cg, INST(OP_MOVE, result_reg, left_reg, -1), node->line);
+                    
+                    int jump_idx = emit(cg, INST(OP_JUMP_IF_FALSE, 0, result_reg, -1), node->line);
+                    
+                    int right_reg = codegen_expression(cg, node->binary.right);
+                    emit(cg, INST(OP_MOVE, result_reg, right_reg, -1), node->line);
+                    free_register(cg, right_reg);
+                    
+                    bytecode_patch_jump(cg->chunk, jump_idx, bytecode_current_offset(cg->chunk));
+                    
+                    free_register(cg, left_reg);
+                    return result_reg;
+                } else {
+                    int left_reg = codegen_expression(cg, node->binary.left);
+                    int result_reg = alloc_register(cg);
+                    
+                    emit(cg, INST(OP_MOVE, result_reg, left_reg, -1), node->line);
+                    
+                    int false_reg = alloc_register(cg);
+                    emit(cg, INST2(OP_LOAD_BOOL, false_reg, 0), node->line);
+                    
+                    int cmp_reg = alloc_register(cg);
+                    emit(cg, INST(OP_CMP_EQ, cmp_reg, result_reg, false_reg), node->line);
+                    
+                    int jump_idx = emit(cg, INST(OP_JUMP_IF_FALSE, 0, cmp_reg, -1), node->line);
+                    
+                    free_register(cg, false_reg);
+                    free_register(cg, cmp_reg);
+                    
+                    int right_reg = codegen_expression(cg, node->binary.right);
+                    emit(cg, INST(OP_MOVE, result_reg, right_reg, -1), node->line);
+                    free_register(cg, right_reg);
+                    
+                    bytecode_patch_jump(cg->chunk, jump_idx, bytecode_current_offset(cg->chunk));
+                    
+                    free_register(cg, left_reg);
+                    return result_reg;
+                }
+            }
+            
             int left_reg = codegen_expression(cg, node->binary.left);
             int right_reg = codegen_expression(cg, node->binary.right);
             int result_reg = alloc_register(cg);
+            
             Opcode op;
             switch (node->binary.op) {
                 case TOKEN_PLUS:           op = OP_ADD; break;
@@ -577,8 +623,6 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
                 case TOKEN_GREATER:        op = OP_CMP_GT; break;
                 case TOKEN_LESS_EQUAL:     op = OP_CMP_LTE; break;
                 case TOKEN_GREATER_EQUAL:  op = OP_CMP_GTE; break;
-                case TOKEN_AND:            op = OP_AND; break;
-                case TOKEN_OR:             op = OP_OR; break;
                 default:
                     break;
             }
@@ -587,7 +631,6 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
             free_register(cg, right_reg);
             return result_reg;
         }
-
         case AST_UNARY: {
             int operand_reg = codegen_expression(cg, node->unary.operand);
             int result_reg = alloc_register(cg);
