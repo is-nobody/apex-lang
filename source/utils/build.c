@@ -129,7 +129,9 @@ static void scan_imports(const char* source_dir, const char* filepath,
             }
             module[i] = '\0';
             if (i > 0 && strcmp(module, "os") != 0 && strcmp(module, "math") != 0 &&
-                strcmp(module, "string") != 0 && strcmp(module, "table") != 0) {
+                strcmp(module, "string") != 0 && strcmp(module, "table") != 0 &&
+                strcmp(module, "sys") != 0 && strcmp(module, "ffi") != 0 &&
+                strcmp(module, "random") != 0 && strcmp(module, "codecs") != 0) {
                 char resolved[4096];
                 if (resolve_module_path(source_dir, module, resolved, sizeof(resolved))) {
                     bool found = false;
