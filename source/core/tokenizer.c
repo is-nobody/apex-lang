@@ -119,7 +119,10 @@ static char advance(Tokenizer* tokenizer) {
         tokenizer->line++;
         tokenizer->column = 1;
     } else {
-        tokenizer->column++;
+        unsigned char uc = (unsigned char)c;
+        if (uc < 0x80 || uc >= 0xC0) {
+            tokenizer->column++;
+        }
     }
     return c;
 }

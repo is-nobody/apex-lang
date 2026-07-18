@@ -39,28 +39,44 @@ static const char* binary_op_name(TokenType op);
 static ASTNode* parse_call(Parser* parser, ASTNode* callee);
 static void parser_check_condition(Parser* parser, ASTNode* condition, const char* context);
 
-// estimates the source length of a node for error reporting
+// helper for counting utf-8 characters
+static size_t utf8_char_len(const char* s) {
+    if (!s) return 0;
+    size_t len = 0;
+    while (*s) {
+        unsigned char c = (unsigned char)*s;
+        if (c < 0x80) s += 1;
+        else if ((c & 0xE0) == 0xC0) s += 2;
+        else if ((c & 0xF0) == 0xE0) s += 3;
+        else if ((c & 0xF8) == 0xF0) s += 4;
+        else s += 1;
+        len++;
+    }
+    return len;
+}
+
+// estimates the source length of a node for error reporting (in characters)
 static int get_node_len(ASTNode* node) {
     if (!node) return 1;
     switch (node->type) {
         case AST_LITERAL_STRING:
-            return (int)strlen(node->literal_string.string_value) + 2;
+            return (int)utf8_char_len(node->literal_string.string_value) + 2;
         case AST_LITERAL_NONE:
             return 4;
         case AST_IDENTIFIER:
-            return (int)strlen(node->identifier.name);
+            return (int)utf8_char_len(node->identifier.name);
         case AST_LITERAL_BOOL:
             return node->literal_bool.bool_value ? 4 : 5;
         case AST_LITERAL_NUMBER: {
             char buf[64];
             snprintf(buf, sizeof(buf), "%g", node->literal_number.number_value);
-            return (int)strlen(buf);
+            return (int)utf8_char_len(buf);
         }
         case AST_BINARY: {
             int left_len = get_node_len(node->binary.left);
             int right_len = get_node_len(node->binary.right);
             const char* op_str = binary_op_name(node->binary.op);
-            return left_len + (int)strlen(op_str) + right_len + 2;
+            return left_len + (int)utf8_char_len(op_str) + right_len + 2;
         }
         case AST_UNARY:
             return get_node_len(node->unary.operand) + (node->unary.op == TOKEN_NOT ? 4 : 1);
@@ -262,7 +278,7 @@ void parser_error_at(Parser* parser, int line, int column, int len,
 // reports a parse error at the current token position
 void parser_error(Parser* parser, const char* message) {
     Token* token = current_token(parser);
-    int len = token->value ? (int)strlen(token->value) : 1;
+    int len = token->value ? (int)utf8_char_len(token->value) : 1;
     parser_error_at(parser, token->line, token->column, len, "%s", message);
 }
 
@@ -530,7 +546,7 @@ static void parser_validate_import_file(Parser* parser, const char* module_path,
     #else
     if (access(full_path, F_OK) != 0) {
     #endif
-        parser_error_at(parser, line, column, (int)strlen(module_path),
+        parser_error_at(parser, line, column, (int)utf8_char_len(module_path),
                         "Module '%s' not found (expected '%s')", module_path, full_path);
     }
 }
@@ -1057,7 +1073,8 @@ static ValueType infer_index_access_type(Parser* parser, ASTNode* node) {
     ValueType object_type = infer_expression_type(parser, node->access.object);
     if (object_type == TYPE_ERROR) return TYPE_ERROR;
     if (object_type != TYPE_TABLE && object_type != TYPE_UNKNOWN && object_type != TYPE_ANY) {
-        int obj_len = (node->access.object->type == AST_IDENTIFIER) ? (int)strlen(node->access.object->identifier.name) : 0;
+        int obj_len = (node->access.object->type == AST_IDENTIFIER) ? 
+                      (int)utf8_char_len(node->access.object->identifier.name) : 0;
         parser_error_at(parser, node->line, node->column, obj_len,
             "Cannot access element of non-table type %s", type_name(object_type));
         return TYPE_ERROR;
@@ -1089,7 +1106,7 @@ static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
             if (is_known_builtin_module(name)) {
                 return TYPE_UNKNOWN;
             }
-            parser_error_at(parser, node->line, node->column, (int)strlen(name),
+            parser_error_at(parser, node->line, node->column, (int)utf8_char_len(name),
                             "Undefined variable or function '%s'", name);
             return TYPE_ERROR;
         }
@@ -1361,11 +1378,11 @@ static ASTNode* parse_string(Parser* parser) {
             
             if (next_char == '{' || next_char == '}') {
                 if (p > start) {
-                    int len = (int)(p - start);
-                    char* lit = (char*)malloc(len + 1);
-                    strncpy(lit, start, len);
-                    lit[len] = '\0';
-                    if (len > 0) {
+                    int byte_len = (int)(p - start);
+                    char* lit = (char*)malloc(byte_len + 1);
+                    strncpy(lit, start, byte_len);
+                    lit[byte_len] = '\0';
+                    if (byte_len > 0) {
                         ASTNode* str_node = ast_create_literal_string(lit, token->line + line_offset, token->column);
                         ast_list_add(parts, str_node);
                     }
@@ -1373,7 +1390,9 @@ static ASTNode* parse_string(Parser* parser) {
                 }
                 
                 char escaped_char[2] = { next_char, '\0' };
-                ASTNode* char_node = ast_create_literal_string(escaped_char, token->line + line_offset, token->column + (int)(p - value));
+                int char_offset = (int)utf8_char_len(value) - (int)utf8_char_len(p) + 1;
+                ASTNode* char_node = ast_create_literal_string(escaped_char, token->line + line_offset, 
+                                                               token->column + char_offset);
                 ast_list_add(parts, char_node);
                 
                 p += 2;
@@ -1384,11 +1403,11 @@ static ASTNode* parse_string(Parser* parser) {
             p++; 
         } else if (*p == '{') {
             if (p > start) {
-                int len = (int)(p - start);
-                char* lit = (char*)malloc(len + 1);
-                strncpy(lit, start, len);
-                lit[len] = '\0';
-                if (len > 0) {
+                int byte_len = (int)(p - start);
+                char* lit = (char*)malloc(byte_len + 1);
+                strncpy(lit, start, byte_len);
+                lit[byte_len] = '\0';
+                if (byte_len > 0) {
                     ASTNode* str_node = ast_create_literal_string(lit, token->line + line_offset, token->column);
                     ast_list_add(parts, str_node);
                 }
@@ -1404,7 +1423,8 @@ static ASTNode* parse_string(Parser* parser) {
                 strncpy(expr_str, expr_start, expr_len);
                 expr_str[expr_len] = '\0';
                 
-                int absolute_col = token->column + 1 + (int)(expr_start - value);
+                int absolute_col = token->column + (int)utf8_char_len(value) - 
+                                  (int)utf8_char_len(p) + 1;
 
                 ASTNode* expr_node = parse_string_expression(parser, expr_str,
                     token->line + line_offset,
@@ -1486,7 +1506,7 @@ static ASTNode* parse_table_literal(Parser* parser) {
             } else {
                 if (has_key_values) {
                     Token* bad_token = current_token(parser);
-                    int len = bad_token->value ? (int)strlen(bad_token->value) : 1;
+                    int len = bad_token->value ? (int)utf8_char_len(bad_token->value) : 1;
                     if (bad_token->type == TOKEN_STRING) len += 2;
                     
                     parser_error_at(parser, bad_token->line, bad_token->column, len,
@@ -1551,7 +1571,7 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
     
     if (!is_module) {
         parser_error_at(parser, token->line, token->column, 
-                       token->value ? (int)strlen(token->value) : 1,
+                       token->value ? (int)utf8_char_len(token->value) : 1,
             "Dot access is restricted to imported modules. Use bracket notation '[]' for table access.");
         if (token->type == TOKEN_IDENTIFIER || token->type == TOKEN_NUMBER) 
             advance(parser);
@@ -1588,7 +1608,7 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
                 return parse_call(parser, access_node);
             } else {
                 parser_error_at(parser, member_line, member_col, 
-                              (int)strlen(member_name),
+                              (int)utf8_char_len(member_name),
                               "Function '%s' must be called with parentheses '()'",
                               full_name);
                 free(member_name);
@@ -1597,7 +1617,7 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
         } else if (is_variable) {
             if (check(parser, TOKEN_LPAREN)) {
                 parser_error_at(parser, member_line, member_col, 
-                              (int)strlen(member_name),
+                              (int)utf8_char_len(member_name),
                               "Variable '%s' cannot be called with parentheses",
                               full_name);
                 free(member_name);
@@ -1829,7 +1849,7 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
     consume(parser, TOKEN_EQUAL, "Expected '=' in assignment");
     
     if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF)) {
-        parser_error_at(parser, name->line, name->column + (int)strlen(name->value) + 1, 1,
+        parser_error_at(parser, name->line, name->column + (int)utf8_char_len(name->value) + 1, 1,
                        "Expected expression after '='");
         return ast_create_var_assign(name->value, NULL, !parser_is_declared(parser, name->value), NULL,
                                     name->line, name->column);
@@ -1838,7 +1858,7 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
     ASTNode* value = parse_expression(parser);
     
     if (!value) {
-        parser_error_at(parser, name->line, name->column + (int)strlen(name->value) + 1, 1,
+        parser_error_at(parser, name->line, name->column + (int)utf8_char_len(name->value) + 1, 1,
                        "Expected expression after '='");
         return ast_create_var_assign(name->value, NULL, !parser_is_declared(parser, name->value), NULL,
                                     name->line, name->column);
@@ -1868,7 +1888,7 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
         int idx = symbol_index_recursive(parser, name->value);
         if (parser->symbols.kinds[idx] != PARSER_SYM_VARIABLE &&
             parser->symbols.kinds[idx] != PARSER_SYM_PARAMETER) {
-            parser_error_at(parser, name->line, name->column, (int)strlen(name->value),
+            parser_error_at(parser, name->line, name->column, (int)utf8_char_len(name->value),
                 "Cannot assign to '%s' (not a variable)", name->value);
         } else if (value) {
             ValueType new_type = infer_expression_type(parser, value);
@@ -1922,7 +1942,7 @@ static ASTNode* parse_function(Parser* parser) {
 
     parser->function_depth++;
     if (parser->function_depth > APEX_MAX_CALL_DEPTH) {
-        parser_error_at(parser, name->line, name->column, (int)strlen(name->value),
+        parser_error_at(parser, name->line, name->column, (int)utf8_char_len(name->value),
             "Function nesting exceeds maximum depth of %d", APEX_MAX_CALL_DEPTH);
     }
     parser_enter_scope(parser);
@@ -2036,7 +2056,7 @@ static ASTNode* parse_for_statement(Parser* parser) {
 
     if (!check(parser, TOKEN_IDENTIFIER)) {
         Token* bad_token = current_token(parser);
-        int len = bad_token->value ? (int)strlen(bad_token->value) : 1;
+        int len = bad_token->value ? (int)utf8_char_len(bad_token->value) : 1;
         if (bad_token->type == TOKEN_STRING) {
             len += 2;
         }
@@ -2074,7 +2094,7 @@ static ASTNode* parse_for_statement(Parser* parser) {
             if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF) || 
                 check(parser, TOKEN_INDENT)) {
                 parser_error_at(parser, next->line, next->column, 
-                            next->value ? (int)strlen(next->value) : 1,
+                            next->value ? (int)utf8_char_len(next->value) : 1,
                             "Expected end value after ','");
                 free(var_name);
                 var_name = NULL;
@@ -2093,7 +2113,7 @@ static ASTNode* parse_for_statement(Parser* parser) {
                         check(parser, TOKEN_INDENT)) {
                         Token* bad = current_token(parser);
                         parser_error_at(parser, bad->line, bad->column, 
-                                    bad->value ? (int)strlen(bad->value) : 1,
+                                    bad->value ? (int)utf8_char_len(bad->value) : 1,
                                     "Expected step value after ','");
                     } else {
                         step = parse_expression(parser);
@@ -2379,7 +2399,7 @@ static ASTNode* parse_block(Parser* parser, bool require_indent, const char* aft
             ASTNode* last = statements->nodes[statements->count - 1];
             if (last->type == AST_RETURN_STMT || last->type == AST_BREAK_STMT || last->type == AST_CONTINUE_STMT) {
                 Token* tok = current_token(parser);
-                parser_error_at(parser, tok->line, tok->column, tok->value ? (int)strlen(tok->value) : 1,
+                parser_error_at(parser, tok->line, tok->column, tok->value ? (int)utf8_char_len(tok->value) : 1,
                                 "Unreachable code after control flow statement");
                 while (!check(parser, TOKEN_EOF) && !check(parser, TOKEN_DEDENT)) advance(parser);
                 break;
@@ -2392,7 +2412,8 @@ static ASTNode* parse_block(Parser* parser, bool require_indent, const char* aft
         
         if (parser->current == before && !check(parser, TOKEN_EOF) && !check(parser, TOKEN_DEDENT)) {
             Token* tok = current_token(parser);
-            parser_error_at(parser, tok->line, tok->column, tok->value ? (int)strlen(tok->value) : 1, "Unexpected token in block");
+            parser_error_at(parser, tok->line, tok->column, tok->value ? (int)utf8_char_len(tok->value) : 1, 
+                          "Unexpected token in block");
             advance(parser);
         }
         skip_newlines(parser);
