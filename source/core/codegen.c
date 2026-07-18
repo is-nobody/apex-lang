@@ -624,7 +624,9 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
                 case TOKEN_LESS_EQUAL:     op = OP_CMP_LTE; break;
                 case TOKEN_GREATER_EQUAL:  op = OP_CMP_GTE; break;
                 default:
-                    break;
+                    free_register(cg, left_reg);
+                    free_register(cg, right_reg);
+                    return result_reg;
             }
             emit(cg, INST(op, result_reg, left_reg, right_reg), node->line);
             free_register(cg, left_reg);
