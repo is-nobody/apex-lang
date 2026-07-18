@@ -232,40 +232,75 @@ int build_command(int argc, char** argv) {
         strcat(final_output, ".exe");
     }
 
-    char stub_filename[256];
-    get_stub_filename(target.os, target.arch, stub_filename, sizeof(stub_filename));
+    char source_to_read[4096];
+    long self_size;
+    char* self_code;
 
-    char self_path[4096];
+    if (target_os) {
+        // explicit os/arch — find stub by name next to the binary (old behavior)
+        char stub_filename[256];
+        get_stub_filename(target.os, target.arch, stub_filename, sizeof(stub_filename));
+
+        char self_path[4096];
 #ifdef _WIN32
-    GetModuleFileNameA(NULL, self_path, sizeof(self_path));
+        GetModuleFileNameA(NULL, self_path, sizeof(self_path));
 #else
-    ssize_t len = readlink("/proc/self/exe", self_path, sizeof(self_path) - 1);
-    if (len == -1) {
-        if (!realpath(argv[0], self_path)) {
-            fprintf(stderr, "\033[31mError: Cannot resolve executable path\033[0m\n");
+        ssize_t len = readlink("/proc/self/exe", self_path, sizeof(self_path) - 1);
+        if (len == -1) {
+            if (!realpath(argv[0], self_path)) {
+                fprintf(stderr, "\033[31mError: Cannot resolve executable path\033[0m\n");
+                return 1;
+            }
+        } else {
+            self_path[len] = '\0';
+        }
+#endif
+
+        char exe_dir[4096];
+        strncpy(exe_dir, self_path, sizeof(exe_dir));
+        char* last_slash = strrchr(exe_dir, '/');
+        char* last_backslash = strrchr(exe_dir, '\\');
+        if (last_backslash > last_slash) last_slash = last_backslash;
+        if (last_slash) *last_slash = '\0';
+        else strcpy(exe_dir, ".");
+
+        snprintf(source_to_read, sizeof(source_to_read), "%s/%s", exe_dir, stub_filename);
+
+        self_code = read_file(source_to_read, &self_size);
+        if (!self_code) {
+            fprintf(stderr, "\033[31mError: Cannot read stub '%s'. Ensure it is compiled and placed next to the apex binary.\033[0m\n", source_to_read);
             return 1;
         }
     } else {
-        self_path[len] = '\0';
-    }
+        // no explicit os/arch — use current executable as stub
+#ifdef _WIN32
+        if (GetModuleFileNameA(NULL, source_to_read, sizeof(source_to_read)) == 0) {
+            fprintf(stderr, "\033[31mError: Cannot resolve executable path\033[0m\n");
+            return 1;
+        }
+#elif __linux__
+        ssize_t len = readlink("/proc/self/exe", source_to_read, sizeof(source_to_read) - 1);
+        if (len == -1) {
+            fprintf(stderr, "\033[31mError: Cannot resolve executable path\033[0m\n");
+            return 1;
+        }
+        source_to_read[len] = '\0';
+#elif __APPLE__
+        uint32_t size = sizeof(source_to_read);
+        if (_NSGetExecutablePath(source_to_read, &size) != 0) {
+            fprintf(stderr, "\033[31mError: Cannot resolve executable path\033[0m\n");
+            return 1;
+        }
+#else
+        fprintf(stderr, "\033[31mError: Unsupported platform\033[0m\n");
+        return 1;
 #endif
 
-    char exe_dir[4096];
-    strncpy(exe_dir, self_path, sizeof(exe_dir));
-    char* last_slash = strrchr(exe_dir, '/');
-    char* last_backslash = strrchr(exe_dir, '\\');
-    if (last_backslash > last_slash) last_slash = last_backslash;
-    if (last_slash) *last_slash = '\0';
-    else strcpy(exe_dir, ".");
-
-    char stub_path[4096];
-    snprintf(stub_path, sizeof(stub_path), "%s/%s", exe_dir, stub_filename);
-
-    long self_size;
-    char* self_code = read_file(stub_path, &self_size);
-    if (!self_code) {
-        fprintf(stderr, "\033[31mError: Cannot read stub '%s'. Ensure it is compiled and placed next to the apex binary.\033[0m\n", stub_path);
-        return 1;
+        self_code = read_file(source_to_read, &self_size);
+        if (!self_code) {
+            fprintf(stderr, "\033[31mError: Cannot read current executable '%s'.\033[0m\n", source_to_read);
+            return 1;
+        }
     }
 
     char source_dir[4096];
