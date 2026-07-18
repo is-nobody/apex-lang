@@ -53,12 +53,20 @@ jobs:
       - name: Configure (Windows)
         if: runner.os == 'Windows'
         run: |
-          $target = if ("${{ matrix.target }}" -eq "arm64_windows") { "aarch64-w64-windows-msvc" } else { "x86_64-w64-windows-msvc" }
-          cmake -S . -B build `
-            -G "Ninja" `
-            -DCMAKE_C_COMPILER=clang `
-            -DCMAKE_C_FLAGS="--target=$target" `
-            -DCMAKE_BUILD_TYPE=Release
+          if ("${{ matrix.target }}" -eq "arm64_windows") {
+            cmake -S . -B build `
+              -G "Ninja" `
+              -DCMAKE_C_COMPILER=clang `
+              -DCMAKE_SYSTEM_NAME=Windows `
+              -DCMAKE_SYSTEM_PROCESSOR=ARM64 `
+              -DCMAKE_C_FLAGS="--target=aarch64-w64-windows-msvc" `
+              -DCMAKE_BUILD_TYPE=Release
+          } else {
+            cmake -S . -B build `
+              -G "Ninja" `
+              -DCMAKE_C_COMPILER=clang `
+              -DCMAKE_BUILD_TYPE=Release
+          }
 
       - name: Build (Windows)
         if: runner.os == 'Windows'

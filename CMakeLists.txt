@@ -52,9 +52,16 @@ set(BASE_FLAGS
 set(HIGH_PERF_FLAGS
     -O3
     -flto
-    -march=native
-    -mtune=native
 )
+
+if(NOT CMAKE_CROSSCOMPILING)
+    list(APPEND HIGH_PERF_FLAGS -march=native -mtune=native)
+endif()
+
+# native cpu flags only when NOT cross-compiling
+if(NOT CMAKE_CROSSCOMPILING)
+    list(APPEND HIGH_PERF_FLAGS -march=native -mtune=native)
+endif()
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(apex PRIVATE ${BASE_FLAGS} ${HIGH_PERF_FLAGS})
