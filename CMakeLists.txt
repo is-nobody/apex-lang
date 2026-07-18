@@ -75,6 +75,7 @@ if(MINGW OR WIN32)
         _WIN32_WINNT=0x0601
         WIN32_LEAN_AND_MEAN
         _CRT_SECURE_NO_WARNINGS
+        _CRT_NONSTDC_NO_DEPRECATE
     )
 endif()
 
