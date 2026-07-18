@@ -1,8 +1,9 @@
 import os
 import table
+import sys
 
 function string_key_operations()
-    start = os.time()
+    start = sys.time()
     t = []
     
     for i = 1, 500000
@@ -18,7 +19,7 @@ function string_key_operations()
     has1 = table.has(t, "key_1")
     has3 = table.has(t, "key_3")
     
-    elapsed = os.time() - start
+    elapsed = sys.time() - start
     os.output("String keys: {sum}, Table size: {table.size(t)}, elapsed {elapsed}")
 
 string_key_operations()

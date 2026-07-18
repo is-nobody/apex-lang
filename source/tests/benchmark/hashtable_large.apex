@@ -1,7 +1,8 @@
 import os
+import sys
 
 function hashtable_large()
-    start = os.time()
+    start = sys.time()
     t = []
     
     for i = 1, 500000
@@ -11,7 +12,7 @@ function hashtable_large()
     for i = 1, 500000
         sum = sum + t["item_{i}"]
     
-    elapsed = os.time() - start
+    elapsed = sys.time() - start
     os.output("Hashtable large: {sum}, elapsed {elapsed}")
 
 hashtable_large()

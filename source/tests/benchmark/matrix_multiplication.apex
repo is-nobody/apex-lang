@@ -1,7 +1,8 @@
 import os
+import sys
 
 function matrix_multiplication()
-    start = os.time()
+    start = sys.time()
     n = 100
     a = []
     b = []
@@ -24,7 +25,7 @@ function matrix_multiplication()
             c[i][j] = sum
     
     v50 = c[50][50]
-    elapsed = os.time() - start
+    elapsed = sys.time() - start
     os.output("Matrix multiplication: C[50][50]={v50}, elapsed {elapsed}")
 
 matrix_multiplication()

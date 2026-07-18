@@ -29,19 +29,6 @@ os.output("Hello, {name}")
 ```
 
 ### Time and Process Control
-#### os.time()
-Returns the current time as a number — seconds since January 1, 1970 (with microsecond precision). Always succeeds.
-
-```apex
-import os
-
-start = os.time()
-// ... do some work ...
-end = os.time()
-elapsed = end - start
-os.output("Took {elapsed} seconds")
-```
-
 #### os.wait(seconds)
 Pauses the program for the given number of seconds. You can use decimals for fractions of a second. Negative values are treated as `0`. Always returns `none`.
 
@@ -397,6 +384,20 @@ else
 The System library provides static or rarely changing system information. Import it with `import sys`.
 
 ### System Info
+#### sys.time()
+Returns the current time as a number — seconds since January 1, 1970 (with microsecond precision). Always succeeds.
+
+```apex
+import os
+import sys
+
+start = sys.time()
+// ... do some work ...
+end = sys.time()
+elapsed = end - start
+os.output("Took {elapsed} seconds")
+```
+
 #### sys.platform()
 Returns a string identifying your operating system, such as `"Windows"`, `"macOS"`, `"iOS"`, `"tvOS"`, `"watchOS"`, `"Android"`, `"Linux"`, `"FreeBSD"`, `"OpenBSD"`, `"NetBSD"`, `"QNX"`, or `"Unix"`. Returns `none` if the platform cannot be detected.
 

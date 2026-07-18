@@ -6,11 +6,13 @@
 
 #ifdef _WIN32
 #include <windows.h>
-#include <io.h> 
+#include <io.h>
+#include <sys/timeb.h>
 #else
 #include <unistd.h>
 #include <sys/utsname.h>
 #include <sys/statvfs.h>
+#include <sys/time.h>
 #if defined(__linux__)
 #include <unistd.h>
 #elif defined(__APPLE__)
@@ -294,5 +296,18 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         return true;
     }
 
+    if (strcmp(name, "sys.time") == 0) {
+#ifdef _WIN32
+        struct _timeb tb;
+        _ftime(&tb);
+        *result = MAKE_NUMBER((double)tb.time + (double)tb.millitm / 1000.0);
+#else
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        *result = MAKE_NUMBER((double)tv.tv_sec + (double)tv.tv_usec / 1000000.0);
+#endif
+        return true;
+    }
+    
     return false;
 }

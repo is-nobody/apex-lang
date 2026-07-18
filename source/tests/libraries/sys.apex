@@ -95,6 +95,10 @@ function user()
     is_string = type(u) == "string"
     assert_equal(is_string, true, "user returns string")
 
+function time()
+    t = sys.time()
+    assert_equal(type(t) == "number", true, "time returns number")
+
 apex_version()
 architecture()
 disksize()
@@ -107,6 +111,7 @@ platform()
 process_id()
 tempdir()
 user()
+time()
 
 if tests_failed == 0
     os.output("[OK] libraries/sys.apex")

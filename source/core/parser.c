@@ -124,7 +124,6 @@ typedef struct {
 static const BuiltinSig BUILTINS[] = {
     {"os.output", 0, 1, TYPE_ANY},
     {"os.input", 0, 1, TYPE_ANY},
-    {"os.time", 0, 0, TYPE_ANY},
     {"os.wait", 1, 1, TYPE_NUMBER},
     {"os.exit", 1, 1, TYPE_NUMBER},
     {"os.get_current_folder", 0, 0, TYPE_ANY},
@@ -161,6 +160,7 @@ static const BuiltinSig BUILTINS[] = {
     {"sys.isterminal", 0, 0, TYPE_ANY},
     {"sys.process_id", 0, 0, TYPE_ANY},
     {"sys.environment", 0, 0, TYPE_ANY},
+    {"sys.time", 0, 0, TYPE_ANY},
     {"math.abs", 1, 1, TYPE_NUMBER},
     {"math.floor", 1, 1, TYPE_NUMBER},
     {"math.ceil", 1, 1, TYPE_NUMBER},

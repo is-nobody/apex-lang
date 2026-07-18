@@ -1,7 +1,8 @@
 import os
+import sys
 
 function table_nested_access()
-    start = os.time()
+    start = sys.time()
     root = []
     for i = 1, 1000
         root[i] = []
@@ -16,7 +17,7 @@ function table_nested_access()
             for k = 1, 10
                 sum = sum + root[i][j][k]
     
-    elapsed = os.time() - start
+    elapsed = sys.time() - start
     os.output("Table nested access: {sum}, elapsed {elapsed}")
 
 table_nested_access()

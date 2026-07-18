@@ -11,6 +11,7 @@
 - Tables no longer perform automatic conversion between numbers and strings for lookups or assignments.
 - Local variable optimization: variables preferentially compiled as local registers; globals reserved for module exports.
 - Renamed `string.len` to `string.length` for clarity and consistency.
+- Moved `os.time()` to `sys.time()` for better logical organization: time is a system property, not an OS operation.
 - Internal value representation switched to NaN-boxing: all runtime values (numbers, strings, tables, booleans, none, functions) are stored in a single 64-bit field using IEEE 754 NaN space for type tagging, reducing memory usage and improving cache locality.
 - String interning now persistent: all interned strings are retained for the lifetime of the VM, eliminating use-after-free bugs and improving string comparison performance.
 - Removed string interning limit: previously, string interning was capped at 50,000 entries, after which strings were allocated individually, causing memory corruption on deallocation.
@@ -55,6 +56,7 @@
 - Prevent segmentation fault on invalid expression syntax (e.g., `x = * 5` or `x = + 5`): parser now correctly handles failed prefix expression parsing and returns a proper error instead of crashing.
 - Simplified string() and number(): unsupported types now consistently return none via default case instead of explicit per-type handling
 - Fixed segmentation fault in parser on binary operator with missing right operand (e.g., `or < c`): added null-check for failed expression parsing.
+- Fixed error highlight length for undefined variables in string interpolation: now correctly includes braces `{var}` in the underline.
 
 ---
 

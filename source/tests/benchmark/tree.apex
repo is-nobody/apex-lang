@@ -1,4 +1,5 @@
 import os
+import sys
 
 function tree_sum(n)
     if n == 0
@@ -6,15 +7,15 @@ function tree_sum(n)
     return 1 + tree_sum(n - 1) + tree_sum(n - 1)
 
 function tree20()
-    start = os.time()
+    start = sys.time()
     result = tree_sum(20)
-    elapsed = os.time() - start
+    elapsed = sys.time() - start
     os.output("tree(20) = {result}, elapsed {elapsed}")
 
 function tree25()
-    start = os.time()
+    start = sys.time()
     result = tree_sum(25)
-    elapsed = os.time() - start
+    elapsed = sys.time() - start
     os.output("tree(25) = {result}, elapsed {elapsed}")
 
 tree20()

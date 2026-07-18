@@ -1,5 +1,6 @@
 import os
 import table
+import sys
 
 function table_merge_1m()
     a = []
@@ -8,9 +9,9 @@ function table_merge_1m()
         a[i] = i
         b[i] = i * 2
     
-    start = os.time()
+    start = sys.time()
     merged = table.merge(a, b)
-    elapsed = os.time() - start
+    elapsed = sys.time() - start
     os.output("Merged size: {table.size(merged)}, elapsed {elapsed}")
 
 function table_merge_10m()
@@ -20,9 +21,9 @@ function table_merge_10m()
         a[i] = i
         b[i] = i * 2
     
-    start = os.time()
+    start = sys.time()
     merged = table.merge(a, b)
-    elapsed = os.time() - start
+    elapsed = sys.time() - start
     os.output("Merged size: {table.size(merged)}, elapsed {elapsed}")
 
 table_merge_1m()

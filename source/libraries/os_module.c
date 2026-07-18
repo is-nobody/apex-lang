@@ -121,19 +121,6 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         return true;
     }
     
-    if (strcmp(name, "os.time") == 0) {
-#ifdef _WIN32
-        struct _timeb tb;
-        _ftime(&tb);
-        *result = MAKE_NUMBER((double)tb.time + (double)tb.millitm / 1000.0);
-#else
-        struct timeval tv;
-        gettimeofday(&tv, NULL);
-        *result = MAKE_NUMBER((double)tv.tv_sec + (double)tv.tv_usec / 1000000.0);
-#endif
-        return true;
-    }
-    
     if (strcmp(name, "os.wait") == 0) {
         if (arg_count >= 1 && IS_NUMBER(args[0])) {
             double seconds = AS_NUMBER(args[0]);
