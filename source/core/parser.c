@@ -816,6 +816,10 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
     ValueType left_type = infer_expression_type(parser, node->binary.left);
     ValueType right_type = infer_expression_type(parser, node->binary.right);
 
+    if (left_type == TYPE_ERROR || right_type == TYPE_ERROR) {
+        return TYPE_ANY;
+    }
+
     if (node->binary.op == TOKEN_PLUS) {
         if (left_type == TYPE_STRING || right_type == TYPE_STRING) {
             parser_error_at(parser, node->line, node->column, get_node_len(node),
@@ -984,7 +988,7 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
     ValueType callee_type = infer_expression_type(parser, node->call.callee);
     
     if (callee_type == TYPE_ERROR) {
-        return TYPE_ERROR;
+        return TYPE_ANY;
     }
 
     char full_name[256] = "";
@@ -1004,7 +1008,7 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
         parser_error_at(parser, node->call.callee->line, node->call.callee->column,
             err_len > 0 ? err_len : 1,
             "Cannot call non-function (type: %s)", type_name(callee_type));
-        return TYPE_ERROR;
+        return TYPE_ANY;
     }
 
     if (func_name) {
@@ -1051,7 +1055,7 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
                 if (is_known_builtin_module(root_module)) {
                     parser_error_at(parser, node->call.callee->line, node->call.callee->column, get_node_len(node->call.callee),
                         "Undefined function '%s' in module '%s'", dot_pos + 1, root_module);
-                    return TYPE_ERROR;
+                    return TYPE_ANY;
                 }
             }
         }
@@ -1072,13 +1076,13 @@ static ValueType infer_index_access_type(Parser* parser, ASTNode* node) {
     }
     
     ValueType object_type = infer_expression_type(parser, node->access.object);
-    if (object_type == TYPE_ERROR) return TYPE_ERROR;
+    if (object_type == TYPE_ERROR) return TYPE_ANY;
     if (object_type != TYPE_TABLE && object_type != TYPE_UNKNOWN && object_type != TYPE_ANY) {
         int obj_len = (node->access.object->type == AST_IDENTIFIER) ? 
                       (int)utf8_char_len(node->access.object->identifier.name) : 0;
         parser_error_at(parser, node->line, node->column, obj_len,
             "Cannot access element of non-table type %s", type_name(object_type));
-        return TYPE_ERROR;
+        return TYPE_ANY;
     }
     infer_expression_type(parser, node->access.member);
     return TYPE_UNKNOWN;
