@@ -177,6 +177,9 @@ static void skip_shebang(Tokenizer* tokenizer) {
 // reads a quoted string literal with escape sequence handling
 static char* read_string(Tokenizer* tokenizer) {
     char quote_char = peek(tokenizer, 0);
+    int quote_line = tokenizer->line;
+    int quote_column = tokenizer->column;
+    int quote_pos = tokenizer->pos;
     advance(tokenizer); // skip opening quote
     
     char* buffer = (char*)malloc(256);
@@ -188,13 +191,29 @@ static char* read_string(Tokenizer* tokenizer) {
         char c = peek(tokenizer, 0);
         
         if (c == '\0') {
+            tokenizer->pos = quote_pos;
+            tokenizer->line = quote_line;
+            tokenizer->column = quote_column;
             tokenizer_error(tokenizer, 1, "Unterminated string");
-            break;
+            tokenizer->pos = strlen(tokenizer->source);
+            free(buffer);
+            return NULL;
         }
         
         if (c == '\\') {
-            advance(tokenizer); // skip backslash
+            advance(tokenizer);
             char next_c = peek(tokenizer, 0);
+            
+            if (next_c == '\0') {
+                tokenizer->pos = quote_pos;
+                tokenizer->line = quote_line;
+                tokenizer->column = quote_column;
+                tokenizer_error(tokenizer, 1, "Unterminated string");
+                tokenizer->pos = strlen(tokenizer->source);
+                free(buffer);
+                return NULL;
+            }
+            
             char char_to_add = next_c;
             
             switch (next_c) {
@@ -223,7 +242,7 @@ static char* read_string(Tokenizer* tokenizer) {
                 buffer = (char*)realloc(buffer, buf_size);
             }
             buffer[buf_pos++] = char_to_add;
-            advance(tokenizer); // skip the escaped character
+            advance(tokenizer);
             continue;
         }
         
@@ -401,9 +420,13 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
         }
         
         if (c == '"' || c == '\'') {
+            int saved_line = line;
+            int saved_col = col;
             char* string_value = read_string(tokenizer);
-            add_token(tokenizer, TOKEN_STRING, string_value, line, col);
-            free(string_value);
+            if (string_value != NULL) {
+                add_token(tokenizer, TOKEN_STRING, string_value, saved_line, saved_col);
+                free(string_value);
+            }
             continue;
         }
         
