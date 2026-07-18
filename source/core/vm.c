@@ -13,6 +13,8 @@
 #include <math.h>
 #include <limits.h>
 
+typedef union { uint64_t u; double d; } du64;
+
 StringObject* string_create(const char* chars, int length);
 static void string_destroy(StringObject* str);
 static bool string_equal(StringObject* a, StringObject* b);
@@ -1080,19 +1082,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_ADD_LABEL: {
         int dest = ip->operands[0];
-        uint64_t left = regs[ip->operands[1]];
-        uint64_t right = regs[ip->operands[2]];
-        
-        double a, b;
-        memcpy(&a, &left, 8);
-        memcpy(&b, &right, 8);
-        double r = a + b;
-        
-        uint64_t result;
-        memcpy(&result, &r, 8);
-        
-        if (((result >> 52) & 0x7FF) == 0x7FF) {
-            if (((left & QNAN) == QNAN) || ((right & QNAN) == QNAN)) {
+        du64 a = {.u = regs[ip->operands[1]]};
+        du64 b = {.u = regs[ip->operands[2]]};
+        double r = a.d + b.d;
+        if (r != r) {
+            if (a.d != a.d || b.d != b.d) {
                 value_decref(regs[dest]);
                 regs[dest] = MAKE_NONE();
             } else {
@@ -1105,19 +1099,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_SUB_LABEL: {
         int dest = ip->operands[0];
-        uint64_t left = regs[ip->operands[1]];
-        uint64_t right = regs[ip->operands[2]];
-        
-        double a, b;
-        memcpy(&a, &left, 8);
-        memcpy(&b, &right, 8);
-        double r = a - b;
-        
-        uint64_t result;
-        memcpy(&result, &r, 8);
-        
-        if (((result >> 52) & 0x7FF) == 0x7FF) {
-            if (((left & QNAN) == QNAN) || ((right & QNAN) == QNAN)) {
+        du64 a = {.u = regs[ip->operands[1]]};
+        du64 b = {.u = regs[ip->operands[2]]};
+        double r = a.d - b.d;
+        if (r != r) {
+            if (a.d != a.d || b.d != b.d) {
                 value_decref(regs[dest]);
                 regs[dest] = MAKE_NONE();
             } else {
@@ -1130,19 +1116,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_MUL_LABEL: {
         int dest = ip->operands[0];
-        uint64_t left = regs[ip->operands[1]];
-        uint64_t right = regs[ip->operands[2]];
-        
-        double a, b;
-        memcpy(&a, &left, 8);
-        memcpy(&b, &right, 8);
-        double r = a * b;
-        
-        uint64_t result;
-        memcpy(&result, &r, 8);
-        
-        if (((result >> 52) & 0x7FF) == 0x7FF) {
-            if (((left & QNAN) == QNAN) || ((right & QNAN) == QNAN)) {
+        du64 a = {.u = regs[ip->operands[1]]};
+        du64 b = {.u = regs[ip->operands[2]]};
+        double r = a.d * b.d;
+        if (r != r) {
+            if (a.d != a.d || b.d != b.d) {
                 value_decref(regs[dest]);
                 regs[dest] = MAKE_NONE();
             } else {
@@ -1155,19 +1133,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_DIV_LABEL: {
         int dest = ip->operands[0];
-        uint64_t left = regs[ip->operands[1]];
-        uint64_t right = regs[ip->operands[2]];
-        
-        double a, b;
-        memcpy(&a, &left, 8);
-        memcpy(&b, &right, 8);
-        double r = a / b;
-        
-        uint64_t result;
-        memcpy(&result, &r, 8);
-        
-        if (((result >> 52) & 0x7FF) == 0x7FF) {
-            if (((left & QNAN) == QNAN) || ((right & QNAN) == QNAN)) {
+        du64 a = {.u = regs[ip->operands[1]]};
+        du64 b = {.u = regs[ip->operands[2]]};
+        double r = a.d / b.d;
+        if (r != r) {
+            if (a.d != a.d || b.d != b.d) {
                 value_decref(regs[dest]);
                 regs[dest] = MAKE_NONE();
             } else {
@@ -1180,19 +1150,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_MOD_LABEL: {
         int dest = ip->operands[0];
-        uint64_t left = regs[ip->operands[1]];
-        uint64_t right = regs[ip->operands[2]];
-        
-        double a, b;
-        memcpy(&a, &left, 8);
-        memcpy(&b, &right, 8);
-        double r = fmod(a, b);
-        
-        uint64_t result;
-        memcpy(&result, &r, 8);
-        
-        if (((result >> 52) & 0x7FF) == 0x7FF) {
-            if (((left & QNAN) == QNAN) || ((right & QNAN) == QNAN)) {
+        du64 a = {.u = regs[ip->operands[1]]};
+        du64 b = {.u = regs[ip->operands[2]]};
+        double r = fmod(a.d, b.d);
+        if (r != r) {
+            if (a.d != a.d || b.d != b.d) {
                 value_decref(regs[dest]);
                 regs[dest] = MAKE_NONE();
             } else {
