@@ -12,8 +12,6 @@ function string_key_operations()
     for i = 1, 500000
         sum = sum + t["key_{i}"]
     
-    os.output("Sum string keys: {sum}")
-    
     table.remove(t, "key_1")
     table.remove(t, "key_2")
     
@@ -21,7 +19,6 @@ function string_key_operations()
     has3 = table.has(t, "key_3")
     
     elapsed = os.time() - start
-    os.output("Has key_1: {has1}, expected false, Has key_3: {has3}, expected true")
-    os.output("Table size: {table.size(t)}, elapsed {elapsed}")
+    os.output("String keys: {sum}, Table size: {table.size(t)}, elapsed {elapsed}")
 
 string_key_operations()
