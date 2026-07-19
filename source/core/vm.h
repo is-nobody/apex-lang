@@ -166,6 +166,7 @@ typedef struct {
         int base_iterator_depth; // saved loop iterator depth
         int frame_index;      // index for debug info
         int dest_reg;         // destination register for return value
+        int saved_args_top;
     } call_stack[VM_MAX_CALL_FRAMES];
     int call_depth;
     

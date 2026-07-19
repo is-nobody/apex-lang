@@ -304,6 +304,9 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
     }
     
     if (is_builtin) {
+        for (int i = 0; i < arg_count; i++) {
+            emit(cg, INST(OP_PUSH_ARG, arg_regs[i], 0, 0), node->line);
+        }
         int name_idx = bytecode_add_string_constant(cg->chunk, func_name);
         emit(cg, INST(OP_CALL_BUILTIN, result_reg, name_idx, arg_count), node->line);
     } else {
@@ -314,11 +317,25 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
                 break;
             }
         }
+        
         if (func_addr >= 0) {
-            emit(cg, INST(OP_CALL, result_reg, func_addr, arg_count), node->line);
-        } else {
-            int name_idx = bytecode_add_string_constant(cg->chunk, func_name);
-            emit(cg, INST(OP_CALL_BUILTIN, result_reg, name_idx, arg_count), node->line);
+            if (arg_count == 0) {
+                emit(cg, INST(OP_CALL_0, result_reg, func_addr, 0), node->line);
+            } else if (arg_count == 1) {
+                emit(cg, INST(OP_CALL_1, result_reg, func_addr, arg_regs[0]), node->line);
+            } else if (arg_count == 2) {
+                if (arg_regs[1] != arg_regs[0] + 1) {
+                    emit(cg, INST(OP_MOVE, arg_regs[0] + 1, arg_regs[1], 0), node->line);
+                    free_register(cg, arg_regs[1]);
+                    arg_regs[1] = arg_regs[0] + 1;
+                }
+                emit(cg, INST(OP_CALL_2, result_reg, func_addr, arg_regs[0]), node->line);
+            } else {
+                for (int i = 0; i < arg_count; i++) {
+                    emit(cg, INST(OP_PUSH_ARG, arg_regs[i], 0, 0), node->line);
+                }
+                emit(cg, INST(OP_CALL, result_reg, func_addr, arg_count), node->line);
+            }
         }
     }
     
@@ -1073,7 +1090,8 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
         add_module_global(cg, global_name);
     }
 
-    int func_idx = bytecode_add_function(cg->chunk, func_name, node->function_decl.params->count);
+    int param_count = node->function_decl.params->count;
+    int func_idx = bytecode_add_function(cg->chunk, func_name, param_count);
 
     int jump_over = bytecode_current_offset(cg->chunk);
     emit(cg, INST(OP_JUMP, 0, 0, 0), node->line);
@@ -1108,7 +1126,7 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     cg->max_registers = 0;
     cg->current_function = func_idx;
 
-    for (int i = 0; i < node->function_decl.params->count; i++) {
+    for (int i = 0; i < param_count; i++) {
         ASTNode* param = node->function_decl.params->nodes[i];
         add_local(cg, param->param.name);
     }
@@ -1117,8 +1135,9 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
 
     bool ends_with_return = false;
     if (cg->chunk->code_count > 0) {
-        Opcode last_op = cg->chunk->code[cg->chunk->code_count - 1].opcode;
-        if (last_op == OP_RETURN || last_op == OP_RETURN_VOID) {
+        Instruction* last = &cg->chunk->code[cg->chunk->code_count - 1];
+        if (last->opcode == OP_RETURN || last->opcode == OP_RETURN_VOID || 
+            last->opcode == OP_RETURN_NUM) {
             ends_with_return = true;
         }
     }
@@ -1176,7 +1195,38 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
 static void codegen_return(CodeGenerator* cg, ASTNode* node) {
     if (node->return_stmt.value) {
         int value_reg = codegen_expression(cg, node->return_stmt.value);
-        emit(cg, INST(OP_RETURN, value_reg, 0, 0), node->line);
+        
+        ASTNode* val = node->return_stmt.value;
+        bool use_fast_return = false;
+        
+        if (val->type == AST_LITERAL_NUMBER) {
+            use_fast_return = true;
+        } else if (val->type == AST_IDENTIFIER) {
+            use_fast_return = false;
+        } else if (val->type == AST_BINARY) {
+            TokenType op = val->binary.op;
+            if (op == TOKEN_PLUS || op == TOKEN_MINUS || op == TOKEN_STAR || 
+                op == TOKEN_SLASH || op == TOKEN_PERCENT) {
+                use_fast_return = true;
+            }
+        } else if (val->type == AST_UNARY && val->unary.op == TOKEN_MINUS) {
+            use_fast_return = true;
+        } else if (val->type == AST_CALL) {
+            ASTNode* callee = val->call.callee;
+            if (callee->type == AST_IDENTIFIER) {
+                const char* name = callee->identifier.name;
+                if (cg->current_function >= 0 && 
+                    strcmp(name, cg->chunk->functions[cg->current_function].name) == 0) {
+                    use_fast_return = true;
+                }
+            }
+        }
+        
+        if (use_fast_return) {
+            emit(cg, INST(OP_RETURN_NUM, value_reg, 0, 0), node->line);
+        } else {
+            emit(cg, INST(OP_RETURN, value_reg, 0, 0), node->line);
+        }
     } else {
         emit(cg, INST(OP_RETURN_VOID, 0, 0, 0), node->line);
     }

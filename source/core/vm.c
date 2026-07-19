@@ -1028,6 +1028,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_RETURN]           = &&OP_RETURN_LABEL,
         [OP_RETURN_VOID]      = &&OP_RETURN_VOID_LABEL,
         
+        [OP_CALL_0] = &&OP_CALL_0_LABEL,
+        [OP_CALL_1] = &&OP_CALL_1_LABEL,
+        [OP_CALL_2] = &&OP_CALL_2_LABEL,
+        [OP_RETURN_NUM] = &&OP_RETURN_NUM_LABEL,
+
         [OP_LOAD_GLOBAL]      = &&OP_LOAD_GLOBAL_LABEL,
         [OP_STORE_GLOBAL]     = &&OP_STORE_GLOBAL_LABEL,
         
@@ -1614,7 +1619,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         value_decref(ret_val);
         goto OP_HALT_LABEL;
     }
-
     OP_RETURN_VOID_LABEL: {
         if (vm->call_depth > 0) {
             vm->call_depth--;
@@ -1630,6 +1634,79 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
         vm->running = false; goto OP_HALT_LABEL;
     }
+
+    OP_CALL_0_LABEL: {
+        int func_addr = ip->operands[1];
+        int dest_reg = ip->operands[0];
+        vm->args_top = 0;
+        vm->call_stack[vm->call_depth].return_address = (int)((ip + 1) - vm->code);
+        vm->call_stack[vm->call_depth].dest_reg = dest_reg;
+        vm->call_stack[vm->call_depth].frame_index = vm->current_frame;
+        vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;
+        vm->call_depth++;
+        vm->current_frame++;
+        vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];
+        regs = vm->registers;
+        ip = &vm->code[func_addr];
+        goto *dispatch_table[ip->opcode];
+    }
+    OP_CALL_1_LABEL: {
+        int func_addr = ip->operands[1];
+        int dest_reg = ip->operands[0];
+        int arg_reg = ip->operands[2];
+        vm->args_top = 0;
+        vm->call_stack[vm->call_depth].return_address = (int)((ip + 1) - vm->code);
+        vm->call_stack[vm->call_depth].dest_reg = dest_reg;
+        vm->call_stack[vm->call_depth].frame_index = vm->current_frame;
+        vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;
+        vm->call_depth++;
+        vm->current_frame++;
+        vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];
+        regs = vm->registers;
+        Value* prev_frame = &vm->register_frames[(vm->current_frame - 1) * VM_REGS_PER_FRAME];
+        regs[0] = prev_frame[arg_reg];
+        ip = &vm->code[func_addr];
+        goto *dispatch_table[ip->opcode];
+    }
+    OP_CALL_2_LABEL: {
+        int func_addr = ip->operands[1];
+        int dest_reg = ip->operands[0];
+        int arg1_reg = ip->operands[2];
+        int arg2_reg = arg1_reg + 1;
+        vm->args_top = 0;
+        vm->call_stack[vm->call_depth].return_address = (int)((ip + 1) - vm->code);
+        vm->call_stack[vm->call_depth].dest_reg = dest_reg;
+        vm->call_stack[vm->call_depth].frame_index = vm->current_frame;
+        vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;
+        vm->call_depth++;
+        vm->current_frame++;
+        vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];
+        regs = vm->registers;
+        Value* prev_frame = &vm->register_frames[(vm->current_frame - 1) * VM_REGS_PER_FRAME];
+        regs[0] = prev_frame[arg1_reg];
+        regs[1] = prev_frame[arg2_reg];
+        ip = &vm->code[func_addr];
+        goto *dispatch_table[ip->opcode];
+    }
+    OP_RETURN_NUM_LABEL: {
+        int value_reg = ip->operands[0];
+        Value ret_val = regs[value_reg];
+        if (vm->call_depth > 0) {
+            vm->call_depth--;
+            int return_addr = vm->call_stack[vm->call_depth].return_address;
+            int dest_reg = vm->call_stack[vm->call_depth].dest_reg;
+            vm->current_frame = vm->call_stack[vm->call_depth].frame_index;
+            vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];
+            regs = vm->registers;
+            vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;
+            regs[dest_reg] = ret_val;
+            ip = &vm->code[return_addr];
+            goto *dispatch_table[ip->opcode];
+        }
+        vm->running = false;
+        goto OP_HALT_LABEL;
+    }
+
     OP_LOAD_GLOBAL_LABEL: {
         int dest = ip->operands[0]; int idx = ip->operands[1];
         Value gv = vm->globals[idx];

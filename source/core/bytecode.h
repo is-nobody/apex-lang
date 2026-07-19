@@ -63,6 +63,11 @@ typedef enum {
     OP_LOAD_BOOL,        // loads true/false directly with an immediate operand
     OP_LOAD_CONST_NUM,   // loads an immediate number into rdst (optimized path)
 
+    OP_CALL_0,           // calling a function with 0 arguments (fast way)
+    OP_CALL_1,           // calling a function with 1 arguments (fast way)
+    OP_CALL_2,           // calling a function with 2 arguments (fast way)
+    OP_RETURN_NUM,       // return a number (without refcounting)
+
     OP_COUNT,            // total number of opcodes, used for bounds checking
 } Opcode;
 
