@@ -1533,8 +1533,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
 
     OP_PUSH_ARG_LABEL: {
         if (vm->args_top >= VM_MAX_ARGS_STACK) {
-            fprintf(stderr, "Argument stack overflow - maximum %d arguments exceeded. "
-                    "Too many function arguments being passed.\n",
+            fprintf(stderr, "\033[31mArgument stack overflow - maximum %d arguments exceeded. "
+                    "Too many function arguments being passed.\n\033[0m",
                     VM_MAX_ARGS_STACK);
             vm->had_error = true;
             vm->running = false;
@@ -1549,8 +1549,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_CALL_LABEL: {
         if (vm->call_depth >= VM_MAX_CALL_FRAMES) {
-            fprintf(stderr, "Stack overflow - maximum call depth (%d) exceeded. "
-                    "Too many nested function calls or infinite recursion detected.\n", 
+            fprintf(stderr, "\033[31mStack overflow - maximum call depth (%d) exceeded. "
+                    "Too many nested function calls or infinite recursion detected.\n\033[0m", 
                     VM_MAX_CALL_FRAMES);
             vm->had_error = true;
             vm->running = false;
@@ -1637,8 +1637,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
 
     OP_CALL_0_LABEL: {
         if (vm->call_depth >= VM_MAX_CALL_FRAMES) {
-            fprintf(stderr, "Stack overflow - maximum call depth (%d) exceeded. "
-                    "Too many nested function calls or infinite recursion detected.\n", 
+            fprintf(stderr, "\033[31mStack overflow - maximum call depth (%d) exceeded. "
+                    "Too many nested function calls or infinite recursion detected.\n\033[0m", 
                     VM_MAX_CALL_FRAMES);
             vm->had_error = true;
             vm->running = false;
@@ -1660,8 +1660,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_CALL_1_LABEL: {
         if (vm->call_depth >= VM_MAX_CALL_FRAMES) {
-            fprintf(stderr, "Stack overflow - maximum call depth (%d) exceeded. "
-                    "Too many nested function calls or infinite recursion detected.\n", 
+            fprintf(stderr, "\033[31mStack overflow - maximum call depth (%d) exceeded. "
+                    "Too many nested function calls or infinite recursion detected.\n\033[0m", 
                     VM_MAX_CALL_FRAMES);
             vm->had_error = true;
             vm->running = false;
@@ -1686,8 +1686,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_CALL_2_LABEL: {
         if (vm->call_depth >= VM_MAX_CALL_FRAMES) {
-            fprintf(stderr, "Stack overflow - maximum call depth (%d) exceeded. "
-                    "Too many nested function calls or infinite recursion detected.\n", 
+            fprintf(stderr, "\033[31mStack overflow - maximum call depth (%d) exceeded. "
+                    "Too many nested function calls or infinite recursion detected.\n\033[0m", 
                     VM_MAX_CALL_FRAMES);
             vm->had_error = true;
             vm->running = false;
