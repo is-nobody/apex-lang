@@ -968,7 +968,6 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
 // main execution loop with direct threaded dispatch for performance
 bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     if (!vm || !chunk) return false;
-
     vm->chunk = chunk;
     vm->code = chunk->code;
     vm->code_count = chunk->code_count;
@@ -976,66 +975,79 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     vm->had_error = false;
     vm->global_count = chunk->global_count;
     vm->register_count = chunk->functions[0].local_count + 32;
-    for (int i = 0; i < chunk->global_count; i++) {
-        vm->globals[i] = MAKE_BOOL(false);
-    }
-    
+    for (int i = 0; i < chunk->global_count; i++) vm->globals[i] = MAKE_BOOL(false);
     static void* dispatch_table[] = {
-        [OP_LOAD_CONST]       = &&OP_LOAD_CONST_LABEL,
         [OP_MOVE]             = &&OP_MOVE_LABEL,
+        [OP_LOAD_CONST]       = &&OP_LOAD_CONST_LABEL,
+        [OP_LOAD_CONST_NUM]   = &&OP_LOAD_CONST_NUM_LABEL,
+        [OP_LOAD_BOOL]        = &&OP_LOAD_BOOL_LABEL,
+        
         [OP_ADD]              = &&OP_ADD_LABEL,
         [OP_SUB]              = &&OP_SUB_LABEL,
         [OP_MUL]              = &&OP_MUL_LABEL,
         [OP_DIV]              = &&OP_DIV_LABEL,
         [OP_MOD]              = &&OP_MOD_LABEL,
         [OP_NEG]              = &&OP_NEG_LABEL,
+        
+        [OP_JUMP]             = &&OP_JUMP_LABEL,
+        [OP_JUMP_IF_FALSE]    = &&OP_JUMP_IF_FALSE_LABEL,
+        [OP_JUMP_IF_EQ]       = &&OP_JUMP_IF_EQ_LABEL,
+        [OP_JUMP_IF_NEQ]      = &&OP_JUMP_IF_NEQ_LABEL,
+        [OP_JUMP_IF_LT]       = &&OP_JUMP_IF_LT_LABEL,
+        [OP_JUMP_IF_GT]       = &&OP_JUMP_IF_GT_LABEL,
+        [OP_JUMP_IF_LTE]      = &&OP_JUMP_IF_LTE_LABEL,
+        [OP_JUMP_IF_GTE]      = &&OP_JUMP_IF_GTE_LABEL,
+        
         [OP_CMP_EQ]           = &&OP_CMP_EQ_LABEL,
         [OP_CMP_NEQ]          = &&OP_CMP_NEQ_LABEL,
         [OP_CMP_LT]           = &&OP_CMP_LT_LABEL,
         [OP_CMP_GT]           = &&OP_CMP_GT_LABEL,
         [OP_CMP_LTE]          = &&OP_CMP_LTE_LABEL,
         [OP_CMP_GTE]          = &&OP_CMP_GTE_LABEL,
+        
+        [OP_FOR_INIT]         = &&OP_FOR_INIT_LABEL,
+        [OP_FOR_NEXT]         = &&OP_FOR_NEXT_LABEL,
+        [OP_POP_ITER]         = &&OP_POP_ITER_LABEL,
+
+        [OP_TABLE_GET]        = &&OP_TABLE_GET_LABEL,
+        [OP_TABLE_GET_CONST]  = &&OP_TABLE_GET_CONST_LABEL,
+        [OP_TABLE_SET]        = &&OP_TABLE_SET_LABEL,
+        [OP_TABLE_SET_CONST]  = &&OP_TABLE_SET_CONST_LABEL,
+        [OP_TABLE_APPEND]     = &&OP_TABLE_APPEND_LABEL,
+        [OP_NEW_TABLE]        = &&OP_NEW_TABLE_LABEL,
+        
+        [OP_CONCAT]           = &&OP_CONCAT_LABEL,
+
         [OP_AND]              = &&OP_AND_LABEL,
         [OP_OR]               = &&OP_OR_LABEL,
         [OP_NOT]              = &&OP_NOT_LABEL,
-        [OP_JUMP]             = &&OP_JUMP_LABEL,
-        [OP_JUMP_IF_FALSE]    = &&OP_JUMP_IF_FALSE_LABEL,
+        
+        [OP_PUSH_ARG]         = &&OP_PUSH_ARG_LABEL,
         [OP_CALL]             = &&OP_CALL_LABEL,
         [OP_CALL_BUILTIN]     = &&OP_CALL_BUILTIN_LABEL,
         [OP_RETURN]           = &&OP_RETURN_LABEL,
         [OP_RETURN_VOID]      = &&OP_RETURN_VOID_LABEL,
+        
         [OP_LOAD_GLOBAL]      = &&OP_LOAD_GLOBAL_LABEL,
         [OP_STORE_GLOBAL]     = &&OP_STORE_GLOBAL_LABEL,
-        [OP_NEW_TABLE]        = &&OP_NEW_TABLE_LABEL,
-        [OP_TABLE_SET]        = &&OP_TABLE_SET_LABEL,
-        [OP_TABLE_SET_CONST]  = &&OP_TABLE_SET_CONST_LABEL,
-        [OP_TABLE_GET]        = &&OP_TABLE_GET_LABEL,
-        [OP_TABLE_GET_CONST]  = &&OP_TABLE_GET_CONST_LABEL,
-        [OP_TABLE_APPEND]     = &&OP_TABLE_APPEND_LABEL,
-        [OP_CONCAT]           = &&OP_CONCAT_LABEL,
-        [OP_POP_ITER]         = &&OP_POP_ITER_LABEL,
-        [OP_FOR_INIT]         = &&OP_FOR_INIT_LABEL,
-        [OP_FOR_NEXT]         = &&OP_FOR_NEXT_LABEL,
-        [OP_JUMP_IF_LT]       = &&OP_JUMP_IF_LT_LABEL,
-        [OP_JUMP_IF_LTE]      = &&OP_JUMP_IF_LTE_LABEL,
-        [OP_JUMP_IF_GT]       = &&OP_JUMP_IF_GT_LABEL,
-        [OP_JUMP_IF_GTE]      = &&OP_JUMP_IF_GTE_LABEL,
-        [OP_JUMP_IF_EQ]       = &&OP_JUMP_IF_EQ_LABEL,
-        [OP_JUMP_IF_NEQ]      = &&OP_JUMP_IF_NEQ_LABEL,
-        [OP_PUSH_ARG]         = &&OP_PUSH_ARG_LABEL,
+        
         [OP_HALT]             = &&OP_HALT_LABEL,
-        [OP_LOAD_BOOL]        = &&OP_LOAD_BOOL_LABEL,
-        [OP_LOAD_CONST_NUM]   = &&OP_LOAD_CONST_NUM_LABEL,
     };
-
     register Instruction* ip = vm->code;
     register Value* regs = vm->registers;
     __builtin_prefetch(ip + 1, 0, 1);
     goto *dispatch_table[ip->opcode];
 
-    OP_LOAD_CONST_NUM_LABEL: {
-        int dest = ip->operands[0]; int value = ip->operands[1];
-        regs[dest] = MAKE_NUMBER((double)value);
+    OP_MOVE_LABEL: {
+        int dest = ip->operands[0]; int src = ip->operands[1];
+        Value sv = regs[src];
+        if (IS_NUMBER(sv) || IS_BOOL(sv) || IS_NONE(sv)) {
+            regs[dest] = sv;
+        } else {
+            value_decref(regs[dest]);
+            regs[dest] = sv;
+            value_incref(regs[dest]);
+        }
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_LOAD_CONST_LABEL: {
@@ -1068,18 +1080,17 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
-    OP_MOVE_LABEL: {
-        int dest = ip->operands[0]; int src = ip->operands[1];
-        Value sv = regs[src];
-        if (IS_NUMBER(sv) || IS_BOOL(sv) || IS_NONE(sv)) {
-            regs[dest] = sv;
-        } else {
-            value_decref(regs[dest]);
-            regs[dest] = sv;
-            value_incref(regs[dest]);
-        }
+    OP_LOAD_CONST_NUM_LABEL: {
+        int dest = ip->operands[0]; int value = ip->operands[1];
+        regs[dest] = MAKE_NUMBER((double)value);
         ip++; goto *dispatch_table[ip->opcode];
     }
+    OP_LOAD_BOOL_LABEL: {
+        int dest = ip->operands[0];
+        regs[dest] = MAKE_BOOL(ip->operands[1] != 0);
+        ip++; goto *dispatch_table[ip->opcode];
+    }
+
     OP_ADD_LABEL: {
         int dest = ip->operands[0];
         du64 a = {.u = regs[ip->operands[1]]};
@@ -1170,12 +1181,94 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         regs[dest] = MAKE_NUMBER(-AS_NUMBER(regs[ip->operands[1]]));
         ip++; goto *dispatch_table[ip->opcode];
     }
+
+    OP_JUMP_LABEL: ip = &vm->code[ip->operands[0]]; goto *dispatch_table[ip->opcode];
+    OP_JUMP_IF_FALSE_LABEL: {
+        int cond_reg = ip->operands[1];
+        if (!AS_BOOL(vm->registers[cond_reg])) { ip = &vm->code[ip->operands[0]]; goto *dispatch_table[ip->opcode]; }
+        ip++; goto *dispatch_table[ip->opcode];
+    }
+    OP_JUMP_IF_EQ_LABEL: {
+        int target = ip->operands[0];
+        Value left = regs[ip->operands[1]];
+        Value right = regs[ip->operands[2]];
+        bool jump = false;
+        if (IS_NONE(left) && IS_NONE(right)) {
+            jump = true;
+        } else if (IS_NONE(left) || IS_NONE(right)) {
+            jump = false;
+        } else if (IS_NUMBER(left) && IS_NUMBER(right)) {
+            jump = (AS_NUMBER(left) == AS_NUMBER(right));
+        } else if (IS_STRING(left) && IS_STRING(right)) {
+            jump = string_equal(AS_STRING(left), AS_STRING(right));
+        } else if (IS_BOOL(left) && IS_BOOL(right)) {
+            jump = (AS_BOOL(left) == AS_BOOL(right));
+        }
+        if (jump) {
+            ip = &vm->code[target];
+            goto *dispatch_table[ip->opcode];
+        }
+        ip++; goto *dispatch_table[ip->opcode];
+    }
+    OP_JUMP_IF_NEQ_LABEL: {
+        int target = ip->operands[0];
+        Value left = regs[ip->operands[1]];
+        Value right = regs[ip->operands[2]];
+        bool jump = false;
+        if (IS_NONE(left) && IS_NONE(right)) {
+            jump = false;
+        } else if (IS_NONE(left) || IS_NONE(right)) {
+            jump = true;
+        } else if (IS_NUMBER(left) && IS_NUMBER(right)) {
+            jump = (AS_NUMBER(left) != AS_NUMBER(right));
+        } else if (IS_STRING(left) && IS_STRING(right)) {
+            jump = !string_equal(AS_STRING(left), AS_STRING(right));
+        } else if (IS_BOOL(left) && IS_BOOL(right)) {
+            jump = (AS_BOOL(left) != AS_BOOL(right));
+        }
+        if (jump) {
+            ip = &vm->code[target];
+            goto *dispatch_table[ip->opcode];
+        }
+        ip++; goto *dispatch_table[ip->opcode];
+    }
+    OP_JUMP_IF_LT_LABEL: {
+        int target = ip->operands[0];
+        du64 a = {.u = regs[ip->operands[1]]};
+        du64 b = {.u = regs[ip->operands[2]]};
+        if (a.d < b.d) {
+            ip = &vm->code[target];
+            goto *dispatch_table[ip->opcode];
+        }
+        ip++; goto *dispatch_table[ip->opcode];
+    }
+    OP_JUMP_IF_LTE_LABEL: {
+        int target = ip->operands[0];
+        if (AS_NUMBER(regs[ip->operands[1]]) <= AS_NUMBER(regs[ip->operands[2]])) {
+            ip = &vm->code[target];
+            goto *dispatch_table[ip->opcode];
+        }
+        ip++; goto *dispatch_table[ip->opcode];
+    }
+    OP_JUMP_IF_GT_LABEL: {
+        int target = ip->operands[0];
+        if (AS_NUMBER(regs[ip->operands[1]]) > AS_NUMBER(regs[ip->operands[2]])) {
+            ip = &vm->code[target];
+            goto *dispatch_table[ip->opcode];
+        }
+        ip++; goto *dispatch_table[ip->opcode];
+    }
+    OP_JUMP_IF_GTE_LABEL: {
+        int target = ip->operands[0];
+        if (AS_NUMBER(vm->registers[ip->operands[1]]) >= AS_NUMBER(vm->registers[ip->operands[2]])) { ip = &vm->code[target]; goto *dispatch_table[ip->opcode]; }
+        ip++; goto *dispatch_table[ip->opcode];
+    }
+
     OP_CMP_EQ_LABEL: {
         int dest = ip->operands[0];
         Value left = regs[ip->operands[1]];
         Value right = regs[ip->operands[2]];
         int result = 0;
-        
         if (IS_NONE(left) && IS_NONE(right)) {
             result = 1;
         }
@@ -1202,7 +1295,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         Value left = regs[ip->operands[1]];
         Value right = regs[ip->operands[2]];
         int result = 1;
-        
         if (IS_NONE(left) && IS_NONE(right)) {
             result = 0;
         }
@@ -1246,6 +1338,178 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         regs[dest] = MAKE_BOOL(AS_NUMBER(regs[ip->operands[1]]) >= AS_NUMBER(regs[ip->operands[2]]));
         ip++; goto *dispatch_table[ip->opcode];
     }
+
+    OP_FOR_INIT_LABEL: {
+        int var_reg = ip->operands[0];
+        int end_reg = ip->operands[1];
+        int step_reg = ip->operands[2];
+        vm->iterator_depth++;
+        vm->iterator_stack[vm->iterator_depth].index = AS_NUMBER(vm->registers[var_reg]);
+        vm->iterator_stack[vm->iterator_depth].end   = AS_NUMBER(vm->registers[end_reg]);
+        vm->iterator_stack[vm->iterator_depth].step  = AS_NUMBER(vm->registers[step_reg]);
+        ip++; goto *dispatch_table[ip->opcode];
+    }
+    OP_FOR_NEXT_LABEL: {
+        int var_reg = ip->operands[0];      
+        int end_or_size_reg = ip->operands[1];
+        int flag_or_exit = ip->operands[2];
+        if (flag_or_exit == 0) {
+            int exit_addr = end_or_size_reg;
+            double c = vm->iterator_stack[vm->iterator_depth].index;
+            double e = vm->iterator_stack[vm->iterator_depth].end;
+            double s = vm->iterator_stack[vm->iterator_depth].step;
+            if ((s > 0 && c <= e) || (s < 0 && c >= e)) {
+                vm->registers[var_reg] = MAKE_NUMBER(c);
+                vm->iterator_stack[vm->iterator_depth].index = c + s;
+                ip++;
+                goto *dispatch_table[ip->opcode];
+            } else {
+                vm->iterator_depth--;
+                ip = &vm->code[exit_addr];
+                goto *dispatch_table[ip->opcode];
+            }
+        } else {
+            int exit_addr = flag_or_exit;
+            double index = AS_NUMBER(vm->registers[var_reg]);
+            double size = AS_NUMBER(vm->registers[end_or_size_reg]);
+            index += 1.0;
+            vm->registers[var_reg] = MAKE_NUMBER(index);
+            if (index <= size) {
+                if (var_reg >= vm->register_count) vm->register_count = var_reg + 1;
+                ip++;
+                goto *dispatch_table[ip->opcode];
+            } else {
+                ip = &vm->code[exit_addr];
+                goto *dispatch_table[ip->opcode];
+            }
+        }
+    }
+    OP_POP_ITER_LABEL: if (vm->iterator_depth >= 0) vm->iterator_depth--; ip++; goto *dispatch_table[ip->opcode];
+
+    OP_TABLE_GET_LABEL: {
+        int dest = ip->operands[0];
+        int table_reg = ip->operands[1];
+        int key_reg = ip->operands[2];
+        Value table_val = vm->registers[table_reg];
+        if (!IS_TABLE(table_val)) {
+            value_decref(vm->registers[dest]);
+            vm->registers[dest] = MAKE_NONE();
+            ip++; goto *dispatch_table[ip->opcode];
+        }
+        Table* table = AS_TABLE(table_val);
+        Value key = vm->registers[key_reg];
+        Value val;
+        val = MAKE_NONE();
+        table_get(table, key, &val);
+        value_decref(vm->registers[dest]);
+        vm->registers[dest] = val;
+        ip++; goto *dispatch_table[ip->opcode];
+    }
+    OP_TABLE_SET_LABEL: {
+        int table_reg = ip->operands[0];
+        int key_reg = ip->operands[1];
+        int val_reg = ip->operands[2];
+        Value table_val = vm->registers[table_reg];
+        if (!IS_TABLE(table_val)) {
+            vm->had_error = true;
+            vm->running = false;
+            goto OP_HALT_LABEL;
+        }
+        Table* table = AS_TABLE(table_val);
+        Value key = vm->registers[key_reg];
+        Value val = vm->registers[val_reg];
+        table_set(table, key, val);
+        ip++; goto *dispatch_table[ip->opcode];
+    }
+    OP_TABLE_GET_CONST_LABEL: {
+        int dest = ip->operands[0];
+        int table_reg = ip->operands[1];
+        int key_idx = ip->operands[2];
+        Value table_val = vm->registers[table_reg];
+        if (!IS_TABLE(table_val)) {
+            value_decref(vm->registers[dest]);
+            vm->registers[dest] = MAKE_NONE();
+            ip++; goto *dispatch_table[ip->opcode];
+        }
+        Table* table = AS_TABLE(table_val);
+        Value key = MAKE_STRING(string_intern(&vm->intern_table, chunk->constants[key_idx].string_value, strlen(chunk->constants[key_idx].string_value)));
+        Value val;
+        val = MAKE_NONE();
+        table_get(table, key, &val);
+        value_decref(vm->registers[dest]);
+        vm->registers[dest] = val;
+        ip++; goto *dispatch_table[ip->opcode];
+    }
+    OP_TABLE_SET_CONST_LABEL: {
+        int table_reg = ip->operands[0];
+        int key_idx = ip->operands[1];
+        int val_reg = ip->operands[2];
+        Table* table = AS_TABLE(vm->registers[table_reg]);
+        Value key = MAKE_STRING(string_intern(&vm->intern_table, chunk->constants[key_idx].string_value, strlen(chunk->constants[key_idx].string_value)));
+        table_set(table, key, vm->registers[val_reg]);
+        ip++; goto *dispatch_table[ip->opcode];
+    }
+    OP_TABLE_APPEND_LABEL: {
+        int table_reg = ip->operands[0];
+        int val_reg = ip->operands[1];
+        Table* table = AS_TABLE(vm->registers[table_reg]);
+        Value val = vm->registers[val_reg];
+        if (table->array_part == NULL) {
+            table->array_capacity = TABLE_ARRAY_INIT;
+            table->array_part = (Value*)calloc(TABLE_ARRAY_INIT, sizeof(Value));
+            for (int i = 0; i < TABLE_ARRAY_INIT; i++) {
+                table->array_part[i] = MAKE_BOOL(false);
+            }
+        }
+        int idx = table->array_count;
+        if (idx >= table->array_capacity) {
+            array_part_grow(table, idx);
+        }
+        value_decref(table->array_part[idx]);
+        table->array_part[idx] = val;
+        value_incref(table->array_part[idx]);
+        table->array_count++;
+        ip++; goto *dispatch_table[ip->opcode];
+    }
+    OP_NEW_TABLE_LABEL: {
+        int dest = ip->operands[0];
+        value_decref(vm->registers[dest]);
+        vm->registers[dest] = MAKE_TABLE(table_create(8));
+        ip++; goto *dispatch_table[ip->opcode];
+    }
+
+    OP_CONCAT_LABEL: {
+        int dest = ip->operands[0];
+        Value left  = vm->registers[ip->operands[1]]; 
+        Value right = vm->registers[ip->operands[2]];
+        char lbuf[64], rbuf[64];
+        const char* ls = value_to_cstr(left, lbuf, sizeof(lbuf));
+        const char* rs = value_to_cstr(right, rbuf, sizeof(rbuf));
+        int llen = IS_STRING(left) ? AS_STRING(left)->length : (int)strlen(ls);
+        int rlen = IS_STRING(right) ? AS_STRING(right)->length : (int)strlen(rs);
+        int total_len = llen + rlen;
+        if (total_len >= 16 && total_len <= 64) {
+            char combined[65];
+            memcpy(combined, ls, llen);
+            memcpy(combined + llen, rs, rlen);
+            combined[total_len] = '\0';
+            
+            StringObject* interned = string_intern(&vm->intern_table, combined, total_len);
+            value_decref(vm->registers[dest]);
+            vm->registers[dest] = MAKE_STRING(interned);
+            value_incref(vm->registers[dest]);
+        } else {
+            StringBuilder sb;
+            sb_init(&sb, total_len + 1);
+            sb_append(&sb, ls, llen);
+            sb_append(&sb, rs, rlen);
+            value_decref(vm->registers[dest]);
+            vm->registers[dest] = MAKE_STRING(sb_to_string(&sb));
+            sb_free(&sb);
+        }
+        ip++; goto *dispatch_table[ip->opcode];
+    }
+
     OP_AND_LABEL: {
         int dest = ip->operands[0];
         regs[dest] = MAKE_BOOL(AS_BOOL(regs[ip->operands[1]]) && AS_BOOL(regs[ip->operands[2]]));
@@ -1261,10 +1525,21 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         regs[dest] = MAKE_BOOL(!AS_BOOL(regs[ip->operands[1]]));
         ip++; goto *dispatch_table[ip->opcode];
     }
-    OP_JUMP_LABEL: ip = &vm->code[ip->operands[0]]; goto *dispatch_table[ip->opcode];
-    OP_JUMP_IF_FALSE_LABEL: {
-        int cond_reg = ip->operands[1];
-        if (!AS_BOOL(vm->registers[cond_reg])) { ip = &vm->code[ip->operands[0]]; goto *dispatch_table[ip->opcode]; }
+
+    OP_PUSH_ARG_LABEL: {
+        if (vm->args_top >= VM_MAX_ARGS_STACK) {
+            fprintf(stderr, "Argument stack overflow - maximum %d arguments exceeded. "
+                    "Too many function arguments being passed.\n",
+                    VM_MAX_ARGS_STACK);
+            vm->had_error = true;
+            vm->running = false;
+            return false;
+        }
+        int reg = ip->operands[0];
+        Value src = vm->registers[reg];
+        vm->args_stack[vm->args_top] = src;
+        value_incref(vm->args_stack[vm->args_top]);
+        vm->args_top++;
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_CALL_LABEL: {
@@ -1279,17 +1554,14 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int func_addr = ip->operands[1];
         int arg_count = ip->operands[2];
         int dest_reg  = ip->operands[0];
-
         vm->call_stack[vm->call_depth].return_address = (ip + 1) - vm->code;
         vm->call_stack[vm->call_depth].dest_reg       = dest_reg;
         vm->call_stack[vm->call_depth].frame_index    = vm->current_frame;
         vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;
         vm->call_depth++;
         vm->current_frame++;
-        
         vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];
         regs = vm->registers;
-
         for (int i = 0; i < arg_count; i++) {
             regs[i] = vm->args_stack[vm->args_top - arg_count + i];
         }
@@ -1300,19 +1572,15 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     OP_CALL_BUILTIN_LABEL: {
         int dest_reg = ip->operands[0]; int name_idx = ip->operands[1]; int arg_count = ip->operands[2];
         Value args[VM_MAX_ARGS_STACK];
-        
         for (int i = 0; i < arg_count && i < 16; i++) {
             args[i] = vm->args_stack[vm->args_top - arg_count + i];
         }
-        
         Value result;
         bool ok = vm_call_builtin(vm, chunk->constants[name_idx].string_value, arg_count, args, &result);
-        
         for (int i = 0; i < arg_count; i++) {
             value_decref(vm->args_stack[vm->args_top - arg_count + i]);
         }
         vm->args_top -= arg_count;
-
         if (ok) {
             value_decref(vm->registers[dest_reg]);
             vm->registers[dest_reg] = result;
@@ -1327,7 +1595,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int value_reg = ip->operands[0];
         Value ret_val = regs[value_reg];
         value_incref(ret_val);
-        
         if (vm->call_depth > 0) {
             vm->call_depth--;
             vm->current_frame = vm->call_stack[vm->call_depth].frame_index;
@@ -1363,7 +1630,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
         vm->running = false; goto OP_HALT_LABEL;
     }
-
     OP_LOAD_GLOBAL_LABEL: {
         int dest = ip->operands[0]; int idx = ip->operands[1];
         Value gv = vm->globals[idx];
@@ -1384,296 +1650,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         value_incref(vm->globals[idx]);
         ip++; goto *dispatch_table[ip->opcode];
     }
-    OP_NEW_TABLE_LABEL: {
-        int dest = ip->operands[0];
-        value_decref(vm->registers[dest]);
-        vm->registers[dest] = MAKE_TABLE(table_create(8));
-        ip++; goto *dispatch_table[ip->opcode];
-    }
-    OP_TABLE_SET_LABEL: {
-        int table_reg = ip->operands[0];
-        int key_reg = ip->operands[1];
-        int val_reg = ip->operands[2];
-        
-        Value table_val = vm->registers[table_reg];
-        if (!IS_TABLE(table_val)) {
-            vm->had_error = true;
-            vm->running = false;
-            goto OP_HALT_LABEL;
-        }
-        
-        Table* table = AS_TABLE(table_val);
-        Value key = vm->registers[key_reg];
-        Value val = vm->registers[val_reg];
-        table_set(table, key, val);
-        ip++; goto *dispatch_table[ip->opcode];
-    }
-    OP_TABLE_SET_CONST_LABEL: {
-        int table_reg = ip->operands[0];
-        int key_idx = ip->operands[1];
-        int val_reg = ip->operands[2];
-        Table* table = AS_TABLE(vm->registers[table_reg]);
-        Value key = MAKE_STRING(string_intern(&vm->intern_table, chunk->constants[key_idx].string_value, strlen(chunk->constants[key_idx].string_value)));
-        table_set(table, key, vm->registers[val_reg]);
-        ip++; goto *dispatch_table[ip->opcode];
-    }
-    OP_TABLE_GET_LABEL: {
-        int dest = ip->operands[0];
-        int table_reg = ip->operands[1];
-        int key_reg = ip->operands[2];
-        Value table_val = vm->registers[table_reg];
-        
-        if (!IS_TABLE(table_val)) {
-            value_decref(vm->registers[dest]);
-            vm->registers[dest] = MAKE_NONE();
-            ip++; goto *dispatch_table[ip->opcode];
-        }
-        
-        Table* table = AS_TABLE(table_val);
-        Value key = vm->registers[key_reg];
-        Value val;
-        val = MAKE_NONE();
-        table_get(table, key, &val);
-        
-        value_decref(vm->registers[dest]);
-        vm->registers[dest] = val;
-        ip++; goto *dispatch_table[ip->opcode];
-    }
-    OP_TABLE_GET_CONST_LABEL: {
-        int dest = ip->operands[0];
-        int table_reg = ip->operands[1];
-        int key_idx = ip->operands[2];
-        Value table_val = vm->registers[table_reg];
-        
-        if (!IS_TABLE(table_val)) {
-            value_decref(vm->registers[dest]);
-            vm->registers[dest] = MAKE_NONE();
-            ip++; goto *dispatch_table[ip->opcode];
-        }
-        
-        Table* table = AS_TABLE(table_val);
-        Value key = MAKE_STRING(string_intern(&vm->intern_table, chunk->constants[key_idx].string_value, strlen(chunk->constants[key_idx].string_value)));
-        
-        Value val;
-        val = MAKE_NONE();
-        table_get(table, key, &val);
-        
-        value_decref(vm->registers[dest]);
-        vm->registers[dest] = val;
-        ip++; goto *dispatch_table[ip->opcode];
-    }
-    OP_TABLE_APPEND_LABEL: {
-        int table_reg = ip->operands[0];
-        int val_reg = ip->operands[1];
-        
-        Table* table = AS_TABLE(vm->registers[table_reg]);
-        Value val = vm->registers[val_reg];
-        
-        if (table->array_part == NULL) {
-            table->array_capacity = TABLE_ARRAY_INIT;
-            table->array_part = (Value*)calloc(TABLE_ARRAY_INIT, sizeof(Value));
-            for (int i = 0; i < TABLE_ARRAY_INIT; i++) {
-                table->array_part[i] = MAKE_BOOL(false);
-            }
-        }
-        
-        int idx = table->array_count;
-        if (idx >= table->array_capacity) {
-            array_part_grow(table, idx);
-        }
-        
-        value_decref(table->array_part[idx]);
-        table->array_part[idx] = val;
-        value_incref(table->array_part[idx]);
-        table->array_count++;
-        ip++; goto *dispatch_table[ip->opcode];
-    }
-    OP_CONCAT_LABEL: {
-        int dest = ip->operands[0];
-        Value left  = vm->registers[ip->operands[1]]; 
-        Value right = vm->registers[ip->operands[2]];
-        
-        char lbuf[64], rbuf[64];
-        const char* ls = value_to_cstr(left, lbuf, sizeof(lbuf));
-        const char* rs = value_to_cstr(right, rbuf, sizeof(rbuf));
-        int llen = IS_STRING(left) ? AS_STRING(left)->length : (int)strlen(ls);
-        int rlen = IS_STRING(right) ? AS_STRING(right)->length : (int)strlen(rs);
-        int total_len = llen + rlen;
-        
-        if (total_len >= 16 && total_len <= 64) {
-            char combined[65];
-            memcpy(combined, ls, llen);
-            memcpy(combined + llen, rs, rlen);
-            combined[total_len] = '\0';
-            
-            StringObject* interned = string_intern(&vm->intern_table, combined, total_len);
-            value_decref(vm->registers[dest]);
-            vm->registers[dest] = MAKE_STRING(interned);
-            value_incref(vm->registers[dest]);
-        } else {
-            StringBuilder sb;
-            sb_init(&sb, total_len + 1);
-            sb_append(&sb, ls, llen);
-            sb_append(&sb, rs, rlen);
-            value_decref(vm->registers[dest]);
-            vm->registers[dest] = MAKE_STRING(sb_to_string(&sb));
-            sb_free(&sb);
-        }
-        ip++; goto *dispatch_table[ip->opcode];
-    }
-    OP_FOR_INIT_LABEL: {
-        int var_reg = ip->operands[0];
-        int end_reg = ip->operands[1];
-        int step_reg = ip->operands[2];
-        vm->iterator_depth++;
-        vm->iterator_stack[vm->iterator_depth].index = AS_NUMBER(vm->registers[var_reg]);
-        vm->iterator_stack[vm->iterator_depth].end   = AS_NUMBER(vm->registers[end_reg]);
-        vm->iterator_stack[vm->iterator_depth].step  = AS_NUMBER(vm->registers[step_reg]);
-        ip++; goto *dispatch_table[ip->opcode];
-    }
-    OP_FOR_NEXT_LABEL: {
-        int var_reg = ip->operands[0];      
-        int end_or_size_reg = ip->operands[1];
-        int flag_or_exit = ip->operands[2];
 
-        if (flag_or_exit == 0) {
-            int exit_addr = end_or_size_reg;
-
-            double c = vm->iterator_stack[vm->iterator_depth].index;
-            double e = vm->iterator_stack[vm->iterator_depth].end;
-            double s = vm->iterator_stack[vm->iterator_depth].step;
-
-            if ((s > 0 && c <= e) || (s < 0 && c >= e)) {
-                vm->registers[var_reg] = MAKE_NUMBER(c);
-                
-                vm->iterator_stack[vm->iterator_depth].index = c + s;
-                
-                ip++;
-                goto *dispatch_table[ip->opcode];
-            } else {
-                vm->iterator_depth--;
-                ip = &vm->code[exit_addr];
-                goto *dispatch_table[ip->opcode];
-            }
-        } else {
-            int exit_addr = flag_or_exit;
-            
-            double index = AS_NUMBER(vm->registers[var_reg]);
-            double size = AS_NUMBER(vm->registers[end_or_size_reg]);
-            
-            index += 1.0;
-            vm->registers[var_reg] = MAKE_NUMBER(index);
-            
-            if (index <= size) {
-                if (var_reg >= vm->register_count) vm->register_count = var_reg + 1;
-                ip++;
-                goto *dispatch_table[ip->opcode];
-            } else {
-                ip = &vm->code[exit_addr];
-                goto *dispatch_table[ip->opcode];
-            }
-        }
-    }
-    OP_POP_ITER_LABEL: if (vm->iterator_depth >= 0) vm->iterator_depth--; ip++; goto *dispatch_table[ip->opcode];
-    OP_JUMP_IF_LT_LABEL: {
-        int target = ip->operands[0];
-        du64 a = {.u = regs[ip->operands[1]]};
-        du64 b = {.u = regs[ip->operands[2]]};
-        if (a.d < b.d) {
-            ip = &vm->code[target];
-            goto *dispatch_table[ip->opcode];
-        }
-        ip++; goto *dispatch_table[ip->opcode];
-    }
-    OP_JUMP_IF_LTE_LABEL: {
-        int target = ip->operands[0];
-        if (AS_NUMBER(regs[ip->operands[1]]) <= AS_NUMBER(regs[ip->operands[2]])) {
-            ip = &vm->code[target];
-            goto *dispatch_table[ip->opcode];
-        }
-        ip++; goto *dispatch_table[ip->opcode];
-    }
-    OP_JUMP_IF_GT_LABEL: {
-        int target = ip->operands[0];
-        if (AS_NUMBER(regs[ip->operands[1]]) > AS_NUMBER(regs[ip->operands[2]])) {
-            ip = &vm->code[target];
-            goto *dispatch_table[ip->opcode];
-        }
-        ip++; goto *dispatch_table[ip->opcode];
-    }
-    OP_JUMP_IF_GTE_LABEL: {
-        int target = ip->operands[0];
-        if (AS_NUMBER(vm->registers[ip->operands[1]]) >= AS_NUMBER(vm->registers[ip->operands[2]])) { ip = &vm->code[target]; goto *dispatch_table[ip->opcode]; }
-        ip++; goto *dispatch_table[ip->opcode];
-    }
-    OP_JUMP_IF_EQ_LABEL: {
-        int target = ip->operands[0];
-        Value left = regs[ip->operands[1]];
-        Value right = regs[ip->operands[2]];
-        bool jump = false;
-        
-        if (IS_NONE(left) && IS_NONE(right)) {
-            jump = true;
-        } else if (IS_NONE(left) || IS_NONE(right)) {
-            jump = false;
-        } else if (IS_NUMBER(left) && IS_NUMBER(right)) {
-            jump = (AS_NUMBER(left) == AS_NUMBER(right));
-        } else if (IS_STRING(left) && IS_STRING(right)) {
-            jump = string_equal(AS_STRING(left), AS_STRING(right));
-        } else if (IS_BOOL(left) && IS_BOOL(right)) {
-            jump = (AS_BOOL(left) == AS_BOOL(right));
-        }
-        if (jump) {
-            ip = &vm->code[target];
-            goto *dispatch_table[ip->opcode];
-        }
-        ip++; goto *dispatch_table[ip->opcode];
-    }
-
-    OP_JUMP_IF_NEQ_LABEL: {
-        int target = ip->operands[0];
-        Value left = regs[ip->operands[1]];
-        Value right = regs[ip->operands[2]];
-        bool jump = false;
-        
-        if (IS_NONE(left) && IS_NONE(right)) {
-            jump = false;
-        } else if (IS_NONE(left) || IS_NONE(right)) {
-            jump = true;
-        } else if (IS_NUMBER(left) && IS_NUMBER(right)) {
-            jump = (AS_NUMBER(left) != AS_NUMBER(right));
-        } else if (IS_STRING(left) && IS_STRING(right)) {
-            jump = !string_equal(AS_STRING(left), AS_STRING(right));
-        } else if (IS_BOOL(left) && IS_BOOL(right)) {
-            jump = (AS_BOOL(left) != AS_BOOL(right));
-        }
-        if (jump) {
-            ip = &vm->code[target];
-            goto *dispatch_table[ip->opcode];
-        }
-        ip++; goto *dispatch_table[ip->opcode];
-    }
-    OP_PUSH_ARG_LABEL: {
-        if (vm->args_top >= VM_MAX_ARGS_STACK) {
-            fprintf(stderr, "Argument stack overflow - maximum %d arguments exceeded. "
-                    "Too many function arguments being passed.\n",
-                    VM_MAX_ARGS_STACK);
-            vm->had_error = true;
-            vm->running = false;
-            return false;
-        }
-        int reg = ip->operands[0];
-        Value src = vm->registers[reg];
-        vm->args_stack[vm->args_top] = src;
-        value_incref(vm->args_stack[vm->args_top]);
-        vm->args_top++;
-        ip++; goto *dispatch_table[ip->opcode];
-    }
     OP_HALT_LABEL: vm->running = false; return !vm->had_error;
-    OP_LOAD_BOOL_LABEL: {
-        int dest = ip->operands[0];
-        regs[dest] = MAKE_BOOL(ip->operands[1] != 0);
-        ip++; goto *dispatch_table[ip->opcode];
-    }
     return !vm->had_error;
 }
