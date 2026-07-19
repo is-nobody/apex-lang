@@ -855,6 +855,7 @@ VM* vm_create(const char* source) {
     vm->global_count = 0;
     vm->call_depth = 0;
     vm->iterator_depth = -1;
+    vm->table_iter_depth = -1;
     vm->running = false;
     vm->had_error = false;
     vm->current_frame = 0;
@@ -1007,6 +1008,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         
         [OP_FOR_INIT]         = &&OP_FOR_INIT_LABEL,
         [OP_FOR_NEXT]         = &&OP_FOR_NEXT_LABEL,
+        [OP_TABLE_ITER_INIT] = &&OP_TABLE_ITER_INIT_LABEL,
+        [OP_TABLE_ITER_NEXT] = &&OP_TABLE_ITER_NEXT_LABEL,
         [OP_POP_ITER]         = &&OP_POP_ITER_LABEL,
 
         [OP_TABLE_GET]        = &&OP_TABLE_GET_LABEL,
@@ -1373,21 +1376,62 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
                 ip = &vm->code[exit_addr];
                 goto *dispatch_table[ip->opcode];
             }
+        }
+    }
+    OP_TABLE_ITER_INIT_LABEL: {
+        int table_reg = ip->operands[0];
+        Value tv = regs[table_reg];
+        vm->table_iter_depth++;
+        TableIterState* iter = &vm->table_iters[vm->table_iter_depth];
+        if (!IS_TABLE(tv)) {
+            iter->table = NULL;
+            iter->array_index = 0;
+            iter->bucket_index = 0;
+            iter->current_entry = NULL;
         } else {
-            int exit_addr = flag_or_exit;
-            double index = AS_NUMBER(vm->registers[var_reg]);
-            double size = AS_NUMBER(vm->registers[end_or_size_reg]);
-            index += 1.0;
-            vm->registers[var_reg] = MAKE_NUMBER(index);
-            if (index <= size) {
-                if (var_reg >= vm->register_count) vm->register_count = var_reg + 1;
+            iter->table = AS_TABLE(tv);
+            iter->array_index = 0;
+            iter->bucket_index = 0;
+            iter->current_entry = NULL;
+        }
+        ip++;
+        goto *dispatch_table[ip->opcode];
+    }
+    OP_TABLE_ITER_NEXT_LABEL: {
+        int var_reg = ip->operands[0];
+        int exit_addr = ip->operands[2];
+        TableIterState* iter = &vm->table_iters[vm->table_iter_depth];
+        Table* t = iter->table;
+        if (t == NULL) {
+            vm->table_iter_depth--;
+            ip = &vm->code[exit_addr];
+            goto *dispatch_table[ip->opcode];
+        }
+        while (iter->array_index < t->array_count) {
+            int idx = iter->array_index++;
+            if (!IS_BOOL(t->array_part[idx]) || AS_BOOL(t->array_part[idx])) {
+                value_decref(regs[var_reg]);
+                regs[var_reg] = MAKE_NUMBER(idx + 1);
                 ip++;
-                goto *dispatch_table[ip->opcode];
-            } else {
-                ip = &vm->code[exit_addr];
                 goto *dispatch_table[ip->opcode];
             }
         }
+        while (iter->bucket_index < t->capacity) {
+            if (iter->current_entry == NULL) {
+                iter->current_entry = t->entries[iter->bucket_index++];
+                continue;
+            }
+            TableEntry* entry = iter->current_entry;
+            iter->current_entry = entry->next;
+            value_decref(regs[var_reg]);
+            regs[var_reg] = entry->key;
+            value_incref(regs[var_reg]);
+            ip++;
+            goto *dispatch_table[ip->opcode];
+        }
+        vm->table_iter_depth--;
+        ip = &vm->code[exit_addr];
+        goto *dispatch_table[ip->opcode];
     }
     OP_POP_ITER_LABEL: if (vm->iterator_depth >= 0) vm->iterator_depth--; ip++; goto *dispatch_table[ip->opcode];
 

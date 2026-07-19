@@ -399,49 +399,26 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
     if (node->for_stmt.var_name) {
         if (node->for_stmt.end == NULL && !node->for_stmt.condition) {
             int table_reg = codegen_expression(cg, node->for_stmt.start);
-            int keys_table_reg = alloc_register(cg);
-            int name_idx = bytecode_add_string_constant(cg->chunk, "table.keys");
-            emit(cg, INST(OP_PUSH_ARG, table_reg, 0, 0), node->line);
-            emit(cg, INST(OP_CALL_BUILTIN, keys_table_reg, name_idx, 1), node->line);
-
-            int size_reg = alloc_register(cg);
-            name_idx = bytecode_add_string_constant(cg->chunk, "table.size");
-            emit(cg, INST(OP_PUSH_ARG, keys_table_reg, 0, 0), node->line);
-            emit(cg, INST(OP_CALL_BUILTIN, size_reg, name_idx, 1), node->line);
-
             int var_reg = add_local(cg, node->for_stmt.var_name);
-            int index_reg = alloc_register(cg);
-            int zero_idx = bytecode_add_number_constant(cg->chunk, 0.0);
-            emit(cg, INST(OP_LOAD_CONST, index_reg, zero_idx, 0), node->line);
-
-            emit(cg, INST(OP_FOR_INIT, index_reg, size_reg, cg->cache.one_reg), node->line);
-
+            
+            emit(cg, INST(OP_TABLE_ITER_INIT, table_reg, 0, 0), node->line);
+            
             int loop_start = bytecode_current_offset(cg->chunk);
             cg->loop_stack.continue_addr = loop_start;
-
-            int for_next_instr = bytecode_current_offset(cg->chunk);
-            emit(cg, INST(OP_FOR_NEXT, index_reg, size_reg, 0), node->line);
-
-            int key_reg = alloc_register(cg);
-            emit(cg, INST(OP_TABLE_GET, key_reg, keys_table_reg, index_reg), node->line);
-
-            emit(cg, INST(OP_MOVE, var_reg, key_reg, 0), node->line);
-
-            free_register(cg, key_reg);
-
-            codegen_block(cg, node->for_stmt.body);
-
-            emit(cg, INST(OP_JUMP, loop_start, 0, 0), node->line);
-
-            int exit_addr = bytecode_current_offset(cg->chunk);
-            cg->chunk->code[for_next_instr].operands[2] = exit_addr;
-
-            free_register(cg, table_reg);
-            free_register(cg, keys_table_reg);
-            free_register(cg, size_reg);
-            free_register(cg, index_reg);
             
-            for (int i = 0; i < cg->loop_stack.break_count; i++) {
+            int iter_next_instr = bytecode_current_offset(cg->chunk);
+            emit(cg, INST(OP_TABLE_ITER_NEXT, var_reg, 0, 0), node->line);
+            
+            codegen_block(cg, node->for_stmt.body);
+            
+            emit(cg, INST(OP_JUMP, loop_start, 0, 0), node->line);
+            
+            int exit_addr = bytecode_current_offset(cg->chunk);
+            cg->chunk->code[iter_next_instr].operands[2] = exit_addr;
+            
+            free_register(cg, table_reg);
+            
+            for (int i = prev_break_count; i < cg->loop_stack.break_count; i++) {
                 bytecode_patch_jump(cg->chunk, cg->loop_stack.break_jumps[i], exit_addr);
             }
         } else {

@@ -68,6 +68,9 @@ typedef enum {
     OP_CALL_2,           // calling a function with 2 arguments (fast way)
     OP_RETURN_NUM,       // return a number (without refcounting)
 
+    OP_TABLE_ITER_INIT,  // initialize table iterator for "for key = table" loops
+    OP_TABLE_ITER_NEXT,  // advance table iterator, yield next key into register
+
     OP_COUNT,            // total number of opcodes, used for bounds checking
 } Opcode;
 

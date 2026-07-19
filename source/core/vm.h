@@ -135,17 +135,25 @@ typedef struct Table {
 // string interning table for deduplication and fast equality
 typedef struct {
     StringObject** buckets;  // hash buckets for interned strings
-    int capacity;
-    int count;
+    int capacity;            // total number of buckets
+    int count;               // number of interned strings stored
 } StringInternTable;
 
 // object pool for reusing frequently allocated objects
 typedef struct {
-    StringObject* string_pool[POOL_MAX_ITEMS];
-    int string_pool_count;
-    Table* table_pool[POOL_MAX_ITEMS / 4];
-    int table_pool_count;
+    StringObject* string_pool[POOL_MAX_ITEMS];  // pool of reusable string objects
+    int string_pool_count;                      // number of strings currently in pool
+    Table* table_pool[POOL_MAX_ITEMS / 4];      // pool of reusable table objects
+    int table_pool_count;                       // number of tables currently in pool
 } ObjectPool;
+
+// state for "for key = table" iteration, walks array_part then hash buckets
+typedef struct {
+    Table* table;              // table being iterated
+    int array_index;           // current position in array_part
+    int bucket_index;          // current bucket in hash entries
+    TableEntry* current_entry; // current node in bucket chain
+} TableIterState;
 
 // main virtual machine state with registers, call stack, and execution context
 typedef struct {
@@ -185,7 +193,10 @@ typedef struct {
         double step;          // loop step value
     } iterator_stack[VM_MAX_CALL_FRAMES];
     int iterator_depth;       // nesting depth of active numeric loops
-    
+
+    TableIterState table_iters[16];
+    int table_iter_depth;
+
     StringInternTable intern_table; // global string interning table
     ObjectPool obj_pool;      // object recycling pool
 

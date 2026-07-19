@@ -54,6 +54,8 @@ static const char* opcode_names[] = {
     [OP_CALL_1]           = "CALL_1",
     [OP_CALL_2]           = "CALL_2",
     [OP_RETURN_NUM]       = "RETURN_NUM",
+    [OP_TABLE_ITER_INIT]  = "OP_TABLE_ITER_INIT",
+    [OP_TABLE_ITER_NEXT]  = "OP_TABLE_ITER_NEXT",
 };
 
 // returns the name of an opcode, or "unknown" if out of range

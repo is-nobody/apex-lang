@@ -39,6 +39,7 @@
 - String interning now persistent: all interned strings retained for VM lifetime, improving string comparison performance and eliminating use-after-free bugs.
 - Local variable optimization: variables preferentially compiled as local registers; globals reserved for module exports.
 - Fast call/return paths for functions with 0–2 arguments avoid argument stack overhead and reduce refcounting for numeric returns.
+- Faster table iteration: `for key = table` loops are now significantly faster, eliminating temporary allocations and redundant lookups.
 
 ## Bug Fixes
 - Sparse numeric keys: correct removal with holes, accurate size calculation.
