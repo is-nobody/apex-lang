@@ -5,57 +5,70 @@
 
 // human-readable names for each opcode, used in disassembly and debugging
 static const char* opcode_names[] = {
-    [OP_LOAD_CONST]       = "LOAD_CONST",
     [OP_MOVE]             = "MOVE",
+    [OP_LOAD_CONST]       = "LOAD_CONST",
+    [OP_LOAD_CONST_NUM]   = "LOAD_CONST_NUM",
+    [OP_LOAD_BOOL]        = "LOAD_BOOL",
+
     [OP_ADD]              = "ADD",
     [OP_SUB]              = "SUB",
     [OP_MUL]              = "MUL",
     [OP_DIV]              = "DIV",
     [OP_MOD]              = "MOD",
     [OP_NEG]              = "NEG",
+
+    [OP_JUMP]             = "JUMP",
+    [OP_JUMP_IF_FALSE]    = "JUMP_IF_FALSE",
+    [OP_JUMP_IF_EQ]       = "JUMP_IF_EQ",
+    [OP_JUMP_IF_NEQ]      = "JUMP_IF_NEQ",
+    [OP_JUMP_IF_LT]       = "JUMP_IF_LT",
+    [OP_JUMP_IF_GT]       = "JUMP_IF_GT",
+    [OP_JUMP_IF_LTE]      = "JUMP_IF_LTE",
+    [OP_JUMP_IF_GTE]      = "JUMP_IF_GTE",
+
     [OP_CMP_EQ]           = "CMP_EQ",
     [OP_CMP_NEQ]          = "CMP_NEQ",
     [OP_CMP_LT]           = "CMP_LT",
     [OP_CMP_GT]           = "CMP_GT",
     [OP_CMP_LTE]          = "CMP_LTE",
     [OP_CMP_GTE]          = "CMP_GTE",
+
+    [OP_FOR_INIT]         = "FOR_INIT",
+    [OP_FOR_NEXT]         = "FOR_NEXT",
+    [OP_TABLE_ITER_INIT]  = "TABLE_ITER_INIT",
+    [OP_TABLE_ITER_NEXT]  = "TABLE_ITER_NEXT",
+    [OP_POP_ITER]         = "POP_ITER",
+
+    [OP_TABLE_GET]        = "TABLE_GET",
+    [OP_TABLE_GET_CONST]  = "TABLE_GET_CONST",
+    [OP_TABLE_SET]        = "TABLE_SET",
+    [OP_TABLE_SET_CONST]  = "TABLE_SET_CONST",
+    [OP_TABLE_APPEND]     = "TABLE_APPEND",
+    [OP_NEW_TABLE]        = "NEW_TABLE",
+
+    [OP_CONCAT]           = "CONCAT",
+
     [OP_AND]              = "AND",
     [OP_OR]               = "OR",
     [OP_NOT]              = "NOT",
-    [OP_JUMP]             = "JUMP",
-    [OP_JUMP_IF_FALSE]    = "JUMP_IF_FALSE",
+
+    [OP_PUSH_ARG]         = "PUSH_ARG",
     [OP_CALL]             = "CALL",
     [OP_CALL_BUILTIN]     = "CALL_BUILTIN",
     [OP_RETURN]           = "RETURN",
     [OP_RETURN_VOID]      = "RETURN_VOID",
-    [OP_LOAD_GLOBAL]      = "LOAD_GLOBAL",
-    [OP_STORE_GLOBAL]     = "STORE_GLOBAL",
-    [OP_NEW_TABLE]        = "NEW_TABLE",
-    [OP_TABLE_SET]        = "TABLE_SET",
-    [OP_TABLE_SET_CONST]  = "TABLE_SET_CONST",
-    [OP_TABLE_GET]        = "TABLE_GET",
-    [OP_TABLE_GET_CONST]  = "TABLE_GET_CONST",
-    [OP_TABLE_APPEND]     = "TABLE_APPEND",
-    [OP_CONCAT]           = "CONCAT",
-    [OP_POP_ITER]         = "POP_ITER",
-    [OP_FOR_INIT]         = "FOR_INIT",
-    [OP_FOR_NEXT]         = "FOR_NEXT",
-    [OP_JUMP_IF_LT]       = "JUMP_IF_LT",
-    [OP_JUMP_IF_LTE]      = "JUMP_IF_LTE",
-    [OP_JUMP_IF_GT]       = "JUMP_IF_GT",
-    [OP_JUMP_IF_GTE]      = "JUMP_IF_GTE",
-    [OP_JUMP_IF_EQ]       = "JUMP_IF_EQ",
-    [OP_JUMP_IF_NEQ]      = "JUMP_IF_NEQ",
-    [OP_PUSH_ARG]         = "PUSH_ARG",
-    [OP_HALT]             = "HALT",
-    [OP_LOAD_BOOL]        = "LOAD_BOOL",
-    [OP_LOAD_CONST_NUM]   = "LOAD_CONST_NUM",
+
     [OP_CALL_0]           = "CALL_0",
     [OP_CALL_1]           = "CALL_1",
     [OP_CALL_2]           = "CALL_2",
     [OP_RETURN_NUM]       = "RETURN_NUM",
-    [OP_TABLE_ITER_INIT]  = "OP_TABLE_ITER_INIT",
-    [OP_TABLE_ITER_NEXT]  = "OP_TABLE_ITER_NEXT",
+
+    [OP_LOAD_GLOBAL]      = "LOAD_GLOBAL",
+    [OP_STORE_GLOBAL]     = "STORE_GLOBAL",
+
+    [OP_HALT]             = "HALT",
+
+    [OP_COUNT]            = "OP_COUNT",
 };
 
 // returns the name of an opcode, or "unknown" if out of range

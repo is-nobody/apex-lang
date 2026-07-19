@@ -6,70 +6,68 @@
 
 // all supported vm opcodes, grouped by functionality for clarity
 typedef enum {
-    OP_LOAD_CONST,       // loads a constant from the pool into a register
     OP_MOVE,             // copies a value from one register to another
-    
+    OP_LOAD_CONST,       // loads a constant from the pool into a register
+    OP_LOAD_CONST_NUM,   // loads an immediate number into rdst (optimized path)
+    OP_LOAD_BOOL,        // loads true/false directly with an immediate operand
+
     OP_ADD,              // arithmetic addition: rdst = rleft + rright
     OP_SUB,              // subtraction: rdst = rleft - rright
     OP_MUL,              // multiplication: rdst = rleft * rright
     OP_DIV,              // division: rdst = rleft / rright
     OP_MOD,              // modulo: rdst = rleft % rright
     OP_NEG,              // unary negation: rdst = -rsrc
-    
+
+    OP_JUMP,             // unconditional branch to address
+    OP_JUMP_IF_FALSE,    // branch if rcond is falsy
+    OP_JUMP_IF_EQ,       // branch if r[op1] == r[op2]
+    OP_JUMP_IF_NEQ,      // branch if r[op1] != r[op2]
+    OP_JUMP_IF_LT,       // branch if r[op1] < r[op2] (for range loops)
+    OP_JUMP_IF_GT,       // branch if r[op1] > r[op2]
+    OP_JUMP_IF_LTE,      // branch if r[op1] <= r[op2]
+    OP_JUMP_IF_GTE,      // branch if r[op1] >= r[op2]
+
     OP_CMP_EQ,           // equality comparison: rdst = (rleft == rright)
     OP_CMP_NEQ,          // inequality: rdst = (rleft != rright)
     OP_CMP_LT,           // less-than: rdst = (rleft < rright)
     OP_CMP_GT,           // greater-than: rdst = (rleft > rright)
     OP_CMP_LTE,          // less-or-equal: rdst = (rleft <= rright)
     OP_CMP_GTE,          // greater-or-equal: rdst = (rleft >= rright)
-    
+
+    OP_FOR_INIT,         // initializes a numeric for-loop state
+    OP_FOR_NEXT,         // advances loop and branches if the end is reached
+    OP_TABLE_ITER_INIT,  // initialize table iterator for "for key = table" loops
+    OP_TABLE_ITER_NEXT,  // advance table iterator, yield next key into register
+    OP_POP_ITER,         // cleans up iterator state when leaving a loop
+
+    OP_TABLE_GET,        // rdst = table[key_reg]
+    OP_TABLE_GET_CONST,  // rdst = table[constant_key]
+    OP_TABLE_SET,        // table[key_reg] = value_reg
+    OP_TABLE_SET_CONST,  // table[constant_key] = value_reg
+    OP_TABLE_APPEND,     // appends a value to a table as a positional item
+    OP_NEW_TABLE,        // creates a new empty table in rdst
+
+    OP_CONCAT,           // string concatenation: rdst = rleft + rright
+
     OP_AND,              // logical and: rdst = rleft && rright
     OP_OR,               // logical or: rdst = rleft || rright
     OP_NOT,              // logical not: rdst = !rsrc
-    
-    OP_JUMP,             // unconditional branch to address
-    OP_JUMP_IF_FALSE,    // branch if rcond is falsy
-    
+
+    OP_PUSH_ARG,         // pushes an argument onto the call stack
     OP_CALL,             // calls a function at address, result goes to rdst
     OP_CALL_BUILTIN,     // calls a built-in by index, result to rdst
     OP_RETURN,           // returns a value from the current function
     OP_RETURN_VOID,      // returns without a value
-    OP_PUSH_ARG,         // pushes an argument onto the call stack
-
-    OP_LOAD_GLOBAL,      // loads a global variable into a register
-    OP_STORE_GLOBAL,     // stores a register value into a global variable
-    
-    OP_NEW_TABLE,        // creates a new empty table in rdst
-    OP_TABLE_SET,        // table[key_reg] = value_reg
-    OP_TABLE_SET_CONST,  // table[constant_key] = value_reg
-    OP_TABLE_GET,        // rdst = table[key_reg]
-    OP_TABLE_GET_CONST,  // rdst = table[constant_key]
-    OP_TABLE_APPEND,     // appends a value to a table as a positional item
-    
-    OP_CONCAT,           // string concatenation: rdst = rleft + rright
-
-    OP_POP_ITER,         // cleans up iterator state when leaving a loop
-    OP_JUMP_IF_LT,       // branch if r[op1] < r[op2] (for range loops)
-    OP_JUMP_IF_LTE,      // branch if r[op1] <= r[op2]
-    OP_JUMP_IF_GT,       // branch if r[op1] > r[op2]
-    OP_JUMP_IF_GTE,      // branch if r[op1] >= r[op2]
-    OP_JUMP_IF_EQ,       // branch if r[op1] == r[op2]
-    OP_JUMP_IF_NEQ,      // branch if r[op1] != r[op2]
-    OP_FOR_INIT,         // initializes a numeric for-loop state
-    OP_FOR_NEXT,         // advances loop and branches if the end is reached
-    
-    OP_HALT,             // stops vm execution
-    
-    OP_LOAD_BOOL,        // loads true/false directly with an immediate operand
-    OP_LOAD_CONST_NUM,   // loads an immediate number into rdst (optimized path)
 
     OP_CALL_0,           // calling a function with 0 arguments (fast way)
     OP_CALL_1,           // calling a function with 1 arguments (fast way)
     OP_CALL_2,           // calling a function with 2 arguments (fast way)
     OP_RETURN_NUM,       // return a number (without refcounting)
 
-    OP_TABLE_ITER_INIT,  // initialize table iterator for "for key = table" loops
-    OP_TABLE_ITER_NEXT,  // advance table iterator, yield next key into register
+    OP_LOAD_GLOBAL,      // loads a global variable into a register
+    OP_STORE_GLOBAL,     // stores a register value into a global variable
+
+    OP_HALT,             // stops vm execution
 
     OP_COUNT,            // total number of opcodes, used for bounds checking
 } Opcode;
