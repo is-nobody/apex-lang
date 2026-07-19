@@ -2,18 +2,6 @@ import os
 import table
 import sys
 
-function table_merge_1m()
-    a = []
-    b = []
-    for i = 1, 500000
-        a[i] = i
-        b[i] = i * 2
-    
-    start = sys.time()
-    merged = table.merge(a, b)
-    elapsed = sys.time() - start
-    os.output("Merged size: {table.size(merged)}, elapsed {elapsed}")
-
 function table_merge_10m()
     a = []
     b = []
@@ -26,5 +14,4 @@ function table_merge_10m()
     elapsed = sys.time() - start
     os.output("Merged size: {table.size(merged)}, elapsed {elapsed}")
 
-table_merge_1m()
 table_merge_10m()
