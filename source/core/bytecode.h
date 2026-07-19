@@ -74,8 +74,8 @@ typedef enum {
 
 // fixed-size 16-byte instruction (opcode + three 32-bit operands) for fast decoding
 typedef struct {
-    Opcode opcode;
-    int32_t operands[3]; // usually: dst, src, extra / jump target / constant index
+    Opcode opcode;               // instruction type (ADD, LOAD_CONST, CALL, etc.)
+    int32_t operands[3];         // operands: dst register, src register, and extra (jump target, constant index, etc.)
 } Instruction;
 
 // convenience macros for constructing instructions with varying operand counts
@@ -101,67 +101,66 @@ typedef enum {
 
 // a constant pool entry with a type and a type-specific value
 typedef struct {
-    ConstantType type;
+    ConstantType type;           // discriminator for the union below
     union {
-        double number_value;
-        char* string_value;
-        bool bool_value;
-        int function_index;
+        double number_value;     // numeric constant (integers and floats)
+        char* string_value;      // string constant (interned, pointer to string pool)
+        bool bool_value;         // boolean constant (true/false)
+        int function_index;      // function constant (index into functions table)
     };
 } Constant;
 
 // global variable entry with a name and its index in the globals table
 typedef struct {
-    char* name;
-    int index;
+    char* name;                  // global variable name for lookup
+    int index;                   // unique index assigned to this global
 } GlobalVar;
 
 // local variable entry with name, slot, and scope depth for debug info
 typedef struct {
-    char* name;
-    int slot;
-    int scope_level;
+    char* name;                  // local variable name
+    int slot;                    // register slot where the variable resides
+    int scope_level;             // lexical scope depth for debug information
 } LocalVar;
 
 // function metadata: name, entry address, arity, and local variable info
 typedef struct {
-    char* name;
-    int address;
-    int arity;
-    int local_count;
-    char** local_names;
+    char* name;                  // function name for debugging and call resolution
+    int address;                 // bytecode offset where the function begins
+    int arity;                   // number of parameters the function expects
+    int local_count;             // number of local variables in the function
+    char** local_names;          // local variable names for debugging (debug info)
 } FunctionInfo;
 
 // bytecode chunk holds all code, constants, globals, functions, and debug data
 typedef struct {
-    Instruction* code;
-    int code_capacity;
-    int code_count;
-    
-    Constant* constants;
-    int const_capacity;
-    int const_count;
-    
-    GlobalVar* globals;
-    int global_capacity;
-    int global_count;
-    
-    FunctionInfo* functions;
-    int func_capacity;
-    int func_count;
-    
-    int current_function;
-    
-    int* line_info;
-    int line_capacity;
-    int line_count;
-    
+    Instruction* code;           // dynamically growing array of bytecode instructions
+    int code_capacity;           // allocated capacity of the code array
+    int code_count;              // number of instructions currently emitted
+
+    Constant* constants;         // constant pool (numbers, strings, functions, etc.)
+    int const_capacity;          // allocated capacity of the constants array
+    int const_count;             // number of constants stored
+
+    GlobalVar* globals;          // global variable table with names and indices
+    int global_capacity;         // allocated capacity of the globals array
+    int global_count;            // number of global variables registered
+
+    FunctionInfo* functions;     // function metadata (name, address, arity, locals)
+    int func_capacity;           // allocated capacity of the functions array
+    int func_count;              // number of functions defined in this chunk
+
+    int current_function;        // index of the function currently being compiled
+
+    int* line_info;              // source line numbers for each instruction (debugging)
+    int line_capacity;           // allocated capacity of the line_info array
+    int line_count;              // number of line entries (matches code_count)
+
     struct {
-        char** strings;
-        int count;
-        int capacity;
-    } string_pool;
-    
+        char** strings;          // string interning pool for deduplication
+        int count;               // number of interned strings
+        int capacity;            // allocated capacity of the string pool
+    } string_pool;               // shared string storage to reduce memory duplication
 } BytecodeChunk;
 
 // creates a new bytecode chunk with default capacities

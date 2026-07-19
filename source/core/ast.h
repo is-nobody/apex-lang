@@ -36,199 +36,253 @@ typedef enum {
     AST_PARAM,             // function parameter, holds its name for lookup
 } ASTNodeType;
 
-// forward declarations for recursive structures
+// forward declaration for self-referential AST nodes
 typedef struct ASTNode ASTNode;
+
+// forward declaration for dynamic node lists
 typedef struct ASTNodeList ASTNodeList;
 
-// main ast node with a type discriminator, source location, and a type-specific payload
+// main AST node with a type discriminator, source location, and a type-specific payload
 struct ASTNode {
-    ASTNodeType type;
-    int line;
-    int column;
-    bool in_interpolation;
+    ASTNodeType type;            // discriminator indicating which union member is active
+    int line;                    // source line number for error reporting
+    int column;                  // source column position for error reporting
+    bool in_interpolation;       // whether this node appears inside a string interpolation
     
     union {
         // string literal value, duplicated so the node owns its memory
         struct {
-            char* string_value;
+            char* string_value;  // dynamically allocated string content
         } literal_string;
         
         // numeric literal value stored as a double for simplicity
         struct {
-            double number_value;
+            double number_value; // numeric value (integer or float)
         } literal_number;
         
         // boolean literal value, used directly in conditions
         struct {
-            bool bool_value;
+            bool bool_value;     // true or false
         } literal_bool;
         
         // identifier reference, duplicated string for ownership
         struct {
-            char* name;
+            char* name;          // variable or function name
         } identifier;
         
         // binary operation with a token operator and two child expressions
         struct {
-            TokenType op;
-            ASTNode* left;
-            ASTNode* right;
+            TokenType op;        // operator token (PLUS, MINUS, STAR, etc.)
+            ASTNode* left;       // left operand expression
+            ASTNode* right;      // right operand expression
         } binary;
         
         // unary operation with an operator and a single operand
         struct {
-            TokenType op;
-            ASTNode* operand;
+            TokenType op;        // operator token (MINUS, NOT)
+            ASTNode* operand;    // operand expression
         } unary;
         
         // call node with a callee expression and a list of argument nodes
         struct {
-            ASTNode* callee;
-            ASTNodeList* arguments;
+            ASTNode* callee;          // expression being called (function or method)
+            ASTNodeList* arguments;   // list of argument expressions
         } call;
         
         // index access storing the object and the index expression (bracket notation)
         struct {
-            ASTNode* object;
-            ASTNode* member;
+            ASTNode* object;     // table or array being accessed
+            ASTNode* member;     // index expression (key or position)
         } access;
         
         // table literal with separate lists for positional items and key-value pairs
         struct {
-            ASTNodeList* items;       // sequential array-like elements
-            ASTNodeList* key_values;  // named field assignments
+            ASTNodeList* items;       // sequential array-like elements (positional)
+            ASTNodeList* key_values;  // named field assignments (key = value)
         } table_literal;
         
         // variable assignment or declaration, with optional access path for fields
         struct {
-            char* name;
-            ASTNode* value;
-            bool is_declaration;      // distinguishes declaration from reassignment
+            char* name;               // variable name being assigned
+            ASTNode* value;           // expression being assigned
+            bool is_declaration;      // true for 'var x = val', false for 'x = val'
             ASTNode* access_path;     // non-null for x.field = val to track the target
         } var_assign;
         
         // function declaration with name, parameters, and body block
         struct {
-            char* name;
-            ASTNodeList* params;
-            ASTNode* body;
+            char* name;               // function name (NULL for anonymous functions)
+            ASTNodeList* params;      // list of parameter nodes
+            ASTNode* body;            // block node containing function body
         } function_decl;
         
         // if statement with condition, then branch, optional elif chain, and else branch
         struct {
-            ASTNode* condition;
-            ASTNode* then_branch;
+            ASTNode* condition;       // condition expression
+            ASTNode* then_branch;     // block executed when condition is true
             ASTNode* elif_chain;      // linked list of elif branches
-            ASTNode* else_branch;
+            ASTNode* else_branch;     // block executed when all conditions are false
         } if_stmt;
         
         // single elif branch linked into the elif chain of an if statement
         struct {
-            ASTNode* condition;
-            ASTNode* body;
-            ASTNode* next_elif;
+            ASTNode* condition;       // elif condition expression
+            ASTNode* body;            // block executed when elif condition is true
+            ASTNode* next_elif;       // next elif node in the chain
         } elif_branch;
         
         // for loop with optional variable, condition, range bounds, and step
         struct {
-            char* var_name;      // null when not a numeric range loop
-            ASTNode* condition;  // null for range or infinite loops
-            ASTNode* start;
-            ASTNode* end;
-            ASTNode* step;
-            ASTNode* body;
+            char* var_name;           // loop variable name (NULL for conditional loops)
+            ASTNode* condition;       // loop condition (NULL for range loops)
+            ASTNode* start;           // start value for numeric range loops
+            ASTNode* end;             // end value for numeric range loops
+            ASTNode* step;            // step value for numeric range loops (NULL for default 1)
+            ASTNode* body;            // block node containing loop body
         } for_stmt;
         
         // import statement storing the module path as a duplicated string
         struct {
-            char* module_path;
+            char* module_path;        // dotted module path (e.g., "os", "math.sqrt")
         } import_stmt;
         
         // module block with its own name and body for nested modules
         struct {
-            char* module_name;
-            ASTNode* body;
+            char* module_name;        // name of the imported module
+            ASTNode* body;            // body of the imported module
         } module_block;
 
         // return statement with an optional return value expression
         struct {
-            ASTNode* value;           // null for bare return with no value
+            ASTNode* value;           // return value expression (NULL for bare return)
         } return_stmt;
         
         // string interpolation with a list of alternating string literals and expressions
         struct {
-            ASTNodeList* parts;
+            ASTNodeList* parts;       // list of string literal and expression nodes
         } string_interp;
         
         // block node holding a list of statements executed sequentially
         struct {
-            ASTNodeList* statements;
+            ASTNodeList* statements;  // list of statement nodes
         } block;
         
         // parameter definition holding the parameter name for function signatures
         struct {
-            char* name;
+            char* name;               // parameter name
         } param;
         
-        // ternary expression
+        // ternary expression (condition ? true_expr : false_expr)
         struct {
-            ASTNode* condition;
-            ASTNode* true_expr;
-            ASTNode* false_expr;
+            ASTNode* condition;       // condition expression
+            ASTNode* true_expr;       // expression evaluated when condition is true
+            ASTNode* false_expr;      // expression evaluated when condition is false
         } ternary;
 
         // expression statement wrapper to treat any expression as a statement
         struct {
-            ASTNode* expression;
+            ASTNode* expression;      // expression being treated as a statement
         } expr_stmt;
     };
 };
 
 // dynamic array used for lists of ast nodes (statements, arguments, etc.)
 struct ASTNodeList {
-    ASTNode** nodes;
-    int count;
-    int capacity;
+    ASTNode** nodes;             // dynamically growing array of AST node pointers
+    int count;                   // number of nodes currently stored
+    int capacity;                // allocated capacity of the nodes array
 };
 
-// creation functions for each ast node type, all taking source location info
+// allocates a zero-initialized AST node with the given type and source position
 ASTNode* ast_create_node(ASTNodeType type, int line, int column);
+
+// wraps a numeric literal into an AST node, storing the raw double value
 ASTNode* ast_create_literal_number(double value, int line, int column);
+
+// duplicates the string so the AST owns its memory independently
 ASTNode* ast_create_literal_string(const char* value, int line, int column);
+
+// creates a none/null literal node (no associated value)
 ASTNode* ast_create_literal_none(int line, int column);
+
+// stores a boolean literal, used for conditions and direct values
 ASTNode* ast_create_literal_bool(bool value, int line, int column);
+
+// identifier nodes hold variable or function names, duplicating for ownership
 ASTNode* ast_create_identifier(const char* name, int line, int column);
+
+// binary operation combines two subexpressions with a token operator
 ASTNode* ast_create_binary(TokenType op, ASTNode* left, ASTNode* right);
+
+// unary operation applies to a single operand (negation, logical not)
 ASTNode* ast_create_unary(TokenType op, ASTNode* operand);
+
+// function call with a callee expression and a list of argument nodes
 ASTNode* ast_create_call(ASTNode* callee, ASTNodeList* arguments);
+
+// indexed access like array[key] or table[field], storing both object and index
 ASTNode* ast_create_index_access(ASTNode* object, ASTNode* index);
+
+// table constructor with separate sequential items and key-value pairs
 ASTNode* ast_create_table_literal(ASTNodeList* items, ASTNodeList* key_values, int line, int column);
+
+// handles both variable declaration and assignment, with optional access path for indexed targets
 ASTNode* ast_create_var_assign(const char* name, ASTNode* value, bool is_decl, 
                                 ASTNode* access_path, int line, int column);
+
+// function declaration with optional name, parameter list, and body block
 ASTNode* ast_create_function(const char* name, ASTNodeList* params, ASTNode* body, 
                               int line, int column);
+
+// if statement with condition, then branch, optional elif chain, and optional else branch
 ASTNode* ast_create_if(ASTNode* condition, ASTNode* then_branch, 
                        ASTNode* elif_chain, ASTNode* else_branch);
+
+// for loop with optional variable name, condition, start/end/step for numeric range, and body
 ASTNode* ast_create_for(const char* var_name, ASTNode* condition, ASTNode* start, 
                         ASTNode* end, ASTNode* step, ASTNode* body, int line, int column);
+
+// import statement stores the module path as a duplicated string
 ASTNode* ast_create_import(const char* module_path, int line, int column);
+
+// return statement may carry an optional expression value
 ASTNode* ast_create_return(ASTNode* value, int line, int column);
+
+// string interpolation node holds a list of parts (strings and expressions)
 ASTNode* ast_create_string_interp(ASTNodeList* parts);
+
+// ternary node: condition ? true_expr : false_expr
 ASTNode* ast_create_ternary(ASTNode* condition, ASTNode* true_expr, ASTNode* false_expr, int line, int column);
+
+// creates a type check node for parameter validation (reserved for future use)
 ASTNode* ast_create_type_check(const char* param_name, const char* type_name, 
                                 int line, int column);
+
+// block node groups a list of statements, using first statement's location as fallback
 ASTNode* ast_create_block(ASTNodeList* statements);
+
+// expression statement wraps a standalone expression as a statement
 ASTNode* ast_create_expr_stmt(ASTNode* expression);
+
+// parameter node holds a parameter name for function definitions
 ASTNode* ast_create_param(const char* name, int line, int column);
+
+// module block represents a separate module with its own name and body
 ASTNode* ast_create_module_block(const char* name, ASTNode* body, int line, int column);
 
-// list management functions for dynamic arrays of ast nodes
+// creates a dynamic array for AST nodes with an initial capacity of 8
 ASTNodeList* ast_list_create();
+
+// appends a node to the list, doubling capacity if needed
 void ast_list_add(ASTNodeList* list, ASTNode* node);
+
+// frees only the list container, not the nodes themselves (tree owns them)
 void ast_list_free(ASTNodeList* list);
 
-// memory deallocation for the entire ast tree
+// recursively frees an AST node and all its children, handling each type specifically
 void ast_free_node(ASTNode* node);
+
+// public entry point to free the whole AST program tree
 void ast_free(ASTNode* program);
 
 #endif // AST_H

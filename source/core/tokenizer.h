@@ -54,7 +54,7 @@ typedef enum {
 
 // token structure with type, lexeme, and source position
 typedef struct {
-    TokenType type;
+    TokenType type;      // token kind (keyword, operator, literal, etc.)
     char* value;         // dynamically allocated string for the lexeme
     int line;            // 1-based line number
     int column;          // 0-based column within the line

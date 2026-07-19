@@ -27,16 +27,16 @@ typedef enum {
 
 // symbol table entry with name, scope, kind, type, and constant folding data
 typedef struct {
-    char** names;
-    int* scope_levels;
-    ParserSymbolKind* kinds;
-    ValueType* types;
-    int* param_counts;       // for functions: number of parameters
-    bool* const_known;       // whether the symbol has a known constant value
-    double* const_values;    // constant value if const_known is true
-    int count;
-    int capacity;
-    int current_scope;
+    char** names;            // symbol names (dynamically allocated)
+    int* scope_levels;       // lexical scope depth where the symbol was declared
+    ParserSymbolKind* kinds; // symbol kind (variable, function, parameter, module)
+    ValueType* types;        // inferred or declared type of the symbol
+    int* param_counts;       // for functions: number of parameters (0 for non-functions)
+    bool* const_known;       // whether the symbol has a known compile-time constant value
+    double* const_values;    // constant value if const_known is true (for numeric folding)
+    int count;               // number of symbols currently stored
+    int capacity;            // allocated capacity of the symbol arrays
+    int current_scope;       // current lexical scope depth for symbol lookup
 } ParserSymbolTable;
 
 // forward declaration so the struct can reference itself in function signatures
@@ -44,25 +44,26 @@ typedef struct Parser Parser;
 
 // main parser context tracking tokens, symbols, errors, and nesting levels
 struct Parser {
-    Token* tokens;
-    int count;
-    int current;
-    char* filename;
-    char* source_dir;
-    const char* source;
+    Token* tokens;               // array of tokens from the tokenizer
+    int count;                   // total number of tokens
+    int current;                 // current token index being parsed
 
-    ParserSymbolTable symbols;
-    int error_count;
-    int loop_depth;          // nesting depth of loops (for break/continue checks)
-    int function_depth;      // nesting depth of functions (for return checks)
-    bool semantic_checks;    // whether to perform type checking and constant folding
+    char* filename;              // source file name for error reporting
+    char* source_dir;            // directory of the source file for module resolution
+    const char* source;          // raw source code for error context display
 
-    int last_error_line;
-    int last_error_column;
+    ParserSymbolTable symbols;   // symbol table for scope and type tracking
+    int error_count;             // total number of errors encountered during parsing
+    int loop_depth;              // nesting depth of loops (for break/continue validation)
+    int function_depth;          // nesting depth of functions (for return validation)
+    bool semantic_checks;        // whether to perform type checking and constant folding
 
-    int last_error_lines[ERROR_HISTORY_SIZE];
-    int last_error_columns[ERROR_HISTORY_SIZE];
-    int last_error_idx;
+    int last_error_line;         // most recent error position for duplicate detection
+    int last_error_column;       // most recent error column for duplicate detection
+
+    int last_error_lines[ERROR_HISTORY_SIZE];    // circular buffer of recent error lines
+    int last_error_columns[ERROR_HISTORY_SIZE];  // circular buffer of recent error columns
+    int last_error_idx;          // current index into the error history buffer
 };
 
 // creates a parser instance for the given token stream and source info

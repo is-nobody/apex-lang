@@ -10,10 +10,6 @@
   #include <unistd.h>
 #endif
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 // initializes platform-specific features (terminal, paths, etc.)
 void platform_init(void);
 
@@ -40,9 +36,5 @@ char* platform_create_temp_file(const char* data, size_t len);
 
 // deletes a temporary file by its path
 void platform_delete_temp_file(const char* path);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif // PLATFORM_H

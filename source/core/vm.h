@@ -103,7 +103,7 @@ typedef struct {
 
 // string object with interned storage, hash cache, and flexible array for data
 typedef struct StringObject {
-    RefCountedObject header;
+    RefCountedObject header; // reference counting header for memory management
     uint32_t hash;           // cached hash for faster comparisons
     bool hash_computed;      // whether the hash has been calculated
     int length;              // string length in characters
@@ -116,14 +116,14 @@ typedef uint64_t Value;
 // hash table entry with chaining for collisions
 typedef struct TableEntry {
     Value key;               // string key (interned)
-    uint32_t hash;
+    uint32_t hash;           // precomputed hash for fast comparison and bucketing
     Value value;             // associated value
     struct TableEntry* next; // next entry in the chain
 } TableEntry;
 
 // fast table with separate array part for integer keys (O(1) direct access)
 typedef struct Table {
-    RefCountedObject header;
+    RefCountedObject header; // reference counting header for memory management
     TableEntry** entries;    // hash buckets for string keys
     int capacity;            // hash table capacity
     int hash_count;          // number of entries in hash part
@@ -141,10 +141,10 @@ typedef struct {
 
 // object pool for reusing frequently allocated objects
 typedef struct {
-    StringObject* string_pool[POOL_MAX_ITEMS];  // pool of reusable string objects
-    int string_pool_count;                      // number of strings currently in pool
-    Table* table_pool[POOL_MAX_ITEMS / 4];      // pool of reusable table objects
-    int table_pool_count;                       // number of tables currently in pool
+    StringObject* string_pool[POOL_MAX_ITEMS]; // pool of reusable string objects
+    int string_pool_count;                     // number of strings currently in pool
+    Table* table_pool[POOL_MAX_ITEMS / 4];     // pool of reusable table objects
+    int table_pool_count;                      // number of tables currently in pool
 } ObjectPool;
 
 // state for "for key = table" iteration, walks array_part then hash buckets
@@ -157,50 +157,49 @@ typedef struct {
 
 // main virtual machine state with registers, call stack, and execution context
 typedef struct {
-    Value* register_frames;  // flattened array of all register frames (now Value = uint64_t)
-    Value* registers;        // pointer to current frame's registers
-    int current_frame;       // index of the current frame in call_stack
-    int register_count;      // total registers allocated for all frames
-    
-    Value globals[VM_MAX_GLOBALS];
-    int global_count;
-    
-    Value args_stack[VM_MAX_ARGS_STACK]; // stack for passing arguments
-    int args_top;
-    
+    Value* register_frames;        // flattened array of all register frames (Value = uint64_t NaN-boxed)
+    Value* registers;              // pointer to current frame's registers for fast access
+    int current_frame;             // index of the currently active frame in call_stack
+    int register_count;            // total registers allocated across all frames
+
+    Value globals[VM_MAX_GLOBALS]; // global variable storage (persistent across frames)
+    int global_count;              // number of initialized globals
+
+    Value args_stack[VM_MAX_ARGS_STACK]; // stack for passing arguments to functions
+    int args_top;                        // top index of the arguments stack
+
     struct {
-        int return_address;   // pc to resume after call
-        int base_register;    // register base for the frame
-        int base_iterator_depth; // saved loop iterator depth
-        int frame_index;      // index for debug info
-        int dest_reg;         // destination register for return value
-        int saved_args_top;
+        int return_address;        // instruction pointer to resume after call returns
+        int base_register;         // register base offset for this frame
+        int base_iterator_depth;   // saved loop iterator depth for nested loops
+        int frame_index;           // frame index for debugging and stack traces
+        int dest_reg;              // destination register for the return value
+        int saved_args_top;        // saved args_top to restore after call
     } call_stack[VM_MAX_CALL_FRAMES];
-    int call_depth;
-    
-    BytecodeChunk* chunk;     // currently executing bytecode
-    Instruction* code;        // pointer to chunk's code array for fast access
-    int code_count;           // total instructions in the chunk
-    
-    int pc;                   // program counter (next instruction to execute)
-    
-    bool running;             // whether execution is active
-    bool had_error;           // whether an error occurred during execution
-    
+    int call_depth;                // current call stack depth
+
+    BytecodeChunk* chunk;          // currently executing bytecode chunk
+    Instruction* code;             // pointer to chunk's code array for fast instruction dispatch
+    int code_count;                // total number of instructions in the chunk
+    int pc;                        // program counter (index of next instruction to execute)
+
+    bool running;                  // whether the VM is actively executing
+    bool had_error;                // whether an error occurred during execution
+
     struct {
-        double index;         // current loop index
-        double end;           // loop end bound
-        double step;          // loop step value
+        double index;              // current loop iteration value
+        double end;                // loop end bound (inclusive/exclusive based on step)
+        double step;               // loop step increment (positive or negative)
     } iterator_stack[VM_MAX_CALL_FRAMES];
-    int iterator_depth;       // nesting depth of active numeric loops
+    int iterator_depth;            // nesting depth of active numeric for-loops
 
-    TableIterState table_iters[16];
-    int table_iter_depth;
+    TableIterState table_iters[16]; // state for table iteration (for key = table loops)
+    int table_iter_depth;           // nesting depth of active table iterators
 
-    StringInternTable intern_table; // global string interning table
-    ObjectPool obj_pool;      // object recycling pool
+    StringInternTable intern_table; // global string interning table for deduplication
+    ObjectPool obj_pool;            // object recycling pool for performance
 
-    const char* source;       // source code for error reporting
+    const char* source;             // source code string for error reporting
 } VM;
 
 // creates a value from a double number (stored unboxed if not NaN)
