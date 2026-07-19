@@ -159,19 +159,7 @@ endif()
 include(CPack)
 
 #[[
-# standard build command for linux
-cmake -S . -B build/linux -DCMAKE_BUILD_TYPE=Release
-cmake --build build/linux --parallel
-
-# cross-compilation for windows from linux via mingw
-cmake -S . -B build/windows \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_SYSTEM_NAME=Windows \
-    -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc
-
-cmake --build build/windows --parallel
-
-# build debug version
-cmake -S . -B build/debug -DCMAKE_BUILD_TYPE=Debug
-cmake --build build/debug --parallel
+# standard build command
+cmake -S . -B build/ -DCMAKE_BUILD_TYPE=Release
+cmake --build build/ --parallel
 ]]
