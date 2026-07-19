@@ -20,7 +20,7 @@ static void string_destroy(StringObject* str);
 static bool string_equal(StringObject* a, StringObject* b);
 static const char* value_to_cstr(Value v, char* buf, int buf_size);
 
-// returns the type of a NaN-boxed value
+// returns the type of a nan-boxed value
 ValueType_VM value_get_type(Value v) {
     return (ValueType_VM)GET_TYPE(v);
 }
@@ -271,28 +271,28 @@ void value_decref(Value v) {
     }
 }
 
-// constructs a numeric value (unboxed double, NaN-boxed if NaN)
+// constructs a numeric value (unboxed double, nan-boxed if nan)
 Value vm_make_number(double value) {
     return MAKE_NUMBER(value);
 }
 
-// constructs a string value (pointer stored in NaN box)
+// constructs a string value (pointer stored in nan box)
 Value vm_make_string(const char* value) {
     StringObject* str = string_create(value, (int)strlen(value));
     return MAKE_STRING(str);
 }
 
-// constructs a none/null value (special NaN tag)
+// constructs a none/null value (special nan tag)
 Value vm_make_none(void) {
     return MAKE_NONE();
 }
 
-// constructs a boolean value (special NaN tag with boolean payload)
+// constructs a boolean value (special nan tag with boolean payload)
 Value vm_make_bool(bool value) {
     return MAKE_BOOL(value);
 }
 
-// constructs a new empty table value (pointer in NaN box)
+// constructs a new empty table value (pointer in nan box)
 Value vm_make_table(void) {
     Table* table = table_create(8);
     return MAKE_TABLE(table);
@@ -1047,35 +1047,35 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     goto *dispatch_table[ip->opcode];
 
     OP_MOVE_LABEL: {
-        int dest = ip->operands[0]; int src = ip->operands[1];
-        Value sv = regs[src];
+        int dest = ip->operands[0]; int src = ip->operands[1];  // dest and src register indices
+        Value sv = regs[src];          // read source value
         if (IS_NUMBER(sv) || IS_BOOL(sv) || IS_NONE(sv)) {
-            regs[dest] = sv;
+            regs[dest] = sv;           // immediate types, no refcount needed
         } else {
-            value_decref(regs[dest]);
-            regs[dest] = sv;
-            value_incref(regs[dest]);
+            value_decref(regs[dest]);  // release old dest value
+            regs[dest] = sv;           // copy pointer
+            value_incref(regs[dest]);  // bump refcount for new reference
         }
-        ip++; goto *dispatch_table[ip->opcode];
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_LOAD_CONST_LABEL: {
-        int dest = ip->operands[0]; int const_idx = ip->operands[1];
-        Constant* c = &chunk->constants[const_idx];
-        value_decref(regs[dest]);
+        int dest = ip->operands[0]; int const_idx = ip->operands[1];  // dest reg and constant pool index
+        Constant* c = &chunk->constants[const_idx];  // fetch constant from pool
+        value_decref(regs[dest]);                    // release old value in dest reg
         switch (c->type) {
             case CONST_NUMBER: 
-                regs[dest] = MAKE_NUMBER(c->number_value);
+                regs[dest] = MAKE_NUMBER(c->number_value);  // unboxed number, no refcount
                 break;
             case CONST_STRING: 
                 {
-                    int len = (int)strlen(c->string_value);
-                    StringObject* str = string_intern(&vm->intern_table, c->string_value, len);
-                    regs[dest] = MAKE_STRING(str);
-                    value_incref(regs[dest]);
+                    int len = (int)strlen(c->string_value);  // compute string length
+                    StringObject* str = string_intern(&vm->intern_table, c->string_value, len);  // intern for dedup
+                    regs[dest] = MAKE_STRING(str);           // store tagged string pointer
+                    value_incref(regs[dest]);                // bump refcount, interned strings have INT_MAX but still
                 }
                 break;
             case CONST_FUNCTION:
-                regs[dest] = MAKE_FUNCTION(c->function_index);
+                regs[dest] = MAKE_FUNCTION(c->function_index);  // store function index as tagged value
                 break;
             case CONST_NONE:
                 regs[dest] = MAKE_NONE();
@@ -1086,716 +1086,731 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             default: 
                 break;
         }
-        ip++; goto *dispatch_table[ip->opcode];
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_LOAD_CONST_NUM_LABEL: {
-        int dest = ip->operands[0]; int value = ip->operands[1];
-        regs[dest] = MAKE_NUMBER((double)value);
-        ip++; goto *dispatch_table[ip->opcode];
+        int dest = ip->operands[0]; int value = ip->operands[1];  // dest reg and integer constant
+        regs[dest] = MAKE_NUMBER((double)value);                  // cast int to double and box
+        ip++; goto *dispatch_table[ip->opcode];                   // advance to next instruction
     }
     OP_LOAD_BOOL_LABEL: {
-        int dest = ip->operands[0];
-        regs[dest] = MAKE_BOOL(ip->operands[1] != 0);
-        ip++; goto *dispatch_table[ip->opcode];
+        int dest = ip->operands[0];                    // dest register index
+        regs[dest] = MAKE_BOOL(ip->operands[1] != 0);  // convert operand to bool and store
+        ip++; goto *dispatch_table[ip->opcode];        // advance to next instruction
     }
 
     OP_ADD_LABEL: {
-        int dest = ip->operands[0];
-        du64 a = {.u = regs[ip->operands[1]]};
-        du64 b = {.u = regs[ip->operands[2]]};
-        double r = a.d + b.d;
-        if (r != r) {
-            if (a.d != a.d || b.d != b.d) {
-                value_decref(regs[dest]);
-                regs[dest] = MAKE_NONE();
+        int dest = ip->operands[0];              // dest register index
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
+        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double
+        double r = a.d + b.d;                    // perform addition
+        if (r != r) {                            // check for nan result
+            if (a.d != a.d || b.d != b.d) {      // one of the operands is nan (not a number)
+                value_decref(regs[dest]);        // release old value
+                regs[dest] = MAKE_NONE();        // nan operands produce none
             } else {
-                regs[dest] = MAKE_NUMBER(r);
+                regs[dest] = MAKE_NUMBER(r);     // genuine nan result, store as number
             }
         } else {
-            regs[dest] = MAKE_NUMBER(r);
+            regs[dest] = MAKE_NUMBER(r);         // normal result, store as unboxed number
         }
-        ip++; goto *dispatch_table[ip->opcode];
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_SUB_LABEL: {
-        int dest = ip->operands[0];
-        du64 a = {.u = regs[ip->operands[1]]};
-        du64 b = {.u = regs[ip->operands[2]]};
-        double r = a.d - b.d;
-        if (r != r) {
-            if (a.d != a.d || b.d != b.d) {
-                value_decref(regs[dest]);
-                regs[dest] = MAKE_NONE();
+        int dest = ip->operands[0];              // dest register index
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double
+        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double
+        double r = a.d - b.d;                    // perform subtraction
+        if (r != r) {                            // check for nan result
+            if (a.d != a.d || b.d != b.d) {      // one of the operands is nan
+                value_decref(regs[dest]);        // release old value
+                regs[dest] = MAKE_NONE();        // nan operands produce none
             } else {
-                regs[dest] = MAKE_NUMBER(r);
+                regs[dest] = MAKE_NUMBER(r);     // genuine nan result, store as number
             }
         } else {
-            regs[dest] = MAKE_NUMBER(r);
+            regs[dest] = MAKE_NUMBER(r);         // normal result
         }
-        ip++; goto *dispatch_table[ip->opcode];
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_MUL_LABEL: {
-        int dest = ip->operands[0];
-        du64 a = {.u = regs[ip->operands[1]]};
-        du64 b = {.u = regs[ip->operands[2]]};
-        double r = a.d * b.d;
-        if (r != r) {
-            if (a.d != a.d || b.d != b.d) {
-                value_decref(regs[dest]);
-                regs[dest] = MAKE_NONE();
+        int dest = ip->operands[0];              // dest register index
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double
+        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double
+        double r = a.d * b.d;                    // perform multiplication
+        if (r != r) {                            // check for nan result
+            if (a.d != a.d || b.d != b.d) {      // one of the operands is nan
+                value_decref(regs[dest]);        // release old value
+                regs[dest] = MAKE_NONE();        // nan operands produce none
             } else {
-                regs[dest] = MAKE_NUMBER(r);
+                regs[dest] = MAKE_NUMBER(r);     // genuine nan result, store as number
             }
         } else {
-            regs[dest] = MAKE_NUMBER(r);
+            regs[dest] = MAKE_NUMBER(r);         // normal result
         }
-        ip++; goto *dispatch_table[ip->opcode];
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_DIV_LABEL: {
-        int dest = ip->operands[0];
-        du64 a = {.u = regs[ip->operands[1]]};
-        du64 b = {.u = regs[ip->operands[2]]};
-        double r = a.d / b.d;
-        if (r != r) {
-            if (a.d != a.d || b.d != b.d) {
-                value_decref(regs[dest]);
-                regs[dest] = MAKE_NONE();
+        int dest = ip->operands[0];              // dest register index
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double
+        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double
+        double r = a.d / b.d;                    // perform division
+        if (r != r) {                            // check for nan result
+            if (a.d != a.d || b.d != b.d) {      // one of the operands is nan
+                value_decref(regs[dest]);        // release old value
+                regs[dest] = MAKE_NONE();        // nan operands produce none
             } else {
-                regs[dest] = MAKE_NUMBER(r);
+                regs[dest] = MAKE_NUMBER(r);     // genuine nan result, store as number
             }
         } else {
-            regs[dest] = MAKE_NUMBER(r);
+            regs[dest] = MAKE_NUMBER(r);         // normal result
         }
-        ip++; goto *dispatch_table[ip->opcode];
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_MOD_LABEL: {
-        int dest = ip->operands[0];
-        du64 a = {.u = regs[ip->operands[1]]};
-        du64 b = {.u = regs[ip->operands[2]]};
-        double r = fmod(a.d, b.d);
-        if (r != r) {
-            if (a.d != a.d || b.d != b.d) {
-                value_decref(regs[dest]);
-                regs[dest] = MAKE_NONE();
+        int dest = ip->operands[0];              // dest register index
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double
+        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double
+        double r = fmod(a.d, b.d);               // perform modulo using fmod
+        if (r != r) {                            // check for nan result
+            if (a.d != a.d || b.d != b.d) {      // one of the operands is nan
+                value_decref(regs[dest]);        // release old value
+                regs[dest] = MAKE_NONE();        // nan operands produce none
             } else {
-                regs[dest] = MAKE_NUMBER(r);
+                regs[dest] = MAKE_NUMBER(r);     // genuine nan result, store as number
             }
         } else {
-            regs[dest] = MAKE_NUMBER(r);
+            regs[dest] = MAKE_NUMBER(r);         // normal result
         }
-        ip++; goto *dispatch_table[ip->opcode];
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_NEG_LABEL: {
-        int dest = ip->operands[0];
-        regs[dest] = MAKE_NUMBER(-AS_NUMBER(regs[ip->operands[1]]));
-        ip++; goto *dispatch_table[ip->opcode];
+        int dest = ip->operands[0];                                   // dest register index
+        regs[dest] = MAKE_NUMBER(-AS_NUMBER(regs[ip->operands[1]]));  // negate and store as unboxed number
+        ip++; goto *dispatch_table[ip->opcode];                       // advance to next instruction
     }
 
-    OP_JUMP_LABEL: ip = &vm->code[ip->operands[0]]; goto *dispatch_table[ip->opcode];
+    OP_JUMP_LABEL:
+        ip = &vm->code[ip->operands[0]];          // jump to target address
+        goto *dispatch_table[ip->opcode];         // dispatch next instruction
     OP_JUMP_IF_FALSE_LABEL: {
-        int cond_reg = ip->operands[1];
-        if (!AS_BOOL(vm->registers[cond_reg])) { ip = &vm->code[ip->operands[0]]; goto *dispatch_table[ip->opcode]; }
-        ip++; goto *dispatch_table[ip->opcode];
+        int cond_reg = ip->operands[1];           // register holding the condition
+        if (!AS_BOOL(vm->registers[cond_reg])) {  // if false, take the jump
+            ip = &vm->code[ip->operands[0]];      // jump to target address
+            goto *dispatch_table[ip->opcode];     // dispatch next instruction
+        }
+        ip++; goto *dispatch_table[ip->opcode];   // fall through to next instruction
     }
     OP_JUMP_IF_EQ_LABEL: {
-        int target = ip->operands[0];
-        Value left = regs[ip->operands[1]];
-        Value right = regs[ip->operands[2]];
-        bool jump = false;
+        int target = ip->operands[0];         // jump target address
+        Value left = regs[ip->operands[1]];   // left operand
+        Value right = regs[ip->operands[2]];  // right operand
+        bool jump = false;     // flag to determine if jump should be taken
         if (IS_NONE(left) && IS_NONE(right)) {
-            jump = true;
+            jump = true;       // both none are equal
         } else if (IS_NONE(left) || IS_NONE(right)) {
-            jump = false;
+            jump = false;      // one is none, the other is not
         } else if (IS_NUMBER(left) && IS_NUMBER(right)) {
-            jump = (AS_NUMBER(left) == AS_NUMBER(right));
+            jump = (AS_NUMBER(left) == AS_NUMBER(right));  // compare numeric values
         } else if (IS_STRING(left) && IS_STRING(right)) {
-            jump = string_equal(AS_STRING(left), AS_STRING(right));
+            jump = string_equal(AS_STRING(left), AS_STRING(right));  // compare string contents
         } else if (IS_BOOL(left) && IS_BOOL(right)) {
-            jump = (AS_BOOL(left) == AS_BOOL(right));
+            jump = (AS_BOOL(left) == AS_BOOL(right));      // compare boolean values
         }
         if (jump) {
-            ip = &vm->code[target];
-            goto *dispatch_table[ip->opcode];
+            ip = &vm->code[target];              // jump to target
+            goto *dispatch_table[ip->opcode];    // dispatch next instruction
         }
-        ip++; goto *dispatch_table[ip->opcode];
+        ip++; goto *dispatch_table[ip->opcode];  // fall through
     }
     OP_JUMP_IF_NEQ_LABEL: {
-        int target = ip->operands[0];
-        Value left = regs[ip->operands[1]];
-        Value right = regs[ip->operands[2]];
-        bool jump = false;
+        int target = ip->operands[0];         // jump target address
+        Value left = regs[ip->operands[1]];   // left operand
+        Value right = regs[ip->operands[2]];  // right operand
+        bool jump = false;     // flag to determine if jump should be taken
         if (IS_NONE(left) && IS_NONE(right)) {
-            jump = false;
+            jump = false;      // both none are equal, so not neq
         } else if (IS_NONE(left) || IS_NONE(right)) {
-            jump = true;
+            jump = true;       // one is none, the other is not, so they are neq
         } else if (IS_NUMBER(left) && IS_NUMBER(right)) {
-            jump = (AS_NUMBER(left) != AS_NUMBER(right));
+            jump = (AS_NUMBER(left) != AS_NUMBER(right));  // compare numeric values
         } else if (IS_STRING(left) && IS_STRING(right)) {
-            jump = !string_equal(AS_STRING(left), AS_STRING(right));
+            jump = !string_equal(AS_STRING(left), AS_STRING(right));  // compare string contents
         } else if (IS_BOOL(left) && IS_BOOL(right)) {
-            jump = (AS_BOOL(left) != AS_BOOL(right));
+            jump = (AS_BOOL(left) != AS_BOOL(right));      // compare boolean values
         }
         if (jump) {
-            ip = &vm->code[target];
-            goto *dispatch_table[ip->opcode];
+            ip = &vm->code[target];              // jump to target
+            goto *dispatch_table[ip->opcode];    // dispatch next instruction
         }
-        ip++; goto *dispatch_table[ip->opcode];
+        ip++; goto *dispatch_table[ip->opcode];  // fall through
     }
     OP_JUMP_IF_LT_LABEL: {
-        int target = ip->operands[0];
-        du64 a = {.u = regs[ip->operands[1]]};
-        du64 b = {.u = regs[ip->operands[2]]};
-        if (a.d < b.d) {
-            ip = &vm->code[target];
-            goto *dispatch_table[ip->opcode];
+        int target = ip->operands[0];            // jump target address
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double
+        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double
+        if (a.d < b.d) {                         // compare as doubles
+            ip = &vm->code[target];              // jump to target
+            goto *dispatch_table[ip->opcode];    // dispatch next instruction
         }
-        ip++; goto *dispatch_table[ip->opcode];
+        ip++; goto *dispatch_table[ip->opcode];  // fall through
     }
     OP_JUMP_IF_LTE_LABEL: {
-        int target = ip->operands[0];
+        int target = ip->operands[0];            // jump target address
         if (AS_NUMBER(regs[ip->operands[1]]) <= AS_NUMBER(regs[ip->operands[2]])) {
-            ip = &vm->code[target];
-            goto *dispatch_table[ip->opcode];
+            ip = &vm->code[target];              // jump to target
+            goto *dispatch_table[ip->opcode];    // dispatch next instruction
         }
-        ip++; goto *dispatch_table[ip->opcode];
+        ip++; goto *dispatch_table[ip->opcode];  // fall through
     }
     OP_JUMP_IF_GT_LABEL: {
-        int target = ip->operands[0];
+        int target = ip->operands[0];            // jump target address
         if (AS_NUMBER(regs[ip->operands[1]]) > AS_NUMBER(regs[ip->operands[2]])) {
-            ip = &vm->code[target];
-            goto *dispatch_table[ip->opcode];
+            ip = &vm->code[target];              // jump to target
+            goto *dispatch_table[ip->opcode];    // dispatch next instruction
         }
-        ip++; goto *dispatch_table[ip->opcode];
+        ip++; goto *dispatch_table[ip->opcode];  // fall through
     }
     OP_JUMP_IF_GTE_LABEL: {
-        int target = ip->operands[0];
-        if (AS_NUMBER(vm->registers[ip->operands[1]]) >= AS_NUMBER(vm->registers[ip->operands[2]])) { ip = &vm->code[target]; goto *dispatch_table[ip->opcode]; }
-        ip++; goto *dispatch_table[ip->opcode];
+        int target = ip->operands[0];            // jump target address
+        if (AS_NUMBER(vm->registers[ip->operands[1]]) >= AS_NUMBER(vm->registers[ip->operands[2]])) {
+            ip = &vm->code[target];              // jump to target
+            goto *dispatch_table[ip->opcode];    // dispatch next instruction
+        }
+        ip++; goto *dispatch_table[ip->opcode];  // fall through
     }
 
     OP_CMP_EQ_LABEL: {
-        int dest = ip->operands[0];
-        Value left = regs[ip->operands[1]];
-        Value right = regs[ip->operands[2]];
-        int result = 0;
+        int dest = ip->operands[0];              // dest register index
+        Value left = regs[ip->operands[1]];      // left operand
+        Value right = regs[ip->operands[2]];     // right operand
+        int result = 0;                          // default to false
         if (IS_NONE(left) && IS_NONE(right)) {
-            result = 1;
+            result = 1;                          // both none are equal
         }
         else if (IS_NONE(left) || IS_NONE(right)) {
-            result = 0;
+            result = 0;                          // one is none, the other is not
         }
         else if (IS_FUNCTION(left) && IS_FUNCTION(right)) {
-            result = (AS_FUNCTION(left) == AS_FUNCTION(right));
+            result = (AS_FUNCTION(left) == AS_FUNCTION(right));  // compare function indices
         }
         else if (IS_NUMBER(left) && IS_NUMBER(right)) {
-            result = (AS_NUMBER(left) == AS_NUMBER(right));
+            result = (AS_NUMBER(left) == AS_NUMBER(right));      // compare numeric values
         }
         else if (IS_STRING(left) && IS_STRING(right)) {
-            result = string_equal(AS_STRING(left), AS_STRING(right));
+            result = string_equal(AS_STRING(left), AS_STRING(right));  // compare string contents
         }
         else if (IS_BOOL(left) && IS_BOOL(right)) {
-            result = (AS_BOOL(left) == AS_BOOL(right));
+            result = (AS_BOOL(left) == AS_BOOL(right));          // compare boolean values
         }
-        regs[dest] = MAKE_BOOL(result);
-        ip++; goto *dispatch_table[ip->opcode];
+        regs[dest] = MAKE_BOOL(result);          // store result as bool
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_CMP_NEQ_LABEL: {
-        int dest = ip->operands[0];
-        Value left = regs[ip->operands[1]];
-        Value right = regs[ip->operands[2]];
-        int result = 1;
+        int dest = ip->operands[0];              // dest register index
+        Value left = regs[ip->operands[1]];      // left operand
+        Value right = regs[ip->operands[2]];     // right operand
+        int result = 1;                          // default to true
         if (IS_NONE(left) && IS_NONE(right)) {
-            result = 0;
+            result = 0;                          // both none are equal, so not neq
         }
         else if (IS_NONE(left) || IS_NONE(right)) {
-            result = 1;
+            result = 1;                          // one is none, the other is not, so they are neq
         }
         else if (IS_FUNCTION(left) && IS_FUNCTION(right)) {
-            result = (AS_FUNCTION(left) != AS_FUNCTION(right));
+            result = (AS_FUNCTION(left) != AS_FUNCTION(right));  // compare function indices
         }
         else if (IS_NUMBER(left) && IS_NUMBER(right)) {
-            result = (AS_NUMBER(left) != AS_NUMBER(right));
+            result = (AS_NUMBER(left) != AS_NUMBER(right));      // compare numeric values
         }
         else if (IS_STRING(left) && IS_STRING(right)) {
-            result = !string_equal(AS_STRING(left), AS_STRING(right));
+            result = !string_equal(AS_STRING(left), AS_STRING(right));  // compare string contents
         }
         else if (IS_BOOL(left) && IS_BOOL(right)) {
-            result = (AS_BOOL(left) != AS_BOOL(right));
+            result = (AS_BOOL(left) != AS_BOOL(right));          // compare boolean values
         }
-        regs[dest] = MAKE_BOOL(result);
-        ip++; goto *dispatch_table[ip->opcode];
+        regs[dest] = MAKE_BOOL(result);          // store result as bool
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_CMP_LT_LABEL: {
-        int dest = ip->operands[0];
-        du64 a = {.u = regs[ip->operands[1]]};
-        du64 b = {.u = regs[ip->operands[2]]};
-        regs[dest] = MAKE_BOOL(a.d < b.d);
-        ip++; goto *dispatch_table[ip->opcode];
+        int dest = ip->operands[0];              // dest register index
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double
+        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double
+        regs[dest] = MAKE_BOOL(a.d < b.d);       // compare and store bool result
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_CMP_GT_LABEL: {
-        int dest = ip->operands[0];
-        regs[dest] = MAKE_BOOL(AS_NUMBER(regs[ip->operands[1]]) > AS_NUMBER(regs[ip->operands[2]]));
-        ip++; goto *dispatch_table[ip->opcode];
+        int dest = ip->operands[0];              // dest register index
+        regs[dest] = MAKE_BOOL(AS_NUMBER(regs[ip->operands[1]]) > AS_NUMBER(regs[ip->operands[2]]));  // compare and store
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_CMP_LTE_LABEL: {
-        int dest = ip->operands[0];
-        regs[dest] = MAKE_BOOL(AS_NUMBER(regs[ip->operands[1]]) <= AS_NUMBER(regs[ip->operands[2]]));
-        ip++; goto *dispatch_table[ip->opcode];
+        int dest = ip->operands[0];              // dest register index
+        regs[dest] = MAKE_BOOL(AS_NUMBER(regs[ip->operands[1]]) <= AS_NUMBER(regs[ip->operands[2]])); // compare and store
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_CMP_GTE_LABEL: {
-        int dest = ip->operands[0];
-        regs[dest] = MAKE_BOOL(AS_NUMBER(regs[ip->operands[1]]) >= AS_NUMBER(regs[ip->operands[2]]));
-        ip++; goto *dispatch_table[ip->opcode];
+        int dest = ip->operands[0];              // dest register index
+        regs[dest] = MAKE_BOOL(AS_NUMBER(regs[ip->operands[1]]) >= AS_NUMBER(regs[ip->operands[2]])); // compare and store
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
 
     OP_FOR_INIT_LABEL: {
-        int var_reg = ip->operands[0];
-        int end_reg = ip->operands[1];
-        int step_reg = ip->operands[2];
-        vm->iterator_depth++;
-        vm->iterator_stack[vm->iterator_depth].index = AS_NUMBER(vm->registers[var_reg]);
-        vm->iterator_stack[vm->iterator_depth].end   = AS_NUMBER(vm->registers[end_reg]);
-        vm->iterator_stack[vm->iterator_depth].step  = AS_NUMBER(vm->registers[step_reg]);
-        ip++; goto *dispatch_table[ip->opcode];
+        int var_reg = ip->operands[0];           // loop variable register
+        int end_reg = ip->operands[1];           // end value register
+        int step_reg = ip->operands[2];          // step value register
+        vm->iterator_depth++;                    // push new iterator frame
+        vm->iterator_stack[vm->iterator_depth].index = AS_NUMBER(vm->registers[var_reg]);   // init start value
+        vm->iterator_stack[vm->iterator_depth].end   = AS_NUMBER(vm->registers[end_reg]);   // init end value
+        vm->iterator_stack[vm->iterator_depth].step  = AS_NUMBER(vm->registers[step_reg]);  // init step value
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_FOR_NEXT_LABEL: {
-        int var_reg = ip->operands[0];      
-        int end_or_size_reg = ip->operands[1];
-        int flag_or_exit = ip->operands[2];
-        if (flag_or_exit == 0) {
-            int exit_addr = end_or_size_reg;
-            double c = vm->iterator_stack[vm->iterator_depth].index;
-            double e = vm->iterator_stack[vm->iterator_depth].end;
-            double s = vm->iterator_stack[vm->iterator_depth].step;
-            if ((s > 0 && c <= e) || (s < 0 && c >= e)) {
-                vm->registers[var_reg] = MAKE_NUMBER(c);
-                vm->iterator_stack[vm->iterator_depth].index = c + s;
-                ip++;
-                goto *dispatch_table[ip->opcode];
+        int var_reg = ip->operands[0];          // loop variable register
+        int end_or_size_reg = ip->operands[1];  // exit address when flag_or_exit == 0
+        int flag_or_exit = ip->operands[2];     // 0 for numeric for, other for generic for
+        if (flag_or_exit == 0) {                // numeric for loop
+            int exit_addr = end_or_size_reg;    // address to jump when loop ends
+            double c = vm->iterator_stack[vm->iterator_depth].index;   // current index
+            double e = vm->iterator_stack[vm->iterator_depth].end;     // end value
+            double s = vm->iterator_stack[vm->iterator_depth].step;    // step value
+            if ((s > 0 && c <= e) || (s < 0 && c >= e)) {              // check if still within bounds
+                vm->registers[var_reg] = MAKE_NUMBER(c);               // store current index to loop var
+                vm->iterator_stack[vm->iterator_depth].index = c + s;  // advance index by step
+                ip++;                              // move to loop body
+                goto *dispatch_table[ip->opcode];  // dispatch next instruction
             } else {
-                vm->iterator_depth--;
-                ip = &vm->code[exit_addr];
-                goto *dispatch_table[ip->opcode];
+                vm->iterator_depth--;              // pop iterator frame
+                ip = &vm->code[exit_addr];         // jump to exit address
+                goto *dispatch_table[ip->opcode];  // dispatch next instruction
             }
         }
     }
     OP_TABLE_ITER_INIT_LABEL: {
-        int table_reg = ip->operands[0];
-        Value tv = regs[table_reg];
-        vm->table_iter_depth++;
-        TableIterState* iter = &vm->table_iters[vm->table_iter_depth];
-        if (!IS_TABLE(tv)) {
-            iter->table = NULL;
-            iter->array_index = 0;
-            iter->bucket_index = 0;
-            iter->current_entry = NULL;
+        int table_reg = ip->operands[0];         // register holding the table to iterate
+        Value tv = regs[table_reg];              // fetch table value
+        vm->table_iter_depth++;                  // push new table iterator frame
+        TableIterState* iter = &vm->table_iters[vm->table_iter_depth];  // get current iterator state
+        if (!IS_TABLE(tv)) {                     // not a table, set empty iterator
+            iter->table = NULL;                  // mark as invalid
+            iter->array_index = 0;               // reset array index
+            iter->bucket_index = 0;              // reset bucket index
+            iter->current_entry = NULL;          // reset current entry
         } else {
-            iter->table = AS_TABLE(tv);
-            iter->array_index = 0;
-            iter->bucket_index = 0;
-            iter->current_entry = NULL;
+            iter->table = AS_TABLE(tv);          // store table pointer
+            iter->array_index = 0;               // start at first array element
+            iter->bucket_index = 0;              // start at first hash bucket
+            iter->current_entry = NULL;          // no current entry yet
         }
-        ip++;
-        goto *dispatch_table[ip->opcode];
+        ip++;                                    // advance to next instruction
+        goto *dispatch_table[ip->opcode];        // dispatch next instruction
     }
     OP_TABLE_ITER_NEXT_LABEL: {
-        int var_reg = ip->operands[0];
-        int exit_addr = ip->operands[2];
-        TableIterState* iter = &vm->table_iters[vm->table_iter_depth];
-        Table* t = iter->table;
-        if (t == NULL) {
-            vm->table_iter_depth--;
-            ip = &vm->code[exit_addr];
-            goto *dispatch_table[ip->opcode];
+        int var_reg = ip->operands[0];           // register to store the key
+        int exit_addr = ip->operands[2];         // address to jump when iteration ends
+        TableIterState* iter = &vm->table_iters[vm->table_iter_depth];  // get current iterator state
+        Table* t = iter->table;                  // fetch table pointer
+        if (t == NULL) {                         // empty or invalid table
+            vm->table_iter_depth--;              // pop iterator frame
+            ip = &vm->code[exit_addr];           // jump to exit
+            goto *dispatch_table[ip->opcode];    // dispatch next instruction
         }
-        while (iter->array_index < t->array_count) {
-            int idx = iter->array_index++;
-            if (!IS_BOOL(t->array_part[idx]) || AS_BOOL(t->array_part[idx])) {
-                value_decref(regs[var_reg]);
-                regs[var_reg] = MAKE_NUMBER(idx + 1);
-                ip++;
-                goto *dispatch_table[ip->opcode];
+        while (iter->array_index < t->array_count) {   // iterate over array part
+            int idx = iter->array_index++;             // get current index and advance
+            if (!IS_BOOL(t->array_part[idx]) || AS_BOOL(t->array_part[idx])) {  // slot is occupied
+                value_decref(regs[var_reg]);           // release old key in var reg
+                regs[var_reg] = MAKE_NUMBER(idx + 1);  // store 1-based index as key
+                ip++;                                  // advance to loop body
+                goto *dispatch_table[ip->opcode];      // dispatch next instruction
             }
         }
-        while (iter->bucket_index < t->capacity) {
-            if (iter->current_entry == NULL) {
-                iter->current_entry = t->entries[iter->bucket_index++];
-                continue;
+        while (iter->bucket_index < t->capacity) {    // iterate over hash part
+            if (iter->current_entry == NULL) {        // need to advance to next bucket
+                iter->current_entry = t->entries[iter->bucket_index++];  // get first entry in bucket
+                continue;                             // retry with the new entry
             }
-            TableEntry* entry = iter->current_entry;
-            iter->current_entry = entry->next;
-            value_decref(regs[var_reg]);
-            regs[var_reg] = entry->key;
-            value_incref(regs[var_reg]);
-            ip++;
-            goto *dispatch_table[ip->opcode];
+            TableEntry* entry = iter->current_entry;  // get current entry
+            iter->current_entry = entry->next;        // advance to next entry in chain
+            value_decref(regs[var_reg]);              // release old key in var reg
+            regs[var_reg] = entry->key;               // store key from hash entry
+            value_incref(regs[var_reg]);              // bump refcount for the stored key
+            ip++;                                     // advance to loop body
+            goto *dispatch_table[ip->opcode];         // dispatch next instruction
         }
-        vm->table_iter_depth--;
-        ip = &vm->code[exit_addr];
-        goto *dispatch_table[ip->opcode];
+        vm->table_iter_depth--;              // no more entries, pop iterator frame
+        ip = &vm->code[exit_addr];           // jump to exit
+        goto *dispatch_table[ip->opcode];    // dispatch next instruction
     }
-    OP_POP_ITER_LABEL: if (vm->iterator_depth >= 0) vm->iterator_depth--; ip++; goto *dispatch_table[ip->opcode];
+    OP_POP_ITER_LABEL:
+        if (vm->iterator_depth >= 0) vm->iterator_depth--;  // pop iterator frame if any exist
+        ip++;                              // advance to next instruction
+        goto *dispatch_table[ip->opcode];  // dispatch next instruction
 
     OP_TABLE_GET_LABEL: {
-        int dest = ip->operands[0];
-        int table_reg = ip->operands[1];
-        int key_reg = ip->operands[2];
-        Value table_val = vm->registers[table_reg];
-        if (!IS_TABLE(table_val)) {
-            value_decref(vm->registers[dest]);
-            vm->registers[dest] = MAKE_NONE();
-            ip++; goto *dispatch_table[ip->opcode];
+        int dest = ip->operands[0];                  // dest register index
+        int table_reg = ip->operands[1];             // register holding the table
+        int key_reg = ip->operands[2];               // register holding the key
+        Value table_val = vm->registers[table_reg];  // fetch table value
+        if (!IS_TABLE(table_val)) {                  // not a table, return none
+            value_decref(vm->registers[dest]);       // release old dest value
+            vm->registers[dest] = MAKE_NONE();       // store none
+            ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
         }
-        Table* table = AS_TABLE(table_val);
-        Value key = vm->registers[key_reg];
+        Table* table = AS_TABLE(table_val);      // unwrap table pointer
+        Value key = vm->registers[key_reg];      // fetch key value
         Value val;
-        val = MAKE_NONE();
-        table_get(table, key, &val);
-        value_decref(vm->registers[dest]);
-        vm->registers[dest] = val;
-        ip++; goto *dispatch_table[ip->opcode];
+        val = MAKE_NONE();                       // default to none
+        table_get(table, key, &val);             // lookup key in table, writes to val
+        value_decref(vm->registers[dest]);       // release old dest value
+        vm->registers[dest] = val;               // store result (already incref'd by table_get)
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_TABLE_SET_LABEL: {
-        int table_reg = ip->operands[0];
-        int key_reg = ip->operands[1];
-        int val_reg = ip->operands[2];
-        Value table_val = vm->registers[table_reg];
-        if (!IS_TABLE(table_val)) {
-            vm->had_error = true;
-            vm->running = false;
-            goto OP_HALT_LABEL;
+        int table_reg = ip->operands[0];             // register holding the table
+        int key_reg = ip->operands[1];               // register holding the key
+        int val_reg = ip->operands[2];               // register holding the value
+        Value table_val = vm->registers[table_reg];  // fetch table value
+        if (!IS_TABLE(table_val)) {                  // not a table, error
+            vm->had_error = true;                    // set error flag
+            vm->running = false;                     // stop execution
+            goto OP_HALT_LABEL;                      // jump to halt
         }
-        Table* table = AS_TABLE(table_val);
-        Value key = vm->registers[key_reg];
-        Value val = vm->registers[val_reg];
-        table_set(table, key, val);
-        ip++; goto *dispatch_table[ip->opcode];
+        Table* table = AS_TABLE(table_val);      // unwrap table pointer
+        Value key = vm->registers[key_reg];      // fetch key value
+        Value val = vm->registers[val_reg];      // fetch value to store
+        table_set(table, key, val);              // perform table set with refcount handling
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_TABLE_GET_CONST_LABEL: {
-        int dest = ip->operands[0];
-        int table_reg = ip->operands[1];
-        int key_idx = ip->operands[2];
-        Value table_val = vm->registers[table_reg];
-        if (!IS_TABLE(table_val)) {
-            value_decref(vm->registers[dest]);
-            vm->registers[dest] = MAKE_NONE();
-            ip++; goto *dispatch_table[ip->opcode];
+        int dest = ip->operands[0];                  // dest register index
+        int table_reg = ip->operands[1];             // register holding the table
+        int key_idx = ip->operands[2];               // constant pool index for the string key
+        Value table_val = vm->registers[table_reg];  // fetch table value
+        if (!IS_TABLE(table_val)) {                  // not a table, return none
+            value_decref(vm->registers[dest]);       // release old dest value
+            vm->registers[dest] = MAKE_NONE();       // store none
+            ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
         }
-        Table* table = AS_TABLE(table_val);
-        Value key = MAKE_STRING(string_intern(&vm->intern_table, chunk->constants[key_idx].string_value, strlen(chunk->constants[key_idx].string_value)));
+        Table* table = AS_TABLE(table_val);      // unwrap table pointer
+        Value key = MAKE_STRING(string_intern(&vm->intern_table, chunk->constants[key_idx].string_value, strlen(chunk->constants[key_idx].string_value)));  // intern string key
         Value val;
-        val = MAKE_NONE();
-        table_get(table, key, &val);
-        value_decref(vm->registers[dest]);
-        vm->registers[dest] = val;
-        ip++; goto *dispatch_table[ip->opcode];
+        val = MAKE_NONE();                       // default to none
+        table_get(table, key, &val);             // lookup key in table, writes to val
+        value_decref(vm->registers[dest]);       // release old dest value
+        vm->registers[dest] = val;               // store result (already incref'd by table_get)
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_TABLE_SET_CONST_LABEL: {
-        int table_reg = ip->operands[0];
-        int key_idx = ip->operands[1];
-        int val_reg = ip->operands[2];
-        Table* table = AS_TABLE(vm->registers[table_reg]);
-        Value key = MAKE_STRING(string_intern(&vm->intern_table, chunk->constants[key_idx].string_value, strlen(chunk->constants[key_idx].string_value)));
-        table_set(table, key, vm->registers[val_reg]);
-        ip++; goto *dispatch_table[ip->opcode];
+        int table_reg = ip->operands[0];         // register holding the table
+        int key_idx = ip->operands[1];           // constant pool index for the string key
+        int val_reg = ip->operands[2];           // register holding the value
+        Table* table = AS_TABLE(vm->registers[table_reg]);  // unwrap table pointer
+        Value key = MAKE_STRING(string_intern(&vm->intern_table, chunk->constants[key_idx].string_value, strlen(chunk->constants[key_idx].string_value)));  // intern string key
+        table_set(table, key, vm->registers[val_reg]);      // perform table set with refcount handling
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_TABLE_APPEND_LABEL: {
-        int table_reg = ip->operands[0];
-        int val_reg = ip->operands[1];
-        Table* table = AS_TABLE(vm->registers[table_reg]);
-        Value val = vm->registers[val_reg];
-        if (table->array_part == NULL) {
-            table->array_capacity = TABLE_ARRAY_INIT;
-            table->array_part = (Value*)calloc(TABLE_ARRAY_INIT, sizeof(Value));
+        int table_reg = ip->operands[0];                    // register holding the table
+        int val_reg = ip->operands[1];                      // register holding the value to append
+        Table* table = AS_TABLE(vm->registers[table_reg]);  // unwrap table pointer
+        Value val = vm->registers[val_reg];                 // fetch value to append
+        if (table->array_part == NULL) {                    // lazy init of array part
+            table->array_capacity = TABLE_ARRAY_INIT;       // set initial capacity
+            table->array_part = (Value*)calloc(TABLE_ARRAY_INIT, sizeof(Value));  // allocate array
             for (int i = 0; i < TABLE_ARRAY_INIT; i++) {
-                table->array_part[i] = MAKE_BOOL(false);
+                table->array_part[i] = MAKE_BOOL(false);    // fill with false (empty slot marker)
             }
         }
-        int idx = table->array_count;
-        if (idx >= table->array_capacity) {
-            array_part_grow(table, idx);
+        int idx = table->array_count;            // index to append at
+        if (idx >= table->array_capacity) {      // need to grow array part
+            array_part_grow(table, idx);         // resize to accommodate new index
         }
-        value_decref(table->array_part[idx]);
-        table->array_part[idx] = val;
-        value_incref(table->array_part[idx]);
-        table->array_count++;
-        ip++; goto *dispatch_table[ip->opcode];
+        value_decref(table->array_part[idx]);    // release old value at slot
+        table->array_part[idx] = val;            // store new value
+        value_incref(table->array_part[idx]);    // bump refcount for stored value
+        table->array_count++;                    // increment element count
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_NEW_TABLE_LABEL: {
-        int dest = ip->operands[0];
-        value_decref(vm->registers[dest]);
-        vm->registers[dest] = MAKE_TABLE(table_create(8));
-        ip++; goto *dispatch_table[ip->opcode];
+        int dest = ip->operands[0];              // dest register index
+        value_decref(vm->registers[dest]);       // release old value in dest
+        vm->registers[dest] = MAKE_TABLE(table_create(8));  // create new table with default capacity
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
 
     OP_CONCAT_LABEL: {
-        int dest = ip->operands[0];
-        Value left  = vm->registers[ip->operands[1]]; 
-        Value right = vm->registers[ip->operands[2]];
-        char lbuf[64], rbuf[64];
-        const char* ls = value_to_cstr(left, lbuf, sizeof(lbuf));
-        const char* rs = value_to_cstr(right, rbuf, sizeof(rbuf));
-        int llen = IS_STRING(left) ? AS_STRING(left)->length : (int)strlen(ls);
-        int rlen = IS_STRING(right) ? AS_STRING(right)->length : (int)strlen(rs);
-        int total_len = llen + rlen;
-        if (total_len >= 16 && total_len <= 64) {
-            char combined[65];
-            memcpy(combined, ls, llen);
-            memcpy(combined + llen, rs, rlen);
-            combined[total_len] = '\0';
-            
-            StringObject* interned = string_intern(&vm->intern_table, combined, total_len);
-            value_decref(vm->registers[dest]);
-            vm->registers[dest] = MAKE_STRING(interned);
-            value_incref(vm->registers[dest]);
+        int dest = ip->operands[0];                // dest register index
+        Value left  = vm->registers[ip->operands[1]];  // left operand
+        Value right = vm->registers[ip->operands[2]];  // right operand
+        char lbuf[64], rbuf[64];                   // temp buffers for number/bool to string conversion
+        const char* ls = value_to_cstr(left, lbuf, sizeof(lbuf));   // convert left to c string
+        const char* rs = value_to_cstr(right, rbuf, sizeof(rbuf));  // convert right to c string
+        int llen = IS_STRING(left) ? AS_STRING(left)->length : (int)strlen(ls);    // left length
+        int rlen = IS_STRING(right) ? AS_STRING(right)->length : (int)strlen(rs);  // right length
+        int total_len = llen + rlen;               // combined length
+        if (total_len >= 16 && total_len <= 64) {  // small string, try interning
+            char combined[65];                     // stack buffer for combined string
+            memcpy(combined, ls, llen);            // copy left part
+            memcpy(combined + llen, rs, rlen);     // copy right part
+            combined[total_len] = '\0';            // null terminate
+            StringObject* interned = string_intern(&vm->intern_table, combined, total_len);  // intern for dedup
+            value_decref(vm->registers[dest]);     // release old dest value
+            vm->registers[dest] = MAKE_STRING(interned);  // store interned string
+            value_incref(vm->registers[dest]);     // bump refcount
         } else {
-            StringBuilder sb;
-            sb_init(&sb, total_len + 1);
-            sb_append(&sb, ls, llen);
-            sb_append(&sb, rs, rlen);
-            value_decref(vm->registers[dest]);
-            vm->registers[dest] = MAKE_STRING(sb_to_string(&sb));
-            sb_free(&sb);
+            StringBuilder sb;                      // use string builder for larger strings
+            sb_init(&sb, total_len + 1);           // init with exact capacity
+            sb_append(&sb, ls, llen);              // append left part
+            sb_append(&sb, rs, rlen);              // append right part
+            value_decref(vm->registers[dest]);     // release old dest value
+            vm->registers[dest] = MAKE_STRING(sb_to_string(&sb));  // convert builder to string object
+            sb_free(&sb);                          // free builder buffer
         }
-        ip++; goto *dispatch_table[ip->opcode];
+        ip++; goto *dispatch_table[ip->opcode];    // advance to next instruction
     }
 
     OP_AND_LABEL: {
-        int dest = ip->operands[0];
-        regs[dest] = MAKE_BOOL(AS_BOOL(regs[ip->operands[1]]) && AS_BOOL(regs[ip->operands[2]]));
-        ip++; goto *dispatch_table[ip->opcode];
+        int dest = ip->operands[0];              // dest register index
+        regs[dest] = MAKE_BOOL(AS_BOOL(regs[ip->operands[1]]) && AS_BOOL(regs[ip->operands[2]]));  // logical and
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_OR_LABEL: {
-        int dest = ip->operands[0];
-        regs[dest] = MAKE_BOOL(AS_BOOL(regs[ip->operands[1]]) || AS_BOOL(regs[ip->operands[2]]));
-        ip++; goto *dispatch_table[ip->opcode];
+        int dest = ip->operands[0];              // dest register index
+        regs[dest] = MAKE_BOOL(AS_BOOL(regs[ip->operands[1]]) || AS_BOOL(regs[ip->operands[2]]));  // logical or
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_NOT_LABEL: {
-        int dest = ip->operands[0];
-        regs[dest] = MAKE_BOOL(!AS_BOOL(regs[ip->operands[1]]));
-        ip++; goto *dispatch_table[ip->opcode];
+        int dest = ip->operands[0];              // dest register index
+        regs[dest] = MAKE_BOOL(!AS_BOOL(regs[ip->operands[1]]));  // logical not
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
 
     OP_PUSH_ARG_LABEL: {
-        if (vm->args_top >= VM_MAX_ARGS_STACK) {
+        if (vm->args_top >= VM_MAX_ARGS_STACK) {  // check for arg stack overflow
             fprintf(stderr, "\033[31mArgument stack overflow - maximum %d arguments exceeded. "
                     "Too many function arguments being passed.\n\033[0m",
-                    VM_MAX_ARGS_STACK);
-            vm->had_error = true;
-            vm->running = false;
-            return false;
+                    VM_MAX_ARGS_STACK);           // print error message
+            vm->had_error = true;                 // set error flag
+            vm->running = false;                  // stop execution
+            return false;                         // early return
         }
-        int reg = ip->operands[0];
-        Value src = vm->registers[reg];
-        vm->args_stack[vm->args_top] = src;
-        value_incref(vm->args_stack[vm->args_top]);
-        vm->args_top++;
-        ip++; goto *dispatch_table[ip->opcode];
+        int reg = ip->operands[0];                   // register holding the argument
+        Value src = vm->registers[reg];              // fetch argument value
+        vm->args_stack[vm->args_top] = src;          // push onto args stack
+        value_incref(vm->args_stack[vm->args_top]);  // bump refcount for stored arg
+        vm->args_top++;                              // increment args stack pointer
+        ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
     OP_CALL_LABEL: {
-        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {
+        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {  // check for call stack overflow
             fprintf(stderr, "\033[31mStack overflow - maximum call depth (%d) exceeded. "
                     "Too many nested function calls or infinite recursion detected.\n\033[0m", 
-                    VM_MAX_CALL_FRAMES);
-            vm->had_error = true;
-            vm->running = false;
-            return false;
+                    VM_MAX_CALL_FRAMES);         // print error message
+            vm->had_error = true;                // set error flag
+            vm->running = false;                 // stop execution
+            return false;                        // early return
         }
-        int func_addr = ip->operands[1];
-        int arg_count = ip->operands[2];
-        int dest_reg  = ip->operands[0];
-        vm->call_stack[vm->call_depth].return_address = (ip + 1) - vm->code;
-        vm->call_stack[vm->call_depth].dest_reg       = dest_reg;
-        vm->call_stack[vm->call_depth].frame_index    = vm->current_frame;
-        vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;
-        vm->call_depth++;
-        vm->current_frame++;
-        vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];
-        regs = vm->registers;
+        int func_addr = ip->operands[1];         // address of function body
+        int arg_count = ip->operands[2];         // number of arguments
+        int dest_reg  = ip->operands[0];         // dest register for return value
+        vm->call_stack[vm->call_depth].return_address = (ip + 1) - vm->code;      // save return address
+        vm->call_stack[vm->call_depth].dest_reg       = dest_reg;                 // save dest register
+        vm->call_stack[vm->call_depth].frame_index    = vm->current_frame;        // save current frame index
+        vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;  // save iterator depth
+        vm->call_depth++;                        // push call frame
+        vm->current_frame++;                     // advance to next register frame
+        vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];  // switch to new register frame
+        regs = vm->registers;                    // update local regs pointer
         for (int i = 0; i < arg_count; i++) {
-            regs[i] = vm->args_stack[vm->args_top - arg_count + i];
+            regs[i] = vm->args_stack[vm->args_top - arg_count + i];  // copy args into new frame registers
         }
-        vm->args_top -= arg_count;
-        ip = &vm->code[func_addr];
-        goto *dispatch_table[ip->opcode];
+        vm->args_top -= arg_count;               // pop args from args stack
+        ip = &vm->code[func_addr];               // jump to function body
+        goto *dispatch_table[ip->opcode];        // dispatch first instruction of function
     }
     OP_CALL_BUILTIN_LABEL: {
-        int dest_reg = ip->operands[0]; int name_idx = ip->operands[1]; int arg_count = ip->operands[2];
-        Value args[VM_MAX_ARGS_STACK];
+        int dest_reg = ip->operands[0];             // dest register for return value
+        int name_idx = ip->operands[1];             // constant pool index for builtin name
+        int arg_count = ip->operands[2];            // number of arguments
+        Value args[VM_MAX_ARGS_STACK];              // local args array
         for (int i = 0; i < arg_count && i < 16; i++) {
-            args[i] = vm->args_stack[vm->args_top - arg_count + i];
+            args[i] = vm->args_stack[vm->args_top - arg_count + i];  // copy args from stack
         }
-        Value result;
-        bool ok = vm_call_builtin(vm, chunk->constants[name_idx].string_value, arg_count, args, &result);
+        Value result;                               // placeholder for return value
+        bool ok = vm_call_builtin(vm, chunk->constants[name_idx].string_value, arg_count, args, &result);  // dispatch to builtin
         for (int i = 0; i < arg_count; i++) {
-            value_decref(vm->args_stack[vm->args_top - arg_count + i]);
+            value_decref(vm->args_stack[vm->args_top - arg_count + i]);  // release args from stack
         }
-        vm->args_top -= arg_count;
+        vm->args_top -= arg_count;                  // pop args from args stack
         if (ok) {
-            value_decref(vm->registers[dest_reg]);
-            vm->registers[dest_reg] = result;
+            value_decref(vm->registers[dest_reg]);  // release old dest value
+            vm->registers[dest_reg] = result;       // store result from builtin
         } else {
-            value_decref(vm->registers[dest_reg]);
-            vm->registers[dest_reg] = MAKE_NONE();
+            value_decref(vm->registers[dest_reg]);  // release old dest value
+            vm->registers[dest_reg] = MAKE_NONE();  // builtin failed, store none
         }
-        if (dest_reg >= vm->register_count) vm->register_count = dest_reg + 1;
-        ip++; goto *dispatch_table[ip->opcode];
+        if (dest_reg >= vm->register_count) vm->register_count = dest_reg + 1;  // track max register used
+        ip++; goto *dispatch_table[ip->opcode];     // advance to next instruction
     }
     OP_RETURN_LABEL: {
-        int value_reg = ip->operands[0];
-        Value ret_val = regs[value_reg];
-        value_incref(ret_val);
-        if (vm->call_depth > 0) {
-            vm->call_depth--;
-            vm->current_frame = vm->call_stack[vm->call_depth].frame_index;
-            
-            vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];
-            regs = vm->registers;
-            
-            vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;
-            int dest_reg = vm->call_stack[vm->call_depth].dest_reg;
-            value_decref(regs[dest_reg]);
-            regs[dest_reg] = ret_val;
-            
-            ip = &vm->code[vm->call_stack[vm->call_depth].return_address];
-            goto *dispatch_table[ip->opcode];
+        int value_reg = ip->operands[0];         // register holding return value
+        Value ret_val = regs[value_reg];         // fetch return value
+        value_incref(ret_val);                   // bump refcount for the returned value
+        if (vm->call_depth > 0) {                // returning from a function call
+            vm->call_depth--;                    // pop call frame
+            vm->current_frame = vm->call_stack[vm->call_depth].frame_index;  // restore frame index
+            vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];  // restore register frame
+            regs = vm->registers;                // update local regs pointer
+            vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
+            int dest_reg = vm->call_stack[vm->call_depth].dest_reg;          // dest register for return value
+            value_decref(regs[dest_reg]);        // release old value in dest
+            regs[dest_reg] = ret_val;            // store return value in caller's dest reg
+            ip = &vm->code[vm->call_stack[vm->call_depth].return_address];   // jump to return address
+            goto *dispatch_table[ip->opcode];    // dispatch next instruction
         }
-        vm->running = false;
-        value_decref(ret_val);
-        goto OP_HALT_LABEL;
+        vm->running = false;                     // top-level return, stop execution
+        value_decref(ret_val);                   // release return value
+        goto OP_HALT_LABEL;                      // jump to halt
     }
     OP_RETURN_VOID_LABEL: {
-        if (vm->call_depth > 0) {
-            vm->call_depth--;
-            int return_addr = vm->call_stack[vm->call_depth].return_address;
-            int dest_reg = vm->call_stack[vm->call_depth].dest_reg;
-            
-            vm->current_frame = vm->call_stack[vm->call_depth].frame_index;
-            vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];
-            regs = vm->registers;
-            value_decref(regs[dest_reg]);
-            regs[dest_reg] = MAKE_NONE();
-            ip = &vm->code[return_addr]; goto *dispatch_table[ip->opcode];
+        if (vm->call_depth > 0) {                // returning from a function call
+            vm->call_depth--;                    // pop call frame
+            int return_addr = vm->call_stack[vm->call_depth].return_address;  // get return address
+            int dest_reg = vm->call_stack[vm->call_depth].dest_reg;           // get dest register
+            vm->current_frame = vm->call_stack[vm->call_depth].frame_index;   // restore frame index
+            vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];  // restore register frame
+            regs = vm->registers;                // update local regs pointer
+            value_decref(regs[dest_reg]);        // release old value in dest
+            regs[dest_reg] = MAKE_NONE();        // void return, store none in dest
+            ip = &vm->code[return_addr];         // jump to return address
+            goto *dispatch_table[ip->opcode];    // dispatch next instruction
         }
-        vm->running = false; goto OP_HALT_LABEL;
+        vm->running = false;                     // top-level return, stop execution
+        goto OP_HALT_LABEL;                      // jump to halt
     }
 
     OP_CALL_0_LABEL: {
-        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {
+        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {  // check for call stack overflow
             fprintf(stderr, "\033[31mStack overflow - maximum call depth (%d) exceeded. "
                     "Too many nested function calls or infinite recursion detected.\n\033[0m", 
-                    VM_MAX_CALL_FRAMES);
-            vm->had_error = true;
-            vm->running = false;
-            goto OP_HALT_LABEL;
+                    VM_MAX_CALL_FRAMES);             // print error message
+            vm->had_error = true;                    // set error flag
+            vm->running = false;                     // stop execution
+            goto OP_HALT_LABEL;                      // jump to halt
         }
-        int func_addr = ip->operands[1];
-        int dest_reg = ip->operands[0];
-        vm->args_top = 0;
-        vm->call_stack[vm->call_depth].return_address = (int)((ip + 1) - vm->code);
-        vm->call_stack[vm->call_depth].dest_reg = dest_reg;
-        vm->call_stack[vm->call_depth].frame_index = vm->current_frame;
-        vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;
-        vm->call_depth++;
-        vm->current_frame++;
-        vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];
-        regs = vm->registers;
-        ip = &vm->code[func_addr];
-        goto *dispatch_table[ip->opcode];
+        int func_addr = ip->operands[1];             // address of function body
+        int dest_reg = ip->operands[0];              // dest register for return value
+        vm->args_top = 0;                            // reset args stack (0 args)
+        vm->call_stack[vm->call_depth].return_address = (int)((ip + 1) - vm->code);  // save return address
+        vm->call_stack[vm->call_depth].dest_reg = dest_reg;                          // save dest register
+        vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save current frame index
+        vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;     // save iterator depth
+        vm->call_depth++;                            // push call frame
+        vm->current_frame++;                         // advance to next register frame
+        vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];  // switch to new register frame
+        regs = vm->registers;                        // update local regs pointer
+        ip = &vm->code[func_addr];                   // jump to function body
+        goto *dispatch_table[ip->opcode];            // dispatch first instruction of function
     }
     OP_CALL_1_LABEL: {
-        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {
+        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {  // check for call stack overflow
             fprintf(stderr, "\033[31mStack overflow - maximum call depth (%d) exceeded. "
                     "Too many nested function calls or infinite recursion detected.\n\033[0m", 
-                    VM_MAX_CALL_FRAMES);
-            vm->had_error = true;
-            vm->running = false;
-            goto OP_HALT_LABEL;
+                    VM_MAX_CALL_FRAMES);             // print error message
+            vm->had_error = true;                    // set error flag
+            vm->running = false;                     // stop execution
+            goto OP_HALT_LABEL;                      // jump to halt
         }
-        int func_addr = ip->operands[1];
-        int dest_reg = ip->operands[0];
-        int arg_reg = ip->operands[2];
-        vm->args_top = 0;
-        vm->call_stack[vm->call_depth].return_address = (int)((ip + 1) - vm->code);
-        vm->call_stack[vm->call_depth].dest_reg = dest_reg;
-        vm->call_stack[vm->call_depth].frame_index = vm->current_frame;
-        vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;
-        vm->call_depth++;
-        vm->current_frame++;
-        vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];
-        regs = vm->registers;
-        Value* prev_frame = &vm->register_frames[(vm->current_frame - 1) * VM_REGS_PER_FRAME];
-        regs[0] = prev_frame[arg_reg];
-        ip = &vm->code[func_addr];
-        goto *dispatch_table[ip->opcode];
+        int func_addr = ip->operands[1];             // address of function body
+        int dest_reg = ip->operands[0];              // dest register for return value
+        int arg_reg = ip->operands[2];               // register holding the single argument
+        vm->args_top = 0;                            // reset args stack (not used for fast call_1)
+        vm->call_stack[vm->call_depth].return_address = (int)((ip + 1) - vm->code);  // save return address
+        vm->call_stack[vm->call_depth].dest_reg = dest_reg;                          // save dest register
+        vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save current frame index
+        vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;     // save iterator depth
+        vm->call_depth++;                            // push call frame
+        vm->current_frame++;                         // advance to next register frame
+        vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];  // switch to new register frame
+        regs = vm->registers;                        // update local regs pointer
+        Value* prev_frame = &vm->register_frames[(vm->current_frame - 1) * VM_REGS_PER_FRAME];  // access caller's frame
+        regs[0] = prev_frame[arg_reg];               // copy single arg into new frame's reg 0
+        ip = &vm->code[func_addr];                   // jump to function body
+        goto *dispatch_table[ip->opcode];            // dispatch first instruction of function
     }
     OP_CALL_2_LABEL: {
-        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {
+        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {  // check for call stack overflow
             fprintf(stderr, "\033[31mStack overflow - maximum call depth (%d) exceeded. "
                     "Too many nested function calls or infinite recursion detected.\n\033[0m", 
-                    VM_MAX_CALL_FRAMES);
-            vm->had_error = true;
-            vm->running = false;
-            goto OP_HALT_LABEL;
+                    VM_MAX_CALL_FRAMES);             // print error message
+            vm->had_error = true;                    // set error flag
+            vm->running = false;                     // stop execution
+            goto OP_HALT_LABEL;                      // jump to halt
         }
-        int func_addr = ip->operands[1];
-        int dest_reg = ip->operands[0];
-        int arg1_reg = ip->operands[2];
-        int arg2_reg = arg1_reg + 1;
-        vm->args_top = 0;
-        vm->call_stack[vm->call_depth].return_address = (int)((ip + 1) - vm->code);
-        vm->call_stack[vm->call_depth].dest_reg = dest_reg;
-        vm->call_stack[vm->call_depth].frame_index = vm->current_frame;
-        vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;
-        vm->call_depth++;
-        vm->current_frame++;
-        vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];
-        regs = vm->registers;
-        Value* prev_frame = &vm->register_frames[(vm->current_frame - 1) * VM_REGS_PER_FRAME];
-        regs[0] = prev_frame[arg1_reg];
-        regs[1] = prev_frame[arg2_reg];
-        ip = &vm->code[func_addr];
-        goto *dispatch_table[ip->opcode];
+        int func_addr = ip->operands[1];             // address of function body
+        int dest_reg = ip->operands[0];              // dest register for return value
+        int arg1_reg = ip->operands[2];              // register holding first argument
+        int arg2_reg = arg1_reg + 1;                 // second argument is in the next register
+        vm->args_top = 0;                            // reset args stack (not used for fast call_2)
+        vm->call_stack[vm->call_depth].return_address = (int)((ip + 1) - vm->code);  // save return address
+        vm->call_stack[vm->call_depth].dest_reg = dest_reg;                          // save dest register
+        vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save current frame index
+        vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;     // save iterator depth
+        vm->call_depth++;                            // push call frame
+        vm->current_frame++;                         // advance to next register frame
+        vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];  // switch to new register frame
+        regs = vm->registers;                        // update local regs pointer
+        Value* prev_frame = &vm->register_frames[(vm->current_frame - 1) * VM_REGS_PER_FRAME];  // access caller's frame
+        regs[0] = prev_frame[arg1_reg];              // copy first arg into new frame's reg 0
+        regs[1] = prev_frame[arg2_reg];              // copy second arg into new frame's reg 1
+        ip = &vm->code[func_addr];                   // jump to function body
+        goto *dispatch_table[ip->opcode];            // dispatch first instruction of function
     }
     OP_RETURN_NUM_LABEL: {
-        int value_reg = ip->operands[0];
-        Value ret_val = regs[value_reg];
-        if (vm->call_depth > 0) {
-            vm->call_depth--;
-            int return_addr = vm->call_stack[vm->call_depth].return_address;
-            int dest_reg = vm->call_stack[vm->call_depth].dest_reg;
-            vm->current_frame = vm->call_stack[vm->call_depth].frame_index;
-            vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];
-            regs = vm->registers;
-            vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;
-            regs[dest_reg] = ret_val;
-            ip = &vm->code[return_addr];
-            goto *dispatch_table[ip->opcode];
+        int value_reg = ip->operands[0];         // register holding return value (guaranteed number)
+        Value ret_val = regs[value_reg];         // fetch return value
+        if (vm->call_depth > 0) {                // returning from a function call
+            vm->call_depth--;                    // pop call frame
+            int return_addr = vm->call_stack[vm->call_depth].return_address;  // get return address
+            int dest_reg = vm->call_stack[vm->call_depth].dest_reg;           // get dest register
+            vm->current_frame = vm->call_stack[vm->call_depth].frame_index;   // restore frame index
+            vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];  // restore register frame
+            regs = vm->registers;                // update local regs pointer
+            vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;      // restore iterator depth
+            regs[dest_reg] = ret_val;            // store return value in caller's dest reg (no incref, unboxed number)
+            ip = &vm->code[return_addr];         // jump to return address
+            goto *dispatch_table[ip->opcode];    // dispatch next instruction
         }
-        vm->running = false;
-        goto OP_HALT_LABEL;
+        vm->running = false;                     // top-level return, stop execution
+        goto OP_HALT_LABEL;                      // jump to halt
     }
 
     OP_LOAD_GLOBAL_LABEL: {
-        int dest = ip->operands[0]; int idx = ip->operands[1];
-        Value gv = vm->globals[idx];
+        int dest = ip->operands[0];              // dest register index
+        int idx = ip->operands[1];               // global variable index
+        Value gv = vm->globals[idx];             // fetch global value
         if (IS_NUMBER(gv) || IS_BOOL(gv) || IS_NONE(gv)) {
-            regs[dest] = gv;
+            regs[dest] = gv;                     // immediate types, no refcount needed
         } else {
-            value_decref(regs[dest]);
-            regs[dest] = gv;
-            value_incref(regs[dest]);
+            value_decref(regs[dest]);            // release old dest value
+            regs[dest] = gv;                     // copy global value
+            value_incref(regs[dest]);            // bump refcount for new reference
         }
-        ip++; goto *dispatch_table[ip->opcode];
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_STORE_GLOBAL_LABEL: {
-        int src = ip->operands[0]; int idx = ip->operands[1];
-        Value sv = regs[src];
-        value_decref(vm->globals[idx]);
-        vm->globals[idx] = sv;
-        value_incref(vm->globals[idx]);
-        ip++; goto *dispatch_table[ip->opcode];
+        int src = ip->operands[0];               // source register index
+        int idx = ip->operands[1];               // global variable index
+        Value sv = regs[src];                    // fetch source value
+        value_decref(vm->globals[idx]);          // release old global value
+        vm->globals[idx] = sv;                   // store new value into global
+        value_incref(vm->globals[idx]);          // bump refcount for stored value
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
 
-    OP_HALT_LABEL: vm->running = false; return !vm->had_error;
+    OP_HALT_LABEL:
+        vm->running = false;                     // stop vm execution
+        return !vm->had_error;                   // return true if no errors occurred
+
     return !vm->had_error;
 }
