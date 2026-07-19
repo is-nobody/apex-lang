@@ -1636,6 +1636,14 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
 
     OP_CALL_0_LABEL: {
+        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {
+            fprintf(stderr, "Stack overflow - maximum call depth (%d) exceeded. "
+                    "Too many nested function calls or infinite recursion detected.\n", 
+                    VM_MAX_CALL_FRAMES);
+            vm->had_error = true;
+            vm->running = false;
+            goto OP_HALT_LABEL;
+        }
         int func_addr = ip->operands[1];
         int dest_reg = ip->operands[0];
         vm->args_top = 0;
@@ -1651,6 +1659,14 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         goto *dispatch_table[ip->opcode];
     }
     OP_CALL_1_LABEL: {
+        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {
+            fprintf(stderr, "Stack overflow - maximum call depth (%d) exceeded. "
+                    "Too many nested function calls or infinite recursion detected.\n", 
+                    VM_MAX_CALL_FRAMES);
+            vm->had_error = true;
+            vm->running = false;
+            goto OP_HALT_LABEL;
+        }
         int func_addr = ip->operands[1];
         int dest_reg = ip->operands[0];
         int arg_reg = ip->operands[2];
@@ -1669,6 +1685,14 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         goto *dispatch_table[ip->opcode];
     }
     OP_CALL_2_LABEL: {
+        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {
+            fprintf(stderr, "Stack overflow - maximum call depth (%d) exceeded. "
+                    "Too many nested function calls or infinite recursion detected.\n", 
+                    VM_MAX_CALL_FRAMES);
+            vm->had_error = true;
+            vm->running = false;
+            goto OP_HALT_LABEL;
+        }
         int func_addr = ip->operands[1];
         int dest_reg = ip->operands[0];
         int arg1_reg = ip->operands[2];
