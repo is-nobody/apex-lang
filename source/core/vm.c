@@ -13,400 +13,398 @@
 #include <math.h>
 #include <limits.h>
 
+// union for reinterpret double bits as uint64
 typedef union { uint64_t u; double d; } du64;
 
+// forward declare string alloc
 StringObject* string_create(const char* chars, int length);
+
+// forward declare string free
 static void string_destroy(StringObject* str);
+
+// forward declare string compare
 static bool string_equal(StringObject* a, StringObject* b);
+
+// forward declare value to c string
 static const char* value_to_cstr(Value v, char* buf, int buf_size);
 
 // returns the type of a nan-boxed value
 ValueType_VM value_get_type(Value v) {
-    return (ValueType_VM)GET_TYPE(v);
+    return (ValueType_VM)GET_TYPE(v);        // extract type tag from NaN-boxed value
 }
 
 // initializes the object pool with empty arrays
 void object_pool_init(ObjectPool* pool) {
-    pool->string_pool_count = 0;
-    pool->table_pool_count = 0;
-    memset(pool->string_pool, 0, sizeof(pool->string_pool));
-    memset(pool->table_pool, 0, sizeof(pool->table_pool));
+    pool->string_pool_count = 0;                              // reset string pool count
+    pool->table_pool_count = 0;                               // reset table pool count
+    memset(pool->string_pool, 0, sizeof(pool->string_pool));  // zero out string pool pointers
+    memset(pool->table_pool, 0, sizeof(pool->table_pool));    // zero out table pool pointers
 }
 
 // frees all objects remaining in the pool
 void object_pool_free(ObjectPool* pool) {
     for (int i = 0; i < pool->string_pool_count; i++) {
-        free(pool->string_pool[i]);
+        free(pool->string_pool[i]);          // free each pooled string
     }
-    pool->string_pool_count = 0;
+    pool->string_pool_count = 0;             // reset string pool count
     for (int i = 0; i < pool->table_pool_count; i++) {
-        table_destroy(pool->table_pool[i]);
+        table_destroy(pool->table_pool[i]);  // destroy each pooled table
     }
-    pool->table_pool_count = 0;
+    pool->table_pool_count = 0;              // reset table pool count
 }
 
 // creates a string from the pool if available, otherwise allocates new
 StringObject* string_create_pooled(ObjectPool* pool, const char* chars, int length) {
-    (void)pool;
-    return string_create(chars, length);
+    (void)pool;                              // pool currently unused, direct alloc
+    return string_create(chars, length);     // allocate new string
 }
 
 // returns a string to the pool for reuse if it's small enough
 void string_destroy_pooled(ObjectPool* pool, StringObject* str) {
-    (void)pool;
-    if (!str) return;
-    string_destroy(str);
+    (void)pool;                              // pool currently unused, direct free
+    if (!str) return;                        // guard against null
+    string_destroy(str);                     // free string memory
 }
 
 // creates a table from the pool if available, otherwise allocates new
 Table* table_create_pooled(ObjectPool* pool, int capacity) {
-    if (pool->table_pool_count > 0) {
-        Table* table = pool->table_pool[--pool->table_pool_count];
-        table->header.ref_count = 1;
-        table->capacity = capacity > 0 ? capacity : TABLE_ARRAY_INIT;
-        table->hash_count = 0;
-        table->array_count = 0;
-        table->entries = calloc(table->capacity, sizeof(TableEntry*));
-        table->array_part = calloc(TABLE_ARRAY_INIT, sizeof(Value));
-        table->array_capacity = TABLE_ARRAY_INIT;
+    if (pool->table_pool_count > 0) {                 // reuse pooled table if available
+        Table* table = pool->table_pool[--pool->table_pool_count];      // pop from pool
+        table->header.ref_count = 1;                  // reset refcount
+        table->capacity = capacity > 0 ? capacity : TABLE_ARRAY_INIT;   // set capacity or default
+        table->hash_count = 0;                        // reset hash entry count
+        table->array_count = 0;                       // reset array element count
+        table->entries = calloc(table->capacity, sizeof(TableEntry*));  // allocate fresh entry buckets
+        table->array_part = calloc(TABLE_ARRAY_INIT, sizeof(Value));    // allocate fresh array part
+        table->array_capacity = TABLE_ARRAY_INIT;     // set initial array capacity
         for (int i = 0; i < TABLE_ARRAY_INIT; i++) {
-            table->array_part[i] = MAKE_BOOL(false);
+            table->array_part[i] = MAKE_BOOL(false);  // fill array slots with false (empty marker)
         }
-        return table;
+        return table;                                 // return recycled table
     }
-    return table_create(capacity);
+    return table_create(capacity);                    // pool empty, allocate new table
 }
 
 // returns a table to the pool for reuse after clearing it
 void table_destroy_pooled(ObjectPool* pool, Table* table) {
-    if (!table) return;
-    if (pool->table_pool_count < POOL_MAX_ITEMS / 4) {
-        table_clear(table);
-        
-        table->capacity = 8;
-        table->entries = NULL;
-        table->array_part = NULL;
-        table->array_capacity = 0;
-        table->array_count = 0;
-        table->hash_count = 0;
-        
-        pool->table_pool[pool->table_pool_count++] = table;
+    if (!table) return;                                      // guard against null
+    if (pool->table_pool_count < POOL_MAX_ITEMS / 4) {       // pool not full, recycle table
+        table_clear(table);                                  // clear all entries and free internal arrays
+        table->capacity = 8;                                 // reset to default capacity
+        table->entries = NULL;                               // clear entries pointer (freed by table_clear)
+        table->array_part = NULL;                            // clear array part pointer (freed by table_clear)
+        table->array_capacity = 0;                           // reset array capacity
+        table->array_count = 0;                              // reset array element count
+        table->hash_count = 0;                               // reset hash entry count
+        pool->table_pool[pool->table_pool_count++] = table;  // push onto pool
     } else {
-        table_destroy(table);
+        table_destroy(table);                                // pool full, just free the table
     }
 }
 
 // djb2 hash function for string interning
 static unsigned int intern_hash(const char* chars, int length) {
-    unsigned int hash = 5381;
+    unsigned int hash = 5381;                    // djb2 initial seed
     for (int i = 0; i < length; i++) {
-        hash = ((hash << 5) + hash) + (unsigned char)chars[i];
+        hash = ((hash << 5) + hash) + (unsigned char)chars[i];  // hash * 33 + char
     }
-    return hash;
+    return hash;                                 // return computed hash
 }
 
 // initializes the string intern table with a fixed size
 void string_intern_table_init(StringInternTable* it) {
-    it->capacity = INTERN_INITIAL_SIZE;
-    it->count = 0;
-    it->buckets = calloc(INTERN_INITIAL_SIZE, sizeof(StringObject*));
+    it->capacity = INTERN_INITIAL_SIZE;          // set initial bucket count
+    it->count = 0;                               // no entries yet
+    it->buckets = calloc(INTERN_INITIAL_SIZE, sizeof(StringObject*));  // allocate zeroed bucket array
 }
 
 // frees all interned strings and the table itself
 void string_intern_table_free(StringInternTable* it) {
     for (int i = 0; i < it->capacity; i++) {
         if (it->buckets[i]) {
-            free(it->buckets[i]);
+            free(it->buckets[i]);                // free each interned string
         }
     }
-    free(it->buckets);
-    it->buckets = NULL;
-    it->capacity = 0;
-    it->count = 0;
+    free(it->buckets);                           // free bucket array
+    it->buckets = NULL;                          // clear dangling pointer
+    it->capacity = 0;                            // reset capacity
+    it->count = 0;                               // reset count
 }
 
 // resizes the intern table when load factor exceeds the threshold
 static void intern_table_resize(StringInternTable* it, int new_capacity) {
-    StringObject** old_buckets = it->buckets;
-    int old_capacity = it->capacity;
-    
-    it->buckets = calloc(new_capacity, sizeof(StringObject*));
-    it->capacity = new_capacity;
-    it->count = 0;
-    
+    StringObject** old_buckets = it->buckets;    // save old bucket array
+    int old_capacity = it->capacity;             // save old capacity
+    it->buckets = calloc(new_capacity, sizeof(StringObject*));  // allocate new zeroed bucket array
+    it->capacity = new_capacity;                 // update capacity
+    it->count = 0;                               // reset count, will recount during rehash
     for (int i = 0; i < old_capacity; i++) {
-        StringObject* str = old_buckets[i];
+        StringObject* str = old_buckets[i];      // fetch string from old bucket
         if (str) {
-            unsigned int idx = intern_hash(str->chars, str->length) % new_capacity;
-            while (it->buckets[idx] != NULL) {
-                idx = (idx + 1) % new_capacity;
+            unsigned int idx = intern_hash(str->chars, str->length) % new_capacity;  // compute new bucket index
+            while (it->buckets[idx] != NULL) {   // linear probe until empty slot
+                idx = (idx + 1) % new_capacity;  // wrap around if needed
             }
-            it->buckets[idx] = str;
-            it->count++;
+            it->buckets[idx] = str;              // insert string into new bucket
+            it->count++;                         // increment entry count
         }
     }
-    free(old_buckets);
+    free(old_buckets);                           // free old bucket array
 }
 
 // interns a string, returning a canonical object with linear probing
 StringObject* string_intern(StringInternTable* it, const char* chars, int length) {
-    if (!it || !chars) return NULL;
-    
-    if ((double)it->count / it->capacity > INTERN_MAX_LOAD) {
-        intern_table_resize(it, it->capacity * 2);
+    if (!it || !chars) return NULL;                  // guard against null params
+    if ((double)it->count / it->capacity > INTERN_MAX_LOAD) {      // check load factor
+        intern_table_resize(it, it->capacity * 2);   // double capacity and rehash
     }
-    
-    unsigned int hash = intern_hash(chars, length);
-    unsigned int idx = hash % it->capacity;
-    
+    unsigned int hash = intern_hash(chars, length);  // compute hash of input string
+    unsigned int idx = hash % it->capacity;          // initial bucket index
     for (int i = 0; i < it->capacity; i++) {
-        unsigned int probe_idx = (idx + i) % it->capacity;
-        StringObject* existing = it->buckets[probe_idx];
-        
-        if (existing == NULL) {
-            StringObject* new_str = string_create(chars, length);
-            new_str->hash = hash;
-            new_str->hash_computed = true;
-            new_str->header.ref_count = INT_MAX;
-            it->buckets[probe_idx] = new_str;
-            it->count++;
-            return new_str;
+        unsigned int probe_idx = (idx + i) % it->capacity;         // linear probe offset
+        StringObject* existing = it->buckets[probe_idx];           // fetch existing string at slot
+        if (existing == NULL) {                      // empty slot, insert new string
+            StringObject* new_str = string_create(chars, length);  // allocate new string object
+            new_str->hash = hash;                    // store precomputed hash
+            new_str->hash_computed = true;           // mark hash as computed
+            new_str->header.ref_count = INT_MAX;     // interned strings are immortal
+            it->buckets[probe_idx] = new_str;        // insert into bucket
+            it->count++;                             // increment entry count
+            return new_str;                          // return newly interned string
         }
-        
-        if (existing->length == length && 
-            memcmp(existing->chars, chars, length) == 0) {
-            return existing;
+        if (existing->length == length &&            // length matches
+            memcmp(existing->chars, chars, length) == 0) {         // content matches
+            return existing;                         // string already interned, return existing
         }
     }
-    
-    return NULL;
+    return NULL;                                     // table is full, should never happen
 }
 
 // allocates a new string object with refcount and flexible array
 StringObject* string_create(const char* chars, int length) {
-    StringObject* str = (StringObject*)malloc(sizeof(StringObject) + length + 1);
-    str->header.ref_count = 1;
-    str->header.type = VAL_STRING;
-    str->length = length;
-    str->hash_computed = false;
-    str->hash = 0;
-    memcpy(str->chars, chars, length);
-    str->chars[length] = '\0';
-    return str;
+    StringObject* str = (StringObject*)malloc(sizeof(StringObject) + length + 1);  // alloc struct + chars + null
+    str->header.ref_count = 1;                   // fresh object starts with refcount 1
+    str->header.type = VAL_STRING;               // mark type as string
+    str->length = length;                        // store length
+    str->hash_computed = false;                  // hash not yet computed (lazy)
+    str->hash = 0;                               // clear hash field
+    memcpy(str->chars, chars, length);           // copy character data
+    str->chars[length] = '\0';                   // null terminate
+    return str;                                  // return new string object
 }
 
 // computes the hash of a string lazily
 static uint32_t string_get_hash(StringObject* str) {
-    if (!str->hash_computed) {
-        uint32_t h = 5381;
+    if (!str->hash_computed) {                   // compute hash lazily if not yet done
+        uint32_t h = 5381;                       // djb2 initial seed
         for (int i = 0; i < str->length; i++) {
-            h = ((h << 5) + h) + (uint8_t)str->chars[i];
+            h = ((h << 5) + h) + (uint8_t)str->chars[i];  // hash * 33 + char
         }
-        str->hash = h;
-        str->hash_computed = true;
+        str->hash = h;                           // store computed hash
+        str->hash_computed = true;               // mark hash as computed
     }
-    return str->hash;
+    return str->hash;                            // return cached or newly computed hash
 }
 
 // frees a string object
 static void string_destroy(StringObject* str) {
-    if (str) free(str);
+    if (str) free(str);                          // free string memory if not null
 }
 
 // compares two strings by length, hash, and content
 static bool string_equal(StringObject* a, StringObject* b) {
-    if (a == b) return true;
-    if (!a || !b) return false;
-    if (a->length != b->length) return false;
-    if (string_get_hash(a) != string_get_hash(b)) return false;
-    return memcmp(a->chars, b->chars, a->length) == 0;
+    if (a == b) return true;                     // same pointer, definitely equal
+    if (!a || !b) return false;                  // one is null, not equal
+    if (a->length != b->length) return false;    // different lengths, not equal
+    if (string_get_hash(a) != string_get_hash(b)) return false;  // different hashes, not equal
+    return memcmp(a->chars, b->chars, a->length) == 0;           // compare character data byte by byte
 }
 
 // converts a value to a C string for concatenation
 static const char* value_to_cstr(Value v, char* buf, int buf_size) {
     if (IS_NUMBER(v)) {
-        snprintf(buf, buf_size, "%.15g", AS_NUMBER(v));
-        return buf;
+        snprintf(buf, buf_size, "%.15g", AS_NUMBER(v));  // format number to temp buffer
+        return buf;                                      // return temp buffer
     } else if (IS_STRING(v)) {
-        return AS_STRING(v)->chars;
+        return AS_STRING(v)->chars;                      // return string's internal chars
     } else if (IS_NONE(v)) {
-        return "none";
+        return "none";                                   // string representation of none
     } else if (IS_BOOL(v)) {
-        return AS_BOOL(v) ? "true" : "false";
+        return AS_BOOL(v) ? "true" : "false";            // string representation of bool
     } else {
-        return "";
+        return "";                                       // fallback empty string
     }
 }
 
 // increments the reference count of a reference-counted value
 void value_incref(Value v) {
     if (IS_STRING(v)) {
-        StringObject* str = AS_STRING(v);
-        if (str && str->header.ref_count != INT_MAX) {
-            str->header.ref_count++;
+        StringObject* str = AS_STRING(v);               // unwrap string pointer
+        if (str && str->header.ref_count != INT_MAX) {  // not interned (immortal)
+            str->header.ref_count++;                    // bump refcount
         }
     } else if (IS_TABLE(v)) {
-        Table* table = AS_TABLE(v);
-        if (table) table->header.ref_count++;
+        Table* table = AS_TABLE(v);                     // unwrap table pointer
+        if (table) table->header.ref_count++;           // bump refcount
     }
 }
 
 // decrements the reference count and frees the object when it reaches zero
 void value_decref(Value v) {
     if (IS_STRING(v)) {
-        StringObject* str = AS_STRING(v);
+        StringObject* str = AS_STRING(v);               // unwrap string pointer
         if (str) {
-            if (str->header.ref_count == INT_MAX) {
-                return;
+            if (str->header.ref_count == INT_MAX) {     // interned string, never freed
+                return;                                 // skip decref for immortal strings
             }
-            if (--str->header.ref_count == 0) {
-                string_destroy(str);
+            if (--str->header.ref_count == 0) {         // decrement and check if dead
+                string_destroy(str);                    // free string memory
             }
         }
     } else if (IS_TABLE(v)) {
-        Table* table = AS_TABLE(v);
-        if (table && --table->header.ref_count == 0) {
-            table_destroy(table);
+        Table* table = AS_TABLE(v);                     // unwrap table pointer
+        if (table && --table->header.ref_count == 0) {  // decrement and check if dead
+            table_destroy(table);                       // destroy table and all entries
         }
     }
 }
 
 // constructs a numeric value (unboxed double, nan-boxed if nan)
 Value vm_make_number(double value) {
-    return MAKE_NUMBER(value);
+    return MAKE_NUMBER(value);       // box double as unboxed nan-tagged number
 }
 
 // constructs a string value (pointer stored in nan box)
 Value vm_make_string(const char* value) {
-    StringObject* str = string_create(value, (int)strlen(value));
-    return MAKE_STRING(str);
+    StringObject* str = string_create(value, (int)strlen(value));  // allocate new string object
+    return MAKE_STRING(str);                                       // box string pointer as tagged value
 }
 
 // constructs a none/null value (special nan tag)
 Value vm_make_none(void) {
-    return MAKE_NONE();
+    return MAKE_NONE();              // return special nan tag for none
 }
 
 // constructs a boolean value (special nan tag with boolean payload)
 Value vm_make_bool(bool value) {
-    return MAKE_BOOL(value);
+    return MAKE_BOOL(value);         // return special nan tag with bool payload
 }
 
 // constructs a new empty table value (pointer in nan box)
 Value vm_make_table(void) {
-    Table* table = table_create(8);
-    return MAKE_TABLE(table);
+    Table* table = table_create(8);  // allocate new table with default capacity
+    return MAKE_TABLE(table);        // box table pointer as tagged value
 }
 
 // copies a value with proper reference counting
 Value vm_copy_value(Value value) {
-    value_incref(value);
-    return value;
-}
-
-// frees a value and decrements its reference count
-void vm_free_value(Value value) {
-    value_decref(value);
+    value_incref(value);             // bump refcount for the copy
+    return value;                    // return the same tagged value
 }
 
 // returns a type name string for a value
 const char* vm_value_type_name(Value value) {
-    if (IS_NUMBER(value) || IS_NAN(value)) return "number";
-    if (IS_STRING(value)) return "string";
-    if (IS_NONE(value)) return "none";
-    if (IS_BOOL(value)) return "bool";
-    if (IS_TABLE(value)) return "table";
-    if (IS_FUNCTION(value)) return "function";
-    return "unknown";
+    if (IS_NUMBER(value) || IS_NAN(value)) return "number";  // all nan-boxed doubles including real nan
+    if (IS_STRING(value)) return "string";                   // string object pointer
+    if (IS_NONE(value)) return "none";                       // special none tag
+    if (IS_BOOL(value)) return "bool";                       // special bool tag
+    if (IS_TABLE(value)) return "table";                     // table object pointer
+    if (IS_FUNCTION(value)) return "function";               // function index tag
+    return "unknown";                                        // fallback for unhandled types
 }
 
 // dynamic string builder for efficient concatenation
 typedef struct {
-    char* buffer;
-    int length;
-    int capacity;
+    char* buffer;                    // dynamically allocated char buffer
+    int length;                      // current string length
+    int capacity;                    // total buffer capacity
 } StringBuilder;
 
+// init string builder with given capacity, min 16 bytes
 static void sb_init(StringBuilder* sb, int initial_capacity) {
-    sb->capacity = initial_capacity > 16 ? initial_capacity : 16;
-    sb->buffer = (char*)malloc(sb->capacity);
-    sb->length = 0;
-    sb->buffer[0] = '\0';
+    sb->capacity = initial_capacity > 16 ? initial_capacity : 16;  // ensure minimum capacity
+    sb->buffer = (char*)malloc(sb->capacity);    // allocate buffer
+    sb->length = 0;                              // start empty
+    sb->buffer[0] = '\0';                        // null terminate
 }
 
+// append len chars from str to string builder, growing if needed
 static void sb_append(StringBuilder* sb, const char* str, int len) {
-    if (sb->length + len + 1 > sb->capacity) {
-        sb->capacity = (sb->length + len + 1) * 2;
-        sb->buffer = (char*)realloc(sb->buffer, sb->capacity);
+    if (sb->length + len + 1 > sb->capacity) {      // need more space
+        sb->capacity = (sb->length + len + 1) * 2;  // double capacity to fit new data
+        sb->buffer = (char*)realloc(sb->buffer, sb->capacity);  // resize buffer
     }
-    memcpy(sb->buffer + sb->length, str, len);
-    sb->length += len;
-    sb->buffer[sb->length] = '\0';
+    memcpy(sb->buffer + sb->length, str, len);      // copy new chars after existing data
+    sb->length += len;                              // update length
+    sb->buffer[sb->length] = '\0';                  // null terminate
 }
 
+// convert string builder to a new string object
 static StringObject* sb_to_string(StringBuilder* sb) {
-    return string_create(sb->buffer, sb->length);
+    return string_create(sb->buffer, sb->length);  // allocate string from builder content
 }
 
+// free string builder internal buffer
 static void sb_free(StringBuilder* sb) {
-    free(sb->buffer);
+    free(sb->buffer);                              // release buffer memory
 }
 
+// compute hash for a value used as table key
 static uint32_t hash_value_key(Value key) {
     if (IS_STRING(key)) {
-        StringObject* str = AS_STRING(key);
-        if (!str->hash_computed) {
-            uint32_t h = 5381;
+        StringObject* str = AS_STRING(key);                   // unwrap string pointer
+        if (!str->hash_computed) {                            // compute hash lazily
+            uint32_t h = 5381;                                // djb2 initial seed
             for (int i = 0; i < str->length; i++) {
-                h = ((h << 5) + h) + (uint8_t)str->chars[i];
+                h = ((h << 5) + h) + (uint8_t)str->chars[i];  // hash * 33 + char
             }
-            str->hash = h;
-            str->hash_computed = true;
+            str->hash = h;                                    // store computed hash
+            str->hash_computed = true;                        // mark as computed
         }
-        return str->hash;
+        return str->hash;                                     // return string hash
     } else if (IS_NUMBER(key)) {
-        double num = AS_NUMBER(key);
-        if (num == 0.0) num = 0.0;
+        double num = AS_NUMBER(key);                          // unwrap number
+        if (num == 0.0) num = 0.0;                            // normalize negative zero to positive zero
         union { double d; uint64_t u; } u;
-        u.d = num;
-        uint32_t hash = 2166136261u;
-        hash ^= (uint32_t)(u.u & 0xFFFFFFFF);
-        hash *= 16777619u;
-        hash ^= (uint32_t)(u.u >> 32);
-        hash *= 16777619u;
-        return hash;
+        u.d = num;                                            // reinterpret double bits as uint64
+        uint32_t hash = 2166136261u;                          // fnv offset basis
+        hash ^= (uint32_t)(u.u & 0xFFFFFFFF);                 // xor low 32 bits
+        hash *= 16777619u;                                    // fnv prime
+        hash ^= (uint32_t)(u.u >> 32);                        // xor high 32 bits
+        hash *= 16777619u;                                    // fnv prime
+        return hash;                                          // return number hash
     }
-    return 0;
+    return 0;                                                 // fallback for unhashable types
 }
 
+// compare two values for key equality
 static bool key_equal(Value a, Value b) {
-    if (IS_NAN(a) && IS_NAN(b)) return false;
-    if (IS_NAN(a) || IS_NAN(b)) return false;
-    
+    if (IS_NAN(a) && IS_NAN(b)) return false;                  // nan never equals nan for keys
+    if (IS_NAN(a) || IS_NAN(b)) return false;                  // one is nan, not equal
     if (IS_STRING(a) && IS_STRING(b)) {
-        StringObject* sa = AS_STRING(a);
-        StringObject* sb = AS_STRING(b);
-        if (sa == sb) return true;
-        if (sa->length != sb->length) return false;
-        return memcmp(sa->chars, sb->chars, sa->length) == 0;
+        StringObject* sa = AS_STRING(a);                       // unwrap first string
+        StringObject* sb = AS_STRING(b);                       // unwrap second string
+        if (sa == sb) return true;                             // same pointer, definitely equal
+        if (sa->length != sb->length) return false;            // different lengths, not equal
+        return memcmp(sa->chars, sb->chars, sa->length) == 0;  // compare content byte by byte
     }
     if (IS_NUMBER(a) && IS_NUMBER(b)) {
-        return AS_NUMBER(a) == AS_NUMBER(b);
+        return AS_NUMBER(a) == AS_NUMBER(b);                   // compare numeric values
     }
-    if (a == b) return true;
-    return false;
+    if (a == b) return true;                                   // bitwise identical tagged values
+    return false;                                              // different types or values
 }
 
 static void table_to_string_builder(Table* table, StringBuilder* sb, int indent_level);
 
-// converts a table to string with indentation, matching print_table_recursive format
+// convert a table to a heap-allocated string representation
 static char* table_to_string(Table* table) {
     StringBuilder sb;
-    sb_init(&sb, 4096);
-    table_to_string_builder(table, &sb, 0);
-    char* result = strdup(sb.buffer);
-    sb_free(&sb);
-    return result;
+    sb_init(&sb, 4096);                          // init builder with 4k buffer
+    table_to_string_builder(table, &sb, 0);      // recursively build string with indent 0
+    char* result = strdup(sb.buffer);            // copy to heap-allocated string
+    sb_free(&sb);                                // free builder buffer
+    return result;                               // return caller-owned string
 }
 
 static void table_to_string_builder(Table* table, StringBuilder* sb, int indent_level) {
@@ -475,428 +473,398 @@ static void table_to_string_builder(Table* table, StringBuilder* sb, int indent_
 
 // recursively prints a table with indentation for nested structures
 static void print_table_recursive(Table* table, int indent_level) {
-    (void)indent_level;
-    if (!table) return;
-    
-    char* str = table_to_string(table);
-    printf("%s", str);
-    free(str);
+    (void)indent_level;                          // indent_level handled inside table_to_string
+    if (!table) return;                          // guard against null
+    char* str = table_to_string(table);          // convert table to string
+    printf("%s", str);                           // print to stdout
+    free(str);                                   // free the temporary string
 }
 
 // prints a value to stdout with formatting
 void vm_print_value(Value value) {
     if (IS_NAN(value)) {
-        printf("nan");
+        printf("nan");                                    // raw nan value
     } else if (IS_NUMBER(value)) {
-        double num = AS_NUMBER(value);
-        if (fabs(num) >= 1e6 || fabs(num - (long long)num) < 1e-9) printf("%.0f", num);
-        else printf("%.15g", num);
+        double num = AS_NUMBER(value);                    // unwrap number
+        if (fabs(num) >= 1e6 || fabs(num - (long long)num) < 1e-9) printf("%.0f", num);  // large or integer, no decimals
+        else printf("%.15g", num);                        // use general format with high precision
     } else if (IS_STRING(value)) {
-        printf("%s", AS_STRING(value)->chars);
+        printf("%s", AS_STRING(value)->chars);            // print raw string chars
     } else if (IS_NONE(value)) {
-        printf("none");
+        printf("none");                                   // print none literal
     } else if (IS_BOOL(value)) {
-        printf("%s", AS_BOOL(value) ? "true" : "false");
+        printf("%s", AS_BOOL(value) ? "true" : "false");  // print bool literal
     } else if (IS_TABLE(value)) {
-        print_table_recursive(AS_TABLE(value), 0);
+        print_table_recursive(AS_TABLE(value), 0);        // recursively print table structure
     } else if (IS_FUNCTION(value)) {
-        printf("<function>");
+        printf("<function>");                             // placeholder for function values
     }
 }
 
 // creates a new hash table with separate array part for integer keys
 Table* table_create(int capacity) {
-    Table* table = (Table*)malloc(sizeof(Table));
-    table->header.ref_count = 1;
-    table->header.type = VAL_TABLE;
-    table->capacity = capacity < 8 ? 8 : capacity;
-    table->hash_count = 0;
-    table->entries = (TableEntry**)calloc(table->capacity, sizeof(TableEntry*));
-    table->array_capacity = 0;
-    table->array_part = NULL;
-    table->array_count = 0;
-    return table;
+    Table* table = (Table*)malloc(sizeof(Table));   // allocate table struct
+    table->header.ref_count = 1;                    // fresh object starts with refcount 1
+    table->header.type = VAL_TABLE;                 // mark type as table
+    table->capacity = capacity < 8 ? 8 : capacity;  // ensure minimum capacity of 8
+    table->hash_count = 0;                          // no hash entries yet
+    table->entries = (TableEntry**)calloc(table->capacity, sizeof(TableEntry*));  // allocate zeroed bucket array
+    table->array_capacity = 0;                      // array part not yet allocated (lazy)
+    table->array_part = NULL;                       // no array part yet
+    table->array_count = 0;                         // no array elements yet
+    return table;                                   // return new table
 }
 
 // destroys a table and all its entries
 void table_destroy(Table* table) {
-    if (!table) return;
+    if (!table) return;                          // guard against null
     for (int i = 0; i < table->capacity; i++) {
-        TableEntry* entry = table->entries[i];
+        TableEntry* entry = table->entries[i];   // get head of bucket chain
         while (entry) {
-            TableEntry* next = entry->next;
-            value_decref(entry->key);
-            value_decref(entry->value);
-            free(entry);
-            entry = next;
+            TableEntry* next = entry->next;      // save next pointer before freeing
+            value_decref(entry->key);            // release key
+            value_decref(entry->value);          // release value
+            free(entry);                         // free entry struct
+            entry = next;                        // advance to next entry
         }
     }
-    free(table->entries);
+    free(table->entries);                        // free bucket array
     if (table->array_part) {
         for (int i = 0; i < table->array_count; i++) {
-            value_decref(table->array_part[i]);
+            value_decref(table->array_part[i]);  // release each array element
         }
-        free(table->array_part);
+        free(table->array_part);                 // free array part
     }
-    free(table);
+    free(table);                                 // free table struct
 }
 
-// grows the array part to accommodate a needed index
+// grow array part to fit needed_index, doubling until large enough
 static void array_part_grow(Table* table, int needed_index) {
-    if (table->array_part == NULL) {
-        table->array_capacity = TABLE_ARRAY_INIT;
+    if (table->array_part == NULL) {                 // array part not yet allocated
+        table->array_capacity = TABLE_ARRAY_INIT;    // start with default size
         while (table->array_capacity <= needed_index) {
-            table->array_capacity *= 2;
+            table->array_capacity *= 2;              // double until index fits
         }
-        table->array_part = (Value*)malloc(table->array_capacity * sizeof(Value));
+        table->array_part = (Value*)malloc(table->array_capacity * sizeof(Value));  // allocate array
         for (int i = 0; i < table->array_capacity; i++) {
-            table->array_part[i] = MAKE_BOOL(false);
+            table->array_part[i] = MAKE_BOOL(false);  // fill with false (empty slot marker)
         }
-        return;
+        return;                                       // done, array was just created
     }
-    
-    int new_capacity = table->array_capacity;
+    int new_capacity = table->array_capacity;         // start from current capacity
     while (new_capacity <= needed_index) {
-        new_capacity *= 2;
+        new_capacity *= 2;                            // double until index fits
     }
-    
-    Value* new_array = (Value*)malloc(new_capacity * sizeof(Value));
+    Value* new_array = (Value*)malloc(new_capacity * sizeof(Value));  // allocate new larger array
     for (int i = 0; i < table->array_count; i++) {
-        new_array[i] = table->array_part[i];
+        new_array[i] = table->array_part[i];          // copy existing elements
     }
     for (int i = table->array_count; i < new_capacity; i++) {
-        new_array[i] = MAKE_BOOL(false);
+        new_array[i] = MAKE_BOOL(false);              // fill remaining slots with false
     }
-    
-    free(table->array_part);
-    table->array_part = new_array;
-    table->array_capacity = new_capacity;
+    free(table->array_part);                          // free old array
+    table->array_part = new_array;                    // point to new array
+    table->array_capacity = new_capacity;             // update capacity
 }
 
-// sets a value by integer index in the array part
+// set value at integer index in array part, growing if needed
 bool table_set_int(Table* table, int index, Value value) {
-    if (index < 0) return false;
-    
+    if (index < 0) return false;                 // negative indices not allowed
     if (table->array_part == NULL || index >= table->array_capacity) {
-        array_part_grow(table, index);
+        array_part_grow(table, index);           // grow array to fit index
     }
-    
-    value_decref(table->array_part[index]);
-    table->array_part[index] = value;
-    value_incref(table->array_part[index]);
-    
+    value_decref(table->array_part[index]);      // release old value at slot
+    table->array_part[index] = value;            // store new value
+    value_incref(table->array_part[index]);      // bump refcount for stored value
     if (index >= table->array_count) {
-        table->array_count = index + 1;
+        table->array_count = index + 1;          // update array count if extending
     }
-    return true;
+    return true;                                 // success
 }
 
 // gets a value by integer index from the array part
 bool table_get_int(Table* table, int index, Value* out_value) {
     if (!table || index < 0 || table->array_part == NULL || index >= table->array_count) 
-        return false;
-    
+        return false;                                 // out of bounds or no array part
     if (out_value) {
-        *out_value = table->array_part[index];
-        value_incref(*out_value);
+        *out_value = table->array_part[index];        // copy value to output
+        value_incref(*out_value);                     // bump refcount for caller
     }
-    return true;
+    return true;                                      // found
 }
 
 // appends a value to the end of the array part
 void table_append(Table* table, Value value) {
-    table_set_int(table, table->array_count, value);
+    table_set_int(table, table->array_count, value);  // set at current array count, auto-grows
 }
 
-// sets a string-keyed value, with auto-resizing and duplicate detection
+// sets a value in the table by key, with auto-resizing and duplicate detection
 bool table_set(Table* table, Value key, Value value) {
-    if (IS_NUMBER(key)) {
-        double num = AS_NUMBER(key);
-        if (num >= 1 && num == (int)num) {
-            int idx = (int)num - 1;
+    if (IS_NUMBER(key)) {                             // try array part for integer keys
+        double num = AS_NUMBER(key);                  // unwrap number
+        if (num >= 1 && num == (int)num) {            // positive integer
+            int idx = (int)num - 1;                   // convert to 0-based index
             if (table->array_part == NULL) {
-                if (idx < TABLE_ARRAY_INIT * 2) return table_set_int(table, idx, value);
+                if (idx < TABLE_ARRAY_INIT * 2) return table_set_int(table, idx, value);  // small index, use array
             } else if (idx < table->array_capacity) {
-                return table_set_int(table, idx, value);
+                return table_set_int(table, idx, value);  // fits in current array, use it
             } else {
-                int gap = idx - table->array_count;
-                if (gap <= table->array_count * 2 && gap <= 1024) return table_set_int(table, idx, value);
+                int gap = idx - table->array_count;       // gap between requested index and current end
+                if (gap <= table->array_count * 2 && gap <= 1024) return table_set_int(table, idx, value);  // small gap, extend array
             }
         }
     }
-
-    if ((double)(table->hash_count + 1) / table->capacity > TABLE_MAX_LOAD) {
-        int old_capacity = table->capacity;
-        TableEntry** old_entries = table->entries;
-        table->capacity = old_capacity * 2;
-        table->entries = (TableEntry**)calloc(table->capacity, sizeof(TableEntry*));
-        table->hash_count = 0;
+    if ((double)(table->hash_count + 1) / table->capacity > TABLE_MAX_LOAD) {  // check load factor, resize if needed
+        int old_capacity = table->capacity;           // save old capacity
+        TableEntry** old_entries = table->entries;    // save old bucket array
+        table->capacity = old_capacity * 2;           // double capacity
+        table->entries = (TableEntry**)calloc(table->capacity, sizeof(TableEntry*));  // allocate new zeroed buckets
+        table->hash_count = 0;                        // reset count, will recount during rehash
         for (int i = 0; i < old_capacity; i++) {
-            TableEntry* entry = old_entries[i];
+            TableEntry* entry = old_entries[i];       // get head of old bucket chain
             while (entry) {
-                TableEntry* next = entry->next;
-                uint32_t idx = entry->hash % table->capacity;
-                entry->next = table->entries[idx];
-                table->entries[idx] = entry;
-                table->hash_count++;
-                entry = next;
+                TableEntry* next = entry->next;       // save next before re-linking
+                uint32_t idx = entry->hash % table->capacity;      // compute new bucket index
+                entry->next = table->entries[idx];    // prepend to new bucket chain
+                table->entries[idx] = entry;          // update new bucket head
+                table->hash_count++;                  // increment count
+                entry = next;                         // advance to next old entry
             }
         }
-        free(old_entries);
+        free(old_entries);                            // free old bucket array
     }
-
-    uint32_t hash = hash_value_key(key);
-    uint32_t index = hash % table->capacity;
-
-    TableEntry* entry = table->entries[index];
+    uint32_t hash = hash_value_key(key);              // compute hash for key
+    uint32_t index = hash % table->capacity;          // get bucket index
+    TableEntry* entry = table->entries[index];        // start of bucket chain
     while (entry) {
-        if (entry->hash == hash && key_equal(entry->key, key)) {
-            value_decref(entry->value);
-            entry->value = value;
-            value_incref(entry->value);
-            return true;
+        if (entry->hash == hash && key_equal(entry->key, key)) {  // found existing key
+            value_decref(entry->value);               // release old value
+            entry->value = value;                     // store new value
+            value_incref(entry->value);               // bump refcount for new value
+            return true;                              // updated existing entry
         }
-        entry = entry->next;
+        entry = entry->next;                          // advance to next in chain
     }
-
-    entry = (TableEntry*)malloc(sizeof(TableEntry));
-    entry->key = key;
-    value_incref(entry->key);
-    entry->hash = hash;
-    entry->value = value;
-    value_incref(entry->value);
-    entry->next = table->entries[index];
-    table->entries[index] = entry;
-    table->hash_count++;
-    return true;
+    entry = (TableEntry*)malloc(sizeof(TableEntry));  // allocate new entry
+    entry->key = key;                                 // store key
+    value_incref(entry->key);                         // bump refcount for stored key
+    entry->hash = hash;                               // store hash for fast comparison
+    entry->value = value;                             // store value
+    value_incref(entry->value);                       // bump refcount for stored value
+    entry->next = table->entries[index];              // prepend to bucket chain
+    table->entries[index] = entry;                    // update bucket head
+    table->hash_count++;                              // increment hash entry count
+    return true;                                      // inserted new entry
 }
 
-// retrieves a string-keyed value from the table
+// retrieves a value from the table by key, returns true if found
 bool table_get(Table* table, Value key, Value* out_value) {
-    if (!table) return false;
-    
-    if (IS_NUMBER(key)) {
-        double num = AS_NUMBER(key);
-        if (num >= 1 && num == (int)num) {
-            int idx = (int)num - 1;
-            if (table->array_part != NULL && idx < table->array_count) {
-                if (!IS_BOOL(table->array_part[idx]) || AS_BOOL(table->array_part[idx])) {
+    if (!table) return false;                      // guard against null
+    if (IS_NUMBER(key)) {                          // try array part for integer keys
+        double num = AS_NUMBER(key);               // unwrap number
+        if (num >= 1 && num == (int)num) {         // positive integer
+            int idx = (int)num - 1;                // convert to 0-based index
+            if (table->array_part != NULL && idx < table->array_count) {  // within array bounds
+                if (!IS_BOOL(table->array_part[idx]) || AS_BOOL(table->array_part[idx])) {  // slot is occupied
                     if (out_value) {
-                        *out_value = table->array_part[idx];
-                        value_incref(*out_value);
+                        *out_value = table->array_part[idx];       // copy value to output
+                        value_incref(*out_value);  // bump refcount for caller
                     }
-                    return true;
+                    return true;                   // found in array part
                 }
             }
         }
     }
-
-    uint32_t hash = hash_value_key(key);
-    uint32_t index = hash % table->capacity;
-
-    TableEntry* entry = table->entries[index];
+    uint32_t hash = hash_value_key(key);           // compute hash for key
+    uint32_t index = hash % table->capacity;       // get bucket index
+    TableEntry* entry = table->entries[index];     // start of bucket chain
     while (entry) {
-        if (entry->hash == hash && key_equal(entry->key, key)) {
+        if (entry->hash == hash && key_equal(entry->key, key)) {  // found matching entry
             if (out_value) {
-                *out_value = entry->value;
-                value_incref(*out_value);
+                *out_value = entry->value;         // copy value to output
+                value_incref(*out_value);          // bump refcount for caller
             }
-            return true;
+            return true;                           // found in hash part
         }
-        entry = entry->next;
+        entry = entry->next;                       // advance to next in chain
     }
-    return false;
+    return false;                                  // key not found
 }
 
 // checks if a key exists in the table
 bool table_has(Table* table, Value key) {
-    return table_get(table, key, NULL);
+    return table_get(table, key, NULL);                // delegate to table_get, discard value
 }
 
 // removes a key-value pair from the table
 void table_remove(Table* table, Value key) {
-    if (!table) return;
-    
-    if (IS_NUMBER(key)) {
-        double num = AS_NUMBER(key);
-        if (num >= 1 && num == (int)num && table->array_part != NULL) {
-            int idx = (int)num - 1;
-            if (idx < table->array_count) {
-                if (!IS_BOOL(table->array_part[idx]) || AS_BOOL(table->array_part[idx])) {
-                    value_decref(table->array_part[idx]);
-                    table->array_part[idx] = MAKE_BOOL(false);
-                    while (table->array_count > 0 &&
+    if (!table) return;                                // guard against null
+    if (IS_NUMBER(key)) {                              // try array part for integer keys
+        double num = AS_NUMBER(key);                   // unwrap number
+        if (num >= 1 && num == (int)num && table->array_part != NULL) {  // positive integer with existing array
+            int idx = (int)num - 1;                    // convert to 0-based index
+            if (idx < table->array_count) {            // within array bounds
+                if (!IS_BOOL(table->array_part[idx]) || AS_BOOL(table->array_part[idx])) {  // slot is occupied
+                    value_decref(table->array_part[idx]);               // release old value
+                    table->array_part[idx] = MAKE_BOOL(false);          // mark as empty
+                    while (table->array_count > 0 &&                    // shrink array count if trailing empty slots
                            IS_BOOL(table->array_part[table->array_count - 1]) &&
                            !AS_BOOL(table->array_part[table->array_count - 1])) {
-                        table->array_count--;
+                        table->array_count--;          // decrement count for trailing false slots
                     }
-                    return;
+                    return;                            // removed from array part
                 }
             }
         }
     }
-
-    uint32_t hash = hash_value_key(key);
-    uint32_t index = hash % table->capacity;
-
-    TableEntry* entry = table->entries[index];
-    TableEntry* prev = NULL;
+    uint32_t hash = hash_value_key(key);               // compute hash for key
+    uint32_t index = hash % table->capacity;           // get bucket index
+    TableEntry* entry = table->entries[index];         // start of bucket chain
+    TableEntry* prev = NULL;                           // previous entry for linked list removal
     while (entry) {
-        if (entry->hash == hash && key_equal(entry->key, key)) {
-            if (prev) prev->next = entry->next;
-            else table->entries[index] = entry->next;
-            value_decref(entry->key);
-            value_decref(entry->value);
-            free(entry);
-            table->hash_count--;
-            return;
+        if (entry->hash == hash && key_equal(entry->key, key)) {  // found matching entry
+            if (prev) prev->next = entry->next;        // unlink from middle/end of chain
+            else table->entries[index] = entry->next;  // unlink from head of chain
+            value_decref(entry->key);                  // release key
+            value_decref(entry->value);                // release value
+            free(entry);                               // free entry struct
+            table->hash_count--;                       // decrement hash entry count
+            return;                                    // done
         }
-        prev = entry;
-        entry = entry->next;
+        prev = entry;                                  // advance prev
+        entry = entry->next;                           // advance to next entry
     }
 }
 
 // returns the total number of entries in the table
 int table_size(Table* table) {
-    if (!table) return 0;
-    int count = table->hash_count;
+    if (!table) return 0;                        // guard against null
+    int count = table->hash_count;               // start with hash entry count
     for (int i = 0; i < table->array_count; i++) {
-        if (!IS_BOOL(table->array_part[i]) || AS_BOOL(table->array_part[i])) count++;
+        if (!IS_BOOL(table->array_part[i]) || AS_BOOL(table->array_part[i])) count++;  // count occupied array slots
     }
-    return count;
+    return count;                                // return total entries
 }
 
-// returns an array of all keys in the table
+// returns an array of all keys in the table, caller must free and decref each key
 Value* table_keys(Table* table, int* out_count) {
-    if (!table || !out_count) return NULL;
-    int total = 0;
+    if (!table || !out_count) return NULL;                // guard against null params
+    int total = 0;                                        // count occupied array slots
     for (int i = 0; i < table->array_count; i++) {
         if (!IS_BOOL(table->array_part[i]) || AS_BOOL(table->array_part[i])) total++;
     }
-    total += table->hash_count;
-    if (total == 0) { *out_count = 0; return NULL; }
-
-    Value* keys = (Value*)malloc(sizeof(Value) * total);
-    if (!keys) return NULL;
-    int idx = 0;
-    
+    total += table->hash_count;                           // add hash entry count
+    if (total == 0) { *out_count = 0; return NULL; }      // empty table
+    Value* keys = (Value*)malloc(sizeof(Value) * total);  // allocate keys array
+    if (!keys) return NULL;                               // allocation failed
+    int idx = 0;                                          // insertion index
     for (int i = 0; i < table->array_count; i++) {
         if (!IS_BOOL(table->array_part[i]) || AS_BOOL(table->array_part[i])) {
-            keys[idx] = MAKE_NUMBER(i + 1);
+            keys[idx] = MAKE_NUMBER(i + 1);               // store 1-based index as key (unboxed, no incref)
             idx++;
         }
     }
     for (int i = 0; i < table->capacity; i++) {
-        TableEntry* entry = table->entries[i];
+        TableEntry* entry = table->entries[i];            // iterate over hash buckets
         while (entry) {
-            keys[idx] = entry->key;
-            value_incref(keys[idx]);
+            keys[idx] = entry->key;                       // copy key pointer
+            value_incref(keys[idx]);                      // bump refcount for returned key
             idx++;
-            entry = entry->next;
+            entry = entry->next;                          // advance to next in chain
         }
     }
-    *out_count = idx;
-    return keys;
+    *out_count = idx;                                     // store total key count
+    return keys;                                          // return caller-owned keys array
 }
 
 // clears all entries from the table
 void table_clear(Table* table) {
-    if (!table) return;
+    if (!table) return;                                 // guard against null
     for (int i = 0; i < table->capacity; i++) {
-        TableEntry* entry = table->entries[i];
+        TableEntry* entry = table->entries[i];          // get head of bucket chain
         while (entry) {
-            TableEntry* next = entry->next;
-            value_decref(entry->key);
-            value_decref(entry->value);
-            free(entry);
-            entry = next;
+            TableEntry* next = entry->next;             // save next pointer before freeing
+            value_decref(entry->key);                   // release key
+            value_decref(entry->value);                 // release value
+            free(entry);                                // free entry struct
+            entry = next;                               // advance to next entry
         }
-        table->entries[i] = NULL;
+        table->entries[i] = NULL;                       // clear bucket pointer
     }
-    table->hash_count = 0;
+    table->hash_count = 0;                              // reset hash entry count
     if (table->array_part) {
-        for (int i = 0; i < table->array_count; i++) value_decref(table->array_part[i]);
-        free(table->array_part);
-        table->array_part = NULL;
-        table->array_capacity = 0;
-        table->array_count = 0;
+        for (int i = 0; i < table->array_count; i++) value_decref(table->array_part[i]);  // release each array element
+        free(table->array_part);                        // free array part memory
+        table->array_part = NULL;                       // clear pointer
+        table->array_capacity = 0;                      // reset capacity
+        table->array_count = 0;                         // reset count
     }
 }
 
 // creates a shallow copy of the table
 Table* table_copy(Table* table) {
-    if (!table) return NULL;
-    Table* copy = table_create(table->capacity);
+    if (!table) return NULL;                            // guard against null
+    Table* copy = table_create(table->capacity);        // create new table with same capacity
     for (int i = 0; i < table->capacity; i++) {
-        TableEntry* entry = table->entries[i];
+        TableEntry* entry = table->entries[i];          // iterate over hash buckets
         while (entry) {
-            table_set(copy, entry->key, entry->value);
-            entry = entry->next;
+            table_set(copy, entry->key, entry->value);  // copy each hash entry
+            entry = entry->next;                        // advance to next in chain
         }
     }
     for (int i = 0; i < table->array_count; i++) {
-        if (!IS_BOOL(table->array_part[i]) || AS_BOOL(table->array_part[i])) {
-            table_set(copy, MAKE_NUMBER(i + 1), table->array_part[i]);
+        if (!IS_BOOL(table->array_part[i]) || AS_BOOL(table->array_part[i])) {  // slot is occupied
+            table_set(copy, MAKE_NUMBER(i + 1), table->array_part[i]);          // copy array element with 1-based key
         }
     }
-    return copy;
+    return copy;                                        // return shallow copy
 }
 
-// creates a new VM instance with register frames and intern table
+// creates a new vm instance with register frames and intern table
 VM* vm_create(const char* source) {
-    VM* vm = (VM*)calloc(1, sizeof(VM));
-    if (!vm) return NULL;
-    
-    vm->register_frames = (Value*)calloc(VM_MAX_FRAMES * VM_REGS_PER_FRAME, sizeof(Value));
-    if (!vm->register_frames) { free(vm); return NULL; }
-    
-    vm->registers = vm->register_frames;
-    vm->register_count = 0;
-    vm->global_count = 0;
-    vm->call_depth = 0;
-    vm->iterator_depth = -1;
-    vm->table_iter_depth = -1;
-    vm->running = false;
-    vm->had_error = false;
-    vm->current_frame = 0;
-    vm->args_top = 0;
-    vm->source = source;
-
+    VM* vm = (VM*)calloc(1, sizeof(VM));                  // allocate and zero vm struct
+    if (!vm) return NULL;                                 // allocation failed
+    vm->register_frames = (Value*)calloc(VM_MAX_FRAMES * VM_REGS_PER_FRAME, sizeof(Value));  // allocate register frame array
+    if (!vm->register_frames) { free(vm); return NULL; }  // allocation failed, clean up
+    vm->registers = vm->register_frames;                  // point to first frame
+    vm->register_count = 0;                               // no registers used yet
+    vm->global_count = 0;                                 // no globals set yet
+    vm->call_depth = 0;                                   // no active calls
+    vm->iterator_depth = -1;                              // no active iterators
+    vm->table_iter_depth = -1;                            // no active table iterators
+    vm->running = false;                                  // not running yet
+    vm->had_error = false;                                // no errors yet
+    vm->current_frame = 0;                                // start at frame 0
+    vm->args_top = 0;                                     // empty args stack
+    vm->source = source;                                  // store source pointer
     for (int i = 0; i < VM_MAX_FRAMES * VM_REGS_PER_FRAME; i++) {
-        vm->register_frames[i] = MAKE_NONE();
+        vm->register_frames[i] = MAKE_NONE();             // init all registers to none
     }
-    
-    string_intern_table_init(&vm->intern_table);
-    object_pool_init(&vm->obj_pool);
-    
-    return vm;
+    string_intern_table_init(&vm->intern_table);          // init string intern table
+    object_pool_init(&vm->obj_pool);                      // init object pool
+    return vm;                                            // return new VM
 }
 
-// destroys a VM and frees all resources
+// destroys a vm and frees all resources
 void vm_destroy(VM* vm) {
-    if (!vm) return;
-    
-    int frames_to_clean = vm->current_frame + 2;
-    if (frames_to_clean > VM_MAX_FRAMES) frames_to_clean = VM_MAX_FRAMES;
-    
+    if (!vm) return;                                      // guard against null
+    int frames_to_clean = vm->current_frame + 2;          // clean current frame plus some extra
+    if (frames_to_clean > VM_MAX_FRAMES) frames_to_clean = VM_MAX_FRAMES;  // clamp to max
     for (int f = 0; f < frames_to_clean; f++) {
         for (int i = 0; i < VM_REGS_PER_FRAME; i++) {
-            value_decref(vm->register_frames[f * VM_REGS_PER_FRAME + i]);
+            value_decref(vm->register_frames[f * VM_REGS_PER_FRAME + i]);  // release each register
         }
     }
-
     for (int i = 0; i < vm->global_count; i++) {
-        value_decref(vm->globals[i]);
+        value_decref(vm->globals[i]);                     // release each global
     }
     for (int i = 0; i < vm->args_top; i++) {
-        value_decref(vm->args_stack[i]);
+        value_decref(vm->args_stack[i]);                  // release any remaining args
     }
-    
-    string_intern_table_free(&vm->intern_table);
-    object_pool_free(&vm->obj_pool);
-    
-    free(vm->register_frames);
-    free(vm);
+    string_intern_table_free(&vm->intern_table);          // free interned strings
+    object_pool_free(&vm->obj_pool);                      // free pooled objects
+    free(vm->register_frames);                            // free register frame array
+    free(vm);                                             // free vm struct
 }
 
 // dispatches built-in function calls to module-specific handlers
@@ -910,60 +878,60 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
     if (strncmp(name, "random.", 7) == 0) return random_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "codecs.", 7) == 0) return codecs_call_builtin(vm, name, arg_count, args, result);
 
-    if (strcmp(name, "number") == 0) {
+    if (strcmp(name, "number") == 0) {           // builtin: number(value) -> number
         if (arg_count >= 1) {
-            if (IS_STRING(args[0])) {
+            if (IS_STRING(args[0])) {            // convert string to number
                 char* endptr;
-                double val = strtod(AS_STRING(args[0])->chars, &endptr);
-                
-                if (endptr == AS_STRING(args[0])->chars || *endptr != '\0') {
-                    *result = MAKE_NONE();
+                double val = strtod(AS_STRING(args[0])->chars, &endptr);       // parse double from string
+                if (endptr == AS_STRING(args[0])->chars || *endptr != '\0') {  // parse failed
+                    *result = MAKE_NONE();       // return none on invalid input
                 } else {
-                    *result = MAKE_NUMBER(val);
+                    *result = MAKE_NUMBER(val);  // return parsed number
                 }
-            } else if (IS_NUMBER(args[0])) {
-                *result = args[0];
-                value_incref(*result);
+            } else if (IS_NUMBER(args[0])) {     // already a number
+                *result = args[0];               // return as is
+                value_incref(*result);           // bump refcount for caller
             } else {
-                *result = MAKE_NONE();
+                *result = MAKE_NONE();           // unsupported type, return none
             }
         } else {
-            *result = MAKE_NONE();
+            *result = MAKE_NONE();               // no args, return none
         }
-        return true;
+        return true;                             // handled
     }
-    if (strcmp(name, "string") == 0) {
+    if (strcmp(name, "string") == 0) {           // builtin: string(value) -> string
         if (arg_count >= 1) {
-            char buffer[256];
+            char buffer[256];                    // temp buffer for number conversion
             if (IS_NUMBER(args[0])) {
-                snprintf(buffer, sizeof(buffer), "%g", AS_NUMBER(args[0]));
-                *result = MAKE_STRING(string_intern(&vm->intern_table, buffer, strlen(buffer)));
+                snprintf(buffer, sizeof(buffer), "%g", AS_NUMBER(args[0]));   // format number to string
+                *result = MAKE_STRING(string_intern(&vm->intern_table, buffer, strlen(buffer)));  // intern result
             } else if (IS_NONE(args[0])) {
-                *result = MAKE_STRING(string_intern(&vm->intern_table, "none", 4));
+                *result = MAKE_STRING(string_intern(&vm->intern_table, "none", 4));  // intern "none"
             } else if (IS_BOOL(args[0])) {
-                *result = MAKE_STRING(string_intern(&vm->intern_table, AS_BOOL(args[0]) ? "true" : "false", AS_BOOL(args[0]) ? 4 : 5));
+                *result = MAKE_STRING(string_intern(&vm->intern_table, AS_BOOL(args[0]) ? "true" : "false", AS_BOOL(args[0]) ? 4 : 5));  // intern bool string
             } else if (IS_STRING(args[0])) {
-                *result = args[0];
-                value_incref(*result);
+                *result = args[0];               // already a string, return as is
+                value_incref(*result);           // bump refcount for caller
             } else if (IS_TABLE(args[0])) {
-                char* table_str = table_to_string(AS_TABLE(args[0]));
-                *result = MAKE_STRING(string_intern(&vm->intern_table, table_str, strlen(table_str)));
-                free(table_str);
+                char* table_str = table_to_string(AS_TABLE(args[0]));  // convert table to string
+                *result = MAKE_STRING(string_intern(&vm->intern_table, table_str, strlen(table_str)));  // intern result
+                free(table_str);                 // free temp string
             } else {
-                *result = MAKE_NONE();
+                *result = MAKE_NONE();           // unsupported type, return none
             }
         }
-        return true;
+        return true;                             // handled
     }
-    if (strcmp(name, "type") == 0) {
+    if (strcmp(name, "type") == 0) {             // builtin: type(value) -> string
         if (arg_count >= 1) {
-            *result = MAKE_STRING(string_intern(&vm->intern_table, vm_value_type_name(args[0]), strlen(vm_value_type_name(args[0]))));
+            const char* type_name = vm_value_type_name(args[0]);       // get type name string
+            *result = MAKE_STRING(string_intern(&vm->intern_table, type_name, strlen(type_name)));  // intern type name
         } else {
-            *result = MAKE_NONE();
+            *result = MAKE_NONE();               // no args, return none
         }
-        return true;
+        return true;                             // handled
     }
-    return false;
+    return false;                                // not a recognized builtin
 }
 
 // main execution loop with direct threaded dispatch for performance
@@ -1008,8 +976,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         
         [OP_FOR_INIT]         = &&OP_FOR_INIT_LABEL,
         [OP_FOR_NEXT]         = &&OP_FOR_NEXT_LABEL,
-        [OP_TABLE_ITER_INIT] = &&OP_TABLE_ITER_INIT_LABEL,
-        [OP_TABLE_ITER_NEXT] = &&OP_TABLE_ITER_NEXT_LABEL,
+        [OP_TABLE_ITER_INIT]  = &&OP_TABLE_ITER_INIT_LABEL,
+        [OP_TABLE_ITER_NEXT]  = &&OP_TABLE_ITER_NEXT_LABEL,
         [OP_POP_ITER]         = &&OP_POP_ITER_LABEL,
 
         [OP_TABLE_GET]        = &&OP_TABLE_GET_LABEL,
@@ -1031,10 +999,10 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_RETURN]           = &&OP_RETURN_LABEL,
         [OP_RETURN_VOID]      = &&OP_RETURN_VOID_LABEL,
         
-        [OP_CALL_0] = &&OP_CALL_0_LABEL,
-        [OP_CALL_1] = &&OP_CALL_1_LABEL,
-        [OP_CALL_2] = &&OP_CALL_2_LABEL,
-        [OP_RETURN_NUM] = &&OP_RETURN_NUM_LABEL,
+        [OP_CALL_0]           = &&OP_CALL_0_LABEL,
+        [OP_CALL_1]           = &&OP_CALL_1_LABEL,
+        [OP_CALL_2]           = &&OP_CALL_2_LABEL,
+        [OP_RETURN_NUM]       = &&OP_RETURN_NUM_LABEL,
 
         [OP_LOAD_GLOBAL]      = &&OP_LOAD_GLOBAL_LABEL,
         [OP_STORE_GLOBAL]     = &&OP_STORE_GLOBAL_LABEL,

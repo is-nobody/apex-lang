@@ -220,9 +220,6 @@ Value vm_make_table(void);
 // copies a value with proper reference counting
 Value vm_copy_value(Value value);
 
-// decrements reference count and frees if zero
-void vm_free_value(Value value);
-
 // returns a human-readable type name for a value
 const char* vm_value_type_name(Value value);
 
