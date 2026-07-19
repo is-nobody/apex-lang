@@ -244,10 +244,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
     }
     
     int result_reg = alloc_register(cg);
-    for (int i = 0; i < arg_count; i++) {
-        emit(cg, INST(OP_PUSH_ARG, arg_regs[i], 0, 0), node->line);
-    }
-    
+
     static const char* builtins[] = {
         "os.output", "os.input",
         "os.wait", "os.exit",
@@ -336,6 +333,12 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
                 }
                 emit(cg, INST(OP_CALL, result_reg, func_addr, arg_count), node->line);
             }
+        } else {
+            for (int i = 0; i < arg_count; i++) {
+                emit(cg, INST(OP_PUSH_ARG, arg_regs[i], 0, 0), node->line);
+            }
+            int name_idx = bytecode_add_string_constant(cg->chunk, func_name);
+            emit(cg, INST(OP_CALL_BUILTIN, result_reg, name_idx, arg_count), node->line);
         }
     }
     
