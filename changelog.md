@@ -4,6 +4,7 @@
 ## Behavior Changes
 - `none` type: a new data type replacing `false` to represent the absence of a value.
 - Built-in modules (`os`, `sys`, `string`, `random`, `math`, `ffi`, `codecs`) now return `none` instead of `false` on errors.
+- All VM internal default values changed from `false` to `none`, ensuring uninitialized registers, empty table slots, and error states consistently return `none` instead of `false`.
 - Accessing a missing table key now returns `none`.
 - Functions without an explicit `return` now return `none`.
 - Variables can now change type on reassignment.

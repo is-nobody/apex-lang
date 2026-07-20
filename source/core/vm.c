@@ -78,7 +78,7 @@ Table* table_create_pooled(ObjectPool* pool, int capacity) {
         table->array_part = calloc(TABLE_ARRAY_INIT, sizeof(Value));    // allocate fresh array part
         table->array_capacity = TABLE_ARRAY_INIT;     // set initial array capacity
         for (int i = 0; i < TABLE_ARRAY_INIT; i++) {
-            table->array_part[i] = MAKE_BOOL(false);  // fill array slots with false (empty marker)
+            table->array_part[i] = MAKE_NONE();       // fill array slots with none (empty marker)
         }
         return table;                                 // return recycled table
     }
@@ -547,7 +547,7 @@ static void array_part_grow(Table* table, int needed_index) {
         }
         table->array_part = (Value*)malloc(table->array_capacity * sizeof(Value));  // allocate array
         for (int i = 0; i < table->array_capacity; i++) {
-            table->array_part[i] = MAKE_BOOL(false);  // fill with false (empty slot marker)
+            table->array_part[i] = MAKE_NONE();       // fill with none (empty slot marker)
         }
         return;                                       // done, array was just created
     }
@@ -560,7 +560,7 @@ static void array_part_grow(Table* table, int needed_index) {
         new_array[i] = table->array_part[i];          // copy existing elements
     }
     for (int i = table->array_count; i < new_capacity; i++) {
-        new_array[i] = MAKE_BOOL(false);              // fill remaining slots with false
+        new_array[i] = MAKE_NONE();                   // fill remaining slots with none
     }
     free(table->array_part);                          // free old array
     table->array_part = new_array;                    // point to new array
@@ -665,9 +665,9 @@ bool table_get(Table* table, Value key, Value* out_value) {
         if (num >= 1 && num == (int)num) {         // positive integer
             int idx = (int)num - 1;                // convert to 0-based index
             if (table->array_part != NULL && idx < table->array_count) {  // within array bounds
-                if (!IS_BOOL(table->array_part[idx]) || AS_BOOL(table->array_part[idx])) {  // slot is occupied
+                if (!IS_NONE(table->array_part[idx])) {                   // slot is occupied
                     if (out_value) {
-                        *out_value = table->array_part[idx];       // copy value to output
+                        *out_value = table->array_part[idx];              // copy value to output
                         value_incref(*out_value);  // bump refcount for caller
                     }
                     return true;                   // found in array part
@@ -698,19 +698,18 @@ bool table_has(Table* table, Value key) {
 
 // removes a key-value pair from the table
 void table_remove(Table* table, Value key) {
-    if (!table) return;                                // guard against null
-    if (IS_NUMBER(key)) {                              // try array part for integer keys
-        double num = AS_NUMBER(key);                   // unwrap number
+    if (!table) return;                                  // guard against null
+    if (IS_NUMBER(key)) {                                // try array part for integer keys
+        double num = AS_NUMBER(key);                     // unwrap number
         if (num >= 1 && num == (int)num && table->array_part != NULL) {  // positive integer with existing array
-            int idx = (int)num - 1;                    // convert to 0-based index
-            if (idx < table->array_count) {            // within array bounds
-                if (!IS_BOOL(table->array_part[idx]) || AS_BOOL(table->array_part[idx])) {  // slot is occupied
-                    value_decref(table->array_part[idx]);               // release old value
-                    table->array_part[idx] = MAKE_BOOL(false);          // mark as empty
-                    while (table->array_count > 0 &&                    // shrink array count if trailing empty slots
-                           IS_BOOL(table->array_part[table->array_count - 1]) &&
-                           !AS_BOOL(table->array_part[table->array_count - 1])) {
-                        table->array_count--;          // decrement count for trailing false slots
+            int idx = (int)num - 1;                      // convert to 0-based index
+            if (idx < table->array_count) {              // within array bounds
+                if (!IS_NONE(table->array_part[idx])) {  // slot is occupied
+                    value_decref(table->array_part[idx]);                // release old value
+                    table->array_part[idx] = MAKE_NONE();                // mark as empty
+                    while (table->array_count > 0 &&                     // shrink array count if trailing empty slots
+                        IS_NONE(table->array_part[table->array_count - 1])) {
+                        table->array_count--;          // decrement count for trailing none slots
                     }
                     return;                            // removed from array part
                 }
@@ -738,12 +737,12 @@ void table_remove(Table* table, Value key) {
 
 // returns the total number of entries in the table
 int table_size(Table* table) {
-    if (!table) return 0;                        // guard against null
-    int count = table->hash_count;               // start with hash entry count
+    if (!table) return 0;                             // guard against null
+    int count = table->hash_count;                    // start with hash entry count
     for (int i = 0; i < table->array_count; i++) {
-        if (!IS_BOOL(table->array_part[i]) || AS_BOOL(table->array_part[i])) count++;  // count occupied array slots
+        if (!IS_NONE(table->array_part[i])) count++;  // count occupied array slots
     }
-    return count;                                // return total entries
+    return count;                                     // return total entries
 }
 
 // returns an array of all keys in the table, caller must free and decref each key
@@ -751,7 +750,7 @@ Value* table_keys(Table* table, int* out_count) {
     if (!table || !out_count) return NULL;                // guard against null params
     int total = 0;                                        // count occupied array slots
     for (int i = 0; i < table->array_count; i++) {
-        if (!IS_BOOL(table->array_part[i]) || AS_BOOL(table->array_part[i])) total++;
+        if (!IS_NONE(table->array_part[i])) total++;
     }
     total += table->hash_count;                           // add hash entry count
     if (total == 0) { *out_count = 0; return NULL; }      // empty table
@@ -759,7 +758,7 @@ Value* table_keys(Table* table, int* out_count) {
     if (!keys) return NULL;                               // allocation failed
     int idx = 0;                                          // insertion index
     for (int i = 0; i < table->array_count; i++) {
-        if (!IS_BOOL(table->array_part[i]) || AS_BOOL(table->array_part[i])) {
+        if (!IS_NONE(table->array_part[i])) {
             keys[idx] = MAKE_NUMBER(i + 1);               // store 1-based index as key (unboxed, no incref)
             idx++;
         }
@@ -813,8 +812,8 @@ Table* table_copy(Table* table) {
         }
     }
     for (int i = 0; i < table->array_count; i++) {
-        if (!IS_BOOL(table->array_part[i]) || AS_BOOL(table->array_part[i])) {  // slot is occupied
-            table_set(copy, MAKE_NUMBER(i + 1), table->array_part[i]);          // copy array element with 1-based key
+        if (!IS_NONE(table->array_part[i])) {                           // slot is occupied
+            table_set(copy, MAKE_NUMBER(i + 1), table->array_part[i]);  // copy array element with 1-based key
         }
     }
     return copy;                                        // return shallow copy
@@ -944,7 +943,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     vm->had_error = false;
     vm->global_count = chunk->global_count;
     vm->register_count = chunk->functions[0].local_count + 32;
-    for (int i = 0; i < chunk->global_count; i++) vm->globals[i] = MAKE_BOOL(false);
+    for (int i = 0; i < chunk->global_count; i++) vm->globals[i] = MAKE_NONE();
     static void* dispatch_table[] = {
         [OP_MOVE]             = &&OP_MOVE_LABEL,
         [OP_LOAD_CONST]       = &&OP_LOAD_CONST_LABEL,
@@ -1385,7 +1384,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
         while (iter->array_index < t->array_count) {   // iterate over array part
             int idx = iter->array_index++;             // get current index and advance
-            if (!IS_BOOL(t->array_part[idx]) || AS_BOOL(t->array_part[idx])) {  // slot is occupied
+            if (!IS_NONE(t->array_part[idx])) {        // slot is occupied
                 value_decref(regs[var_reg]);           // release old key in var reg
                 regs[var_reg] = MAKE_NUMBER(idx + 1);  // store 1-based index as key
                 ip++;                                  // advance to loop body
@@ -1486,7 +1485,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             table->array_capacity = TABLE_ARRAY_INIT;       // set initial capacity
             table->array_part = (Value*)calloc(TABLE_ARRAY_INIT, sizeof(Value));  // allocate array
             for (int i = 0; i < TABLE_ARRAY_INIT; i++) {
-                table->array_part[i] = MAKE_BOOL(false);    // fill with false (empty slot marker)
+                table->array_part[i] = MAKE_NONE();         // fill with none (empty slot marker)
             }
         }
         int idx = table->array_count;            // index to append at
