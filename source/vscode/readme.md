@@ -60,6 +60,7 @@ The Apex runtime includes a powerful set of built-in modules:
 - Indentation-based folding for code blocks.
 - Syntax highlighting for the new `none` data type.
 - Added support for single-quoted strings (`'...'`) with proper syntax highlighting and auto-closing.
+- Trimmed standard library descriptions — removed inline function listings.
 
 ### 26.06 (June 30, 2026)
 - Initial release.

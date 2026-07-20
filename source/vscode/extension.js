@@ -51,14 +51,14 @@ function activate(context) {
                 'string': 'Converts a value to a string.\n\n```apex\nstring(42)  // "42"\n```',
                 'type': 'Returns the type name of a value as a string.\n\n```apex\ntype(10)  // "number"\n```',
 
-                'os': 'OS library — system interaction, file I/O, and process management.\n\nFunctions: output, input, time, wait, exit, get_current_folder, set_current_folder, terminate_process, execute, read, write, append, exists, isfile, isfolder, size, stat, filetype, create_file, create_folder, delete, rename, move, copy, items, parentfolder, access.',
-                'sys': 'System information library.\n\nFunctions: platform, architecture, hostname, user, homedir, apex_version, executable, environment, disksize, tempdir, isterminal, process_id.',
-                'math': 'Math library — mathematical functions.\n\nFunctions: abs, floor, ceil, round, sqrt, exp, log, sin, cos, tan, pi, e, inf, pow, gcd, factorial, isnan, isinf, trunc, atan2, radians, degrees, hypot.',
-                'string': 'String manipulation library.\n\nFunctions: len, lower, upper, sub, split, join, trim, find, replace.',
-                'table': 'Table (hash map/array) library.\n\nFunctions: remove, has, size, keys, values, clear, copy, merge.',
-                'ffi': 'Foreign Function Interface.\n\nFunctions: open, call, errno, strerror, malloc, free.',
-                'random': 'Random generation.\n\nFunctions: random, randint, choice, shuffle, sample, gauss, seed, triangular, expovariate, betavariate, secure_token_hex, secure_randint, compare_digest.',
-                'codecs': 'Data encoding/decoding.\n\nFunctions: json_read, json_write, csv_read, csv_write, xml_read, xml_write, base_write, base_read, baseurl_write, baseurl_read.',
+                'os': 'OS library — system interaction, file I/O, and process management.',
+                'sys': 'System information library.',
+                'math': 'Math library — mathematical functions.',
+                'string': 'String manipulation library.',
+                'table': 'Table (hash map/array) library.',
+                'ffi': 'Foreign Function Interface.',
+                'random': 'Random generation.',
+                'codecs': 'Data encoding/decoding.',
             };
 
             if (docs[word]) {
