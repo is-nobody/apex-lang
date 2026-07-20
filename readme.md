@@ -17,9 +17,11 @@ This is the official repository for [Apex](https://github.com/is-nobody/apex-lan
 ## Why Apex?
 - **Simplicity:** Clean, indentation-based syntax with no braces or semicolons. Designed to be readable and easy to learn.
 
-- **Built-in Power:** Comes with a comprehensive standard library (`os`, `sys`, `math`, `string`, `table`, `ffi`, `random`, `codecs`) out of the box. No need to hunt for packages for common tasks.
+- **Built-in Power:** Comes with a comprehensive standard library (`os`, `sys`, `math`, `string`, `table`, `ffi`, `random`, `codecs`) out of the box.
 
-- **Performance:** Written in C with a register-based virtual machine and optimized bytecode execution. Supports cross-compilation and static linking for portable binaries.
+- **Performance:** Written in C with a register-based virtual machine, nan-boxing for efficient value representation, and optimized bytecode execution.
+
+- **Bundle Binaries:** Use `apex build` to package your source with interpreter into a single standalone executable.
 
 ## Quick Start
 ### Install Apex
