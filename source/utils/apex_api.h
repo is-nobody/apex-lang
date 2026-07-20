@@ -9,7 +9,10 @@ void apex_init(void);
 // shuts down the apex runtime and frees global resources
 void apex_shutdown(void);
 
-// executes apex code from a file (if filename is provided) or from a source string
-bool apex_execute(const char* filename, const char* source_code);
+// executes apex code from a file
+bool apex_execute_file(const char* filepath);
+
+// executes apex code from a source string with the given filename for error context
+bool apex_execute_string(const char* source_code, const char* filename);
 
 #endif // APEX_API_H

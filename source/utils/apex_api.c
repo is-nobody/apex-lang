@@ -1,6 +1,12 @@
 #include "apex_api.h"
 #include "execute.h"
 #include "platform.h"
+#include "tokenizer.h"
+#include "parser.h"
+#include "ast.h"
+#include "bytecode.h"
+#include "codegen.h"
+#include "vm.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,40 +36,75 @@ void apex_shutdown(void) {
     is_initialized = false;
 }
 
-// executes a source code string with the given filename for error context
-bool apex_execute(const char* filepath, const char* source_code) {
+// executes apex code from a file
+bool apex_execute_file(const char* filepath) {
     if (!is_initialized) {
         apex_init();
     }
 
     if (!filepath) {
-        print_error("Invalid filepath provided to apex_execute");
+        print_error("Invalid filepath provided to apex_execute_file");
         return false;
+    }
+
+    return execute_source(filepath, filepath);
+}
+
+// executes apex code from a source string with the given filename for error context
+bool apex_execute_string(const char* source_code, const char* filename) {
+    if (!is_initialized) {
+        apex_init();
     }
 
     if (!source_code) {
-        return execute_source(filepath, filepath);
-    }
-
-    char tmp_path[512];
-    snprintf(tmp_path, sizeof(tmp_path), "/tmp/apex_exec_%d.apex", getpid());
-
-    FILE* f = fopen(tmp_path, "wb");
-    if (!f) {
-        print_error("Failed to create temporary file for execution");
+        print_error("Invalid source_code provided to apex_execute_string");
         return false;
     }
 
-    size_t len = strlen(source_code);
-    if (fwrite(source_code, 1, len, f) != len) {
-        print_error("Failed to write source to temporary file");
-        fclose(f);
-        remove(tmp_path);
+    const char* error_filename = filename ? filename : "string_script.apex";
+    
+    size_t source_len = strlen(source_code);
+    char* source = (char*)malloc(source_len + 1);
+    if (!source) {
+        print_error("Memory allocation failed");
         return false;
     }
-    fclose(f);
+    memcpy(source, source_code, source_len + 1);
+    
+    Tokenizer* tokenizer = NULL;
+    Parser* parser = NULL;
+    ASTNode* ast = NULL;
+    CodeGenerator* cg = NULL;
+    BytecodeChunk* chunk = NULL;
+    VM* vm = NULL;
+    
+    tokenizer = tokenizer_create(source, error_filename);
+    int token_count;
+    Token* tokens = tokenizer_tokenize(tokenizer, &token_count);
 
-    bool result = execute_source(tmp_path, filepath);
-    remove(tmp_path);
-    return result;
+    if (!tokens || tokenizer_has_error(tokenizer)) {
+        cleanup_all(tokenizer, NULL, NULL, NULL, NULL, NULL, source);
+        return false;
+    }
+    
+    parser = parser_create(tokens, token_count, error_filename, source);
+    ast = parser_parse(parser);
+    if (!ast || parser_had_errors(parser)) {
+        cleanup_all(tokenizer, parser, ast, NULL, NULL, NULL, source);
+        return false;
+    }
+    
+    chunk = bytecode_create();
+    cg = codegen_create(chunk);
+    if (!codegen_generate(cg, ast)) {
+        print_error("Code generation failed for '%s'", error_filename);
+        cleanup_all(tokenizer, parser, ast, cg, chunk, NULL, source);
+        return false;
+    }
+    
+    vm = vm_create(source);
+    bool ok = vm_execute(vm, chunk);
+
+    cleanup_all(tokenizer, parser, ast, cg, chunk, vm, source);
+    return ok;
 }

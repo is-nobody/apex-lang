@@ -24,7 +24,7 @@ void print_error(const char* format, ...) {
 }
 
 // cleans up all allocated resources in reverse order
-static void cleanup_all(Tokenizer* tok, Parser* par, ASTNode* ast,
+void cleanup_all(Tokenizer* tok, Parser* par, ASTNode* ast,
                         CodeGenerator* cg, BytecodeChunk* chunk, VM* vm,
                         char* source) {
     if (vm) vm_destroy(vm);
