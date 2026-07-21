@@ -104,7 +104,7 @@ function for_doubling()
     assert_equal(result, "124816", "doubling 1 to 16")
 
 function for_condition_index_access()
-    state = [pos = 0, max = 5]
+    state = ["pos" = 0, "max" = 5]
     result = ""
     for state["pos"] < state["max"]
         result = "{result}{state['pos']}"
@@ -112,7 +112,7 @@ function for_condition_index_access()
     assert_equal(result, "01234", "condition loop with index access")
 
 function for_condition_break_in_if()
-    state = [pos = 0]
+    state = ["pos" = 0]
     result = ""
     for state["pos"] < 10
         if state["pos"] == 5
@@ -122,7 +122,7 @@ function for_condition_break_in_if()
     assert_equal(result, "01234", "break inside if within condition loop")
 
 function for_condition_continue_in_if()
-    state = [pos = 0]
+    state = ["pos" = 0]
     result = ""
     for state["pos"] < 6
         state["pos"] = state["pos"] + 1
@@ -132,7 +132,7 @@ function for_condition_continue_in_if()
     assert_equal(result, "12456", "continue inside if within condition loop")
 
 function for_condition_nested_if_break()
-    state = [pos = 0, limit = 8]
+    state = ["pos" = 0, "limit" = 8]
     result = ""
     for state["pos"] < state["limit"]
         if state["pos"] > 2

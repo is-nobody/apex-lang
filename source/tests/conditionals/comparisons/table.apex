@@ -267,8 +267,8 @@ function table_equal_nan_keys()
     assert_equal(t1 != t2, true, "NaN keys not equal")
 
 function table_equal_infinity_keys()
-    t1 = [pos_inf = 1.0 / 0.0, neg_inf = -1.0 / 0.0]
-    t2 = [pos_inf = 1.0 / 0.0, neg_inf = -1.0 / 0.0]
+    t1 = ["pos_inf" = 1.0 / 0.0, "neg_inf" = -1.0 / 0.0]
+    t2 = ["pos_inf" = 1.0 / 0.0, "neg_inf" = -1.0 / 0.0]
     assert_equal(t1 == t2, true, "infinity keys equal")
     assert_equal(t1 != t2, false, "infinity keys not equal")
 

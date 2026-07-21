@@ -10,6 +10,7 @@
 - Variables can now change type on reassignment.
 - Strict table key typing: numeric keys and string keys are now distinct and separate.
 - Tables no longer perform automatic conversion between numbers and strings for lookups or assignments.
+- Strict table key typing: numeric keys and string keys are now distinct and separate.
 - New function `sys.date()` that returns a table with elements: `year`, `month`, `week`, `day`, `hour`, `second`, `millisecond` in UTC.
 - Renamed `string.len` to `string.length` for clarity and consistency.
 - Moved `os.time()` to `sys.time()` for better logical organization: time is a system property, not an OS operation.

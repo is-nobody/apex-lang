@@ -1542,7 +1542,6 @@ static ASTNode* parse_table_literal(Parser* parser) {
 
     ASTNodeList* items = ast_list_create();
     ASTNodeList* key_values = ast_list_create();
-    bool has_key_values = false;
 
     skip_newlines(parser);
 
@@ -1550,33 +1549,40 @@ static ASTNode* parse_table_literal(Parser* parser) {
         while (true) {
             skip_newlines(parser);
 
-            bool is_key = (check(parser, TOKEN_IDENTIFIER) || 
-                           check(parser, TOKEN_STRING) || 
-                           check(parser, TOKEN_NUMBER)) &&
+            bool is_key = (check(parser, TOKEN_STRING) || check(parser, TOKEN_NUMBER)) &&
                           check_next(parser, TOKEN_EQUAL);
 
             if (is_key) {
-                has_key_values = true;
                 Token* key_token = advance(parser);
-                advance(parser);
+                advance(parser); // '='
 
-                ASTNode* key_node = ast_create_literal_string(
-                    key_token->value, key_token->line, key_token->column);
+                ASTNode* key_node;
+                if (key_token->type == TOKEN_NUMBER) {
+                    key_node = ast_create_literal_string(
+                        key_token->value, key_token->line, key_token->column);
+                } else {
+                    key_node = ast_create_literal_string(
+                        key_token->value, key_token->line, key_token->column);
+                }
 
                 ASTNode* value = parse_expression(parser);
                 ASTNode* kv_node = ast_create_binary(TOKEN_EQUAL, key_node, value);
                 ast_list_add(key_values, kv_node);
             } else {
-                if (has_key_values) {
-                    Token* bad_token = current_token(parser);
-                    int len = bad_token->value ? (int)utf8_char_len(bad_token->value) : 1;
-                    if (bad_token->type == TOKEN_STRING) len += 2;
+                if (check(parser, TOKEN_IDENTIFIER) && check_next(parser, TOKEN_EQUAL)) {
+                    Token* id_token = advance(parser);
+                    advance(parser);
                     
-                    parser_error_at(parser, bad_token->line, bad_token->column, len,
-                                    "Cannot mix ordered items after key-value pairs");
+                    int len = id_token->value ? (int)utf8_char_len(id_token->value) : 1;
+                    parser_error_at(parser, id_token->line, id_token->column, len,
+                                    "Table keys must be strings, got identifier '%s'. Use \"%s\" instead",
+                                    id_token->value, id_token->value);
+                    
+                    parse_expression(parser);
+                } else {
+                    ASTNode* item = parse_expression(parser);
+                    ast_list_add(items, item);
                 }
-                ASTNode* item = parse_expression(parser);
-                ast_list_add(items, item);
             }
 
             skip_newlines(parser);
