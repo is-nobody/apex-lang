@@ -11,21 +11,18 @@ x = []          // table (universal container)
 ```
 
 - **Conversion:** `number("10")`, `string(10)`. Returns `none` on failure.
-- **Scope:** Global by default. Use `function` blocks for local scope.
+- **Scope:** `function` and `for` create new scopes, top-level variables are optimized as locals, `if`/`elif`/`else` don't create scope.
 
 ## Operators & Precedence
-| Level | Ops | Notes |
-|-------|-----|-------|
-| 1 | `()` | Grouping, function calls |
-| 2 | `+ - * / %` | Arithmetic (only numbers) |
-| 3 | `< > <= >=` | Comparison (numbers only) |
-| 4 | `== !=` | Equality (all types except tables) |
-| 5 | `not` | Logical negation |
-| 6 | `and` | Short-circuit AND |
-| 7 | `or` | Short-circuit OR |
-
-- **Strings:** Only support `==` and `!=`.
-- **Tables:** Cannot be compared with `==` or `!=`.
+| Level |     Ops     |           Notes           |
+|-------|-------------|---------------------------|
+|   1   | `()`        | Grouping, function calls  |
+|   2   | `+ - * / %` | Arithmetic (only numbers) |
+|   3   | `< > <= >=` | Comparison (numbers only) |
+|   4   | `== !=`     | Equality (all types)      |
+|   5   | `not`       | Logical NOT               |
+|   6   | `and`       | Logical AND               |
+|   7   | `or`        | Logical OR                |
 
 ## Strings & Interpolation
 - **Interpolation:** `"Hello {name}, result: {5 * 2}"`. Expressions inside `{}` are evaluated.
@@ -33,29 +30,31 @@ x = []          // table (universal container)
 - **Multiline:** Supported natively within quotes.
 
 ## Tables `[]`
-Unified structure for arrays (1-based) and maps. **No dot access for tables.**
+Unified structure for keys and values (1-based).
 
 ```apex
-// Mixed definition: positional items first, then key-value pairs
-data = ["item1", "item2", key1 = "val1", key2 = 100]
+// mixed definition: positional items first, then key-value pairs
+data = ["key", "value" = 96]
 
-// Access
-x = data[1]           // Positional (1-based index)
-y = data["key1"]      // Key access (bracket notation ONLY)
+// access
+x = data[1]           // positional (1-based index)
+y = data["key"]       // key access (bracket notation only)
 
-// Mutation
-data["key1"] = "new"  // Update
-data["new_key"] = 50  // Add
+// mutation
+data["key"] = "new"   // update
+data["new_key"] = 69  // add
 ```
 
 - **Nested:** `user["address"]["city"]`.
 - **Utilities:** `table.size(t)`, `table.keys(t)`, `table.has(t, "k")`, `table.remove(t, index)`.
 
 ## Control Flow
-**Indentation:** Blocks after `if`, `for`, `function`, etc. require 4 spaces exactly.
+**Indentation:** Next line after `if`/`elif`/`else`, `for`, `function` require 4 spaces exactly.
 
 **If/Elif/Else:**
 ```apex
+import os
+x = 15
 if x == 10
     os.output("Ten")
 elif x > 10
@@ -66,30 +65,40 @@ else
 
 **Ternary:**
 ```apex
+import os
+score = 20
 result = "Pass" if score >= 50 else "Fail"
+os.output(result)
 ```
 
 Single condition only. For 2+ checks, use `if-elif-else`.
 
-**For Loop (Range):**
+**For Loop Counter:**
 
 ```apex
-for i = 1, 5        // 1, 2, 3, 4, 5
-for i = 0, 10, 2    // Explicit step
+import os
+for i = 1, 5, 2
+    os.output(i)
 ```
 
-**For Loop (Condition-based):**
+`for i = 1, 5` sets a loop from 1 to 5 with a default step of 1, but the third parameter (the step) overrides it with a value of 2.
+
+**For Loop Condition:**
 
 ```apex
+import os
+running = true
 for running == true
-    os.output("Still running...")
+    os.output("running...")
 ```
 
-**For Loop (Table Iteration):**
+**For Loop Table:**
 
 ```apex
-for v = my_table    // Iterates over values
-    os.output(v)
+import os
+table = ["apple", "banana", "cherry"]
+for fruit = table    // iterates over values
+    os.output(fruit)
 ```
 
 ## Functions
@@ -101,16 +110,16 @@ function calculate(a, b)
 result = calculate(5, 10)
 ```
 
-- **Return:** Defaults to `false` if omitted.
-- **Recursion:** Supported up to depth 512.
-- **Built-ins:** Organized in modules (`os.`, `math.`, `string.`, `table.`).
+- **Return:** Defaults to `none` if omitted.
+- **Recursion:** Supported up to depth 8192.
+- **Built-ins:** Organized in modules (`os`, `math`, `string`, `table`, `sys`, `ffi`, `random`, `codecs`).
 
 ## Modules & Imports
 Paths are relative to the **entry point** file.
 
 ```apex
-import os             // Built-in
-import utils.helper   // Loads 'utils/helper.apex'
+import os             // built-in
+import utils.helper   // loads 'utils/helper.apex'
 ```
 
 - **Access:** `helper.my_func()`.
