@@ -1457,7 +1457,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             int idx = iter->array_index++;             // get current index and advance
             if (!IS_NONE(t->array_part[idx])) {        // slot is occupied
                 value_decref(regs[var_reg]);           // release old key in var reg
-                regs[var_reg] = MAKE_NUMBER(idx + 1);  // store 1-based index as key
+                regs[var_reg] = t->array_part[idx];    // store the value (not index)
+                value_incref(regs[var_reg]);           // bump refcount for stored value
                 ip++;                                  // advance to loop body
                 goto *dispatch_table[ip->opcode];      // dispatch next instruction
             }
@@ -1470,7 +1471,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             TableEntry* entry = iter->current_entry;  // get current entry
             iter->current_entry = entry->next;        // advance to next entry in chain
             value_decref(regs[var_reg]);              // release old key in var reg
-            regs[var_reg] = entry->key;               // store key from hash entry
+            regs[var_reg] = entry->value;             // store the value (not key)
             value_incref(regs[var_reg]);              // bump refcount for the stored key
             ip++;                                     // advance to loop body
             goto *dispatch_table[ip->opcode];         // dispatch next instruction

@@ -4,28 +4,24 @@
 ## Behavior Changes
 - `none` type: a new data type replacing `false` to represent the absence of a value.
 - Built-in modules (`os`, `sys`, `string`, `random`, `math`, `ffi`, `codecs`) now return `none` instead of `false` on errors.
-- All VM internal default values changed from `false` to `none`, ensuring uninitialized registers, empty table slots, and error states consistently return `none` instead of `false`.
+- All VM internal default values changed from `false` to `none`.
 - Accessing a missing table key now returns `none`.
 - Functions without an explicit `return` now return `none`.
 - Variables can now change type on reassignment.
 - Strict table key typing: numeric keys and string keys are now distinct and separate.
 - Tables no longer perform automatic conversion between numbers and strings for lookups or assignments.
-- Strict table key typing: numeric keys and string keys are now distinct and separate.
-- New function `sys.date()` that returns a table with elements: `year`, `month`, `week`, `day`, `hour`, `second`, `millisecond` in UTC.
-- Renamed `string.len` to `string.length` for clarity and consistency.
-- Moved `os.time()` to `sys.time()` for better logical organization: time is a system property, not an OS operation.
-- Removed `random.secure_token_bytes` function.
-- Removed string interning limit: previously, string interning was capped at 50,000 entries, after which strings were allocated individually, causing memory corruption on deallocation.
-- `apex build <file>` without explicit os and architecture now uses the current running executable as the stub template instead of searching for a separate stub file by name.
+- Table iteration now returns values instead of indices.
+- Renamed `string.len` to `string.length`.
+- Moved `os.time()` to `sys.time()`.
+- Removed `random.secure_token_bytes`.
+- Removed string interning limit: previously, string interning was capped at 50,000 entries.
+- `apex build <file>` without explicit os and architecture now uses the current running executable as the stub.
 
 ## New Features
 - Multi-language support: variable names, string literals, and error reporting fully support UTF-8.
-- Code can be written in Cyrillic, Arabic, Chinese, Japanese, etc.
-- UTF-8 string operations: `string.length()` and `string.sub()` work with characters, not bytes.
-- Full Unicode support for all scripts and emoji.
+- `string.length()` and `string.sub()` work with characters, not bytes.
 - `string()` now supports tables.
 - Shebang support: scripts can start with `#!`.
-- Indentation-based folding in the VS Code extension.
 - Resilient tokenization and parsing: multiple errors reported in a single pass.
 - Improved error messages: entire expression highlighted on arithmetic type errors.
 - Stack overflow detection with runtime error messages.
@@ -34,8 +30,9 @@
 - Ternary expressions: one-line conditional expressions (`value if condition == true else value`).
 - Function equality comparison: `==` and `!=` operators now support comparing function values by reference.
 - Table equality comparison: `==` and `!=` operators now support comparison of tables, including nested tables and recursive structures.
-- Improved `for` loop errors: missing end/step values now report clear messages instead of generic or misleading errors.
-- New string functions: `string.isletter()` and `string.isnumber()` with full Unicode support for all scripts (Latin, Cyrillic, Arabic, CJK, Devanagari, and more).
+- Improved `for` loop errors: missing end/step values now report clear messages.
+- New string functions: `string.isletter()` and `string.isnumber()` with full Unicode support.
+- New function `sys.date()` that returns a table with elements: `year`, `month`, `week`, `day`, `hour`, `second`, `millisecond` in UTC.
 
 ## Performance
 - Internal value representation switched to NaN-boxing: all runtime values stored in a single 64-bit field, reducing memory usage and improving cache locality.

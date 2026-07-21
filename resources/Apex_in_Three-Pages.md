@@ -88,8 +88,8 @@ for running == true
 **For Loop (Table Iteration):**
 
 ```apex
-for k = my_table    // Iterates over keys
-    os.output("{k} = {my_table[k]}")
+for v = my_table    // Iterates over values
+    os.output(v)
 ```
 
 ## Functions

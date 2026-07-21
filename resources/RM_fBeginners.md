@@ -799,22 +799,40 @@ for i = 5, 1, -1
 This prints 5, 4, 3, 2, 1. The loop stops when the variable goes below the `end` value.
 
 ## 4.2 For Table Iteration
-You can iterate over any table using `for key = table`. This will give you access to both the key and the value inside the loop.
+You can iterate over any table using `for variable = table`. This will give you direct access to each value inside the loop.
 
 ```apex
 import os
-scores = [alice = 95, bob = 82, charlie = 90]
+fruits = ["apple", "banana", "cherry"]
 
-for name = scores
-    os.output("{name}: {scores[name]}")
+for fruit = fruits
+    os.output(fruit)
 ```
 
 Output:
 
 ```text
-alice: 95
-bob: 82
-charlie: 90
+apple
+banana
+cherry
+```
+
+For tables with key-value pairs, iteration also returns values:
+
+```apex
+import os
+scores = ["alice" = 95, "bob" = 82, "charlie" = 90]
+
+for score = scores
+    os.output(score)
+```
+
+Output:
+
+```text
+82
+95
+90
 ```
 
 ## 4.3 For Condition

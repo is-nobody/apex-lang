@@ -595,10 +595,20 @@ You can iterate over any table using `for key = table`. This will give you acces
 
 ```apex
 import os
-scores = [alice = 95, bob = 82, charlie = 90]
+fruits = ["apple", "banana", "cherry"]
 
-for name = scores
-    os.output("{name}: {scores[name]}")
+for fruit = fruits
+    os.output(fruit)
+```
+
+For tables with key-value pairs, iteration also returns values:
+
+```apex
+import os
+scores = ["alice" = 95, "bob" = 82, "charlie" = 90]
+
+for score = scores
+    os.output(score)
 ```
 
 ## 4.3 For Condition
