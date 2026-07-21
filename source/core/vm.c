@@ -16,21 +16,12 @@
 // union for reinterpret double bits as uint64
 typedef union { uint64_t u; double d; } du64;
 
-// forward declare string alloc
-StringObject* string_create(const char* chars, int length);
-
 // forward declare string free
 static void string_destroy(StringObject* str);
 
-// forward declare string compare
-static bool string_equal(StringObject* a, StringObject* b);
-
-// forward declare value to c string
-static const char* value_to_cstr(Value v, char* buf, int buf_size);
-
 // returns the type of a nan-boxed value
 ValueType_VM value_get_type(Value v) {
-    return (ValueType_VM)GET_TYPE(v);        // extract type tag from NaN-boxed value
+    return (ValueType_VM)GET_TYPE(v);        // extract type tag from nan-boxed value
 }
 
 // initializes the object pool with empty arrays
