@@ -19,6 +19,7 @@ os.execute("apex source/tests/conditionals/if-elif-else/nested_if.apex")
 os.execute("apex source/tests/conditionals/comparisons/whole.apex")
 os.execute("apex source/tests/conditionals/comparisons/decimal.apex")
 os.execute("apex source/tests/conditionals/comparisons/string.apex")
+os.execute("apex source/tests/conditionals/comparisons/table.apex")
 os.execute("apex source/tests/conditionals/comparisons/none.apex")
 os.execute("apex source/tests/conditionals/comparisons/boolean.apex")
 

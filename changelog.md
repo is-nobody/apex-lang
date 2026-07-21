@@ -32,6 +32,7 @@
 - Single-quoted strings: use double or single quotes with full escape sequence support.
 - Ternary expressions: one-line conditional expressions (`value if condition == true else value`).
 - Function equality comparison: `==` and `!=` operators now support comparing function values by reference.
+- Table equality comparison: `==` and `!=` operators now support comparison of tables, including nested tables and recursive structures.
 - Improved `for` loop errors: missing end/step values now report clear messages instead of generic or misleading errors.
 - New string functions: `string.isletter()` and `string.isnumber()` with full Unicode support for all scripts (Latin, Cyrillic, Arabic, CJK, Devanagari, and more).
 

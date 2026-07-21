@@ -819,6 +819,76 @@ Table* table_copy(Table* table) {
     return copy;                                        // return shallow copy
 }
 
+// recursively compares two tables for deep equality
+static bool table_equal(Table* a, Table* b, int depth) {
+    if (a == b) return true;                           // same pointer, definitely equal
+    if (!a || !b) return false;                        // one is null, not equal
+    if (table_size(a) != table_size(b)) return false;  // different sizes, not equal
+    
+    if (depth > 100) return true;                      // assume equal to break cycles
+
+    int key_count;
+    Value* keys = table_keys(a, &key_count);           // get all keys from first table
+    if (!keys) return table_size(a) == 0 && table_size(b) == 0;  // both empty
+
+    bool result = true;
+    for (int i = 0; i < key_count; i++) {
+        Value key = keys[i];
+        Value val_a, val_b;
+        if (!table_get(a, key, &val_a) || !table_get(b, key, &val_b)) {
+            result = false;      // key missing in one table
+            value_decref(key);
+            break;
+        }
+
+        // recursively compare values by type
+        if (IS_NUMBER(val_a) && IS_NUMBER(val_b)) {
+            if (AS_NUMBER(val_a) != AS_NUMBER(val_b)) {
+                result = false;  // numbers differ
+                value_decref(key);
+                break;
+            }
+        } else if (IS_STRING(val_a) && IS_STRING(val_b)) {
+            if (!string_equal(AS_STRING(val_a), AS_STRING(val_b))) {
+                result = false;  // strings differ
+                value_decref(key);
+                break;
+            }
+        } else if (IS_BOOL(val_a) && IS_BOOL(val_b)) {
+            if (AS_BOOL(val_a) != AS_BOOL(val_b)) {
+                result = false;  // booleans differ
+                value_decref(key);
+                break;
+            }
+        } else if (IS_TABLE(val_a) && IS_TABLE(val_b)) {
+            if (!table_equal(AS_TABLE(val_a), AS_TABLE(val_b), depth + 1)) {
+                result = false;  // nested tables differ
+                value_decref(key);
+                break;
+            }
+        } else if (IS_NONE(val_a) && IS_NONE(val_b)) {
+            // both none, equal
+        } else if (IS_FUNCTION(val_a) && IS_FUNCTION(val_b)) {
+            if (AS_FUNCTION(val_a) != AS_FUNCTION(val_b)) {
+                result = false;  // functions differ
+                value_decref(key);
+                break;
+            }
+        } else {
+            result = false;     // different types, not equal
+            value_decref(key);
+            break;
+        }
+        
+        value_decref(val_a);    // release value references from table_get
+        value_decref(val_b);
+        value_decref(key);      // release key reference
+    }
+
+    free(keys);                 // free keys array
+    return result;              // return comparison result
+}
+
 // creates a new vm instance with register frames and intern table
 VM* vm_create(const char* source) {
     VM* vm = (VM*)calloc(1, sizeof(VM));                  // allocate and zero vm struct
@@ -1183,6 +1253,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             jump = string_equal(AS_STRING(left), AS_STRING(right));  // compare string contents
         } else if (IS_BOOL(left) && IS_BOOL(right)) {
             jump = (AS_BOOL(left) == AS_BOOL(right));      // compare boolean values
+        } else if (IS_TABLE(left) && IS_TABLE(right)) {
+            jump = table_equal(AS_TABLE(left), AS_TABLE(right), 0);  // compare tables
         }
         if (jump) {
             ip = &vm->code[target];              // jump to target
@@ -1205,6 +1277,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             jump = !string_equal(AS_STRING(left), AS_STRING(right));  // compare string contents
         } else if (IS_BOOL(left) && IS_BOOL(right)) {
             jump = (AS_BOOL(left) != AS_BOOL(right));      // compare boolean values
+        } else if (IS_TABLE(left) && IS_TABLE(right)) {
+            jump = !table_equal(AS_TABLE(left), AS_TABLE(right), 0);  // compare tables
         }
         if (jump) {
             ip = &vm->code[target];              // jump to target
@@ -1270,6 +1344,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         else if (IS_BOOL(left) && IS_BOOL(right)) {
             result = (AS_BOOL(left) == AS_BOOL(right));          // compare boolean values
         }
+        else if (IS_TABLE(left) && IS_TABLE(right)) {
+            result = table_equal(AS_TABLE(left), AS_TABLE(right), 0);  // compare tables
+        }
         regs[dest] = MAKE_BOOL(result);          // store result as bool
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
@@ -1295,6 +1372,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
         else if (IS_BOOL(left) && IS_BOOL(right)) {
             result = (AS_BOOL(left) != AS_BOOL(right));          // compare boolean values
+        }
+        else if (IS_TABLE(left) && IS_TABLE(right)) {
+            result = !table_equal(AS_TABLE(left), AS_TABLE(right), 0);  // compare tables
         }
         regs[dest] = MAKE_BOOL(result);          // store result as bool
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
