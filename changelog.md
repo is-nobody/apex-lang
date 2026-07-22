@@ -40,6 +40,7 @@
 - Local variable optimization: variables preferentially compiled as local registers; globals reserved for module exports.
 - Fast call/return paths for functions with 0–2 arguments avoid argument stack overhead and reduce refcounting for numeric returns.
 - Faster table iteration: `for key = table` loops are now significantly faster, eliminating temporary allocations and redundant lookups.
+- Lazy table allocation: hash entries and array part allocated only on first write, making empty table creation O(1) with zero internal allocations.
 
 ## Bug Fixes
 - Sparse numeric keys: correct removal with holes, accurate size calculation.

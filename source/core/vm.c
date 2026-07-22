@@ -64,13 +64,6 @@ Table* table_create_pooled(ObjectPool* pool, int capacity) {
         table->header.ref_count = 1;                  // reset refcount
         table->capacity = capacity > 0 ? capacity : TABLE_ARRAY_INIT;   // set capacity or default
         table->hash_count = 0;                        // reset hash entry count
-        table->array_count = 0;                       // reset array element count
-        table->entries = calloc(table->capacity, sizeof(TableEntry*));  // allocate fresh entry buckets
-        table->array_part = calloc(TABLE_ARRAY_INIT, sizeof(Value));    // allocate fresh array part
-        table->array_capacity = TABLE_ARRAY_INIT;     // set initial array capacity
-        for (int i = 0; i < TABLE_ARRAY_INIT; i++) {
-            table->array_part[i] = MAKE_NONE();       // fill array slots with none (empty marker)
-        }
         return table;                                 // return recycled table
     }
     return table_create(capacity);                    // pool empty, allocate new table
@@ -499,7 +492,7 @@ Table* table_create(int capacity) {
     table->header.type = VAL_TABLE;                 // mark type as table
     table->capacity = capacity < 8 ? 8 : capacity;  // ensure minimum capacity of 8
     table->hash_count = 0;                          // no hash entries yet
-    table->entries = (TableEntry**)calloc(table->capacity, sizeof(TableEntry*));  // allocate zeroed bucket array
+    table->entries = NULL;                          // allocate zeroed bucket array
     table->array_capacity = 0;                      // array part not yet allocated (lazy)
     table->array_part = NULL;                       // no array part yet
     table->array_count = 0;                         // no array elements yet
@@ -509,17 +502,19 @@ Table* table_create(int capacity) {
 // destroys a table and all its entries
 void table_destroy(Table* table) {
     if (!table) return;                          // guard against null
-    for (int i = 0; i < table->capacity; i++) {
-        TableEntry* entry = table->entries[i];   // get head of bucket chain
-        while (entry) {
-            TableEntry* next = entry->next;      // save next pointer before freeing
-            value_decref(entry->key);            // release key
-            value_decref(entry->value);          // release value
-            free(entry);                         // free entry struct
-            entry = next;                        // advance to next entry
+    if (table->entries) {
+        for (int i = 0; i < table->capacity; i++) {
+            TableEntry* entry = table->entries[i];   // get head of bucket chain
+            while (entry) {
+                TableEntry* next = entry->next;      // save next pointer before freeing
+                value_decref(entry->key);            // release key
+                value_decref(entry->value);          // release value
+                free(entry);                         // free entry struct
+                entry = next;                        // advance to next entry
+            }
         }
+        free(table->entries);                        // free bucket array
     }
-    free(table->entries);                        // free bucket array
     if (table->array_part) {
         for (int i = 0; i < table->array_count; i++) {
             value_decref(table->array_part[i]);  // release each array element
@@ -605,6 +600,9 @@ bool table_set(Table* table, Value key, Value value) {
             }
         }
     }
+    if (table->entries == NULL) {
+        table->entries = (TableEntry**)calloc(table->capacity, sizeof(TableEntry*));
+    }
     if ((double)(table->hash_count + 1) / table->capacity > TABLE_MAX_LOAD) {  // check load factor, resize if needed
         int old_capacity = table->capacity;           // save old capacity
         TableEntry** old_entries = table->entries;    // save old bucket array
@@ -666,6 +664,7 @@ bool table_get(Table* table, Value key, Value* out_value) {
             }
         }
     }
+    if (table->entries == NULL) return false;
     uint32_t hash = hash_value_key(key);           // compute hash for key
     uint32_t index = hash % table->capacity;       // get bucket index
     TableEntry* entry = table->entries[index];     // start of bucket chain
@@ -707,6 +706,7 @@ void table_remove(Table* table, Value key) {
             }
         }
     }
+    if (table->entries == NULL) return;
     uint32_t hash = hash_value_key(key);               // compute hash for key
     uint32_t index = hash % table->capacity;           // get bucket index
     TableEntry* entry = table->entries[index];         // start of bucket chain
@@ -754,13 +754,15 @@ Value* table_keys(Table* table, int* out_count) {
             idx++;
         }
     }
-    for (int i = 0; i < table->capacity; i++) {
-        TableEntry* entry = table->entries[i];            // iterate over hash buckets
-        while (entry) {
-            keys[idx] = entry->key;                       // copy key pointer
-            value_incref(keys[idx]);                      // bump refcount for returned key
-            idx++;
-            entry = entry->next;                          // advance to next in chain
+    if (table->entries) {
+        for (int i = 0; i < table->capacity; i++) {
+            TableEntry* entry = table->entries[i];            // iterate over hash buckets
+            while (entry) {
+                keys[idx] = entry->key;                       // copy key pointer
+                value_incref(keys[idx]);                      // bump refcount for returned key
+                idx++;
+                entry = entry->next;                          // advance to next in chain
+            }
         }
     }
     *out_count = idx;                                     // store total key count
@@ -770,16 +772,20 @@ Value* table_keys(Table* table, int* out_count) {
 // clears all entries from the table
 void table_clear(Table* table) {
     if (!table) return;                                 // guard against null
-    for (int i = 0; i < table->capacity; i++) {
-        TableEntry* entry = table->entries[i];          // get head of bucket chain
-        while (entry) {
-            TableEntry* next = entry->next;             // save next pointer before freeing
-            value_decref(entry->key);                   // release key
-            value_decref(entry->value);                 // release value
-            free(entry);                                // free entry struct
-            entry = next;                               // advance to next entry
+    if (table->entries) {
+        for (int i = 0; i < table->capacity; i++) {
+            TableEntry* entry = table->entries[i];          // get head of bucket chain
+            while (entry) {
+                TableEntry* next = entry->next;             // save next pointer before freeing
+                value_decref(entry->key);                   // release key
+                value_decref(entry->value);                 // release value
+                free(entry);                                // free entry struct
+                entry = next;                               // advance to next entry
+            }
+            table->entries[i] = NULL;                       // clear bucket pointer
         }
-        table->entries[i] = NULL;                       // clear bucket pointer
+        free(table->entries);                               // free bucket array
+        table->entries = NULL;                              // mark as not allocated (lazy init)
     }
     table->hash_count = 0;                              // reset hash entry count
     if (table->array_part) {
@@ -795,11 +801,13 @@ void table_clear(Table* table) {
 Table* table_copy(Table* table) {
     if (!table) return NULL;                            // guard against null
     Table* copy = table_create(table->capacity);        // create new table with same capacity
-    for (int i = 0; i < table->capacity; i++) {
-        TableEntry* entry = table->entries[i];          // iterate over hash buckets
-        while (entry) {
-            table_set(copy, entry->key, entry->value);  // copy each hash entry
-            entry = entry->next;                        // advance to next in chain
+    if (table->entries) {
+        for (int i = 0; i < table->capacity; i++) {
+            TableEntry* entry = table->entries[i];          // iterate over hash buckets
+            while (entry) {
+                table_set(copy, entry->key, entry->value);  // copy each hash entry
+                entry = entry->next;                        // advance to next in chain
+            }
         }
     }
     for (int i = 0; i < table->array_count; i++) {
@@ -1464,6 +1472,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             }
         }
         while (iter->bucket_index < t->capacity) {    // iterate over hash part
+            if (t->entries == NULL) {                 // no hash part allocated (lazy init)
+                vm->table_iter_depth--;               // pop iterator frame
+                ip = &vm->code[exit_addr];            // jump to exit
+                goto *dispatch_table[ip->opcode];     // dispatch next instruction
+            }
             if (iter->current_entry == NULL) {        // need to advance to next bucket
                 iter->current_entry = t->entries[iter->bucket_index++];  // get first entry in bucket
                 continue;                             // retry with the new entry

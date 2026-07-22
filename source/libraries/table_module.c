@@ -108,7 +108,6 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         if (table->array_count > 0) {
             dst->array_count = table->array_count;
             dst->array_capacity = table->array_capacity > 0 ? table->array_capacity : 8;
-            if (dst->array_part) free(dst->array_part);
             dst->array_part = (Value*)calloc(dst->array_capacity, sizeof(Value));
             for (int i = 0; i < table->array_count; i++) {
                 dst->array_part[i] = table->array_part[i];
@@ -119,11 +118,13 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
             }
         }
         
-        for (int i = 0; i < table->capacity; i++) {
-            TableEntry* entry = table->entries[i];
-            while (entry) {
-                table_set(dst, entry->key, entry->value);
-                entry = entry->next;
+        if (table->entries) {
+            for (int i = 0; i < table->capacity; i++) {
+                TableEntry* entry = table->entries[i];
+                while (entry) {
+                    table_set(dst, entry->key, entry->value);
+                    entry = entry->next;
+                }
             }
         }
         return true;
@@ -162,20 +163,24 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
             }
         }
         
-        for (int i = 0; i < src1->capacity; i++) {
-            TableEntry* entry = src1->entries[i];
-            while (entry) {
-                if (!table_has(dst, entry->key)) {
-                    table_set(dst, entry->key, entry->value);
+        if (src1->entries) {
+            for (int i = 0; i < src1->capacity; i++) {
+                TableEntry* entry = src1->entries[i];
+                while (entry) {
+                    if (!table_has(dst, entry->key)) {
+                        table_set(dst, entry->key, entry->value);
+                    }
+                    entry = entry->next;
                 }
-                entry = entry->next;
             }
         }
-        for (int i = 0; i < src2->capacity; i++) {
-            TableEntry* entry = src2->entries[i];
-            while (entry) {
-                table_set(dst, entry->key, entry->value);
-                entry = entry->next;
+        if (src2->entries) {
+            for (int i = 0; i < src2->capacity; i++) {
+                TableEntry* entry = src2->entries[i];
+                while (entry) {
+                    table_set(dst, entry->key, entry->value);
+                    entry = entry->next;
+                }
             }
         }
         return true;
