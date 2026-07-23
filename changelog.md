@@ -23,17 +23,13 @@
 - Resilient parsing: multiple errors per pass
 - Stack overflow detection (max 8192 call frames)
 - Unreachable code detection
+- Unexpected indentation detection
+- Type checking: arithmetic, comparisons, logical operators, function arguments
+- Module file validation and import resolution
+- Nested block depth limits (512 functions, 512 loops)
 
 ## Built-in Modules
 `os`, `sys`, `math`, `string`, `table`, `ffi`, `random`, `codecs`
-
-Key highlights:
-- `sys.time()`, `sys.date()` → table with `year`, `month`, `day`, `hour`, etc.
-- `string.length()` and `string.sub()` work on characters, not bytes
-- `string.isletter()`, `string.isnumber()` — full Unicode
-- `string()` supports tables
-- `ffi` — C library loading and memory management
-- `codecs` — Base64, JSON, CSV, XML
 
 ## Tooling
 - Cross-platform: Windows, Linux, macOS

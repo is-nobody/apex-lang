@@ -44,26 +44,27 @@ typedef struct Parser Parser;
 
 // main parser context tracking tokens, symbols, errors, and nesting levels
 struct Parser {
-    Token* tokens;               // array of tokens from the tokenizer
-    int count;                   // total number of tokens
-    int current;                 // current token index being parsed
+    Token* tokens;                  // array of tokens from the tokenizer
+    int count;                      // total number of tokens
+    int current;                    // current token index being parsed
 
-    char* filename;              // source file name for error reporting
-    char* source_dir;            // directory of the source file for module resolution
-    const char* source;          // raw source code for error context display
+    char* filename;                 // source file name for error reporting
+    char* source_dir;               // directory of the source file for module resolution
+    const char* source;             // raw source code for error context display
 
-    ParserSymbolTable symbols;   // symbol table for scope and type tracking
-    int error_count;             // total number of errors encountered during parsing
-    int loop_depth;              // nesting depth of loops (for break/continue validation)
-    int function_depth;          // nesting depth of functions (for return validation)
-    bool semantic_checks;        // whether to perform type checking and constant folding
+    ParserSymbolTable symbols;      // symbol table for scope and type tracking
+    int error_count;                // total number of errors encountered during parsing
+    int loop_depth;                 // nesting depth of loops (for break/continue validation)
+    int function_depth;             // nesting depth of functions (for return validation)
+    bool semantic_checks;           // whether to perform type checking and constant folding
+    bool expecting_indented_block;  // true if previous statement opened a block (if/for/fn/elif/else)
 
-    int last_error_line;         // most recent error position for duplicate detection
-    int last_error_column;       // most recent error column for duplicate detection
+    int last_error_line;            // most recent error position for duplicate detection
+    int last_error_column;          // most recent error column for duplicate detection
 
     int last_error_lines[ERROR_HISTORY_SIZE];    // circular buffer of recent error lines
     int last_error_columns[ERROR_HISTORY_SIZE];  // circular buffer of recent error columns
-    int last_error_idx;          // current index into the error history buffer
+    int last_error_idx;             // current index into the error history buffer
 };
 
 // creates a parser instance for the given token stream and source info

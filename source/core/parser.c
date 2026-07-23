@@ -684,6 +684,7 @@ Parser* parser_create(Token* tokens, int count, const char* filename, const char
     parser->loop_depth = 0;
     parser->function_depth = 0;
     parser->semantic_checks = true;
+    parser->expecting_indented_block = false;
     parser->source = source;
     parser->source_dir = NULL;
     parser_set_source_dir(parser, filename);
@@ -2098,6 +2099,7 @@ static ASTNode* parse_function(Parser* parser) {
                               TYPE_ANY, 0, param->line, param->column);
     }
 
+    parser->expecting_indented_block = true;
     ASTNode* body = parse_block(parser, true, "function");
 
     parser_exit_scope(parser);
@@ -2118,6 +2120,7 @@ static ASTNode* parse_if_statement(Parser* parser) {
 
     parser_check_condition(parser, condition, "If");
 
+    parser->expecting_indented_block = true;
     ASTNode* then_branch = parse_block(parser, true, "if");
     
     ASTNode* elif_chain = NULL;
@@ -2129,6 +2132,7 @@ static ASTNode* parse_if_statement(Parser* parser) {
         Token* elif_kw = advance(parser);
         ASTNode* elif_cond = parse_expression(parser);
         parser_check_condition(parser, elif_cond, "If");
+        parser->expecting_indented_block = true;
         ASTNode* elif_body = parse_block(parser, true, "elif");
         
         ASTNode* elif_node = (ASTNode*)calloc(1, sizeof(ASTNode));
@@ -2154,6 +2158,7 @@ static ASTNode* parse_if_statement(Parser* parser) {
     }
     
     if (match(parser, TOKEN_ELSE)) {
+        parser->expecting_indented_block = true;
         else_branch = parse_block(parser, true, "else");
         if (elif_chain) {
             ASTNode* last = elif_chain;
@@ -2295,7 +2300,7 @@ static ASTNode* parse_for_statement(Parser* parser) {
         ValueType vtype = is_table_iter ? TYPE_ANY : TYPE_NUMBER;
         parser_declare_symbol(parser, var_name, PARSER_SYM_VARIABLE, vtype, 0, var_line, var_col);
     }
-
+    parser->expecting_indented_block = true;
     ASTNode* body = parse_block(parser, true, "for");
     parser_exit_scope(parser);
     parser->loop_depth--;
@@ -2455,7 +2460,7 @@ static ASTNode* parse_continue_statement(Parser* parser) {
 // parses a single statement, dispatching by token type
 static ASTNode* parse_statement(Parser* parser) {
     skip_newlines(parser);
-    
+
     if (check(parser, TOKEN_EOF)) {
         return NULL;
     }
@@ -2539,10 +2544,47 @@ static ASTNode* parse_block(Parser* parser, bool require_indent, const char* aft
                             "Expected indented block after '%s'", after_keyword ? after_keyword : "block");
             return ast_create_block(statements);
         }
+        parser->expecting_indented_block = false;
     }
 
     while (!check(parser, TOKEN_EOF) && !check(parser, TOKEN_DEDENT)) {
-        if (check(parser, TOKEN_INDENT)) { advance(parser); continue; }
+        if (check(parser, TOKEN_INDENT)) {
+            if (!parser->expecting_indented_block) {
+                Token* indent = current_token(parser);
+                
+                int line_len = 0;
+                int prev_column = indent->column;
+                int idx = parser->current + 1;
+                
+                while (idx < parser->count && 
+                       parser->tokens[idx].type != TOKEN_NEWLINE && 
+                       parser->tokens[idx].type != TOKEN_EOF &&
+                       parser->tokens[idx].line == indent->line) {
+                    
+                    Token* tok = &parser->tokens[idx];
+                    line_len += (tok->column - prev_column);
+                    line_len += tok->value ? (int)utf8_char_len(tok->value) : 1;
+                    
+                    prev_column = tok->column + (tok->value ? (int)utf8_char_len(tok->value) : 1);
+                    idx++;
+                }
+                
+                if (line_len < 1) line_len = 1;
+                
+                parser_error_at(parser, indent->line, indent->column,
+                              line_len,
+                              "Unexpected indentation");
+                
+                advance(parser);
+                ASTNode* stmt = parse_statement(parser);
+                if (stmt) {
+                    ast_free_node(stmt);
+                }
+                continue;
+            }
+            advance(parser);
+            continue;
+        }
 
         if (statements->count > 0) {
             ASTNode* last = statements->nodes[statements->count - 1];
@@ -2557,7 +2599,10 @@ static ASTNode* parse_block(Parser* parser, bool require_indent, const char* aft
 
         int before = parser->current;
         ASTNode* stmt = parse_statement(parser);
-        if (stmt) ast_list_add(statements, stmt);
+        if (stmt) {
+            ast_list_add(statements, stmt);
+            parser->expecting_indented_block = false;
+        }
         
         if (parser->current == before && !check(parser, TOKEN_EOF) && !check(parser, TOKEN_DEDENT)) {
             Token* tok = current_token(parser);
