@@ -2203,14 +2203,19 @@ static ASTNode* parse_if_statement(Parser* parser) {
     }
     
     if (match(parser, TOKEN_ELSE)) {
-        parser->expecting_indented_block = true;
-        else_branch = parse_block(parser, true, "else");
-        if (elif_chain) {
-            ASTNode* last = elif_chain;
-            while (last->if_stmt.elif_chain) {
-                last = last->if_stmt.elif_chain;
-            }
-            last->if_stmt.else_branch = else_branch;
+        if (check(parser, TOKEN_IF)) {
+            Token* else_token = &parser->tokens[parser->current - 1];
+            Token* if_token = current_token(parser);
+            int total_len = if_token->column - else_token->column + 2;
+            parser_error_at(parser, else_token->line, else_token->column, total_len,
+                            "Use 'elif' instead of 'else if'");
+            advance(parser);
+            parse_expression(parser);
+            parser->expecting_indented_block = true;
+            else_branch = parse_block(parser, true, "else");
+        } else {
+            parser->expecting_indented_block = true;
+            else_branch = parse_block(parser, true, "else");
         }
     }
     
@@ -2651,23 +2656,7 @@ static ASTNode* parse_block(Parser* parser, bool require_indent, const char* aft
             if (!parser->expecting_indented_block) {
                 Token* indent = current_token(parser);
                 
-                int line_len = 0;
-                int prev_column = indent->column;
-                int idx = parser->current + 1;
-                
-                while (idx < parser->count && 
-                       parser->tokens[idx].type != TOKEN_NEWLINE && 
-                       parser->tokens[idx].type != TOKEN_EOF &&
-                       parser->tokens[idx].line == indent->line) {
-                    
-                    Token* tok = &parser->tokens[idx];
-                    line_len += (tok->column - prev_column);
-                    line_len += tok->value ? (int)utf8_char_len(tok->value) : 1;
-                    
-                    prev_column = tok->column + (tok->value ? (int)utf8_char_len(tok->value) : 1);
-                    idx++;
-                }
-                
+                int line_len = get_line_length(parser->source, indent->line) - indent->column + 1;
                 if (line_len < 1) line_len = 1;
                 
                 parser_error_at(parser, indent->line, indent->column,
