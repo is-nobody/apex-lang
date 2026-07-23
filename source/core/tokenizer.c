@@ -174,7 +174,7 @@ static void skip_shebang(Tokenizer* tokenizer) {
     }
 }
 
-// reads a quoted string literal with escape sequence handling
+// reads a quoted string literal with escape sequence handling and interpolation awareness
 static char* read_string(Tokenizer* tokenizer) {
     char quote_char = peek(tokenizer, 0);
     int quote_line = tokenizer->line;
@@ -214,8 +214,18 @@ static char* read_string(Tokenizer* tokenizer) {
                 return NULL;
             }
             
-            char char_to_add = next_c;
+            if (next_c == '{' || next_c == '}') {
+                if (buf_pos + 2 >= buf_size) {
+                    buf_size *= 2;
+                    buffer = (char*)realloc(buffer, buf_size);
+                }
+                buffer[buf_pos++] = '\\';
+                buffer[buf_pos++] = next_c;
+                advance(tokenizer);
+                continue;
+            }
             
+            char char_to_add = next_c;
             switch (next_c) {
                 case 'n': char_to_add = '\n'; break;
                 case 't': char_to_add = '\t'; break;
@@ -223,18 +233,7 @@ static char* read_string(Tokenizer* tokenizer) {
                 case '"': char_to_add = '"'; break;
                 case '\'': char_to_add = '\''; break;
                 case '\\': char_to_add = '\\'; break;
-                default: 
-                    if (next_c == '{' || next_c == '}') {
-                         if (buf_pos + 2 >= buf_size) {
-                            buf_size *= 2;
-                            buffer = (char*)realloc(buffer, buf_size);
-                        }
-                        buffer[buf_pos++] = '\\';
-                        buffer[buf_pos++] = next_c;
-                        advance(tokenizer);
-                        continue;
-                    }
-                    break;
+                default: break;
             }
             
             if (buf_pos + 1 >= buf_size) {

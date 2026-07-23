@@ -60,7 +60,10 @@ static int get_node_len(ASTNode* node) {
     if (!node) return 1;
     switch (node->type) {
         case AST_LITERAL_STRING:
-            return (int)utf8_char_len(node->literal_string.string_value) + 2;
+            if (node->literal_string.string_value) {
+                return (int)strlen(node->literal_string.string_value) + 2;
+            }
+            return 2;
         case AST_LITERAL_NONE:
             return 4;
         case AST_IDENTIFIER:
@@ -1028,7 +1031,14 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
                 ASTNode* arg = node->call.arguments->nodes[0];
                 ValueType arg_t = infer_expression_type(parser, arg);
                 if (arg_t != builtin->arg_type && arg_t != TYPE_ANY && arg_t != TYPE_UNKNOWN) {
-                     parser_error_at(parser, arg->line, arg->column, get_node_len(arg),
+                    int arg_len;
+                    if (arg->type == AST_LITERAL_STRING) {
+                        arg_len = arg->literal_string.string_value ? 
+                                (int)strlen(arg->literal_string.string_value) + 2 : 2;
+                    } else {
+                        arg_len = get_node_len(arg);
+                    }
+                    parser_error_at(parser, arg->line, arg->column, arg_len,
                         "%s argument must be %s, got %s", func_name, type_name(builtin->arg_type), type_name(arg_t));
                 }
             }
@@ -1056,7 +1066,9 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
                 root_module[root_len] = '\0';
                 
                 if (is_known_builtin_module(root_module)) {
-                    parser_error_at(parser, node->call.callee->line, node->call.callee->column, get_node_len(node->call.callee),
+                    ASTNode* member = node->call.callee->access.member;
+                    int len = get_node_len(member);
+                    parser_error_at(parser, member->line, member->column, len,
                         "Undefined function '%s' in module '%s'", dot_pos + 1, root_module);
                     return TYPE_ANY;
                 }
@@ -1118,7 +1130,7 @@ static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
             if (node->in_interpolation) {
                 len += 2;
             }
-            parser_error_at(parser, node->line, node->column, len,
+            parser_error_at(parser, node->line, node->column - (node->in_interpolation ? 1 : 0), len,
                             "Undefined variable or function '%s'", name);
             return TYPE_ERROR;
         }
@@ -1321,21 +1333,73 @@ static ASTNode* parse_number(Parser* parser) {
     return ast_create_literal_number(value, token->line, token->column);
 }
 
+static const char* find_closing_brace(const char* str) {
+    int brace_count = 0;
+    bool in_double_quotes = false;
+    bool in_single_quotes = false;
+    
+    while (*str) {
+        if (in_double_quotes) {
+            if (*str == '\\' && *(str + 1)) {
+                str += 2;
+                continue;
+            }
+            if (*str == '"') {
+                in_double_quotes = false;
+            }
+        } else if (in_single_quotes) {
+            if (*str == '\\' && *(str + 1)) {
+                str += 2;
+                continue;
+            }
+            if (*str == '\'') {
+                in_single_quotes = false;
+            }
+        } else {
+            if (*str == '"') {
+                in_double_quotes = true;
+            } else if (*str == '\'') {
+                in_single_quotes = true;
+            } else if (*str == '{') {
+                brace_count++;
+            } else if (*str == '}') {
+                if (brace_count == 0) {
+                    return str;
+                }
+                brace_count--;
+            }
+        }
+        str++;
+    }
+    return NULL;
+}
+
 // parses a string expression with interpolation support
 static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, int line, int column) {
-    Tokenizer* temp_tokenizer = tokenizer_create(expr_str, parser->filename);
-    temp_tokenizer->line = line;
-    
+    Tokenizer* temp_tokenizer = tokenizer_create(expr_str, "<interpolation>");
+
     int temp_count;
     Token* temp_tokens = tokenizer_tokenize(temp_tokenizer, &temp_count);
     
+    int base_column = column;
+    
     for (int i = 0; i < temp_count; i++) {
-        temp_tokens[i].line = line;
-        temp_tokens[i].column += column - 1;
+        int token_line = temp_tokens[i].line;
+        int token_col = temp_tokens[i].column;
+        
+        if (token_line == 1) {
+            temp_tokens[i].line = line;
+            temp_tokens[i].column = base_column + token_col;
+        } else {
+            temp_tokens[i].line = line + (token_line - 1);
+        }
     }
 
-    Parser* temp_parser = parser_create(temp_tokens, temp_count, parser->filename, parser->source);
+    Parser* temp_parser = parser_create(temp_tokens, temp_count, "<interpolation>", parser->source);
     temp_parser->semantic_checks = false;
+    
+    free(temp_parser->source_dir);
+    temp_parser->source_dir = strdup(parser->source_dir);
 
     for (int i = 0; i < parser->symbols.count; i++) {
         if (parser->symbols.scope_levels[i] <= parser->symbols.current_scope) {
@@ -1344,8 +1408,7 @@ static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, in
                                   parser->symbols.kinds[i], 
                                   parser->symbols.types[i], 
                                   parser->symbols.param_counts[i],
-                                  0,
-                                  0);
+                                  0, 0);
             
             int new_idx = temp_parser->symbols.count - 1;
             temp_parser->symbols.const_known[new_idx] = parser->symbols.const_known[i];
@@ -1356,7 +1419,6 @@ static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, in
 
     ASTNode* expr = parse_expression(temp_parser);
     
-    // Mark all nodes as being inside string interpolation
     if (expr) {
         ASTNode* stack[256];
         int stack_top = 0;
@@ -1407,8 +1469,6 @@ static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, in
         }
     }
     
-    parser->error_count += temp_parser->error_count;
-    
     parser_destroy(temp_parser);
     tokenizer_destroy(temp_tokenizer);
     return expr;
@@ -1419,83 +1479,71 @@ static ASTNode* parse_string(Parser* parser) {
     Token* token = advance(parser);
     const char* value = token->value;
     
-    if (!strchr(value, '{') && !strchr(value, '\\')) {
+    if (!strchr(value, '{')) {
         return ast_create_literal_string(value, token->line, token->column);
     }
 
     ASTNodeList* parts = ast_list_create();
     const char* p = value;
     const char* start = value;
-    
-    int line_offset = 0; 
 
     while (*p) {
-        if (*p == '\n') {
-            line_offset++;
-            p++;
+        if (*p == '\\' && *(p + 1) != '\0') {
+            p += 2;
             continue;
         }
 
-        if (*p == '\\' && *(p + 1) != '\0') {
-            char next_char = *(p + 1);
-            
-            if (next_char == '{' || next_char == '}') {
-                if (p > start) {
-                    int byte_len = (int)(p - start);
-                    char* lit = (char*)malloc(byte_len + 1);
-                    strncpy(lit, start, byte_len);
-                    lit[byte_len] = '\0';
-                    if (byte_len > 0) {
-                        ASTNode* str_node = ast_create_literal_string(lit, token->line + line_offset, token->column);
-                        ast_list_add(parts, str_node);
-                    }
-                    free(lit);
-                }
-                
-                char escaped_char[2] = { next_char, '\0' };
-                int char_offset = (int)utf8_char_len(value) - (int)utf8_char_len(p) + 1;
-                ASTNode* char_node = ast_create_literal_string(escaped_char, token->line + line_offset, 
-                                                               token->column + char_offset);
-                ast_list_add(parts, char_node);
-                
-                p += 2;
-                start = p;
-                continue;
-            }
-            
-            p++; 
-        } else if (*p == '{') {
+        if (*p == '{') {
             if (p > start) {
-                int byte_len = (int)(p - start);
-                char* lit = (char*)malloc(byte_len + 1);
-                strncpy(lit, start, byte_len);
-                lit[byte_len] = '\0';
-                if (byte_len > 0) {
-                    ASTNode* str_node = ast_create_literal_string(lit, token->line + line_offset, token->column);
-                    ast_list_add(parts, str_node);
+                size_t len = p - start;
+                char* text = (char*)malloc(len + 1);
+                memcpy(text, start, len);
+                text[len] = '\0';
+                
+                char* processed = (char*)malloc(len + 1);
+                size_t j = 0;
+                for (size_t i = 0; i < len; i++) {
+                    if (text[i] == '\\' && i + 1 < len) {
+                        char next = text[i + 1];
+                        if (next == '{' || next == '}') {
+                            processed[j++] = next;
+                            i++;
+                        } else {
+                            processed[j++] = text[i];
+                        }
+                    } else {
+                        processed[j++] = text[i];
+                    }
                 }
-                free(lit);
+                processed[j] = '\0';
+                
+                ASTNode* str_node = ast_create_literal_string(
+                    processed, token->line, token->column + (int)(start - value));
+                ast_list_add(parts, str_node);
+                free(processed);
+                free(text);
             }
-            
+
             const char* expr_start = p + 1;
-            const char* expr_end = strchr(expr_start, '}');
+            const char* expr_end = find_closing_brace(expr_start);
             
             if (expr_end) {
-                int expr_len = (int)(expr_end - expr_start);
+                size_t expr_len = expr_end - expr_start;
                 char* expr_str = (char*)malloc(expr_len + 1);
-                strncpy(expr_str, expr_start, expr_len);
+                memcpy(expr_str, expr_start, expr_len);
                 expr_str[expr_len] = '\0';
                 
-                int absolute_col = token->column + (int)utf8_char_len(value) - 
-                                  (int)utf8_char_len(p) + 1;
-
-                ASTNode* expr_node = parse_string_expression(parser, expr_str,
-                    token->line + line_offset,
-                    absolute_col);
+                int expr_column = token->column + (int)(expr_start - value);
+                
+                ASTNode* expr_node = parse_string_expression(
+                    parser, expr_str,
+                    token->line,
+                    expr_column);
                 
                 if (expr_node) {
                     ast_list_add(parts, expr_node);
                 }
+                
                 free(expr_str);
                 p = expr_end + 1;
                 start = p;
@@ -1508,8 +1556,33 @@ static ASTNode* parse_string(Parser* parser) {
     }
     
     if (p > start) {
-        ASTNode* str_node = ast_create_literal_string(start, token->line + line_offset, token->column);
+        size_t len = p - start;
+        char* text = (char*)malloc(len + 1);
+        memcpy(text, start, len);
+        text[len] = '\0';
+        
+        char* processed = (char*)malloc(len + 1);
+        size_t j = 0;
+        for (size_t i = 0; i < len; i++) {
+            if (text[i] == '\\' && i + 1 < len) {
+                char next = text[i + 1];
+                if (next == '{' || next == '}') {
+                    processed[j++] = next;
+                    i++;
+                } else {
+                    processed[j++] = text[i];
+                }
+            } else {
+                processed[j++] = text[i];
+            }
+        }
+        processed[j] = '\0';
+        
+        ASTNode* str_node = ast_create_literal_string(
+            processed, token->line, token->column + (int)(start - value));
         ast_list_add(parts, str_node);
+        free(processed);
+        free(text);
     }
     
     return ast_create_string_interp(parts);
@@ -1623,11 +1696,14 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
     Token* token = current_token(parser);
     
     bool is_module = false;
+    
     if (object->type == AST_IDENTIFIER) {
         int idx = symbol_index_recursive(parser, object->identifier.name);
         if (idx >= 0 && parser->symbols.kinds[idx] == PARSER_SYM_MODULE) {
             is_module = true;
         } else if (is_known_builtin_module(object->identifier.name)) {
+            is_module = true;
+        } else {
             parser_error_at(parser, object->line, object->column, 
                           get_node_len(object),
                           "Module '%s' is not imported. Use 'import %s' first", 

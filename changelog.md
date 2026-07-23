@@ -66,6 +66,7 @@
 - Fixed register clobbering in nested `and`/`or` with comparisons, returning `none` instead of boolean.
 - Fixed build system incorrectly treating built-in modules (`sys`, `ffi`, `random`, `codecs`) as file dependencies during bundling.
 - Fixed unterminated string error highlighting: now correctly points to the opening quote instead of the end of file.
+- Fixed string interpolation to correctly handle nested quotes and braces: tokenizer no longer breaks on quotes inside interpolation expressions.
 
 ---
 
