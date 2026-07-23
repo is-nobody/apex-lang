@@ -235,14 +235,34 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
     ASTNode* callee = node->call.callee;
     if (callee->type == AST_IDENTIFIER) {
         strcpy(func_name, callee->identifier.name);
-    } else if (callee->type == AST_INDEX_ACCESS &&
-               callee->access.object->type == AST_IDENTIFIER &&
-               callee->access.member->type == AST_IDENTIFIER) {
-        snprintf(func_name, sizeof(func_name), "%s.%s",
-                 callee->access.object->identifier.name,
-                 callee->access.member->identifier.name);
+    } else if (callee->type == AST_INDEX_ACCESS) {
+        ASTNode* parts[32];
+        int part_count = 0;
+        ASTNode* current = callee;
+        
+        while (current->type == AST_INDEX_ACCESS) {
+            if (current->access.member->type == AST_IDENTIFIER) {
+                parts[part_count++] = current->access.member;
+            } else {
+                part_count = 0;
+                break;
+            }
+            current = current->access.object;
+        }
+        
+        if (part_count > 0 && current->type == AST_IDENTIFIER) {
+            parts[part_count++] = current;
+            
+            func_name[0] = '\0';
+            for (int i = part_count - 1; i >= 0; i--) {
+                if (i < part_count - 1) {
+                    strcat(func_name, ".");
+                }
+                strcat(func_name, parts[i]->identifier.name);
+            }
+        }
     }
-    
+
     int result_reg = alloc_register(cg);
 
     static const char* builtins[] = {

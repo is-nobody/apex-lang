@@ -650,18 +650,6 @@ bool parser_is_declared(Parser* parser, const char* name) {
     return symbol_index_recursive(parser, name) >= 0;
 }
 
-// registers an imported module as a symbol in the current scope
-static void parser_register_import(Parser* parser, const char* module_path, int line, int column) {
-    char path_copy[1024];
-    strncpy(path_copy, module_path, sizeof(path_copy) - 1);
-    path_copy[sizeof(path_copy) - 1] = '\0';
-    char* token = strtok(path_copy, ".");
-    if (!token) return;
-    if (symbol_index_recursive(parser, token) < 0) {
-        parser_declare_symbol(parser, token, PARSER_SYM_MODULE, TYPE_TABLE, 0, line, column);
-    }
-}
-
 // creates a new parser instance for a token stream
 Parser* parser_create(Token* tokens, int count, const char* filename, const char* source) {
     Parser* parser = (Parser*)malloc(sizeof(Parser));
@@ -967,12 +955,34 @@ static const char* resolve_call_name(ASTNode* callee, char* buffer, size_t bufle
     if (callee->type == AST_IDENTIFIER) {
         return callee->identifier.name;
     }
-    if (callee->type == AST_INDEX_ACCESS &&
-        callee->access.object->type == AST_IDENTIFIER &&
-        callee->access.member->type == AST_IDENTIFIER) {
-        snprintf(buffer, buflen, "%s.%s",
-                 callee->access.object->identifier.name,
-                 callee->access.member->identifier.name);
+    if (callee->type == AST_INDEX_ACCESS) {
+        ASTNode* parts[32];
+        int count = 0;
+        ASTNode* current = callee;
+        
+        while (current->type == AST_INDEX_ACCESS) {
+            if (current->access.member->type == AST_IDENTIFIER) {
+                parts[count++] = current->access.member;
+            } else {
+                return NULL;
+            }
+            current = current->access.object;
+        }
+        
+        if (current->type == AST_IDENTIFIER) {
+            parts[count++] = current;
+        } else {
+            return NULL;
+        }
+        
+        buffer[0] = '\0';
+        for (int i = count - 1; i >= 0; i--) {
+            if (strlen(buffer) > 0) {
+                strncat(buffer, ".", buflen - strlen(buffer) - 1);
+            }
+            strncat(buffer, parts[i]->identifier.name, buflen - strlen(buffer) - 1);
+        }
+        
         return buffer;
     }
     return NULL;
@@ -1138,7 +1148,21 @@ static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
         case AST_BINARY: return infer_binary_type(parser, node);
         case AST_UNARY: return infer_unary_type(parser, node);
         case AST_CALL: return infer_call_type(parser, node);
-        case AST_INDEX_ACCESS: return infer_index_access_type(parser, node);
+        case AST_INDEX_ACCESS: {
+            char full_name[512];
+            const char* resolved = resolve_call_name(node, full_name, sizeof(full_name));
+            if (resolved) {
+                int idx = symbol_index_recursive(parser, resolved);
+                if (idx >= 0) {
+                    return parser->symbols.types[idx];
+                }
+                const BuiltinSig* builtin = lookup_builtin(resolved);
+                if (builtin) {
+                    return TYPE_FUNCTION;
+                }
+            }
+            return infer_index_access_type(parser, node);
+        }
         case AST_TABLE_LITERAL: {
             for (int i = 0; i < node->table_literal.items->count; i++) {
                 infer_expression_type(parser, node->table_literal.items->nodes[i]);
@@ -1700,18 +1724,22 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
     
     if (object->type == AST_IDENTIFIER) {
         int idx = symbol_index_recursive(parser, object->identifier.name);
-        if (idx >= 0 && parser->symbols.kinds[idx] == PARSER_SYM_MODULE) {
+        if ((idx >= 0 && parser->symbols.kinds[idx] == PARSER_SYM_MODULE) ||
+            is_known_builtin_module(object->identifier.name)) {
             is_module = true;
-        } else if (is_known_builtin_module(object->identifier.name)) {
-            is_module = true;
-        } else {
-            parser_error_at(parser, object->line, object->column, 
-                          get_node_len(object),
-                          "Module '%s' is not imported. Use 'import %s' first", 
-                          object->identifier.name, object->identifier.name);
-            if (token->type == TOKEN_IDENTIFIER || token->type == TOKEN_NUMBER) 
-                advance(parser);
-            return object;
+        }
+    } else if (object->type == AST_INDEX_ACCESS) {
+        ASTNode* current = object;
+        while (current->type == AST_INDEX_ACCESS) {
+            current = current->access.object;
+        }
+        
+        if (current->type == AST_IDENTIFIER) {
+            int idx = symbol_index_recursive(parser, current->identifier.name);
+            if ((idx >= 0 && parser->symbols.kinds[idx] == PARSER_SYM_MODULE) ||
+                is_known_builtin_module(current->identifier.name)) {
+                is_module = true;
+            }
         }
     }
     
@@ -1721,7 +1749,7 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
             "Dot access is restricted to imported modules. Use bracket notation '[]' for table access.");
         if (token->type == TOKEN_IDENTIFIER || token->type == TOKEN_NUMBER) 
             advance(parser);
-        return object; 
+        return object;
     }
 
     if (token->type == TOKEN_IDENTIFIER || token->type == TOKEN_NUMBER || 
@@ -1732,12 +1760,29 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
         char* member_name = strdup(token->value);
         
         advance(parser);
-        ASTNode* member_node = ast_create_identifier(token->value, token->line, token->column);
+        ASTNode* member_node = ast_create_identifier(member_name, member_line, member_col);
         ASTNode* access_node = ast_create_index_access(object, member_node);
         
-        char full_name[256];
-        snprintf(full_name, sizeof(full_name), "%s.%s", 
-                 object->identifier.name, member_name);
+        char full_name[512] = "";
+        
+        ASTNode* temp = access_node;
+        char* parts[32];
+        int part_count = 0;
+        
+        while (temp->type == AST_INDEX_ACCESS) {
+            if (temp->access.member->type == AST_IDENTIFIER) {
+                parts[part_count++] = temp->access.member->identifier.name;
+            }
+            temp = temp->access.object;
+        }
+        if (temp->type == AST_IDENTIFIER) {
+            parts[part_count++] = temp->identifier.name;
+        }
+        
+        for (int i = part_count - 1; i >= 0; i--) {
+            if (strlen(full_name) > 0) strcat(full_name, ".");
+            strcat(full_name, parts[i]);
+        }
         
         const BuiltinSig* builtin = lookup_builtin(full_name);
         int sym_idx = symbol_index_recursive(parser, full_name);
@@ -2348,7 +2393,29 @@ static ASTNode* parse_import_statement(Parser* parser) {
 
     ASTNode* import_node = ast_create_import(module_path, import_kw->line, import_kw->column);
     parser_validate_import_file(parser, module_path, first->line, first->column);
-    parser_register_import(parser, module_path, import_kw->line, import_kw->column);
+
+    {
+        char path_copy[1024];
+        strncpy(path_copy, module_path, sizeof(path_copy) - 1);
+        path_copy[sizeof(path_copy) - 1] = '\0';
+        
+        char* segment = strtok(path_copy, ".");
+        char accumulated[1024] = "";
+        
+        while (segment) {
+            if (strlen(accumulated) > 0) {
+                strcat(accumulated, ".");
+            }
+            strcat(accumulated, segment);
+            
+            if (symbol_index_recursive(parser, accumulated) < 0) {
+                parser_declare_symbol(parser, accumulated, PARSER_SYM_MODULE, 
+                                    TYPE_TABLE, 0, import_kw->line, import_kw->column);
+            }
+            
+            segment = strtok(NULL, ".");
+        }
+    }
 
     char first_segment[256];
     const char* dot = strchr(module_path, '.');
@@ -2396,28 +2463,60 @@ static ASTNode* parse_import_statement(Parser* parser) {
 
     for (int i = 0; i < mod_parser->symbols.count; i++) {
         if (mod_parser->symbols.scope_levels[i] == 0) {
-            char full_name[512];
+            char full_name[1024];
             snprintf(full_name, sizeof(full_name), "%s.%s", 
-                     first_segment, mod_parser->symbols.names[i]);
+                     module_path, mod_parser->symbols.names[i]);
             
-            parser_declare_symbol(parser, full_name, 
-                                mod_parser->symbols.kinds[i],
-                                mod_parser->symbols.types[i],
-                                mod_parser->symbols.param_counts[i],
-                                import_kw->line, import_kw->column);
+            if (symbol_index_recursive(parser, full_name) < 0) {
+                parser_declare_symbol(parser, full_name, 
+                                    mod_parser->symbols.kinds[i],
+                                    mod_parser->symbols.types[i],
+                                    mod_parser->symbols.param_counts[i],
+                                    import_kw->line, import_kw->column);
+            }
+            
+            if (mod_parser->symbols.kinds[i] == PARSER_SYM_MODULE) {
+                char module_prefix[1024];
+                snprintf(module_prefix, sizeof(module_prefix), "%s.", 
+                         mod_parser->symbols.names[i]);
+                
+                for (int j = 0; j < mod_parser->symbols.count; j++) {
+                    if (j != i && mod_parser->symbols.scope_levels[j] == 0) {
+                        if (strncmp(mod_parser->symbols.names[j], module_prefix, 
+                                   strlen(module_prefix)) == 0) {
+                            char sub_full_name[1024];
+                            snprintf(sub_full_name, sizeof(sub_full_name), "%s.%s", 
+                                     module_path, mod_parser->symbols.names[j]);
+                            
+                            if (symbol_index_recursive(parser, sub_full_name) < 0) {
+                                parser_declare_symbol(parser, sub_full_name, 
+                                                    mod_parser->symbols.kinds[j],
+                                                    mod_parser->symbols.types[j],
+                                                    mod_parser->symbols.param_counts[j],
+                                                    import_kw->line, import_kw->column);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
     parser_destroy(mod_parser);
     tokenizer_destroy(mod_tok);
     free(source);
+    
+    char* saved_module_path = strdup(module_path);
     free(module_path);
 #undef APPEND_PATH
 
-    if (!mod_ast) return import_node;
+    if (!mod_ast) {
+        free(saved_module_path);
+        return import_node;
+    }
 
     ast_free_node(import_node);
-    return ast_create_module_block(first_segment, mod_ast, import_kw->line, import_kw->column);
+    return ast_create_module_block(saved_module_path, mod_ast, import_kw->line, import_kw->column);
 }
 
 // parses a return statement
