@@ -54,10 +54,6 @@ set(HIGH_PERF_FLAGS
     -flto
 )
 
-if(NOT CMAKE_CROSSCOMPILING)
-    list(APPEND HIGH_PERF_FLAGS -march=native -mtune=native)
-endif()
-
 # native cpu flags only when NOT cross-compiling
 if(NOT CMAKE_CROSSCOMPILING)
     list(APPEND HIGH_PERF_FLAGS -march=native -mtune=native)
@@ -120,43 +116,6 @@ if(MINGW)
         PREFIX ""
     )
 endif()
-
-# installation rules
-install(TARGETS apex RUNTIME DESTINATION bin)
-
-# package metadata
-set(CPACK_PACKAGE_NAME "apex")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
-set(CPACK_PACKAGE_CONTACT "dev@apex-lang.org")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Apex Language Interpreter")
-set(CPACK_PACKAGE_DESCRIPTION "High-performance interpreted language with REPL and stdlib.")
-
-# platform-specific package settings
-if(MINGW)
-    set(CPACK_GENERATOR "ZIP;NSIS")
-    set(CPACK_PACKAGE_FILE_NAME "apex-${PROJECT_VERSION}-win64")
-    set(CPACK_NSIS_DISPLAY_NAME "Apex Language")
-    set(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES64")
-    set(CPACK_NSIS_CREATE_ICONS_EXTRA
-        "CreateShortCut '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\Apex.lnk' '$INSTDIR\\\\bin\\\\apex.exe'"
-    )
-    set(CPACK_NSIS_DELETE_ICONS_EXTRA
-        "Delete '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\Apex.lnk'"
-    )
-elseif(APPLE)
-    set(CPACK_GENERATOR "TGZ;DragNDrop")
-    set(CPACK_PACKAGE_FILE_NAME "apex-${PROJECT_VERSION}-macos")
-else()
-    set(CPACK_GENERATOR "DEB;RPM;TGZ")
-    set(CPACK_PACKAGE_FILE_NAME "apex-${PROJECT_VERSION}-linux")
-    
-    set(CPACK_DEBIAN_PACKAGE_SECTION "devel")
-    
-    set(CPACK_RPM_PACKAGE_LICENSE "MIT")
-    set(CPACK_RPM_PACKAGE_GROUP "Development/Languages")
-endif()
-
-include(CPack)
 
 #[[
 # standard build command
