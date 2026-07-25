@@ -109,14 +109,6 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
     )
 endif()
 
-# sets .exe extension explicitly for windows cross-compilation
-if(MINGW)
-    set_target_properties(apex PROPERTIES
-        SUFFIX ".exe"
-        PREFIX ""
-    )
-endif()
-
 #[[
 # standard build command
 cmake -S . -B build/ -DCMAKE_BUILD_TYPE=Release
