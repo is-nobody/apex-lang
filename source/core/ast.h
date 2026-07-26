@@ -26,7 +26,7 @@ typedef enum {
     AST_LITERAL_BOOL,      // true, false — boolean constant
     AST_IDENTIFIER,        // variable name reference, resolved in scope
     AST_CALL,              // function(args) — invokes a callee with arguments
-    AST_INDEX_ACCESS,      // table[index] — bracket notation for array or table access
+    AST_INDEX_ACCESS,      // table[index] — bracket notation for table access
     AST_TABLE_LITERAL,     // (1, 2, 3) or (key = value, ...) — table constructor
     AST_STRING_INTERP,     // "Hello {name}" — interpolated string with embedded expressions
     AST_TERNARY,           // condition ? true_expr : false_expr — ternary conditional operator
