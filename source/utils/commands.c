@@ -29,16 +29,16 @@
 
 // dispatches cli commands like 'version' and 'build'
 int handle_commands(int argc, char** argv) {
-    if (argc < 2) return -1;
+    if (argc < 2) return -1;                                                    // need at least one argument
 
-    if (strcmp(argv[1], "version") == 0) {
-        printf("Apex 26.07 [%s] on %s\n", COMPILER_INFO, platform_get_name());
-        return 0;
+    if (strcmp(argv[1], "version") == 0) {                                      // version command
+        printf("Apex 26.07 [%s] on %s\n", COMPILER_INFO, platform_get_name());  // print version info
+        return 0;                                                               // success
     }
 
-    if (strcmp(argv[1], "build") == 0) {
-        return build_command(argc, argv);
+    if (strcmp(argv[1], "build") == 0) {   // build command
+        return build_command(argc, argv);  // delegate to build handler
     }
 
-    return -1;
+    return -1;                             // unknown command
 }
