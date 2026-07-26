@@ -2203,19 +2203,14 @@ static ASTNode* parse_if_statement(Parser* parser) {
     }
     
     if (match(parser, TOKEN_ELSE)) {
-        if (check(parser, TOKEN_IF)) {
-            Token* else_token = &parser->tokens[parser->current - 1];
-            Token* if_token = current_token(parser);
-            int total_len = if_token->column - else_token->column + 2;
-            parser_error_at(parser, else_token->line, else_token->column, total_len,
-                            "Use 'elif' instead of 'else if'");
-            advance(parser);
-            parse_expression(parser);
-            parser->expecting_indented_block = true;
-            else_branch = parse_block(parser, true, "else");
-        } else {
-            parser->expecting_indented_block = true;
-            else_branch = parse_block(parser, true, "else");
+        parser->expecting_indented_block = true;
+        else_branch = parse_block(parser, true, "else");
+        if (elif_chain) {
+            ASTNode* last = elif_chain;
+            while (last->if_stmt.elif_chain) {
+                last = last->if_stmt.elif_chain;
+            }
+            last->if_stmt.else_branch = else_branch;
         }
     }
     
