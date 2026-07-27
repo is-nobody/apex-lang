@@ -219,46 +219,74 @@ static char* read_string(Tokenizer* tokenizer) {
                     buf_size *= 2;                              // double buffer capacity
                     buffer = (char*)realloc(buffer, buf_size);  // resize buffer
                 }
-                buffer[buf_pos++] = '\\';                   // preserve backslash in output
-                buffer[buf_pos++] = next_c;                 // preserve brace character in output
-                advance(tokenizer);                         // consume the brace character
-                continue;                                   // continue reading string
+                buffer[buf_pos++] = '\\';                    // preserve backslash in output
+                buffer[buf_pos++] = next_c;                  // preserve brace character in output
+                advance(tokenizer);                          // consume the brace character
+                continue;                                    // continue reading string
             }
             
-            char char_to_add = next_c;                      // default: use character as-is
+            char char_to_add = next_c;                       // default: use character as-is
+            int is_known = 1;                                // flag for known escape sequences
+            int extra_chars = 0;                             // extra characters to consume after \X
             switch (next_c) {
-                case 'n': char_to_add = '\n'; break;        // newline escape
-                case 't': char_to_add = '\t'; break;        // tab escape
-                case 'r': char_to_add = '\r'; break;        // carriage return escape
-                case '"': char_to_add = '"'; break;         // double quote escape
-                case '\'': char_to_add = '\''; break;       // single quote escape
-                case '\\': char_to_add = '\\'; break;       // backslash escape
-                default: break;                             // unknown escape, use literal character
+                case 'n': char_to_add = '\n'; break;             // newline escape
+                case 't': char_to_add = '\t'; break;             // tab escape
+                case 'r': char_to_add = '\r'; break;             // carriage return escape
+                case '"': char_to_add = '"'; break;              // double quote escape
+                case '\'': char_to_add = '\''; break;            // single quote escape
+                case '\\': char_to_add = '\\'; break;            // backslash escape
+                case '0': case '1': case '2': case '3':          // octal escape \0, \033, etc
+                case '4': case '5': case '6': case '7': {        // octal escape continuation for digits 4-7
+                    char octal[4] = {next_c, '\0', '\0', '\0'};  // buffer for up to 3 octal digits
+                    int len = 1;                                 // start with 1 digit (next_c)
+                    char c1 = peek(tokenizer, 1);                // peek at second character
+                    if (c1 >= '0' && c1 <= '7') {                // if valid octal digit
+                        octal[len++] = c1;                       // add second digit
+                        char c2 = peek(tokenizer, 2);            // peek at third character
+                        if (c2 >= '0' && c2 <= '7') {            // if valid octal digit
+                            octal[len++] = c2;                   // add third digit
+                        }
+                    }
+                    octal[len] = '\0';                          // null-terminate octal string
+                    char_to_add = (char)strtol(octal, NULL, 8); // convert octal string to character
+                    extra_chars = len - 1;                   // extra characters to consume (0, 1, or 2)
+                    break;                                   // end octal escape handling
+                }
+                default: is_known = 0; break;                // unknown escape, keep as-is
             }
             
-            if (buf_pos + 1 >= buf_size) {
-                buf_size *= 2;                              // double buffer capacity
-                buffer = (char*)realloc(buffer, buf_size);  // resize buffer
+            if (buf_pos + (is_known ? 1 : 2) >= buf_size) {  // ensure space for 1 or 2 chars
+                buf_size *= 2;                               // double buffer capacity
+                buffer = (char*)realloc(buffer, buf_size);   // resize buffer
             }
-            buffer[buf_pos++] = char_to_add;                // store interpreted escape character
-            advance(tokenizer);                             // consume the escaped character
-            continue;                                       // continue reading string
+            if (is_known) {
+                buffer[buf_pos++] = char_to_add;             // store interpreted escape character
+                advance(tokenizer);                          // consume the first char after backslash
+                for (int i = 0; i < extra_chars; i++) {      // consume extra octal digits (0 for \n, 1-2 for \033)
+                    advance(tokenizer);                      // skip each extra octal digit
+                }
+            } else {
+                buffer[buf_pos++] = '\\';                    // preserve backslash for unknown escape
+                buffer[buf_pos++] = next_c;                  // preserve the escaped character itself
+                advance(tokenizer);                          // consume the escaped character
+            }
+            continue;                                        // continue reading string
         }
         
         if (c == quote_char) {
-            advance(tokenizer);                             // consume closing quote
-            break;                                          // end of string literal
+            advance(tokenizer);                              // consume closing quote
+            break;                                           // end of string literal
         }
         
         if (buf_pos + 1 >= buf_size) {
-            buf_size *= 2;                                  // double buffer capacity
-            buffer = (char*)realloc(buffer, buf_size);      // resize buffer
+            buf_size *= 2;                                   // double buffer capacity
+            buffer = (char*)realloc(buffer, buf_size);       // resize buffer
         }
-        buffer[buf_pos++] = advance(tokenizer);             // store regular character
+        buffer[buf_pos++] = advance(tokenizer);              // store regular character
     }
 
-    buffer[buf_pos] = '\0';                                 // null-terminate the string
-    return buffer;                                          // return allocated string content
+    buffer[buf_pos] = '\0';                                  // null-terminate the string
+    return buffer;                                           // return allocated string content
 }
 
 // reads a numeric literal including integer, float, and scientific notation

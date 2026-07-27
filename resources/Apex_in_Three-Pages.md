@@ -4,8 +4,8 @@ Dynamic typing: type can change on reassignment.
 
 ```apex
 x = 42          // number (int/float unified)
-x = "Apex"      // string (double quotes only)
-x = true        // boolean
+x = "Apex"      // string (double or single quotes)
+x = true        // boolean (true/false)
 x = none        // none (intentional absence)
 x = []          // table (universal container)
 ```
@@ -18,7 +18,7 @@ x = []          // table (universal container)
 |-------|-------------|---------------------------|
 |   1   | `()`        | Grouping, function calls  |
 |   2   | `+ - * / %` | Arithmetic (only numbers) |
-|   3   | `< > <= >=` | Comparison (numbers only) |
+|   3   | `< > <= >=` | Comparison (only numbers) |
 |   4   | `== !=`     | Equality (all types)      |
 |   5   | `not`       | Logical NOT               |
 |   6   | `and`       | Logical AND               |
@@ -26,7 +26,7 @@ x = []          // table (universal container)
 
 ## Strings & Interpolation
 - **Interpolation:** `"Hello {name}, result: {5 * 2}"`. Expressions inside `{}` are evaluated.
-- **Escapes:** `\"` (quote), `\\` (backslash), `\{` (literal brace), `\n` (newline), `\t` (tab).
+- **Escapes:** `\"`, `\'`, `\\`, `\n`, `\t`, `\r`, `\{`, `\}`, `\XXX` (octal, e.g. `\033`). Unknown escapes kept as-is.
 - **Multiline:** Supported natively within quotes.
 
 ## Tables `[]`
