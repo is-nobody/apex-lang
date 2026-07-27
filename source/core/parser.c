@@ -24,11 +24,7 @@
     #endif
 #endif
 
-#define APEX_MAX_CALL_DEPTH 512
-#define APEX_MAX_LOOP_DEPTH 512
-
 static Token* current_token(Parser* parser);
-static ASTNode* parse_program(Parser* parser);
 static ASTNode* parse_statement(Parser* parser);
 static ASTNode* parse_expression(Parser* parser);
 static ASTNode* parse_block(Parser* parser, bool require_indent, const char* after_keyword);
@@ -2132,10 +2128,6 @@ static ASTNode* parse_function(Parser* parser) {
                           TYPE_FUNCTION, params->count, name->line, name->column);
 
     parser->function_depth++;
-    if (parser->function_depth > APEX_MAX_CALL_DEPTH) {
-        parser_error_at(parser, name->line, name->column, (int)utf8_char_len(name->value),
-            "Function nesting exceeds maximum depth of %d", APEX_MAX_CALL_DEPTH);
-    }
     parser_enter_scope(parser);
 
     for (int i = 0; i < params->count; i++) {
@@ -2335,10 +2327,6 @@ static ASTNode* parse_for_statement(Parser* parser) {
     }
 
     parser->loop_depth++;
-    if (parser->loop_depth > APEX_MAX_LOOP_DEPTH) {
-        parser_error_at(parser, for_kw->line, for_kw->column, 3,
-                        "Loop nesting exceeds maximum depth of %d", APEX_MAX_LOOP_DEPTH);
-    }
 
     parser_enter_scope(parser);
     if (var_name) {
