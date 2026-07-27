@@ -12,93 +12,91 @@ static const char b64_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstu
 
 // encodes binary data to base64 with proper padding
 static void base64_encode(const unsigned char* data, int len, char* out) {
-    int i = 0, j = 0;
-    uint32_t buffer = 0;
-    int bits_left = 0;
+    int i = 0, j = 0;                                                        // input and output indices
+    uint32_t buffer = 0;                                                     // bit buffer
+    int bits_left = 0;                                                       // bits remaining in buffer
     
-    while (i < len) {
-        buffer = (buffer << 8) | data[i++];
-        bits_left += 8;
-        while (bits_left >= 6) {
-            int char_idx = (buffer >> (bits_left - 6)) & 0x3F;
-            out[j++] = b64_chars[char_idx];
-            bits_left -= 6;
+    while (i < len) {                                                        // iterate over input bytes
+        buffer = (buffer << 8) | data[i++];                                  // add byte to buffer
+        bits_left += 8;                                                      // increment bits
+        while (bits_left >= 6) {                                             // extract 6-bit chunks
+            int char_idx = (buffer >> (bits_left - 6)) & 0x3F;               // get 6-bit index
+            out[j++] = b64_chars[char_idx];                                  // append base64 char
+            bits_left -= 6;                                                  // remove processed bits
         }
     }
     
-    if (bits_left > 0) {
-        int char_idx = (buffer << (6 - bits_left)) & 0x3F;
-        out[j++] = b64_chars[char_idx];
+    if (bits_left > 0) {                                                     // leftover bits
+        int char_idx = (buffer << (6 - bits_left)) & 0x3F;                   // pad with zeros
+        out[j++] = b64_chars[char_idx];                                      // append last char
     }
     
-    while (j % 4 != 0) {
-        out[j++] = '=';
+    while (j % 4 != 0) {                                                     // add padding
+        out[j++] = '=';                                                      // padding char
     }
-    out[j] = '\0';
+    out[j] = '\0';                                                           // null terminate
 }
 
 // decodes a single base64 character, returns -1 on invalid
 static int base64_decode_char(char c) {
-    if (c >= 'A' && c <= 'Z') return c - 'A';
-    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
-    if (c >= '0' && c <= '9') return c - '0' + 52;
-    if (c == '+') return 62;
-    if (c == '/') return 63;
-    if (c == '=') return 0;
-    return -1;
+    if (c >= 'A' && c <= 'Z') return c - 'A';                                // uppercase
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;                           // lowercase
+    if (c >= '0' && c <= '9') return c - '0' + 52;                           // digits
+    if (c == '+') return 62;                                                 // plus
+    if (c == '/') return 63;                                                 // slash
+    if (c == '=') return 0;                                                  // padding
+    return -1;                                                               // invalid
 }
 
 // decodes a base64 string into binary data
 static bool base64_decode(const char* str, unsigned char* out, int* out_len) {
-    int len = strlen(str);
-    if (len == 0) { *out_len = 0; return true; }
+    int len = strlen(str);                                                   // input length
+    if (len == 0) { *out_len = 0; return true; }                             // empty input
     
-    for (int i = 0; i < len; i++) {
-        if (str[i] != '=' && base64_decode_char(str[i]) < 0) return false;
+    for (int i = 0; i < len; i++) {                                          // validate all chars
+        if (str[i] != '=' && base64_decode_char(str[i]) < 0) return false;   // invalid char
     }
     
-    uint32_t buffer = 0;
-    int bits_left = 0;
-    *out_len = 0;
-    int padding = 0;
+    uint32_t buffer = 0;                                                     // bit buffer
+    int bits_left = 0;                                                       // bits remaining
+    *out_len = 0;                                                            // output length
+    int padding = 0;                                                         // padding count
     
-    for (int i = 0; i < len; i++) {
-        if (str[i] == '=') { 
-            padding++; 
-            continue; 
+    for (int i = 0; i < len; i++) {                                          // iterate over input
+        if (str[i] == '=') {                                                 // padding
+            padding++;                                                       // count padding
+            continue;                                                        // skip
         }
-        int val = base64_decode_char(str[i]);
-        if (val < 0) return false;
+        int val = base64_decode_char(str[i]);                                // decode char
+        if (val < 0) return false;                                           // invalid
         
-        buffer = (buffer << 6) | val;
-        bits_left += 6;
+        buffer = (buffer << 6) | val;                                        // add to buffer
+        bits_left += 6;                                                      // increment bits
         
-        if (bits_left >= 8) {
-            out[(*out_len)++] = (unsigned char)(buffer >> (bits_left - 8));
-            bits_left -= 8;
+        if (bits_left >= 8) {                                                // have enough for byte
+            out[(*out_len)++] = (unsigned char)(buffer >> (bits_left - 8));  // extract byte
+            bits_left -= 8;                                                  // remove processed bits
         }
     }
     
-    if (padding > 0) {
-        int eq_pos = -1;
-        for (int i = len - 1; i >= 0; i--) {
-            if (str[i] == '=') eq_pos = i;
-            else break;
+    if (padding > 0) {                                                       // check padding validity
+        int eq_pos = -1;                                                     // position of padding
+        for (int i = len - 1; i >= 0; i--) {                                 // find padding start
+            if (str[i] == '=') eq_pos = i;                                   // update position
+            else break;                                                      // stop at first non-padding
         }
-        if (eq_pos > 0 && str[eq_pos - 1] != '=') {
+        if (eq_pos > 0 && str[eq_pos - 1] != '=') {                          // invalid padding
             return false;
         }
-        if ((len - padding) % 4 != 0) {
-            return false;
-        }
-        if (padding > 2) return false;
-        *out_len -= padding;
-        if (*out_len < 0) *out_len = 0;
+        if ((len - padding) % 4 != 0) return false;                          // invalid length
+        if (padding > 2) return false;                                       // too much padding
+        *out_len -= padding;                                                 // adjust output length
+        if (*out_len < 0) *out_len = 0;                                      // clamp negative
     } else {
-        if (len % 4 != 0) return false;
+        if (len % 4 != 0) return false;                                      // invalid length
     }
     
-    return true;
+    return true;                                                             // success
 }
 
 // url-safe base64 character set (uses - and _ instead of + and /)
@@ -106,1087 +104,1092 @@ static const char b64url_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqr
 
 // encodes binary data to url-safe base64 without padding
 static void base64url_encode(const unsigned char* data, int len, char* out) {
-    int i = 0, j = 0;
-    uint32_t buffer = 0;
-    int bits_left = 0;
+    int i = 0, j = 0;                                                        // input and output indices
+    uint32_t buffer = 0;                                                     // bit buffer
+    int bits_left = 0;                                                       // bits remaining
     
-    while (i < len) {
-        buffer = (buffer << 8) | data[i++];
-        bits_left += 8;
-        while (bits_left >= 6) {
-            int char_idx = (buffer >> (bits_left - 6)) & 0x3F;
-            out[j++] = b64url_chars[char_idx];
-            bits_left -= 6;
+    while (i < len) {                                                        // iterate over input
+        buffer = (buffer << 8) | data[i++];                                  // add byte
+        bits_left += 8;                                                      // increment bits
+        while (bits_left >= 6) {                                             // extract 6-bit chunks
+            int char_idx = (buffer >> (bits_left - 6)) & 0x3F;               // get index
+            out[j++] = b64url_chars[char_idx];                               // append url-safe char
+            bits_left -= 6;                                                  // remove processed bits
         }
     }
     
-    if (bits_left > 0) {
-        int char_idx = (buffer << (6 - bits_left)) & 0x3F;
-        out[j++] = b64url_chars[char_idx];
+    if (bits_left > 0) {                                                     // leftover bits
+        int char_idx = (buffer << (6 - bits_left)) & 0x3F;                   // pad with zeros
+        out[j++] = b64url_chars[char_idx];                                   // append last char
     }
     
-    out[j] = '\0';
+    out[j] = '\0';                                                           // null terminate (no padding)
 }
 
 // decodes a url-safe base64 character
 static int base64url_decode_char(char c) {
-    if (c >= 'A' && c <= 'Z') return c - 'A';
-    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
-    if (c >= '0' && c <= '9') return c - '0' + 52;
-    if (c == '-') return 62;
-    if (c == '_') return 63;
-    if (c == '=') return 0;
-    return -1;
+    if (c >= 'A' && c <= 'Z') return c - 'A';                                // uppercase
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;                           // lowercase
+    if (c >= '0' && c <= '9') return c - '0' + 52;                           // digits
+    if (c == '-') return 62;                                                 // dash (url-safe)
+    if (c == '_') return 63;                                                 // underscore (url-safe)
+    if (c == '=') return 0;                                                  // padding
+    return -1;                                                               // invalid
 }
 
 // decodes a url-safe base64 string
 static bool base64url_decode(const char* str, unsigned char* out, int* out_len) {
-    int len = strlen(str);
-    if (len == 0) {
-        *out_len = 0;
+    int len = strlen(str);                                                   // input length
+    if (len == 0) {                                                          // empty input
+        *out_len = 0;                                                        // empty output
         return true;
     }
     
-    uint32_t buffer = 0;
-    int bits_left = 0;
-    *out_len = 0;
+    uint32_t buffer = 0;                                                     // bit buffer
+    int bits_left = 0;                                                       // bits remaining
+    *out_len = 0;                                                            // output length
     
-    for (int i = 0; i < len; i++) {
-        if (str[i] == '=') break;
-        int val = base64url_decode_char(str[i]);
-        if (val < 0) return false;
+    for (int i = 0; i < len; i++) {                                          // iterate over input
+        if (str[i] == '=') break;                                            // padding stops decoding
+        int val = base64url_decode_char(str[i]);                             // decode char
+        if (val < 0) return false;                                           // invalid
         
-        buffer = (buffer << 6) | val;
-        bits_left += 6;
+        buffer = (buffer << 6) | val;                                        // add to buffer
+        bits_left += 6;                                                      // increment bits
         
-        if (bits_left >= 8) {
-            out[(*out_len)++] = (unsigned char)(buffer >> (bits_left - 8));
-            bits_left -= 8;
+        if (bits_left >= 8) {                                                // have enough for byte
+            out[(*out_len)++] = (unsigned char)(buffer >> (bits_left - 8));  // extract byte
+            bits_left -= 8;                                                  // remove processed bits
         }
     }
-    return true;
+    return true;                                                             // success
 }
 
 // dynamic string builder for efficient text assembly
 typedef struct {
-    char* buffer;
-    int length;
-    int capacity;
+    char* buffer;                                                                 // dynamic buffer
+    int length;                                                                   // current length
+    int capacity;                                                                 // total capacity
 } StringBuilder;
 
 static void sb_init(StringBuilder* sb, int initial_capacity) {
-    sb->capacity = initial_capacity > 16 ? initial_capacity : 16;
-    sb->buffer = (char*)malloc(sb->capacity);
-    if (!sb->buffer) { sb->length = 0; return; }
-    sb->length = 0;
-    sb->buffer[0] = '\0';
+    sb->capacity = initial_capacity > 16 ? initial_capacity : 16;                 // min capacity
+    sb->buffer = (char*)malloc(sb->capacity);                                     // allocate buffer
+    if (!sb->buffer) { sb->length = 0; return; }                                  // allocation failed
+    sb->length = 0;                                                               // start empty
+    sb->buffer[0] = '\0';                                                         // null terminate
 }
 
 static void sb_append(StringBuilder* sb, const char* str, int len) {
-    if (!sb->buffer) return;
-    if (sb->length + len + 1 > sb->capacity) {
-        int new_cap = (sb->length + len + 1) * 2;
-        char* new_buf = (char*)realloc(sb->buffer, new_cap);
-        if (!new_buf) return;
-        sb->buffer = new_buf;
-        sb->capacity = new_cap;
+    if (!sb->buffer) return;                                                      // buffer not initialized
+    if (sb->length + len + 1 > sb->capacity) {                                    // need more space
+        int new_cap = (sb->length + len + 1) * 2;                                 // double capacity
+        char* new_buf = (char*)realloc(sb->buffer, new_cap);                      // resize
+        if (!new_buf) return;                                                     // allocation failed
+        sb->buffer = new_buf;                                                     // update buffer
+        sb->capacity = new_cap;                                                   // update capacity
     }
-    memcpy(sb->buffer + sb->length, str, len);
-    sb->length += len;
-    sb->buffer[sb->length] = '\0';
+    memcpy(sb->buffer + sb->length, str, len);                                    // copy string
+    sb->length += len;                                                            // update length
+    sb->buffer[sb->length] = '\0';                                                // null terminate
 }
 
 static void sb_append_char(StringBuilder* sb, char c) {
-    if (!sb->buffer) return;
-    if (sb->length + 2 > sb->capacity) {
-        int new_cap = (sb->length + 2) * 2;
-        char* new_buf = (char*)realloc(sb->buffer, new_cap);
-        if (!new_buf) return;
-        sb->buffer = new_buf;
-        sb->capacity = new_cap;
+    if (!sb->buffer) return;                                                      // buffer not initialized
+    if (sb->length + 2 > sb->capacity) {                                          // need more space
+        int new_cap = (sb->length + 2) * 2;                                       // double capacity
+        char* new_buf = (char*)realloc(sb->buffer, new_cap);                      // resize
+        if (!new_buf) return;                                                     // allocation failed
+        sb->buffer = new_buf;                                                     // update buffer
+        sb->capacity = new_cap;                                                   // update capacity
     }
-    sb->buffer[sb->length++] = c;
-    sb->buffer[sb->length] = '\0';
+    sb->buffer[sb->length++] = c;                                                 // append char
+    sb->buffer[sb->length] = '\0';                                                // null terminate
 }
 
 static void sb_free(StringBuilder* sb) {
-    if (sb->buffer) free(sb->buffer);
-    sb->buffer = NULL;
-    sb->length = 0;
+    if (sb->buffer) free(sb->buffer);                                             // free buffer
+    sb->buffer = NULL;                                                            // clear pointer
+    sb->length = 0;                                                               // reset length
 }
 
 // skips whitespace in a json string
 static void skip_ws(const char** s) {
-    while (**s && isspace((unsigned char)**s)) (*s)++;
+    while (**s && isspace((unsigned char)**s)) (*s)++;                            // skip whitespace chars
 }
 
 // parses a json string with escape sequence handling
 static bool parse_string_raw(const char** s, char** out_str, int* out_len) {
-    if (**s != '"') return false;
-    (*s)++;
-    const char* start = *s;
-    int len = 0;
-    while (**s && **s != '"') {
-        if (**s == '\\') {
-            (*s)++;
-            if (!**s) return false;
+    if (**s != '"') return false;                                                 // must start with quote
+    (*s)++;                                                                       // skip opening quote
+    const char* start = *s;                                                       // start of string content
+    int len = 0;                                                                  // length counter
+    while (**s && **s != '"') {                                                   // find closing quote
+        if (**s == '\\') {                                                        // escape sequence
+            (*s)++;                                                               // skip backslash
+            if (!**s) return false;                                               // unexpected end
         }
-        (*s)++;
-        len++;
+        (*s)++;                                                                   // advance
+        len++;                                                                    // count character
     }
-    if (**s != '"') return false;
+    if (**s != '"') return false;                                                 // missing closing quote
     
-    char* buffer = (char*)malloc(len + 1);
-    if (!buffer) return false;
+    char* buffer = (char*)malloc(len + 1);                                        // allocate buffer
+    if (!buffer) return false;                                                    // allocation failed
     
-    const char* p = start;
-    int idx = 0;
-    while (p < *s) {
-        if (*p == '\\') {
-            p++;
-            switch (*p) {
-                case '"': buffer[idx++] = '"'; break;
-                case '\\': buffer[idx++] = '\\'; break;
-                case '/': buffer[idx++] = '/'; break;
-                case 'b': buffer[idx++] = '\b'; break;
-                case 'f': buffer[idx++] = '\f'; break;
-                case 'n': buffer[idx++] = '\n'; break;
-                case 'r': buffer[idx++] = '\r'; break;
-                case 't': buffer[idx++] = '\t'; break;
-                case 'u': buffer[idx++] = '?'; p += 4; break;
-                default: buffer[idx++] = *p; break;
+    const char* p = start;                                                        // parse pointer
+    int idx = 0;                                                                  // output index
+    while (p < *s) {                                                              // process escaped string
+        if (*p == '\\') {                                                         // escape sequence
+            p++;                                                                  // skip backslash
+            switch (*p) {                                                         // handle escape
+                case '"': buffer[idx++] = '"'; break;                             // quote
+                case '\\': buffer[idx++] = '\\'; break;                           // backslash
+                case '/': buffer[idx++] = '/'; break;                             // slash
+                case 'b': buffer[idx++] = '\b'; break;                            // backspace
+                case 'f': buffer[idx++] = '\f'; break;                            // form feed
+                case 'n': buffer[idx++] = '\n'; break;                            // newline
+                case 'r': buffer[idx++] = '\r'; break;                            // carriage return
+                case 't': buffer[idx++] = '\t'; break;                            // tab
+                case 'u': buffer[idx++] = '?'; p += 4; break;                     // unicode (simplified)
+                default: buffer[idx++] = *p; break;                               // unknown escape
             }
         } else {
-            buffer[idx++] = *p;
+            buffer[idx++] = *p;                                                   // copy char
         }
         p++;
     }
-    buffer[idx] = '\0';
-    *out_str = buffer;
-    *out_len = idx;
-    (*s)++;
-    return true;
+    buffer[idx] = '\0';                                                           // null terminate
+    *out_str = buffer;                                                            // return buffer
+    *out_len = idx;                                                               // return length
+    (*s)++;                                                                       // skip closing quote
+    return true;                                                                  // success
 }
 
 // parses a json number
 static bool parse_number(const char** s, Value* out_value) {
-    char* endptr;
-    double val = strtod(*s, &endptr);
-    if (endptr == *s) return false;
-    *out_value = MAKE_NUMBER(val);
-    *s = endptr;
-    return true;
+    char* endptr;                                                                 // end pointer for strtod
+    double val = strtod(*s, &endptr);                                             // parse double
+    if (endptr == *s) return false;                                               // no number parsed
+    *out_value = MAKE_NUMBER(val);                                                // store as number
+    *s = endptr;                                                                  // advance pointer
+    return true;                                                                  // success
 }
 
 // recursive json parser that builds vm values
 static bool json_parse_value(VM* vm, const char** json_str, Value* out_value) {
-    (void)vm;
-    skip_ws(json_str);
-    if (!**json_str) return false;
+    (void)vm;                                                                     // vm unused
+    skip_ws(json_str);                                                            // skip whitespace
+    if (!**json_str) return false;                                                // unexpected end
     
-    char c = **json_str;
+    char c = **json_str;                                                          // current char
     
-    if (strncmp(*json_str, "null", 4) == 0) {
-        *out_value = MAKE_BOOL(false);
-        *json_str += 4;
-        return true;
+    if (strncmp(*json_str, "null", 4) == 0) {                                     // null literal
+        *out_value = MAKE_BOOL(false);                                            // store as false (none)
+        *json_str += 4;                                                           // advance
+        return true;                                                              // success
     }
-    if (strncmp(*json_str, "true", 4) == 0) {
-        *out_value = MAKE_BOOL(true);
-        *json_str += 4;
-        return true;
+    if (strncmp(*json_str, "true", 4) == 0) {                                     // true literal
+        *out_value = MAKE_BOOL(true);                                             // store true
+        *json_str += 4;                                                           // advance
+        return true;                                                              // success
     }
-    if (strncmp(*json_str, "false", 5) == 0) {
-        *out_value = MAKE_BOOL(false);
-        *json_str += 5;
-        return true;
-    }
-    
-    if (c == '"') {
-        char* str_val = NULL;
-        int len = 0;
-        if (!parse_string_raw(json_str, &str_val, &len)) return false;
-        StringObject* interned = string_intern(&vm->intern_table, str_val, len);
-        *out_value = MAKE_STRING(interned);
-        free(str_val);
-        return true;
+    if (strncmp(*json_str, "false", 5) == 0) {                                    // false literal
+        *out_value = MAKE_BOOL(false);                                            // store false
+        *json_str += 5;                                                           // advance
+        return true;                                                              // success
     }
     
-    if (c == '-' || isdigit(c)) {
-        return parse_number(json_str, out_value);
+    if (c == '"') {                                                               // string value
+        char* str_val = NULL;                                                     // parsed string
+        int len = 0;                                                              // string length
+        if (!parse_string_raw(json_str, &str_val, &len)) return false;            // parse failed
+        StringObject* interned = string_intern(&vm->intern_table, str_val, len);  // intern string
+        *out_value = MAKE_STRING(interned);                                       // store string
+        free(str_val);                                                            // free temporary
+        return true;                                                              // success
     }
     
-    if (c == '[') {
-        (*json_str)++;
-        Table* table = table_create(8);
-        *out_value = MAKE_TABLE(table);
-        skip_ws(json_str);
-        int index = 1;
-        if (**json_str != ']') {
-            while (1) {
-                Value item;
-                if (!json_parse_value(vm, json_str, &item)) {
-                    value_decref(*out_value);
-                    return false;
+    if (c == '-' || isdigit(c)) {                                        // number value
+        return parse_number(json_str, out_value);                        // parse number
+    }
+    
+    if (c == '[') {                                                      // array value
+        (*json_str)++;                                                   // skip opening bracket
+        Table* table = table_create(8);                                  // create table
+        *out_value = MAKE_TABLE(table);                                  // store as table
+        skip_ws(json_str);                                               // skip whitespace
+        int index = 1;                                                   // 1-based index
+        if (**json_str != ']') {                                         // non-empty array
+            while (1) {                                                  // parse elements
+                Value item;                                              // element value
+                if (!json_parse_value(vm, json_str, &item)) {            // parse element
+                    value_decref(*out_value);                            // release table
+                    return false;                                        // parse failed
                 }
-                Value k = MAKE_NUMBER((double)index++);
-                table_set(table, k, item);
-                value_decref(item);
-                skip_ws(json_str);
-                if (**json_str == ',') {
-                    (*json_str)++;
+                Value k = MAKE_NUMBER((double)index++);                  // create index key
+                table_set(table, k, item);                               // store element
+                value_decref(item);                                      // release element
+                skip_ws(json_str);                                       // skip whitespace
+                if (**json_str == ',') {                                 // comma separator
+                    (*json_str)++;                                       // skip comma
                 } else {
-                    break;
+                    break;                                               // end of array
                 }
             }
         }
-        if (**json_str != ']') {
-            value_decref(*out_value);
-            return false;
+        if (**json_str != ']') {                                         // missing closing bracket
+            value_decref(*out_value);                                    // release table
+            return false;                                                // parse failed
         }
-        (*json_str)++;
-        return true;
+        (*json_str)++;                                                   // skip closing bracket
+        return true;                                                     // success
     }
     
-    if (c == '{') {
-        (*json_str)++;
-        Table* table = table_create(8);
-        *out_value = MAKE_TABLE(table);
-        skip_ws(json_str);
-        if (**json_str != '}') {
-            while (1) {
-                skip_ws(json_str);
-                if (**json_str != '"') {
-                    value_decref(*out_value);
-                    return false;
+    if (c == '{') {                                                      // object value
+        (*json_str)++;                                                   // skip opening brace
+        Table* table = table_create(8);                                  // create table
+        *out_value = MAKE_TABLE(table);                                  // store as table
+        skip_ws(json_str);                                               // skip whitespace
+        if (**json_str != '}') {                                         // non-empty object
+            while (1) {                                                  // parse key-value pairs
+                skip_ws(json_str);                                       // skip whitespace
+                if (**json_str != '"') {                                 // key must be string
+                    value_decref(*out_value);                            // release table
+                    return false;                                        // parse failed
                 }
-                char* key_str = NULL;
-                int key_len = 0;
-                if (!parse_string_raw(json_str, &key_str, &key_len)) {
-                    value_decref(*out_value);
-                    return false;
+                char* key_str = NULL;                                    // parsed key
+                int key_len = 0;                                         // key length
+                if (!parse_string_raw(json_str, &key_str, &key_len)) {   // parse key
+                    value_decref(*out_value);                            // release table
+                    return false;                                        // parse failed
                 }
-                skip_ws(json_str);
-                if (**json_str != ':') {
-                    free(key_str);
-                    value_decref(*out_value);
-                    return false;
+                skip_ws(json_str);                                       // skip whitespace
+                if (**json_str != ':') {                                 // missing colon
+                    free(key_str);                                       // free key
+                    value_decref(*out_value);                            // release table
+                    return false;                                        // parse failed
                 }
-                (*json_str)++;
-                Value val;
-                if (!json_parse_value(vm, json_str, &val)) {
-                    free(key_str);
-                    value_decref(*out_value);
-                    return false;
+                (*json_str)++;                                           // skip colon
+                Value val;                                               // value
+                if (!json_parse_value(vm, json_str, &val)) {             // parse value
+                    free(key_str);                                       // free key
+                    value_decref(*out_value);                            // release table
+                    return false;                                        // parse failed
                 }
-                Value k = MAKE_STRING(string_intern(&vm->intern_table, key_str, key_len));
-                table_set(table, k, val);
-                value_decref(k);
-                value_decref(val);
-                free(key_str);
-                skip_ws(json_str);
-                if (**json_str == ',') {
-                    (*json_str)++;
+                Value k = MAKE_STRING(string_intern(&vm->intern_table, key_str, key_len));  // intern key
+                table_set(table, k, val);                                // store key-value
+                value_decref(k);                                         // release key
+                value_decref(val);                                       // release value
+                free(key_str);                                           // free key buffer
+                skip_ws(json_str);                                       // skip whitespace
+                if (**json_str == ',') {                                 // comma separator
+                    (*json_str)++;                                       // skip comma
                 } else {
-                    break;
+                    break;                                               // end of object
                 }
             }
         }
-        if (**json_str != '}') {
-            value_decref(*out_value);
-            return false;
+        if (**json_str != '}') {                                         // missing closing brace
+            value_decref(*out_value);                                    // release table
+            return false;                                                // parse failed
         }
-        (*json_str)++;
-        return true;
+        (*json_str)++;                                                   // skip closing brace
+        return true;                                                     // success
     }
     
-    return false;
+    return false;                                                        // unknown token
 }
 
 // appends a json-escaped string to the builder
 static void append_escaped(StringBuilder* sb, const char* str) {
-    sb_append(sb, "\"", 1);
-    while (*str) {
-        unsigned char c = *str;
-        switch (c) {
-            case '"': sb_append(sb, "\\\"", 2); break;
-            case '\\': sb_append(sb, "\\\\", 2); break;
-            case '\b': sb_append(sb, "\\b", 2); break;
-            case '\f': sb_append(sb, "\\f", 2); break;
-            case '\n': sb_append(sb, "\\n", 2); break;
-            case '\r': sb_append(sb, "\\r", 2); break;
-            case '\t': sb_append(sb, "\\t", 2); break;
+    sb_append(sb, "\"", 1);                                              // opening quote
+    while (*str) {                                                       // iterate over string
+        unsigned char c = *str;                                          // current char
+        switch (c) {                                                     // handle escapes
+            case '"': sb_append(sb, "\\\"", 2); break;                   // quote
+            case '\\': sb_append(sb, "\\\\", 2); break;                  // backslash
+            case '\b': sb_append(sb, "\\b", 2); break;                   // backspace
+            case '\f': sb_append(sb, "\\f", 2); break;                   // form feed
+            case '\n': sb_append(sb, "\\n", 2); break;                   // newline
+            case '\r': sb_append(sb, "\\r", 2); break;                   // carriage return
+            case '\t': sb_append(sb, "\\t", 2); break;                   // tab
             default:
-                if (c < 0x20) {
-                    char buf[8];
-                    snprintf(buf, sizeof(buf), "\\u%04x", c);
-                    sb_append(sb, buf, 6);
+                if (c < 0x20) {                                          // control char
+                    char buf[8];                                         // unicode escape buffer
+                    snprintf(buf, sizeof(buf), "\\u%04x", c);            // format as unicode
+                    sb_append(sb, buf, 6);                               // append escape
                 } else {
-                    char buf[2] = { (char)c, 0 };
-                    sb_append(sb, buf, 1);
+                    char buf[2] = { (char)c, 0 };                        // single char
+                    sb_append(sb, buf, 1);                               // append char
                 }
                 break;
         }
-        str++;
+        str++;                                                           // advance
     }
-    sb_append(sb, "\"", 1);
+    sb_append(sb, "\"", 1);                                              // closing quote
 }
 
 // recursively encodes a vm value to json
 static void json_encode_value(VM* vm, Value value, StringBuilder* sb) {
-    (void)vm;
+    (void)vm;                                                            // vm unused
     
-    if (IS_NUMBER(value)) {
-        char buf[64];
-        double num = AS_NUMBER(value);
-        if (fabs(num - (long long)num) < 1e-9 && fabs(num) < 1e15) {
-            snprintf(buf, sizeof(buf), "%lld", (long long)num);
+    if (IS_NUMBER(value)) {                                              // number value
+        char buf[64];                                                    // buffer for number
+        double num = AS_NUMBER(value);                                   // extract number
+        if (fabs(num - (long long)num) < 1e-9 && fabs(num) < 1e15) {     // integer
+            snprintf(buf, sizeof(buf), "%lld", (long long)num);          // format as integer
         } else {
-            snprintf(buf, sizeof(buf), "%.15g", num);
+            snprintf(buf, sizeof(buf), "%.15g", num);                    // format as float
         }
-        sb_append(sb, buf, (int)strlen(buf));
-    } else if (IS_BOOL(value)) {
-        sb_append(sb, AS_BOOL(value) ? "true" : "false", AS_BOOL(value) ? 4 : 5);
-    } else if (IS_STRING(value)) {
-        append_escaped(sb, AS_STRING(value)->chars);
-    } else if (IS_TABLE(value)) {
-        Table* t = AS_TABLE(value);
-        if (TABLE_TOTAL_COUNT(t) == 0) {
-            sb_append(sb, "{}", 2);
+        sb_append(sb, buf, (int)strlen(buf));                                      // append number
+    } else if (IS_BOOL(value)) {                                                   // boolean value
+        sb_append(sb, AS_BOOL(value) ? "true" : "false", AS_BOOL(value) ? 4 : 5);  // append bool
+    } else if (IS_STRING(value)) {                                                 // string value
+        append_escaped(sb, AS_STRING(value)->chars);                               // append escaped string
+    } else if (IS_TABLE(value)) {                                                  // table value
+        Table* t = AS_TABLE(value);                                                // unwrap table
+        if (TABLE_TOTAL_COUNT(t) == 0) {                                           // empty table
+            sb_append(sb, "{}", 2);                                                // empty object
             return;
         }
         
-        bool is_array = (t->array_count > 0 && t->hash_count == 0);
+        bool is_array = (t->array_count > 0 && t->hash_count == 0);              // check if array
         
-        if (is_array) {
-            sb_append(sb, "[", 1);
-            for (int i = 0; i < t->array_count; i++) {
-                if (i > 0) sb_append(sb, ", ", 2);
-                json_encode_value(vm, t->array_part[i], sb);
+        if (is_array) {                                                          // array
+            sb_append(sb, "[", 1);                                               // opening bracket
+            for (int i = 0; i < t->array_count; i++) {                           // iterate elements
+                if (i > 0) sb_append(sb, ", ", 2);                               // comma separator
+                json_encode_value(vm, t->array_part[i], sb);                     // encode element
             }
-            sb_append(sb, "]", 1);
-        } else {
-            sb_append(sb, "{", 1);
-            bool first = true;
+            sb_append(sb, "]", 1);                                               // closing bracket
+        } else {                                                                 // object
+            sb_append(sb, "{", 1);                                               // opening brace
+            bool first = true;                                                   // first item flag
             
-            for (int i = 0; i < t->array_count; i++) {
-                if (!IS_BOOL(t->array_part[i]) || AS_BOOL(t->array_part[i])) {
-                    if (!first) sb_append(sb, ", ", 2);
-                    first = false;
-                    char key[32];
-                    snprintf(key, sizeof(key), "%d", i + 1);
-                    append_escaped(sb, key);
-                    sb_append(sb, ": ", 2);
-                    json_encode_value(vm, t->array_part[i], sb);
+            for (int i = 0; i < t->array_count; i++) {                           // array part as key-value
+                if (!IS_BOOL(t->array_part[i]) || AS_BOOL(t->array_part[i])) {   // skip false values
+                    if (!first) sb_append(sb, ", ", 2);                          // comma separator
+                    first = false;                                               // not first anymore
+                    char key[32];                                                // numeric key buffer
+                    snprintf(key, sizeof(key), "%d", i + 1);                     // 1-based index
+                    append_escaped(sb, key);                                     // append key
+                    sb_append(sb, ": ", 2);                                      // colon separator
+                    json_encode_value(vm, t->array_part[i], sb);                 // encode value
                 }
             }
             
-            for (int i = 0; i < t->capacity; i++) {
-                TableEntry* entry = t->entries[i];
-                while (entry) {
-                    if (!first) sb_append(sb, ", ", 2);
-                    first = false;
-                    if (IS_STRING(entry->key)) {
-                        append_escaped(sb, AS_STRING(entry->key)->chars);
-                    } else if (IS_NUMBER(entry->key)) {
-                        char num_buf[64];
-                        snprintf(num_buf, sizeof(num_buf), "%g", AS_NUMBER(entry->key));
-                        append_escaped(sb, num_buf);
+            for (int i = 0; i < t->capacity; i++) {                              // hash part
+                TableEntry* entry = t->entries[i];                               // bucket head
+                while (entry) {                                                  // traverse chain
+                    if (!first) sb_append(sb, ", ", 2);                          // comma separator
+                    first = false;                                               // not first anymore
+                    if (IS_STRING(entry->key)) {                                 // string key
+                        append_escaped(sb, AS_STRING(entry->key)->chars);        // append key
+                    } else if (IS_NUMBER(entry->key)) {                          // number key
+                        char num_buf[64];                                        // number buffer
+                        snprintf(num_buf, sizeof(num_buf), "%g", AS_NUMBER(entry->key));  // format
+                        append_escaped(sb, num_buf);                             // append key
                     }
-                    sb_append(sb, ": ", 2);
-                    json_encode_value(vm, entry->value, sb);
-                    entry = entry->next;
+                    sb_append(sb, ": ", 2);                                      // colon separator
+                    json_encode_value(vm, entry->value, sb);                     // encode value
+                    entry = entry->next;                                         // advance
                 }
             }
-            sb_append(sb, "}", 1);
+            sb_append(sb, "}", 1);                                               // closing brace
         }
     } else {
-        sb_append(sb, "null", 4);
+        sb_append(sb, "null", 4);                                                // null
     }
 }
 
 // csv parser state with position and delimiter
 typedef struct {
-    const char* data;
-    int pos;
-    int len;
-    char delimiter;
+    const char* data;                                                            // input data
+    int pos;                                                                     // current position
+    int len;                                                                     // total length
+    char delimiter;                                                              // field delimiter
 } CsvParser;
 
 static char csv_peek(CsvParser* p) {
-    if (!p->data || p->pos >= p->len) return '\0';
-    return p->data[p->pos];
+    if (!p->data || p->pos >= p->len) return '\0';                               // end of input
+    return p->data[p->pos];                                                      // peek char
 }
 
 static char csv_advance(CsvParser* p) {
-    if (!p->data || p->pos >= p->len) return '\0';
-    return p->data[p->pos++];
+    if (!p->data || p->pos >= p->len) return '\0';                              // end of input
+    return p->data[p->pos++];                                                   // return and advance
 }
 
 static bool csv_has_next(CsvParser* p) {
-    return p->data && p->pos < p->len;
+    return p->data && p->pos < p->len;                                          // check if more input
 }
 
 // checks if a string looks like a number
 static bool is_numeric(const char* str) {
-    if (!str || *str == '\0') return false;
-    char* endptr;
-    strtod(str, &endptr);
-    return *endptr == '\0';
+    if (!str || *str == '\0') return false;                                     // empty string
+    char* endptr;                                                               // end pointer for strtod
+    strtod(str, &endptr);                                                       // parse double
+    return *endptr == '\0';                                                     // entire string consumed
 }
 
 // checks if a string is a boolean literal
 static bool is_bool(const char* str) {
-    return (strcmp(str, "true") == 0 || strcmp(str, "false") == 0);
+    return (strcmp(str, "true") == 0 || strcmp(str, "false") == 0);             // check true/false
 }
 
 // parses a csv field into a typed vm value
 static Value csv_parse_value(VM* vm, const char* str) {
-    if (!str) return MAKE_NONE();
-    if (is_numeric(str)) {
-        return MAKE_NUMBER(atof(str));
+    if (!str) return MAKE_NONE();                                               // null string
+    if (is_numeric(str)) {                                                      // numeric
+        return MAKE_NUMBER(atof(str));                                          // parse as number
     }
-    if (is_bool(str)) {
-        return MAKE_BOOL(strcmp(str, "true") == 0);
+    if (is_bool(str)) {                                                         // boolean
+        return MAKE_BOOL(strcmp(str, "true") == 0);                             // parse as bool
     }
-    return MAKE_STRING(string_intern(&vm->intern_table, str, strlen(str)));
+    return MAKE_STRING(string_intern(&vm->intern_table, str, strlen(str)));     // intern string
 }
 
 // extracts a single csv field with quoted field support
 static char* csv_parse_field(CsvParser* p) {
-    StringBuilder sb;
-    sb_init(&sb, 64);
+    StringBuilder sb;                                                           // string builder
+    sb_init(&sb, 64);                                                           // init builder
     
-    if (!p->data) {
-        sb_free(&sb);
-        return strdup("");
+    if (!p->data) {                                                             // no data
+        sb_free(&sb);                                                           // free builder
+        return strdup("");                                                      // return empty string
     }
     
-    char c = csv_peek(p);
-    if (c == '"') {
-        csv_advance(p);
-        while (csv_has_next(p)) {
-            c = csv_advance(p);
-            if (c == '"') {
-                if (csv_peek(p) == '"') {
-                    sb_append_char(&sb, '"');
-                    csv_advance(p);
+    char c = csv_peek(p);                                                       // peek char
+    if (c == '"') {                                                             // quoted field
+        csv_advance(p);                                                         // skip opening quote
+        while (csv_has_next(p)) {                                               // parse quoted content
+            c = csv_advance(p);                                                 // read char
+            if (c == '"') {                                                     // possible end of quote
+                if (csv_peek(p) == '"') {                                       // escaped quote
+                    sb_append_char(&sb, '"');                                   // append quote
+                    csv_advance(p);                                             // skip second quote
                 } else {
-                    break;
+                    break;                                                      // end of quoted field
                 }
             } else {
-                sb_append_char(&sb, c);
+                sb_append_char(&sb, c);                                         // append char
             }
         }
-        if (csv_peek(p) == p->delimiter) csv_advance(p);
-        else if (csv_peek(p) == '\r') {
-            csv_advance(p);
-            if (csv_peek(p) == '\n') csv_advance(p);
-        } else if (csv_peek(p) == '\n') {
-            csv_advance(p);
+        if (csv_peek(p) == p->delimiter) csv_advance(p);                        // skip delimiter
+        else if (csv_peek(p) == '\r') {                                         // carriage return
+            csv_advance(p);                                                     // skip \r
+            if (csv_peek(p) == '\n') csv_advance(p);                            // skip \n
+        } else if (csv_peek(p) == '\n') {                                       // newline
+            csv_advance(p);                                                     // skip \n
         }
-    } else {
-        while (csv_has_next(p)) {
-            c = csv_peek(p);
-            if (c == p->delimiter || c == '\n' || c == '\r') {
-                break;
+    } else {                                                                    // unquoted field
+        while (csv_has_next(p)) {                                               // parse field
+            c = csv_peek(p);                                                    // peek char
+            if (c == p->delimiter || c == '\n' || c == '\r') {                  // delimiter or newline
+                break;                                                          // end of field
             }
-            sb_append_char(&sb, csv_advance(p));
+            sb_append_char(&sb, csv_advance(p));                                // append char
         }
-        if (csv_peek(p) == p->delimiter) csv_advance(p);
-        else if (csv_peek(p) == '\r') {
-            csv_advance(p);
-            if (csv_peek(p) == '\n') csv_advance(p);
-        } else if (csv_peek(p) == '\n') {
-            csv_advance(p);
+        if (csv_peek(p) == p->delimiter) csv_advance(p);                        // skip delimiter
+        else if (csv_peek(p) == '\r') {                                         // carriage return
+            csv_advance(p);                                                     // skip \r
+            if (csv_peek(p) == '\n') csv_advance(p);                            // skip \n
+        } else if (csv_peek(p) == '\n') {                                       // newline
+            csv_advance(p);                                                     // skip \n
         }
     }
     
-    char* result = sb.buffer ? strdup(sb.buffer) : strdup("");
-    sb_free(&sb);
-    return result;
+    char* result = sb.buffer ? strdup(sb.buffer) : strdup("");                  // copy result
+    sb_free(&sb);                                                               // free builder
+    return result;                                                              // return field
 }
 
 // xml parser state
 typedef struct {
-    const char* p;
+    const char* p;                                                              // current parse position
 } XmlParser;
 
 // skips whitespace in xml
 static void xml_skip_ws(XmlParser* xp) {
-    while (*xp->p && isspace((unsigned char)*xp->p)) xp->p++;
+    while (*xp->p && isspace((unsigned char)*xp->p)) xp->p++;                   // skip whitespace
 }
 
 // parses xml attributes into a table with @ prefix
 static void xml_parse_attrs(VM* vm, XmlParser* xp, Table* t) {
-    xml_skip_ws(xp);
-    while (*xp->p && *xp->p != '>' && *xp->p != '/') {
-        char key[128] = {0};
-        int ki = 0;
+    xml_skip_ws(xp);                                                            // skip whitespace
+    while (*xp->p && *xp->p != '>' && *xp->p != '/') {                          // parse attributes
+        char key[128] = {0};                                                    // attribute key buffer
+        int ki = 0;                                                             // key index
         while (*xp->p && (isalnum((unsigned char)*xp->p) || *xp->p == '_' || *xp->p == '-') && ki < 127) {
-            key[ki++] = *xp->p++;
+            key[ki++] = *xp->p++;                                               // copy key char
         }
-        key[ki] = '\0';
-        if (!*key) break;
+        key[ki] = '\0';                                                         // null terminate
+        if (!*key) break;                                                       // empty key
         
-        xml_skip_ws(xp);
-        if (*xp->p != '=') break;
-        xp->p++;
-        xml_skip_ws(xp);
-        if (*xp->p != '"') break;
-        xp->p++;
+        xml_skip_ws(xp);                                                        // skip whitespace
+        if (*xp->p != '=') break;                                               // missing equals
+        xp->p++;                                                                // skip equals
+        xml_skip_ws(xp);                                                        // skip whitespace
+        if (*xp->p != '"') break;                                               // missing quote
+        xp->p++;                                                                // skip opening quote
         
-        StringBuilder val_sb;
-        sb_init(&val_sb, 64);
-        while (*xp->p && *xp->p != '"') {
-            sb_append_char(&val_sb, *xp->p);
-            xp->p++;
+        StringBuilder val_sb;                                                   // value builder
+        sb_init(&val_sb, 64);                                                   // init builder
+        while (*xp->p && *xp->p != '"') {                                       // parse value
+            sb_append_char(&val_sb, *xp->p);                                    // append char
+            xp->p++;                                                            // advance
         }
-        if (*xp->p == '"') xp->p++;
+        if (*xp->p == '"') xp->p++;                                             // skip closing quote
         
-        char attr_key_buf[150];
-        snprintf(attr_key_buf, sizeof(attr_key_buf), "@%s", key);
-        Value k = MAKE_STRING(string_intern(&vm->intern_table, attr_key_buf, strlen(attr_key_buf)));
-        Value v = MAKE_STRING(string_intern(&vm->intern_table, val_sb.buffer, val_sb.length));
-        table_set(t, k, v);
-        value_decref(k);
-        value_decref(v);
-        sb_free(&val_sb);
+        char attr_key_buf[150];                                                 // attribute key buffer
+        snprintf(attr_key_buf, sizeof(attr_key_buf), "@%s", key);               // prefix with @
+        Value k = MAKE_STRING(string_intern(&vm->intern_table, attr_key_buf, strlen(attr_key_buf)));  // intern key
+        Value v = MAKE_STRING(string_intern(&vm->intern_table, val_sb.buffer, val_sb.length));        // intern value
+        table_set(t, k, v);                                                     // store attribute
+        value_decref(k);                                                        // release key
+        value_decref(v);                                                        // release value
+        sb_free(&val_sb);                                                       // free builder
         
-        xml_skip_ws(xp);
+        xml_skip_ws(xp);                                                        // skip whitespace
     }
 }
 
 // parses a single xml element recursively
 static Value xml_parse_element(VM* vm, XmlParser* xp) {
-    xml_skip_ws(xp);
-    if (*xp->p != '<') return MAKE_NONE();
-    xp->p++;
+    xml_skip_ws(xp);                                                            // skip whitespace
+    if (*xp->p != '<') return MAKE_NONE();                                      // not an element
+    xp->p++;                                                                    // skip opening '<'
     
-    char tag[128] = {0};
-    int ti = 0;
+    char tag[128] = {0};                                                        // tag name buffer
+    int ti = 0;                                                                 // tag index
     while (*xp->p && (isalnum((unsigned char)*xp->p) || *xp->p == '_' || *xp->p == '-') && ti < 127) {
-        tag[ti++] = *xp->p++;
+        tag[ti++] = *xp->p++;                                                   // copy tag char
     }
-    tag[ti] = '\0';
-    if (!*tag) return MAKE_NONE();
+    tag[ti] = '\0';                                                             // null terminate
+    if (!*tag) return MAKE_NONE();                                              // empty tag
     
-    Table* elem_table = table_create(8);
-    Value elem = MAKE_TABLE(elem_table);
+    Table* elem_table = table_create(8);                                        // create element table
+    Value elem = MAKE_TABLE(elem_table);                                        // box as value
     
-    Value k_tag = MAKE_STRING(string_intern(&vm->intern_table, "__tag", 5));
-    Value v_tag = MAKE_STRING(string_intern(&vm->intern_table, tag, strlen(tag)));
-    table_set(elem_table, k_tag, v_tag);
-    value_decref(k_tag);
-    value_decref(v_tag);
+    Value k_tag = MAKE_STRING(string_intern(&vm->intern_table, "__tag", 5));        // tag key
+    Value v_tag = MAKE_STRING(string_intern(&vm->intern_table, tag, strlen(tag)));  // tag value
+    table_set(elem_table, k_tag, v_tag);                                            // store tag
+    value_decref(k_tag);                                                            // release key
+    value_decref(v_tag);                                                            // release value
     
-    xml_parse_attrs(vm, xp, elem_table);
+    xml_parse_attrs(vm, xp, elem_table);                                        // parse attributes
     
-    xml_skip_ws(xp);
-    bool self_closing = false;
-    if (*xp->p == '/') {
-        self_closing = true;
-        xp->p++;
+    xml_skip_ws(xp);                                                            // skip whitespace
+    bool self_closing = false;                                                  // self-closing flag
+    if (*xp->p == '/') {                                                        // self-closing
+        self_closing = true;                                                    // set flag
+        xp->p++;                                                                // skip '/'
     }
-    if (*xp->p == '>') {
-        xp->p++;
-        if (self_closing) return elem;
+    if (*xp->p == '>') {                                                        // opening tag end
+        xp->p++;                                                                // skip '>'
+        if (self_closing) return elem;                                          // self-closing element
         
-        int index = 1;
+        int index = 1;                                                          // child index
         
-        while (*xp->p) {
-            if (*xp->p == '<') {
-                if (*(xp->p + 1) == '/') {
-                    xp->p += 2;
-                    char close_tag[128] = {0};
-                    int ci = 0;
-                    while (*xp->p && *xp->p != '>' && ci < 127) {
-                        close_tag[ci++] = *xp->p++;
+        while (*xp->p) {                                                        // parse content
+            if (*xp->p == '<') {                                                // start of child or closing
+                if (*(xp->p + 1) == '/') {                                      // closing tag
+                    xp->p += 2;                                                 // skip '</'
+                    char close_tag[128] = {0};                                  // closing tag buffer
+                    int ci = 0;                                                 // index
+                    while (*xp->p && *xp->p != '>' && ci < 127) {               // parse closing tag
+                        close_tag[ci++] = *xp->p++;                             // copy char
                     }
-                    close_tag[ci] = '\0';
-                    if (strcmp(tag, close_tag) != 0) {
-                        value_decref(elem);
-                        return MAKE_NONE();
+                    close_tag[ci] = '\0';                                       // null terminate
+                    if (strcmp(tag, close_tag) != 0) {                          // tag mismatch
+                        value_decref(elem);                                     // release element
+                        return MAKE_NONE();                                     // error
                     }
-                    if (*xp->p == '>') xp->p++;
-                    return elem;
-                } else {
-                    Value child = xml_parse_element(vm, xp);
-                    if (IS_NONE(child)) {
-                        value_decref(elem);
-                        return MAKE_NONE();
+                    if (*xp->p == '>') xp->p++;                                 // skip '>'
+                    return elem;                                                // done
+                } else {                                                        // child element
+                    Value child = xml_parse_element(vm, xp);                    // parse child
+                    if (IS_NONE(child)) {                                       // parse failed
+                        value_decref(elem);                                     // release element
+                        return MAKE_NONE();                                     // error
                     }
-                    if (IS_TABLE(child)) {
-                        Value k = MAKE_NUMBER((double)index++);
-                        table_set(elem_table, k, child);
-                        value_decref(k);
+                    if (IS_TABLE(child)) {                                      // valid child
+                        Value k = MAKE_NUMBER((double)index++);                 // create index key
+                        table_set(elem_table, k, child);                        // store child
+                        value_decref(k);                                        // release key
                     }
-                    value_decref(child);
+                    value_decref(child);                                        // release child
                 }
-            } else {
-                StringBuilder text_sb;
-                sb_init(&text_sb, 64);
-                while (*xp->p && *xp->p != '<') {
-                    sb_append_char(&text_sb, *xp->p);
-                    xp->p++;
+            } else {                                                            // text content
+                StringBuilder text_sb;                                          // text builder
+                sb_init(&text_sb, 64);                                          // init builder
+                while (*xp->p && *xp->p != '<') {                               // collect text
+                    sb_append_char(&text_sb, *xp->p);                           // append char
+                    xp->p++;                                                    // advance
                 }
-                if (text_sb.length > 0) {
-                    Value k_text = MAKE_STRING(string_intern(&vm->intern_table, "#text", 5));
-                    Value v_text = MAKE_STRING(string_intern(&vm->intern_table, text_sb.buffer, text_sb.length));
-                    table_set(elem_table, k_text, v_text);
-                    value_decref(k_text);
-                    value_decref(v_text);
+                if (text_sb.length > 0) {                                       // non-empty text
+                    Value k_text = MAKE_STRING(string_intern(&vm->intern_table, "#text", 5));                      // text key
+                    Value v_text = MAKE_STRING(string_intern(&vm->intern_table, text_sb.buffer, text_sb.length));  // text value
+                    table_set(elem_table, k_text, v_text);                      // store text
+                    value_decref(k_text);                                       // release key
+                    value_decref(v_text);                                       // release value
                 }
-                sb_free(&text_sb);
+                sb_free(&text_sb);                                              // free builder
             }
-            xml_skip_ws(xp);
+            xml_skip_ws(xp);                                                    // skip whitespace
         }
         
-        value_decref(elem);
-        return MAKE_NONE();
+        value_decref(elem);                                                     // release element
+        return MAKE_NONE();                                                     // error
     }
-    value_decref(elem);
-    return MAKE_NONE();
+    value_decref(elem);                                                         // release element
+    return MAKE_NONE();                                                         // error
 }
 
 // recursively writes an xml node from a vm table
 static void xml_write_node(VM* vm, Value v, int depth, StringBuilder* sb) {
-    if (!IS_TABLE(v)) return;
+    if (!IS_TABLE(v)) return;                                                  // not a table
     
-    Table* table = AS_TABLE(v);
+    Table* table = AS_TABLE(v);                                                // unwrap table
     
-    Value k_tag = MAKE_STRING(string_intern(&vm->intern_table, "__tag", 5));
-    Value tag_val;
-    if (!table_get(table, k_tag, &tag_val) || !IS_STRING(tag_val)) {
-        value_decref(k_tag);
+    Value k_tag = MAKE_STRING(string_intern(&vm->intern_table, "__tag", 5));   // tag key
+    Value tag_val;                                                             // tag value
+    if (!table_get(table, k_tag, &tag_val) || !IS_STRING(tag_val)) {           // missing tag
+        value_decref(k_tag);                                                   // release key
         return;
     }
-    value_decref(k_tag);
+    value_decref(k_tag);                                                       // release key
     
-    for (int i = 0; i < depth; i++) sb_append(sb, "  ", 2);
-    sb_append(sb, "<", 1);
-    StringObject* tag_str = AS_STRING(tag_val);
-    sb_append(sb, tag_str->chars, tag_str->length);
-    value_decref(tag_val);
+    for (int i = 0; i < depth; i++) sb_append(sb, "  ", 2);                    // indent
+    sb_append(sb, "<", 1);                                                     // opening tag
+    StringObject* tag_str = AS_STRING(tag_val);                                // get tag string
+    sb_append(sb, tag_str->chars, tag_str->length);                            // append tag name
+    value_decref(tag_val);                                                     // release tag value
     
-    for (int i = 0; i < table->capacity; i++) {
-        TableEntry* e = table->entries[i];
-        while (e) {
-            if (IS_STRING(e->key)) {
-                StringObject* key_str = AS_STRING(e->key);
-                if (key_str->chars[0] == '@' && IS_STRING(e->value)) {
-                    sb_append(sb, " ", 1);
-                    sb_append(sb, key_str->chars + 1, key_str->length - 1);
-                    sb_append(sb, "=\"", 2);
-                    StringObject* val_str = AS_STRING(e->value);
-                    sb_append(sb, val_str->chars, val_str->length);
-                    sb_append(sb, "\"", 1);
+    for (int i = 0; i < table->capacity; i++) {                                // iterate hash part
+        TableEntry* e = table->entries[i];                                     // bucket head
+        while (e) {                                                            // traverse chain
+            if (IS_STRING(e->key)) {                                           // string key
+                StringObject* key_str = AS_STRING(e->key);                     // key string
+                if (key_str->chars[0] == '@' && IS_STRING(e->value)) {         // attribute
+                    sb_append(sb, " ", 1);                                     // space
+                    sb_append(sb, key_str->chars + 1, key_str->length - 1);    // attr name
+                    sb_append(sb, "=\"", 2);                                   // equals and quote
+                    StringObject* val_str = AS_STRING(e->value);               // value string
+                    sb_append(sb, val_str->chars, val_str->length);            // append value
+                    sb_append(sb, "\"", 1);                                    // closing quote
                 }
             }
-            e = e->next;
+            e = e->next;                                                       // advance
         }
     }
     
-    bool has_children = false;
-    Value k_text = MAKE_STRING(string_intern(&vm->intern_table, "#text", 5));
-    Value text_val;
-    bool has_text = table_get(table, k_text, &text_val);
-    value_decref(k_text);
+    bool has_children = false;                                                 // child flag
+    Value k_text = MAKE_STRING(string_intern(&vm->intern_table, "#text", 5));  // text key
+    Value text_val;                                                            // text value
+    bool has_text = table_get(table, k_text, &text_val);                       // check text
+    value_decref(k_text);                                                      // release key
     
-    for (int i = 1; ; i++) {
-        Value k = MAKE_NUMBER((double)i);
-        Value child;
-        if (table_get(table, k, &child)) {
-            has_children = true;
-            value_decref(child);
-            value_decref(k);
+    for (int i = 1; ; i++) {                                                   // check for children
+        Value k = MAKE_NUMBER((double)i);                                      // child key
+        Value child;                                                           // child value
+        if (table_get(table, k, &child)) {                                     // has child
+            has_children = true;                                               // set flag
+            value_decref(child);                                               // release child
+            value_decref(k);                                                   // release key
         } else {
-            value_decref(k);
-            break;
+            value_decref(k);                                                   // release key
+            break;                                                             // no more children
         }
     }
     
-    if (has_children || has_text) {
-        sb_append(sb, ">", 1);
-        if (has_text) {
-            if (IS_STRING(text_val)) {
-                StringObject* text_str = AS_STRING(text_val);
-                sb_append(sb, text_str->chars, text_str->length);
+    if (has_children || has_text) {                                            // has content
+        sb_append(sb, ">", 1);                                                 // close opening tag
+        if (has_text) {                                                        // has text
+            if (IS_STRING(text_val)) {                                         // valid text
+                StringObject* text_str = AS_STRING(text_val);                  // text string
+                sb_append(sb, text_str->chars, text_str->length);              // append text
             }
-            value_decref(text_val);
+            value_decref(text_val);                                            // release text
         }
-        if (has_children) sb_append(sb, "\n", 1);
+        if (has_children) sb_append(sb, "\n", 1);                              // newline after children
         
-        for (int i = 1; ; i++) {
-            Value k = MAKE_NUMBER((double)i);
-            Value child;
-            if (table_get(table, k, &child)) {
-                value_decref(k);
-                xml_write_node(vm, child, depth + 1, sb);
-                value_decref(child);
+        for (int i = 1; ; i++) {                                               // write children
+            Value k = MAKE_NUMBER((double)i);                                  // child key
+            Value child;                                                       // child value
+            if (table_get(table, k, &child)) {                                 // has child
+                value_decref(k);                                               // release key
+                xml_write_node(vm, child, depth + 1, sb);                      // write child
+                value_decref(child);                                           // release child
             } else {
-                value_decref(k);
-                break;
+                value_decref(k);                                               // release key
+                break;                                                         // no more children
             }
         }
         
-        for (int i = 0; i < depth; i++) sb_append(sb, "  ", 2);
-        sb_append(sb, "</", 2);
-        Value k_close = MAKE_STRING(string_intern(&vm->intern_table, "__tag", 5));
-        if (table_get(table, k_close, &tag_val)) {
-            value_decref(k_close);
-            if (IS_STRING(tag_val)) {
-                StringObject* close_str = AS_STRING(tag_val);
-                sb_append(sb, close_str->chars, close_str->length);
+        for (int i = 0; i < depth; i++) sb_append(sb, "  ", 2);                     // indent
+        sb_append(sb, "</", 2);                                                     // closing tag start
+        Value k_close = MAKE_STRING(string_intern(&vm->intern_table, "__tag", 5));  // tag key
+        if (table_get(table, k_close, &tag_val)) {                                  // get tag
+            value_decref(k_close);                                                  // release key
+            if (IS_STRING(tag_val)) {                                               // valid tag
+                StringObject* close_str = AS_STRING(tag_val);                       // tag string
+                sb_append(sb, close_str->chars, close_str->length);                 // append tag
             }
-            value_decref(tag_val);
+            value_decref(tag_val);                                                  // release tag
         } else {
-            value_decref(k_close);
+            value_decref(k_close);                                                  // release key
         }
-        sb_append(sb, ">\n", 2);
+        sb_append(sb, ">\n", 2);                                                    // closing tag end
     } else {
-        sb_append(sb, "/>\n", 3);
+        sb_append(sb, "/>\n", 3);                                                   // self-closing tag
     }
 }
 
 // main dispatcher for all codecs module built-in functions
 bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
-    if (strcmp(name, "codecs.base_write") == 0) {
-        if (arg_count < 1 || !IS_STRING(args[0])) {
-            *result = MAKE_NONE();
-            return true;
+    if (strcmp(name, "codecs.base_write") == 0) {                                   // base64 encode
+        if (arg_count < 1 || !IS_STRING(args[0])) {                                 // validate string
+            *result = MAKE_NONE();                                                  // invalid
+            return true;                                                            // builtin handled
         }
-        StringObject* input_str = AS_STRING(args[0]);
-        int input_len = input_str->length;
-        int out_size = ((input_len + 2) / 3) * 4 + 1;
-        char* out = (char*)malloc(out_size);
-        if (!out) { *result = MAKE_NONE(); return true; }
-        base64_encode((const unsigned char*)input_str->chars, input_len, out);
-        *result = MAKE_STRING(string_intern(&vm->intern_table, out, strlen(out)));
-        free(out);
-        return true;
+        StringObject* input_str = AS_STRING(args[0]);                               // input string
+        int input_len = input_str->length;                                          // input length
+        int out_size = ((input_len + 2) / 3) * 4 + 1;                               // output size
+        char* out = (char*)malloc(out_size);                                        // allocate output
+        if (!out) { *result = MAKE_NONE(); return true; }                           // allocation failed
+        base64_encode((const unsigned char*)input_str->chars, input_len, out);      // encode
+        *result = MAKE_STRING(string_intern(&vm->intern_table, out, strlen(out)));  // intern result
+        free(out);                                                                  // free output
+        return true;                                                                // builtin handled
     }
     
-    if (strcmp(name, "codecs.base_read") == 0) {
-        if (arg_count < 1 || !IS_STRING(args[0])) {
-            *result = MAKE_NONE();
-            return true;
+    if (strcmp(name, "codecs.base_read") == 0) {                                    // base64 decode
+        if (arg_count < 1 || !IS_STRING(args[0])) {                                 // validate string
+            *result = MAKE_NONE();                                                  // invalid
+            return true;                                                            // builtin handled
         }
-        StringObject* input_str = AS_STRING(args[0]);
-        int input_len = input_str->length;
-        unsigned char* out = (unsigned char*)malloc(input_len + 1);
-        if (!out) { *result = MAKE_NONE(); return true; }
-        int out_len = 0;
-        if (base64_decode(input_str->chars, out, &out_len)) {
-            out[out_len] = '\0';
-            *result = MAKE_STRING(string_intern(&vm->intern_table, (char*)out, out_len));
+        StringObject* input_str = AS_STRING(args[0]);                               // input string
+        int input_len = input_str->length;                                          // input length
+        unsigned char* out = (unsigned char*)malloc(input_len + 1);                 // allocate output
+        if (!out) { *result = MAKE_NONE(); return true; }                           // allocation failed
+        int out_len = 0;                                                            // output length
+        if (base64_decode(input_str->chars, out, &out_len)) {                       // decode
+            out[out_len] = '\0';                                                    // null terminate
+            *result = MAKE_STRING(string_intern(&vm->intern_table, (char*)out, out_len)); // intern result
         } else {
-            *result = MAKE_NONE();
+            *result = MAKE_NONE();                                                  // decode failed
         }
-        free(out);
-        return true;
+        free(out);                                                                  // free output
+        return true;                                                                // builtin handled
     }
 
-    if (strcmp(name, "codecs.baseurl_write") == 0) {
-        if (arg_count < 1 || !IS_STRING(args[0])) {
-            *result = MAKE_NONE();
-            return true;
+    if (strcmp(name, "codecs.baseurl_write") == 0) {                                // base64url encode
+        if (arg_count < 1 || !IS_STRING(args[0])) {                                 // validate string
+            *result = MAKE_NONE();                                                  // invalid
+            return true;                                                            // builtin handled
         }
-        StringObject* input_str = AS_STRING(args[0]);
-        int input_len = input_str->length;
-        int out_size = ((input_len + 2) / 3) * 4 + 1;
-        char* out = (char*)malloc(out_size);
-        if (!out) { *result = MAKE_NONE(); return true; }
-        base64url_encode((const unsigned char*)input_str->chars, input_len, out);
-        *result = MAKE_STRING(string_intern(&vm->intern_table, out, strlen(out)));
-        free(out);
-        return true;
+        StringObject* input_str = AS_STRING(args[0]);                               // input string
+        int input_len = input_str->length;                                          // input length
+        int out_size = ((input_len + 2) / 3) * 4 + 1;                               // output size
+        char* out = (char*)malloc(out_size);                                        // allocate output
+        if (!out) { *result = MAKE_NONE(); return true; }                           // allocation failed
+        base64url_encode((const unsigned char*)input_str->chars, input_len, out);   // encode
+        *result = MAKE_STRING(string_intern(&vm->intern_table, out, strlen(out)));  // intern result
+        free(out);                                                                  // free output
+        return true;                                                                // builtin handled
     }
     
-    if (strcmp(name, "codecs.baseurl_read") == 0) {
-        if (arg_count < 1 || !IS_STRING(args[0])) {
-            *result = MAKE_NONE();
-            return true;
+    if (strcmp(name, "codecs.baseurl_read") == 0) {                                 // base64url decode
+        if (arg_count < 1 || !IS_STRING(args[0])) {                                 // validate string
+            *result = MAKE_NONE();                                                  // invalid
+            return true;                                                            // builtin handled
         }
-        StringObject* input_str = AS_STRING(args[0]);
-        int input_len = input_str->length;
-        unsigned char* out = (unsigned char*)malloc(input_len + 1);
-        if (!out) { *result = MAKE_NONE(); return true; }
-        int out_len = 0;
-        if (base64url_decode(input_str->chars, out, &out_len)) {
-            out[out_len] = '\0';
-            *result = MAKE_STRING(string_intern(&vm->intern_table, (char*)out, out_len));
+        StringObject* input_str = AS_STRING(args[0]);                               // input string
+        int input_len = input_str->length;                                          // input length
+        unsigned char* out = (unsigned char*)malloc(input_len + 1);                 // allocate output
+        if (!out) { *result = MAKE_NONE(); return true; }                           // allocation failed
+        int out_len = 0;                                                            // output length
+        if (base64url_decode(input_str->chars, out, &out_len)) {                    // decode
+            out[out_len] = '\0';                                                    // null terminate
+            *result = MAKE_STRING(string_intern(&vm->intern_table, (char*)out, out_len));  // intern result
         } else {
-            *result = MAKE_NONE();
+            *result = MAKE_NONE();                                                  // decode failed
         }
-        free(out);
-        return true;
+        free(out);                                                                  // free output
+        return true;                                                                // builtin handled
     }
 
-    if (strcmp(name, "codecs.json_read") == 0) {
-        if (arg_count < 1 || !IS_STRING(args[0])) {
-            *result = MAKE_NONE();
-            return true;
+    if (strcmp(name, "codecs.json_read") == 0) {                                    // parse json
+        if (arg_count < 1 || !IS_STRING(args[0])) {                                 // validate string
+            *result = MAKE_NONE();                                                  // invalid
+            return true;                                                            // builtin handled
         }
-        const char* json_str = AS_STRING(args[0])->chars;
-        if (json_parse_value(vm, &json_str, result)) {
-            return true;
+        const char* json_str = AS_STRING(args[0])->chars;                           // json string
+        if (json_parse_value(vm, &json_str, result)) {                              // parse
+            return true;                                                            // success
         }
-        *result = MAKE_NONE();
-        return true;
+        *result = MAKE_NONE();                                                      // parse failed
+        return true;                                                                // builtin handled
     }
     
-    if (strcmp(name, "codecs.json_write") == 0) {
-        if (arg_count < 1) {
-            *result = MAKE_NONE();
-            return true;
+    if (strcmp(name, "codecs.json_write") == 0) {                                   // json serialize
+        if (arg_count < 1) {                                                        // need value
+            *result = MAKE_NONE();                                                  // invalid
+            return true;                                                            // builtin handled
         }
-        StringBuilder sb;
-        sb_init(&sb, 256);
-        json_encode_value(vm, args[0], &sb);
-        *result = MAKE_STRING(string_intern(&vm->intern_table, sb.buffer, sb.length));
-        sb_free(&sb);
-        return true;
+        StringBuilder sb;                                                               // string builder
+        sb_init(&sb, 256);                                                              // init builder
+        json_encode_value(vm, args[0], &sb);                                            // encode value
+        *result = MAKE_STRING(string_intern(&vm->intern_table, sb.buffer, sb.length));  // intern result
+        sb_free(&sb);                                                                   // free builder
+        return true;                                                                    // builtin handled
     }
 
-    if (strcmp(name, "codecs.csv_read") == 0) {
-        if (arg_count < 1 || !IS_STRING(args[0])) {
-            *result = MAKE_NONE();
-            return true;
+    if (strcmp(name, "codecs.csv_read") == 0) {                                  // parse csv
+        if (arg_count < 1 || !IS_STRING(args[0])) {                              // validate string
+            *result = MAKE_NONE();                                               // invalid
+            return true;                                                         // builtin handled
         }
-        StringObject* input_str = AS_STRING(args[0]);
-        const char* data = input_str->chars;
-        int len = input_str->length;
-        bool has_header = true;
-        char delimiter = ',';
+        StringObject* input_str = AS_STRING(args[0]);                            // input string
+        const char* data = input_str->chars;                                     // csv data
+        int len = input_str->length;                                             // data length
+        bool has_header = true;                                                  // default header
+        char delimiter = ',';                                                    // default delimiter
         
-        if (arg_count >= 2 && IS_BOOL(args[1])) has_header = AS_BOOL(args[1]);
-        if (arg_count >= 3 && IS_STRING(args[2]) && AS_STRING(args[2])->length > 0)
+        if (arg_count >= 2 && IS_BOOL(args[1])) has_header = AS_BOOL(args[1]);       // custom header
+        if (arg_count >= 3 && IS_STRING(args[2]) && AS_STRING(args[2])->length > 0)  // custom delimiter
             delimiter = AS_STRING(args[2])->chars[0];
             
-        if (len <= 0) {
-            *result = MAKE_NONE();
-            return true;
+        if (len <= 0) {                                                          // empty input
+            *result = MAKE_NONE();                                               // return none
+            return true;                                                         // builtin handled
         }
         
-        CsvParser parser = { .data = data, .pos = 0, .len = len, .delimiter = delimiter };
-        Table* table_list_table = table_create(8);
-        Value table_list = MAKE_TABLE(table_list_table);
-        char** headers = NULL;
-        int col_count = 0;
+        CsvParser parser = { .data = data, .pos = 0, .len = len, .delimiter = delimiter };  // init parser
+        Table* table_list_table = table_create(8);                                          // result table
+        Value table_list = MAKE_TABLE(table_list_table);                                    // box table
+        char** headers = NULL;                                                              // header array
+        int col_count = 0;                                                                  // column count
         
-        if (has_header && parser.len > 0) {
-            int temp_pos = parser.pos;
-            int count = 0;
+        if (has_header && parser.len > 0) {                                                 // parse header row
+            int temp_pos = parser.pos;                                                      // save position
+            int count = 0;                                                                  // column count
             while (parser.pos < parser.len && parser.data[parser.pos] != '\n' && parser.data[parser.pos] != '\r') {
-                if (parser.data[parser.pos] == delimiter) count++;
-                parser.pos++;
+                if (parser.data[parser.pos] == delimiter) count++;               // count delimiters
+                parser.pos++;                                                     // advance
             }
-            col_count = count + 1;
-            parser.pos = temp_pos;
+            col_count = count + 1;                                                // number of columns
+            parser.pos = temp_pos;                                                // restore position
             
-            if (col_count > 0) {
-                headers = (char**)malloc(sizeof(char*) * col_count);
-                if (headers) {
-                    for (int i = 0; i < col_count; i++) headers[i] = csv_parse_field(&parser);
+            if (col_count > 0) {                                                                // valid columns
+                headers = (char**)malloc(sizeof(char*) * col_count);                            // allocate headers
+                if (headers) {                                                                  // allocation succeeded
+                    for (int i = 0; i < col_count; i++) headers[i] = csv_parse_field(&parser);  // parse each
                 }
             }
         }
         
-        int row_index = 1;
-        while (parser.pos < parser.len) {
-            if (parser.data[parser.pos] == '\n' || parser.data[parser.pos] == '\r') {
-                if (parser.data[parser.pos] == '\r') parser.pos++;
-                if (parser.pos < parser.len && parser.data[parser.pos] == '\n') parser.pos++;
-                continue;
+        int row_index = 1;                                                                     // row counter
+        while (parser.pos < parser.len) {                                                      // parse data rows
+            if (parser.data[parser.pos] == '\n' || parser.data[parser.pos] == '\r') {          // skip blank lines
+                if (parser.data[parser.pos] == '\r') parser.pos++;                             // skip \r
+                if (parser.pos < parser.len && parser.data[parser.pos] == '\n') parser.pos++;  // skip \n
+                continue;                                                                      // continue
             }
             
-            Table* row_table = table_create(8);
-            Value row_table_val = MAKE_TABLE(row_table);
-            if (has_header && headers && col_count > 0) {
-                for (int i = 0; i < col_count; i++) {
-                    if (!csv_has_next(&parser)) break;
-                    char* field = csv_parse_field(&parser);
-                    Value val = csv_parse_value(vm, field);
-                    if (headers[i]) {
-                        Value k = MAKE_STRING(string_intern(&vm->intern_table, headers[i], strlen(headers[i])));
-                        table_set(row_table, k, val);
-                        value_decref(k);
+            Table* row_table = table_create(8);                    // row table
+            Value row_table_val = MAKE_TABLE(row_table);           // box row
+            if (has_header && headers && col_count > 0) {          // header mode
+                for (int i = 0; i < col_count; i++) {              // parse columns
+                    if (!csv_has_next(&parser)) break;             // end of row
+                    char* field = csv_parse_field(&parser);        // parse field
+                    Value val = csv_parse_value(vm, field);        // parse value
+                    if (headers[i]) {                              // valid header
+                        Value k = MAKE_STRING(string_intern(&vm->intern_table, headers[i], strlen(headers[i])));  // intern key
+                        table_set(row_table, k, val);              // store value
+                        value_decref(k);                           // release key
                     }
-                    value_decref(val);
-                    free(field);
+                    value_decref(val);                             // release value
+                    free(field);                                   // free field
                 }
-            } else {
-                int idx = 0;
-                while (csv_has_next(&parser)) {
-                    Value k = MAKE_NUMBER((double)(idx + 1));
-                    char* field = csv_parse_field(&parser);
-                    Value val = csv_parse_value(vm, field);
-                    table_set(row_table, k, val);
-                    value_decref(k);
-                    value_decref(val);
-                    free(field);
-                    idx++;
+            } else {                                               // no header mode
+                int idx = 0;                                       // field index
+                while (csv_has_next(&parser)) {                    // parse fields
+                    Value k = MAKE_NUMBER((double)(idx + 1));      // numeric key
+                    char* field = csv_parse_field(&parser);        // parse field
+                    Value val = csv_parse_value(vm, field);        // parse value
+                    table_set(row_table, k, val);                  // store value
+                    value_decref(k);                               // release key
+                    value_decref(val);                             // release value
+                    free(field);                                   // free field
+                    idx++;                                         // increment index
                 }
             }
             
-            Value k_idx = MAKE_NUMBER((double)row_index++);
-            table_set(table_list_table, k_idx, row_table_val);
-            value_decref(k_idx);
-            value_decref(row_table_val);
+            Value k_idx = MAKE_NUMBER((double)row_index++);        // row index key
+            table_set(table_list_table, k_idx, row_table_val);     // store row
+            value_decref(k_idx);                                   // release key
+            value_decref(row_table_val);                           // release row
         }
         
-        if (headers) {
-            for (int i = 0; i < col_count; i++) free(headers[i]);
-            free(headers);
+        if (headers) {                                             // free headers
+            for (int i = 0; i < col_count; i++) free(headers[i]);  // free each
+            free(headers);                                         // free array
         }
-        *result = table_list;
-        return true;
+        *result = table_list;                                      // return table
+        return true;                                               // builtin handled
     }
     
-    if (strcmp(name, "codecs.csv_write") == 0) {
-        if (arg_count < 1 || !IS_TABLE(args[0])) {
-            *result = MAKE_NONE();
-            return true;
+    if (strcmp(name, "codecs.csv_write") == 0) {                   // csv serialize
+        if (arg_count < 1 || !IS_TABLE(args[0])) {                 // validate table
+            *result = MAKE_NONE();                                 // invalid
+            return true;                                           // builtin handled
         }
-        Table* data = AS_TABLE(args[0]);
-        bool has_header = true;
-        char delimiter = ',';
+        Table* data = AS_TABLE(args[0]);                           // data table
+        bool has_header = true;                                    // default header
+        char delimiter = ',';                                      // default delimiter
         
-        if (arg_count >= 2 && IS_BOOL(args[1])) has_header = AS_BOOL(args[1]);
-        if (arg_count >= 3 && IS_STRING(args[2]) && AS_STRING(args[2])->length > 0)
+        if (arg_count >= 2 && IS_BOOL(args[1])) has_header = AS_BOOL(args[1]);        // custom header
+        if (arg_count >= 3 && IS_STRING(args[2]) && AS_STRING(args[2])->length > 0)   // custom delimiter
             delimiter = AS_STRING(args[2])->chars[0];
             
-        int row_count = table_size(data);
-        if (row_count == 0) {
-            *result = MAKE_STRING(string_intern(&vm->intern_table, "", 0));
-            return true;
+        int row_count = table_size(data);                                             // number of rows
+        if (row_count == 0) {                                                         // empty data
+            *result = MAKE_STRING(string_intern(&vm->intern_table, "", 0));           // empty string
+            return true;                                                              // builtin handled
         }
         
-        Value k_first = MAKE_NUMBER(1.0);
-        Value first_row_val;
-        if (!table_get(data, k_first, &first_row_val) || !IS_TABLE(first_row_val)) {
-            value_decref(k_first);
-            *result = MAKE_NONE();
-            return true;
+        Value k_first = MAKE_NUMBER(1.0);                                             // first row key
+        Value first_row_val;                                                          // first row value
+        if (!table_get(data, k_first, &first_row_val) || !IS_TABLE(first_row_val)) {  // get first row
+            value_decref(k_first);                                                    // release key
+            *result = MAKE_NONE();                                                    // invalid
+            return true;                                                              // builtin handled
         }
-        value_decref(k_first);
+        value_decref(k_first);                                                    // release key
         
-        int header_count = 0;
-        Value* headers = table_keys(AS_TABLE(first_row_val), &header_count);
-        value_decref(first_row_val);
+        int header_count = 0;                                                     // header count
+        Value* headers = table_keys(AS_TABLE(first_row_val), &header_count);      // get headers
+        value_decref(first_row_val);                                              // release first row
         
-        StringBuilder sb;
-        sb_init(&sb, 256);
+        StringBuilder sb;                                                         // string builder
+        sb_init(&sb, 256);                                                        // init builder
         
-        if (has_header && headers && header_count > 0) {
-            for (int i = 0; i < header_count; i++) {
-                if (i > 0) sb_append_char(&sb, delimiter);
-                const char* h = "";
-                char h_buf[64];
-                if (IS_STRING(headers[i])) h = AS_STRING(headers[i])->chars;
-                else if (IS_NUMBER(headers[i])) {
-                    snprintf(h_buf, sizeof(h_buf), "%g", AS_NUMBER(headers[i]));
-                    h = h_buf;
+        if (has_header && headers && header_count > 0) {                          // write headers
+            for (int i = 0; i < header_count; i++) {                              // iterate headers
+                if (i > 0) sb_append_char(&sb, delimiter);                        // delimiter
+                const char* h = "";                                               // default header
+                char h_buf[64];                                                   // buffer for number
+                if (IS_STRING(headers[i])) h = AS_STRING(headers[i])->chars;      // string header
+                else if (IS_NUMBER(headers[i])) {                                 // number header
+                    snprintf(h_buf, sizeof(h_buf), "%g", AS_NUMBER(headers[i]));  // format
+                    h = h_buf;                                                    // use buffer
                 }
-                bool needs_quote = strchr(h, delimiter) || strchr(h, '"') || strchr(h, '\n');
-                if (needs_quote) {
-                    sb_append_char(&sb, '"');
-                    for (const char* p = h; *p; p++) {
-                        if (*p == '"') sb_append_char(&sb, '"');
-                        sb_append_char(&sb, *p);
+                bool needs_quote = strchr(h, delimiter) || strchr(h, '"') || strchr(h, '\n');  // needs quoting
+                if (needs_quote) {                                              // quote field
+                    sb_append_char(&sb, '"');                                   // opening quote
+                    for (const char* p = h; *p; p++) {                          // escape quotes
+                        if (*p == '"') sb_append_char(&sb, '"');                // double quote
+                        sb_append_char(&sb, *p);                                // append char
                     }
-                    sb_append_char(&sb, '"');
+                    sb_append_char(&sb, '"');                                   // closing quote
                 } else {
-                    sb_append(&sb, h, strlen(h));
+                    sb_append(&sb, h, strlen(h));                               // append header
                 }
             }
-            sb_append(&sb, "\n", 1);
+            sb_append(&sb, "\n", 1);                                            // newline
         }
         
-        for (int r = 1; r <= row_count; r++) {
-            Value k_row = MAKE_NUMBER((double)r);
-            Value row_val;
-            if (!table_get(data, k_row, &row_val) || !IS_TABLE(row_val)) {
-                value_decref(k_row);
-                continue;
+        for (int r = 1; r <= row_count; r++) {                                  // iterate rows
+            Value k_row = MAKE_NUMBER((double)r);                               // row key
+            Value row_val;                                                      // row value
+            if (!table_get(data, k_row, &row_val) || !IS_TABLE(row_val)) {      // get row
+                value_decref(k_row);                                            // release key
+                continue;                                                       // skip invalid row
             }
             
-            for (int i = 0; i < header_count; i++) {
-                if (i > 0) sb_append_char(&sb, delimiter);
-                Value cell_val;
-                char buf[64];
-                const char* str_val = "";
+            for (int i = 0; i < header_count; i++) {                            // iterate columns
+                if (i > 0) sb_append_char(&sb, delimiter);                      // delimiter
+                Value cell_val;                                                 // cell value
+                char buf[64];                                                   // buffer for number
+                const char* str_val = "";                                       // string value
                 
-                if (table_get(AS_TABLE(row_val), headers[i], &cell_val)) {
-                    if (IS_NUMBER(cell_val)) { snprintf(buf, sizeof(buf), "%g", AS_NUMBER(cell_val)); str_val = buf; }
-                    else if (IS_BOOL(cell_val)) str_val = AS_BOOL(cell_val) ? "true" : "false";
-                    else if (IS_STRING(cell_val)) str_val = AS_STRING(cell_val)->chars;
-                    value_decref(cell_val);
+                if (table_get(AS_TABLE(row_val), headers[i], &cell_val)) {      // get cell
+                    if (IS_NUMBER(cell_val)) {                                  // number
+                        snprintf(buf, sizeof(buf), "%g", AS_NUMBER(cell_val));  // format
+                        str_val = buf;                                          // use buffer
+                    } else if (IS_BOOL(cell_val)) {                             // boolean
+                        str_val = AS_BOOL(cell_val) ? "true" : "false";         // bool string
+                    } else if (IS_STRING(cell_val)) {                           // string
+                        str_val = AS_STRING(cell_val)->chars;                   // use string
+                    }
+                    value_decref(cell_val);                                     // release cell
                 }
                 
-                bool needs_quote = strchr(str_val, delimiter) || strchr(str_val, '"') || strchr(str_val, '\n');
-                if (needs_quote) {
-                    sb_append_char(&sb, '"');
-                    for (const char* p = str_val; *p; p++) {
-                        if (*p == '"') sb_append_char(&sb, '"');
-                        sb_append_char(&sb, *p);
+                bool needs_quote = strchr(str_val, delimiter) || strchr(str_val, '"') || strchr(str_val, '\n');  // needs quoting
+                if (needs_quote) {                                            // quote field
+                    sb_append_char(&sb, '"');                                 // opening quote
+                    for (const char* p = str_val; *p; p++) {                  // escape quotes
+                        if (*p == '"') sb_append_char(&sb, '"');              // double quote
+                        sb_append_char(&sb, *p);                              // append char
                     }
-                    sb_append_char(&sb, '"');
+                    sb_append_char(&sb, '"');                                 // closing quote
                 } else {
-                    sb_append(&sb, str_val, strlen(str_val));
+                    sb_append(&sb, str_val, strlen(str_val));                 // append value
                 }
             }
-            if (r < row_count) sb_append(&sb, "\n", 1);
-            value_decref(row_val);
-            value_decref(k_row);
+            if (r < row_count) sb_append(&sb, "\n", 1);                       // newline
+            value_decref(row_val);                                            // release row
+            value_decref(k_row);                                              // release key
         }
 
-        if (headers) {
-            for (int i = 0; i < header_count; i++) value_decref(headers[i]);
-            free(headers);
+        if (headers) {                                                        // free headers
+            for (int i = 0; i < header_count; i++) value_decref(headers[i]);  // release each
+            free(headers);                                                    // free array
         }
-        *result = MAKE_STRING(string_intern(&vm->intern_table, sb.buffer, sb.length));
-        sb_free(&sb);
-        return true;
+        *result = MAKE_STRING(string_intern(&vm->intern_table, sb.buffer, sb.length)); // intern result
+        sb_free(&sb);                                                         // free builder
+        return true;                                                          // builtin handled
     }
 
-    if (strcmp(name, "codecs.xml_read") == 0) {
-        if (arg_count < 1 || !IS_STRING(args[0])) {
-            *result = MAKE_NONE();
-            return true;
+    if (strcmp(name, "codecs.xml_read") == 0) {       // parse xml
+        if (arg_count < 1 || !IS_STRING(args[0])) {   // validate string
+            *result = MAKE_NONE();                    // invalid
+            return true;                              // builtin handled
         }
-        const char* xml = AS_STRING(args[0])->chars;
-        XmlParser xp;
-        xp.p = xml;
+        const char* xml = AS_STRING(args[0])->chars;  // xml string
+        XmlParser xp;                                 // xml parser
+        xp.p = xml;                                   // set pointer
         
-        Value root = xml_parse_element(vm, &xp);
-        if (IS_TABLE(root)) {
-            *result = root;
+        Value root = xml_parse_element(vm, &xp);      // parse root
+        if (IS_TABLE(root)) {                         // valid root
+            *result = root;                           // return root
         } else {
-            value_decref(root);
-            *result = MAKE_NONE();
+            value_decref(root);                       // release invalid
+            *result = MAKE_NONE();                    // return none
         }
-        return true;
+        return true;                                  // builtin handled
     }
 
-    if (strcmp(name, "codecs.xml_write") == 0) {
-        if (arg_count < 1 || !IS_TABLE(args[0])) {
-            *result = MAKE_NONE();
-            return true;
+    if (strcmp(name, "codecs.xml_write") == 0) {    // xml serialize
+        if (arg_count < 1 || !IS_TABLE(args[0])) {  // validate table
+            *result = MAKE_NONE();                  // invalid
+            return true;                            // builtin handled
         }
-        StringBuilder sb;
-        sb_init(&sb, 256);
-        xml_write_node(vm, args[0], 0, &sb);
-        if (sb.length == 0) {
-            sb_free(&sb);
-            *result = MAKE_NONE();
-            return true;
+        StringBuilder sb;                           // string builder
+        sb_init(&sb, 256);                          // init builder
+        xml_write_node(vm, args[0], 0, &sb);        // write xml
+        if (sb.length == 0) {                       // empty output
+            sb_free(&sb);                           // free builder
+            *result = MAKE_NONE();                  // return none
+            return true;                            // builtin handled
         }
-        *result = MAKE_STRING(string_intern(&vm->intern_table, sb.buffer, sb.length));
-        sb_free(&sb);
-        return true;
+        *result = MAKE_STRING(string_intern(&vm->intern_table, sb.buffer, sb.length));  // intern result
+        sb_free(&sb);  // free builder
+        return true;   // builtin handled
     }
 
-    return false;
+    return false;      // not a recognized builtin
 }
