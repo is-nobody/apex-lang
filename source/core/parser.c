@@ -459,16 +459,6 @@ static bool expr_has_side_effect(ASTNode* node) {
 static void parser_check_expr_statement(Parser* parser, ASTNode* expr) {
     if (!parser->semantic_checks || !expr) return;
     
-    if (expr->type == AST_BINARY) {
-        TokenType op = expr->binary.op;
-        if (op == TOKEN_AND || op == TOKEN_OR || 
-            op == TOKEN_EQUAL_EQUAL || op == TOKEN_NOT_EQUAL ||
-            op == TOKEN_LESS || op == TOKEN_GREATER || 
-            op == TOKEN_LESS_EQUAL || op == TOKEN_GREATER_EQUAL) {
-            return;
-        }
-    }
-    
     if (!expr_has_side_effect(expr)) {
         parser_error_at(parser, expr->line, expr->column, get_node_len(expr),
                         "Expression statement has no effect");
