@@ -2581,11 +2581,17 @@ static ASTNode* parse_block(Parser* parser, bool require_indent, const char* aft
         skip_newlines(parser);
         if (!match(parser, TOKEN_INDENT)) {
             Token* tok = current_token(parser);
-            int len = get_line_length(parser->source, tok->line) - tok->column + 1;
+            int line_len = get_line_length(parser->source, tok->line);
+            int len = line_len - tok->column + 1;
             if (len < 1) len = 1;
             
             parser_error_at(parser, tok->line, tok->column, len,
                             "Expected indented block after '%s'", after_keyword ? after_keyword : "block");
+            
+            while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
+                advance(parser);
+            }
+            
             return ast_create_block(statements);
         }
         parser->expecting_indented_block = false;
