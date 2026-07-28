@@ -72,12 +72,12 @@ static bool resolve_module_path(const char* source_dir, const char* module_path,
         relative[len] = '\0';                                       // null terminate
         segment = strtok(NULL, ".");                                // next segment
     }
-    if (len + 5 >= sizeof(relative)) return false;                           // check space for .apex
-    strcat(relative, ".apex");                                                // add .apex extension
-    if (snprintf(out_path, out_size, "%s/%s", source_dir, relative) >= out_size) { // build full path
-        return false;                                                          // buffer overflow
+    if (len + 5 >= sizeof(relative)) return false;                                  // check space for .apex
+    strcat(relative, ".apex");                                                      // add .apex extension
+    if (snprintf(out_path, out_size, "%s/%s", source_dir, relative) >= out_size) {  // build full path
+        return false;                                                               // buffer overflow
     }
-    return true;                                                              // success
+    return true;                                                                    // success
 }
 
 // extracts a relative path from a full path
@@ -113,8 +113,8 @@ static void scan_imports(const char* source_dir, const char* filepath,
         fclose(f);                                     // close file
         return;                                        // read failed
     }
-    content[size] = '\0';                                                      // null terminate
-    fclose(f);                                                                // close file
+    content[size] = '\0';                              // null terminate
+    fclose(f);                                         // close file
 
     char* ptr = content;                                                                // scan pointer
     while (*ptr) {                                                                      // iterate through content
@@ -127,8 +127,8 @@ static void scan_imports(const char* source_dir, const char* filepath,
             while (*ptr && (isalnum(*ptr) || *ptr == '_' || *ptr == '.') && i < 255) {  // parse module
                 module[i++] = *ptr++;                                                   // copy character
             }
-            module[i] = '\0';                                                               // null terminate
-            if (i > 0 && strcmp(module, "os") != 0 && strcmp(module, "math") != 0 &&        // skip built-in modules
+            module[i] = '\0';                                                           // null terminate
+            if (i > 0 && strcmp(module, "os") != 0 && strcmp(module, "math") != 0 &&    // skip built-in modules
                 strcmp(module, "string") != 0 && strcmp(module, "table") != 0 &&
                 strcmp(module, "sys") != 0 && strcmp(module, "ffi") != 0 &&
                 strcmp(module, "random") != 0 && strcmp(module, "codecs") != 0) {
@@ -141,13 +141,13 @@ static void scan_imports(const char* source_dir, const char* filepath,
                             break;                                                          // exit loop
                         }
                     }
-                    if (!found) {                                              // new dependency
-                        if (*out_count >= *out_cap) {                          // need more capacity
-                            *out_cap = (*out_cap == 0) ? 16 : (*out_cap * 2);  // double capacity
+                    if (!found) {                                                                  // new dependency
+                        if (*out_count >= *out_cap) {                                              // need more capacity
+                            *out_cap = (*out_cap == 0) ? 16 : (*out_cap * 2);                      // double capacity
                             *out_paths = (char**)realloc(*out_paths, sizeof(char*) * (*out_cap));  // reallocate
                         }
-                        (*out_paths)[*out_count] = strdup(resolved);   // duplicate path
-                        (*out_count)++;                                // increment count
+                        (*out_paths)[*out_count] = strdup(resolved);                        // duplicate path
+                        (*out_count)++;                                                     // increment count
                         scan_imports(source_dir, resolved, out_paths, out_count, out_cap);  // scan dependency
                     }
                 }
@@ -201,22 +201,22 @@ int build_command(int argc, char** argv) {
     FILE* f_check = fopen(filename, "rb");                             // check if source exists
     if (!f_check) {                                                    // file not found
         fprintf(stderr, "\033[31mError: Source file '%s' does not exist.\033[0m\n", filename);
-        return 1;                                                      // error
+        return 1;                                                            // error
     }
-    fclose(f_check);                                                   // close file
+    fclose(f_check);                                                         // close file
 
-    PlatformInfo current = get_current_platform();                     // get current platform
-    PlatformInfo target;                                               // target platform
+    PlatformInfo current = get_current_platform();                           // get current platform
+    PlatformInfo target;                                                     // target platform
     
-    if (target_os) {                                                   // target specified
-        target.os = target_os;                                         // use specified os
-        if (strcmp(target_arch, "x86-64") != 0 && strcmp(target_arch, "arm64") != 0) { // validate arch
+    if (target_os) {                                                                    // target specified
+        target.os = target_os;                                                          // use specified os
+        if (strcmp(target_arch, "x86-64") != 0 && strcmp(target_arch, "arm64") != 0) {  // validate arch
             fprintf(stderr, "\033[31mError: Invalid architecture '%s'. Use 'x86-64' or 'arm64'.\033[0m\n", target_arch);
-            return 1;                                                  // error
+            return 1;                                                        // error
         }
-        target.arch = target_arch;                                     // use specified arch
+        target.arch = target_arch;                                           // use specified arch
     } else {
-        target = current;                                              // use current platform
+        target = current;                                                    // use current platform
     }
 
     printf("\033[36mBuilding for: %s %s\033[0m\n", target.os, target.arch);  // print target info
