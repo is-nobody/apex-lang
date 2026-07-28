@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.13)
 project(Apex VERSION 26.07 LANGUAGES C)
 
 # enables gnu extensions for posix functions (readlink, setenv, etc.)
@@ -9,19 +9,13 @@ set(CMAKE_C_EXTENSIONS ON)
 # all source files grouped by module
 set(SOURCES
     main.c
-    source/utils/execute.c
-    source/utils/error.c
-    source/utils/platform.c
-    source/utils/repl.c
-    source/utils/commands.c
-    source/utils/build.c
-    source/utils/apex_api.c
     source/core/tokenizer.c
     source/core/parser.c
     source/core/ast.c
     source/core/bytecode.c
     source/core/codegen.c
     source/core/vm.c
+
     source/libraries/os_module.c
     source/libraries/sys_module.c
     source/libraries/math_module.c
@@ -30,16 +24,24 @@ set(SOURCES
     source/libraries/ffi_module.c
     source/libraries/random_module.c
     source/libraries/codecs_module.c
+
+    source/utils/execute.c
+    source/utils/error.c
+    source/utils/platform.c
+    source/utils/repl.c
+    source/utils/commands.c
+    source/utils/build.c
+    source/utils/apex_api.c
 )
 
 add_executable(apex ${SOURCES})
 
-# header search paths for #include "vm.h" from any directory
+# header search paths for include from any directory
 target_include_directories(apex PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/source/core
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/utils
     ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/utils
 )
 
 # baseline warnings and posix compatibility
@@ -65,15 +67,12 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     if(CMAKE_BUILD_TYPE STREQUAL "Release")
         target_link_options(apex PRIVATE -flto)
     endif()
-elseif(MSVC)
-    target_compile_options(apex PRIVATE /O2 /Ot /GL /fp:fast /MD)
-    target_link_options(apex PRIVATE /LTCG)
 else()
     target_compile_options(apex PRIVATE ${BASE_FLAGS} -O2)
 endif()
 
 # windows-specific defines to suppress deprecation warnings
-if(MINGW OR WIN32)
+if(WIN32)
     target_compile_definitions(apex PRIVATE
         _WIN32_WINNT=0x0601
         WIN32_LEAN_AND_MEAN
@@ -86,17 +85,10 @@ endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # os-specific library linking
-if(MINGW)
-    target_link_libraries(apex PRIVATE shlwapi ws2_32)
-    set_target_properties(apex PROPERTIES
-        LINK_FLAGS "-Wl,--subsystem,console"
-    )
-elseif(MSVC)
+if(WIN32)
     target_link_libraries(apex PRIVATE shlwapi)
 elseif(APPLE)
     target_link_libraries(apex PRIVATE m z dl)
-elseif(WIN32)
-    target_link_libraries(apex PRIVATE shlwapi)
 else()
     target_link_libraries(apex PRIVATE m z dl)
 endif()
