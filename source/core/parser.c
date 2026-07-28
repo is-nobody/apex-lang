@@ -2565,9 +2565,7 @@ static ASTNode* parse_block(Parser* parser, bool require_indent, const char* aft
             int len = get_line_length(parser->source, tok->line) - tok->column + 1;
             if (len < 1) len = 1;
             
-            int keyword_len = after_keyword ? (int)strlen(after_keyword) : 5;
-            
-            parser_error_at(parser, tok->line, tok->column, keyword_len,
+            parser_error_at(parser, tok->line, tok->column, len,
                             "Expected indented block after '%s'", after_keyword ? after_keyword : "block");
             return ast_create_block(statements);
         }
