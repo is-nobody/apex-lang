@@ -1220,7 +1220,8 @@ ValueType parser_check_expression(Parser* parser, ASTNode* node) {
 // validates that a condition expression is boolean and explicit
 static void parser_check_condition(Parser* parser, ASTNode* condition, const char* context) {
     if (!parser->semantic_checks) return;
-    
+    if (!condition) return;
+
     ValueType cond_type = infer_expression_type(parser, condition);
     
     if (cond_type != TYPE_BOOLEAN && cond_type != TYPE_ANY && cond_type != TYPE_UNKNOWN) {
@@ -2123,6 +2124,30 @@ static ASTNode* parse_if_statement(Parser* parser) {
     
     while (check(parser, TOKEN_ELIF)) {
         Token* elif_kw = advance(parser);
+        
+        if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF) || 
+            check(parser, TOKEN_INDENT)) {
+            parser_error_at(parser, elif_kw->line, elif_kw->column, 4,
+                            "Expected condition after 'elif'");
+            
+            while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
+                advance(parser);
+            }
+            match(parser, TOKEN_NEWLINE);
+            
+            skip_newlines(parser);
+            if (match(parser, TOKEN_INDENT)) {
+                int depth = 1;
+                while (depth > 0 && !check(parser, TOKEN_EOF)) {
+                    if (check(parser, TOKEN_INDENT)) depth++;
+                    if (check(parser, TOKEN_DEDENT)) depth--;
+                    advance(parser);
+                }
+            }
+            
+            continue;
+        }
+        
         ASTNode* elif_cond = parse_expression(parser);
         parser_check_condition(parser, elif_cond, "If");
         parser->expecting_indented_block = true;
