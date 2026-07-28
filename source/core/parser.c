@@ -2598,12 +2598,14 @@ static ASTNode* parse_block(Parser* parser, bool require_indent, const char* aft
 
         if (statements->count > 0) {
             ASTNode* last = statements->nodes[statements->count - 1];
-            if (last->type == AST_RETURN_STMT || last->type == AST_BREAK_STMT || last->type == AST_CONTINUE_STMT) {
+            bool is_unreachable = (last->type == AST_BREAK_STMT) ||
+                                (last->type == AST_CONTINUE_STMT) ||
+                                (last->type == AST_RETURN_STMT && last->return_stmt.value != NULL);
+            if (is_unreachable) {
                 Token* tok = current_token(parser);
-                parser_error_at(parser, tok->line, tok->column, tok->value ? (int)utf8_char_len(tok->value) : 1,
-                                "Unreachable code after control flow statement");
-                while (!check(parser, TOKEN_EOF) && !check(parser, TOKEN_DEDENT)) advance(parser);
-                break;
+                parser_error_at(parser, tok->line, tok->column, 
+                            tok->value ? (int)utf8_char_len(tok->value) : 1,
+                            "Unreachable code after control flow statement");
             }
         }
 
