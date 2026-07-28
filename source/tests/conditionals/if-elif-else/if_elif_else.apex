@@ -56,7 +56,7 @@ function if_elif_else_else()
         result = "A"
     elif score >= 80
         result = "B"
-    elif score >= 70
+    elif
         result = "C"
     else
         result = "F"

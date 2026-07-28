@@ -2573,6 +2573,9 @@ static ASTNode* parse_block(Parser* parser, bool require_indent, const char* aft
         if (!match(parser, TOKEN_INDENT)) {
             Token* tok = current_token(parser);
             int line_len = get_line_length(parser->source, tok->line);
+            if (line_len == 0) {
+                line_len = get_line_length(parser->source, tok->line - 1);
+            }
             int len = line_len - tok->column + 1;
             if (len < 1) len = 1;
             
