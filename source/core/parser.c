@@ -2007,13 +2007,6 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
     
     ASTNode* value = parse_expression(parser);
     
-    if (!value) {
-        parser_error_at(parser, name->line, name->column + (int)utf8_char_len(name->value) + 1, 1,
-                       "Expected expression after '='");
-        return ast_create_var_assign(name->value, NULL, !parser_is_declared(parser, name->value), NULL,
-                                    name->line, name->column);
-    }
-
     bool is_declaration = !parser_is_declared(parser, name->value);
 
     if (!parser->semantic_checks) {
