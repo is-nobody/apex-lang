@@ -2607,18 +2607,10 @@ static ASTNode* parse_block(Parser* parser, bool require_indent, const char* aft
             }
         }
 
-        int before = parser->current;
         ASTNode* stmt = parse_statement(parser);
         if (stmt) {
             ast_list_add(statements, stmt);
             parser->expecting_indented_block = false;
-        }
-        
-        if (parser->current == before && !check(parser, TOKEN_EOF) && !check(parser, TOKEN_DEDENT)) {
-            Token* tok = current_token(parser);
-            parser_error_at(parser, tok->line, tok->column, tok->value ? (int)utf8_char_len(tok->value) : 1, 
-                          "Unexpected token in block");
-            advance(parser);
         }
         skip_newlines(parser);
     }
