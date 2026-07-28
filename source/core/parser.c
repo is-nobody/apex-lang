@@ -1203,7 +1203,8 @@ static void parser_check_condition(Parser* parser, ASTNode* condition, const cha
     if (cond_type != TYPE_BOOLEAN && cond_type != TYPE_ANY && cond_type != TYPE_UNKNOWN) {
         if (cond_type != TYPE_ERROR) {
             parser_error_at(parser, condition->line, condition->column, get_node_len(condition),
-                "%s condition must be boolean, got %s", context, type_name(cond_type));
+                "%s requires a comparison (e.g., 'flag != false'), got %s",
+                context, type_name(cond_type));
         }
         return;
     }
