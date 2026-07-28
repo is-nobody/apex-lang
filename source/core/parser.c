@@ -1015,6 +1015,23 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
     }
 
     if (func_name) {
+        char root[64];
+        const char* dot = strchr(func_name, '.');
+        if (dot) {
+            size_t root_len = dot - func_name;
+            if (root_len < sizeof(root)) {
+                strncpy(root, func_name, root_len);
+                root[root_len] = '\0';
+                
+                if (is_builtin_module_root(root) && symbol_index_recursive(parser, root) < 0) {
+                    int err_len = get_node_len(node->call.callee);
+                    parser_error_at(parser, node->call.callee->line, node->call.callee->column, err_len > 0 ? err_len : 1,
+                        "Built-in module '%s' must be imported with 'import %s'", root, root);
+                    return TYPE_ANY;
+                }
+            }
+        }
+        
         const BuiltinSig* builtin = lookup_builtin(func_name);
         if (builtin) {
             int actual = node->call.arguments->count;
@@ -1084,6 +1101,12 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
 static ValueType infer_index_access_type(Parser* parser, ASTNode* node) {
     if (node->access.object->type == AST_IDENTIFIER && 
         node->access.member->type == AST_IDENTIFIER) {
+        const char* mod_name = node->access.object->identifier.name;
+        if (is_builtin_module_root(mod_name) && symbol_index_recursive(parser, mod_name) < 0) {
+            parser_error_at(parser, node->access.object->line, node->access.object->column,
+                (int)utf8_char_len(mod_name),
+                "Built-in module '%s' must be imported with 'import %s'", mod_name, mod_name);
+        }
         return TYPE_ANY; 
     }
     
