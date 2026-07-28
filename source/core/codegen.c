@@ -13,9 +13,7 @@ static bool is_known_builtin_module(const char* name) {
 }
 
 static int codegen_expression(CodeGenerator* cg, ASTNode* node);
-static void codegen_statement(CodeGenerator* cg, ASTNode* node);
 static void codegen_block(CodeGenerator* cg, ASTNode* node);
-static int codegen_string_interp(CodeGenerator* cg, ASTNode* node);
 static int codegen_optimized_condition(CodeGenerator* cg, ASTNode* condition, int line);
 static int codegen_index_assign(CodeGenerator* cg, ASTNode* node);
 static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node);
