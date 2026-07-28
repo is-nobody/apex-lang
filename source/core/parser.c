@@ -2262,8 +2262,6 @@ static ASTNode* parse_for_statement(Parser* parser) {
                             if (step && evaluate_numeric_constant(parser, step, &step_val) && step_val == 0.0) {
                                 parser_error_at(parser, step->line, step->column, 0, "For loop step cannot be zero");
                             }
-                        } else {
-                            parser_error(parser, "Expected step value after ','");
                         }
                     }
                 }
