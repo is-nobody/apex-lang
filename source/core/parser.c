@@ -1226,7 +1226,7 @@ static void parser_check_condition(Parser* parser, ASTNode* condition, const cha
     if (cond_type != TYPE_BOOLEAN && cond_type != TYPE_ANY && cond_type != TYPE_UNKNOWN) {
         if (cond_type != TYPE_ERROR) {
             parser_error_at(parser, condition->line, condition->column, get_node_len(condition),
-                "%s requires a comparison (e.g., 'flag != false'), got %s",
+                "%s requires a comparison (e.g., 'var != false'), got %s",
                 context, type_name(cond_type));
         }
         return;
@@ -1234,7 +1234,7 @@ static void parser_check_condition(Parser* parser, ASTNode* condition, const cha
 
     if (!is_explicit_condition(condition)) {
         parser_error_at(parser, condition->line, condition->column, get_node_len(condition),
-            "%s requires explicit condition (e.g., 'var == true' or 'var != false')", context);
+            "%s requires explicit condition (e.g., 'var != false')", context);
     }
 }
 
@@ -1914,12 +1914,12 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
                 (token->type == TOKEN_AND || token->type == TOKEN_OR)) {
                 if (!is_explicit_condition(left)) {
                     parser_error_at(parser, left->line, left->column, get_node_len(left),
-                        "Logical operator '%s' requires explicit condition (e.g., 'var == true' or 'var != false')",
+                        "Logical operator '%s' requires explicit condition (e.g., 'var != false')",
                         binary_op_name(token->type));
                 }
                 if (!is_explicit_condition(right)) {
                     parser_error_at(parser, right->line, right->column, get_node_len(right),
-                        "Logical operator '%s' requires explicit condition (e.g., 'var == true' or 'var != false')",
+                        "Logical operator '%s' requires explicit condition (e.g., 'var != false')",
                         binary_op_name(token->type));
                 }
             }
@@ -2194,7 +2194,7 @@ static ASTNode* parse_for_statement(Parser* parser) {
 
     if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_INDENT)) {
         parser_error_at(parser, for_kw->line, for_kw->column, 3,
-                        "Use an explicit condition for 'for' (e.g., 'for running == true').");
+                        "Use an explicit condition for 'for' (e.g., 'for var != false').");
         if (match(parser, TOKEN_NEWLINE)) {
             while (!check(parser, TOKEN_EOF) && !check(parser, TOKEN_DEDENT)) {
                 advance(parser);
@@ -2252,10 +2252,6 @@ static ASTNode* parse_for_statement(Parser* parser) {
                 end = parse_expression(parser);
                 if (end) {
                     parser_check_number_expr(parser, end, "For loop end");
-                } else {
-                    parser_error(parser, "Expected end value for range");
-                    free(var_name);
-                    var_name = NULL;
                 }
 
                 if (var_name && match(parser, TOKEN_COMMA)) {
@@ -2476,7 +2472,7 @@ static ASTNode* parse_return_statement(Parser* parser) {
 
     if (parser->semantic_checks && parser->function_depth == 0) {
         parser_error_at(parser, return_kw->line, return_kw->column, 6,
-            "Return statement outside of function");
+            "'return' outside of function");
     }
 
     ASTNode* value = NULL;
@@ -2492,7 +2488,7 @@ static ASTNode* parse_break_statement(Parser* parser) {
     Token* break_kw = advance(parser);
     if (parser->semantic_checks && parser->loop_depth == 0) {
         parser_error_at(parser, break_kw->line, break_kw->column, 5,
-            "'break' statement outside of loop");
+            "'break' outside of loop");
     }
     return ast_create_node(AST_BREAK_STMT, break_kw->line, break_kw->column);
 }
@@ -2502,7 +2498,7 @@ static ASTNode* parse_continue_statement(Parser* parser) {
     Token* cont_kw = advance(parser);
     if (parser->semantic_checks && parser->loop_depth == 0) {
         parser_error_at(parser, cont_kw->line, cont_kw->column, 8,
-            "'continue' statement outside of loop");
+            "'continue' outside of loop");
     }
     return ast_create_node(AST_CONTINUE_STMT, cont_kw->line, cont_kw->column);
 }
