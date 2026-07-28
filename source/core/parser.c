@@ -2418,7 +2418,7 @@ static ASTNode* parse_import_statement(Parser* parser) {
     free(mod_parser->source_dir);
     mod_parser->source_dir = strdup(parser->source_dir);
 
-    ASTNode* mod_ast = parser_parse(mod_parser);
+    ASTNode* mod_ast = parse_program(mod_parser);
 
     if (parser_had_errors(mod_parser)) {
         parser->error_count += mod_parser->error_count;
@@ -2664,7 +2664,7 @@ static ASTNode* parse_block(Parser* parser, bool require_indent, const char* aft
 }
 
 // parses the entire program as a sequence of statements
-static ASTNode* parse_program(Parser* parser) {
+ASTNode* parse_program(Parser* parser) {
     ASTNodeList* statements = ast_list_create();
     
     int prev_pos = -1;
@@ -2686,9 +2686,4 @@ static ASTNode* parse_program(Parser* parser) {
     ASTNode* program = ast_create_block(statements);
     program->type = AST_PROGRAM;
     return program;
-}
-
-// main public parse function
-ASTNode* parser_parse(Parser* parser) {
-    return parse_program(parser);
 }

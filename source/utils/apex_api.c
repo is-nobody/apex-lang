@@ -88,7 +88,7 @@ bool apex_execute_string(const char* source_code, const char* filename) {
     }
     
     parser = parser_create(tokens, token_count, error_filename, source);  // create parser
-    ast = parser_parse(parser);                                           // parse ast
+    ast = parse_program(parser);                                          // parse ast
     if (!ast || parser_had_errors(parser)) {                              // check for parsing errors
         cleanup_all(tokenizer, parser, ast, NULL, NULL, NULL, source);    // cleanup tokenizer and parser
         return false;                                                     // execution failed

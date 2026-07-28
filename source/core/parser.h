@@ -74,7 +74,7 @@ Parser* parser_create(Token* tokens, int count, const char* filename, const char
 void parser_destroy(Parser* parser);
 
 // parses the token stream into an ast, returns the root program node
-ASTNode* parser_parse(Parser* parser);
+ASTNode* parse_program(Parser* parser);
 
 // returns true if any syntax or semantic error was encountered
 bool parser_had_errors(const Parser* parser);
