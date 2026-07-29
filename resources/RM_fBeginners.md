@@ -131,7 +131,7 @@ weight = 71.5
 height = 1.8
 ```
 
-Apex uses a dot, not a comma. Commas have a different job — they separate items in table lists.
+Apex uses a dot, not a comma. Commas have a different job — they separate items in table lists and function arguments.
 
 ### Declaring with Arithmetic
 You can declare variables and do math with them at the same time. Once a variable holds a number, you can use it in calculations just like a regular number. What you can do with numbers:
