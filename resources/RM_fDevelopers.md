@@ -89,9 +89,7 @@ For `none`, `true` and `false` use lowercase.
 `//` means a comment.
 
 ### 1.1 None
-In programming, you often need to explicitly say "there's nothing here." User not found. In Apex, this is called `none`.
-
-`none` is a separate data type and the only value of that type. It means the intentional absence of any value. It's like an empty box — it exists, but it's empty.
+`none` is a separate data type and the only value of that type. It means the intentional absence of any value.
 
 ```apex
 user = none
