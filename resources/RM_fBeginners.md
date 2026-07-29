@@ -176,12 +176,6 @@ is_adult = age > 18        // true — because 25 is greater than 18
 
 Whenever you use comparison operators (`==`, `!=`, `<`, `>`, `<=`, `>=`), the result is always a boolean. Booleans also come from logical operations that combine values:
 
-```apex
-is_weekend = true
-is_holiday = false
-can_sleep_in = is_weekend or is_holiday    // true
-```
-
 *More details about Comparison & Logical operators in section 2.2 & 2.3*
 
 ### Booleans as Switches
