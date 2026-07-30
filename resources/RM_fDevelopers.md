@@ -6,7 +6,7 @@ This manual is minimalistic. Each section builds on the previous ones. For the b
 - [About the Project](#about-the-project)
 - [Setting up workspace](#setting-up-workspace)
 
-### 1. Variables & Data Types
+### 1. Data Types
 - [1.1 None](#11-none)
 - [1.2 Numbers](#12-numbers)
 - [1.3 Booleans](#13-booleans)
@@ -55,34 +55,26 @@ Apex is a programming language built for speed, power, simplicity, clarity, read
 1. Download the interpreter from [GitHub releases](https://github.com/is-nobody/apex-lang/releases)
 2. Run the interpreter for your OS.
 
-Now you're in REPL!
-
 *Alternatively, if you don't want to install anything, you can try language on the [website](https://is-nobody.github.io/apex-lang.html).*
 
 ### Testing the interpreter
-Paste this code into REPL:
+Run interpreter and paste this code into REPL:
 
 ```apex
 import os
 os.output("Hello, World!")
 ```
 
-Output:
-
-```bash
-Hello, World!
-```
-
 # 1. Data Types
 Apex determines the type automatically. Main data types in language:
 
-| Type | Description | Example |
-|------|-------------|---------|
-| `none` | Intentional absence of a value | `x = none` |
-| `number` | Numbers (Wholes and decimals) | `x = 10`, `x = 3.14` |
-| `string` | Text, sequence of characters | `x = "hello"` |
-| `boolean` | True or false | `x = true`, `x = false` |
-| `table` | Universal container | `x = [1, 2, 3]`, `x = ["name" = "John"]` |
+| Type      | Description                    | Example                                  |
+|-----------|--------------------------------|------------------------------------------|
+| `none`    | Intentional absence of a value | `x = none`                               |
+| `number`  | Numbers (Wholes and decimals)  | `x = 10`, `x = 3.14`                     |
+| `string`  | Text, sequence of characters   | `x = "hello"`                            |
+| `boolean` | True or false                  | `x = true`, `x = false`                  |
+| `table`   | Universal container            | `x = [1, 2, 3]`, `x = ["name" = "John"]` |
 
 The type of a variable can change over time. A variable initially created as a `none` can later become a `string`.
 
@@ -90,18 +82,17 @@ For `none`, `true` and `false` use lowercase.
 
 `//` means a comment.
 
-### 1.1 None
+## 1.1 None
 `none` is a separate data type and the only value of that type. It means the intentional absence of any value.
 
 ```apex
-user = none
 result = none
 ```
 
 Most often, `none` is used as a default value when a function returns no meaningful result.
 
 ## 1.2 Numbers
-In Apex, you don't need to worry about whether a number is a whole number or a decimal. Apex figures out the rest. There is no limit to numbers.
+In Apex, you don't need to worry about whether a number is a whole number or a decimal. Apex figures out the rest.
 
 ### Whole Numbers
 Whole numbers are written without any other symbols. They can be positive or negative.
@@ -125,7 +116,7 @@ You can declare variables and do math with them at the same time. Once a variabl
 ```apex
 x = 10
 y = 3.5
-sum = x + y
+sum = x + y  // 13.5
 ```
 
 ## 1.3 Booleans
@@ -136,32 +127,31 @@ Direct assignment:
 ```apex
 is_active = true
 has_permission = false
-is_logged_in = true
 ```
 
 Through comparisons:
 
 ```apex
 age = 25
-is_adult = age > 18        // true — because 25 is greater than 18
+is_adult = age > 18  // true — because 25 is greater than 18
 ```
 
-Whenever you use comparison operators (`==`, `!=`, `<`, `>`, `<=`, `>=`), the result is always a boolean. Booleans also come from logical operations that combine values.
+Whenever you use comparison operators (`==`, `!=`, `<`, `>`, `<=`, `>=`), the result is always a boolean.
 
 ## 1.4 Strings
-A string can be one character long, a thousand characters long, or even empty.
-
 ### Creating Strings
-In Apex, strings are written inside double quotes `" "`:
+In Apex, strings are written inside double `""` or single `''` quotes:
 
 ```apex
-name = "Alice"
-message = "Hello, Friend"
+name = 'Alice'
 empty = ""
 ```
 
-### Quotes inside Quotes
-If you need double quotes inside a string, you can't just drop them in raw — Apex will see that second quote and think "String's over!" Then everything after it becomes gibberish that breaks your code.
+### Escape Sequences
+Apex has **escape sequences**.
+
+#### Quotes inside Quotes
+If you need double quotes inside a string, you can't just drop them in raw.
 
 Here's what **doesn't** work:
 
@@ -169,67 +159,11 @@ Here's what **doesn't** work:
 inside = "He say: "I hate donuts!"" // NOPE
 ```
 
-Apex reads that as: string `"He say: "` ends, then random words `I hate donuts!` floating in space, then an empty string `""`. Total chaos.
-
-Slap a backslash `\` in front of every inner double quote. This thing is called an **escape character**. It tells Apex: "The next character is special — treat it as a regular symbol, not as code."
-
 Here's how it actually works:
 
 ```apex
 inside = "He say: \"I hate donuts!\""
 ```
-
-When Apex sees `\"`, it goes: "Oh, this is just a regular double quote that should appear in the text — not the end of my string." Without those `\` backslashes, Apex would get confused and think your string ended too early. With them, everything works perfectly and you get exactly this output:
-
-```bash
-He say: "I hate donuts!"
-```
-
-### Escaping the Backslash Itself
-Backslash itself is a special character, so if you actually want a backslash in your string — like in a file path — you have to escape it too. Double them up:
-
-```apex
-filePath = "C:\\Users\\John\\Documents\\resume.pdf"
-```
-
-Each `\\` is Apex reading: "Okay, the first `\` means something special is coming... oh, the next character is also `\`? Got it, you want an actual backslash printed." Without doubling them, Apex would try to interpret `\U`, `\J`, `\D` as some special characters and everything breaks. Output with double slashes in code:
-
-```bash
-C:\Users\John\Documents\resume.pdf
-```
-
-### String Interpolation
-The way you combine text with variables in Apex is string interpolation — you embed variables directly inside a string by putting the variable name inside curly braces `{}`.
-
-```apex
-name = "Alice"
-age = 30
-greeting = "Hello, {name}"                    // "Hello, Alice"
-message = "{name} is {age} years old"         // "Alice is 30 years old"
-```
-
-Apex automatically converts numbers and other values to strings when you put them inside `{}`. 
-
-Inside the braces, you can also use numeric expressions — they are evaluated first, and then the result is converted to a string:
-
-```apex
-count = 5
-total = "Total: {count * 2}"  // Total: 10
-```
-
-### Curly Braces in Strings
-Escape them the exact same way — `\{` and `\}`:
-
-```apex
-String template = "Hello {0}, your balance is {1}"
-// Apex tries to find variables named "0" and "1"
-
-String template = "Hello \{0\}, your balance is \{1\}"
-// Output: Hello {0}, your balance is {1}
-```
-
-### Line Breaks and Tabs
-Apex has **escape sequences**.
 
 #### Line break — `\n`
 The `n` stands for *newline*.
@@ -260,16 +194,59 @@ Name    Age    City
 Alice   30     London
 ```
 
-### Multiline Strings
-You just hit Enter and keep typing in a regular string wrapped in double quotes `"`.
+#### Escaping the Backslash Itself
+Backslash itself is a special character, so if you actually want a backslash in your string — like in a file path — you have to escape it too. Double them up:
 
 ```apex
-emailBody = "
-    Hello Alice,
+filePath = "C:\\Users\\John\\Documents\\resume.pdf"
+```
+
+Each `\\` is Apex reading: "Okay, the first `\` means something special is coming... oh, the next character is also `\`? Got it, you want an actual backslash printed." Without doubling them, Apex would try to interpret `\U`, `\J`, `\D` as some special characters and everything breaks. Output with double slashes in code:
+
+```bash
+C:\Users\John\Documents\resume.pdf
+```
+
+### String Interpolation
+The way you combine text with variables in Apex is string interpolation — you embed variables directly inside a string by putting the variable name inside curly braces `{}`.
+
+```apex
+name = "Alice"
+age = 30
+greeting = "Hello, {name}"                    // "Hello, Alice"
+message = "{name} is {age} years old"         // "Alice is 30 years old"
+```
+
+Apex automatically converts numbers and other values to strings when you put them inside `{}`. 
+
+Inside the braces, you can also use numeric expressions — they are evaluated first, and then the result is converted to a string:
+
+```apex
+count = 5
+total = "Total: {count * 2}"  // total: 10
+```
+
+### Curly Braces in Strings
+Escape them the exact same way — `\{` and `\}`:
+
+```apex
+template = "Hello {user}, your balance is {count}"
+// apex tries to find variables named "user" and "count"
+
+template = "Hello \{user\}, your balance is \{count\}"
+// output: Hello {user}, your balance is {count}
+```
+
+### Multiline Strings
+You just hit Enter and keep typing in a regular string.
+
+```apex
+email = "
+    Hello,
 
     Thank you for your purchase.
 
-    Your order #12345 has been shipped.
+    Your order has been shipped.
 
     Best regards,
     The Store Team
@@ -277,10 +254,10 @@ emailBody = "
 ```
 
 ## 1.5 Tables
-A table is Apex's universal container. Think of it as a box that can hold multiple values. Need a list of names? Use a table. Need to store information about a user? Use a table. Need both in one place? Table. Tables are flexible — they work as ordered lists and key-value pairs. You can even mix both styles in the same table.
+A table is Apex's universal container. Tables are flexible — they work as ordered lists and key-value pairs. You can even mix both styles in the same table.
 
 ### Creating Tables
-Tables are written inside square brackets `[ ]`. Values are separated by commas.
+Tables are written inside square brackets `[]`. Values are separated by commas.
 
 ```apex
 empty = []                               // empty table — nothing inside
@@ -294,7 +271,7 @@ When you list values without keys, you create an ordered list. Each value has a 
 
 ```apex
 colors = ["red", "green", "blue"]
-// Access by position
+// access by position
 first_color = colors[1]      // "red"
 second_color = colors[2]     // "green"
 third_color = colors[3]      // "blue"
@@ -323,26 +300,25 @@ user_active = user["active"]     // true
 Once a table exists, you can working with keys:
 
 ```apex
-user = [name = "Alice"]
-// Add a new key
+user = ["name" = "Alice"]
+// add a new keys
 user["age"] = 30
 user["city"] = "Dubai"
 user["active"] = true
-// Now user has four keys
-// [name = "Alice", age = 30, city = "Dubai", active = true]
+// now user has four keys
 ```
 
-Updating a value works the same way — just assign a new value to an existing key or position. If you access a non-existent key, you will get an `none`. To remove an item from a table, use the `table.remove()` function from the table library (see section 7.5).
+Updating a value works the same way — just assign a new value to an existing key or position. If you access a non-existent key, you will get an `none`. To remove an item from a table, use the `table.remove()` function from the table library (see [Library Reference](Library_Reference.md)).
 
 ### Mixed Tables
 Tables can combine ordered items and key-value pairs in the same table. Ordered items come first, then key-value pairs:
 
 ```apex
-person = ["Alice", "Manager", department = "Engineering", years = 5]
-// Access ordered items by position
-name = person[1]               // "Alice"
-role = person[2]               // "Manager"
-// Access key-value pairs by key
+person = ["Alice", "Manager", "department" = "Engineering", "years" = 5]
+// access ordered items by position
+name = person[1]                 // "Alice"
+role = person[2]                 // "Manager"
+// access key-value pairs by key
 dept = person["department"]      // "Engineering"
 experience = person["years"]     // 5
 ```
@@ -352,14 +328,14 @@ Tables can contain other tables. This lets you build complex data structures:
 
 ```apex
 company = [
-    name = "Apex",
-    employees = ["Alice", "Bob", "Charlie"],
-    address = [
-        street = "1 Sheikh Mohammed bin Rashid Boulevard",
-        city = "Dubai"
+    "name" = "Apex",
+    "employees" = ["Alice", "Bob", "Charlie"],
+    "address" = [
+        "street" = "1 Sheikh Mohammed bin Rashid Boulevard",
+        "city" = "Dubai"
     ]
 ]
-// Access nested values
+// access nested values
 company_name = company["name"]                  // "Apex"
 first_employee = company["employees"][1]        // "Alice"
 city = company["address"]["city"]               // "Dubai"
@@ -375,7 +351,7 @@ Apex provides two built-in functions for explicit type conversion:
 | `type(x)` | Returns the type name as a string | `type(42)` → `"number"` |
 
 ### number()
-Converts a value to number. You will get an `false` value if conversion fails.
+Converts a value to number. You will get an `none` value if conversion fails.
 
 ```apex
 number("42")       // 42
@@ -443,7 +419,7 @@ Comparison operators compare two values and give you a boolean result: either `t
 | `<=` | Less than or equal | `3 <= 3` | `true` |
 | `>=` | Greater than or equal | `5 >= 5` | `true` |
 
-Comparison operators `<`, `>`, `<=`, `>=` work only with numbers. Using them with strings, booleans, tables, functions, or none will result in a parse-time error. To check equality or inequality of any type, use `==` and `!=`.
+Comparison operators `<`, `>`, `<=`, `>=` work only with numbers. Using them with strings, booleans, tables, or none will result in a parse-time error. To check equality or inequality of any type, use `==` and `!=`.
 
 ## 2.3 Logical Operators
 Logical operators combine boolean values (`true` or `false`) to create more complex conditions.
@@ -484,7 +460,7 @@ In Apex, conditions must be **explicitly boolean**. You cannot use variables dir
 ```apex
 import os
 x = 10
-if x          // ERROR: If condition must be boolean, got number
+if x      // ERROR: If requires a comparison (e.g., 'var != false'), got number
     os.output("Hello")
 ```
 
@@ -492,25 +468,22 @@ if x          // ERROR: If condition must be boolean, got number
 ```apex
 import os
 x = 10
-if x == true       // Correct for booleans
-if x != false      // Also correct
-if x > 5           // Correct because comparison returns boolean
+if x > 5  // correct because comparison returns boolean
+    os.output("Hello")
 ```
 
 Always use comparison operators (`==`, `!=`, `<`, `>`, etc.) or logical operators (`and`, `or`, `not`) to ensure your condition results in a `boolean` value.
 
 ## 3.1 If Statement
-If user doesn't exist, then display output about him. But if we have user, we does nothing and moves on.
-
 ```apex
 import os
-user = false
-if user == false
+user = none
+if user == none
     os.output("No user found")
 ```
 
 ## 3.2 Elif Statement
-Sometimes one condition isn't enough. Use `elif` — short for "else if".
+`elif` — short for "else if".
 
 ```apex
 import os
@@ -528,7 +501,9 @@ Apex checks conditions in order from top to bottom. As soon as one condition is 
 
 ```apex
 import os
+
 score = 55
+
 if score >= 60
     os.output("You passed!")
 else
@@ -548,20 +523,16 @@ os.output(weather)   // Output: hot
 The ternary operator can only be used for short conditions. If the selection logic requires 2 or more checks, you must use regular `if-elif-else` blocks — 2 or more checks are not allowed in a ternary statement.
 
 # 4. For Loops
-## 4.1 For Statement
-A `for` loop repeats code once for each item in a collection. You give it a variable and a table. The loop runs once per item, and each time the variable holds the next value.
+Apex gives you the `for` loop with three different syntaxes to handle all these situations.
 
-# 4. For Loops
-Sometimes you need to do the same thing many times. Print "Hello" ten times. Keep asking for input until the user types something valid. Count down from 10 to 0. Apex gives you the `for` loop with four different syntaxes to handle all these situations.
-
-| Syntax | When to Use | Example |
-|--------|-------------|---------|
-| `for x = start, end` | You know the exact range | `for i = 1, 5` |
-| `for k = table` | Iterate over table items | `for k = my_table` |
-| `for condition` | Repeat while condition is true | `for counter <= 10` |
+| Syntax                | When to Use                    | Example          |
+|-----------------------|--------------------------------|------------------|
+| `for r = start, end`  | You know the exact range       | `for r = 1, 5`   |
+| `for v = table`       | Iterate over table items       | `for v = table`  |
+| `for c == true`       | Repeat while condition is true | `for c == true`  |
 
 ## 4.1 For Counter
-The `for` statement creates a numeric loop. You specify a variable, a starting number, and an ending number. The loop runs once for each number in that range, including the end value.
+The counter creates a numeric loop. You specify a variable, a starting number, and an ending number. The loop runs once for each number in that range, including the end value.
 
 Syntax: `for variable = start, end [, step]`, where step is optional. By default step is 1.
 
@@ -591,24 +562,15 @@ for i = 5, 1, -1
 This prints 5, 4, 3, 2, 1. The loop stops when the variable goes below the `end` value.
 
 ## 4.2 For Table Iteration
-You can iterate over any table using `for key = table`. This will give you access to both the key and the value inside the loop.
+You can iterate over any table using `for value = table`:
 
 ```apex
 import os
+
 fruits = ["apple", "banana", "cherry"]
 
 for fruit = fruits
     os.output(fruit)
-```
-
-For tables with key-value pairs, iteration also returns values:
-
-```apex
-import os
-scores = ["alice" = 95, "bob" = 82, "charlie" = 90]
-
-for score = scores
-    os.output(score)
 ```
 
 ## 4.3 For Condition
@@ -618,6 +580,7 @@ When you don't know how many times you need to repeat, use a condition loop. As 
 import os
 
 counter = 1
+
 for counter <= 5
     os.output(counter)
     counter = counter + 1
@@ -640,6 +603,7 @@ for i = 1, 10
 
 ```apex
 import os
+
 for i = 1, 5
     if i == 3
         continue
