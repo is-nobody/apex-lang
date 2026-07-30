@@ -1,5 +1,5 @@
 # Apex Reference Manual for Beginners (26.07)
-This manual is written with step-by-step learning in mind and strives to be minimalistic. Each section builds on the previous ones. For the best experience, follow the order. If you see a note like "see section X" — that's a hint that you might want to go here if something feels unfamiliar. Don't skip ahead to functions or loops before you understand variables and conditions. Everything connects.
+This manual is written with step-by-step learning in mind and strives to be minimalistic. Each section builds on the previous ones. For the best experience, follow the order. Don't skip ahead to functions or loops before you understand variables and conditions. Everything connects.
 
 ## Table of Contents
 ### Introduction
@@ -49,7 +49,7 @@ This manual is written with step-by-step learning in mind and strives to be mini
 
 # Introduction
 ## About the Project
-Apex is a programming language designed for simplicity and cross-platform development with built-in libraries. Apex is designed to be approachable for beginners while remaining powerful for professional developers. Apex is under the MIT License. All created by one person.
+Apex is a programming language built for speed, power, simplicity, clarity, readability, and modernity. It's under the MIT License. Created by one person.
 
 ### Installing
 Go to the [GitHub releases](https://github.com/is-nobody/apex-lang/releases) page and find the Download section. Select the file for your operating system, download it, and run it.

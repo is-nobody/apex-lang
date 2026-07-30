@@ -48,7 +48,7 @@ This manual is minimalistic. Each section builds on the previous ones. For the b
 
 # Introduction
 ## About the Project
-Apex is a programming language designed for simplicity and cross-platform development. Apex is under the MIT License. All created by one person.
+Apex is a programming language built for speed, power, simplicity, clarity, readability, and modernity. It's under the MIT License. Created by one person.
 
 ## Setting up workspace
 ### Installing
