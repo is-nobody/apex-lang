@@ -82,7 +82,7 @@ Apex determines the type automatically. Main data types in language:
 | `number` | Numbers (Wholes and decimals) | `x = 10`, `x = 3.14` |
 | `string` | Text, sequence of characters | `x = "hello"` |
 | `boolean` | True or false | `x = true`, `x = false` |
-| `table` | Universal container | `x = [1, 2, 3]`, `x = [name = "John"]` |
+| `table` | Universal container | `x = [1, 2, 3]`, `x = ["name" = "John"]` |
 
 The type of a variable can change over time. A variable initially created as a `none` can later become a `string`.
 
