@@ -72,7 +72,7 @@ You'll see the output:
 Hello, Friend
 ```
 
-Congratulations! You've successfully written and run your first Apex program.
+Congratulations! You've successfully written and run your first Apex script.
 
 ### Code Breakdown: "Hello, Friend"
 `import os` — imports the built-in OS (Operating System) library. This library provides functions for interacting with the system, such as outputting text. You can learn more about available functions in the [Library Reference](Library_Reference.md).
