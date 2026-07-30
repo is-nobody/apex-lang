@@ -96,7 +96,7 @@ user = none
 result = none
 ```
 
-Most often, `none` is used as a default value when a function returns no meaningful result, or to reset a variable's value.
+Most often, `none` is used as a default value when a function returns no meaningful result.
 
 ## 1.2 Numbers
 In Apex, you don't need to worry about whether a number is a whole number or a decimal. Apex figures out the rest. There is no limit to numbers.
