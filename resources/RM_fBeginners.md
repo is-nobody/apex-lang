@@ -54,7 +54,9 @@ Apex is a programming language built for speed, power, simplicity, clarity, read
 ### Installing
 Go to the [GitHub releases](https://github.com/is-nobody/apex-lang/releases) page and find the Download section. Select the file for your operating system, download it, and run it.
 
-After running, you'll see the Apex REPL — an interactive environment where you can type file name for executing. REPL stands for Read, Evaluate, Print, Loop. You type something, Apex runs it, shows the result, and waits for more.
+After running, you'll see the Apex REPL — an interactive environment where you can write code for executing. You type something, Apex runs it, shows the result, and waits for new code.
+
+*Alternatively, if you don't want to install anything, you can try language on the [website](https://is-nobody.github.io/apex-lang.html).*
 
 ### Your First Code
 Paste this code into REPL:

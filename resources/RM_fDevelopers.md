@@ -57,6 +57,8 @@ Apex is a programming language built for speed, power, simplicity, clarity, read
 
 Now you're in REPL!
 
+*Alternatively, if you don't want to install anything, you can try language on the [website](https://is-nobody.github.io/apex-lang.html).*
+
 ### Testing the interpreter
 Paste this code into REPL:
 
