@@ -145,18 +145,18 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         return true;                                                                    // builtin handled
     }
     
-    if (strcmp(name, "os.get_current_folder") == 0) {                                   // get current working directory
-        char cwd[4096];                                                                 // buffer for cwd
-        if (getcwd(cwd, sizeof(cwd))) *result = make_string_val(vm, cwd);              // return cwd
-        else *result = MAKE_NONE();                                                     // failed
-        return true;                                                                    // builtin handled
+    if (strcmp(name, "os.get_current_folder") == 0) {                             // get current working directory
+        char cwd[4096];                                                           // buffer for cwd
+        if (getcwd(cwd, sizeof(cwd))) *result = make_string_val(vm, cwd);         // return cwd
+        else *result = MAKE_NONE();                                               // failed
+        return true;                                                              // builtin handled
     }
     
-    if (strcmp(name, "os.set_current_folder") == 0) {                                   // change directory
-        if (arg_count >= 1 && IS_STRING(args[0])) {                                    // validate path
-            *result = MAKE_BOOL(chdir(AS_STRING(args[0])->chars) == 0);                // change and return status
+    if (strcmp(name, "os.set_current_folder") == 0) {                             // change directory
+        if (arg_count >= 1 && IS_STRING(args[0])) {                               // validate path
+            *result = MAKE_BOOL(chdir(AS_STRING(args[0])->chars) == 0);           // change and return status
         } else {
-            *result = MAKE_BOOL(false);                                                 // invalid argument
+            *result = MAKE_BOOL(false);                                           // invalid argument
         }
         return true;                                                              // builtin handled
     }
@@ -292,34 +292,34 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
                 } else if (S_ISDIR(st.st_mode)) {                                          // directory
                     *result = MAKE_NUMBER(calculate_dir_size(AS_STRING(args[0])->chars));  // compute size
                 } else {
-                    *result = MAKE_NONE();                                              // unknown type
+                    *result = MAKE_NONE();  // unknown type
                 }
             } else {
-                *result = MAKE_NONE();                                                  // stat failed
+                *result = MAKE_NONE();      // stat failed
             }
         } else {
-            *result = MAKE_NONE();                                                      // invalid argument
+            *result = MAKE_NONE();          // invalid argument
         }
-        return true;                                                                    // builtin handled
+        return true;                        // builtin handled
     }
     
-    if (strcmp(name, "os.stat") == 0) {                                                 // get file metadata
-        if (arg_count >= 1 && IS_STRING(args[0])) {                                     // validate path
-            struct stat st;                                                             // stat buffer
-            if (stat(AS_STRING(args[0])->chars, &st) == 0) {                            // get stats
-                Table* t = table_create(8);                                             // create result table
-                *result = MAKE_TABLE(t);                                                // box table
+    if (strcmp(name, "os.stat") == 0) {                        // get file metadata
+        if (arg_count >= 1 && IS_STRING(args[0])) {            // validate path
+            struct stat st;                                    // stat buffer
+            if (stat(AS_STRING(args[0])->chars, &st) == 0) {   // get stats
+                Table* t = table_create(8);                    // create result table
+                *result = MAKE_TABLE(t);                       // box table
                 Value k1 = make_string_val(vm, "size"); table_set(t, k1, MAKE_NUMBER(st.st_size)); value_decref(k1);
                 Value k2 = make_string_val(vm, "mtime"); table_set(t, k2, MAKE_NUMBER(st.st_mtime)); value_decref(k2);
                 Value k3 = make_string_val(vm, "ctime"); table_set(t, k3, MAKE_NUMBER(st.st_ctime)); value_decref(k3);
                 Value k4 = make_string_val(vm, "isdir"); table_set(t, k4, MAKE_BOOL(S_ISDIR(st.st_mode) ? true : false)); value_decref(k4);
             } else {
-                *result = MAKE_NONE();                                                  // stat failed
+                *result = MAKE_NONE();                         // stat failed
             }
         } else {
-            *result = MAKE_NONE();                                                      // invalid argument
+            *result = MAKE_NONE();                             // invalid argument
         }
-        return true;                                                                    // builtin handled
+        return true;                                           // builtin handled
     }
     
     if (strcmp(name, "os.filetype") == 0) {                    // detect file type by magic bytes
@@ -329,7 +329,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
                 *result = MAKE_NONE();                         // return none
                 return true;                                   // builtin handled
             }
-            unsigned char header[16];                                                   // magic header buffer
+            unsigned char header[16];                     // magic header buffer
             size_t read_bytes = fread(header, 1, 16, f);  // read header
             fclose(f);                                    // close file
             if (read_bytes == 0) {                        // empty file

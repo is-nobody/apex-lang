@@ -867,12 +867,6 @@ static bool table_equal(Table* a, Table* b, int depth) {
             }
         } else if (IS_NONE(val_a) && IS_NONE(val_b)) {
             // both none, equal
-        } else if (IS_FUNCTION(val_a) && IS_FUNCTION(val_b)) {
-            if (AS_FUNCTION(val_a) != AS_FUNCTION(val_b)) {
-                result = false;  // functions differ
-                value_decref(key);
-                break;
-            }
         } else {
             result = false;     // different types, not equal
             value_decref(key);
@@ -1331,9 +1325,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         else if (IS_NONE(left) || IS_NONE(right)) {
             result = 0;                          // one is none, the other is not
         }
-        else if (IS_FUNCTION(left) && IS_FUNCTION(right)) {
-            result = (AS_FUNCTION(left) == AS_FUNCTION(right));  // compare function indices
-        }
         else if (IS_NUMBER(left) && IS_NUMBER(right)) {
             result = (AS_NUMBER(left) == AS_NUMBER(right));      // compare numeric values
         }
@@ -1359,9 +1350,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
         else if (IS_NONE(left) || IS_NONE(right)) {
             result = 1;                          // one is none, the other is not, so they are neq
-        }
-        else if (IS_FUNCTION(left) && IS_FUNCTION(right)) {
-            result = (AS_FUNCTION(left) != AS_FUNCTION(right));  // compare function indices
         }
         else if (IS_NUMBER(left) && IS_NUMBER(right)) {
             result = (AS_NUMBER(left) != AS_NUMBER(right));      // compare numeric values

@@ -129,15 +129,6 @@ function table_equal_with_numeric_keys_different()
     assert_equal(t1 == t2, false, "numeric keys different")
     assert_equal(t1 != t2, true, "numeric keys different not equal")
 
-function table_equal_function_compare()
-    function add(a, b)
-        return a + b
-    
-    t1 = ["func" = add]
-    t2 = ["func" = add]
-    assert_equal(t1 == t2, true, "tables with same function equal")
-    assert_equal(t1 != t2, false, "tables with same function not equal")
-
 function table_equal_function_different()
     function add(a, b)
         return a + b
@@ -292,7 +283,6 @@ table_equal_order_independent()
 table_equal_with_string_keys()
 table_equal_with_numeric_keys()
 table_equal_with_numeric_keys_different()
-table_equal_function_compare()
 table_equal_function_different()
 table_equal_recursive_limit()
 table_equal_with_float_keys()
