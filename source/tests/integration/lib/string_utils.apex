@@ -5,7 +5,7 @@ function reverse(text)
     len = string.length(text)
     for i = 1, len, 1
         pos = len - i + 1
-        char = string.sub(text, pos - 1, pos)
+        char = string.sub(text, pos, pos)
         result = "{result}{char}"
     return result
 

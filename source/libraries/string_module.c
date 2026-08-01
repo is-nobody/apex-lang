@@ -262,7 +262,7 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             *result = MAKE_NONE();                         // invalid, return none
             return true;                                   // builtin handled
         }
-        int start_char = (int)AS_NUMBER(args[1]);          // start position
+        int start_char = (int)AS_NUMBER(args[1]) - 1;      // start position (1-based)
         size_t end_char = (size_t)AS_NUMBER(args[2]);      // end position
         const char* str = AS_STRING(args[0])->chars;       // source string
         size_t char_count = utf8_strlen(str);              // total character count

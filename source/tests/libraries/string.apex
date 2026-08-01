@@ -33,53 +33,53 @@ function string_upper()
     assert_equal(result, "HELLO WORLD", "string.upper Hello World")
 
 function string_sub()
-    result = string.sub("Hello World", 0, 5)
-    assert_equal(result, "Hello", "string.sub english 0-5")
+    result = string.sub("Hello World", 1, 5)
+    assert_equal(result, "Hello", "string.sub english 1-5")
     
-    result = string.sub("Hello World", 6, 11)
-    assert_equal(result, "World", "string.sub english 6-11")
+    result = string.sub("Hello World", 7, 11)
+    assert_equal(result, "World", "string.sub english 7-11")
     
-    result = string.sub("你好世界", 0, 2)
-    assert_equal(result, "你好", "string.sub chinese 0-2")
+    result = string.sub("你好世界", 1, 2)
+    assert_equal(result, "你好", "string.sub chinese 1-2")
     
-    result = string.sub("你好世界", 2, 4)
-    assert_equal(result, "世界", "string.sub chinese 2-4")
+    result = string.sub("你好世界", 3, 4)
+    assert_equal(result, "世界", "string.sub chinese 3-4")
     
-    result = string.sub("Привет Мир", 0, 6)
-    assert_equal(result, "Привет", "string.sub russian 0-6")
+    result = string.sub("Привет Мир", 1, 6)
+    assert_equal(result, "Привет", "string.sub russian 1-6")
     
-    result = string.sub("Привет Мир", 7, 10)
-    assert_equal(result, "Мир", "string.sub russian 7-10")
+    result = string.sub("Привет Мир", 8, 10)
+    assert_equal(result, "Мир", "string.sub russian 8-10")
     
-    result = string.sub("السلام عليكم", 0, 6)
-    assert_equal(result, "السلام", "string.sub arabic 0-6")
+    result = string.sub("السلام عليكم", 1, 6)
+    assert_equal(result, "السلام", "string.sub arabic 1-6")
     
-    result = string.sub("السلام عليكم", 7, 12)
-    assert_equal(result, "عليكم", "string.sub arabic 7-12")
+    result = string.sub("السلام عليكم", 8, 13)
+    assert_equal(result, "عليكم", "string.sub arabic 8-13")
     
-    result = string.sub("Hello Привет 你好", 0, 5)
-    assert_equal(result, "Hello", "string.sub mixed 0-5")
+    result = string.sub("Hello Привет 你好", 1, 5)
+    assert_equal(result, "Hello", "string.sub mixed 1-5")
     
-    result = string.sub("Hello Привет 你好", 6, 12)
-    assert_equal(result, "Привет", "string.sub mixed 6-12")
+    result = string.sub("Hello Привет 你好", 7, 12)
+    assert_equal(result, "Привет", "string.sub mixed 7-12")
     
-    result = string.sub("Hello Привет 你好", 13, 15)
-    assert_equal(result, "你好", "string.sub mixed 13-15")
+    result = string.sub("Hello Привет 你好", 14, 15)
+    assert_equal(result, "你好", "string.sub mixed 14-15")
     
-    result = string.sub("", 0, 5)
+    result = string.sub("", 1, 5)
     assert_equal(result, "", "string.sub empty")
     
-    result = string.sub("Hello", 0, 10)
+    result = string.sub("Hello", 1, 10)
     assert_equal(result, "Hello", "string.sub beyond end")
     
-    result = string.sub("Hello", -5, 5)
+    result = string.sub("Hello", -4, 5)
     assert_equal(result, "Hello", "string.sub negative start")
     
-    result = string.sub("😊🌟", 0, 1)
-    assert_equal(result, "😊", "string.sub emoji 0-1")
+    result = string.sub("😊🌟", 1, 1)
+    assert_equal(result, "😊", "string.sub emoji 1-1")
     
-    result = string.sub("😊🌟", 1, 2)
-    assert_equal(result, "🌟", "string.sub emoji 1-2")
+    result = string.sub("😊🌟", 2, 2)
+    assert_equal(result, "🌟", "string.sub emoji 2-2")
 
 function string_split()
     parts = string.split("a,b,c", ",")
