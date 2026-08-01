@@ -79,22 +79,10 @@ static bool base64_decode(const char* str, unsigned char* out, int* out_len) {
         }
     }
     
-    if (padding > 0) {                                                       // check padding validity
-        int eq_pos = -1;                                                     // position of padding
-        for (int i = len - 1; i >= 0; i--) {                                 // find padding start
-            if (str[i] == '=') eq_pos = i;                                   // update position
-            else break;                                                      // stop at first non-padding
-        }
-        if (eq_pos > 0 && str[eq_pos - 1] != '=') {                          // invalid padding
-            return false;
-        }
-        if ((len - padding) % 4 != 0) return false;                          // invalid length
-        if (padding > 2) return false;                                       // too much padding
-        *out_len -= padding;                                                 // adjust output length
-        if (*out_len < 0) *out_len = 0;                                      // clamp negative
-    } else {
-        if (len % 4 != 0) return false;                                      // invalid length
-    }
+    if (padding == 1 && bits_left != 2) return false;                      // 1 '=' = 2 extra bits
+    if (padding == 2 && bits_left != 4) return false;                      // 2 '=' = 4 extra bits
+    if (padding > 2) return false;                                         // too much padding
+    if (padding == 0 && len % 4 != 0) return false;                        // no padding, length must be multiple of 4
     
     return true;                                                             // success
 }
