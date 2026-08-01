@@ -139,6 +139,7 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         if (uname(&buffer) == 0) {                                            // get system info
             if (strcmp(buffer.machine, "aarch64") == 0) arch = "arm64";       // 64-bit arm
             else if (strncmp(buffer.machine, "armv7", 5) == 0) arch = "arm";  // 32-bit arm
+            else if (strcmp(buffer.machine, "x86_64") == 0) arch = "x86-64";  // 64-bit x86
             else if (strncmp(buffer.machine, "i686", 4) == 0 || strncmp(buffer.machine, "i386", 4) == 0) arch = "x86";  // 32-bit x86
             else if (strlen(buffer.machine) > 0) arch = buffer.machine;  // use kernel reported
         }
