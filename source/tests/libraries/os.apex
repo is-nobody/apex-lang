@@ -104,7 +104,7 @@ function size_file()
     assert_equal(size_no, none, "nonexistent size is false")
 
 function wait()
-    os.wait(0.01)
+    os.wait(0.001)
     assert_equal(true, true, "wait completed")
 
 function get_current_folder()
