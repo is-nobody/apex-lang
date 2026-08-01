@@ -270,7 +270,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "os.terminate_process", "os.execute",
         "os.read", "os.write", "os.append",
         "os.exists", "os.isfile", "os.isfolder", "os.size",
-        "os.filetype", "os.stat",
+        "os.stat",
         "os.create_file", "os.create_folder",
         "os.delete", "os.rename", 
         "os.move", "os.copy",

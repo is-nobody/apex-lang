@@ -322,48 +322,6 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         return true;                                           // builtin handled
     }
     
-    if (strcmp(name, "os.filetype") == 0) {                    // detect file type by magic bytes
-        if (arg_count >= 1 && IS_STRING(args[0])) {            // validate path
-            FILE* f = fopen(AS_STRING(args[0])->chars, "rb");  // open file
-            if (!f) {                                          // failed
-                *result = MAKE_NONE();                         // return none
-                return true;                                   // builtin handled
-            }
-            unsigned char header[16];                     // magic header buffer
-            size_t read_bytes = fread(header, 1, 16, f);  // read header
-            fclose(f);                                    // close file
-            if (read_bytes == 0) {                        // empty file
-                *result = MAKE_NONE();                    // return none
-            } else if (read_bytes >= 4 && header[0] == '%' && header[1] == 'P' && header[2] == 'D' && header[3] == 'F') {
-                *result = make_string_val(vm, "PDF document");
-            } else if (read_bytes >= 8 && header[0] == 0x89 && header[1] == 'P' && header[2] == 'N' && header[3] == 'G' && header[4] == '\r' && header[5] == '\n' && header[6] == 0x1A && header[7] == '\n') {
-                *result = make_string_val(vm, "PNG image");
-            } else if (read_bytes >= 3 && header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF) {
-                *result = make_string_val(vm, "JPEG image");
-            } else if (read_bytes >= 6 && (memcmp(header, "GIF87a", 6) == 0 || memcmp(header, "GIF89a", 6) == 0)) {
-                *result = make_string_val(vm, "GIF image");
-            } else if (read_bytes >= 4 && header[0] == 'P' && header[1] == 'K' && (header[2] == 0x03 || header[2] == 0x05 || header[2] == 0x07) && header[3] == 0x04) {
-                *result = make_string_val(vm, "ZIP archive");
-            } else if (read_bytes >= 4 && header[0] == 0x7F && header[1] == 'E' && header[2] == 'L' && header[3] == 'F') {
-                *result = make_string_val(vm, "ELF executable");
-            } else if (read_bytes >= 2 && header[0] == 'M' && header[1] == 'Z') {
-                *result = make_string_val(vm, "Windows executable");
-            } else {
-                bool is_text = true;                                                       // assume text
-                for (size_t i = 0; i < read_bytes; i++) {                                  // check printable
-                    if (header[i] < 32 && header[i] != '\n' && header[i] != '\r' && header[i] != '\t') {  // control char
-                        is_text = false;                                                   // binary
-                        break;                                                             // exit loop
-                    }
-                }
-                *result = make_string_val(vm, is_text ? "Plain text" : "Unknown binary");  // text or binary
-            }
-        } else {
-            *result = MAKE_NONE();                                              // invalid argument
-        }
-        return true;                                                            // builtin handled
-    }
-    
     if (strcmp(name, "os.create_file") == 0) {                                  // create empty file
         if (arg_count >= 1 && IS_STRING(args[0])) {                             // validate path
             FILE* f = fopen(AS_STRING(args[0])->chars, "w");                    // create file

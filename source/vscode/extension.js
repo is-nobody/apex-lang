@@ -112,7 +112,7 @@ function activate(context) {
                 'os.terminate_process', 'os.execute',
                 'os.read', 'os.write', 'os.append',
                 'os.exists', 'os.isfile', 'os.isfolder', 
-                'os.size', 'os.stat', 'os.filetype',
+                'os.size', 'os.stat',
                 'os.create_file', 'os.create_folder', 
                 'os.delete', 'os.rename', 'os.move', 'os.copy',
                 'os.items', 'os.parentfolder', 'os.access',
