@@ -303,25 +303,6 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         return true;                        // builtin handled
     }
     
-    if (strcmp(name, "os.stat") == 0) {                        // get file metadata
-        if (arg_count >= 1 && IS_STRING(args[0])) {            // validate path
-            struct stat st;                                    // stat buffer
-            if (stat(AS_STRING(args[0])->chars, &st) == 0) {   // get stats
-                Table* t = table_create(8);                    // create result table
-                *result = MAKE_TABLE(t);                       // box table
-                Value k1 = make_string_val(vm, "size"); table_set(t, k1, MAKE_NUMBER(st.st_size)); value_decref(k1);
-                Value k2 = make_string_val(vm, "mtime"); table_set(t, k2, MAKE_NUMBER(st.st_mtime)); value_decref(k2);
-                Value k3 = make_string_val(vm, "ctime"); table_set(t, k3, MAKE_NUMBER(st.st_ctime)); value_decref(k3);
-                Value k4 = make_string_val(vm, "isdir"); table_set(t, k4, MAKE_BOOL(S_ISDIR(st.st_mode) ? true : false)); value_decref(k4);
-            } else {
-                *result = MAKE_NONE();                         // stat failed
-            }
-        } else {
-            *result = MAKE_NONE();                             // invalid argument
-        }
-        return true;                                           // builtin handled
-    }
-    
     if (strcmp(name, "os.create_file") == 0) {                                  // create empty file
         if (arg_count >= 1 && IS_STRING(args[0])) {                             // validate path
             FILE* f = fopen(AS_STRING(args[0])->chars, "w");                    // create file
