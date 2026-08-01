@@ -2545,6 +2545,12 @@ static ASTNode* parse_statement(Parser* parser) {
         case TOKEN_ELIF:
             return parse_if_statement(parser);
 
+        case TOKEN_ELSE: {
+            advance(parser);
+            parser->expecting_indented_block = true;
+            return parse_block(parser, true, "else");
+        }
+
         case TOKEN_FOR:
             return parse_for_statement(parser);
             
