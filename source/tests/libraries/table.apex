@@ -55,9 +55,13 @@ function table_remove()
 
 function table_clear()
     t = [1, 2, 3]
-    table.clear(t)
+    result = table.clear(t)
+    assert_equal(result, true, "table.clear returns true")
     size = table.size(t)
-    assert_equal(size, 0, "table.clear")
+    assert_equal(size, 0, "table.clear size")
+    fake = os.exists("nothing")
+    result_none = table.clear(fake)
+    assert_equal(result_none, none, "table.clear none returns false")
 
 function table_copy()
     original = ["x" = 1, "y" = 2]

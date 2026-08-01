@@ -97,7 +97,7 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
     
     if (strcmp(name, "table.clear") == 0) {                        // clear all entries
         table_clear(table);                                        // remove all key-value pairs
-        *result = MAKE_NONE();                                     // return none
+        *result = MAKE_BOOL(true);                                 // return true
         return true;                                               // builtin handled
     }
     
