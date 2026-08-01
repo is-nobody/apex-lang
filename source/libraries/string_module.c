@@ -220,12 +220,12 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             return true;                                                    // builtin handled
         }
         char* pos = strstr(AS_STRING(args[0])->chars, AS_STRING(args[1])->chars);  // find substring
-        if (pos) {                                                   // found
-            *result = MAKE_NUMBER(pos - AS_STRING(args[0])->chars);  // return byte offset
-        } else {                                                     // not found
-            *result = MAKE_NUMBER(-1);                               // return -1
+        if (pos) {                                                          // found
+            *result = MAKE_NUMBER((pos - AS_STRING(args[0])->chars) + 1);   // return byte offset
+        } else {                                                            // not found
+            *result = MAKE_NUMBER(-1);                                      // return -1
         }
-        return true;                                                 // builtin handled
+        return true;                                                        // builtin handled
     }
     
     if (strcmp(name, "string.replace") == 0) {                       // replace first occurrence

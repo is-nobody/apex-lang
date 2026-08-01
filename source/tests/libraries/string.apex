@@ -110,10 +110,10 @@ function string_trim()
 
 function string_find()
     index = string.find("Hello World", "World")
-    assert_equal(index, 6, "string.find World")
+    assert_equal(index, 7, "string.find World")
     
     index = string.find("Hello World", "Hello")
-    assert_equal(index, 0, "string.find Hello")
+    assert_equal(index, 1, "string.find Hello")
     
     index = string.find("Hello World", "xyz")
     assert_equal(index, -1, "string.find not found")
