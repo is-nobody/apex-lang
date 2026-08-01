@@ -285,7 +285,7 @@ static bool json_parse_value(VM* vm, const char** json_str, Value* out_value) {
     char c = **json_str;                                                          // current char
     
     if (strncmp(*json_str, "null", 4) == 0) {                                     // null literal
-        *out_value = MAKE_BOOL(false);                                            // store as false (none)
+        *out_value = MAKE_NONE();                                                 // store as none
         *json_str += 4;                                                           // advance
         return true;                                                              // success
     }

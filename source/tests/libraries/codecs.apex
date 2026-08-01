@@ -45,6 +45,7 @@ function json_primitives()
     assert_equal(codecs.json_write(42), "42", "json_write number")
     assert_equal(codecs.json_write("hello"), "\"hello\"", "json_write string")
     assert_equal(codecs.json_write(true), "true", "json_write true")
+    assert_equal(codecs.json_write(none), "null", "json_write none")
 
 function json_array()
     arr = ["apple", "banana", "cherry"]
