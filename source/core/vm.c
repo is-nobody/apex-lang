@@ -16,8 +16,18 @@
 // union for reinterpret double bits as uint64
 typedef union { uint64_t u; double d; } du64;
 
-// forward declare string free
+
+// dynamic string builder for efficient concatenation
+typedef struct {
+    char* buffer;  // dynamically allocated char buffer
+    int length;    // current string length
+    int capacity;  // total buffer capacity
+} StringBuilder;
+
+// forward declarations
 static void string_destroy(StringObject* str);
+static char* table_to_string(Table* table);
+static void table_to_string_builder(Table* table, StringBuilder* sb, int indent_level);
 
 // returns the type of a nan-boxed value
 ValueType_VM value_get_type(Value v) {
@@ -215,6 +225,17 @@ static const char* value_to_cstr(Value v, char* buf, int buf_size) {
         return "none";                                   // string representation of none
     } else if (IS_BOOL(v)) {
         return AS_BOOL(v) ? "true" : "false";            // string representation of bool
+    } else if (IS_TABLE(v)) {
+        char* str = table_to_string(AS_TABLE(v));        // convert table to string
+        int len = (int)strlen(str);                      // get length
+        if (len < buf_size) {                            // fits in buffer
+            memcpy(buf, str, len + 1);                   // copy to buffer
+        } else {                                         // too large
+            memcpy(buf, str, buf_size - 1);              // copy what fits
+            buf[buf_size - 1] = '\0';                    // null terminate
+        }
+        free(str);                                       // free temp string
+        return buf;                                      // return buffer
     } else {
         return "";                                       // fallback empty string
     }
@@ -297,13 +318,6 @@ const char* vm_value_type_name(Value value) {
     return "unknown";                                        // fallback for unhandled types
 }
 
-// dynamic string builder for efficient concatenation
-typedef struct {
-    char* buffer;                    // dynamically allocated char buffer
-    int length;                      // current string length
-    int capacity;                    // total buffer capacity
-} StringBuilder;
-
 // init string builder with given capacity, min 16 bytes
 static void sb_init(StringBuilder* sb, int initial_capacity) {
     sb->capacity = initial_capacity > 16 ? initial_capacity : 16;  // ensure minimum capacity
@@ -378,8 +392,6 @@ static bool key_equal(Value a, Value b) {
     if (a == b) return true;                                   // bitwise identical tagged values
     return false;                                              // different types or values
 }
-
-static void table_to_string_builder(Table* table, StringBuilder* sb, int indent_level);
 
 // convert a table to a heap-allocated string representation
 static char* table_to_string(Table* table) {
@@ -1582,7 +1594,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int dest = ip->operands[0];                // dest register index
         Value left  = vm->registers[ip->operands[1]];  // left operand
         Value right = vm->registers[ip->operands[2]];  // right operand
-        char lbuf[64], rbuf[64];                   // temp buffers for number/bool to string conversion
+        char lbuf[4096], rbuf[4096];                   // temp buffers for string conversion
         const char* ls = value_to_cstr(left, lbuf, sizeof(lbuf));   // convert left to c string
         const char* rs = value_to_cstr(right, rbuf, sizeof(rbuf));  // convert right to c string
         int llen = IS_STRING(left) ? AS_STRING(left)->length : (int)strlen(ls);    // left length
