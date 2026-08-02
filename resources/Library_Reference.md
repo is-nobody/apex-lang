@@ -344,7 +344,9 @@ Returns a string identifying your operating system, such as `"Windows"`, `"macOS
 import os
 import sys
 
-if sys.platform() != none
+system = sys.platform()
+
+if system != none
     os.output("You're running on {system}")
 ```
 
@@ -362,7 +364,9 @@ Returns `none` if the architecture cannot be detected.
 import os
 import sys
 
-if sys.architecture() != none
+arch = sys.architecture()
+
+if arch != none
     os.output("System Architecture: {arch}")
 ```
 
@@ -373,8 +377,10 @@ Returns the system's hostname as a string. Returns `none` on failure.
 import os
 import sys
 
-if sys.hostname() != none
-    os.output("Hostname: {name}")
+host = sys.hostname()
+
+if host != none
+    os.output("Hostname: {host}")
 ```
 
 ### sys.user()
@@ -384,8 +390,10 @@ Returns the current user's login name as a string. Returns `none` if it can't be
 import os
 import sys
 
-if sys.user() != none
-    os.output("Logged in as: {username}")
+user = sys.user()
+
+if user != none
+    os.output("Logged in as: {user}")
 ```
 
 ### sys.homedir()
@@ -395,7 +403,9 @@ Returns the current user's home directory path as a string. Returns `none` if it
 import os
 import sys
 
-if sys.homedir() != none
+home = sys.homedir()
+
+if home != none
     os.output("Home folder: {home}")
 ```
 
@@ -450,8 +460,8 @@ import sys
 info = sys.disksize()
 
 if info != none
-    os.output("Total: {info['total']} MB")
-    os.output("Free: {info['free']} MB")
+    os.output("Total: {info['total'] / 1024} GB")
+    os.output("Free: {info['free'] / 1024} GB")
 ```
 
 ### sys.tempdir()
@@ -615,7 +625,6 @@ Returns the logarithm of `x`. Without a base, uses the natural logarithm (base `
 
 ```apex
 import math
-
 math.log(2.718281828459045)  // ~1 (natural log of e)
 math.log(100, 10)            // 2 (10² = 100)
 math.log(8, 2)               // 3 (2³ = 8)
@@ -750,7 +759,6 @@ Returns `true` if the value is positive or negative infinity, `false` otherwise.
 
 ```apex
 import math
-
 math.isinf(math.inf())   // true
 math.isinf(-math.inf())  // true
 math.isinf(1000)         // false
@@ -779,9 +787,7 @@ Converts every character in the string to lowercase. Returns `none` if the argum
 ```apex
 import os
 import string
-
 os.output(string.lower("HELLO"))  // "hello"
-os.output(string.lower("Hello"))  // "hello"
 ```
 
 ### string.upper(s)
@@ -790,9 +796,7 @@ Converts every character in the string to uppercase. Returns `none` if the argum
 ```apex
 import os
 import string
-
 os.output(string.upper("hello"))     // "HELLO"
-os.output(string.upper("Hello"))     // "HELLO"
 ```
 
 ### string.sub(s, start, end)
@@ -806,7 +810,7 @@ text = "Hello, World"
 result = string.sub(text, 1, 5)
 
 if result != none
-    os.output(result)    // "Hello"
+    os.output(result)  // "Hello"
 ```
 
 If `start` is negative, it's treated as `1`. If `end` is larger than the string length, it stops at the end.
@@ -852,8 +856,6 @@ Removes whitespace (spaces, tabs, newlines) from the beginning and end of a stri
 ```apex
 import os
 import string
-
-os.output(string.trim("   apex   lang   "))  // "apex   lang" (inner spaces kept)
 os.output(string.trim("\n  text \n"))        // "text"
 ```
 
@@ -887,27 +889,29 @@ if result != none
 Checks if the first character of the string is a letter (supports all modern writing systems: Latin, Cyrillic, Arabic, Chinese, Japanese, Korean, Hebrew, Greek, Devanagari, and many more). Returns `false` on failure.
 
 ```apex
+import os
 import string
 
-string.isletter("Hello")   // true
-string.isletter("Привет")  // true (Cyrillic)
-string.isletter("مرحبا")   // true (Arabic)
-string.isletter("你好")     // true (Chinese)
-string.isletter("123")     // false (number)
-string.isletter("!")       // false (punctuation)
-string.isletter("")        // false (empty string)
+os.output(string.isletter("Hello"))   // true
+os.output(string.isletter("Привет"))  // true (Cyrillic)
+os.output(string.isletter("مرحبا"))   // true (Arabic)
+os.output(string.isletter("你好"))     // true (Chinese)
+os.output(string.isletter("123"))     // false (number)
+os.output(string.isletter("!"))       // false (punctuation)
+os.output(string.isletter(""))        // false (empty string)
 ```
 
 ### string.isnumber(s)
 Checks if the first character of the string is a digit (0-9). Returns `false` on failure.
 
 ```apex
+import os
 import string
 
-string.isnumber("123")     // true
-string.isnumber("5hello")  // true (first char is '5')
-string.isnumber("abc")     // false
-string.isnumber("")        // false
+os.output(string.isnumber("123"))     // true
+os.output(string.isnumber("5hello"))  // true (first char is '5')
+os.output(string.isnumber("abc"))     // false
+os.output(string.isnumber(""))        // false
 ```
 
 ## Table Library (table)
@@ -1345,12 +1349,12 @@ Encodes a string to standard Base64. Returns the encoded string, or `none` on fa
 import os
 import codecs
 
-encoded = codecs.base_write("Hello World")
+encoded = codecs.base_write("Hello, Friend!")
 
 if encoded == none
     os.output("Encoding failed")
 else
-    os.output(encoded)  // SGVsbG8gV29ybGQ=
+    os.output(encoded)  // SGVsbG8sIEZyaWVuZCE=
 ```
 
 ### codecs.base_read(data)
@@ -1360,12 +1364,12 @@ Decodes a standard Base64 string. Returns the decoded string, or `none` on failu
 import os
 import codecs
 
-decoded = codecs.base_read("SGVsbG8gV29ybGQ=")
+decoded = codecs.base_read("SGVsbG8sIEZyaWVuZCE=")
 
 if decoded == none
     os.output("Decoding failed")
 else
-    os.output(decoded)  // Hello World
+    os.output(decoded)  // Hello, Friend!
 ```
 
 ### codecs.baseurl_write(data)
@@ -1375,12 +1379,12 @@ Encodes a string to URL-safe Base64. Returns the encoded string, or `none` on fa
 import os
 import codecs
 
-encoded = codecs.baseurl_write("Hello World?")
+encoded = codecs.baseurl_write("Hello, Friend!")
 
 if encoded == none
     os.output("Encoding failed")
 else
-    os.output(encoded)
+    os.output(encoded) // SGVsbG8sIEZyaWVuZCE
 ```
 
 ### codecs.baseurl_read(data)
@@ -1390,12 +1394,12 @@ Decodes a URL-safe Base64 string. Returns the decoded string, or `none` on failu
 import os
 import codecs
 
-decoded = codecs.baseurl_read("SGVsbG8gV29ybGQ_")
+decoded = codecs.baseurl_read("SGVsbG8sIEZyaWVuZCE")
 
 if decoded == none
     os.output("Decoding failed")
 else
-    os.output(decoded)  // Hello World?
+    os.output(decoded)  // Hello, Friend!
 ```
 
 ### codecs.json_write(value)
@@ -1427,7 +1431,7 @@ data = codecs.json_read(json_str)
 if data == none
     os.output("JSON parsing failed")
 else
-    os.output("Name: {data['name']}")
+    os.output("Name: {data['name']}")  // Name: Alice
 ```
 
 ### codecs.csv_write(table, has_header, delimiter)
@@ -1497,7 +1501,7 @@ Parses an XML string into a table structure. Returns the root element as a table
 import os
 import codecs
 
-xml_str = "<root id='1'><child>Hello</child></root>"
+xml_str = '<root id="1"><child>Hello</child></root>'
 data = codecs.xml_read(xml_str)
 
 if data == none

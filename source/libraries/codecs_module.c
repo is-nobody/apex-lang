@@ -773,63 +773,118 @@ static void xml_write_node(VM* vm, Value v, int depth, StringBuilder* sb) {
         }
     }
     
-    bool has_children = false;                                                 // child flag
     Value k_text = MAKE_STRING(string_intern(&vm->intern_table, "#text", 5));  // text key
     Value text_val;                                                            // text value
-    bool has_text = table_get(table, k_text, &text_val);                       // check text
-    value_decref(k_text);                                                      // release key
+    bool has_text = table_get(table, k_text, &text_val);                       // check for text node
+    value_decref(k_text);                                                      // release text key
     
-    for (int i = 1; ; i++) {                                                   // check for children
-        Value k = MAKE_NUMBER((double)i);                                      // child key
-        Value child;                                                           // child value
-        if (table_get(table, k, &child)) {                                     // has child
-            has_children = true;                                               // set flag
-            value_decref(child);                                               // release child
+    bool has_children = false;                                                 // child elements flag
+    
+    for (int i = 1; i <= table->array_count; i++) {                            // scan array part
+        Value k = MAKE_NUMBER((double)i);                                      // create index key
+        Value child_val;                                                       // child value placeholder
+        if (table_get(table, k, &child_val)) {                                 // child exists at this index
+            has_children = true;                                               // mark has children
+            value_decref(child_val);                                           // release child value
             value_decref(k);                                                   // release key
-        } else {
-            value_decref(k);                                                   // release key
-            break;                                                             // no more children
+            break;                                                             // found at least one, stop scanning
+        }
+        value_decref(k);                                                       // release key
+    }
+    
+    if (!has_children) {                                                       // still not found in array
+        for (int i = 0; i < table->capacity; i++) {                            // iterate hash buckets
+            TableEntry* e = table->entries[i];                                 // bucket head
+            while (e) {                                                        // traverse chain
+                if (IS_STRING(e->key)) {                                       // string key
+                    StringObject* key_str = AS_STRING(e->key);                 // key string
+                    if (key_str->chars[0] != '@' && 
+                        key_str->chars[0] != '_' &&
+                        key_str->chars[0] != '#') {                            // likely a child key
+                        bool is_numeric_key = true;                            // assume numeric
+                        for (int j = 0; j < key_str->length; j++) {            // check each char
+                            if (!isdigit((unsigned char)key_str->chars[j])) {  // not a digit
+                                is_numeric_key = false;                        // not numeric
+                                break;
+                            }
+                        }
+                        if (is_numeric_key && key_str->length > 0) {           // numeric string key found
+                            has_children = true;                               // mark has children
+                            break;                                             // stop scanning
+                        }
+                    }
+                }
+                e = e->next;                                                   // advance
+            }
+            if (has_children) break;                                           // break outer loop
         }
     }
     
-    if (has_children || has_text) {                                            // has content
+    if (has_children || has_text) {                                            // element has content
         sb_append(sb, ">", 1);                                                 // close opening tag
-        if (has_text) {                                                        // has text
+        if (has_text) {                                                        // has text content
             if (IS_STRING(text_val)) {                                         // valid text
                 StringObject* text_str = AS_STRING(text_val);                  // text string
                 sb_append(sb, text_str->chars, text_str->length);              // append text
             }
-            value_decref(text_val);                                            // release text
+            value_decref(text_val);                                            // release text value
         }
-        if (has_children) sb_append(sb, "\n", 1);                              // newline after children
+        if (has_children) sb_append(sb, "\n", 1);                              // newline before children
         
-        for (int i = 1; ; i++) {                                               // write children
-            Value k = MAKE_NUMBER((double)i);                                  // child key
-            Value child;                                                       // child value
-            if (table_get(table, k, &child)) {                                 // has child
+        for (int i = 1; i <= table->array_count; i++) {                        // iterate array children
+            Value k = MAKE_NUMBER((double)i);                                  // child index key
+            Value child_val;                                                   // child value
+            if (table_get(table, k, &child_val)) {                             // child found
                 value_decref(k);                                               // release key
-                xml_write_node(vm, child, depth + 1, sb);                      // write child
-                value_decref(child);                                           // release child
+                xml_write_node(vm, child_val, depth + 1, sb);                  // recursively write child
+                value_decref(child_val);                                       // release child value
             } else {
                 value_decref(k);                                               // release key
                 break;                                                         // no more children
             }
         }
         
-        for (int i = 0; i < depth; i++) sb_append(sb, "  ", 2);                     // indent
-        sb_append(sb, "</", 2);                                                     // closing tag start
+        for (int i = 0; i < table->capacity; i++) {                            // iterate hash buckets
+            TableEntry* e = table->entries[i];                                 // bucket head
+            while (e) {                                                        // traverse chain
+                if (IS_STRING(e->key)) {                                       // string key
+                    StringObject* key_str = AS_STRING(e->key);                 // key string
+                    if (key_str->chars[0] != '@' && 
+                        key_str->chars[0] != '_' &&
+                        key_str->chars[0] != '#') {                            // likely a child key
+                        bool is_numeric_key = true;                            // assume numeric
+                        for (int j = 0; j < key_str->length; j++) {            // check each char
+                            if (!isdigit((unsigned char)key_str->chars[j])) {  // not a digit
+                                is_numeric_key = false;                        // not numeric
+                                break;
+                            }
+                        }
+                        if (is_numeric_key && key_str->length > 0) {           // numeric string key
+                            xml_write_node(vm, e->value, depth + 1, sb);       // recursively write child
+                        }
+                    }
+                }
+                e = e->next;                                                   // advance
+            }
+        }
+        
+        if (has_children) {                                                    // indent closing tag if has children
+            for (int i = 0; i < depth; i++) sb_append(sb, "  ", 2);            // indent
+        }
+        sb_append(sb, "</", 2);                                                // closing tag start
+        
         Value k_close = MAKE_STRING(string_intern(&vm->intern_table, "__tag", 5));  // tag key
         if (table_get(table, k_close, &tag_val)) {                                  // get tag
             value_decref(k_close);                                                  // release key
-            if (IS_STRING(tag_val)) {                                               // valid tag
+            if (IS_STRING(tag_val)) {                                               // valid tag string
                 StringObject* close_str = AS_STRING(tag_val);                       // tag string
-                sb_append(sb, close_str->chars, close_str->length);                 // append tag
+                sb_append(sb, close_str->chars, close_str->length);                 // append tag name
             }
-            value_decref(tag_val);                                                  // release tag
+            value_decref(tag_val);                                                  // release tag value
         } else {
             value_decref(k_close);                                                  // release key
         }
-        sb_append(sb, ">\n", 2);                                                    // closing tag end
+        sb_append(sb, ">\n", 2);                                                    // closing tag end with newline
     } else {
         sb_append(sb, "/>\n", 3);                                                   // self-closing tag
     }
