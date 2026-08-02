@@ -1467,7 +1467,7 @@ data = codecs.csv_read(csv_str, true, ",")
 if data == none
     os.output("CSV parsing failed")
 else
-    os.output("First name: {data['1']['name']}")
+    os.output("First name: {data[1]['name']}")
 ```
 
 ### codecs.xml_write(table)

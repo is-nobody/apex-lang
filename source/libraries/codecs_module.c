@@ -1104,14 +1104,39 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             return true;                                                              // builtin handled
         }
         
-        Value k_first = MAKE_NUMBER(1.0);                                             // first row key
         Value first_row_val;                                                          // first row value
-        if (!table_get(data, k_first, &first_row_val) || !IS_TABLE(first_row_val)) {  // get first row
-            value_decref(k_first);                                                    // release key
-            *result = MAKE_NONE();                                                    // invalid
+        bool found_first = false;                                                     // found flag
+        
+        if (data->array_count > 0 && IS_TABLE(data->array_part[0])) {                 // array part has rows
+            first_row_val = data->array_part[0];                                      // get first row (0-based)
+            value_incref(first_row_val);                                              // increment ref for ownership
+            found_first = true;                                                       // found
+        }
+        
+        if (!found_first) {                                                           // not found yet
+            Value k_num = MAKE_NUMBER(1.0);                                           // numeric key
+            if (table_get(data, k_num, &first_row_val) && IS_TABLE(first_row_val)) {  // found
+                found_first = true;                                                   // mark found
+            } else {
+                value_decref(first_row_val);                                          // release if invalid
+            }
+            value_decref(k_num);                                                      // release key
+        }
+        
+        if (!found_first) {                                                           // not found yet
+            Value k_str = MAKE_STRING(string_intern(&vm->intern_table, "1", 1));      // string key
+            if (table_get(data, k_str, &first_row_val) && IS_TABLE(first_row_val)) {  // found
+                found_first = true;                                                   // mark found
+            } else {
+                value_decref(first_row_val);                                          // release if invalid
+            }
+            value_decref(k_str);                                                      // release key
+        }
+        
+        if (!found_first) {                                                           // no first row
+            *result = MAKE_NONE();                                                    // return none
             return true;                                                              // builtin handled
         }
-        value_decref(k_first);                                                    // release key
         
         int header_count = 0;                                                     // header count
         Value* headers = table_keys(AS_TABLE(first_row_val), &header_count);      // get headers
@@ -1145,47 +1170,78 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             sb_append(&sb, "\n", 1);                                            // newline
         }
         
-        for (int r = 1; r <= row_count; r++) {                                  // iterate rows
-            Value k_row = MAKE_NUMBER((double)r);                               // row key
-            Value row_val;                                                      // row value
-            if (!table_get(data, k_row, &row_val) || !IS_TABLE(row_val)) {      // get row
-                value_decref(k_row);                                            // release key
-                continue;                                                       // skip invalid row
+        int written = 0;                                                               // rows written
+        int total_rows = data->array_count > 0 ? data->array_count : row_count;        // rows to try
+        
+        for (int r = 1; r <= total_rows + 10; r++) {                                   // iterate possible rows
+            Value row_val;                                                             // row value
+            bool got_row = false;                                                      // found flag
+            
+            if (r - 1 < data->array_count && IS_TABLE(data->array_part[r - 1])) {      // in array bounds
+                row_val = data->array_part[r - 1];                                     // get from array
+                value_incref(row_val);                                                 // increment ref
+                got_row = true;                                                        // found
             }
             
-            for (int i = 0; i < header_count; i++) {                            // iterate columns
-                if (i > 0) sb_append_char(&sb, delimiter);                      // delimiter
-                Value cell_val;                                                 // cell value
-                char buf[64];                                                   // buffer for number
-                const char* str_val = "";                                       // string value
+            if (!got_row) {                                                            // not found yet
+                Value k_row = MAKE_NUMBER((double)r);                                  // numeric key
+                if (table_get(data, k_row, &row_val) && IS_TABLE(row_val)) {           // found
+                    got_row = true;                                                    // mark found
+                } else {
+                    value_decref(row_val);                                             // release if invalid
+                    value_decref(k_row);                                               // release key
+                }
+            }
+            
+            if (!got_row) {                                                            // not found yet
+                char rbuf[32];                                                         // buffer
+                snprintf(rbuf, sizeof(rbuf), "%d", r);                                 // format
+                Value k_str = MAKE_STRING(string_intern(&vm->intern_table, rbuf, strlen(rbuf)));  // string key
+                if (table_get(data, k_str, &row_val) && IS_TABLE(row_val)) {           // found
+                    got_row = true;                                                    // mark found
+                } else {
+                    value_decref(row_val);                                             // release if invalid
+                }
+                value_decref(k_str);                                                   // release key
+            }
+            
+            if (!got_row) break;                                                       // no more rows
+            
+            if (written > 0) sb_append(&sb, "\n", 1);                                  // newline between rows
+            
+            for (int i = 0; i < header_count; i++) {                                   // iterate columns
+                if (i > 0) sb_append_char(&sb, delimiter);                             // delimiter
+                Value cell_val;                                                        // cell value
+                char buf[64];                                                          // buffer for number
+                const char* str_val = "";                                              // string value
                 
-                if (table_get(AS_TABLE(row_val), headers[i], &cell_val)) {      // get cell
-                    if (IS_NUMBER(cell_val)) {                                  // number
-                        snprintf(buf, sizeof(buf), "%g", AS_NUMBER(cell_val));  // format
-                        str_val = buf;                                          // use buffer
-                    } else if (IS_BOOL(cell_val)) {                             // boolean
-                        str_val = AS_BOOL(cell_val) ? "true" : "false";         // bool string
-                    } else if (IS_STRING(cell_val)) {                           // string
-                        str_val = AS_STRING(cell_val)->chars;                   // use string
+                if (table_get(AS_TABLE(row_val), headers[i], &cell_val)) {             // get cell
+                    if (IS_NUMBER(cell_val)) {                                         // number
+                        snprintf(buf, sizeof(buf), "%g", AS_NUMBER(cell_val));         // format
+                        str_val = buf;                                                 // use buffer
+                    } else if (IS_BOOL(cell_val)) {                                    // boolean
+                        str_val = AS_BOOL(cell_val) ? "true" : "false";                // bool string
+                    } else if (IS_STRING(cell_val)) {                                  // string
+                        str_val = AS_STRING(cell_val)->chars;                          // use string
                     }
-                    value_decref(cell_val);                                     // release cell
+                    value_decref(cell_val);                                            // release cell
                 }
                 
                 bool needs_quote = strchr(str_val, delimiter) || strchr(str_val, '"') || strchr(str_val, '\n');  // needs quoting
-                if (needs_quote) {                                            // quote field
-                    sb_append_char(&sb, '"');                                 // opening quote
-                    for (const char* p = str_val; *p; p++) {                  // escape quotes
-                        if (*p == '"') sb_append_char(&sb, '"');              // double quote
-                        sb_append_char(&sb, *p);                              // append char
+                if (needs_quote) {                                                   // quote field
+                    sb_append_char(&sb, '"');                                        // opening quote
+                    for (const char* p = str_val; *p; p++) {                         // escape quotes
+                        if (*p == '"') sb_append_char(&sb, '"');                     // double quote
+                        sb_append_char(&sb, *p);                                     // append char
                     }
-                    sb_append_char(&sb, '"');                                 // closing quote
+                    sb_append_char(&sb, '"');                                        // closing quote
                 } else {
-                    sb_append(&sb, str_val, strlen(str_val));                 // append value
+                    sb_append(&sb, str_val, strlen(str_val));                        // append value
                 }
             }
-            if (r < row_count) sb_append(&sb, "\n", 1);                       // newline
-            value_decref(row_val);                                            // release row
-            value_decref(k_row);                                              // release key
+            
+            value_decref(row_val);                                                   // release row
+            written++;                                                               // count written
         }
 
         if (headers) {                                                        // free headers
