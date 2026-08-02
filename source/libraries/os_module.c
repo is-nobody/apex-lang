@@ -134,7 +134,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             nanosleep(&ts, NULL);                                     // sleep
 #endif
         }
-        *result = MAKE_BOOL(true);                                    // return true
+        *result = MAKE_NONE();                                        // return none
         return true;                                                  // builtin handled
     }
     

@@ -24,10 +24,11 @@ os.output("Hello, {name}")
 ```
 
 ### os.wait(seconds)
-Pauses the program for the given number of seconds. You can use decimals for fractions of a second. Negative values are treated as `0`. Always returns `true`.
+Pauses the program for the given number of seconds. You can use decimals for fractions of a second. Negative values are treated as `0`. Always returns `none`.
 
 ```apex
 import os
+
 os.output("Starting...")
 os.wait(0.5)
 os.output("Done waiting")
