@@ -63,23 +63,23 @@ Paste this code into REPL:
 
 ```apex
 import os
-os.output("Hello, Friend")
+os.output("Hello, Friend!")
 ```
 
 You'll see the output:
 
 ```bash
-Hello, Friend
+Hello, Friend!
 ```
 
 Congratulations! You've successfully written and run your first Apex script.
 
-### Code Breakdown: "Hello, Friend"
+### Code Breakdown: "Hello, Friend!"
 `import os` — imports the built-in OS (Operating System) library. This library provides functions for interacting with the system, such as outputting text. You can learn more about available functions in the [Library Reference](Library_Reference.md).
 
 `os.output` — calls the `output` function from the imported `os` library. This function output text to the terminal.
 
-`("Hello, Friend")` — the parentheses contain the argument passed to the function. In this case, it's a string — a sequence of text characters. Strings in Apex are enclosed in double `"..."` or single `'...'` quotes. 
+`("Hello, Friend!")` — the parentheses contain the argument passed to the function. In this case, it's a string — a sequence of text characters. Strings in Apex are enclosed in double `"..."` or single `'...'` quotes. 
 
 Now something may be unclear, after reading the following sections everything will be crystal clear!
 

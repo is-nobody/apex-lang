@@ -35,13 +35,13 @@ Paste this code into REPL:
 
 ```apex
 import os
-os.output("Hello, Friend")
+os.output("Hello, Friend!")
 ```
 
 Output:
 
 ```bash
-Hello, Friend
+Hello, Friend!
 ```
 
 ### Build from Source

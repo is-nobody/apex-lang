@@ -11,7 +11,7 @@ Prints a value to the terminal followed by a newline. Always returns `none`.
 
 ```apex
 import os
-os.output("Hello, Friend")     // Hello, Friend
+os.output("Hello, Friend!")     // Hello, Friend!
 ```
 
 ### os.input(prompt)
@@ -50,8 +50,10 @@ Runs a system command as if you typed it in the terminal. Returns the command's 
 ```apex
 import os
 
-if os.execute("echo Hello") != none
-    os.output("Command exited with code: {exit_code}")
+command = os.execute("echo Hello, Friend!")
+
+if command != none
+    os.output("Command exited with code: {command}")
 ```
 
 ### os.terminate_process(pid)
