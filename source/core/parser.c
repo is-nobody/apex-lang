@@ -1222,7 +1222,7 @@ static void parser_check_condition(Parser* parser, ASTNode* condition, const cha
     if (cond_type != TYPE_BOOLEAN && cond_type != TYPE_ANY && cond_type != TYPE_UNKNOWN) {
         if (cond_type != TYPE_ERROR) {
             parser_error_at(parser, condition->line, condition->column, get_node_len(condition),
-                "%s requires a comparison (e.g., 'var != false'), got %s",
+                "%s requires a comparison, got %s",
                 context, type_name(cond_type));
         }
         return;
@@ -1230,7 +1230,7 @@ static void parser_check_condition(Parser* parser, ASTNode* condition, const cha
 
     if (!is_explicit_condition(condition)) {
         parser_error_at(parser, condition->line, condition->column, get_node_len(condition),
-            "%s requires explicit condition (e.g., 'var != false')", context);
+            "%s requires explicit condition", context);
     }
 }
 
@@ -1910,12 +1910,12 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
                 (token->type == TOKEN_AND || token->type == TOKEN_OR)) {
                 if (!is_explicit_condition(left)) {
                     parser_error_at(parser, left->line, left->column, get_node_len(left),
-                        "Logical operator '%s' requires explicit condition (e.g., 'var != false')",
+                        "Logical operator '%s' requires explicit condition",
                         binary_op_name(token->type));
                 }
                 if (!is_explicit_condition(right)) {
                     parser_error_at(parser, right->line, right->column, get_node_len(right),
-                        "Logical operator '%s' requires explicit condition (e.g., 'var != false')",
+                        "Logical operator '%s' requires explicit condition",
                         binary_op_name(token->type));
                 }
             }
