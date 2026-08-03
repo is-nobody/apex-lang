@@ -1,4 +1,4 @@
-# Apex in Three Pages (26.07)
+# Apex in Three Pages (26.08)
 ## Types & Variables
 Dynamic typing: type can change on reassignment.
 

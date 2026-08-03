@@ -1,4 +1,4 @@
-# Apex Reference Manual for Developers (26.07)
+# Apex Reference Manual for Developers (26.08)
 This manual is minimalistic. Each section builds on the previous ones. For the best experience, follow the order.
 
 ## Table of Contents

@@ -32,7 +32,7 @@ int handle_commands(int argc, char** argv) {
     if (argc < 2) return -1;                                                    // need at least one argument
 
     if (strcmp(argv[1], "version") == 0) {                                      // version command
-        printf("Apex 26.07 [%s] on %s\n", COMPILER_INFO, platform_get_name());  // print version info
+        printf("Apex 26.08 [%s] on %s\n", COMPILER_INFO, platform_get_name());  // print version info
         return 0;                                                               // success
     }
 

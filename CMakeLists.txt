@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
-project(Apex VERSION 26.07 LANGUAGES C)
+project(Apex VERSION 26.08 LANGUAGES C)
 
 # enables gnu extensions for posix functions (readlink, setenv, etc.)
 set(CMAKE_C_STANDARD 11)
