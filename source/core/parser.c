@@ -1640,8 +1640,21 @@ static ASTNode* parse_table_literal(Parser* parser) {
             }
 
             skip_newlines(parser);
-            if (!match(parser, TOKEN_COMMA)) break;
-            skip_newlines(parser);
+            
+            if (check(parser, TOKEN_COMMA)) {
+                Token* comma_token = current_token(parser);
+                advance(parser);
+                
+                skip_newlines(parser);
+                
+                if (check(parser, TOKEN_RBRACKET)) {
+                    parser_error_at(parser, comma_token->line, comma_token->column, 1,
+                                    "Extra comma at the end of the table");
+                    break;
+                }
+            } else {
+                break;
+            }
         }
     }
 
