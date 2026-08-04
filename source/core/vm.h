@@ -200,6 +200,8 @@ typedef struct {
     ObjectPool obj_pool;            // object recycling pool for performance
 
     const char* source;             // source code string for error reporting
+
+    Value args_table;               // table of command line arguments (1-indexed)
 } VM;
 
 // creates a value from a double number (stored unboxed if not NaN)
@@ -291,6 +293,9 @@ void object_pool_init(ObjectPool* pool);
 
 // frees all objects in the pool
 void object_pool_free(ObjectPool* pool);
+
+// populates vm->args_table with user command line arguments (1-indexed)
+void vm_set_args(VM* vm, int argc, char** argv, bool skip_script_name);
 
 // creates a new vm instance with the given source code
 VM* vm_create(const char* source);

@@ -145,6 +145,7 @@ static const BuiltinSig BUILTINS[] = {
     {"os.items", 0, 1, TYPE_STRING},
     {"os.parentfolder", 1, 1, TYPE_STRING},
     {"os.access", 2, 2, TYPE_STRING},
+    {"os.args", 0, 0, TYPE_ANY},
     {"sys.platform", 0, 0, TYPE_ANY},
     {"sys.architecture", 0, 0, TYPE_ANY},
     {"sys.hostname", 0, 0, TYPE_ANY},

@@ -581,5 +581,11 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         return true;  // builtin handled
     }
 
+    if (strcmp(name, "os.args") == 0) {
+        *result = vm->args_table;  // copy the tagged value
+        value_incref(*result);     // bump refcount for caller ownership
+        return true;               // builtin handled
+    }
+
     return false;     // not a recognized builtin
 }

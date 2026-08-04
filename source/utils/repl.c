@@ -67,18 +67,18 @@ static void redraw_line(const char* line, int cursor_pos) {
 }
 
 static void execute_code(const char* code, const char* display_name) {
-    if (!code || strlen(code) == 0) return;             // empty code, skip
+    if (!code || strlen(code) == 0) return;                   // empty code, skip
     
     char* temp_path = platform_create_temp_file(code, strlen(code));  // create temp file
-    if (!temp_path) {                                   // check creation
-        print_error("Cannot create temporary file");    // print error
-        return;                                         // return
+    if (!temp_path) {                                         // check creation
+        print_error("Cannot create temporary file");          // print error
+        return;                                               // return
     }
     
-    execute_source(temp_path, display_name);            // execute temp file
+    execute_source(temp_path, display_name, 0, NULL, false);  // repl: no args
     
-    platform_delete_temp_file(temp_path);               // delete temp file
-    free(temp_path);                                    // free path string
+    platform_delete_temp_file(temp_path);                     // delete temp file
+    free(temp_path);                                          // free path string
 }
 
 void repl_run(void) {

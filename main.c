@@ -40,7 +40,7 @@ static void mkdirp(const char* path) {
 }
 
 // extracts and executes embedded source from a compiled apex binary
-static int execute_embedded_source(void) {
+static int execute_embedded_source(int argc, char** argv) {
     char exe_path[4096];
 #ifdef _WIN32
     GetModuleFileNameA(NULL, exe_path, sizeof(exe_path));
@@ -136,7 +136,7 @@ static int execute_embedded_source(void) {
     }
     free(payload);
 
-    bool ok = execute_source(main_script, main_script);
+    bool ok = execute_source(main_script, main_script, argc, argv, false);
     
     platform_delete_temp_file(temp_dir);
     
@@ -170,7 +170,7 @@ static int execute_from_stdin(void) {
         print_error("Cannot create temporary file");
         return 1;
     }
-    bool ok = execute_source(temp_path, "stdin");
+    bool ok = execute_source(temp_path, "stdin", 0, NULL, false);
     platform_delete_temp_file(temp_path);
     free(temp_path);
     return ok ? 0 : 1;
@@ -178,7 +178,7 @@ static int execute_from_stdin(void) {
 
 // main entry point: checks for embedded binary, then commands, then file or repl
 int main(int argc, char** argv) {
-    int embedded_result = execute_embedded_source();
+    int embedded_result = execute_embedded_source(argc, argv);
     if (embedded_result >= 0) {
         return embedded_result;
     }
@@ -193,7 +193,7 @@ int main(int argc, char** argv) {
     int result = 0;
 
     if (argc > 1) {
-        result = execute_source(argv[1], argv[1]) ? 0 : 1;
+        result = execute_source(argv[1], argv[1], argc, argv, true) ? 0 : 1;
     }
     else if (!isatty(STDIN_FILENO)) {
         result = execute_from_stdin();

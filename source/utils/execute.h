@@ -13,8 +13,8 @@
 // prints a red-colored error message with formatting
 void print_error(const char* format, ...);
 
-// executes source code from a file path
-bool execute_source(const char* source, const char* filename);
+// executes source code from a file path with command line arguments
+bool execute_source(const char* source, const char* filename, int argc, char** argv, bool skip_script_name);
 
 // cleans up all allocated resources in reverse order
 void cleanup_all(Tokenizer* tok, Parser* par, ASTNode* ast,

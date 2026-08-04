@@ -47,7 +47,7 @@ bool apex_execute_file(const char* filepath) {
         return false;                                                   // execution failed
     }
 
-    return execute_source(filepath, filepath);                          // delegate to execute_source
+    return execute_source(filepath, filepath, 0, NULL, false);          // api: no args
 }
 
 // executes apex code from a source string with the given filename for error context
@@ -103,6 +103,7 @@ bool apex_execute_string(const char* source_code, const char* filename) {
     }
     
     vm = vm_create(source);                                               // create virtual machine
+    vm_set_args(vm, 0, NULL, false);                                      // api string: no args
     bool ok = vm_execute(vm, chunk);                                      // execute bytecode
 
     cleanup_all(tokenizer, parser, ast, cg, chunk, vm, source);           // cleanup all resources

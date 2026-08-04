@@ -37,7 +37,7 @@ void cleanup_all(Tokenizer* tok, Parser* par, ASTNode* ast,
 }
 
 // executes apex source code from a file path
-bool execute_source(const char* filepath, const char* filename) {
+bool execute_source(const char* filepath, const char* filename, int argc, char** argv, bool skip_script_name) {
     if (!filepath || !filename) return false;            // validate arguments
     
     FILE* f = fopen(filepath, "rb");                     // open file in binary mode
@@ -98,6 +98,7 @@ bool execute_source(const char* filepath, const char* filename) {
     }
     
     vm = vm_create(source);                                             // create virtual machine
+    vm_set_args(vm, argc, argv, skip_script_name);                      // pass cli args with correct skip mode
     bool ok = vm_execute(vm, chunk);                                    // execute bytecode
     
     cleanup_all(tokenizer, parser, ast, cg, chunk, vm, source);         // cleanup all resources

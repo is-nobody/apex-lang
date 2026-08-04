@@ -292,6 +292,24 @@ else
     os.output("Permissions changed successfully")
 ```
 
+### os.args()
+Returns a table of command line arguments passed to the script. Arguments are 1-indexed: `args[1]` is the first user argument, `args[2]` is the second, and so on. The interpreter name and script filename are excluded. Returns an empty table when no arguments are provided (e.g., in REPL or stdin mode).
+
+```apex
+import os
+
+args = os.args()
+
+if args[1] == none
+    os.output("No arguments provided")
+else
+    os.output("Arguments:")
+    i = 1
+    for arg = args
+        os.output("  [{i}] = {arg}")
+        i = i + 1
+```
+
 ## System Library (sys)
 The System library provides static or rarely changing system information. Import it with `import sys`.
 

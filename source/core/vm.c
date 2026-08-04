@@ -910,6 +910,7 @@ VM* vm_create(const char* source) {
     vm->had_error = false;                                // no errors yet
     vm->current_frame = 0;                                // start at frame 0
     vm->args_top = 0;                                     // empty args stack
+    vm->args_table = MAKE_NONE();                         // default to none until set
     vm->source = source;                                  // store source pointer
     for (int i = 0; i < VM_MAX_FRAMES * VM_REGS_PER_FRAME; i++) {
         vm->register_frames[i] = MAKE_NONE();             // init all registers to none
@@ -919,9 +920,29 @@ VM* vm_create(const char* source) {
     return vm;                                            // return new VM
 }
 
+// populates vm->args_table with user command line arguments only (1-indexed)
+void vm_set_args(VM* vm, int argc, char** argv, bool skip_script_name) {
+    int start = skip_script_name ? 2 : 1;                            // skip interpreter+script or just binary name
+    int user_argc = argc > start ? argc - start : 0;                 // count of user-supplied args
+    Table* t = table_create(user_argc > 8 ? user_argc : 8);          // allocate table with sufficient capacity
+    vm->args_table = MAKE_TABLE(t);                                  // store as tagged table value
+
+    for (int i = start; i < argc; i++) {                             // iterate over user args
+        Value key = MAKE_NUMBER((double)(i - start + 1));            // 1-based index
+
+        int len = (int)strlen(argv[i]);                              // compute argument length
+        StringObject* str = string_intern(&vm->intern_table, argv[i], len);  // intern argument string
+        Value val = MAKE_STRING(str);                                // box interned string pointer
+
+        table_set(t, key, val);                                      // insert into args table
+        value_decref(val);                                           // release local reference
+    }
+}
+
 // destroys a vm and frees all resources
 void vm_destroy(VM* vm) {
     if (!vm) return;                                      // guard against null
+    value_decref(vm->args_table);                         // release args table and all contained strings
     int frames_to_clean = vm->current_frame + 2;          // clean current frame plus some extra
     if (frames_to_clean > VM_MAX_FRAMES) frames_to_clean = VM_MAX_FRAMES;  // clamp to max
     for (int f = 0; f < frames_to_clean; f++) {
