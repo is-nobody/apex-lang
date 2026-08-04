@@ -2282,6 +2282,13 @@ static ASTNode* parse_for_statement(Parser* parser) {
             }
         } else {
             is_table_iter = true;
+            if (start && parser->semantic_checks) {
+                ValueType start_type = infer_expression_type(parser, start);
+                if (start_type != TYPE_TABLE && start_type != TYPE_ANY && start_type != TYPE_UNKNOWN) {
+                    parser_error_at(parser, start->line, start->column, get_node_len(start),
+                                  "For loop table must be a table, got %s", type_name(start_type));
+                }
+            }
         }
     } else {
         condition = parse_expression(parser);

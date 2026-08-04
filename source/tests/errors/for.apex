@@ -20,5 +20,10 @@ for i = 1, 10
         continue
         i = 5  // Unreachable code after control flow statement
 
+nontable = "string"
+
+for item = nontable  // For loop table must be a table, got string
+    item = 0
+
 break     // 'break' outside of loop
 continue  // 'continue' outside of loop
