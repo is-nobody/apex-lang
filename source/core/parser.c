@@ -2248,13 +2248,11 @@ static ASTNode* parse_for_statement(Parser* parser) {
         start = parse_expression(parser);
         
         if (check(parser, TOKEN_COMMA)) {
-            consume(parser, TOKEN_COMMA, "Expected ',' after start value");
+            Token* comma_token = advance(parser);
             
-            Token* next = current_token(parser);
             if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF) || 
                 check(parser, TOKEN_INDENT)) {
-                parser_error_at(parser, next->line, next->column, 
-                            next->value ? (int)utf8_char_len(next->value) : 1,
+                parser_error_at(parser, comma_token->line, comma_token->column + 2, 1,
                             "Expected end value after ','");
                 free(var_name);
                 var_name = NULL;
@@ -2265,11 +2263,10 @@ static ASTNode* parse_for_statement(Parser* parser) {
                 }
 
                 if (var_name && match(parser, TOKEN_COMMA)) {
+                    Token* comma2_token = &parser->tokens[parser->current - 1];
                     if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF) || 
                         check(parser, TOKEN_INDENT)) {
-                        Token* bad = current_token(parser);
-                        parser_error_at(parser, bad->line, bad->column, 
-                                    bad->value ? (int)utf8_char_len(bad->value) : 1,
+                        parser_error_at(parser, comma2_token->line, comma2_token->column + 2, 1,
                                     "Expected step value after ','");
                     } else {
                         step = parse_expression(parser);
