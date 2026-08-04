@@ -2345,7 +2345,9 @@ static ASTNode* parse_import_statement(Parser* parser) {
     Token* first = current_token(parser);
     if (!is_valid_import_segment(first->type)) {
         free(module_path);
-        parser_error(parser, "Expected module name");
+        parser_error_at(parser, import_kw->line, import_kw->column + 7, 1,
+                        "Expected module name");
+        return NULL;
     }
     APPEND_PATH(first->value);
     advance(parser);
@@ -2490,7 +2492,9 @@ static ASTNode* parse_import_statement(Parser* parser) {
     }
 
     ast_free_node(import_node);
-    return ast_create_module_block(saved_module_path, mod_ast, import_kw->line, import_kw->column);
+    ASTNode* result = ast_create_module_block(saved_module_path, mod_ast, import_kw->line, import_kw->column);
+    free(saved_module_path);
+    return result;
 }
 
 // parses a return statement

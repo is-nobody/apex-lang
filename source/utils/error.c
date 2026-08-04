@@ -56,6 +56,17 @@ void print_error_with_context(const char* filename, const char* source,
     memcpy(line_buf, line_start, line_byte_len);                              // copy line content
     line_buf[line_byte_len] = '\0';                                           // null terminate
 
+    // add artificial spaces if error position extends past end of line
+    if (col + len > (int)strlen(line_buf)) {
+        int extra = 10;                                                       // extra spaces to append
+        line_buf = (char*)realloc(line_buf, line_byte_len + extra + 1);       // resize buffer
+        if (line_buf) {
+            memset(line_buf + line_byte_len, ' ', extra);                     // fill with spaces
+            line_buf[line_byte_len + extra] = '\0';                           // null terminate
+            line_byte_len += extra;                                           // update line length
+        }
+    }
+
     fprintf(stderr, "%s in %s on line %d:\n", type, filename, line);          // print error header
 
     // col and len are in characters, convert to byte offsets
