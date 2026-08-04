@@ -1228,11 +1228,6 @@ static void parser_check_condition(Parser* parser, ASTNode* condition, const cha
         }
         return;
     }
-
-    if (!is_explicit_condition(condition)) {
-        parser_error_at(parser, condition->line, condition->column, get_node_len(condition),
-            "%s requires explicit condition", context);
-    }
 }
 
 // validates that an expression is a number
@@ -2218,18 +2213,6 @@ static ASTNode* parse_for_statement(Parser* parser) {
     int var_line = for_kw->line;
     int var_col = for_kw->column;
     bool is_table_iter = false;
-
-    if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_INDENT)) {
-        parser_error_at(parser, for_kw->line, for_kw->column, 3,
-                        "Use an explicit condition for 'for' (e.g., 'for var != false').");
-        if (match(parser, TOKEN_NEWLINE)) {
-            while (!check(parser, TOKEN_EOF) && !check(parser, TOKEN_DEDENT)) {
-                advance(parser);
-            }
-            match(parser, TOKEN_DEDENT);
-        }
-        return NULL;
-    }
 
     if (!check(parser, TOKEN_IDENTIFIER)) {
         Token* bad_token = current_token(parser);
