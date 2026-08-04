@@ -2351,13 +2351,15 @@ static ASTNode* parse_import_statement(Parser* parser) {
     advance(parser);
 
     while (match(parser, TOKEN_DOT)) {
+        Token* dot_token = &parser->tokens[parser->current - 1];
         APPEND_PATH(".");
         Token* next = current_token(parser);
         if (is_valid_import_segment(next->type)) {
             APPEND_PATH(next->value);
             advance(parser);
         } else {
-            parser_error(parser, "Expected module name after '.'");
+            parser_error_at(parser, dot_token->line, dot_token->column, 1,
+                          "Expected module name after '.'");
             free(module_path);
             return NULL;
         }
