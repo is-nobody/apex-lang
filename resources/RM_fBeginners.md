@@ -643,6 +643,47 @@ Every program makes decisions. Should this user get access? Is the score high en
 | `elif` | Previous conditions were `false` AND this condition is `true` |
 | `else` | All previous conditions were `false` |
 
+### Code Blocks and Indentation
+An `if` statement decides *what* to do. The code that belongs to it is called a **block** — a group of one or more lines that run together.
+
+To show Apex which lines are "inside" the block, you **must** indent them with exactly 4 spaces.
+
+**This won't work:**
+
+```apex
+import os
+score = 85
+if score >= 80
+os.output("Grade: B")  // ERROR: Expected indented block after 'if'
+```
+
+**This is correct:**
+
+```apex
+import os
+score = 85
+if score >= 80
+    os.output("Grade: B")
+```
+
+See those 4 spaces before `os.output`? They tell Apex: "This line belongs to the `if`." If the condition is false, Apex skips the entire indented block.
+
+**Blocks don't create a new scope.** A **scope** is like a one-way mirror for variables: code inside a scope can see variables created outside, but variables created inside are invisible to the outside world. Since `if` blocks don't create a scope, any variable you make inside them is visible everywhere.
+
+```apex
+import os
+
+x = 10
+
+if x > 5
+    message = "x is big"  // Created inside if
+    os.output(message)    // Works fine inside
+
+os.output(message)        // Also works outside! Prints "x is big"
+```
+
+> **Remember:** If statements use 4-space indentation to define a block, but they do **not** create a new scope.
+
 ### Explicit Conditions Required
 In Apex, conditions must be **explicitly boolean**. You cannot use variables directly as conditions (no "truthy" or "falsy" values). 
 
@@ -650,7 +691,7 @@ In Apex, conditions must be **explicitly boolean**. You cannot use variables dir
 ```apex
 import os
 x = 10
-if x      // ERROR: If requires a comparison (e.g., 'var != false'), got number
+if x      // ERROR: If requires a comparison, got number
     os.output("Hello")
 ```
 
@@ -745,6 +786,28 @@ Sometimes you need to do the same thing many times. Print "Hello" ten times. Kee
 | `for r = start, end`  | You know the exact range       | `for r = 1, 5`   |
 | `for v = table`       | Iterate over table items       | `for v = table`  |
 | `for c == true`       | Repeat while condition is true | `for c == true`  |
+
+### Blocks and Scoping in Loops
+Just like `if` statements, `for` loops define a block of code with **4-space indentation**. Everything indented after the `for` line is part of the loop and will run repeatedly.
+
+There is one critical difference: **`for` loops DO create a new scope.**
+
+```apex
+import os
+
+x = "outer"
+
+for i = 1, 1
+    y = "inner"   // Created inside the loop's scope
+    os.output(x)  // Works: can see "outer" from outside
+    os.output(y)  // Works: "y" exists here
+
+os.output(y)      // ERROR: "y" is invisible outside the loop!
+```
+
+The variable `y` is trapped inside the loop's scope. Once the loop finishes, `y` disappears. The loop counter variable (`i` in a counter loop, or the item variable in a table loop) is also local to the loop's scope.
+
+Think of a loop's scope as a private room: you can take things in, but you can't take anything new out.
 
 ## 4.1 For Counter
 The `for` statement creates a numeric loop. You specify a variable, a starting number, and an ending number. The loop runs once for each number in that range, including the end value.
@@ -851,6 +914,28 @@ Use `continue` when you want to skip certain values but keep looping through the
 
 # 5. Functions
 Imagine you have a recipe for making a sandwich. You follow the same steps every time: take two slices of bread, spread butter on one, spread jam on the other, put them together. Now imagine you had to write out those steps every single time you wanted a sandwich. That would be tedious. Instead, you give the recipe a name — `make_sandwich` — and whenever you want a sandwich, you just say that name. That's exactly what a function is: a named block of code that you can use whenever you need it.
+
+### Blocks and Scope
+Like `if` and `for`, a function's body is a code block defined by **4-space indentation**. And just like `for` loops, **functions create a new scope.** This is the fundamental rule of functions: what happens inside a function, stays inside a function.
+
+```apex
+import os
+
+x = "global"
+
+function test()
+    y = "local"   // Created inside the function's scope
+    os.output(x)  // Works: can see "global" from outside
+    os.output(y)  // Works: "y" exists here
+    return none
+
+test()
+os.output(y)      // ERROR: "y" is invisible outside the function!
+```
+
+This is by design. Functions are meant to be independent, self-contained blocks of logic. They should not accidentally mess with variables in the rest of your program, and the rest of your program shouldn't mess with them. This is called **encapsulation**, and it's one of the most powerful concepts in programming.
+
+Parameters are also local to the function scope. They work just like variables created inside the function.
 
 ## 5.1 Function Statement
 To create a function, use the `function` keyword, then the function name, then parentheses `( )`, then the code block.

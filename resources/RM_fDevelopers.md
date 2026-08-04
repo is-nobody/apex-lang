@@ -453,6 +453,22 @@ If statements are how you tell Apex to make decisions.
 | `elif` | Previous conditions were `false` AND this condition is `true` |
 | `else` | All previous conditions were `false` |
 
+### Blocks and Indentation
+The body of an `if`/`elif`/`else` is a **block** — code that executes conditionally. Blocks are defined by **4-space indentation**. No braces, no `end` keyword — just indentation.
+
+```apex
+import os
+
+x = 5
+
+if x < 10
+    x = 42
+
+os.output(x)  // 42 — visible
+```
+
+**No new scope is created.** Variables declared inside an `if` block remain accessible outside:
+
 ### Explicit Conditions Required
 In Apex, conditions must be **explicitly boolean**. You cannot use variables directly as conditions (no "truthy" or "falsy" values). 
 
@@ -460,7 +476,7 @@ In Apex, conditions must be **explicitly boolean**. You cannot use variables dir
 ```apex
 import os
 x = 10
-if x      // ERROR: If requires a comparison (e.g., 'var != false'), got number
+if x      // ERROR: If requires a comparison, got number
     os.output("Hello")
 ```
 
@@ -530,6 +546,20 @@ Apex gives you the `for` loop with three different syntaxes to handle all these 
 | `for r = start, end`  | You know the exact range       | `for r = 1, 5`   |
 | `for v = table`       | Iterate over table items       | `for v = table`  |
 | `for c == true`       | Repeat while condition is true | `for c == true`  |
+
+### Blocks and Scoping
+Like `if`, loops use **4-space indentation** to define their body. Unlike `if`, **loops create a new scope.** The loop variable and any variables declared inside the loop are local to it:
+
+```apex
+import os
+
+for i = 1, 3
+    temp = i * 2     // local to loop
+    os.output(temp)  // works
+
+os.output(temp)      // ERROR — not defined
+os.output(i)         // ERROR — not defined
+```
 
 ## 4.1 For Counter
 The counter creates a numeric loop. You specify a variable, a starting number, and an ending number. The loop runs once for each number in that range, including the end value.
@@ -611,6 +641,23 @@ for i = 1, 5
 ```
 
 # 5. Functions
+### Blocks and Scope
+Function bodies are defined by **4-space indentation**. Functions create a new **scope**: variables declared inside, including parameters, are local. The function can read outer variables but cannot be written to from the outside.
+
+```apex
+import os
+
+x = "outer"
+
+function test()
+    y = "inner"
+    os.output(x)  // OK — reads outer variable
+    return none
+
+test()
+os.output(y)      // ERROR — y is not defined here
+```
+
 ## 5.1 Function Statement
 To create a function, use the `function` keyword, then the function name, then parentheses `( )`, then the code block.
 
