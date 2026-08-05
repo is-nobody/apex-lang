@@ -61,6 +61,7 @@ if(NOT CMAKE_CROSSCOMPILING)
     list(APPEND HIGH_PERF_FLAGS -march=native -mtune=native)
 endif()
 
+# applies gcc/clang-specific performance and base flags
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(apex PRIVATE ${BASE_FLAGS} ${HIGH_PERF_FLAGS})
     
