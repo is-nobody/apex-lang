@@ -405,16 +405,6 @@ static bool expr_has_side_effect(ASTNode* node) {
     }
 }
 
-// warns about expression statements that have no effect
-static void parser_check_expr_statement(Parser* parser, ASTNode* expr) {
-    if (!parser->semantic_checks || !expr) return;
-    
-    if (!expr_has_side_effect(expr)) {
-        parser_error_at(parser, expr->line, expr->column, get_node_len(expr),
-                        "Expression statement has no effect");
-    }
-}
-
 // checks if a module name is a built-in system module
 static bool is_builtin_module_root(const char* name) {
     return strcmp(name, "os") == 0 || 
@@ -2467,6 +2457,20 @@ static ASTNode* parse_continue_statement(Parser* parser) {
             "'continue' outside of loop");
     }
     return ast_create_node(AST_CONTINUE_STMT, cont_kw->line, cont_kw->column);
+}
+
+// warns about expression statements that have no effect
+static void parser_check_expr_statement(Parser* parser, ASTNode* expr) {
+    if (!parser->semantic_checks || !expr) return;
+    
+    if (!expr_has_side_effect(expr)) {
+        int line_len = get_line_length(parser->source, expr->line);
+        int len = line_len - (expr->column - 1);
+        if (len < 1) len = 1;
+        
+        parser_error_at(parser, expr->line, expr->column, len,
+                        "Expression statement has no effect");
+    }
 }
 
 // parses a single statement, dispatching by token type
