@@ -1094,10 +1094,7 @@ static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
                 return TYPE_UNKNOWN;
             }
             int len = (int)utf8_char_len(name);
-            if (node->in_interpolation) {
-                len += 2;
-            }
-            parser_error_at(parser, node->line, node->column - (node->in_interpolation ? 1 : 0), len,
+            parser_error_at(parser, node->line, node->column, len,
                             "Undefined variable or function '%s'", name);
             return TYPE_ERROR;
         }
