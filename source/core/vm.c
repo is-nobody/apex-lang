@@ -1314,8 +1314,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_JUMP_IF_LT_LABEL: {
         int target = ip->operands[0];            // jump target address
-        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double
-        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
+        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double via union
         if (a.d < b.d) {                         // compare as doubles
             ip = &vm->code[target];              // jump to target
             goto *dispatch_table[ip->opcode];    // dispatch next instruction
@@ -1324,7 +1324,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_JUMP_IF_LTE_LABEL: {
         int target = ip->operands[0];            // jump target address
-        if (AS_NUMBER(regs[ip->operands[1]]) <= AS_NUMBER(regs[ip->operands[2]])) {
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
+        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double via union
+        if (a.d <= b.d) {                        // compare as doubles, less or equal
             ip = &vm->code[target];              // jump to target
             goto *dispatch_table[ip->opcode];    // dispatch next instruction
         }
@@ -1332,7 +1334,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_JUMP_IF_GT_LABEL: {
         int target = ip->operands[0];            // jump target address
-        if (AS_NUMBER(regs[ip->operands[1]]) > AS_NUMBER(regs[ip->operands[2]])) {
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
+        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double via union
+        if (a.d > b.d) {                         // compare as doubles
             ip = &vm->code[target];              // jump to target
             goto *dispatch_table[ip->opcode];    // dispatch next instruction
         }
@@ -1340,7 +1344,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_JUMP_IF_GTE_LABEL: {
         int target = ip->operands[0];            // jump target address
-        if (AS_NUMBER(vm->registers[ip->operands[1]]) >= AS_NUMBER(vm->registers[ip->operands[2]])) {
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
+        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double via union
+        if (a.d >= b.d) {                        // compare as doubles, greater or equal
             ip = &vm->code[target];              // jump to target
             goto *dispatch_table[ip->opcode];    // dispatch next instruction
         }
@@ -1401,24 +1407,30 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_CMP_LT_LABEL: {
         int dest = ip->operands[0];              // dest register index
-        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double
-        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
+        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double via union
         regs[dest] = MAKE_BOOL(a.d < b.d);       // compare and store bool result
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_CMP_GT_LABEL: {
         int dest = ip->operands[0];              // dest register index
-        regs[dest] = MAKE_BOOL(AS_NUMBER(regs[ip->operands[1]]) > AS_NUMBER(regs[ip->operands[2]]));  // compare and store
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
+        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double via union
+        regs[dest] = MAKE_BOOL(a.d > b.d);       // compare and store bool result
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_CMP_LTE_LABEL: {
         int dest = ip->operands[0];              // dest register index
-        regs[dest] = MAKE_BOOL(AS_NUMBER(regs[ip->operands[1]]) <= AS_NUMBER(regs[ip->operands[2]])); // compare and store
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
+        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double via union
+        regs[dest] = MAKE_BOOL(a.d <= b.d);      // compare and store bool result
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_CMP_GTE_LABEL: {
         int dest = ip->operands[0];              // dest register index
-        regs[dest] = MAKE_BOOL(AS_NUMBER(regs[ip->operands[1]]) >= AS_NUMBER(regs[ip->operands[2]])); // compare and store
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
+        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double via union
+        regs[dest] = MAKE_BOOL(a.d >= b.d);      // compare and store bool result
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
 
