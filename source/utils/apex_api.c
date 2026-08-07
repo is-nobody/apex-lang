@@ -1,3 +1,8 @@
+// source/utils/apex_api.c
+// Implementation of Apex API for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #include "apex_api.h"
 #include "execute.h"
 #include "platform.h"

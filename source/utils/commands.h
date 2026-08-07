@@ -1,3 +1,8 @@
+// source/utils/commands.h
+// Implementation of Commands for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #ifndef COMMANDS_H
 #define COMMANDS_H
 

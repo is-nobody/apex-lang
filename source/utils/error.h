@@ -1,3 +1,8 @@
+// source/utils/error.h
+// Implementation of Errors for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #ifndef ERROR_H
 #define ERROR_H
 

@@ -1,3 +1,8 @@
+// source/utils/commands.c
+// Implementation of Commands for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #include "commands.h"
 #include "execute.h"
 #include "platform.h"

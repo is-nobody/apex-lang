@@ -1,3 +1,8 @@
+// source/utils/error.c
+// Implementation of Errors for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #include "error.h"
 #include <stdio.h>
 #include <string.h>

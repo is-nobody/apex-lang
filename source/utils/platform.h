@@ -1,3 +1,8 @@
+// source/utils/platform.h
+// Implementation of Platform for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #ifndef PLATFORM_H
 #define PLATFORM_H
 

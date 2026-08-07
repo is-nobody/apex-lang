@@ -1,3 +1,8 @@
+// source/utils/repl.c
+// Implementation of REPL for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #include "repl.h"
 #include "platform.h"
 #include "execute.h"

@@ -1,3 +1,8 @@
+// source/utils/execute.h
+// Implementation of Execute for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #ifndef EXECUTE_H
 #define EXECUTE_H
 

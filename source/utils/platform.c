@@ -1,3 +1,8 @@
+// source/utils/platform.c
+// Implementation of Platform for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #define _GNU_SOURCE
 #include "platform.h"
 #include <stdio.h>

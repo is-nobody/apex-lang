@@ -1,3 +1,8 @@
+// source/utils/build.c
+// Implementation of Build System for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #include "build.h"
 #include <stdio.h>
 #include <string.h>

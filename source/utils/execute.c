@@ -1,3 +1,8 @@
+// source/utils/execute.c
+// Implementation of Execute for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #include "execute.h"
 #include "tokenizer.h"
 #include "parser.h"
