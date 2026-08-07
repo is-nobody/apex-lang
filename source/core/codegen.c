@@ -14,7 +14,7 @@ static bool is_known_builtin_module(const char* name) {
            strcmp(name, "sys") == 0 || strcmp(name, "math") == 0 ||
            strcmp(name, "string") == 0 || strcmp(name, "table") == 0 ||
            strcmp(name, "ffi") == 0 || strcmp(name, "random") == 0 ||
-           strcmp(name, "codecs") == 0;
+           strcmp(name, "codecs") == 0 || strcmp(name, "regex") == 0;
 }
 
 static int codegen_expression(CodeGenerator* cg, ASTNode* node);
@@ -307,6 +307,8 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "codecs.json_read", "codecs.json_write",     "codecs.csv_read", "codecs.csv_write",
         "codecs.xml_read", "codecs.xml_write",       "codecs.base_read", "codecs.base_write",
         "codecs.baseurl_write", "codecs.baseurl_read",
+
+        "regex.findall", "regex.sub", "regex.split", "regex.search",
 
         "number", "string", "type",
         NULL

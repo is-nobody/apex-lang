@@ -11,8 +11,6 @@
 #include <stdint.h>
 #include <math.h>
 
-// ========== VM Configuration Constants ==========
-
 // call stack limits
 #define VM_MAX_CALL_FRAMES 8192
 #define VM_MAX_FRAMES VM_MAX_CALL_FRAMES

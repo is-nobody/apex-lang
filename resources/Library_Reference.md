@@ -1527,3 +1527,77 @@ if data == none
 else
     os.output("Tag: {data['__tag']}")
 ```
+
+## Regex Library (regex)
+The Regex library provides functions for working with regular expressions: searching, matching, replacing, and splitting text. Import it with `import regex`.
+
+### regex.search(pattern, text, options)
+Searches for the **first** match of a pattern in the text. Returns a table with information about the match, or an empty table if no match is found. The returned table contains:
+- `start` — The starting position of the match (1-based index)
+- `end` — The ending position of the match
+- `match` — The matched string
+
+Returns `none` on error.
+
+```apex
+import os
+import table
+import regex
+
+result = regex.search("\\d+", "Order #12345")
+
+if result == none
+    os.output("Search failed")
+elif table.size(result) > 0
+    os.output("Found: '{result['match']}' at position {result['start']}-{result['end']}")
+else
+    os.output("No match found")
+```
+
+### regex.findall(pattern, text, options)
+Finds **all non-overlapping** matches of a pattern in the text. Returns a table of matched strings, indexed by numbers starting from `1`. Returns an empty table if no matches are found, or `none` on error.
+
+```apex
+import os
+import regex
+
+words = regex.findall("\\w+", "Hello, World! 123")
+
+if words == none
+    os.output("Find failed")
+else
+    for word = words
+        os.output(word)
+```
+
+### regex.sub(pattern, replacement, text, options)
+Replaces **all** occurrences of the pattern in the text with the replacement string. Returns the resulting string. If no matches are found, the original text is returned unchanged. Returns `none` on error.
+
+```apex
+import os
+import regex
+
+text = "The quick brown fox jumps over the lazy dog"
+result = regex.sub("\\s+", "-", text)
+
+if result == none
+    os.output("Substitution failed")
+else
+    os.output(result)
+```
+
+### regex.split(pattern, text, options)
+Splits the text at each match of the pattern. Returns a table of substrings, indexed by numbers starting from `1`. Returns a table containing the original text if the pattern is not found, or `none` on error.
+
+```apex
+import os
+import regex
+
+parts = regex.split(",\\s*", "apple, banana, orange, grape")
+
+if parts == none
+    os.output("Split failed")
+else
+    for part = parts
+        os.output(part)
+```

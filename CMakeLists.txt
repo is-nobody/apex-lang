@@ -29,6 +29,7 @@ set(SOURCES
     source/libraries/ffi_module.c
     source/libraries/random_module.c
     source/libraries/codecs_module.c
+    source/libraries/regex_module.c
 
     source/utils/execute.c
     source/utils/error.c

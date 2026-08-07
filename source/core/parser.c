@@ -192,6 +192,9 @@ static const BuiltinSig BUILTINS[] = {
     {"codecs.base_write",  1, 1, TYPE_STRING}, {"codecs.base_read",   1, 1, TYPE_STRING},
     {"codecs.baseurl_write",1,1, TYPE_STRING}, {"codecs.baseurl_read",1, 1, TYPE_STRING},
 
+    {"regex.findall", 2, 3, TYPE_STRING},  {"regex.sub",    3, 4, TYPE_STRING},
+    {"regex.split",   2, 3, TYPE_STRING},  {"regex.search", 2, 3, TYPE_STRING},
+
     {"number", 1, 1, TYPE_ANY}, {"string", 1, 1, TYPE_ANY}, {"type", 1, 1, TYPE_ANY}
 };
 
@@ -410,18 +413,6 @@ static bool expr_has_side_effect(ASTNode* node) {
     }
 }
 
-// checks if a module name is a built-in system module
-static bool is_builtin_module_root(const char* name) {
-    return strcmp(name, "os") == 0 || 
-           strcmp(name, "sys") == 0 ||
-           strcmp(name, "math") == 0 ||
-           strcmp(name, "string") == 0 || 
-           strcmp(name, "table") == 0 ||
-           strcmp(name, "ffi") == 0 ||
-           strcmp(name, "random") == 0 ||
-           strcmp(name, "codecs") == 0;
-}
-
 // builds a filesystem path for a module from its dotted name
 static void build_module_path(Parser* parser, const char* module_path, char* out_path, int out_size) {
     char relative[1024];
@@ -459,6 +450,19 @@ static void build_module_path(Parser* parser, const char* module_path, char* out
 #endif
 }
 
+// checks if a name is a known built-in module root
+static bool is_known_builtin_module(const char* name) {
+    return strcmp(name, "os") == 0 ||
+           strcmp(name, "sys") == 0 ||
+           strcmp(name, "math") == 0 ||
+           strcmp(name, "string") == 0 ||
+           strcmp(name, "table") == 0 ||
+           strcmp(name, "ffi") == 0 ||
+           strcmp(name, "random") == 0 ||
+           strcmp(name, "codecs") == 0 ||
+           strcmp(name, "regex") == 0;
+}
+
 // validates that an imported module file exists on disk
 static void parser_validate_import_file(Parser* parser, const char* module_path, int line, int column) {
     if (!parser->semantic_checks || !parser->source_dir || !module_path) return;
@@ -471,7 +475,7 @@ static void parser_validate_import_file(Parser* parser, const char* module_path,
     memcpy(first_segment, module_path, first_len);
     first_segment[first_len] = '\0';
     
-    if (is_builtin_module_root(first_segment)) return;
+    if (is_known_builtin_module(first_segment)) return;
     
     char full_path[PATH_MAX];
     build_module_path(parser, module_path, full_path, sizeof(full_path));
@@ -916,18 +920,6 @@ static const char* resolve_call_name(ASTNode* callee, char* buffer, size_t bufle
     return NULL;
 }
 
-// checks if a name is a known built-in module root
-static bool is_known_builtin_module(const char* name) {
-    return strcmp(name, "os") == 0 ||
-           strcmp(name, "sys") == 0 ||
-           strcmp(name, "math") == 0 ||
-           strcmp(name, "string") == 0 ||
-           strcmp(name, "table") == 0 ||
-           strcmp(name, "ffi") == 0 ||
-           strcmp(name, "random") == 0 ||
-           strcmp(name, "codecs") == 0;
-}
-
 // infers the return type of a function call with signature validation
 static ValueType infer_call_type(Parser* parser, ASTNode* node) {
     ValueType callee_type = infer_expression_type(parser, node->call.callee);
@@ -965,7 +957,7 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
                 strncpy(root, func_name, root_len);
                 root[root_len] = '\0';
                 
-                if (is_builtin_module_root(root) && symbol_index_recursive(parser, root) < 0) {
+                if (is_known_builtin_module(root) && symbol_index_recursive(parser, root) < 0) {
                     int err_len = get_node_len(node->call.callee);
                     parser_error_at(parser, node->call.callee->line, node->call.callee->column, err_len > 0 ? err_len : 1,
                         "Built-in module '%s' must be imported with 'import %s'", root, root);
@@ -1044,7 +1036,7 @@ static ValueType infer_index_access_type(Parser* parser, ASTNode* node) {
     if (node->access.object->type == AST_IDENTIFIER && 
         node->access.member->type == AST_IDENTIFIER) {
         const char* mod_name = node->access.object->identifier.name;
-        if (is_builtin_module_root(mod_name) && symbol_index_recursive(parser, mod_name) < 0) {
+        if (is_known_builtin_module(mod_name) && symbol_index_recursive(parser, mod_name) < 0) {
             parser_error_at(parser, node->access.object->line, node->access.object->column,
                 (int)utf8_char_len(mod_name),
                 "Built-in module '%s' must be imported with 'import %s'", mod_name, mod_name);
@@ -2330,7 +2322,7 @@ static ASTNode* parse_import_statement(Parser* parser) {
     memcpy(first_segment, module_path, first_len);
     first_segment[first_len] = '\0';
 
-    if (is_builtin_module_root(first_segment)) {
+    if (is_known_builtin_module(first_segment)) {
         free(module_path);
         return import_node;
     }

@@ -138,7 +138,7 @@
       "patterns": [
         {
           "name": "support.function.library.apex",
-          "match": "\\b(os|sys|math|string|table|ffi|random|codecs)\\s*\\.\\s*([a-zA-Z_][a-zA-Z0-9_]*)",
+          "match": "\\b(os|sys|math|string|table|ffi|random|codecs|regex)\\s*\\.\\s*([a-zA-Z_][a-zA-Z0-9_]*)",
           "captures": {
             "1": { "name": "support.class.apex" },
             "2": { "name": "support.function.apex" }

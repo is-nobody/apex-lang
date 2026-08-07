@@ -51,7 +51,7 @@ function activate(context) {
                 'string': 'Converts a value to a string.\n\n```apex\nstring(42)  // "42"\n```',
                 'type': 'Returns the type name of a value as a string.\n\n```apex\ntype(10)  // "number"\n```',
 
-                'os': 'OS library — system interaction, file I/O, and process management.',
+                'os': 'OS library — system interaction.',
                 'sys': 'System information library.',
                 'math': 'Math library — mathematical functions.',
                 'string': 'String manipulation library.',
@@ -59,6 +59,7 @@ function activate(context) {
                 'ffi': 'Foreign Function Interface.',
                 'random': 'Random generation.',
                 'codecs': 'Data encoding/decoding.',
+                'regex': 'Regular expressions.',
             };
 
             if (docs[word]) {
@@ -147,6 +148,8 @@ function activate(context) {
                 'codecs.xml_read', 'codecs.xml_write',
                 'codecs.base_write', 'codecs.base_read',
                 'codecs.baseurl_write', 'codecs.baseurl_read',
+                'regex.findall', 'regex.sub',
+                'regex.split', 'regex.search',
                 'number', 'string', 'type'
             ];
 
