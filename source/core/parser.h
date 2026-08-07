@@ -1,3 +1,8 @@
+// source/core/parser.h
+// Implementation of Parser for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #ifndef PARSER_H
 #define PARSER_H
 #define ERROR_HISTORY_SIZE 16

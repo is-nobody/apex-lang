@@ -1,3 +1,8 @@
+// source/core/parser.c
+// Implementation of Parser for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #include "parser.h"
 #include "execute.h"
 #include "error.h"

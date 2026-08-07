@@ -1,4 +1,8 @@
-// tokenizer.c
+// source/core/tokenizer.c
+// Implementation of Tokenizer for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #include "tokenizer.h"
 #include "execute.h"
 #include "error.h"

@@ -1,3 +1,8 @@
+// source/core/vm.h
+// Implementation of Virtual Machine for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #ifndef VM_H
 #define VM_H
 
@@ -30,14 +35,13 @@
 // helper macro for total table entry count
 #define TABLE_TOTAL_COUNT(t) ((t)->array_count + (t)->hash_count)
 
-// ========== NaN Boxing Value Representation ==========
-// uses IEEE 754 double NaN space to encode type tags in the mantissa bits
-// quiet NaN has bits 51 set, we use bits 48-50 for type tags
-
+// nan boxing value representation
+// uses ieee 754 double nan space to encode type tags in the mantissa bits
+// quiet nan has bits 51 set, we use bits 48-50 for type tags
 #define SIGN_BIT        ((uint64_t)0x8000000000000000ULL)
 #define QNAN            ((uint64_t)0x7FF8000000000000ULL)
 
-// type tags stored in bits 48-50 of the NaN mantissa
+// type tags stored in bits 48-50 of the nan mantissa
 #define TAG_NONE        ((uint64_t)0)
 #define TAG_NULL        ((uint64_t)1)
 #define TAG_BOOL        ((uint64_t)2)

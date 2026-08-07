@@ -1,3 +1,8 @@
+// source/core/tokenizer.h
+// Implementation of Tokenizer for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #ifndef TOKENIZER_H
 #define TOKENIZER_H
 

@@ -1,3 +1,8 @@
+// source/core/bytecode.c
+// Implementation of Bytecode for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #include "bytecode.h"
 #include <stdio.h>
 #include <stdlib.h>

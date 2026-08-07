@@ -1,3 +1,8 @@
+// source/core/ast.c
+// Implementation of AST for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #include "ast.h"
 #include <stdio.h>
 #include <stdlib.h>

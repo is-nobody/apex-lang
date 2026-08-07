@@ -1,3 +1,8 @@
+// source/core/ast.h
+// Implementation of AST for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #ifndef AST_H
 #define AST_H
 

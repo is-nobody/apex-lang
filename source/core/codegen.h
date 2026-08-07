@@ -1,3 +1,8 @@
+// source/core/codegen.h
+// Implementation of Bytecode Code Generation for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #ifndef CODEGEN_H
 #define CODEGEN_H
 

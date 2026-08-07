@@ -1,3 +1,8 @@
+// source/core/vm.c
+// Implementation of Virtual Machine for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #include "vm.h"
 #include "os_module.h"
 #include "sys_module.h"
@@ -15,7 +20,6 @@
 
 // union for reinterpret double bits as uint64
 typedef union { uint64_t u; double d; } du64;
-
 
 // dynamic string builder for efficient concatenation
 typedef struct {
