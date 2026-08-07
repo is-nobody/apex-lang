@@ -1,3 +1,8 @@
+// source/libraries/math_module.h
+// Implementation of Math Module for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #ifndef MATH_MODULE_H
 #define MATH_MODULE_H
 

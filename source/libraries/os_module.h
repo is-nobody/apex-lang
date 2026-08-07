@@ -1,3 +1,8 @@
+// source/libraries/os_module.h
+// Implementation of OS Module for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #ifndef OS_MODULE_H
 #define OS_MODULE_H
 

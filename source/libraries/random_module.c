@@ -1,3 +1,8 @@
+// source/libraries/random_module.c
+// Implementation of Random Module for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #include "random_module.h"
 #include "vm.h"
 #ifdef _WIN32

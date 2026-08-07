@@ -1,3 +1,8 @@
+// source/libraries/ffi_module.c
+// Implementation of FFI Module for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #include "ffi_module.h"
 #include "vm.h"
 #include <stdio.h>

@@ -1,3 +1,8 @@
+// source/libraries/os_module.c
+// Implementation of OS Module for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #include "os_module.h"
 #include "vm.h"
 #include <stdio.h>

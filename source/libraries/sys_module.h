@@ -1,3 +1,8 @@
+// source/libraries/sys_module.h
+// Implementation of Sys Module for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #ifndef SYS_MODULE_H
 #define SYS_MODULE_H
 

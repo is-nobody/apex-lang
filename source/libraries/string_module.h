@@ -1,3 +1,8 @@
+// source/libraries/string_module.h
+// Implementation of String Module for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #ifndef STRING_MODULE_H
 #define STRING_MODULE_H
 

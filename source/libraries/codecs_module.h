@@ -1,3 +1,8 @@
+// source/libraries/codecs_module.h
+// Implementation of Codecs Module for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #ifndef CODECS_MODULE_H
 #define CODECS_MODULE_H
 

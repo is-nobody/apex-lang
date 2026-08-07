@@ -1,3 +1,8 @@
+// source/libraries/table_module.h
+// Implementation of Table Module for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #ifndef TABLE_MODULE_H
 #define TABLE_MODULE_H
 

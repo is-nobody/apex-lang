@@ -1,3 +1,8 @@
+// source/libraries/random_module.h
+// Implementation of Random Module for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #ifndef RANDOM_MODULE_H
 #define RANDOM_MODULE_H
 

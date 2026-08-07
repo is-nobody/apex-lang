@@ -1,3 +1,8 @@
+// source/libraries/sys_module.c
+// Implementation of Sys Module for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #include "sys_module.h"
 #include "vm.h"
 #include <stdio.h>
