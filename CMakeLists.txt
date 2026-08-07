@@ -1,3 +1,8 @@
+# CMakeLists.txt
+# Implementation of CMakeLists for Apex language
+# https://github.com/is-nobody/apex-lang
+# MIT license
+
 cmake_minimum_required(VERSION 3.13)
 project(Apex VERSION 26.08 LANGUAGES C)
 

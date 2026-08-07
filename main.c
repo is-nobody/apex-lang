@@ -1,3 +1,8 @@
+// main.c
+// Implementation of Main Entry Point for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
