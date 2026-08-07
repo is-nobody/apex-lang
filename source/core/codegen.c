@@ -227,6 +227,8 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
     int arg_count = args_list->count;                                   // number of arguments
     int* arg_regs = NULL;                                               // argument registers
     
+    int result_reg = alloc_register(cg);                                // register for result
+    
     if (arg_count > 0) {                                                // has arguments
         arg_regs = (int*)malloc(sizeof(int) * arg_count);               // allocate arg array
         for (int i = 0; i < arg_count; i++) {                           // evaluate each arg
@@ -265,8 +267,6 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
             }
         }
     }
-
-    int result_reg = alloc_register(cg);                                // register for result
 
     static const char* builtins[] = {
         "os.output", "os.input",                     "os.wait", "os.exit",
@@ -340,19 +340,44 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
             if (arg_count == 0) {                                             // zero args
                 emit(cg, INST(OP_CALL_0, result_reg, func_addr, 0), node->line);
             } else if (arg_count == 1) {                                      // one arg
-                emit(cg, INST(OP_CALL_1, result_reg, func_addr, arg_regs[0]), node->line);
+                if (result_reg == arg_regs[0]) {
+                    int safe_reg = alloc_register(cg);
+                    emit(cg, INST(OP_CALL_1, safe_reg, func_addr, arg_regs[0]), node->line);
+                    emit(cg, INST(OP_MOVE, result_reg, safe_reg, 0), node->line);
+                    free_register(cg, safe_reg);
+                } else {
+                    emit(cg, INST(OP_CALL_1, result_reg, func_addr, arg_regs[0]), node->line);
+                }
             } else if (arg_count == 2) {                                      // two args
                 if (arg_regs[1] != arg_regs[0] + 1) {                         // ensure contiguous
                     emit(cg, INST(OP_MOVE, arg_regs[0] + 1, arg_regs[1], 0), node->line);
                     free_register(cg, arg_regs[1]);                           // free old reg
                     arg_regs[1] = arg_regs[0] + 1;                            // update to contiguous
                 }
-                emit(cg, INST(OP_CALL_2, result_reg, func_addr, arg_regs[0]), node->line);
+                if (result_reg == arg_regs[0] || result_reg == arg_regs[0] + 1) {
+                    int safe_reg = alloc_register(cg);
+                    emit(cg, INST(OP_CALL_2, safe_reg, func_addr, arg_regs[0]), node->line);
+                    emit(cg, INST(OP_MOVE, result_reg, safe_reg, 0), node->line);
+                    free_register(cg, safe_reg);
+                } else {
+                    emit(cg, INST(OP_CALL_2, result_reg, func_addr, arg_regs[0]), node->line);
+                }
             } else {                                                          // many args
                 for (int i = 0; i < arg_count; i++) {                         // push all args
                     emit(cg, INST(OP_PUSH_ARG, arg_regs[i], 0, 0), node->line);
                 }
-                emit(cg, INST(OP_CALL, result_reg, func_addr, arg_count), node->line);
+                bool conflict = false;
+                for (int i = 0; i < arg_count; i++) {
+                    if (result_reg == arg_regs[i]) { conflict = true; break; }
+                }
+                if (conflict) {
+                    int safe_reg = alloc_register(cg);
+                    emit(cg, INST(OP_CALL, safe_reg, func_addr, arg_count), node->line);
+                    emit(cg, INST(OP_MOVE, result_reg, safe_reg, 0), node->line);
+                    free_register(cg, safe_reg);
+                } else {
+                    emit(cg, INST(OP_CALL, result_reg, func_addr, arg_count), node->line);
+                }
             }
         } else {                                                              // function not found
             for (int i = 0; i < arg_count; i++) {                             // push args
@@ -365,7 +390,9 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
     
     if (arg_regs) {                                                           // free arg registers
         for (int i = 0; i < arg_count; i++) {
-            free_register(cg, arg_regs[i]);
+            if (arg_regs[i] != result_reg) {                                  // don't free result_reg
+                free_register(cg, arg_regs[i]);
+            }
         }
         free(arg_regs);                                                       // free arg array
     }
