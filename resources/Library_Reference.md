@@ -1601,3 +1601,138 @@ else
     for part = parts
         os.output(part)
 ```
+
+## Crypto Library (crypto)
+The Crypto library provides cryptographic hash functions for strings and files. It supports MD5, SHA-1, SHA-256, and SHA-512. Import it with `import crypto`.
+
+### crypto.md5(str)
+Computes the MD5 hash of a string. Returns a 32-character lowercase hexadecimal string (128 bits). Returns `none` if the argument is not a string.
+
+```apex
+import os
+import crypto
+
+file = os.read("main.c")
+hash = crypto.md5(file)
+
+if hash == none
+    os.output("Could not hash file")
+else
+    os.output("MD5: {hash}")
+```
+
+### crypto.sha1(str)
+Computes the SHA-1 hash of a string. Returns a 40-character lowercase hexadecimal string (160 bits). Returns `none` if the argument is not a string.
+
+```apex
+import os
+import crypto
+
+file = os.read("main.c")
+hash = crypto.sha1(file)
+
+if hash == none
+    os.output("Could not hash file")
+else
+    os.output("SHA-1: {hash}")
+```
+
+### crypto.sha256(str)
+Computes the SHA-256 hash of a string. Returns a 64-character lowercase hexadecimal string (256 bits). Returns `none` if the argument is not a string.
+
+```apex
+import os
+import crypto
+
+file = os.read("main.c")
+hash = crypto.sha256(file)
+
+if hash == none
+    os.output("Could not hash file")
+else
+    os.output("SHA-256: {hash}")
+```
+
+### crypto.sha512(str)
+Computes the SHA-512 hash of a string. Returns a 128-character lowercase hexadecimal string (512 bits). Returns `none` if the argument is not a string.
+
+```apex
+import os
+import crypto
+
+file = os.read("main.c")
+hash = crypto.sha512(file)
+
+if hash == none
+    os.output("Could not hash file")
+else
+    os.output("SHA-512: {hash}")
+```
+
+### crypto.hmac_md5(key, msg)
+Computes the HMAC MD5 of a message using a secret key. Both arguments must be strings. Returns a 32-character lowercase hexadecimal string. Returns `none` if either argument is not a string.
+
+```apex
+import os
+import crypto
+
+secret = "my-secret-key"
+file = os.read("main.c")
+signature = crypto.hmac_md5(secret, file)
+
+if signature == none
+    os.output("Could not sign file")
+else
+    os.output("HMAC MD5: {signature}")
+```
+
+### crypto.hmac_sha1(key, msg)
+Computes the HMAC SHA1- of a message using a secret key. Both arguments must be strings. Returns a 40-character lowercase hexadecimal string. Returns `none` if either argument is not a string.
+
+```apex
+import os
+import crypto
+
+secret = "my-secret-key"
+file = os.read("main.c")
+signature = crypto.hmac_sha1(secret, file)
+
+if signature == none
+    os.output("Could not sign file")
+else
+    os.output("HMAC SHA-1: {signature}")
+```
+
+### crypto.hmac_sha256(key, msg)
+Computes the HMAC SHA-256 of a message using a secret key. Both arguments must be strings. Returns a 64-character lowercase hexadecimal string. Returns `none` if either argument is not a string.
+
+```apex
+import os
+import crypto
+
+secret = "my-secret-key"
+file = os.read("main.c")
+signature = crypto.hmac_sha256(secret, file)
+
+if signature == none
+    os.output("Could not sign file")
+else
+    os.output("HMAC SHA-256: {signature}")
+```
+
+### crypto.hmac_sha512(key, msg)
+Computes the HMAC SHA-512 of a message using a secret key. Both arguments must be strings. Returns a 128-character lowercase hexadecimal string. Returns `none` if either argument is not a string.
+
+```apex
+import os
+import crypto
+
+secret = "my-secret-key"
+file = os.read("main.c")
+signature = crypto.hmac_sha512(secret, file)
+
+if signature == none
+    os.output("Could not sign file")
+else
+    os.output("HMAC SHA-512: {signature}")
+```

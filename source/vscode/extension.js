@@ -1,6 +1,19 @@
 // `npx @vscode/vsce package` for build .vsix
 const vscode = require('vscode');
 
+const libDocs = {
+    'os': 'OS library.',
+    'sys': 'System information library.',
+    'math': 'Mathematics library.',
+    'string': 'String library.',
+    'table': 'Table library.',
+    'ffi': 'Foreign Function Interface library.',
+    'random': 'Random generation.',
+    'codecs': 'Encoding/decoding library.',
+    'regex': 'Regular expressions library.',
+    'crypto': 'Cryptography library.'
+};
+
 function activate(context) {
     // run file command using a terminal
     const runFile = vscode.commands.registerCommand('apex.runFile', async () => {
@@ -51,15 +64,7 @@ function activate(context) {
                 'string': 'Converts a value to a string.\n\n```apex\nstring(42)  // "42"\n```',
                 'type': 'Returns the type name of a value as a string.\n\n```apex\ntype(10)  // "number"\n```',
 
-                'os': 'OS library — system interaction.',
-                'sys': 'System information library.',
-                'math': 'Math library — mathematical functions.',
-                'string': 'String manipulation library.',
-                'table': 'Table (hash map/array) library.',
-                'ffi': 'Foreign Function Interface.',
-                'random': 'Random generation.',
-                'codecs': 'Data encoding/decoding.',
-                'regex': 'Regular expressions.',
+                ...libDocs
             };
 
             if (docs[word]) {
@@ -83,16 +88,7 @@ function activate(context) {
                 'true', 'false', 'none'
             ];
 
-            const libs = [
-                { label: 'os', detail: 'OS, File System & Process Library' },
-                { label: 'sys', detail: 'System Info Library' },
-                { label: 'math', detail: 'Math Library' },
-                { label: 'string', detail: 'String Library' },
-                { label: 'table', detail: 'Table Library' },
-                { label: 'ffi', detail: 'Foreign Function Interface' },
-                { label: 'random', detail: 'Random generation' },
-                { label: 'codecs', detail: 'Data Encoding/Decoding' }
-            ];
+            const libs = Object.entries(libDocs).map(([label, detail]) => ({ label, detail }));
 
             const items = [];
 
@@ -108,19 +104,20 @@ function activate(context) {
 
             const libFuncs = [
                 'os.output', 'os.input',
-                'os.wait', 'os.exit', 
+                'os.wait', 'os.exit',
                 'os.get_current_folder', 'os.set_current_folder',
                 'os.terminate_process', 'os.execute',
                 'os.read', 'os.write', 'os.append',
-                'os.exists', 'os.isfile', 'os.isfolder', 
-                'os.size',
-                'os.create_file', 'os.create_folder', 
+                'os.exists', 'os.isfile', 'os.isfolder',
+                'os.size', 'os.create_file', 'os.create_folder',
                 'os.delete', 'os.rename', 'os.move', 'os.copy',
                 'os.items', 'os.parentfolder', 'os.access',
+
                 'sys.platform', 'sys.architecture', 'sys.hostname', 'sys.user',
-                'sys.homedir', 'sys.apex_version', 'sys.executable', 
-                'sys.environment', 'sys.disksize', 'sys.tempdir', 
+                'sys.homedir', 'sys.apex_version', 'sys.executable',
+                'sys.environment', 'sys.disksize', 'sys.tempdir',
                 'sys.isterminal', 'sys.process_id', 'sys.time', 'sys.date',
+
                 'math.abs', 'math.floor', 'math.ceil', 'math.round',
                 'math.sqrt', 'math.exp', 'math.log',
                 'math.sin', 'math.cos', 'math.tan',
@@ -130,26 +127,38 @@ function activate(context) {
                 'math.pow', 'math.atan2',
                 'math.radians', 'math.degrees', 'math.hypot',
                 'math.gcd', 'math.factorial',
+
                 'string.isletter', 'string.isnumber',
                 'string.length', 'string.lower', 'string.upper',
                 'string.sub', 'string.split', 'string.join',
                 'string.trim', 'string.find', 'string.replace',
+
                 'table.remove', 'table.has', 'table.size',
                 'table.keys', 'table.values', 'table.clear',
                 'table.copy', 'table.merge',
+
                 'ffi.open', 'ffi.call', 'ffi.errno', 'ffi.strerror',
                 'ffi.malloc', 'ffi.free',
+
                 'random.random', 'random.randint', 'random.choice', 'random.shuffle',
                 'random.sample', 'random.gauss', 'random.seed',
                 'random.triangular', 'random.expovariate', 'random.betavariate',
                 'random.secure_token_hex', 'random.secure_randint', 'random.compare_digest',
+
                 'codecs.json_read', 'codecs.json_write',
                 'codecs.csv_read', 'codecs.csv_write',
                 'codecs.xml_read', 'codecs.xml_write',
                 'codecs.base_write', 'codecs.base_read',
                 'codecs.baseurl_write', 'codecs.baseurl_read',
+
                 'regex.findall', 'regex.sub',
                 'regex.split', 'regex.search',
+
+                'crypto.md5', 'crypto.sha1',
+                'crypto.sha256', 'crypto.sha512',
+                'crypto.hmac_md5', 'crypto.hmac_sha1',
+                'crypto.hmac_sha256', 'crypto.hmac_sha512',
+
                 'number', 'string', 'type'
             ];
 

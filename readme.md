@@ -17,7 +17,7 @@ This is the official repository for [Apex](https://github.com/is-nobody/apex-lan
 ## Why Apex?
 - **Simplicity:** Clean, indentation-based syntax with no braces or semicolons. Designed to be readable and easy to learn.
 
-- **Built-in Power:** Comes with a comprehensive standard library (`os`, `sys`, `math`, `string`, `table`, `ffi`, `random`, `codecs`, `regex`) out of the box.
+- **Built-in Power:** Comes with a comprehensive standard library (`os`, `sys`, `math`, `string`, `table`, `ffi`, `random`, `codecs`, `regex`, `crypto`) out of the box.
 
 - **Performance:** Written in C with a register-based virtual machine, nan-boxing for efficient value representation, and optimized bytecode execution.
 
