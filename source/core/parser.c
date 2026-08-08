@@ -193,12 +193,14 @@ static const BuiltinSig BUILTINS[] = {
     {"regex.findall", 2, 3, TYPE_STRING},  {"regex.sub",    3, 4, TYPE_STRING},
     {"regex.split",   2, 3, TYPE_STRING},  {"regex.search", 2, 3, TYPE_STRING},
 
-    {"crypto.md5", 1, 1, TYPE_STRING},         {"crypto.sha1", 1, 1, TYPE_STRING},
-    {"crypto.sha256", 1, 1, TYPE_STRING},      {"crypto.sha512", 1, 1, TYPE_STRING},
-    {"crypto.hmac_md5", 2, 2, TYPE_STRING},    {"crypto.hmac_sha1", 2, 2, TYPE_STRING},
-    {"crypto.hmac_sha256", 2, 2, TYPE_STRING}, {"crypto.hmac_sha512", 2, 2, TYPE_STRING},
-    {"crypto.token_hex", 1,1,TYPE_NUMBER},     {"crypto.secure_randint",1, 1, TYPE_NUMBER},
-    {"crypto.compare_digest",2, 2, TYPE_STRING},
+    {"crypto.md5", 1, 1, TYPE_STRING},            {"crypto.sha1", 1, 1, TYPE_STRING},
+    {"crypto.sha256", 1, 1, TYPE_STRING},         {"crypto.sha512", 1, 1, TYPE_STRING},
+    {"crypto.hmac_md5", 2, 2, TYPE_STRING},       {"crypto.hmac_sha1", 2, 2, TYPE_STRING},
+    {"crypto.hmac_sha256", 2, 2, TYPE_STRING},    {"crypto.hmac_sha512", 2, 2, TYPE_STRING},
+    {"crypto.pbkdf2_md5", 4, 4, TYPE_STRING},     {"crypto.pbkdf2_sha1", 4, 4, TYPE_STRING},
+    {"crypto.pbkdf2_sha256", 4, 4, TYPE_STRING},  {"crypto.pbkdf2_sha512", 4, 4, TYPE_STRING},
+    {"crypto.token_hex", 1, 1, TYPE_NUMBER},      {"crypto.secure_randint", 1, 1, TYPE_NUMBER},
+    {"crypto.compare_digest", 2, 2, TYPE_STRING},
 
     {"number", 1, 1, TYPE_ANY}, {"string", 1, 1, TYPE_ANY}, {"type", 1, 1, TYPE_ANY}
 };

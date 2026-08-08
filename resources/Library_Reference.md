@@ -1738,3 +1738,63 @@ if crypto.compare_digest(secret, input) == true
 else
     os.output("Access denied")
 ```
+
+### crypto.pbkdf2_md5(password, salt, iterations, key_len)
+Derives a key from a password and salt using PBKDF2-HMAC-MD5. Returns a lowercase hexadecimal string of `key_len` bytes. Returns `none` if any argument is invalid or `iterations < 1`.
+
+```apex
+import os
+import crypto
+
+key = crypto.pbkdf2_md5("password", "salt", 100000, 16)
+
+if key == none
+    os.output("Could not derive key")
+else
+    os.output("PBKDF2 MD5: {key}")
+```
+
+### crypto.pbkdf2_sha1(password, salt, iterations, key_len)
+Derives a key from a password and salt using PBKDF2-HMAC-SHA1. Returns a lowercase hexadecimal string of `key_len` bytes. Returns `none` if any argument is invalid or `iterations < 1`.
+
+```apex
+import os
+import crypto
+
+key = crypto.pbkdf2_sha1("password", "salt", 100000, 20)
+
+if key == none
+    os.output("Could not derive key")
+else
+    os.output("PBKDF2 SHA-1: {key}")
+```
+
+### crypto.pbkdf2_sha256(password, salt, iterations, key_len)
+Derives a key from a password and salt using PBKDF2-HMAC-SHA256. Returns a lowercase hexadecimal string of `key_len` bytes. Returns `none` if any argument is invalid or `iterations < 1`.
+
+```apex
+import os
+import crypto
+
+key = crypto.pbkdf2_sha256("password", "salt", 100000, 32)
+
+if key == none
+    os.output("Could not derive key")
+else
+    os.output("PBKDF2 SHA-256: {key}")
+```
+
+### crypto.pbkdf2_sha512(password, salt, iterations, key_len)
+Derives a key from a password and salt using PBKDF2-HMAC-SHA512. Returns a lowercase hexadecimal string of `key_len` bytes. Returns `none` if any argument is invalid or `iterations < 1`.
+
+```apex
+import os
+import crypto
+
+key = crypto.pbkdf2_sha512("password", "salt", 100000, 64)
+
+if key == none
+    os.output("Could not derive key")
+else
+    os.output("PBKDF2 SHA-512: {key}")
+```

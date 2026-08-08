@@ -765,53 +765,47 @@ static bool hash_string(VM* vm, Value* args, Value* result,
 #define SHA256_BLOCK_SIZE 64
 #define SHA512_BLOCK_SIZE 128
 
-// generic hmac implementation (RFC 2104)
-// args[0] = key, args[1] = message
+// generic hmac implementation
 static bool hmac_hash(VM* vm, Value* args, Value* result,
                       void* context, int context_size,
                       hash_init_fn init, hash_update_fn update, hash_final_fn final,
                       int block_size, int digest_size) {
     if (!IS_STRING(args[0]) || !IS_STRING(args[1])) {  // validate key and message
-        *result = MAKE_NONE();                          // invalid argument
-        return true;                                    // builtin handled
+        *result = MAKE_NONE();                         // invalid argument
+        return true;                                   // builtin handled
     }
 
-    StringObject* key_str = AS_STRING(args[0]);         // get key string
-    StringObject* msg_str = AS_STRING(args[1]);         // get message string
+    StringObject* key_str = AS_STRING(args[0]);        // get key string
+    StringObject* msg_str = AS_STRING(args[1]);        // get message string
     unsigned char* digest = (unsigned char*)alloca(digest_size);  // hmac output
-    unsigned char key_block[128];                       // max block size (sha512 = 128)
-    unsigned char inner_digest[64];                     // max digest size (sha512 = 64)
+    unsigned char key_block[128];                      // max block size (sha512 = 128)
+    unsigned char inner_digest[64];                    // max digest size (sha512 = 64)
 
-    // step 1: prepare key — hash if longer than block size, zero-pad if shorter
-    memset(key_block, 0, block_size);                   // zero fill
-    if (key_str->length > block_size) {                 // key longer than block
-        init(context);                                  // init hash
+    memset(key_block, 0, block_size);                  // zero fill
+    if (key_str->length > block_size) {                // key longer than block
+        init(context);                                 // init hash
         update(context, (unsigned char*)key_str->chars, (unsigned int)key_str->length);  // hash the key
-        final(key_block, context);                      // store hashed key in first digest_size bytes
-        // rest of key_block remains zero from memset
+        final(key_block, context);                     // store hashed key in first digest_size bytes
     } else {
-        memcpy(key_block, key_str->chars, key_str->length);  // copy key as-is
+        memcpy(key_block, key_str->chars, key_str->length);   // copy key as-is
     }
 
-    // step 2: inner hash = H((key ^ ipad) || message)
-    for (int i = 0; i < block_size; i++) {              // xor key with ipad
-        key_block[i] ^= 0x36;                           // ipad = 0x36 repeated
+    for (int i = 0; i < block_size; i++) {                    // xor key with ipad
+        key_block[i] ^= 0x36;                                 // ipad = 0x36 repeated
     }
-    init(context);                                      // init inner hash
+    init(context);                                            // init inner hash
     update(context, key_block, (unsigned int)block_size);     // hash (key ^ ipad)
     update(context, (unsigned char*)msg_str->chars, (unsigned int)msg_str->length);  // hash message
     final(inner_digest, context);                       // inner digest done
 
-    // step 3: outer hash = H((key ^ opad) || inner_digest)
     for (int i = 0; i < block_size; i++) {              // xor key with opad (ipad ^ opad = 0x36 ^ 0x5c)
         key_block[i] ^= (0x36 ^ 0x5c);                  // convert from ipad to opad
     }
-    init(context);                                      // init outer hash
-    update(context, key_block, (unsigned int)block_size);     // hash (key ^ opad)
+    init(context);                                             // init outer hash
+    update(context, key_block, (unsigned int)block_size);      // hash (key ^ opad)
     update(context, inner_digest, (unsigned int)digest_size);  // hash inner digest
-    final(digest, context);                             // final hmac done
+    final(digest, context);                                    // final hmac done
 
-    // clear sensitive data from stack
     memset(key_block, 0, sizeof(key_block));            // clear key material
     memset(inner_digest, 0, sizeof(inner_digest));      // clear inner digest
     memset(context, 0, context_size);                   // clear hash context
@@ -824,6 +818,148 @@ static bool hmac_hash(VM* vm, Value* args, Value* result,
     *result = make_string_val(vm, hex_str);             // return hex string
     free(hex_str);                                      // free hex buffer
     return true;                                        // builtin handled
+}
+
+// generic pbkdf2 implementation
+static bool pbkdf2_hash(VM* vm, Value* args, Value* result,
+                        void* context, int context_size,
+                        hash_init_fn init, hash_update_fn update, hash_final_fn final,
+                        int block_size, int digest_size) {
+    (void)context_size;                                // unused, kept for uniform function signature
+
+    if (!IS_STRING(args[0]) || !IS_STRING(args[1]) ||  // validate password and salt
+        !IS_NUMBER(args[2]) || !IS_NUMBER(args[3])) {  // validate iterations and key_len
+        *result = MAKE_NONE();                         // invalid argument
+        return true;                                   // builtin handled
+    }
+
+    StringObject* password = AS_STRING(args[0]);       // get password
+    StringObject* salt_str = AS_STRING(args[1]);       // get salt
+    int iterations = (int)AS_NUMBER(args[2]);          // get iteration count
+    int key_len = (int)AS_NUMBER(args[3]);             // get desired key length in bytes
+
+    if (iterations < 1 || key_len < 1) {               // validate positive values
+        *result = MAKE_NONE();                         // invalid
+        return true;                                   // builtin handled
+    }
+
+    int block_count = (key_len + digest_size - 1) / digest_size;  // ceiling division
+
+    if (block_count > 1024) {                          // sanity limit to avoid huge allocations
+        *result = MAKE_NONE();                         // too large
+        return true;                                   // builtin handled
+    }
+
+    unsigned char* output = (unsigned char*)malloc(key_len);  // allocate output key buffer
+    if (!output) {                                            // allocation failed
+        *result = MAKE_NONE();
+        return true;
+    }
+
+    // step 1: pre-hash password if longer than block size (RFC 2104 key preparation)
+    unsigned char key_block[128];                             // prepared key (max block size = 128)
+    memset(key_block, 0, block_size);                         // zero fill
+    if (password->length > block_size) {                      // key longer than block size
+        init(context);                                        // init hash
+        update(context, (unsigned char*)password->chars, (unsigned int)password->length);  // hash the key
+        final(key_block, context);                            // store hashed key
+    } else {
+        memcpy(key_block, password->chars, password->length);  // copy key as-is
+    }
+
+    unsigned char u[64];                                       // temp buffer for each U iteration
+    unsigned char block_result[64];                            // XOR accumulator for current block
+
+    // allocate salt_block = salt || block_index (4 bytes for BE32)
+    unsigned char* salt_block = (unsigned char*)malloc(salt_str->length + 4);  // salt || i
+    if (!salt_block) {                                         // allocation failed
+        free(output);
+        *result = MAKE_NONE();
+        return true;
+    }
+
+    memcpy(salt_block, salt_str->chars, salt_str->length);     // copy salt prefix
+
+    // step 2: for each block T_i = F(password, salt, iterations, i)
+    for (int block = 0; block < block_count; block++) {  // iterate over blocks
+        int block_idx = block + 1;                       // 1-based block index
+
+        salt_block[salt_str->length + 0] = (unsigned char)((block_idx >> 24) & 0xFF);  // high byte
+        salt_block[salt_str->length + 1] = (unsigned char)((block_idx >> 16) & 0xFF);  // second byte
+        salt_block[salt_str->length + 2] = (unsigned char)((block_idx >> 8) & 0xFF);   // third byte
+        salt_block[salt_str->length + 3] = (unsigned char)(block_idx & 0xFF);          // low byte
+
+        unsigned char ipad[128];                // inner padding buffer
+        memcpy(ipad, key_block, block_size);    // copy prepared key
+        for (int j = 0; j < block_size; j++) {  // XOR with ipad (0x36)
+            ipad[j] ^= 0x36;                    // ipad byte
+        }
+        init(context);                                                      // init inner hash
+        update(context, ipad, (unsigned int)block_size);                    // hash (key ^ ipad)
+        update(context, salt_block, (unsigned int)(salt_str->length + 4));  // hash (salt || i)
+        final(u, context);                                                  // inner digest in u
+
+        unsigned char opad[128];                              // outer padding buffer
+        memcpy(opad, key_block, block_size);                  // copy prepared key
+        for (int j = 0; j < block_size; j++) {                // XOR with opad (0x5c)
+            opad[j] ^= 0x5c;                                  // opad byte
+        }
+        init(context);                                        // init outer hash
+        update(context, opad, (unsigned int)block_size);      // hash (key ^ opad)
+        update(context, u, (unsigned int)digest_size);        // hash inner digest
+        final(u, context);                                    // U1 done (stored in u)
+        memcpy(block_result, u, digest_size);                 // initialize accumulator
+
+        for (int iter = 1; iter < iterations; iter++) {       // for each additional iteration
+            memcpy(ipad, key_block, block_size);              // copy prepared key
+            for (int j = 0; j < block_size; j++) {            // XOR with ipad
+                ipad[j] ^= 0x36;                              // ipad byte
+            }
+            init(context);                                    // init inner hash
+            update(context, ipad, (unsigned int)block_size);  // hash (key ^ ipad)
+            update(context, u, (unsigned int)digest_size);    // hash previous u
+            final(u, context);                                // inner digest in u
+
+            // outer hash: H((key ^ opad) || u)
+            memcpy(opad, key_block, block_size);             // copy prepared key
+            for (int j = 0; j < block_size; j++) {           // XOR with opad
+                opad[j] ^= 0x5c;                             // opad byte
+            }
+            init(context);                                    // init outer hash
+            update(context, opad, (unsigned int)block_size);  // hash (key ^ opad)
+            update(context, u, (unsigned int)digest_size);    // hash inner digest
+            final(u, context);                                // U_i done (stored in u)
+
+            // block_result ^= U_i (XOR accumulation)
+            for (int j = 0; j < digest_size; j++) {            // XOR each byte
+                block_result[j] ^= u[j];                       // accumulate
+            }
+        }
+
+        // copy block_result to output
+        int copy_len = digest_size;                                    // full digest by default
+        if (block == block_count - 1 && key_len % digest_size != 0) {  // last block may be partial
+            copy_len = key_len % digest_size;                          // partial copy
+        }
+        memcpy(output + block * digest_size, block_result, copy_len);  // copy to output
+    }
+
+    // clear sensitive data from memory
+    memset(salt_block, 0, salt_str->length + 4);     // clear salt block
+    free(salt_block);                                // free salt block
+    memset(key_block, 0, sizeof(key_block));         // clear prepared key
+    memset(u, 0, sizeof(u));                         // clear temp buffer
+    memset(block_result, 0, sizeof(block_result));   // clear accumulator
+
+    char* hex_str = digest_to_hex(output, key_len);  // convert to hex string
+    free(output);                                    // free output buffer
+    if (!hex_str) {                                  // allocation failed
+        *result = MAKE_NONE();                       // return none
+        return true;                                 // builtin handled
+    }
+    *result = make_string_val(vm, hex_str);          // return hex string
+    free(hex_str);                                   // free hex buffer
+    return true;                                     // builtin handled
 }
 
 // dispatcher for crypto built-in functions
@@ -891,6 +1027,38 @@ bool crypto_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return hmac_hash(vm, args, result, &context, sizeof(context),
                         (hash_init_fn)sha512_init, (hash_update_fn)sha512_update,
                         (hash_final_fn)sha512_final, SHA512_BLOCK_SIZE, 64);
+    }
+
+    if (strcmp(name, "crypto.pbkdf2_md5") == 0) {        // pbkdf2-hmac-md5
+        if (arg_count < 4) { *result = MAKE_NONE(); return true; }
+        MD5_CTX context;
+        return pbkdf2_hash(vm, args, result, &context, sizeof(context),
+                          (hash_init_fn)md5_init, (hash_update_fn)md5_update,
+                          (hash_final_fn)md5_final, MD5_BLOCK_SIZE, 16);
+    }
+
+    if (strcmp(name, "crypto.pbkdf2_sha1") == 0) {       // pbkdf2-hmac-sha1
+        if (arg_count < 4) { *result = MAKE_NONE(); return true; }
+        SHA1_CTX context;
+        return pbkdf2_hash(vm, args, result, &context, sizeof(context),
+                          (hash_init_fn)sha1_init, (hash_update_fn)sha1_update,
+                          (hash_final_fn)sha1_final, SHA1_BLOCK_SIZE, 20);
+    }
+
+    if (strcmp(name, "crypto.pbkdf2_sha256") == 0) {     // pbkdf2-hmac-sha256
+        if (arg_count < 4) { *result = MAKE_NONE(); return true; }
+        SHA256_CTX context;
+        return pbkdf2_hash(vm, args, result, &context, sizeof(context),
+                          (hash_init_fn)sha256_init, (hash_update_fn)sha256_update,
+                          (hash_final_fn)sha256_final, SHA256_BLOCK_SIZE, 32);
+    }
+
+    if (strcmp(name, "crypto.pbkdf2_sha512") == 0) {     // pbkdf2-hmac-sha512
+        if (arg_count < 4) { *result = MAKE_NONE(); return true; }
+        SHA512_CTX context;
+        return pbkdf2_hash(vm, args, result, &context, sizeof(context),
+                          (hash_init_fn)sha512_init, (hash_update_fn)sha512_update,
+                          (hash_final_fn)sha512_final, SHA512_BLOCK_SIZE, 64);
     }
 
     if (strcmp(name, "crypto.token_hex") == 0) {                     // secure hex token

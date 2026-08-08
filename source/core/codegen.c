@@ -310,11 +310,13 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
 
         "regex.findall", "regex.sub", "regex.split", "regex.search",
 
-        "crypto.md5",         "crypto.sha1",
-        "crypto.sha256",      "crypto.sha512",
-        "crypto.hmac_md5",    "crypto.hmac_sha1",
-        "crypto.hmac_sha256", "crypto.hmac_sha512",
-        "crypto.token_hex",   "crypto.secure_randint",
+        "crypto.md5",              "crypto.sha1",
+        "crypto.sha256",           "crypto.sha512",
+        "crypto.hmac_md5",         "crypto.hmac_sha1",
+        "crypto.hmac_sha256",      "crypto.hmac_sha512",
+        "crypto.pbkdf2_md5",       "crypto.pbkdf2_sha1",
+        "crypto.pbkdf2_sha256",    "crypto.pbkdf2_sha512",
+        "crypto.token_hex",        "crypto.secure_randint",
         "crypto.compare_digest",
 
         "number", "string", "type",

@@ -84,6 +84,21 @@ function crypto_hmac_sha512()
     assert_equal(crypto.hmac_sha512("key", "The quick brown fox jumps over the lazy dog"), "b42af09057bac1e2d41708e48a902e09b5ff7f12ab428a4fe86653c73dd248fb82f948a549f7b791a5b41915ee4d1ec3935357e4e2317250d0372afa2ebeeb3a", "hmac_sha512 key + brown fox")
     assert_equal(crypto.hmac_sha512("secret", "Hello World!"), "fd3716eb8e1903ecb8deb9320f1baecf0f8dbe04e4c4c71e64fbb37080222ca42deb0b646cabeb53e269a2446507fb5442961656f8007959bd330ef48df0e13e", "hmac_sha512 secret + Hello World!")
 
+function crypto_pbkdf2_md5()
+    result = crypto.pbkdf2_md5("password", "salt", 1000, 16)
+    assert_equal(result, "8d189946a32d883622a16ae18af0632f", "pbkdf2_md5 password salt 1000 16")
+
+function crypto_pbkdf2_sha1()
+    result = crypto.pbkdf2_sha1("password", "salt", 1000, 20)
+    assert_equal(result, "6e88be8bad7eae9d9e10aa061224034fed48d03f", "pbkdf2_sha1 password salt 1000 20")
+
+function crypto_pbkdf2_sha256()
+    result = crypto.pbkdf2_sha256("password", "salt", 1000, 32)
+    assert_equal(result, "632c2812e46d4604102ba7618e9d6d7d2f8128f6266b4a03264d2a0460b7dcb3", "pbkdf2_sha256 password salt 1000 32")
+
+function crypto_pbkdf2_sha512()
+    result = crypto.pbkdf2_sha512("password", "salt", 1000, 64)
+    assert_equal(result, "afe6c5530785b6cc6b1c6453384731bd5ee432ee549fd42fb6695779ad8a1c5bf59de69c48f774efc4007d5298f9033c0241d5ab69305e7b64eceeb8d834cfec", "pbkdf2_sha512 password salt 1000 64")
 
 function token_hex()
     nbytes = 16
@@ -111,6 +126,11 @@ crypto_hmac_md5()
 crypto_hmac_sha1()
 crypto_hmac_sha256()
 crypto_hmac_sha512()
+
+crypto_pbkdf2_md5()
+crypto_pbkdf2_sha1()
+crypto_pbkdf2_sha256()
+crypto_pbkdf2_sha512()
 
 token_hex()
 secure_randint()
