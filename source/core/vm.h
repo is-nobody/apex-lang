@@ -14,9 +14,12 @@
 // call stack limits
 #define VM_MAX_CALL_FRAMES 8192
 #define VM_MAX_FRAMES VM_MAX_CALL_FRAMES
-#define VM_REGS_PER_FRAME 256
 #define VM_MAX_GLOBALS 512
 #define VM_MAX_ARGS_STACK 64
+
+// register frame configuration
+#define REGISTER_INITIAL_SIZE 16    // starting register count per frame
+#define REGISTER_MAX_SIZE 4096      // safety cap per frame
 
 // table load factor for hash part resizing
 #define TABLE_MAX_LOAD 0.75
@@ -157,12 +160,22 @@ typedef struct {
     TableEntry* current_entry; // current node in bucket chain
 } TableIterState;
 
+// dynamic register frame that grows on demand
+typedef struct {
+    Value* registers;    // dynamically allocated array of nan-boxed values
+    int capacity;        // total allocated slots
+    int used;            // highest register index ever written
+} RegisterFrame;
+
 // main virtual machine state with registers, call stack, and execution context
 typedef struct {
-    Value* register_frames;        // flattened array of all register frames (Value = uint64_t NaN-boxed)
-    Value* registers;              // pointer to current frame's registers for fast access
-    int current_frame;             // index of the currently active frame in call_stack
-    int register_count;            // total registers allocated across all frames
+    Value* register_pool;            // single contiguous array for all frame registers
+    int* frame_offset;               // offset of each frame in register_pool
+    int* frame_capacity;             // capacity of each frame
+    int* frame_used;                 // highest register used in each frame
+    int pool_capacity;               // total size of register_pool
+    Value* registers;                // hot pointer to current frame's registers
+    int current_frame;               // index of the currently active frame
 
     Value globals[VM_MAX_GLOBALS]; // global variable storage (persistent across frames)
     int global_count;              // number of initialized globals
@@ -172,12 +185,12 @@ typedef struct {
 
     struct {
         int return_address;        // instruction pointer to resume after call returns
-        int base_register;         // register base offset for this frame
         int base_iterator_depth;   // saved loop iterator depth for nested loops
-        int frame_index;           // frame index for debugging and stack traces
+        int frame_index;           // frame index for restoring registers
         int dest_reg;              // destination register for the return value
-        int saved_args_top;        // saved args_top to restore after call
+        Value* saved_registers;    // cached pointer to caller's registers
     } call_stack[VM_MAX_CALL_FRAMES];
+    
     int call_depth;                // current call stack depth
 
     BytecodeChunk* chunk;          // currently executing bytecode chunk

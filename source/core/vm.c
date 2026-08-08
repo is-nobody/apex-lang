@@ -900,30 +900,112 @@ static bool table_equal(Table* a, Table* b, int depth) {
     return result;              // return comparison result
 }
 
-// creates a new vm instance with register frames and intern table
-VM* vm_create(const char* source) {
-    VM* vm = (VM*)calloc(1, sizeof(VM));                  // allocate and zero vm struct
-    if (!vm) return NULL;                                 // allocation failed
-    vm->register_frames = (Value*)calloc(VM_MAX_FRAMES * VM_REGS_PER_FRAME, sizeof(Value));  // allocate register frame array
-    if (!vm->register_frames) { free(vm); return NULL; }  // allocation failed, clean up
-    vm->registers = vm->register_frames;                  // point to first frame
-    vm->register_count = 0;                               // no registers used yet
-    vm->global_count = 0;                                 // no globals set yet
-    vm->call_depth = 0;                                   // no active calls
-    vm->iterator_depth = -1;                              // no active iterators
-    vm->table_iter_depth = -1;                            // no active table iterators
-    vm->running = false;                                  // not running yet
-    vm->had_error = false;                                // no errors yet
-    vm->current_frame = 0;                                // start at frame 0
-    vm->args_top = 0;                                     // empty args stack
-    vm->args_table = MAKE_NONE();                         // default to none until set
-    vm->source = source;                                  // store source pointer
-    for (int i = 0; i < VM_MAX_FRAMES * VM_REGS_PER_FRAME; i++) {
-        vm->register_frames[i] = MAKE_NONE();             // init all registers to none
+// ensures a register frame has enough capacity for the given register index
+static bool ensure_register_capacity(VM* vm, int frame_idx, int needed_reg) {
+    if (needed_reg < vm->frame_capacity[frame_idx]) {
+        if (needed_reg >= vm->frame_used[frame_idx]) {
+            vm->frame_used[frame_idx] = needed_reg + 1;  // track highest register used
+        }
+        return true;                                     // no growth needed
     }
-    string_intern_table_init(&vm->intern_table);          // init string intern table
-    object_pool_init(&vm->obj_pool);                      // init object pool
-    return vm;                                            // return new VM
+    
+    int old_cap = vm->frame_capacity[frame_idx];         // current capacity of this frame
+    int new_cap = old_cap;                               // start from current capacity
+    if (new_cap == 0) {
+        new_cap = REGISTER_INITIAL_SIZE;                 // first allocation for untouched frame
+        while (new_cap <= needed_reg) new_cap *= 2;      // double until requested register fits
+    } else {
+        while (new_cap <= needed_reg) {
+            new_cap *= 2;                                // grow existing frame
+            if (new_cap > REGISTER_MAX_SIZE) {           // safety cap against runaway growth
+                fprintf(stderr, "\033[31mFatal: register frame %d exceeded max size %d "
+                        "(requested reg %d)\n\033[0m",
+                        frame_idx, REGISTER_MAX_SIZE, needed_reg);
+                return false;                            // allocation refused
+            }
+        }
+    }
+    
+    int total_needed = 0;                                // accumulator for all frames
+    for (int f = 0; f < VM_MAX_FRAMES; f++) {
+        int cap = (f == frame_idx) ? new_cap : vm->frame_capacity[f];  // use new cap for this frame
+        if (cap > 0) total_needed += cap;                // sum all allocated frame capacities
+    }
+    
+    if (total_needed > vm->pool_capacity) {
+        int new_pool_cap = vm->pool_capacity;            // current pool capacity
+        if (new_pool_cap == 0) new_pool_cap = REGISTER_INITIAL_SIZE;  // initial pool size
+        while (new_pool_cap < total_needed) new_pool_cap *= 2;        // double until all frames fit
+        
+        Value* new_pool = (Value*)realloc(vm->register_pool, new_pool_cap * sizeof(Value));  // resize pool
+        if (!new_pool) {                                 // allocation failed
+            fprintf(stderr, "\033[31mFatal: failed to grow register pool to %d registers\n\033[0m",
+                    new_pool_cap);
+            return false;
+        }
+        for (int i = vm->pool_capacity; i < new_pool_cap; i++) {
+            new_pool[i] = MAKE_NONE();                   // fill new portion with none
+        }
+        vm->register_pool = new_pool;                    // update shared pool pointer
+        vm->pool_capacity = new_pool_cap;                // update total pool capacity
+    }
+    
+    vm->frame_capacity[frame_idx] = new_cap;             // store new capacity for this frame
+    vm->frame_used[frame_idx] = needed_reg + 1;          // mark registers up to needed_reg as used
+    
+    int offset = 0;                                      // running offset in the pool
+    for (int f = 0; f < VM_MAX_FRAMES; f++) {
+        vm->frame_offset[f] = offset;                    // frame f starts at this pool offset
+        if (vm->frame_capacity[f] > 0) offset += vm->frame_capacity[f];  // advance past this frame
+    }
+    
+    if (frame_idx == vm->current_frame) {
+        vm->registers = &vm->register_pool[vm->frame_offset[frame_idx]];  // point to new frame location
+    }
+    
+    return true;                                         // frame ready
+}
+
+// creates a new vm instance with the given source code
+VM* vm_create(const char* source) {
+    VM* vm = (VM*)calloc(1, sizeof(VM));           // allocate and zero vm struct
+    if (!vm) return NULL;                          // allocation failed
+    
+    vm->frame_offset = (int*)calloc(VM_MAX_FRAMES, sizeof(int));    // frame start offsets in pool
+    vm->frame_capacity = (int*)calloc(VM_MAX_FRAMES, sizeof(int));  // frame capacities in registers
+    vm->frame_used = (int*)calloc(VM_MAX_FRAMES, sizeof(int));      // highest register used per frame
+    if (!vm->frame_offset || !vm->frame_capacity || !vm->frame_used) {
+        free(vm->frame_offset);
+        free(vm->frame_capacity);
+        free(vm->frame_used);
+        free(vm);
+        return NULL;
+    }
+    
+    if (!ensure_register_capacity(vm, 0, REGISTER_INITIAL_SIZE - 1)) {
+        free(vm->frame_offset);
+        free(vm->frame_capacity);
+        free(vm->frame_used);
+        free(vm->register_pool);               
+        free(vm);
+        return NULL;
+    }
+    
+    vm->registers = vm->register_pool;            // fast pointer to frame 0 (offset 0)
+    vm->current_frame = 0;                        // start at frame 0
+    vm->global_count = 0;                         // no globals set yet
+    vm->call_depth = 0;                           // no active calls
+    vm->iterator_depth = -1;                      // no active iterators
+    vm->table_iter_depth = -1;                    // no active table iterators
+    vm->running = false;                          // not running yet
+    vm->had_error = false;                        // no errors yet
+    vm->args_top = 0;                             // empty args stack
+    vm->args_table = MAKE_NONE();                 // default to none until set
+    vm->source = source;                          // store source pointer
+    
+    string_intern_table_init(&vm->intern_table);  // init string intern table
+    object_pool_init(&vm->obj_pool);              // init object pool
+    return vm;                                    // return new vm
 }
 
 // populates vm->args_table with user command line arguments only (1-indexed)
@@ -947,25 +1029,31 @@ void vm_set_args(VM* vm, int argc, char** argv, bool skip_script_name) {
 
 // destroys a vm and frees all resources
 void vm_destroy(VM* vm) {
-    if (!vm) return;                                      // guard against null
-    value_decref(vm->args_table);                         // release args table and all contained strings
-    int frames_to_clean = vm->current_frame + 2;          // clean current frame plus some extra
-    if (frames_to_clean > VM_MAX_FRAMES) frames_to_clean = VM_MAX_FRAMES;  // clamp to max
-    for (int f = 0; f < frames_to_clean; f++) {
-        for (int i = 0; i < VM_REGS_PER_FRAME; i++) {
-            value_decref(vm->register_frames[f * VM_REGS_PER_FRAME + i]);  // release each register
-        }
+    if (!vm) return;                              // guard against null
+    value_decref(vm->args_table);                 // release args table and all contained strings
+    
+    int total_regs = 0;
+    for (int f = 0; f < VM_MAX_FRAMES; f++) {
+        if (vm->frame_capacity[f] > 0) total_regs += vm->frame_capacity[f];  // sum all frame capacities
     }
+    for (int i = 0; i < total_regs && i < vm->pool_capacity; i++) {
+        value_decref(vm->register_pool[i]);       // release each register value
+    }
+    free(vm->register_pool);                      // free the shared register pool
+    free(vm->frame_offset);                       // free frame offset array
+    free(vm->frame_capacity);                     // free frame capacity array
+    free(vm->frame_used);                         // free frame used array
+    
     for (int i = 0; i < vm->global_count; i++) {
-        value_decref(vm->globals[i]);                     // release each global
+        value_decref(vm->globals[i]);             // release each global
     }
     for (int i = 0; i < vm->args_top; i++) {
-        value_decref(vm->args_stack[i]);                  // release any remaining args
+        value_decref(vm->args_stack[i]);          // release any remaining args
     }
-    string_intern_table_free(&vm->intern_table);          // free interned strings
-    object_pool_free(&vm->obj_pool);                      // free pooled objects
-    free(vm->register_frames);                            // free register frame array
-    free(vm);                                             // free vm struct
+    
+    string_intern_table_free(&vm->intern_table);  // free interned strings
+    object_pool_free(&vm->obj_pool);              // free pooled objects
+    free(vm);                                     // free vm struct
 }
 
 // dispatches built-in function calls to module-specific handlers
@@ -1039,15 +1127,27 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
 
 // main execution loop with direct threaded dispatch for performance
 bool vm_execute(VM* vm, BytecodeChunk* chunk) {
-    if (!vm || !chunk) return false;
-    vm->chunk = chunk;
-    vm->code = chunk->code;
-    vm->code_count = chunk->code_count;
-    vm->running = true;
-    vm->had_error = false;
-    vm->global_count = chunk->global_count;
-    vm->register_count = chunk->functions[0].local_count + 32;
-    for (int i = 0; i < chunk->global_count; i++) vm->globals[i] = MAKE_NONE();
+    if (!vm || !chunk) return false;                      // validate arguments
+    vm->chunk = chunk;                                    // store bytecode chunk
+    vm->code = chunk->code;                               // pointer to instruction array
+    vm->code_count = chunk->code_count;                   // total instruction count
+    vm->running = true;                                   // mark vm as running
+    vm->had_error = false;                                // reset error flag
+    vm->global_count = chunk->global_count;               // number of globals to initialise
+    
+    int needed_regs = chunk->functions[0].max_registers;  // registers needed by main function
+    if (needed_regs < REGISTER_INITIAL_SIZE) {
+        needed_regs = REGISTER_INITIAL_SIZE;              // enforce minimum frame size
+    }
+    if (!ensure_register_capacity(vm, 0, needed_regs)) {  // allocate or grow frame 0
+        vm->had_error = true;                             // allocation failed
+        vm->running = false;                              // stop execution
+        return false;                                     // bail out
+    }
+    
+    for (int i = 0; i < chunk->global_count; i++) {
+        vm->globals[i] = MAKE_NONE();                     // initialise each global slot
+    }
     static void* dispatch_table[] = {
         [OP_MOVE]             = &&OP_MOVE_LABEL,
         [OP_LOAD_CONST]       = &&OP_LOAD_CONST_LABEL,
@@ -1099,12 +1199,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_PUSH_ARG]         = &&OP_PUSH_ARG_LABEL,
         [OP_CALL]             = &&OP_CALL_LABEL,
         [OP_CALL_BUILTIN]     = &&OP_CALL_BUILTIN_LABEL,
-        [OP_RETURN]           = &&OP_RETURN_LABEL,
-        [OP_RETURN_VOID]      = &&OP_RETURN_VOID_LABEL,
-        
         [OP_CALL_0]           = &&OP_CALL_0_LABEL,
         [OP_CALL_1]           = &&OP_CALL_1_LABEL,
         [OP_CALL_2]           = &&OP_CALL_2_LABEL,
+        [OP_RETURN]           = &&OP_RETURN_LABEL,
+        [OP_RETURN_VOID]      = &&OP_RETURN_VOID_LABEL,
         [OP_RETURN_NUM]       = &&OP_RETURN_NUM_LABEL,
 
         [OP_LOAD_GLOBAL]      = &&OP_LOAD_GLOBAL_LABEL,
@@ -1112,10 +1211,10 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         
         [OP_HALT]             = &&OP_HALT_LABEL,
     };
-    register Instruction* ip = vm->code;
-    register Value* regs = vm->registers;
-    __builtin_prefetch(ip + 1, 0, 1);
-    goto *dispatch_table[ip->opcode];
+    register Instruction* ip = vm->code;   // instruction pointer in a register for speed
+    register Value* regs = vm->registers;  // current frame registers in a register for speed
+    __builtin_prefetch(ip + 1, 0, 1);      // hint cpu to prefetch next instruction
+    goto *dispatch_table[ip->opcode];      // jump to first opcode handler
 
     OP_MOVE_LABEL: {
         int dest = ip->operands[0]; int src = ip->operands[1];  // dest and src register indices
@@ -1679,13 +1778,13 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
 
     OP_PUSH_ARG_LABEL: {
-        if (vm->args_top >= VM_MAX_ARGS_STACK) {  // check for arg stack overflow
+        if (vm->args_top >= VM_MAX_ARGS_STACK) {     // check for arg stack overflow
             fprintf(stderr, "\033[31mArgument stack overflow - maximum %d arguments exceeded. "
                     "Too many function arguments being passed.\n\033[0m",
-                    VM_MAX_ARGS_STACK);           // print error message
-            vm->had_error = true;                 // set error flag
-            vm->running = false;                  // stop execution
-            return false;                         // early return
+                    VM_MAX_ARGS_STACK);              // print error message
+            vm->had_error = true;                    // set error flag
+            vm->running = false;                     // stop execution
+            return false;                            // early return
         }
         int reg = ip->operands[0];                   // register holding the argument
         Value src = vm->registers[reg];              // fetch argument value
@@ -1698,52 +1797,175 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         if (vm->call_depth >= VM_MAX_CALL_FRAMES) {  // check for call stack overflow
             fprintf(stderr, "\033[31mStack overflow - maximum call depth (%d) exceeded. "
                     "Too many nested function calls or infinite recursion detected.\n\033[0m", 
-                    VM_MAX_CALL_FRAMES);         // print error message
-            vm->had_error = true;                // set error flag
-            vm->running = false;                 // stop execution
-            return false;                        // early return
+                    VM_MAX_CALL_FRAMES);          // print error message
+            vm->had_error = true;                 // set error flag
+            vm->running = false;                  // stop execution
+            return false;                         // early return
         }
-        int func_addr = ip->operands[1];         // address of function body
-        int arg_count = ip->operands[2];         // number of arguments
-        int dest_reg  = ip->operands[0];         // dest register for return value
+        int func_idx = ip->operands[1];           // function index in chunk->functions[]
+        int arg_count = ip->operands[2];          // number of arguments
+        int dest_reg  = ip->operands[0];          // dest register for return value
         vm->call_stack[vm->call_depth].return_address = (ip + 1) - vm->code;      // save return address
         vm->call_stack[vm->call_depth].dest_reg       = dest_reg;                 // save dest register
         vm->call_stack[vm->call_depth].frame_index    = vm->current_frame;        // save current frame index
         vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;  // save iterator depth
-        vm->call_depth++;                        // push call frame
-        vm->current_frame++;                     // advance to next register frame
-        vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];  // switch to new register frame
-        regs = vm->registers;                    // update local regs pointer
+        vm->call_depth++;                         // push call frame
+        vm->current_frame++;                      // advance to next register frame
+        
+        int needed = chunk->functions[func_idx].max_registers;  // get max_registers from function metadata
+        if (needed < REGISTER_INITIAL_SIZE) needed = REGISTER_INITIAL_SIZE;
+        if (arg_count > needed) needed = arg_count;
+        
+        if (vm->frame_capacity[vm->current_frame] <= needed) {
+            if (!ensure_register_capacity(vm, vm->current_frame, needed)) {
+                vm->had_error = true;             // failed to allocate frame
+                vm->running = false;              // stop execution
+                return false;                     // bail out
+            }
+        }
+        vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // switch to new frame
+        regs = vm->registers;                     // update local regs pointer
         for (int i = 0; i < arg_count; i++) {
             regs[i] = vm->args_stack[vm->args_top - arg_count + i];  // copy args into new frame registers
         }
-        vm->args_top -= arg_count;               // pop args from args stack
-        ip = &vm->code[func_addr];               // jump to function body
-        goto *dispatch_table[ip->opcode];        // dispatch first instruction of function
+        vm->args_top -= arg_count;                // pop args from args stack
+        ip = &vm->code[chunk->functions[func_idx].address];  // jump to function body
+        goto *dispatch_table[ip->opcode];         // dispatch first instruction of function
     }
     OP_CALL_BUILTIN_LABEL: {
-        int dest_reg = ip->operands[0];             // dest register for return value
-        int name_idx = ip->operands[1];             // constant pool index for builtin name
-        int arg_count = ip->operands[2];            // number of arguments
-        Value args[VM_MAX_ARGS_STACK];              // local args array
+        int dest_reg = ip->operands[0];              // dest register for return value
+        int name_idx = ip->operands[1];              // constant pool index for builtin name
+        int arg_count = ip->operands[2];             // number of arguments
+        Value args[VM_MAX_ARGS_STACK];               // local args array
         for (int i = 0; i < arg_count && i < 16; i++) {
             args[i] = vm->args_stack[vm->args_top - arg_count + i];  // copy args from stack
         }
-        Value result;                               // placeholder for return value
+        Value result;                                // placeholder for return value
         bool ok = vm_call_builtin(vm, chunk->constants[name_idx].string_value, arg_count, args, &result);  // dispatch to builtin
         for (int i = 0; i < arg_count; i++) {
             value_decref(vm->args_stack[vm->args_top - arg_count + i]);  // release args from stack
         }
-        vm->args_top -= arg_count;                  // pop args from args stack
+        vm->args_top -= arg_count;                   // pop args from args stack
         if (ok) {
-            value_decref(vm->registers[dest_reg]);  // release old dest value
-            vm->registers[dest_reg] = result;       // store result from builtin
+            value_decref(vm->registers[dest_reg]);   // release old dest value
+            vm->registers[dest_reg] = result;        // store result from builtin
         } else {
-            value_decref(vm->registers[dest_reg]);  // release old dest value
-            vm->registers[dest_reg] = MAKE_NONE();  // builtin failed, store none
+            value_decref(vm->registers[dest_reg]);   // release old dest value
+            vm->registers[dest_reg] = MAKE_NONE();   // builtin failed, store none
         }
-        if (dest_reg >= vm->register_count) vm->register_count = dest_reg + 1;  // track max register used
-        ip++; goto *dispatch_table[ip->opcode];     // advance to next instruction
+        if (dest_reg >= vm->frame_used[vm->current_frame]) {
+            vm->frame_used[vm->current_frame] = dest_reg + 1;  // track max register used for vm_destroy cleanup
+        }
+        ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
+    }
+    OP_CALL_0_LABEL: {
+        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {  // check for call stack overflow
+            fprintf(stderr, "\033[31mStack overflow - maximum call depth (%d) exceeded. "
+                    "Too many nested function calls or infinite recursion detected.\n\033[0m", 
+                    VM_MAX_CALL_FRAMES);             // print error message
+            vm->had_error = true;                    // set error flag
+            vm->running = false;                     // stop execution
+            goto OP_HALT_LABEL;                      // jump to halt
+        }
+        int func_idx = ip->operands[1];              // function index
+        int dest_reg = ip->operands[0];              // dest register for return value
+        vm->call_stack[vm->call_depth].return_address = (int)((ip + 1) - vm->code);  // save return address
+        vm->call_stack[vm->call_depth].dest_reg = dest_reg;                          // save dest register
+        vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save current frame index
+        vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;     // save iterator depth
+        vm->call_depth++;                            // push call frame
+        vm->current_frame++;                         // advance to next register frame
+        
+        int needed = chunk->functions[func_idx].max_registers;  // get max_registers from function metadata
+        if (needed < REGISTER_INITIAL_SIZE) needed = REGISTER_INITIAL_SIZE;
+        
+        if (vm->frame_capacity[vm->current_frame] <= needed) {
+            if (!ensure_register_capacity(vm, vm->current_frame, needed)) {
+                vm->had_error = true;                // failed to allocate frame
+                vm->running = false;                 // stop execution
+                goto OP_HALT_LABEL;                  // jump to halt
+            }
+        }
+        vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // switch to new frame
+        regs = vm->registers;                        // update local regs pointer
+        ip = &vm->code[chunk->functions[func_idx].address];  // jump to function body
+        goto *dispatch_table[ip->opcode];            // dispatch first instruction of function
+    }
+    OP_CALL_1_LABEL: {
+        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {  // check for call stack overflow
+            fprintf(stderr, "\033[31mStack overflow - maximum call depth (%d) exceeded. "
+                    "Too many nested function calls or infinite recursion detected.\n\033[0m", 
+                    VM_MAX_CALL_FRAMES);             // print error message
+            vm->had_error = true;                    // set error flag
+            vm->running = false;                     // stop execution
+            goto OP_HALT_LABEL;                      // jump to halt
+        }
+        int func_idx = ip->operands[1];              // function index
+        int dest_reg = ip->operands[0];              // dest register for return value
+        int arg_reg = ip->operands[2];               // register holding the single argument
+        vm->call_stack[vm->call_depth].return_address = (int)((ip + 1) - vm->code);  // save return address
+        vm->call_stack[vm->call_depth].dest_reg = dest_reg;                          // save dest register
+        vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save current frame index
+        vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;     // save iterator depth
+        vm->call_depth++;                            // push call frame
+        vm->current_frame++;                         // advance to next register frame
+        
+        int needed = chunk->functions[func_idx].max_registers;  // get max_registers from function metadata
+        if (needed < REGISTER_INITIAL_SIZE) needed = REGISTER_INITIAL_SIZE;
+        if (1 > needed) needed = 1;                             // ensure at least 1 register for the argument
+        
+        if (vm->frame_capacity[vm->current_frame] <= needed) {
+            if (!ensure_register_capacity(vm, vm->current_frame, needed)) {
+                vm->had_error = true;  // failed to allocate frame
+                vm->running = false;   // stop execution
+                goto OP_HALT_LABEL;    // jump to halt
+            }
+        }
+        vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // switch to new frame
+        regs = vm->registers;                                       // update local regs pointer
+        int prev_offset = vm->frame_offset[vm->current_frame - 1];  // caller's frame offset
+        regs[0] = vm->register_pool[prev_offset + arg_reg];         // copy single arg into new frame
+        ip = &vm->code[chunk->functions[func_idx].address];         // jump to function body
+        goto *dispatch_table[ip->opcode];                           // dispatch first instruction of function
+    }
+    OP_CALL_2_LABEL: {
+        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {  // check for call stack overflow
+            fprintf(stderr, "\033[31mStack overflow - maximum call depth (%d) exceeded. "
+                    "Too many nested function calls or infinite recursion detected.\n\033[0m", 
+                    VM_MAX_CALL_FRAMES);             // print error message
+            vm->had_error = true;                    // set error flag
+            vm->running = false;                     // stop execution
+            goto OP_HALT_LABEL;                      // jump to halt
+        }
+        int func_idx = ip->operands[1];              // function index
+        int dest_reg = ip->operands[0];              // dest register for return value
+        int arg1_reg = ip->operands[2];              // register holding first argument
+        int arg2_reg = arg1_reg + 1;                 // second argument is in the next register
+        vm->call_stack[vm->call_depth].return_address = (int)((ip + 1) - vm->code);  // save return address
+        vm->call_stack[vm->call_depth].dest_reg = dest_reg;                          // save dest register
+        vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save current frame index
+        vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;     // save iterator depth
+        vm->call_depth++;                            // push call frame
+        vm->current_frame++;                         // advance to next register frame
+        
+        int needed = chunk->functions[func_idx].max_registers;  // get max_registers from function metadata
+        if (needed < REGISTER_INITIAL_SIZE) needed = REGISTER_INITIAL_SIZE;
+        if (2 > needed) needed = 2;                             // ensure at least 2 registers for the arguments
+        
+        if (vm->frame_capacity[vm->current_frame] <= needed) {
+            if (!ensure_register_capacity(vm, vm->current_frame, needed)) {
+                vm->had_error = true;                // failed to allocate frame
+                vm->running = false;                 // stop execution
+                goto OP_HALT_LABEL;                  // jump to halt
+            }
+        }
+        vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // switch to new frame
+        regs = vm->registers;                                       // update local regs pointer
+        int prev_offset = vm->frame_offset[vm->current_frame - 1];  // caller's frame offset
+        regs[0] = vm->register_pool[prev_offset + arg1_reg];        // copy first arg into new frame
+        regs[1] = vm->register_pool[prev_offset + arg2_reg];        // copy second arg into new frame
+        ip = &vm->code[chunk->functions[func_idx].address];         // jump to function body
+        goto *dispatch_table[ip->opcode];                           // dispatch first instruction of function
     }
     OP_RETURN_LABEL: {
         int value_reg = ip->operands[0];         // register holding return value
@@ -1751,11 +1973,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         value_incref(ret_val);                   // bump refcount for the returned value
         if (vm->call_depth > 0) {                // returning from a function call
             vm->call_depth--;                    // pop call frame
-            vm->current_frame = vm->call_stack[vm->call_depth].frame_index;  // restore frame index
-            vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];  // restore register frame
+            vm->current_frame = vm->call_stack[vm->call_depth].frame_index;           // restore frame index
+            vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // restore register frame
             regs = vm->registers;                // update local regs pointer
             vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
-            int dest_reg = vm->call_stack[vm->call_depth].dest_reg;          // dest register for return value
+            int dest_reg = vm->call_stack[vm->call_depth].dest_reg;                   // dest register for return value
             value_decref(regs[dest_reg]);        // release old value in dest
             regs[dest_reg] = ret_val;            // store return value in caller's dest reg
             ip = &vm->code[vm->call_stack[vm->call_depth].return_address];   // jump to return address
@@ -1771,7 +1993,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             int return_addr = vm->call_stack[vm->call_depth].return_address;  // get return address
             int dest_reg = vm->call_stack[vm->call_depth].dest_reg;           // get dest register
             vm->current_frame = vm->call_stack[vm->call_depth].frame_index;   // restore frame index
-            vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];  // restore register frame
+            vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // restore register frame
             regs = vm->registers;                // update local regs pointer
             value_decref(regs[dest_reg]);        // release old value in dest
             regs[dest_reg] = MAKE_NONE();        // void return, store none in dest
@@ -1781,95 +2003,17 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         vm->running = false;                     // top-level return, stop execution
         goto OP_HALT_LABEL;                      // jump to halt
     }
-
-    OP_CALL_0_LABEL: {
-        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {  // check for call stack overflow
-            fprintf(stderr, "\033[31mStack overflow - maximum call depth (%d) exceeded. "
-                    "Too many nested function calls or infinite recursion detected.\n\033[0m", 
-                    VM_MAX_CALL_FRAMES);             // print error message
-            vm->had_error = true;                    // set error flag
-            vm->running = false;                     // stop execution
-            goto OP_HALT_LABEL;                      // jump to halt
-        }
-        int func_addr = ip->operands[1];             // address of function body
-        int dest_reg = ip->operands[0];              // dest register for return value
-        vm->args_top = 0;                            // reset args stack (0 args)
-        vm->call_stack[vm->call_depth].return_address = (int)((ip + 1) - vm->code);  // save return address
-        vm->call_stack[vm->call_depth].dest_reg = dest_reg;                          // save dest register
-        vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save current frame index
-        vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;     // save iterator depth
-        vm->call_depth++;                            // push call frame
-        vm->current_frame++;                         // advance to next register frame
-        vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];  // switch to new register frame
-        regs = vm->registers;                        // update local regs pointer
-        ip = &vm->code[func_addr];                   // jump to function body
-        goto *dispatch_table[ip->opcode];            // dispatch first instruction of function
-    }
-    OP_CALL_1_LABEL: {
-        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {  // check for call stack overflow
-            fprintf(stderr, "\033[31mStack overflow - maximum call depth (%d) exceeded. "
-                    "Too many nested function calls or infinite recursion detected.\n\033[0m", 
-                    VM_MAX_CALL_FRAMES);             // print error message
-            vm->had_error = true;                    // set error flag
-            vm->running = false;                     // stop execution
-            goto OP_HALT_LABEL;                      // jump to halt
-        }
-        int func_addr = ip->operands[1];             // address of function body
-        int dest_reg = ip->operands[0];              // dest register for return value
-        int arg_reg = ip->operands[2];               // register holding the single argument
-        vm->args_top = 0;                            // reset args stack (not used for fast call_1)
-        vm->call_stack[vm->call_depth].return_address = (int)((ip + 1) - vm->code);  // save return address
-        vm->call_stack[vm->call_depth].dest_reg = dest_reg;                          // save dest register
-        vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save current frame index
-        vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;     // save iterator depth
-        vm->call_depth++;                            // push call frame
-        vm->current_frame++;                         // advance to next register frame
-        vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];  // switch to new register frame
-        regs = vm->registers;                        // update local regs pointer
-        Value* prev_frame = &vm->register_frames[(vm->current_frame - 1) * VM_REGS_PER_FRAME];  // access caller's frame
-        regs[0] = prev_frame[arg_reg];               // copy single arg into new frame's reg 0
-        ip = &vm->code[func_addr];                   // jump to function body
-        goto *dispatch_table[ip->opcode];            // dispatch first instruction of function
-    }
-    OP_CALL_2_LABEL: {
-        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {  // check for call stack overflow
-            fprintf(stderr, "\033[31mStack overflow - maximum call depth (%d) exceeded. "
-                    "Too many nested function calls or infinite recursion detected.\n\033[0m", 
-                    VM_MAX_CALL_FRAMES);             // print error message
-            vm->had_error = true;                    // set error flag
-            vm->running = false;                     // stop execution
-            goto OP_HALT_LABEL;                      // jump to halt
-        }
-        int func_addr = ip->operands[1];             // address of function body
-        int dest_reg = ip->operands[0];              // dest register for return value
-        int arg1_reg = ip->operands[2];              // register holding first argument
-        int arg2_reg = arg1_reg + 1;                 // second argument is in the next register
-        vm->args_top = 0;                            // reset args stack (not used for fast call_2)
-        vm->call_stack[vm->call_depth].return_address = (int)((ip + 1) - vm->code);  // save return address
-        vm->call_stack[vm->call_depth].dest_reg = dest_reg;                          // save dest register
-        vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save current frame index
-        vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;     // save iterator depth
-        vm->call_depth++;                            // push call frame
-        vm->current_frame++;                         // advance to next register frame
-        vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];  // switch to new register frame
-        regs = vm->registers;                        // update local regs pointer
-        Value* prev_frame = &vm->register_frames[(vm->current_frame - 1) * VM_REGS_PER_FRAME];  // access caller's frame
-        regs[0] = prev_frame[arg1_reg];              // copy first arg into new frame's reg 0
-        regs[1] = prev_frame[arg2_reg];              // copy second arg into new frame's reg 1
-        ip = &vm->code[func_addr];                   // jump to function body
-        goto *dispatch_table[ip->opcode];            // dispatch first instruction of function
-    }
     OP_RETURN_NUM_LABEL: {
-        int value_reg = ip->operands[0];         // register holding return value (guaranteed number)
+        int value_reg = ip->operands[0];         // register holding return value
         Value ret_val = regs[value_reg];         // fetch return value
         if (vm->call_depth > 0) {                // returning from a function call
             vm->call_depth--;                    // pop call frame
             int return_addr = vm->call_stack[vm->call_depth].return_address;  // get return address
             int dest_reg = vm->call_stack[vm->call_depth].dest_reg;           // get dest register
             vm->current_frame = vm->call_stack[vm->call_depth].frame_index;   // restore frame index
-            vm->registers = &vm->register_frames[vm->current_frame * VM_REGS_PER_FRAME];  // restore register frame
+            vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // restore register frame
             regs = vm->registers;                // update local regs pointer
-            vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;      // restore iterator depth
+            vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
             regs[dest_reg] = ret_val;            // store return value in caller's dest reg (no incref, unboxed number)
             ip = &vm->code[return_addr];         // jump to return address
             goto *dispatch_table[ip->opcode];    // dispatch next instruction

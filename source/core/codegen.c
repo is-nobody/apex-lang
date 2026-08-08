@@ -27,10 +27,6 @@ static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node);
 
 // allocates a new virtual register for temporary values
 static int alloc_register(CodeGenerator* cg) {
-    if (cg->next_register >= VM_REGS_PER_FRAME) {
-        fprintf(stderr, "\033[31mFatal: register limit %d exceeded\n\033[0m", VM_REGS_PER_FRAME);
-        exit(1);
-    }
     int reg = cg->next_register++;   // allocate next register
     if (reg >= cg->max_registers) {  // track max used
         cg->max_registers = reg + 1;
@@ -342,42 +338,42 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         int name_idx = bytecode_add_string_constant(cg->chunk, func_name);             // add name constant
         emit(cg, INST(OP_CALL_BUILTIN, result_reg, name_idx, arg_count), node->line);  // call builtin
     } else {                                                                           // user function
-        int func_addr = -1;                                                            // function address
+        int func_idx = -1;                                                             // function index
         for (int i = 0; i < cg->chunk->func_count; i++) {                              // find function
             if (strcmp(cg->chunk->functions[i].name, func_name) == 0) {                // name matches
-                func_addr = cg->chunk->functions[i].address;                           // get address
+                func_idx = i;                                                          // store index
                 break;                                                                 // exit loop
             }
         }
         
-        if (func_addr >= 0) {                                                 // function found
-            if (arg_count == 0) {                                             // zero args
-                emit(cg, INST(OP_CALL_0, result_reg, func_addr, 0), node->line);
-            } else if (arg_count == 1) {                                      // one arg
+        if (func_idx >= 0) {                                                   // function found
+            if (arg_count == 0) {                                              // zero args
+                emit(cg, INST(OP_CALL_0, result_reg, func_idx, 0), node->line);
+            } else if (arg_count == 1) {                                       // one arg
                 if (result_reg == arg_regs[0]) {
                     int safe_reg = alloc_register(cg);
-                    emit(cg, INST(OP_CALL_1, safe_reg, func_addr, arg_regs[0]), node->line);
+                    emit(cg, INST(OP_CALL_1, safe_reg, func_idx, arg_regs[0]), node->line);
                     emit(cg, INST(OP_MOVE, result_reg, safe_reg, 0), node->line);
                     free_register(cg, safe_reg);
                 } else {
-                    emit(cg, INST(OP_CALL_1, result_reg, func_addr, arg_regs[0]), node->line);
+                    emit(cg, INST(OP_CALL_1, result_reg, func_idx, arg_regs[0]), node->line);
                 }
-            } else if (arg_count == 2) {                                      // two args
-                if (arg_regs[1] != arg_regs[0] + 1) {                         // ensure contiguous
+            } else if (arg_count == 2) {                                       // two args
+                if (arg_regs[1] != arg_regs[0] + 1) {                          // ensure contiguous
                     emit(cg, INST(OP_MOVE, arg_regs[0] + 1, arg_regs[1], 0), node->line);
-                    free_register(cg, arg_regs[1]);                           // free old reg
-                    arg_regs[1] = arg_regs[0] + 1;                            // update to contiguous
+                    free_register(cg, arg_regs[1]);                            // free old reg
+                    arg_regs[1] = arg_regs[0] + 1;                             // update to contiguous
                 }
                 if (result_reg == arg_regs[0] || result_reg == arg_regs[0] + 1) {
                     int safe_reg = alloc_register(cg);
-                    emit(cg, INST(OP_CALL_2, safe_reg, func_addr, arg_regs[0]), node->line);
+                    emit(cg, INST(OP_CALL_2, safe_reg, func_idx, arg_regs[0]), node->line);
                     emit(cg, INST(OP_MOVE, result_reg, safe_reg, 0), node->line);
                     free_register(cg, safe_reg);
                 } else {
-                    emit(cg, INST(OP_CALL_2, result_reg, func_addr, arg_regs[0]), node->line);
+                    emit(cg, INST(OP_CALL_2, result_reg, func_idx, arg_regs[0]), node->line);
                 }
-            } else {                                                          // many args
-                for (int i = 0; i < arg_count; i++) {                         // push all args
+            } else {                                                           // many args
+                for (int i = 0; i < arg_count; i++) {                          // push all args
                     emit(cg, INST(OP_PUSH_ARG, arg_regs[i], 0, 0), node->line);
                 }
                 bool conflict = false;
@@ -386,11 +382,11 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
                 }
                 if (conflict) {
                     int safe_reg = alloc_register(cg);
-                    emit(cg, INST(OP_CALL, safe_reg, func_addr, arg_count), node->line);
+                    emit(cg, INST(OP_CALL, safe_reg, func_idx, arg_count), node->line);
                     emit(cg, INST(OP_MOVE, result_reg, safe_reg, 0), node->line);
                     free_register(cg, safe_reg);
                 } else {
-                    emit(cg, INST(OP_CALL, result_reg, func_addr, arg_count), node->line);
+                    emit(cg, INST(OP_CALL, result_reg, func_idx, arg_count), node->line);
                 }
             }
         } else {                                                              // function not found
@@ -1165,7 +1161,7 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     cg->locals.count = 0;                                                     // reset count
     cg->locals.capacity = 0;                                                  // reset capacity
     cg->next_register = 0;                                                    // reset next reg
-    cg->max_registers = 0;                                                    // reset max regs
+    cg->max_registers = 0;                                                    // reset max regs for new function
     cg->current_function = func_idx;                                          // set current function
 
     for (int i = 0; i < param_count; i++) {                                   // parameters
@@ -1192,6 +1188,7 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     }
 
     cg->chunk->functions[func_idx].local_count = cg->locals.count;                   // store local count
+    cg->chunk->functions[func_idx].max_registers = cg->max_registers;                // store max regs
     if (cg->locals.count > 0) {                                                      // has locals
         cg->chunk->functions[func_idx].local_names = (char**)malloc(sizeof(char*) * cg->locals.count);  // allocate
         for (int i = 0; i < cg->locals.count; i++) {                                 // copy names
@@ -1333,6 +1330,8 @@ bool codegen_generate(CodeGenerator* cg, ASTNode* ast) {
     } else {                                                   // single statement
         codegen_statement(cg, ast);                            // emit statement
     }
+    
+    cg->chunk->functions[0].max_registers = cg->max_registers; // store the max registers
     
     emit(cg, INST(OP_HALT, 0, 0, 0), 0);                       // halt instruction
     return true;                                               // success

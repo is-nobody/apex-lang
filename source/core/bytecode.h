@@ -134,6 +134,7 @@ typedef struct {
     int address;                 // bytecode offset where the function begins
     int arity;                   // number of parameters the function expects
     int local_count;             // number of local variables in the function
+    int max_registers;           // max registers used
     char** local_names;          // local variable names for debugging (debug info)
 } FunctionInfo;
 
