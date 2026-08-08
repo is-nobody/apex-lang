@@ -8,7 +8,7 @@
 
 #include "vm.h"
 
-// dispatcher for string manipulation built-ins (len, lower, upper, split, join, etc.)
+// dispatcher for string module built-in functions
 bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result);
 
 #endif

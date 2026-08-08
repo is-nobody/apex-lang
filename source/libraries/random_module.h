@@ -8,7 +8,7 @@
 
 #include "vm.h"
 
-// dispatcher for random number generation built-ins (randint, choice, shuffle, etc.)
+// dispatcher for random module built-in functions
 bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result);
 
 #endif

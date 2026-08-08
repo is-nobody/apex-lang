@@ -8,6 +8,7 @@
 
 #include "vm.h"
 
+// dispatcher for regex module built-in functions
 bool regex_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result);
 
 #endif

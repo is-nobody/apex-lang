@@ -8,7 +8,7 @@
 
 #include "vm.h"
 
-// dispatcher for table/collection built-ins (remove, has, size, keys, values, clear, copy, merge)
+// dispatcher for table module built-in functions
 bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result);
 
 // comparator for sorting table keys (used by table.keys and table.values)

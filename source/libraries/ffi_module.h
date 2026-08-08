@@ -8,7 +8,7 @@
 
 #include "vm.h"
 
-// dispatcher for foreign function interface built-ins (dynamic library loading and calls)
+// dispatcher for ffi module built-in functions
 bool ffi_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result);
 
 #endif
