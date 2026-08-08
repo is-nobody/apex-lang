@@ -763,17 +763,18 @@ math.factorial(171)  // inf (too large)
 ```
 
 ### math.isnan(x)
-Returns `true` if the value is NaN (Not a Number), `false` otherwise. NaN typically results from operations like `sqrt(-1)` or `0/0`. Returns `none` if the argument is not a number.
+Returns `true` if the value is NaN (Not a Number), `false` otherwise. NaN typically results from operations like `sqrt(-1)` or `0/0`. Returns `false` if the argument is not a number.
 
 ```apex
 import math
 math.isnan(math.sqrt(-1))  // true
 math.isnan(0)              // false
 math.isnan(42)             // false
+math.isnan("42")           // false
 ```
 
 ### math.isinf(x)
-Returns `true` if the value is positive or negative infinity, `false` otherwise. Infinity often results from division by zero or overflowing calculations. Returns `none` if the argument is not a number.
+Returns `true` if the value is positive or negative infinity, `false` otherwise. Infinity often results from division by zero or overflowing calculations. Returns `false` if the argument is not a number.
 
 ```apex
 import math
@@ -781,6 +782,7 @@ math.isinf(math.inf())   // true
 math.isinf(-math.inf())  // true
 math.isinf(1000)         // false
 math.isinf(0)            // false
+math.isinf("0")          // false
 ```
 
 ## String Library (string)

@@ -193,7 +193,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             *result = MAKE_BOOL(IS_NAN(args[0]) || isnan(AS_NUMBER(args[0])));  // check for nan
             return true;                                                        // builtin handled
         }
-        *result = MAKE_NONE();                                        // invalid, return none
+        *result = MAKE_BOOL(false);                                   // invalid, return false
         return true;                                                  // builtin handled
     }
     
@@ -202,7 +202,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             *result = MAKE_BOOL(isinf(AS_NUMBER(args[0])));           // check for infinity
             return true;                                              // builtin handled
         }
-        *result = MAKE_NONE();                                        // invalid, return none
+        *result = MAKE_BOOL(false);                                   // invalid, return false
         return true;                                                  // builtin handled
     }
     
