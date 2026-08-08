@@ -14,7 +14,7 @@
 // call stack limits
 #define VM_MAX_CALL_FRAMES 8192
 #define VM_MAX_FRAMES VM_MAX_CALL_FRAMES
-#define VM_REGS_PER_FRAME 32
+#define VM_REGS_PER_FRAME 256
 #define VM_MAX_GLOBALS 512
 #define VM_MAX_ARGS_STACK 64
 

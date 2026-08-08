@@ -4,6 +4,7 @@
 // MIT license
 
 #include "codegen.h"
+#include "vm.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,6 +27,10 @@ static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node);
 
 // allocates a new virtual register for temporary values
 static int alloc_register(CodeGenerator* cg) {
+    if (cg->next_register >= VM_REGS_PER_FRAME) {
+        fprintf(stderr, "\033[31mFatal: register limit %d exceeded\n\033[0m", VM_REGS_PER_FRAME);
+        exit(1);
+    }
     int reg = cg->next_register++;   // allocate next register
     if (reg >= cg->max_registers) {  // track max used
         cg->max_registers = reg + 1;
