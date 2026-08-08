@@ -183,8 +183,6 @@ static const BuiltinSig BUILTINS[] = {
     {"random.sample",        2, 2, TYPE_TABLE},  {"random.gauss",         2, 2, TYPE_NUMBER},
     {"random.seed",          0, 1, TYPE_NUMBER}, {"random.triangular",    0, 3, TYPE_NUMBER},
     {"random.expovariate",   1, 1, TYPE_NUMBER}, {"random.betavariate",   2, 2, TYPE_NUMBER},
-    {"random.secure_token_hex",0,1,TYPE_NUMBER}, {"random.secure_randint",1, 1, TYPE_NUMBER},
-    {"random.compare_digest",2, 2, TYPE_STRING},
 
     {"codecs.json_read",   1, 1, TYPE_STRING}, {"codecs.json_write",  1, 1, TYPE_ANY},
     {"codecs.csv_read",    1, 3, TYPE_STRING}, {"codecs.csv_write",   1, 3, TYPE_TABLE},
@@ -199,6 +197,8 @@ static const BuiltinSig BUILTINS[] = {
     {"crypto.sha256", 1, 1, TYPE_STRING},      {"crypto.sha512", 1, 1, TYPE_STRING},
     {"crypto.hmac_md5", 2, 2, TYPE_STRING},    {"crypto.hmac_sha1", 2, 2, TYPE_STRING},
     {"crypto.hmac_sha256", 2, 2, TYPE_STRING}, {"crypto.hmac_sha512", 2, 2, TYPE_STRING},
+    {"crypto.token_hex", 1,1,TYPE_NUMBER},     {"crypto.secure_randint",1, 1, TYPE_NUMBER},
+    {"crypto.compare_digest",2, 2, TYPE_STRING},
 
     {"number", 1, 1, TYPE_ANY}, {"string", 1, 1, TYPE_ANY}, {"type", 1, 1, TYPE_ANY}
 };

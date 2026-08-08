@@ -143,7 +143,6 @@ function activate(context) {
                 'random.random', 'random.randint', 'random.choice', 'random.shuffle',
                 'random.sample', 'random.gauss', 'random.seed',
                 'random.triangular', 'random.expovariate', 'random.betavariate',
-                'random.secure_token_hex', 'random.secure_randint', 'random.compare_digest',
 
                 'codecs.json_read', 'codecs.json_write',
                 'codecs.csv_read', 'codecs.csv_write',
@@ -158,6 +157,8 @@ function activate(context) {
                 'crypto.sha256', 'crypto.sha512',
                 'crypto.hmac_md5', 'crypto.hmac_sha1',
                 'crypto.hmac_sha256', 'crypto.hmac_sha512',
+                'crypto.token_hex', 'crypto.secure_randint',
+                'crypto.compare_digest',
 
                 'number', 'string', 'type'
             ];

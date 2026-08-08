@@ -1315,48 +1315,6 @@ if probability != none
     os.output("Beta sample: {probability}")
 ```
 
-### random.secure_token_hex(nbytes)
-Returns a hexadecimal string representation of `nbytes` random bytes generated using a cryptographically secure source. Defaults to 16 bytes if no argument is provided. Returns `none` on failure.
-
-```apex
-import os
-import random
-
-token = random.secure_token_hex(16)
-
-if token != none
-    os.output("Hex Token: {token}")
-```
-
-### random.secure_randint(n)
-Returns a secure random integer in the range `[0, n)`. Uses a cryptographically secure source. Returns `none` on failure or if `n <= 0`.
-
-```apex
-import os
-import random
-
-val = random.secure_randint(100)
-
-if val != none
-    os.output("Secure random int: {val}")
-```
-
-### random.compare_digest(a, b)
-Compares two strings in constant time to prevent timing attacks. Useful for comparing security tokens or hashes. Returns `true` if they match, `false` otherwise. Both arguments must be strings. Always succeeds.
-
-```apex
-import os
-import random
-
-secret = "my_secret_token"
-input = "my_secret_token"
-
-if random.compare_digest(secret, input) == true
-    os.output("Access granted")
-else
-    os.output("Access denied")
-```
-
 ## Codecs Library (codecs)
 The Codecs library provides encoding and decoding functions for various formats. Import it with `import codecs`.
 
@@ -1735,4 +1693,46 @@ if signature == none
     os.output("Could not sign file")
 else
     os.output("HMAC SHA-512: {signature}")
+```
+
+### crypto.token_hex(nbytes)
+Returns a hexadecimal string representation of `nbytes` random bytes generated using a cryptographically secure source. The argument `nbytes` is required and must be a positive integer. Returns `none` on failure or if `nbytes <= 0`.
+
+```apex
+import os
+import crypto
+
+token = crypto.token_hex(16)
+
+if token != none
+    os.output("Hex Token: {token}")
+```
+
+### crypto.secure_randint(n)
+Returns a secure random integer in the range `[0, n)`. Uses a cryptographically secure source. Returns `none` on failure or if `n <= 0`.
+
+```apex
+import os
+import crypto
+
+val = crypto.secure_randint(100)
+
+if val != none
+    os.output("Secure random int: {val}")
+```
+
+### crypto.compare_digest(a, b)
+Compares two strings in constant time to prevent timing attacks. Useful for comparing security tokens or hashes. Returns `true` if they match, `false` otherwise. Both arguments must be strings. Always succeeds.
+
+```apex
+import os
+import crypto
+
+secret = "my_secret_token"
+input = "my_secret_token"
+
+if crypto.compare_digest(secret, input) == true
+    os.output("Access granted")
+else
+    os.output("Access denied")
 ```

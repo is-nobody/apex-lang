@@ -1,4 +1,5 @@
 import os
+import string
 import crypto
 
 tests_passed = 0
@@ -83,6 +84,24 @@ function crypto_hmac_sha512()
     assert_equal(crypto.hmac_sha512("key", "The quick brown fox jumps over the lazy dog"), "b42af09057bac1e2d41708e48a902e09b5ff7f12ab428a4fe86653c73dd248fb82f948a549f7b791a5b41915ee4d1ec3935357e4e2317250d0372afa2ebeeb3a", "hmac_sha512 key + brown fox")
     assert_equal(crypto.hmac_sha512("secret", "Hello World!"), "fd3716eb8e1903ecb8deb9320f1baecf0f8dbe04e4c4c71e64fbb37080222ca42deb0b646cabeb53e269a2446507fb5442961656f8007959bd330ef48df0e13e", "hmac_sha512 secret + Hello World!")
 
+
+function token_hex()
+    nbytes = 16
+    hex_str = crypto.token_hex(nbytes)
+    assert_equal(string.length(hex_str), nbytes * 2, "token_hex length")
+
+function secure_randint()
+    n = 100
+    res = crypto.secure_randint(n)
+    is_valid = res >= 0 and res < n
+    assert_equal(is_valid, true, "secure_randint range [0,99]")
+
+function compare_digest()
+    a = "secret_token_123"
+    b = "secret_token_123"
+    res = crypto.compare_digest(a, b)
+    assert_equal(res, true, "compare_digest identical strings")
+
 crypto_md5()
 crypto_sha1()
 crypto_sha256()
@@ -92,6 +111,10 @@ crypto_hmac_md5()
 crypto_hmac_sha1()
 crypto_hmac_sha256()
 crypto_hmac_sha512()
+
+token_hex()
+secure_randint()
+compare_digest()
 
 if tests_failed == 0
     os.output("[OK] libraries/crypto.apex")

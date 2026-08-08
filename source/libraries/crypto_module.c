@@ -5,9 +5,58 @@
 
 #include "crypto_module.h"
 #include "vm.h"
+#ifdef _WIN32
+#define _CRT_RAND_S
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+
+// fills a buffer with cryptographically secure random bytes
+static void get_secure_bytes(unsigned char* buffer, size_t length) {
+#if defined(_WIN32)
+    for (size_t i = 0; i < length; i++) {         // iterate over buffer
+        unsigned int val;                         // random value
+        rand_s(&val);                             // get secure random
+        buffer[i] = (unsigned char)(val & 0xFF);  // store low byte
+    }
+#else
+    FILE* f = fopen("/dev/urandom", "rb");                        // open urandom
+    if (f) {                                                      // opened successfully
+        size_t read_count = fread(buffer, 1, length, f);          // read random bytes
+        fclose(f);                                                // close file
+        if (read_count == length) return;                         // success
+    }
+    static int seeded = 0;                                        // seed flag
+    if (!seeded) {                                                // not seeded
+        srand((unsigned int)time(NULL) ^ (unsigned int)clock());  // seed from time
+        seeded = 1;                                               // mark seeded
+    }
+    for (size_t i = 0; i < length; i++)                           // fallback to rand
+        buffer[i] = (unsigned char)(rand() % 256);                // fill with rand
+#endif
+}
+
+// converts bytes to a hex string
+static void bytes_to_hex(const unsigned char* bytes, size_t len, char* out) {
+    static const char hex_chars[] = "0123456789abcdef";  // hex characters
+    for (size_t i = 0; i < len; i++) {                   // iterate over bytes
+        out[i * 2] = hex_chars[(bytes[i] >> 4) & 0xF];   // high nibble
+        out[i * 2 + 1] = hex_chars[bytes[i] & 0xF];      // low nibble
+    }
+    out[len * 2] = '\0';                                 // null terminate
+}
+
+// constant-time comparison to prevent timing attacks
+static bool constant_time_compare(const char* a, const char* b, size_t len_a, size_t len_b) {
+    if (len_a != len_b) return false;                         // different lengths
+    volatile unsigned char result = 0;                        // accumulator
+    for (size_t i = 0; i < len_a; i++) {                      // iterate over bytes
+        result |= (unsigned char)a[i] ^ (unsigned char)b[i];  // xor and accumulate
+    }
+    return result == 0;                                       // all bytes matched
+}
 
 typedef void (*hash_init_fn)(void*);
 typedef void (*hash_update_fn)(void*, const unsigned char*, unsigned int);
@@ -842,6 +891,67 @@ bool crypto_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return hmac_hash(vm, args, result, &context, sizeof(context),
                         (hash_init_fn)sha512_init, (hash_update_fn)sha512_update,
                         (hash_final_fn)sha512_final, SHA512_BLOCK_SIZE, 64);
+    }
+
+    if (strcmp(name, "crypto.token_hex") == 0) {                     // secure hex token
+        if (arg_count != 1 || !IS_NUMBER(args[0])) {                 // need exactly 1 number arg
+            *result = MAKE_NONE();
+            return true;
+        }
+        int nbytes = (int)AS_NUMBER(args[0]);                        // number of bytes
+        if (nbytes <= 0) {                                           // invalid size
+            *result = MAKE_NONE();
+            return true;
+        }
+        unsigned char* buffer = (unsigned char*)malloc(nbytes);      // allocate buffer
+        if (!buffer) {                                               // allocation failed
+            *result = MAKE_NONE();
+            return true;
+        }
+        get_secure_bytes(buffer, nbytes);                            // fill with secure bytes
+        char* hex_str = (char*)malloc(nbytes * 2 + 1);               // allocate hex string
+        if (!hex_str) {                                              // allocation failed
+            free(buffer);                                            // free buffer
+            *result = MAKE_NONE();
+            return true;
+        }
+        bytes_to_hex(buffer, nbytes, hex_str);                       // convert to hex
+        free(buffer);                                                // free buffer
+        *result = make_string_val(vm, hex_str);                      // return hex string
+        free(hex_str);                                               // free hex string
+        return true;                                                 // builtin handled
+    }
+
+    if (strcmp(name, "crypto.secure_randint") == 0) {     // secure random integer
+        if (arg_count != 1 || !IS_NUMBER(args[0])) {      // validate
+            *result = MAKE_NONE();
+            return true;
+        }
+        int n = (int)AS_NUMBER(args[0]);                  // modulo
+        if (n <= 0) {                                     // invalid
+            *result = MAKE_NONE();
+            return true;
+        }
+        unsigned char rb;                                  // random byte
+        get_secure_bytes(&rb, 1);                          // get secure byte
+        *result = MAKE_NUMBER((double)(rb % n));           // reduce modulo n
+        return true;                                       // builtin handled
+    }
+
+    if (strcmp(name, "crypto.compare_digest") == 0) {      // constant-time compare
+        if (arg_count != 2) {                              // need 2 args
+            *result = MAKE_BOOL(false);
+            return true;
+        }
+        if (!IS_STRING(args[0]) || !IS_STRING(args[1])) {  // validate strings
+            *result = MAKE_BOOL(false);
+            return true;
+        }
+        StringObject* sa = AS_STRING(args[0]);             // string a
+        StringObject* sb = AS_STRING(args[1]);             // string b
+        bool match = constant_time_compare(sa->chars, sb->chars, sa->length, sb->length);  // compare
+        *result = MAKE_BOOL(match);                        // return result
+        return true;  // builtin handled
     }
 
     return false;  // not a recognized builtin

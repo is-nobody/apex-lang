@@ -39,12 +39,6 @@ function choice_empty()
     res = random.choice(empty_t)
     assert_equal(res, none, "choice empty table")
 
-function compare_digest()
-    a = "secret_token_123"
-    b = "secret_token_123"
-    res = random.compare_digest(a, b)
-    assert_equal(res, true, "compare_digest identical strings")
-
 function expovariate_positive()
     exp = random.expovariate(1.0)
     is_valid = type(exp) == "number" and exp >= 0
@@ -95,11 +89,6 @@ function sample_k_too_large()
     res = random.sample(t_samp, 20)
     assert_equal(res, none, "sample k > size")
 
-function secure_randint()
-    n = 100
-    res = random.secure_randint(n)
-    is_valid = res >= 0 and res < n
-    assert_equal(is_valid, true, "secure_randint range [0,99]")
 
 function seed_reproducibility()
     random.seed(12345)
@@ -129,11 +118,6 @@ function shuffle_empty()
     res = random.shuffle(t_empty)
     assert_equal(res, none, "shuffle empty")
 
-function secure_token_hex()
-    nbytes = 16
-    hex_str = random.secure_token_hex(nbytes)
-    assert_equal(string.length(hex_str), nbytes * 2, "secure_token_hex length")
-
 function triangular_range()
     tri = random.triangular(0, 10, 5)
     is_valid = type(tri) == "number" and tri >= 0 and tri <= 10
@@ -149,7 +133,6 @@ betavariate_negative_alpha()
 betavariate_negative_beta()
 choice_valid()
 choice_empty()
-compare_digest()
 expovariate_positive()
 expovariate_zero_lambda()
 gauss_returns_number()
@@ -160,13 +143,11 @@ random_range()
 sample_valid()
 sample_k_zero()
 sample_k_too_large()
-secure_randint()
 seed_reproducibility()
 seed_no_args()
 shuffle_preserves_size()
 shuffle_single_element()
 shuffle_empty()
-secure_token_hex()
 triangular_range()
 triangular_defaults()
 
