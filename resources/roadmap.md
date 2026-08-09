@@ -1,13 +1,15 @@
 **Apex Language Roadmap**
 - Build for Android
 - Build for iOS
-- Render library
-- UI library
+- `ui` library (apex+html+css+system webview)
+- `network` library
+- `archive` library (zip, 7z, tar: pack/unpack)
+- HEX read/write functions to `codecs`
+- AES-256-CBC function to `crypto`
 - Package manager
 - Language server (LSP)
 - Debug mode
-- WASM support
 - Code formatter before execute
-- match/case/default
-- os.args() function
-- os.date() function (return table)
+- `constant` keyword
+- Documentation `Apex as Embedded language`
+- Resolve Cyclic Reference problem (Cycle Detector?)
