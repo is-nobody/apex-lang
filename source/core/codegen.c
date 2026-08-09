@@ -350,44 +350,19 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
             if (arg_count == 0) {                                              // zero args
                 emit(cg, INST(OP_CALL_0, result_reg, func_idx, 0), node->line);
             } else if (arg_count == 1) {                                       // one arg
-                if (result_reg == arg_regs[0]) {
-                    int safe_reg = alloc_register(cg);
-                    emit(cg, INST(OP_CALL_1, safe_reg, func_idx, arg_regs[0]), node->line);
-                    emit(cg, INST(OP_MOVE, result_reg, safe_reg, 0), node->line);
-                    free_register(cg, safe_reg);
-                } else {
-                    emit(cg, INST(OP_CALL_1, result_reg, func_idx, arg_regs[0]), node->line);
-                }
+                emit(cg, INST(OP_CALL_1, result_reg, func_idx, arg_regs[0]), node->line);
             } else if (arg_count == 2) {                                       // two args
                 if (arg_regs[1] != arg_regs[0] + 1) {                          // ensure contiguous
                     emit(cg, INST(OP_MOVE, arg_regs[0] + 1, arg_regs[1], 0), node->line);
                     free_register(cg, arg_regs[1]);                            // free old reg
                     arg_regs[1] = arg_regs[0] + 1;                             // update to contiguous
                 }
-                if (result_reg == arg_regs[0] || result_reg == arg_regs[0] + 1) {
-                    int safe_reg = alloc_register(cg);
-                    emit(cg, INST(OP_CALL_2, safe_reg, func_idx, arg_regs[0]), node->line);
-                    emit(cg, INST(OP_MOVE, result_reg, safe_reg, 0), node->line);
-                    free_register(cg, safe_reg);
-                } else {
-                    emit(cg, INST(OP_CALL_2, result_reg, func_idx, arg_regs[0]), node->line);
-                }
+                emit(cg, INST(OP_CALL_2, result_reg, func_idx, arg_regs[0]), node->line);
             } else {                                                           // many args
                 for (int i = 0; i < arg_count; i++) {                          // push all args
                     emit(cg, INST(OP_PUSH_ARG, arg_regs[i], 0, 0), node->line);
                 }
-                bool conflict = false;
-                for (int i = 0; i < arg_count; i++) {
-                    if (result_reg == arg_regs[i]) { conflict = true; break; }
-                }
-                if (conflict) {
-                    int safe_reg = alloc_register(cg);
-                    emit(cg, INST(OP_CALL, safe_reg, func_idx, arg_count), node->line);
-                    emit(cg, INST(OP_MOVE, result_reg, safe_reg, 0), node->line);
-                    free_register(cg, safe_reg);
-                } else {
-                    emit(cg, INST(OP_CALL, result_reg, func_idx, arg_count), node->line);
-                }
+                emit(cg, INST(OP_CALL, result_reg, func_idx, arg_count), node->line);
             }
         } else {                                                              // function not found
             for (int i = 0; i < arg_count; i++) {                             // push args
@@ -400,22 +375,10 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
     
     if (arg_regs) {                                                           // free arg registers
         for (int i = 0; i < arg_count; i++) {
-            if (arg_regs[i] != result_reg) {                                  // don't free result_reg
-                free_register(cg, arg_regs[i]);
-            }
+            free_register(cg, arg_regs[i]);
         }
         free(arg_regs);                                                       // free arg array
     }
-
-    if (cg->current_function == 0) {                                          // top-level refresh globals
-        for (int i = 0; i < cg->chunk->global_count; i++) {                   // reload globals
-            int local_reg = find_local(cg, cg->chunk->globals[i].name);       // find local
-            if (local_reg >= 0) {                                             // exists
-                emit(cg, INST(OP_LOAD_GLOBAL, local_reg, i, 0), node->line);  // refresh
-            }
-        }
-    }
-
     return result_reg;                                                        // return result register
 }
 
