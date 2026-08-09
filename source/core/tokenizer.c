@@ -256,23 +256,26 @@ static char* read_string(Tokenizer* tokenizer) {
                     extra_chars = len - 1;                   // extra characters to consume (0, 1, or 2)
                     break;                                   // end octal escape handling
                 }
-                default: is_known = 0; break;                // unknown escape, keep as-is
+                default: is_known = 0; break;                // unknown escape sequence
             }
             
-            if (buf_pos + (is_known ? 1 : 2) >= buf_size) {  // ensure space for 1 or 2 chars
+            if (!is_known) {
+                // unknown escape sequence - report error
+                char error_msg[64];
+                snprintf(error_msg, sizeof(error_msg), "Unsupported symbol for escape sequence: '\\%c'", next_c);
+                tokenizer_error(tokenizer, 1, error_msg);    // report unsupported escape sequence error
+                advance(tokenizer);                          // consume the invalid character to continue tokenizing
+                continue;                                    // continue reading string (error recovery)
+            }
+            
+            if (buf_pos + 1 >= buf_size) {                   // ensure space for 1 char
                 buf_size *= 2;                               // double buffer capacity
                 buffer = (char*)realloc(buffer, buf_size);   // resize buffer
             }
-            if (is_known) {
-                buffer[buf_pos++] = char_to_add;             // store interpreted escape character
-                advance(tokenizer);                          // consume the first char after backslash
-                for (int i = 0; i < extra_chars; i++) {      // consume extra octal digits (0 for \n, 1-2 for \033)
-                    advance(tokenizer);                      // skip each extra octal digit
-                }
-            } else {
-                buffer[buf_pos++] = '\\';                    // preserve backslash for unknown escape
-                buffer[buf_pos++] = next_c;                  // preserve the escaped character itself
-                advance(tokenizer);                          // consume the escaped character
+            buffer[buf_pos++] = char_to_add;                 // store interpreted escape character
+            advance(tokenizer);                              // consume the first char after backslash
+            for (int i = 0; i < extra_chars; i++) {          // consume extra octal digits (0 for \n, 1-2 for \033)
+                advance(tokenizer);                          // skip each extra octal digit
             }
             continue;                                        // continue reading string
         }
