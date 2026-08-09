@@ -1,6 +1,11 @@
-// `npx @vscode/vsce package` for build .vsix
-const vscode = require('vscode');
+// source/vscode/extension.js
+// Implementation of VS Code extension for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
 
+const vscode = require('vscode');  // import vscode extension api: `npx @vscode/vsce package` for build .vsix
+
+// documentation strings for standard library modules
 const libDocs = {
     'os': 'OS library.',
     'sys': 'System information library.',
@@ -14,35 +19,37 @@ const libDocs = {
     'crypto': 'Cryptography library.'
 };
 
+// extension activation entry point
 function activate(context) {
-    // run file command using a terminal
+    // run current file using an integrated terminal
     const runFile = vscode.commands.registerCommand('apex.runFile', async () => {
-        const editor = vscode.window.activeTextEditor;
-        if (!editor || editor.document.languageId !== 'apex') {
-            vscode.window.showErrorMessage('No Apex file is open');
+        const editor = vscode.window.activeTextEditor;                // get active editor
+        if (!editor || editor.document.languageId !== 'apex') {       // check if apex file is open
+            vscode.window.showErrorMessage('No Apex file is open');   // show error message
             return;
         }
 
-        const filePath = editor.document.uri.fsPath;
-        await editor.document.save();
+        const filePath = editor.document.uri.fsPath;          // get absolute file path
+        await editor.document.save();                         // save document before running
 
-        let terminal = vscode.window.terminals.find(t => t.name === 'Apex');
-        if (!terminal) {
-            terminal = vscode.window.createTerminal('Apex');
+        let terminal = vscode.window.terminals.find(t => t.name === 'Apex');   // find existing apex terminal
+        if (!terminal) {                                      // terminal doesn't exist yet
+            terminal = vscode.window.createTerminal('Apex');  // create new terminal named Apex
         }
         
-        terminal.show();
-        terminal.sendText(`apex "${filePath}"`);
+        terminal.show();                                      // bring terminal to front
+        terminal.sendText(`apex "${filePath}"`);              // execute apex interpreter on current file
     });
 
     // hover provider for documentation and type hints
     const hover = vscode.languages.registerHoverProvider('apex', {
-        provideHover(document, position) {
-            const range = document.getWordRangeAtPosition(position);
-            const fullRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_.]+/);
-            const word = document.getText(fullRange);
-            const simpleWord = document.getText(range);
+        provideHover(document, position) {                            // called when user hovers over text
+            const range = document.getWordRangeAtPosition(position);  // get simple word range at cursor
+            const fullRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_.]+/);  // get extended range with dots
+            const word = document.getText(fullRange);                 // full word including dots (e.g., "os.output")
+            const simpleWord = document.getText(range);               // simple word without dots
 
+            // documentation dictionary for keywords and language constructs
             const docs = {
                 'function': 'Declares a function.\n\n```apex\nfunction name(params)\n    // code\n    return value\n```',
                 'if': 'Conditional statement.\n\n```apex\nif condition\n    // code\nelif other_condition\n    // code\nelse\n    // code\n```',
@@ -64,44 +71,44 @@ function activate(context) {
                 'string': 'Converts a value to a string.\n\n```apex\nstring(42)  // "42"\n```',
                 'type': 'Returns the type name of a value as a string.\n\n```apex\ntype(10)  // "number"\n```',
 
-                ...libDocs
+                ...libDocs                                  // merge library documentation
             };
 
-            if (docs[word]) {
-                return new vscode.Hover(docs[word]);
+            if (docs[word]) {                               // check if full word has documentation
+                return new vscode.Hover(docs[word]);        // return hover for full word
             }
             
-            if (docs[simpleWord]) {
-                return new vscode.Hover(docs[simpleWord]);
+            if (docs[simpleWord]) {                         // check if simple word has documentation
+                return new vscode.Hover(docs[simpleWord]);  // return hover for simple word
             }
 
-            return null;
+            return null;                                    // no documentation available
         }
     });
 
-    // completion provider for keywords and library functions
     const completion = vscode.languages.registerCompletionItemProvider('apex', {
-        provideCompletionItems() {
-            const keywords = [
+        provideCompletionItems() {         // called when user triggers autocomplete
+            const keywords = [             // apex language keywords
                 'function', 'if', 'elif', 'else', 'for', 'break',
                 'continue', 'return', 'import', 'and', 'or', 'not',
                 'true', 'false', 'none'
             ];
 
-            const libs = Object.entries(libDocs).map(([label, detail]) => ({ label, detail }));
+            const libs = Object.entries(libDocs).map(([label, detail]) => ({ label, detail }));  // convert lib docs to completion items
 
-            const items = [];
+            const items = [];              // array to hold completion items
 
-            keywords.forEach(kw => {
+            keywords.forEach(kw => {       // add each keyword as completion item
                 items.push(new vscode.CompletionItem(kw, vscode.CompletionItemKind.Keyword));
             });
 
-            libs.forEach(lib => {
+            libs.forEach(lib => {          // add each library as module completion item
                 const item = new vscode.CompletionItem(lib.label, vscode.CompletionItemKind.Module);
-                item.detail = lib.detail;
+                item.detail = lib.detail;  // attach library description
                 items.push(item);
             });
 
+            // list of standard library functions
             const libFuncs = [
                 'os.output',             'os.input',
                 'os.wait',               'os.exit',
@@ -187,41 +194,41 @@ function activate(context) {
                 'number', 'string', 'type'
             ];
 
-            libFuncs.forEach(func => {
+            libFuncs.forEach(func => {  // add each library function as completion item
                 const item = new vscode.CompletionItem(func, vscode.CompletionItemKind.Function);
                 items.push(item);
             });
 
-            return items;
+            return items;  // return all completion items
         }
     });
 
     // document symbols for outline view
     const symbols = vscode.languages.registerDocumentSymbolProvider('apex', {
-        provideDocumentSymbols(document) {
-            const result = [];
-            const text = document.getText();
+        provideDocumentSymbols(document) {                     // called to build outline view
+            const result = [];                                 // array to hold symbol items
+            const text = document.getText();                   // get entire document text
 
-            const funcRegex = /function\s+([a-zA-Z_][a-zA-Z0-9_]*)/g;
-            let match;
-            while ((match = funcRegex.exec(text)) !== null) {
-                const pos = document.positionAt(match.index);
-                result.push(new vscode.DocumentSymbol(
-                    match[1],
-                    'function',
-                    vscode.SymbolKind.Function,
-                    new vscode.Range(pos, pos.translate(0, match[0].length)),
-                    new vscode.Range(pos, pos.translate(0, match[0].length))
+            const funcRegex = /function\s+([a-zA-Z_][a-zA-Z0-9_]*)/g;  // regex to find function definitions
+            let match;                                         // match result variable
+            while ((match = funcRegex.exec(text)) !== null) {  // iterate over all function matches
+                const pos = document.positionAt(match.index);  // get position of match
+                result.push(new vscode.DocumentSymbol(         // create symbol for outline
+                    match[1],                                  // function name
+                    'function',                                // symbol kind description
+                    vscode.SymbolKind.Function,                // symbol type
+                    new vscode.Range(pos, pos.translate(0, match[0].length)),  // selection range
+                    new vscode.Range(pos, pos.translate(0, match[0].length))   // full range
                 ));
             }
 
-            return result;
+            return result;  // return symbols for outline view
         }
     });
 
-    context.subscriptions.push(runFile, hover, completion, symbols);
+    context.subscriptions.push(runFile, hover, completion, symbols);  // register all providers
 }
 
-function deactivate() {}
+function deactivate() {}                    // extension deactivation (no cleanup needed)
 
-module.exports = { activate, deactivate };
+module.exports = { activate, deactivate };  // export extension entry points
