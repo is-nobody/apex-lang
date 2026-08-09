@@ -1563,7 +1563,49 @@ else
 ```
 
 ## Crypto Library (crypto)
-The Crypto library provides cryptographic hash functions for strings and files. It supports MD5, SHA-1, SHA-256, and SHA-512. Import it with `import crypto`.
+The Crypto library provides cryptographic functions for hashing, HMAC, key derivation, AES encryption, and secure random generation. It supports MD5, SHA-1, SHA-256, SHA-512, and AES-128-CBC. Import it with `import crypto`.
+
+### crypto.token_hex(nbytes)
+Returns a hexadecimal string representation of `nbytes` random bytes generated using a cryptographically secure source. The argument `nbytes` is required and must be a positive integer. Returns `none` on failure or if `nbytes <= 0`.
+
+```apex
+import os
+import crypto
+
+token = crypto.token_hex(16)
+
+if token != none
+    os.output("Hex Token: {token}")
+```
+
+### crypto.secure_randint(n)
+Returns a secure random integer in the range `[0, n)`. Uses a cryptographically secure source. Returns `none` on failure or if `n <= 0`.
+
+```apex
+import os
+import crypto
+
+val = crypto.secure_randint(100)
+
+if val != none
+    os.output("Secure random int: {val}")
+```
+
+### crypto.compare_digest(a, b)
+Compares two strings in constant time to prevent timing attacks. Useful for comparing security tokens or hashes. Returns `true` if they match, `false` otherwise. Both arguments must be strings. Always succeeds.
+
+```apex
+import os
+import crypto
+
+secret = "my_secret_token"
+input = "my_secret_token"
+
+if crypto.compare_digest(secret, input) == true
+    os.output("Access granted")
+else
+    os.output("Access denied")
+```
 
 ### crypto.md5(str)
 Computes the MD5 hash of a string. Returns a 32-character lowercase hexadecimal string (128 bits). Returns `none` if the argument is not a string.
@@ -1697,48 +1739,6 @@ else
     os.output("HMAC SHA-512: {signature}")
 ```
 
-### crypto.token_hex(nbytes)
-Returns a hexadecimal string representation of `nbytes` random bytes generated using a cryptographically secure source. The argument `nbytes` is required and must be a positive integer. Returns `none` on failure or if `nbytes <= 0`.
-
-```apex
-import os
-import crypto
-
-token = crypto.token_hex(16)
-
-if token != none
-    os.output("Hex Token: {token}")
-```
-
-### crypto.secure_randint(n)
-Returns a secure random integer in the range `[0, n)`. Uses a cryptographically secure source. Returns `none` on failure or if `n <= 0`.
-
-```apex
-import os
-import crypto
-
-val = crypto.secure_randint(100)
-
-if val != none
-    os.output("Secure random int: {val}")
-```
-
-### crypto.compare_digest(a, b)
-Compares two strings in constant time to prevent timing attacks. Useful for comparing security tokens or hashes. Returns `true` if they match, `false` otherwise. Both arguments must be strings. Always succeeds.
-
-```apex
-import os
-import crypto
-
-secret = "my_secret_token"
-input = "my_secret_token"
-
-if crypto.compare_digest(secret, input) == true
-    os.output("Access granted")
-else
-    os.output("Access denied")
-```
-
 ### crypto.pbkdf2_md5(password, salt, iterations, key_len)
 Derives a key from a password and salt using PBKDF2-HMAC-MD5. Returns a lowercase hexadecimal string of `key_len` bytes. Returns `none` if any argument is invalid or `iterations < 1`.
 
@@ -1797,4 +1797,44 @@ if key == none
     os.output("Could not derive key")
 else
     os.output("PBKDF2 SHA-512: {key}")
+```
+
+
+### crypto.aes128_encrypt(key, plaintext, iv)
+Encrypts a string using AES-128-CBC. The `key` must be a 32-character hexadecimal string (16 bytes). The `plaintext` is the string to encrypt. The `iv` is optional and must be a 32-character hexadecimal string (16 bytes) if provided; defaults to all zeros. Returns the encrypted data as a lowercase hexadecimal string. Uses PKCS7 padding. Returns `none` if any argument is invalid.
+
+```apex
+import os
+import crypto
+
+key = crypto.token_hex(16)
+iv = crypto.token_hex(16)
+plaintext = "Hello World!"
+
+encrypted = crypto.aes128_encrypt(key, plaintext, iv)
+
+if encrypted == none
+    os.output("Could not encrypt data")
+else
+    os.output("Encrypted: {encrypted}")
+```
+
+### crypto.aes128_decrypt(key, ciphertext, iv)
+Decrypts a string previously encrypted with AES-128-CBC. The `key` must be a 32-character hexadecimal string (16 bytes). The `ciphertext` must be a hexadecimal string (as returned by `aes128_encrypt`). The `iv` is optional and must be a 32-character hexadecimal string (16 bytes) if provided; must match the IV used during encryption. Returns the decrypted plaintext string. Validates PKCS7 padding. Returns `none` if any argument is invalid or if the padding is corrupted (wrong key or IV).
+
+```apex
+import os
+import crypto
+
+key = crypto.token_hex(16)
+iv = crypto.token_hex(16)
+plaintext = "Secret message"
+
+encrypted = crypto.aes128_encrypt(key, plaintext, iv)
+decrypted = crypto.aes128_decrypt(key, encrypted, iv)
+
+if decrypted == none
+    os.output("Could not decrypt data")
+else
+    os.output("Decrypted: {decrypted}")
 ```

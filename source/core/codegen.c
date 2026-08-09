@@ -317,6 +317,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "crypto.hmac_sha256",      "crypto.hmac_sha512",
         "crypto.pbkdf2_md5",       "crypto.pbkdf2_sha1",
         "crypto.pbkdf2_sha256",    "crypto.pbkdf2_sha512",
+        "crypto.aes128_encrypt",   "crypto.aes128_encrypt",
         "crypto.token_hex",        "crypto.secure_randint",
         "crypto.compare_digest",
 

@@ -100,6 +100,43 @@ function crypto_pbkdf2_sha512()
     result = crypto.pbkdf2_sha512("password", "salt", 1000, 64)
     assert_equal(result, "afe6c5530785b6cc6b1c6453384731bd5ee432ee549fd42fb6695779ad8a1c5bf59de69c48f774efc4007d5298f9033c0241d5ab69305e7b64eceeb8d834cfec", "pbkdf2_sha512 password salt 1000 64")
 
+function crypto_aes128()
+    key = "1234567890abcdef1234567890abcdef"
+    iv = "000102030405060708090a0b0c0d0e0f"
+    plaintext = "Hello World!"
+    
+    encrypted = crypto.aes128_encrypt(key, plaintext, iv)
+    assert_equal(encrypted, "8f759cd03aee323c46ae21845f56e72b", "aes128 encrypt")
+    decrypted = crypto.aes128_decrypt(key, encrypted, iv)
+    assert_equal(decrypted, plaintext, "aes128 decrypt")
+    
+    encrypted_empty = crypto.aes128_encrypt(key, "", iv)
+    assert_equal(encrypted_empty, "74e150c9013672f5c53ebf95071edc56", "aes128 empty encrypt")
+    decrypted_empty = crypto.aes128_decrypt(key, encrypted_empty, iv)
+    assert_equal(decrypted_empty, "", "aes128 empty decrypt")
+    
+    long_msg = "The quick brown fox jumps over the lazy dog"
+    encrypted_long = crypto.aes128_encrypt(key, long_msg, iv)
+    assert_equal(encrypted_long, "12fecbf064069b916bc6c28616ae9f68bdb5335dc02db091bb858fdd91bcf13eed012960e97f1e3db0b264d9d4333741", "aes128 long encrypt")
+    decrypted_long = crypto.aes128_decrypt(key, encrypted_long, iv)
+    assert_equal(decrypted_long, long_msg, "aes128 long decrypt")
+    
+    wrong_key = "0987654321fedcba0987654321fedcba"
+    decrypted_wrong = crypto.aes128_decrypt(wrong_key, encrypted, iv)
+    assert_equal(decrypted_wrong != plaintext, true, "aes128 wrong key")
+    
+    iv2 = "0f0e0d0c0b0a09080706050403020100"
+    encrypted_iv2 = crypto.aes128_encrypt(key, plaintext, iv2)
+    assert_equal(encrypted != encrypted_iv2, true, "aes128 different IVs")
+    
+    test_file = "_apex_test_aes_file.txt"
+    os.write(test_file, "Secret file content!")
+    data = os.read(test_file)
+    encrypted_file = crypto.aes128_encrypt(key, data)
+    decrypted_file = crypto.aes128_decrypt(key, encrypted_file)
+    assert_equal(decrypted_file, data, "aes128 file")
+    os.delete(test_file)
+
 function token_hex()
     nbytes = 16
     hex_str = crypto.token_hex(nbytes)
@@ -131,6 +168,8 @@ crypto_pbkdf2_md5()
 crypto_pbkdf2_sha1()
 crypto_pbkdf2_sha256()
 crypto_pbkdf2_sha512()
+
+crypto_aes128()
 
 token_hex()
 secure_randint()

@@ -58,6 +58,32 @@ static bool constant_time_compare(const char* a, const char* b, size_t len_a, si
     return result == 0;                                       // all bytes matched
 }
 
+// hex string to bytes conversion
+static int hex_to_bytes(const char* hex, unsigned char* bytes, int max_len) {
+    int len = (int)strlen(hex);
+    if (len % 2 != 0) return -1;  // invalid hex length
+    
+    int byte_len = len / 2;
+    if (byte_len > max_len) return -1;  // too long
+    
+    for (int i = 0; i < byte_len; i++) {
+        char high = hex[i * 2];
+        char low = hex[i * 2 + 1];
+        
+        if (high >= '0' && high <= '9') bytes[i] = (unsigned char)((high - '0') << 4);
+        else if (high >= 'a' && high <= 'f') bytes[i] = (unsigned char)((high - 'a' + 10) << 4);
+        else if (high >= 'A' && high <= 'F') bytes[i] = (unsigned char)((high - 'A' + 10) << 4);
+        else return -1;
+        
+        if (low >= '0' && low <= '9') bytes[i] |= (unsigned char)(low - '0');
+        else if (low >= 'a' && low <= 'f') bytes[i] |= (unsigned char)(low - 'a' + 10);
+        else if (low >= 'A' && low <= 'F') bytes[i] |= (unsigned char)(low - 'A' + 10);
+        else return -1;
+    }
+    
+    return byte_len;
+}
+
 typedef void (*hash_init_fn)(void*);
 typedef void (*hash_update_fn)(void*, const unsigned char*, unsigned int);
 typedef void (*hash_final_fn)(unsigned char*, void*);
@@ -962,6 +988,462 @@ static bool pbkdf2_hash(VM* vm, Value* args, Value* result,
     return true;                                     // builtin handled
 }
 
+// block and key size constants for aes-128
+#define AES_BLOCK_SIZE 16
+#define AES128_KEY_SIZE 16
+
+// aes s-box lookup table
+static const unsigned char aes_sbox[256] = {
+    0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
+    0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
+    0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7, 0xcc, 0x34, 0xa5, 0xe5, 0xf1, 0x71, 0xd8, 0x31, 0x15,
+    0x04, 0xc7, 0x23, 0xc3, 0x18, 0x96, 0x05, 0x9a, 0x07, 0x12, 0x80, 0xe2, 0xeb, 0x27, 0xb2, 0x75,
+    0x09, 0x83, 0x2c, 0x1a, 0x1b, 0x6e, 0x5a, 0xa0, 0x52, 0x3b, 0xd6, 0xb3, 0x29, 0xe3, 0x2f, 0x84,
+    0x53, 0xd1, 0x00, 0xed, 0x20, 0xfc, 0xb1, 0x5b, 0x6a, 0xcb, 0xbe, 0x39, 0x4a, 0x4c, 0x58, 0xcf,
+    0xd0, 0xef, 0xaa, 0xfb, 0x43, 0x4d, 0x33, 0x85, 0x45, 0xf9, 0x02, 0x7f, 0x50, 0x3c, 0x9f, 0xa8,
+    0x51, 0xa3, 0x40, 0x8f, 0x92, 0x9d, 0x38, 0xf5, 0xbc, 0xb6, 0xda, 0x21, 0x10, 0xff, 0xf3, 0xd2,
+    0xcd, 0x0c, 0x13, 0xec, 0x5f, 0x97, 0x44, 0x17, 0xc4, 0xa7, 0x7e, 0x3d, 0x64, 0x5d, 0x19, 0x73,
+    0x60, 0x81, 0x4f, 0xdc, 0x22, 0x2a, 0x90, 0x88, 0x46, 0xee, 0xb8, 0x14, 0xde, 0x5e, 0x0b, 0xdb,
+    0xe0, 0x32, 0x3a, 0x0a, 0x49, 0x06, 0x24, 0x5c, 0xc2, 0xd3, 0xac, 0x62, 0x91, 0x95, 0xe4, 0x79,
+    0xe7, 0xc8, 0x37, 0x6d, 0x8d, 0xd5, 0x4e, 0xa9, 0x6c, 0x56, 0xf4, 0xea, 0x65, 0x7a, 0xae, 0x08,
+    0xba, 0x78, 0x25, 0x2e, 0x1c, 0xa6, 0xb4, 0xc6, 0xe8, 0xdd, 0x74, 0x1f, 0x4b, 0xbd, 0x8b, 0x8a,
+    0x70, 0x3e, 0xb5, 0x66, 0x48, 0x03, 0xf6, 0x0e, 0x61, 0x35, 0x57, 0xb9, 0x86, 0xc1, 0x1d, 0x9e,
+    0xe1, 0xf8, 0x98, 0x11, 0x69, 0xd9, 0x8e, 0x94, 0x9b, 0x1e, 0x87, 0xe9, 0xce, 0x55, 0x28, 0xdf,
+    0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16
+};
+
+// aes inverse s-box lookup table
+static const unsigned char aes_inv_sbox[256] = {
+    0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb,
+    0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb,
+    0x54, 0x7b, 0x94, 0x32, 0xa6, 0xc2, 0x23, 0x3d, 0xee, 0x4c, 0x95, 0x0b, 0x42, 0xfa, 0xc3, 0x4e,
+    0x08, 0x2e, 0xa1, 0x66, 0x28, 0xd9, 0x24, 0xb2, 0x76, 0x5b, 0xa2, 0x49, 0x6d, 0x8b, 0xd1, 0x25,
+    0x72, 0xf8, 0xf6, 0x64, 0x86, 0x68, 0x98, 0x16, 0xd4, 0xa4, 0x5c, 0xcc, 0x5d, 0x65, 0xb6, 0x92,
+    0x6c, 0x70, 0x48, 0x50, 0xfd, 0xed, 0xb9, 0xda, 0x5e, 0x15, 0x46, 0x57, 0xa7, 0x8d, 0x9d, 0x84,
+    0x90, 0xd8, 0xab, 0x00, 0x8c, 0xbc, 0xd3, 0x0a, 0xf7, 0xe4, 0x58, 0x05, 0xb8, 0xb3, 0x45, 0x06,
+    0xd0, 0x2c, 0x1e, 0x8f, 0xca, 0x3f, 0x0f, 0x02, 0xc1, 0xaf, 0xbd, 0x03, 0x01, 0x13, 0x8a, 0x6b,
+    0x3a, 0x91, 0x11, 0x41, 0x4f, 0x67, 0xdc, 0xea, 0x97, 0xf2, 0xcf, 0xce, 0xf0, 0xb4, 0xe6, 0x73,
+    0x96, 0xac, 0x74, 0x22, 0xe7, 0xad, 0x35, 0x85, 0xe2, 0xf9, 0x37, 0xe8, 0x1c, 0x75, 0xdf, 0x6e,
+    0x47, 0xf1, 0x1a, 0x71, 0x1d, 0x29, 0xc5, 0x89, 0x6f, 0xb7, 0x62, 0x0e, 0xaa, 0x18, 0xbe, 0x1b,
+    0xfc, 0x56, 0x3e, 0x4b, 0xc6, 0xd2, 0x79, 0x20, 0x9a, 0xdb, 0xc0, 0xfe, 0x78, 0xcd, 0x5a, 0xf4,
+    0x1f, 0xdd, 0xa8, 0x33, 0x88, 0x07, 0xc7, 0x31, 0xb1, 0x12, 0x10, 0x59, 0x27, 0x80, 0xec, 0x5f,
+    0x60, 0x51, 0x7f, 0xa9, 0x19, 0xb5, 0x4a, 0x0d, 0x2d, 0xe5, 0x7a, 0x9f, 0x93, 0xc9, 0x9c, 0xef,
+    0xa0, 0xe0, 0x3b, 0x4d, 0xae, 0x2a, 0xf5, 0xb0, 0xc8, 0xeb, 0xbb, 0x3c, 0x83, 0x53, 0x99, 0x61,
+    0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d
+};
+
+// aes round constants for key expansion
+static const unsigned char aes_rcon[11] = {
+    0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36
+};
+
+// galois field multiplication by 2 (xtime)
+static unsigned char aes_xtime(unsigned char x) {
+    return (unsigned char)((x << 1) ^ (((x >> 7) & 1) * 0x1b));  // shift left, reduce modulo poly if overflow
+}
+
+// galois field multiplication by 3
+static unsigned char aes_mult3(unsigned char x) {
+    return aes_xtime(x) ^ x;  // 3*x = 2*x xor x
+}
+
+// galois field multiplication in gf(2^8)
+static unsigned char aes_gmul(unsigned char a, unsigned char b) {
+    unsigned char p = 0;                   // product
+    unsigned char hi_bit_set;              // high bit flag
+    for (int i = 0; i < 8; i++) {          // iterate over 8 bits
+        if (b & 1) p ^= a;                 // if low bit of b is 1, add a to product
+        hi_bit_set = a & 0x80;             // check high bit of a
+        a <<= 1;                           // shift a left
+        if (hi_bit_set) a ^= 0x1b;         // reduce modulo irreducible polynomial
+        b >>= 1;                           // shift b right
+    }
+    return p;                              // return product
+}
+
+// aes-128 key expansion from 16-byte key to 176-byte round keys
+static void aes128_key_expansion(const unsigned char* key, unsigned char* round_keys) {
+    for (int i = 0; i < 16; i++) {         // copy original key
+        round_keys[i] = key[i];            // to first 16 bytes
+    }
+    
+    int bytes_generated = 16;              // count of generated bytes
+    int rcon_iteration = 1;                // round constant index
+    unsigned char temp[4];                 // temporary word
+    
+    while (bytes_generated < 176) {        // 11 * 16 bytes for aes-128
+        for (int i = 0; i < 4; i++) {      // copy last word
+            temp[i] = round_keys[bytes_generated - 4 + i];  // to temp
+        }
+        
+        if (bytes_generated % 16 == 0) {   // every 16 bytes
+            unsigned char k = temp[0];     // rotate word left
+            temp[0] = temp[1];             // by one byte
+            temp[1] = temp[2];             // rotword
+            temp[2] = temp[3];             // operation
+            temp[3] = k;                   // complete rotation
+            
+            for (int i = 0; i < 4; i++) {     // substitute each byte
+                temp[i] = aes_sbox[temp[i]];  // using s-box
+            }
+            
+            temp[0] ^= aes_rcon[rcon_iteration++];  // xor with round constant
+        }
+        
+        for (int i = 0; i < 4; i++) {       // generate new word
+            round_keys[bytes_generated] = round_keys[bytes_generated - 16] ^ temp[i];  // xor with word 16 bytes back
+            bytes_generated++;              // increment counter
+        }
+    }
+}
+
+// add round key to state by xor
+static void aes_add_round_key(unsigned char* state, const unsigned char* round_key) {
+    for (int i = 0; i < 16; i++) {          // iterate over 16 bytes
+        state[i] ^= round_key[i];           // xor state with round key
+    }
+}
+
+// substitute bytes using s-box
+static void aes_sub_bytes(unsigned char* state) {
+    for (int i = 0; i < 16; i++) {          // iterate over state
+        state[i] = aes_sbox[state[i]];      // substitute each byte
+    }
+}
+
+// inverse substitute bytes using inverse s-box
+static void aes_inv_sub_bytes(unsigned char* state) {
+    for (int i = 0; i < 16; i++) {          // iterate over state
+        state[i] = aes_inv_sbox[state[i]];  // inverse substitute each byte
+    }
+}
+
+// shift rows step of aes
+static void aes_shift_rows(unsigned char* state) {
+    unsigned char temp;     // temporary storage
+    
+    temp = state[1];        // save first byte
+    state[1] = state[5];    // move byte
+    state[5] = state[9];    // move byte
+    state[9] = state[13];   // move byte
+    state[13] = temp;       // restore saved byte
+    
+    temp = state[2];        // save and swap
+    state[2] = state[10];   // bytes at distance 2
+    state[10] = temp;       // complete first swap
+    temp = state[6];        // save and swap
+    state[6] = state[14];   // second pair
+    state[14] = temp;       // complete second swap
+    
+    temp = state[15];       // shift right by 1
+    state[15] = state[11];  // move byte
+    state[11] = state[7];   // move byte
+    state[7] = state[3];    // move byte
+    state[3] = temp;        // restore saved byte
+}
+
+// inverse shift rows step of aes
+static void aes_inv_shift_rows(unsigned char* state) {
+    unsigned char temp;     // temporary storage
+    
+    temp = state[13];       // save last byte
+    state[13] = state[9];   // move byte
+    state[9] = state[5];    // move byte
+    state[5] = state[1];    // move byte
+    state[1] = temp;        // restore saved byte
+    
+    temp = state[2];        // save and swap
+    state[2] = state[10];   // bytes at distance 2
+    state[10] = temp;       // complete first swap
+    temp = state[6];        // save and swap
+    state[6] = state[14];   // second pair
+    state[14] = temp;       // complete second swap
+    
+    temp = state[3];        // shift left by 1
+    state[3] = state[7];    // move byte
+    state[7] = state[11];   // move byte
+    state[11] = state[15];  // move byte
+    state[15] = temp;       // restore saved byte
+}
+
+// mix columns step using galois field arithmetic
+static void aes_mix_columns(unsigned char* state) {
+    for (int i = 0; i < 4; i++) {           // process each column
+        int col = i * 4;                    // column start index
+        unsigned char a = state[col];       // byte 0 of column
+        unsigned char b = state[col + 1];   // byte 1 of column
+        unsigned char c = state[col + 2];   // byte 2 of column
+        unsigned char d = state[col + 3];   // byte 3 of column
+        
+        state[col]     = aes_xtime(a) ^ aes_mult3(b) ^ c ^ d;  // 2*a + 3*b + c + d
+        state[col + 1] = a ^ aes_xtime(b) ^ aes_mult3(c) ^ d;  // a + 2*b + 3*c + d
+        state[col + 2] = a ^ b ^ aes_xtime(c) ^ aes_mult3(d);  // a + b + 2*c + 3*d
+        state[col + 3] = aes_mult3(a) ^ b ^ c ^ aes_xtime(d);  // 3*a + b + c + 2*d
+    }
+}
+
+// inverse mix columns step
+static void aes_inv_mix_columns(unsigned char* state) {
+    for (int i = 0; i < 4; i++) {           // process each column
+        int col = i * 4;                    // column start index
+        unsigned char a = state[col];       // byte 0 of column
+        unsigned char b = state[col + 1];   // byte 1 of column
+        unsigned char c = state[col + 2];   // byte 2 of column
+        unsigned char d = state[col + 3];   // byte 3 of column
+        
+        state[col]     = aes_gmul(a, 0x0e) ^ aes_gmul(b, 0x0b) ^ aes_gmul(c, 0x0d) ^ aes_gmul(d, 0x09);  // 14*a + 11*b + 13*c + 9*d
+        state[col + 1] = aes_gmul(a, 0x09) ^ aes_gmul(b, 0x0e) ^ aes_gmul(c, 0x0b) ^ aes_gmul(d, 0x0d);  // 9*a + 14*b + 11*c + 13*d
+        state[col + 2] = aes_gmul(a, 0x0d) ^ aes_gmul(b, 0x09) ^ aes_gmul(c, 0x0e) ^ aes_gmul(d, 0x0b);  // 13*a + 9*b + 14*c + 11*d
+        state[col + 3] = aes_gmul(a, 0x0b) ^ aes_gmul(b, 0x0d) ^ aes_gmul(c, 0x09) ^ aes_gmul(d, 0x0e);  // 11*a + 13*b + 9*c + 14*d
+    }
+}
+
+// aes-128 encryption of a single 16-byte block
+static void aes128_encrypt_block(const unsigned char* input, const unsigned char* round_keys, unsigned char* output) {
+    unsigned char state[16];               // internal state
+    
+    for (int i = 0; i < 16; i++) {         // copy input to state
+        state[i] = input[i];               // byte by byte
+    }
+    
+    aes_add_round_key(state, round_keys);  // initial round key addition
+    
+    for (int round = 1; round < 10; round++) {  // 9 main rounds
+        aes_sub_bytes(state);              // substitute bytes
+        aes_shift_rows(state);             // shift rows
+        aes_mix_columns(state);            // mix columns
+        aes_add_round_key(state, round_keys + round * 16);  // add round key
+    }
+    
+    // final round without mixcolumns
+    aes_sub_bytes(state);                  // substitute bytes
+    aes_shift_rows(state);                 // shift rows
+    aes_add_round_key(state, round_keys + 160);  // add last round key (offset 160 = 10*16)
+    
+    for (int i = 0; i < 16; i++) {         // copy state to output
+        output[i] = state[i];              // byte by byte
+    }
+}
+
+// aes-128 decryption of a single 16-byte block
+static void aes128_decrypt_block(const unsigned char* input, const unsigned char* round_keys, unsigned char* output) {
+    unsigned char state[16];               // internal state
+    
+    for (int i = 0; i < 16; i++) {         // copy input to state
+        state[i] = input[i];               // byte by byte
+    }
+    
+    // initial round with last round key
+    aes_add_round_key(state, round_keys + 160);  // add round key 10
+    aes_inv_shift_rows(state);                   // inverse shift rows
+    aes_inv_sub_bytes(state);                    // inverse substitute bytes
+    
+    // 9 main rounds in reverse
+    for (int round = 9; round > 0; round--) {  // rounds 9 down to 1
+        aes_add_round_key(state, round_keys + round * 16);  // add round key
+        aes_inv_mix_columns(state);            // inverse mix columns
+        aes_inv_shift_rows(state);             // inverse shift rows
+        aes_inv_sub_bytes(state);              // inverse substitute bytes
+    }
+    
+    // final round without inverse mixcolumns
+    aes_add_round_key(state, round_keys);  // add initial round key
+    
+    for (int i = 0; i < 16; i++) {         // copy state to output
+        output[i] = state[i];              // byte by byte
+    }
+}
+
+// aes-128-cbc encryption: key and plaintext required, iv optional (default zero)
+static bool aes128_encrypt(VM* vm, Value* args, Value* result) {
+    if (!IS_STRING(args[0]) || !IS_STRING(args[1])) {   // validate arguments
+        *result = MAKE_NONE();                          // invalid
+        return true;                                    // builtin handled
+    }
+    
+    unsigned char key[16];                              // aes key
+    unsigned char iv[16];                               // initialization vector
+    memset(iv, 0, 16);                                  // default iv = all zeros
+    
+    if (hex_to_bytes(AS_STRING(args[0])->chars, key, 16) != 16) {  // parse key from hex
+        *result = MAKE_NONE();                          // invalid key
+        return true;                                    // builtin handled
+    }
+    
+    if (IS_STRING(args[2])) {                           // iv provided
+        if (hex_to_bytes(AS_STRING(args[2])->chars, iv, 16) != 16) {  // parse iv from hex
+            *result = MAKE_NONE();                      // invalid iv
+            return true;                                // builtin handled
+        }
+    }
+    
+    StringObject* plaintext = AS_STRING(args[1]);       // get plaintext string
+    int plaintext_len = plaintext->length;              // plaintext length
+    
+    int pad_byte = 16 - (plaintext_len % 16);           // padding byte value
+    if (pad_byte == 0) pad_byte = 16;                   // full block padding if aligned
+    int padded_len = plaintext_len + pad_byte;          // padded length
+    
+    unsigned char* padded = (unsigned char*)malloc(padded_len);  // allocate padded buffer
+    if (!padded) {                                      // allocation failed
+        *result = MAKE_NONE();                          // return none
+        return true;                                    // builtin handled
+    }
+    
+    memcpy(padded, plaintext->chars, plaintext_len);     // copy plaintext
+    memset(padded + plaintext_len, pad_byte, pad_byte);  // add padding bytes
+    
+    unsigned char round_keys[176];                      // expanded key schedule
+    aes128_key_expansion(key, round_keys);              // expand key
+    
+    // cbc mode encryption
+    unsigned char prev_block[16];                       // previous ciphertext block
+    memcpy(prev_block, iv, 16);                         // start with iv
+    
+    for (int i = 0; i < padded_len; i += 16) {          // process each block
+        for (int j = 0; j < 16; j++) {                  // xor with previous block
+            padded[i + j] ^= prev_block[j];             // cbc xor step
+        }
+        
+        aes128_encrypt_block(padded + i, round_keys, prev_block);  // encrypt block
+        memcpy(padded + i, prev_block, 16);             // copy ciphertext back
+    }
+    
+    // convert ciphertext to hex string
+    char* hex_str = (char*)malloc(padded_len * 2 + 1);  // hex string buffer
+    if (!hex_str) {                                     // allocation failed
+        free(padded);                                   // free buffers
+        memset(round_keys, 0, 176);                     // clear key material
+        memset(key, 0, 16);                             // clear key
+        *result = MAKE_NONE();                          // return none
+        return true;                                    // builtin handled
+    }
+    
+    bytes_to_hex(padded, padded_len, hex_str);          // convert to hex
+    *result = make_string_val(vm, hex_str);             // return hex string
+    
+    // cleanup sensitive data
+    free(padded);                                       // free padded buffer
+    free(hex_str);                                      // free hex string
+    memset(round_keys, 0, 176);                         // clear round keys
+    memset(key, 0, 16);                                 // clear key
+    memset(iv, 0, 16);                                  // clear iv
+    
+    return true;                                        // builtin handled
+}
+
+// aes-128-cbc decryption: key and ciphertext required, iv optional (default zero)
+static bool aes128_decrypt(VM* vm, Value* args, Value* result) {
+    if (!IS_STRING(args[0]) || !IS_STRING(args[1])) {  // validate arguments
+        *result = MAKE_NONE();                         // invalid
+        return true;                                   // builtin handled
+    }
+    
+    unsigned char key[16];                             // aes key
+    unsigned char iv[16];                              // initialization vector
+    memset(iv, 0, 16);                                 // default iv = all zeros
+    
+    if (hex_to_bytes(AS_STRING(args[0])->chars, key, 16) != 16) {  // parse key from hex
+        *result = MAKE_NONE();                         // invalid key
+        return true;                                   // builtin handled
+    }
+    
+    if (IS_STRING(args[2])) {                          // iv provided
+        if (hex_to_bytes(AS_STRING(args[2])->chars, iv, 16) != 16) {  // parse iv from hex
+            *result = MAKE_NONE();                     // invalid iv
+            return true;                               // builtin handled
+        }
+    }
+    
+    StringObject* ciphertext_hex = AS_STRING(args[1]); // get ciphertext hex string
+    int hex_len = ciphertext_hex->length;              // hex string length
+    
+    if (hex_len % 2 != 0 || hex_len < 32) {            // must be even and at least one block
+        *result = MAKE_NONE();                         // invalid input
+        return true;                                   // builtin handled
+    }
+    
+    int ciphertext_len = hex_len / 2;                  // binary ciphertext length
+    unsigned char* ciphertext = (unsigned char*)malloc(ciphertext_len);  // allocate ciphertext buffer
+    if (!ciphertext) {                                 // allocation failed
+        *result = MAKE_NONE();                         // return none
+        return true;                                   // builtin handled
+    }
+    
+    if (hex_to_bytes(ciphertext_hex->chars, ciphertext, ciphertext_len) != ciphertext_len) {  // parse hex
+        free(ciphertext);                              // free buffer
+        *result = MAKE_NONE();                         // invalid hex
+        return true;                                   // builtin handled
+    }
+    
+    unsigned char round_keys[176];                     // expanded key schedule
+    aes128_key_expansion(key, round_keys);             // expand key
+    
+    // cbc mode decryption
+    unsigned char prev_block[16];                      // previous ciphertext block
+    memcpy(prev_block, iv, 16);                        // start with iv
+    unsigned char current_block[16];                   // current block storage
+    
+    for (int i = 0; i < ciphertext_len; i += 16) {     // process each block
+        memcpy(current_block, ciphertext + i, 16);     // save current ciphertext
+        
+        aes128_decrypt_block(ciphertext + i, round_keys, ciphertext + i);  // decrypt block
+        
+        for (int j = 0; j < 16; j++) {                 // xor with previous block
+            ciphertext[i + j] ^= prev_block[j];        // cbc xor step
+        }
+        
+        memcpy(prev_block, current_block, 16);         // update previous block
+    }
+    
+    // remove pkcs7 padding
+    int pad_len = ciphertext[ciphertext_len - 1];      // get padding length from last byte
+    if (pad_len < 1 || pad_len > 16) {                 // invalid padding
+        free(ciphertext);                              // free buffer
+        memset(round_keys, 0, 176);                    // clear key material
+        memset(key, 0, 16);                            // clear key
+        *result = MAKE_NONE();                         // return none
+        return true;                                   // builtin handled
+    }
+    
+    // verify all padding bytes are correct
+    for (int i = 0; i < pad_len; i++) {                // check each padding byte
+        if (ciphertext[ciphertext_len - 1 - i] != pad_len) {  // invalid padding byte
+            free(ciphertext);                          // free buffer
+            memset(round_keys, 0, 176);                // clear key material
+            memset(key, 0, 16);                        // clear key
+            *result = MAKE_NONE();                     // return none
+            return true;                               // builtin handled
+        }
+    }
+    
+    int plaintext_len = ciphertext_len - pad_len;      // actual plaintext length
+    
+    // create null-terminated string from plaintext
+    char* plaintext_str = (char*)malloc(plaintext_len + 1);  // allocate string buffer
+    if (!plaintext_str) {                              // allocation failed
+        free(ciphertext);                              // free buffer
+        memset(round_keys, 0, 176);                    // clear key material
+        memset(key, 0, 16);                            // clear key
+        *result = MAKE_NONE();                         // return none
+        return true;                                   // builtin handled
+    }
+    
+    memcpy(plaintext_str, ciphertext, plaintext_len);  // copy plaintext
+    plaintext_str[plaintext_len] = '\0';               // null terminate
+    
+    *result = make_string_val(vm, plaintext_str);      // return plaintext string
+    
+    // cleanup sensitive data
+    free(ciphertext);                                  // free ciphertext buffer
+    free(plaintext_str);                               // free string buffer
+    memset(round_keys, 0, 176);                        // clear round keys
+    memset(key, 0, 16);                                // clear key
+    memset(iv, 0, 16);                                 // clear iv
+    
+    return true;                                       // builtin handled
+}
+
 // dispatcher for crypto built-in functions
 bool crypto_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     if (arg_count < 1) {
@@ -1059,6 +1541,16 @@ bool crypto_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return pbkdf2_hash(vm, args, result, &context, sizeof(context),
                           (hash_init_fn)sha512_init, (hash_update_fn)sha512_update,
                           (hash_final_fn)sha512_final, SHA512_BLOCK_SIZE, 64);
+    }
+
+    if (strcmp(name, "crypto.aes128_encrypt") == 0) {    // aes-128-cbc encrypt(key, plaintext, [iv])
+        if (arg_count < 2) { *result = MAKE_NONE(); return true; }
+        return aes128_encrypt(vm, args, result);
+    }
+
+    if (strcmp(name, "crypto.aes128_decrypt") == 0) {    // aes-128-cbc decrypt(key, ciphertext, [iv])
+        if (arg_count < 2) { *result = MAKE_NONE(); return true; }
+        return aes128_decrypt(vm, args, result);
     }
 
     if (strcmp(name, "crypto.token_hex") == 0) {                     // secure hex token
