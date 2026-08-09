@@ -1838,3 +1838,42 @@ if decrypted == none
 else
     os.output("Decrypted: {decrypted}")
 ```
+
+### crypto.aes256_encrypt(key, plaintext, iv)
+Encrypts a string using AES-256-CBC. The `key` must be a 64-character hexadecimal string (32 bytes). The `plaintext` is the string to encrypt. The `iv` is optional and must be a 32-character hexadecimal string (16 bytes) if provided; defaults to all zeros. Returns the encrypted data as a lowercase hexadecimal string. Uses PKCS7 padding. Returns `none` if any argument is invalid.
+
+```apex
+import os
+import crypto
+
+key = crypto.token_hex(32)
+iv = crypto.token_hex(16)
+plaintext = "Hello World!"
+
+encrypted = crypto.aes256_encrypt(key, plaintext, iv)
+
+if encrypted == none
+    os.output("Could not encrypt data")
+else
+    os.output("Encrypted: {encrypted}")
+```
+
+### crypto.aes256_decrypt(key, ciphertext, iv)
+Decrypts a string previously encrypted with AES-256-CBC. The `key` must be a 64-character hexadecimal string (32 bytes). The `ciphertext` must be a hexadecimal string (as returned by `aes256_encrypt`). The `iv` is optional and must be a 32-character hexadecimal string (16 bytes) if provided; must match the IV used during encryption. Returns the decrypted plaintext string. Validates PKCS7 padding. Returns `none` if any argument is invalid or if the padding is corrupted (wrong key or IV).
+
+```apex
+import os
+import crypto
+
+key = crypto.token_hex(32)
+iv = crypto.token_hex(16)
+plaintext = "Secret message"
+
+encrypted = crypto.aes256_encrypt(key, plaintext, iv)
+decrypted = crypto.aes256_decrypt(key, encrypted, iv)
+
+if decrypted == none
+    os.output("Could not decrypt data")
+else
+    os.output("Decrypted: {decrypted}")
+```

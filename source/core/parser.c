@@ -200,6 +200,7 @@ static const BuiltinSig BUILTINS[] = {
     {"crypto.pbkdf2_md5", 4, 4, TYPE_STRING},     {"crypto.pbkdf2_sha1", 4, 4, TYPE_STRING},
     {"crypto.pbkdf2_sha256", 4, 4, TYPE_STRING},  {"crypto.pbkdf2_sha512", 4, 4, TYPE_STRING},
     {"crypto.aes128_encrypt", 2, 3, TYPE_STRING}, {"crypto.aes128_decrypt", 2, 3, TYPE_STRING},
+    {"crypto.aes256_encrypt", 2, 3, TYPE_STRING}, {"crypto.aes256_decrypt", 2, 3, TYPE_STRING},
     {"crypto.token_hex", 1, 1, TYPE_NUMBER},      {"crypto.secure_randint", 1, 1, TYPE_NUMBER},
     {"crypto.compare_digest", 2, 2, TYPE_STRING},
 

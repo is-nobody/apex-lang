@@ -175,7 +175,8 @@ function activate(context) {
                 'crypto.hmac_sha256',    'crypto.hmac_sha512',
                 'crypto.pbkdf2_md5',     'crypto.pbkdf2_sha1',
                 'crypto.pbkdf2_sha256',  'crypto.pbkdf2_sha512',
-                'crypto.aes128_encrypt', 'crypto.aes128_encrypt',
+                'crypto.aes128_encrypt', 'crypto.aes128_decrypt',
+                'crypto.aes256_encrypt', 'crypto.aes256_decrypt',
                 'crypto.token_hex',      'crypto.secure_randint',
                 'crypto.compare_digest',
 

@@ -150,6 +150,44 @@ function crypto_aes128()
     assert_equal(decrypted_file, data, "aes128 file")
     os.delete(test_file)
 
+// test: aes256 encryption/decryption with various inputs
+function crypto_aes256()
+    key = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+    iv = "000102030405060708090a0b0c0d0e0f"
+    plaintext = "Hello World!"
+    
+    encrypted = crypto.aes256_encrypt(key, plaintext, iv)
+    assert_equal(encrypted, "f0d1d5fb358829da6b23c2deaa7e4c5a", "aes256 encrypt")
+    decrypted = crypto.aes256_decrypt(key, encrypted, iv)
+    assert_equal(decrypted, plaintext, "aes256 decrypt")
+    
+    encrypted_empty = crypto.aes256_encrypt(key, "", iv)
+    assert_equal(encrypted_empty, "473081dfdc9e25c505ce3bc376f82d60", "aes256 empty encrypt")
+    decrypted_empty = crypto.aes256_decrypt(key, encrypted_empty, iv)
+    assert_equal(decrypted_empty, "", "aes256 empty decrypt")
+    
+    long_msg = "The quick brown fox jumps over the lazy dog"
+    encrypted_long = crypto.aes256_encrypt(key, long_msg, iv)
+    assert_equal(encrypted_long, "a43f06ad9b8c11c78191cac4d3c5d6385302be1aaac22dbb162d0bcadc835b5b8a6fa5eae85d2af2195765f71a8366cb", "aes256 long encrypt")
+    decrypted_long = crypto.aes256_decrypt(key, encrypted_long, iv)
+    assert_equal(decrypted_long, long_msg, "aes256 long decrypt")
+    
+    wrong_key = "0987654321fedcba0987654321fedcba0987654321fedcba0987654321fedcba"
+    decrypted_wrong = crypto.aes256_decrypt(wrong_key, encrypted, iv)
+    assert_equal(decrypted_wrong != plaintext, true, "aes256 wrong key")
+    
+    iv2 = "0f0e0d0c0b0a09080706050403020100"
+    encrypted_iv2 = crypto.aes256_encrypt(key, plaintext, iv2)
+    assert_equal(encrypted != encrypted_iv2, true, "aes256 different IVs")
+    
+    test_file = "_apex_test_aes256_file.txt"
+    os.write(test_file, "Secret file content!")
+    data = os.read(test_file)
+    encrypted_file = crypto.aes256_encrypt(key, data)
+    decrypted_file = crypto.aes256_decrypt(key, encrypted_file)
+    assert_equal(decrypted_file, data, "aes256 file")
+    os.delete(test_file)
+
 // test: token_hex generates hex string of specified length
 function token_hex()
     nbytes = 16
@@ -184,6 +222,7 @@ crypto_pbkdf2_sha1()
 crypto_pbkdf2_sha256()
 crypto_pbkdf2_sha512()
 crypto_aes128()
+crypto_aes256()
 token_hex()
 secure_randint()
 compare_digest()
