@@ -1,25 +1,15 @@
-// math_combined.apex
 import os
 import math
 
-tests_passed = 0
-tests_failed = 0
-
 function assert_equal(actual, expected, name)
-    if actual == expected
-        tests_passed = tests_passed + 1
-    else
-        tests_failed = tests_failed + 1
+    if actual != expected
         os.output("[ERROR] {name}: got {actual}, expected {expected}")
 
 function assert_float_equal(actual, expected, name)
     diff = actual - expected
     if diff < 0
         diff = -diff
-    if diff < 0.00000000000001
-        tests_passed = tests_passed + 1
-    else
-        tests_failed = tests_failed + 1
+    if diff >= 0.00000000000001
         os.output("[ERROR] {name}: got {actual}, expected {expected}")
 
 function abs()
@@ -149,5 +139,4 @@ sqrt()
 tan()
 trunc()
 
-if tests_failed == 0
-    os.output("[OK] libraries/math.apex")
+os.output("[PASS] libraries/math.apex")

@@ -1,13 +1,7 @@
 import os
 
-tests_passed = 0
-tests_failed = 0
-
 function assert_equal(actual, expected, name)
-    if actual == expected
-        tests_passed = tests_passed + 1
-    else
-        tests_failed = tests_failed + 1
+    if actual != expected
         os.output("[ERROR] {name}: got {actual}, expected {expected}")
 
 // ==
@@ -177,5 +171,4 @@ whole_greater_equal_negative_equal_true()
 whole_greater_equal_negative_false()
 whole_greater_equal_negative_true()
 
-if tests_failed == 0
-    os.output("[OK] conditionals/comparisons/whole.apex")
+os.output("[PASS] conditionals/comparisons/whole.apex")

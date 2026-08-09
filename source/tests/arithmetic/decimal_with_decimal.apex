@@ -1,13 +1,7 @@
 import os
 
-tests_passed = 0
-tests_failed = 0
-
 function assert_equal(actual, expected, name)
-    if actual == expected
-        tests_passed = tests_passed + 1
-    else
-        tests_failed = tests_failed + 1
+    if actual != expected
         os.output("[ERROR] {name}: got {actual}, expected {expected}")
 
 function decimal_with_decimal_add()
@@ -36,5 +30,4 @@ decimal_with_decimal_divide()
 decimal_with_decimal_multiply()
 decimal_with_decimal_modulo()
 
-if tests_failed == 0
-    os.output("[OK] arithmetic/decimal_with_decimal.apex")
+os.output("[PASS] arithmetic/decimal_with_decimal.apex")

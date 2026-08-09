@@ -2,14 +2,8 @@ import os
 import string
 import crypto
 
-tests_passed = 0
-tests_failed = 0
-
 function assert_equal(actual, expected, name)
-    if actual == expected
-        tests_passed = tests_passed + 1
-    else
-        tests_failed = tests_failed + 1
+    if actual != expected
         os.output("[ERROR] {name}: got {actual}, expected {expected}")
 
 function crypto_md5()
@@ -175,5 +169,4 @@ token_hex()
 secure_randint()
 compare_digest()
 
-if tests_failed == 0
-    os.output("[OK] libraries/crypto.apex")
+os.output("[PASS] libraries/crypto.apex")

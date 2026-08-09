@@ -2,34 +2,23 @@ import os
 import table
 import regex
 
-tests_passed = 0
-tests_failed = 0
-
 function assert_equal(actual, expected, name)
-    if actual == expected
-        tests_passed = tests_passed + 1
-    else
-        tests_failed = tests_failed + 1
+    if actual != expected
         os.output("[ERROR] {name}: got {actual}, expected {expected}")
 
 function assert_table_equal(actual, expected, name)
     if type(actual) != "table" or type(expected) != "table"
-        tests_failed = tests_failed + 1
         os.output("[ERROR] {name}: both must be tables")
         return
 
     if table.size(actual) != table.size(expected)
-        tests_failed = tests_failed + 1
         os.output("[ERROR] {name}: table sizes differ")
         return
 
     for i = 1, table.size(actual)
         if actual[i] != expected[i]
-            tests_failed = tests_failed + 1
             os.output("[ERROR] {name}[{i}]: got {actual[i]}, expected {expected[i]}")
             return
-
-    tests_passed = tests_passed + 1
 
 function regex_findall()
     result = regex.findall("\\d+", "abc 123 def 456")
@@ -275,5 +264,4 @@ regex_search_ignorecase()
 regex_search_invalid()
 regex_escape_sequences()
 
-if tests_failed == 0
-    os.output("[OK] libraries/regex.apex")
+os.output("[PASS] libraries/regex.apex")

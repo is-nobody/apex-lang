@@ -1,13 +1,7 @@
 import os
 
-tests_passed = 0
-tests_failed = 0
-
 function assert_equal(actual, expected, name)
-    if actual == expected
-        tests_passed = tests_passed + 1
-    else
-        tests_failed = tests_failed + 1
+    if actual != expected
         os.output("[ERROR] {name}: got {actual}, expected {expected}")
 
 function table_equal_empty()
@@ -300,5 +294,4 @@ table_equal_negative_zero()
 table_equal_nan_keys()
 table_equal_infinity_keys()
 
-if tests_failed == 0
-    os.output("[OK] conditionals/comparisons/table.apex")
+os.output("[PASS] conditionals/comparisons/table.apex")

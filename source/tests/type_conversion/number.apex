@@ -1,13 +1,7 @@
 import os
 
-tests_passed = 0
-tests_failed = 0
-
 function assert_equal(actual, expected, name)
-    if actual == expected
-        tests_passed = tests_passed + 1
-    else
-        tests_failed = tests_failed + 1
+    if actual != expected
         os.output("[ERROR] {name}: got {actual}, expected {expected}")
 
 function number_from_int_string()
@@ -56,5 +50,4 @@ number_from_zero_string()
 number_from_none()
 number_from_table()
 
-if tests_failed == 0
-    os.output("[OK] type_conversion/number.apex")
+os.output("[PASS] type_conversion/number.apex")

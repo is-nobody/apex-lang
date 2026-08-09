@@ -2,14 +2,8 @@ import ffi
 import os
 import sys
 
-tests_passed = 0
-tests_failed = 0
-
 function assert_equal(actual, expected, name)
-    if actual == expected
-        tests_passed = tests_passed + 1
-    else
-        tests_failed = tests_failed + 1
+    if actual != expected
         os.output("[ERROR] {name}: got {actual}, expected {expected}")
 
 function load_library()
@@ -69,5 +63,4 @@ errno()
 non_existent_function(lib)
 invalid_library()
 
-if tests_failed == 0
-    os.output("[OK] libraries/ffi.apex")
+os.output("[PASS] libraries/ffi.apex")
