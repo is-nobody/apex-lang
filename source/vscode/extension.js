@@ -172,6 +172,7 @@ function activate(context) {
                 'codecs.xml_read',      'codecs.xml_write',
                 'codecs.base_write',    'codecs.base_read',
                 'codecs.baseurl_write', 'codecs.baseurl_read',
+                'codecs.hex_write',     'codecs.hex_read',
 
                 'regex.findall', 'regex.sub',
                 'regex.split',   'regex.search',

@@ -26,6 +26,81 @@ function base64url_roundtrip()
     decoded_b64url = codecs.baseurl_read(b64url_str)
     assert_equal(decoded_b64url, url_data, "base64url roundtrip")
 
+// test: hex encoding and decoding roundtrip
+function hex_roundtrip()
+    input_text = "Hello, World!"
+    hex_result = codecs.hex_write(input_text)
+    decoded_result = codecs.hex_read(hex_result)
+    assert_equal(decoded_result, input_text, "hex roundtrip")
+    assert_equal(hex_result, "48656c6c6f2c20576f726c6421", "hex write lowercase output")
+
+// test: hex encoding handles UTF-8 text
+function hex_utf8_text()
+    utf8_input = "Hello 世界"
+    hex_result = codecs.hex_write(utf8_input)
+    decoded_result = codecs.hex_read(hex_result)
+    assert_equal(decoded_result, utf8_input, "hex UTF-8 roundtrip")
+
+// test: hex encoding handles binary data
+function hex_binary_data()
+    binary_data = codecs.hex_read("00010203FFFEFD")
+    hex_result = codecs.hex_write(binary_data)
+    decoded_result = codecs.hex_read(hex_result)
+    assert_equal(decoded_result, binary_data, "hex binary data roundtrip")
+    assert_equal(hex_result, "00010203fffefd", "hex binary encoding")
+
+// test: hex read is case insensitive
+function hex_case_insensitive()
+    lower_input = "48656c6c6f"
+    upper_input = "48656C6C6F"
+    mixed_input = "48656c6C6f"
+    
+    decoded_lower = codecs.hex_read(lower_input)
+    decoded_upper = codecs.hex_read(upper_input)
+    decoded_mixed = codecs.hex_read(mixed_input)
+    
+    assert_equal(decoded_lower, "Hello", "hex lowercase decode")
+    assert_equal(decoded_upper, "Hello", "hex uppercase decode")
+    assert_equal(decoded_mixed, "Hello", "hex mixed case decode")
+
+// test: hex read handles spaces and formatting
+function hex_with_spaces()
+    spaced_hex = "48 65 6c 6c 6f"
+    newline_hex = "48\n65\t6c\r6c6f"
+    
+    decoded_spaces = codecs.hex_read(spaced_hex)
+    decoded_newlines = codecs.hex_read(newline_hex)
+    
+    assert_equal(decoded_spaces, "Hello", "hex decode with spaces")
+    assert_equal(decoded_newlines, "Hello", "hex decode with whitespace")
+
+// test: hex read handles odd number of hex characters
+function hex_odd_characters()
+    odd_input = "48656c6c6f2"  // missing last nibble
+    result = codecs.hex_read(odd_input)
+    assert_equal(type(result), "string", "hex read odd chars returns string")
+    
+    single_input = "4"
+    result2 = codecs.hex_read(single_input)
+    assert_equal(type(result2), "string", "hex read single char returns string")
+
+// test: hex read handles empty input
+function hex_empty_input()
+    empty_str = ""
+    result = codecs.hex_read(empty_str)
+    assert_equal(result, "", "hex read empty string returns empty")
+    
+    whitespace_only = "   \t\n  "
+    result2 = codecs.hex_read(whitespace_only)
+    assert_equal(result2, "", "hex read only whitespace returns empty")
+
+// test: hex read handles invalid characters
+function hex_invalid_characters()
+    invalid_input = "48GG65"  // G is invalid hex
+    result = codecs.hex_read(invalid_input)
+    assert_equal(type(result), "string", "hex read invalid chars returns string")
+    assert_equal(result, "He", "hex read skips invalid chars")
+
 // test: csv write and read with structured data
 function csv_write_read()
     data = [
@@ -202,6 +277,14 @@ function csv_write_custom_delimiter()
 // execute all codecs library test cases
 base64_roundtrip()
 base64url_roundtrip()
+hex_roundtrip()
+hex_utf8_text()
+hex_binary_data()
+hex_case_insensitive()
+hex_with_spaces()
+hex_odd_characters()
+hex_empty_input()
+hex_invalid_characters()
 csv_write_read()
 json_primitives()
 json_array()

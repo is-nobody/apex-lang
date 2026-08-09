@@ -1488,6 +1488,36 @@ else
     os.output("Tag: {data['__tag']}")
 ```
 
+### codecs.hex_write(data)
+Encodes a string to a hexadecimal string (lowercase). Each byte is represented by two hex characters. Returns the encoded hex string, or `none` on failure.
+
+```apex
+import os
+import codecs
+
+hex_str = codecs.hex_write("Hello, Friend!")
+
+if hex_str == none
+    os.output("Hex encoding failed")
+else
+    os.output(hex_str)  // 48656c6c6f2c20467269656e6421
+```
+
+### codecs.hex_read(hex_string)
+Decodes a hexadecimal string back to the original string. Handles uppercase, lowercase, and mixed case hex characters. Whitespace and invalid characters are silently skipped. Returns the decoded string, or `none` on failure.
+
+```apex
+import os
+import codecs
+
+decoded = codecs.hex_read("48656c6c6f2c20467269656e6421")
+
+if decoded == none
+    os.output("Hex decoding failed")
+else
+    os.output(decoded)  // Hello, Friend!
+```
+
 ## Regex Library (regex)
 The Regex library provides functions for working with regular expressions: searching, matching, replacing, and splitting text. Import it with `import regex`.
 

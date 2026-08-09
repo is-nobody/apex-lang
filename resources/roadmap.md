@@ -4,7 +4,7 @@
 - `ui` library (apex+html+css+system webview)
 - `network` library
 - `archive` library (zip, 7z, tar: pack/unpack)
-- HEX read/write functions to `codecs`
+- `\x` escape sequence support
 - Package manager
 - Language server (LSP)
 - Debug mode
