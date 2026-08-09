@@ -1,13 +1,21 @@
+// source/tests/integration/table.apex
+// Implementation of Table (Array/Dictionary) Operations Tests for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 import os
 
+// helper: compares two values and reports mismatch with context
 function assert_equal(actual, expected, name)
     if actual != expected
         os.output("[ERROR] {name}: got {actual}, expected {expected}")
 
+// test: empty table creation and type check
 function empty_table()
     empty = []
     assert_equal(type(empty), "table", "empty table")
 
+// test: ordered list access by numeric index
 function ordered_list()
     colors = ["red", "green", "blue"]
     assert_equal(colors[1], "red", "colors[1]")
@@ -17,12 +25,14 @@ function ordered_list()
     index = 2
     assert_equal(colors[index], "green", "colors[index]")
 
+// test: key-value table with string keys
 function key_value()
     user = ["name" = "Alice", "age" = 30, "active" = true]
     assert_equal(user["name"], "Alice", "user['name']")
     assert_equal(user["age"], 30, "user['age']")
     assert_equal(user["active"], true, "user['active']")
 
+// test: adding new keys dynamically
 function add_keys()
     user = ["name" = "Alice"]
     assert_equal(user["name"], "Alice", "Before: user['name']")
@@ -36,6 +46,7 @@ function add_keys()
     user["active"] = true
     assert_equal(user["active"], true, "Added active")
 
+// test: updating existing key values
 function update_values()
     user = ["name" = "Alice", "age" = 30]
     assert_equal(user["age"], 30, "Before: user['age']")
@@ -46,6 +57,7 @@ function update_values()
     user["name"] = "Bob"
     assert_equal(user["name"], "Bob", "After: user['name']")
 
+// test: mixed numeric and string keys in same table
 function mixed_tables()
     person = ["Alice", "Manager", "department" = "Engineering", "years" = 5]
     
@@ -57,6 +69,7 @@ function mixed_tables()
     person[3] = "Senior"
     assert_equal(person[3], "Senior", "Added position 3")
 
+// test: nested tables (tables within tables)
 function nested_tables()
     company = [
         "name" = "Apex",
@@ -77,6 +90,7 @@ function nested_tables()
     company["address"]["city"] = "Abu Dhabi"
     assert_equal(company["address"]["city"], "Abu Dhabi", "After change: company['address']['city']")
 
+// test: table with various mixed data types
 function mixed_types()
     mixed = [42, "hello", true, 3.14, [-5, -10]]
     assert_equal(mixed[1], 42, "mixed[1]")
@@ -86,6 +100,7 @@ function mixed_types()
     assert_equal(mixed[5][1], -5, "mixed[5][1]")
     assert_equal(mixed[5][2], -10, "mixed[5][2]")
 
+// test: deeply nested table structure
 function deep_nesting()
     world = [
         "continent" = [
@@ -101,6 +116,7 @@ function deep_nesting()
     assert_equal(world["continent"]["country"]["city"]["name"], "Dubai", "world deep name")
     assert_equal(world["continent"]["country"]["city"]["population"], 3337000, "world deep population")
 
+// test: table passed as function parameter
 function table_as_param()
     function get_full_name(person)
         first = person["first"]
@@ -111,6 +127,7 @@ function table_as_param()
     result = get_full_name(user)
     assert_equal(result, "John Doe", "get_full_name(user)")
 
+// test: function returning a table
 function function_returning_table()
     function create_point(x, y)
         return ["x" = x, "y" = y]
@@ -119,6 +136,7 @@ function function_returning_table()
     assert_equal(point["x"], 10, "point['x']")
     assert_equal(point["y"], 20, "point['y']")
 
+// test: modifying table passed by reference
 function modify_table_in_function()
     function add_status(user, status)
         user["status"] = status
@@ -132,6 +150,7 @@ function modify_table_in_function()
     assert_equal(user["status"], "active", "user['status']")
     assert_equal(user["modified"], true, "user['modified']")
 
+// test: mixed key types in single table
 function mixed_keys()
     data = ["first", "second", "name" = "Test", "count" = 42]
     assert_equal(data[1], "first", "data[1]")
@@ -142,6 +161,7 @@ function mixed_keys()
     data[3] = "third"
     assert_equal(data[3], "third", "data[3]")
 
+// test: checking key existence via none comparison
 function key_existence()
     user = ["name" = "Alice", "age" = 30]
     
@@ -151,6 +171,7 @@ function key_existence()
     has_city = user["city"] != none
     assert_equal(has_city, false, "has_city")
 
+// test: table with special values (empty string, zero, false, negative)
 function special_values()
     special = ["empty" = "", "zero" = 0, "false_val" = false, "negative" = -1]
     assert_equal(special["empty"], "", "special['empty']")
@@ -158,6 +179,7 @@ function special_values()
     assert_equal(special["false_val"], false, "special['false_val']")
     assert_equal(special["negative"], -1, "special['negative']")
 
+// test: manual shallow copy of table
 function manual_copy()
     original = ["name" = "Alice", "age" = 30]
     copy = ["name" = original["name"], "age" = original["age"]]
@@ -168,6 +190,7 @@ function manual_copy()
     assert_equal(original["age"], 30, "original['age']")
     assert_equal(copy["age"], 30, "copy['age']")
 
+// test: table containing array of nested tables
 function table_as_value()
     school = [
         "name" = "Apex Academy",
@@ -186,6 +209,7 @@ function table_as_value()
     assert_equal(school["students"][3]["name"], "Charlie", "student 3 name")
     assert_equal(school["students"][3]["grade"], 92, "student 3 grade")
 
+// test: table indexing with variable keys
 function table_index_with_variable()
     t = []
     t[1] = 100
@@ -202,6 +226,7 @@ function table_index_with_variable()
         sum = sum + val
     assert_equal(sum, 600, "Sum via t[i] in loop")
 
+// test: reusing loop variable for table indexing
 function loop_variable_reuse()
     data = []
     for i = 1, 5
@@ -220,6 +245,7 @@ function loop_variable_reuse()
     assert_equal(v10, 10, "data[10]")
     assert_equal(v12, 12, "data[12]")
 
+// test: nested loops for matrix construction
 function nested_loops()
     matrix = []
     for i = 1, 3
@@ -233,6 +259,7 @@ function nested_loops()
             sum = sum + matrix[i][j]
     assert_equal(sum, 198, "Sum nested loops")
 
+// test: 3x3 matrix multiplication
 function matrix_multiplication()
     a = []
     b = []
@@ -258,6 +285,7 @@ function matrix_multiplication()
     assert_equal(c[2][2], 52, "C[2][2]")
     assert_equal(c[3][3], 96, "C[3][3]")
 
+// test: large hash table with numeric keys (1000 entries)
 function hashtable_numeric_keys()
     t = []
     for i = 1, 1000
@@ -268,6 +296,7 @@ function hashtable_numeric_keys()
         sum = sum + t[i]
     assert_equal(sum, 1001000, "Sum 1000")
 
+// test: map-filter-reduce pattern on table
 function map_filter_reduce()
     data = []
     for i = 1, 100
@@ -280,6 +309,7 @@ function map_filter_reduce()
             result = result + val * val
     assert_equal(result, 171700, "Result map filter reduce")
 
+// test: short-lived table garbage collection
 function gc_short_lived()
     sum = 0
     for i = 1, 10000
@@ -289,6 +319,7 @@ function gc_short_lived()
         sum = sum + temp[5]
     assert_equal(sum, 250025000, "Sum gc short lived")
 
+// test: table with none values
 function table_with_none()
     t = [1, none, "hello", none, 42]
     
@@ -306,6 +337,7 @@ function table_with_none()
             none_count = none_count + 1
     assert_equal(none_count, 1, "only one none left")
 
+// test: sparse numeric keys with large indices
 function sparse_numeric()
     t = []
     t["100000000"] = 52
@@ -313,6 +345,7 @@ function sparse_numeric()
     t["100000000"] = 99
     assert_equal(t["100000000"], 99, "sparse_numeric_update")
 
+// test: none returned for missing keys, can set to none
 function none_after_key_not_found()
     t = []
     t["1"] = 10
@@ -322,6 +355,7 @@ function none_after_key_not_found()
     assert_equal(t["3"], none, "missing_key_is_none")
     assert_equal(t["999999"], none, "sparse_missing_is_none")
 
+// test: overwriting key with none then restoring
 function overwrite_with_none()
     t = ["a" = 1, "b" = 2]
     t["a"] = none
@@ -329,6 +363,7 @@ function overwrite_with_none()
     t["a"] = 100
     assert_equal(t["a"], 100, "overwrite_none_back")
 
+// test: array with none elements
 function none_in_array()
     t = [1, none, 3]
     assert_equal(t[1], 1, "none_arr_1")
@@ -339,12 +374,14 @@ function none_in_array()
     t[2] = none
     assert_equal(t[2], none, "none_arr_2_back_to_none")
 
+// test: nested sparse table with large key
 function nested_sparse()
     outer = []
     outer["key"] = []
     outer["key"]["1000000"] = "far"
     assert_equal(outer["key"]["1000000"], "far", "nested_sparse")
 
+// test: mixed numeric and string keys in same table
 function mixed_numeric_and_string_keys()
     t = ["a" = 1, "b" = 2]
     t[1] = "one"
@@ -354,6 +391,7 @@ function mixed_numeric_and_string_keys()
     assert_equal(t[1], "one", "mixed_index_1") 
     assert_equal(t[2], "two", "mixed_index_2")
 
+// test: negative zero and positive zero key normalization
 function negative_zero_hash()
     t = []
     t[-0.0] = "minus"
@@ -367,6 +405,7 @@ function negative_zero_hash()
         count = count + 1
     assert_equal(count, 1, "negative_zero_hash: only one entry for +/-0.0")
 
+// test: lookup with -0.0 finds value set with +0.0
 function negative_zero_key_equal()
     t = []
     t[0.0] = "value"
@@ -377,6 +416,7 @@ function negative_zero_key_equal()
     assert_equal(v1, "value", "lookup with -0.0 finds value set with +0.0")
     assert_equal(v2, "value", "lookup with +0.0 finds value set with +0.0")
 
+// test: intern table handles many unique string keys
 function intern_table_cleanup()
     strings = []
     for i = 1, 1000
@@ -387,6 +427,7 @@ function intern_table_cleanup()
     
     assert_equal(true, true, "intern_table_cleanup: no crash on 1000 interned strings")
 
+// test: intern table collision handling
 function intern_table_collisions()
     t = []
     for i = 1, 500
@@ -401,6 +442,7 @@ function intern_table_collisions()
     
     assert_equal(count, 500, "intern_table_collisions: all 500 keys accessible")
 
+// test: table capacity reset after large allocation
 function pooled_table_capacity_reset()
     big = []
     for i = 1, 10000
@@ -412,6 +454,7 @@ function pooled_table_capacity_reset()
     
     assert_equal(true, true, "pooled_table_capacity_reset: no OOM after big table pooling")
 
+// test: table reuse across iterations maintains correctness
 function pooled_table_reuse()
     for iter = 1, 50
         t = []
@@ -423,6 +466,7 @@ function pooled_table_reuse()
             sum = sum + t[i]
         assert_equal(sum > 0, true, "pooled_table_reuse iter {iter}: table functional")
 
+// test: NaN key behavior (NaN != NaN, lookup fails)
 function nan_key_behavior()
     t = []
     nan = 0.0 / 0.0
@@ -442,6 +486,7 @@ function nan_key_behavior()
     assert_equal(t[1], "valid", "nan_key: valid key still works")
     assert_equal(t[2], "also valid", "nan_key: second valid key works")
 
+// test: infinity keys are properly hashable and retrievable
 function infinity_key_behavior()
     t = []
     pos_inf = 1.0 / 0.0
@@ -461,6 +506,7 @@ function infinity_key_behavior()
         count = count + 1
     assert_equal(count, 3, "inf_key: three entries total")
 
+// test: negative zero stored as array value
 function negative_zero_in_array()
     t = []
     t[1] = -0.0
@@ -473,6 +519,7 @@ function negative_zero_in_array()
     v2 = t[2]
     assert_equal(v1 == v2, true, "neg_zero_array: -0.0 == 0.0")
 
+// test: zero normalization consistency across assignments
 function zero_normalization_consistency()
     t = []
     t[-0.0] = "value"
@@ -493,6 +540,7 @@ function zero_normalization_consistency()
     assert_equal(count1, 1, "zero_norm: first table size 1")
     assert_equal(count2, 1, "zero_norm: second table size 1")
 
+// execute all table test cases
 empty_table()
 ordered_list()
 key_value()
@@ -535,4 +583,5 @@ infinity_key_behavior()
 negative_zero_in_array()
 zero_normalization_consistency()
 
+// report completion of table integration tests
 os.output("[PASS] integration/table.apex")

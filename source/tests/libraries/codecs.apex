@@ -1,23 +1,32 @@
+// source/tests/libraries/codecs.apex
+// Implementation of Codecs Library Tests for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 import os
 import codecs
 import table
 
+// helper: compares two values and reports mismatch with context
 function assert_equal(actual, expected, name)
     if actual != expected
         os.output("[ERROR] {name}: got {actual}, expected {expected}")
 
+// test: base64 encoding and decoding roundtrip
 function base64_roundtrip()
     text = "Hello, World! This is a test of Base64."
     b64_str = codecs.base_write(text)
     decoded_b64 = codecs.base_read(b64_str)
     assert_equal(decoded_b64, text, "base64 roundtrip")
 
+// test: base64url encoding and decoding roundtrip
 function base64url_roundtrip()
     url_data = "data?param=value&other=123"
     b64url_str = codecs.baseurl_write(url_data)
     decoded_b64url = codecs.baseurl_read(b64url_str)
     assert_equal(decoded_b64url, url_data, "base64url roundtrip")
 
+// test: csv write and read with structured data
 function csv_write_read()
     data = [
         ["id" = 1, "name" = "Alice", "age" = 30, "active" = true],
@@ -35,17 +44,20 @@ function csv_write_read()
         assert_equal(read_data[2]["name"], "Bob, Jr.", "csv row 2 name")
         assert_equal(read_data[3]["name"], "Charlie", "csv row 3 name")
 
+// test: json serialization of primitive types
 function json_primitives()
     assert_equal(codecs.json_write(42), "42", "json_write number")
     assert_equal(codecs.json_write("hello"), "\"hello\"", "json_write string")
     assert_equal(codecs.json_write(true), "true", "json_write true")
     assert_equal(codecs.json_write(none), "null", "json_write none")
 
+// test: json serialization of arrays
 function json_array()
     arr = ["apple", "banana", "cherry"]
     json_arr = codecs.json_write(arr)
     assert_equal(json_arr, "[\"apple\", \"banana\", \"cherry\"]", "json_write array")
 
+// test: json object roundtrip (write then read)
 function json_object()
     obj = ["name" = "Apex", "version" = 1.0, "is_cool" = true]
     json_obj = codecs.json_write(obj)
@@ -53,6 +65,7 @@ function json_object()
     assert_equal(readd["name"], "Apex", "json object roundtrip name")
     assert_equal(readd["is_cool"], true, "json object roundtrip is_cool")
 
+// test: json read parses complex nested structure
 function json_read()
     original = ["status" = "ok", "codes" = [200, 404]]
     raw_json = codecs.json_write(original)
@@ -63,6 +76,7 @@ function json_read()
         assert_equal(data["status"], "ok", "json read status")
         assert_equal(data["codes"][1], 200, "json read first code")
 
+// test: xml read parses basic xml structure
 function xml_read()
     simple_xml = "<root><item id=\"1\">Apple</item><item id=\"2\">Banana</item></root>"
     data_xml = codecs.xml_read(simple_xml)
@@ -73,6 +87,7 @@ function xml_read()
         assert_equal(data_xml[1]["#text"], "Apple", "xml first item text")
         assert_equal(data_xml[1]["@id"], "1", "xml first item id")
 
+// test: xml write serializes table to xml string
 function xml_write()
     xml_obj = [
         "__tag" = "config",
@@ -92,6 +107,7 @@ function xml_write()
     is_string = type(writed_xml) == "string"
     assert_equal(is_string, true, "xml_write returns string")
 
+// test: json_read handles invalid json gracefully
 function json_invalid_input()
     invalid_json = "\{name: \"test\"\}"
     result = codecs.json_read(invalid_json)
@@ -101,6 +117,7 @@ function json_invalid_input()
     result2 = codecs.json_read(invalid_json2)
     assert_equal(type(result2), "none", "json_read trailing comma returns none")
 
+// test: base_read rejects invalid base64 characters
 function base64_invalid_input()
     invalid_b64 = "ABC!DEF"
     result = codecs.base_read(invalid_b64)
@@ -110,21 +127,25 @@ function base64_invalid_input()
     result2 = codecs.base_read(invalid_b64_2)
     assert_equal(type(result2), "none", "base_read wrong padding returns none")
 
+// test: baseurl_read rejects invalid base64url characters
 function base64url_invalid_input()
     invalid_b64url = "ABC!DEF"
     result = codecs.baseurl_read(invalid_b64url)
     assert_equal(type(result), "none", "baseurl_read invalid char returns none")
 
+// test: csv_read handles empty input gracefully
 function csv_invalid_input()
     empty_csv = ""
     result = codecs.csv_read(empty_csv)
     assert_equal(type(result), "none", "csv_read empty input returns none")
 
+// test: xml_read handles malformed xml gracefully
 function xml_invalid_input()
     invalid_xml = "<root><item>Test</root>"
     result = codecs.xml_read(invalid_xml)
     assert_equal(type(result), "none", "xml_read invalid XML returns none")
 
+// test: json_read handles escaped characters and unicode
 function json_escape_handling()
     escaped_json = "\{\"text\": \"Hello\\nWorld\\tTest\"\}"
     result = codecs.json_read(escaped_json)
@@ -138,6 +159,7 @@ function json_escape_handling()
     is_table2 = type(result2) == "table"
     assert_equal(is_table2, true, "json_read handles unicode escapes")
 
+// test: csv_read handles quoted fields with embedded commas
 function csv_quoted_fields()
     quoted_csv = "name,description\n\"Smith, John\",\"Engineer\""
     result = codecs.csv_read(quoted_csv)
@@ -147,6 +169,7 @@ function csv_quoted_fields()
         assert_equal(result[1]["name"], "Smith, John", "csv_read quoted name with comma")
         assert_equal(result[1]["description"], "Engineer", "csv_read quoted description")
 
+// test: xml_read parses deeply nested structures
 function xml_nested_structure()
     nested_xml = "<root><items><item id=\"1\"><name>Test</name></item></items></root>"
     result = codecs.xml_read(nested_xml)
@@ -156,6 +179,7 @@ function xml_nested_structure()
         assert_equal(result["__tag"], "root", "xml_read nested root tag")
         assert_equal(result[1]["__tag"], "items", "xml_read nested items tag")
 
+// test: json_write escapes special characters properly
 function json_write_escaped_strings()
     special_str = "Hello\n\"World\"\tTab"
     json_str = codecs.json_write(special_str)
@@ -164,6 +188,7 @@ function json_write_escaped_strings()
     parsed = codecs.json_read(json_str)
     assert_equal(parsed, special_str, "json_write roundtrip escaped string")
 
+// test: csv_write and csv_read with custom delimiter
 function csv_write_custom_delimiter()
     data = [
         ["id" = 1, "name" = "Alice"],
@@ -174,6 +199,7 @@ function csv_write_custom_delimiter()
     read_data = codecs.csv_read(csv_string, true, ";")
     assert_equal(read_data[1]["id"], 1, "csv_read custom delimiter")
 
+// execute all codecs library test cases
 base64_roundtrip()
 base64url_roundtrip()
 csv_write_read()
@@ -194,4 +220,5 @@ xml_nested_structure()
 json_write_escaped_strings()
 csv_write_custom_delimiter()
 
+// report completion of codecs library tests
 os.output("[PASS] libraries/codecs.apex")

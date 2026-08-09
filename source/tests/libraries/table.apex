@@ -1,15 +1,23 @@
+// source/tests/libraries/table.apex
+// Implementation of Table Library Function Tests for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 import os
 import table
 
+// helper: compares two values and reports mismatch with context
 function assert_equal(actual, expected, name)
     if actual != expected
         os.output("[ERROR] {name}: got {actual}, expected {expected}")
 
+// test: returns number of key-value pairs in table
 function table_size()
     t = [1, 2, 3]
     size = table.size(t)
     assert_equal(size, 3, "table.size")
 
+// test: checks if key exists in table
 function table_has()
     t = ["name" = "Alice", "age" = 30]
     has_name = table.has(t, "name")
@@ -17,6 +25,7 @@ function table_has()
     has_city = table.has(t, "city")
     assert_equal(has_city, false, "table.has city")
 
+// test: returns list of all keys in table
 function table_keys()
     t = ["name" = "Alice", "age" = 30]
     keys = table.keys(t)
@@ -26,6 +35,7 @@ function table_keys()
         size = table.size(keys)
         assert_equal(size, 2, "table.keys count")
 
+// test: returns list of all values in table
 function table_values()
     t = ["name" = "Alice", "age" = 30]
     values = table.values(t)
@@ -35,6 +45,7 @@ function table_values()
         size = table.size(values)
         assert_equal(size, 2, "table.values count")
 
+// test: removes key-value pair from table by key
 function table_remove()
     t = ["name" = "Alice", "age" = 30, "city" = "Dubai"]
     size_before = table.size(t)
@@ -47,6 +58,7 @@ function table_remove()
     assert_equal(has_name, true, "table.remove name remains")
     assert_equal(has_age, false, "table.remove age removed")
 
+// test: removes all key-value pairs from table
 function table_clear()
     t = [1, 2, 3]
     result = table.clear(t)
@@ -57,6 +69,7 @@ function table_clear()
     result_none = table.clear(fake)
     assert_equal(result_none, none, "table.clear none returns false")
 
+// test: creates shallow copy of table
 function table_copy()
     original = ["x" = 1, "y" = 2]
     copy = table.copy(original)
@@ -65,6 +78,7 @@ function table_copy()
     assert_equal(copy["x"], 999, "table.copy copy changed")
     assert_equal(copy["y"], 2, "table.copy shared value")
 
+// test: merges two tables, overwriting duplicate keys
 function table_merge()
     a = ["x" = 1, "y" = 2]
     b = ["y" = 999, "z" = 3]
@@ -78,6 +92,7 @@ function table_merge()
         assert_equal(m["y"], 999, "table.merge overwrite y")
         assert_equal(m["z"], 3, "table.merge add z")
 
+// test: all table functions return none for invalid input types
 function table_checks()
     t = ["name" = "Alice", "age" = 30]
     num = 123
@@ -155,6 +170,7 @@ function table_checks()
     assert_equal(test_merge(num, bool_val), none, "merge(number,bool)")
     assert_equal(test_merge(nil_val, nil_val), none, "merge(none,none)")
 
+// execute all table library test cases
 table_size()
 table_has()
 table_keys()
@@ -165,4 +181,5 @@ table_copy()
 table_merge()
 table_checks()
 
+// report completion of table library tests
 os.output("[PASS] libraries/table.apex")

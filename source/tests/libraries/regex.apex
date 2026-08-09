@@ -1,11 +1,18 @@
+// source/tests/libraries/regex.apex
+// Implementation of Regular Expression Library Tests for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 import os
 import table
 import regex
 
+// helper: compares two values and reports mismatch with context
 function assert_equal(actual, expected, name)
     if actual != expected
         os.output("[ERROR] {name}: got {actual}, expected {expected}")
 
+// helper: compares two tables element-wise
 function assert_table_equal(actual, expected, name)
     if type(actual) != "table" or type(expected) != "table"
         os.output("[ERROR] {name}: both must be tables")
@@ -20,6 +27,7 @@ function assert_table_equal(actual, expected, name)
             os.output("[ERROR] {name}[{i}]: got {actual[i]}, expected {expected[i]}")
             return
 
+// test: findall extracts all digit sequences
 function regex_findall()
     result = regex.findall("\\d+", "abc 123 def 456")
     assert_equal(result[1], "123", "findall digits [1]")
@@ -36,12 +44,14 @@ function regex_findall()
     result = regex.findall("x", "hello")
     assert_equal(table.size(result), 0, "findall no match")
 
+// test: findall with ignorecase flag
 function regex_findall_ignorecase()
     opts = ["ignorecase" = true]
     result = regex.findall("[a-z]+", "HELLO World", opts)
     assert_equal(result[1], "HELLO", "findall ignorecase [1]")
     assert_equal(result[2], "World", "findall ignorecase [2]")
 
+// test: findall with dotall flag for multiline matching
 function regex_findall_dotall()
     opts = ["dotall" = true]
     result = regex.findall("h.*o", "hello\nworld", opts)
@@ -50,6 +60,7 @@ function regex_findall_dotall()
     result = regex.findall("h.*o", "hello\nworld")
     assert_equal(table.size(result), 1, "findall no dotall default")
 
+// test: findall with start and end anchors
 function regex_findall_anchors()
     result = regex.findall("^\\w+", "hello world")
     assert_equal(result[1], "hello", "findall start anchor")
@@ -57,6 +68,7 @@ function regex_findall_anchors()
     result = regex.findall("\\w+$", "hello world")
     assert_equal(result[1], "world", "findall end anchor")
 
+// test: findall with character classes
 function regex_findall_charclass()
     result = regex.findall("[aeiou]+", "hello world")
     assert_equal(result[1], "e", "findall vowels [1]")
@@ -69,6 +81,7 @@ function regex_findall_charclass()
     assert_equal(result[3], "w", "findall not vowels [3]")
     assert_equal(result[4], "rld", "findall not vowels [4]")
 
+// test: findall with quantifiers (*, +, ?)
 function regex_findall_quantifiers()
     result = regex.findall("ab*c", "ac abc abbc abbbc")
     assert_equal(result[1], "ac", "findall star zero")
@@ -85,6 +98,7 @@ function regex_findall_quantifiers()
     assert_equal(result[1], "ac", "findall question zero")
     assert_equal(result[2], "abc", "findall question one")
 
+// test: findall with special character classes (\s, \S, \d, \D, \w, \W)
 function regex_findall_special()
     result = regex.findall("\\s+", "hello\tworld\nfoo bar")
     assert_equal(result[1], "\t", "findall whitespace tab")
@@ -103,6 +117,7 @@ function regex_findall_special()
     assert_equal(result[1], " ", "findall non-word space")
     assert_equal(result[2], "-", "findall non-word dash")
 
+// test: findall with invalid input returns none
 function regex_findall_invalid()
     n = none
     num = 123
@@ -115,6 +130,7 @@ function regex_findall_invalid()
     assert_equal(test_findall("\\d+", num), n, "findall invalid text")
     assert_equal(test_findall("\\d+", n), n, "findall none text")
 
+// test: sub replaces matched patterns with replacement
 function regex_sub()
     result = regex.sub("\\d+", "NUM", "abc 123 def 456")
     assert_equal(result, "abc NUM def NUM", "sub digits to NUM")
@@ -128,11 +144,13 @@ function regex_sub()
     result = regex.sub("a", "b", "aaa")
     assert_equal(result, "bbb", "sub multiple matches")
 
+// test: sub with ignorecase flag
 function regex_sub_ignorecase()
     opts = ["ignorecase" = true]
     result = regex.sub("[a-z]+", "WORD", "Hello World", opts)
     assert_equal(result, "WORD WORD", "sub ignorecase")
 
+// test: sub with invalid input returns none
 function regex_sub_invalid()
     n = none
     num = 123
@@ -145,6 +163,7 @@ function regex_sub_invalid()
     assert_equal(test_sub(n, "X", "hello"), n, "sub none pattern")
     assert_equal(test_sub(num, "X", "hello"), n, "sub number pattern")
 
+// test: split divides string by pattern
 function regex_split()
     parts = regex.split(",\\s*", "a, b, c, d")
     assert_equal(parts[1], "a", "split comma+space [1]")
@@ -171,6 +190,7 @@ function regex_split()
     assert_equal(parts[1], "hello", "split leading trailing spaces [1]")
     assert_equal(parts[2], "world", "split leading trailing spaces [2]")
 
+// test: split with ignorecase flag
 function regex_split_ignorecase()
     opts = ["ignorecase" = true]
     parts = regex.split("[a-z]+", "123ABC456def789", opts)
@@ -178,6 +198,7 @@ function regex_split_ignorecase()
     assert_equal(parts[2], "456", "split ignorecase [2]")
     assert_equal(parts[3], "789", "split ignorecase [3]")
 
+// test: split with invalid input returns none
 function regex_split_invalid()
     n = none
     num = 123
@@ -189,6 +210,7 @@ function regex_split_invalid()
     assert_equal(test_split(n, "hello"), n, "split none pattern")
     assert_equal(test_split(num, "hello"), n, "split number pattern")
 
+// test: search finds first match and returns metadata
 function regex_search()
     result = regex.search("\\d+", "abc 123 def 456")
     assert_equal(result["start"], 5, "search start pos")
@@ -213,6 +235,7 @@ function regex_search()
     result = regex.search("xyz", "hello world")
     assert_equal(table.size(result), 0, "search no match empty table")
 
+// test: search with ignorecase flag
 function regex_search_ignorecase()
     opts = ["ignorecase" = true]
     result = regex.search("[a-z]+", "123 HELLO", opts)
@@ -220,6 +243,7 @@ function regex_search_ignorecase()
     assert_equal(result["end"], 9, "search ignorecase end")
     assert_equal(result["match"], "HELLO", "search ignorecase match")
 
+// test: search with invalid input returns none
 function regex_search_invalid()
     n = none
     num = 123
@@ -231,6 +255,7 @@ function regex_search_invalid()
     assert_equal(test_search(n, "hello"), n, "search none pattern")
     assert_equal(test_search(num, "hello"), n, "search number pattern")
 
+// test: escape sequences for literal backslash patterns
 function regex_escape_sequences()
     result = regex.findall("\\\\d", "abc\\d123")
     assert_equal(result[1], "\\d", "findall literal backslash-d")
@@ -245,6 +270,7 @@ function regex_escape_sequences()
     assert_equal(result[1], "[test]", "findall literal brackets [1]")
     assert_equal(result[2], "[test]", "findall literal brackets [2]")
 
+// execute all regex library test cases
 regex_findall()
 regex_findall_ignorecase()
 regex_findall_dotall()
@@ -264,4 +290,5 @@ regex_search_ignorecase()
 regex_search_invalid()
 regex_escape_sequences()
 
+// report completion of regex library tests
 os.output("[PASS] libraries/regex.apex")

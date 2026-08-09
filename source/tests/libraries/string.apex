@@ -1,10 +1,17 @@
+// source/tests/libraries/string.apex
+// Implementation of String Library Function Tests for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 import os
 import string
 
+// helper: compares two values and reports mismatch with context
 function assert_equal(actual, expected, name)
     if actual != expected
         os.output("[ERROR] {name}: got {actual}, expected {expected}")
 
+// test: string length returns character count
 function string_len()
     len = string.length("Hello")
     assert_equal(len, 5, "string.length Hello")
@@ -12,6 +19,7 @@ function string_len()
     len = string.length("")
     assert_equal(len, 0, "string.length empty")
 
+// test: convert string to lowercase
 function string_lower()
     result = string.lower("HELLO")
     assert_equal(result, "hello", "string.lower HELLO")
@@ -19,6 +27,7 @@ function string_lower()
     result = string.lower("Hello World")
     assert_equal(result, "hello world", "string.lower Hello World")
 
+// test: convert string to uppercase
 function string_upper()
     result = string.upper("hello")
     assert_equal(result, "HELLO", "string.upper hello")
@@ -26,6 +35,7 @@ function string_upper()
     result = string.upper("Hello World")
     assert_equal(result, "HELLO WORLD", "string.upper Hello World")
 
+// test: substring extraction with various scripts and edge cases
 function string_sub()
     result = string.sub("Hello World", 1, 5)
     assert_equal(result, "Hello", "string.sub english 1-5")
@@ -75,6 +85,7 @@ function string_sub()
     result = string.sub("😊🌟", 2, 2)
     assert_equal(result, "🌟", "string.sub emoji 2-2")
 
+// test: split string by delimiter into table
 function string_split()
     parts = string.split("a,b,c", ",")
     is_table = type(parts) == "table"
@@ -84,6 +95,7 @@ function string_split()
         assert_equal(parts[2], "b", "string.split[2]")
         assert_equal(parts[3], "c", "string.split[3]")
 
+// test: join table elements into string with separator
 function string_join()
     parts = string.split("a,b,c", ",")
     result = string.join(parts, "-")
@@ -92,6 +104,7 @@ function string_join()
     result = string.join(parts, "")
     assert_equal(result, "abc", "string.join empty separator")
 
+// test: trim whitespace from both ends
 function string_trim()
     result = string.trim("  hello  ")
     assert_equal(result, "hello", "string.trim spaces")
@@ -102,6 +115,7 @@ function string_trim()
     result = string.trim("hello")
     assert_equal(result, "hello", "string.trim no change")
 
+// test: find substring position
 function string_find()
     index = string.find("Hello World", "World")
     assert_equal(index, 7, "string.find World")
@@ -112,6 +126,7 @@ function string_find()
     index = string.find("Hello World", "xyz")
     assert_equal(index, -1, "string.find not found")
 
+// test: replace substring with another
 function string_replace()
     result = string.replace("Hello World", "World", "Apex")
     assert_equal(result, "Hello Apex", "string.replace World->Apex")
@@ -119,6 +134,7 @@ function string_replace()
     result = string.replace("Hello World", "xyz", "abc")
     assert_equal(result, "Hello World", "string.replace not found")
 
+// test: all string functions return none for invalid input types
 function string_all_none_checks()
     num = 123
     bool_val = true
@@ -198,6 +214,7 @@ function string_all_none_checks()
     assert_equal(test_join(nil_val, ","), none, "join(none,str)")
     assert_equal(test_join("not table", ","), none, "join(string,str)")
 
+// execute all string library test cases
 string_len()
 string_lower()
 string_upper()
@@ -209,4 +226,5 @@ string_find()
 string_replace()
 string_all_none_checks()
 
+// report completion of string library tests
 os.output("[PASS] libraries/string.apex")

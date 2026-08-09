@@ -1,1 +1,0 @@
-os.output(0)

@@ -1,11 +1,18 @@
+// source/tests/libraries/crypto.apex
+// Implementation of Cryptographic Library Tests for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 import os
 import string
 import crypto
 
+// helper: compares two values and reports mismatch with context
 function assert_equal(actual, expected, name)
     if actual != expected
         os.output("[ERROR] {name}: got {actual}, expected {expected}")
 
+// test: md5 hash algorithm with various inputs
 function crypto_md5()
     assert_equal(crypto.md5(""), "d41d8cd98f00b204e9800998ecf8427e", "md5 empty")
     assert_equal(crypto.md5("abc"), "900150983cd24fb0d6963f7d28e17f72", "md5 abc")
@@ -19,6 +26,7 @@ function crypto_md5()
     assert_equal(crypto.md5(data), "ed076287532e86365e841e92bfc50d8c", "md5 file via os.read")
     os.delete(test_file)
 
+// test: sha1 hash algorithm with various inputs
 function crypto_sha1()
     assert_equal(crypto.sha1(""), "da39a3ee5e6b4b0d3255bfef95601890afd80709", "sha1 empty")
     assert_equal(crypto.sha1("abc"), "a9993e364706816aba3e25717850c26c9cd0d89d", "sha1 abc")
@@ -32,6 +40,7 @@ function crypto_sha1()
     assert_equal(crypto.sha1(data), "2ef7bde608ce5404e97d5f042f95f89f1c232871", "sha1 file via os.read")
     os.delete(test_file)
 
+// test: sha256 hash algorithm with various inputs
 function crypto_sha256()
     assert_equal(crypto.sha256(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "sha256 empty")
     assert_equal(crypto.sha256("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "sha256 abc")
@@ -45,6 +54,7 @@ function crypto_sha256()
     assert_equal(crypto.sha256(data), "7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069", "sha256 file via os.read")
     os.delete(test_file)
 
+// test: sha512 hash algorithm with various inputs
 function crypto_sha512()
     assert_equal(crypto.sha512(""), "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e", "sha512 empty")
     assert_equal(crypto.sha512("abc"), "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f", "sha512 abc")
@@ -58,42 +68,51 @@ function crypto_sha512()
     assert_equal(crypto.sha512(data), "861844d6704e8573fec34d967e20bcfef3d424cf48be04e6dc08f2bd58c729743371015ead891cc3cf1c9d34b49264b510751b1ff9e537937bc46b5d6ff4ecc8", "sha512 file via os.read")
     os.delete(test_file)
 
+// test: hmac-md5 message authentication
 function crypto_hmac_md5()
     assert_equal(crypto.hmac_md5("", ""), "74e6f7298a9c2d168935f58c001bad88", "hmac_md5 empty key+msg")
     assert_equal(crypto.hmac_md5("key", "The quick brown fox jumps over the lazy dog"), "80070713463e7749b90c2dc24911e275", "hmac_md5 key + brown fox")
     assert_equal(crypto.hmac_md5("secret", "Hello World!"), "09185d5e4c0a674aa431cb8411e327ad", "hmac_md5 secret + Hello World!")
 
+// test: hmac-sha1 message authentication
 function crypto_hmac_sha1()
     assert_equal(crypto.hmac_sha1("", ""), "fbdb1d1b18aa6c08324b7d64b71fb76370690e1d", "hmac_sha1 empty key+msg")
     assert_equal(crypto.hmac_sha1("key", "The quick brown fox jumps over the lazy dog"), "de7c9b85b8b78aa6bc8a7a36f70a90701c9db4d9", "hmac_sha1 key + brown fox")
     assert_equal(crypto.hmac_sha1("secret", "Hello World!"), "5efed98b0787c83f9cb0135ba283c390ca49320e", "hmac_sha1 secret + Hello World!")
 
+// test: hmac-sha256 message authentication
 function crypto_hmac_sha256()
     assert_equal(crypto.hmac_sha256("", ""), "b613679a0814d9ec772f95d778c35fc5ff1697c493715653c6c712144292c5ad", "hmac_sha256 empty key+msg")
     assert_equal(crypto.hmac_sha256("key", "The quick brown fox jumps over the lazy dog"), "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8", "hmac_sha256 key + brown fox")
     assert_equal(crypto.hmac_sha256("secret", "Hello World!"), "6fa7b4dea28ee348df10f9bb595ad985ff150a4adfd6131cca677d9acee07dc6", "hmac_sha256 secret + Hello World!")
 
+// test: hmac-sha512 message authentication
 function crypto_hmac_sha512()
     assert_equal(crypto.hmac_sha512("", ""), "b936cee86c9f87aa5d3c6f2e84cb5a4239a5fe50480a6ec66b70ab5b1f4ac6730c6c515421b327ec1d69402e53dfb49ad7381eb067b338fd7b0cb22247225d47", "hmac_sha512 empty key+msg")
     assert_equal(crypto.hmac_sha512("key", "The quick brown fox jumps over the lazy dog"), "b42af09057bac1e2d41708e48a902e09b5ff7f12ab428a4fe86653c73dd248fb82f948a549f7b791a5b41915ee4d1ec3935357e4e2317250d0372afa2ebeeb3a", "hmac_sha512 key + brown fox")
     assert_equal(crypto.hmac_sha512("secret", "Hello World!"), "fd3716eb8e1903ecb8deb9320f1baecf0f8dbe04e4c4c71e64fbb37080222ca42deb0b646cabeb53e269a2446507fb5442961656f8007959bd330ef48df0e13e", "hmac_sha512 secret + Hello World!")
 
+// test: pbkdf2 with md5 (key derivation)
 function crypto_pbkdf2_md5()
     result = crypto.pbkdf2_md5("password", "salt", 1000, 16)
     assert_equal(result, "8d189946a32d883622a16ae18af0632f", "pbkdf2_md5 password salt 1000 16")
 
+// test: pbkdf2 with sha1 (key derivation)
 function crypto_pbkdf2_sha1()
     result = crypto.pbkdf2_sha1("password", "salt", 1000, 20)
     assert_equal(result, "6e88be8bad7eae9d9e10aa061224034fed48d03f", "pbkdf2_sha1 password salt 1000 20")
 
+// test: pbkdf2 with sha256 (key derivation)
 function crypto_pbkdf2_sha256()
     result = crypto.pbkdf2_sha256("password", "salt", 1000, 32)
     assert_equal(result, "632c2812e46d4604102ba7618e9d6d7d2f8128f6266b4a03264d2a0460b7dcb3", "pbkdf2_sha256 password salt 1000 32")
 
+// test: pbkdf2 with sha512 (key derivation)
 function crypto_pbkdf2_sha512()
     result = crypto.pbkdf2_sha512("password", "salt", 1000, 64)
     assert_equal(result, "afe6c5530785b6cc6b1c6453384731bd5ee432ee549fd42fb6695779ad8a1c5bf59de69c48f774efc4007d5298f9033c0241d5ab69305e7b64eceeb8d834cfec", "pbkdf2_sha512 password salt 1000 64")
 
+// test: aes128 encryption/decryption with various inputs
 function crypto_aes128()
     key = "1234567890abcdef1234567890abcdef"
     iv = "000102030405060708090a0b0c0d0e0f"
@@ -131,42 +150,43 @@ function crypto_aes128()
     assert_equal(decrypted_file, data, "aes128 file")
     os.delete(test_file)
 
+// test: token_hex generates hex string of specified length
 function token_hex()
     nbytes = 16
     hex_str = crypto.token_hex(nbytes)
     assert_equal(string.length(hex_str), nbytes * 2, "token_hex length")
 
+// test: secure_randint returns integer within range [0, n)
 function secure_randint()
     n = 100
     res = crypto.secure_randint(n)
     is_valid = res >= 0 and res < n
     assert_equal(is_valid, true, "secure_randint range [0,99]")
 
+// test: compare_digest performs constant-time string comparison
 function compare_digest()
     a = "secret_token_123"
     b = "secret_token_123"
     res = crypto.compare_digest(a, b)
     assert_equal(res, true, "compare_digest identical strings")
 
+// execute all cryptographic test cases
 crypto_md5()
 crypto_sha1()
 crypto_sha256()
 crypto_sha512()
-
 crypto_hmac_md5()
 crypto_hmac_sha1()
 crypto_hmac_sha256()
 crypto_hmac_sha512()
-
 crypto_pbkdf2_md5()
 crypto_pbkdf2_sha1()
 crypto_pbkdf2_sha256()
 crypto_pbkdf2_sha512()
-
 crypto_aes128()
-
 token_hex()
 secure_randint()
 compare_digest()
 
+// report completion of cryptographic library tests
 os.output("[PASS] libraries/crypto.apex")

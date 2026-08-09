@@ -1,9 +1,16 @@
+// source/tests/integration/function.apex
+// Implementation of Function Definition and Call Tests for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
 import os
 
+// helper: compares two values and reports mismatch with context
 function assert_equal(actual, expected, name)
     if actual != expected
         os.output("[ERROR] {name}: got {actual}, expected {expected}")
 
+// test: function with no parameters returns constant string
 function no_params()
     function say_hello()
         return "Hello!"
@@ -11,6 +18,7 @@ function no_params()
     result = say_hello()
     assert_equal(result, "Hello!", "say_hello()")
 
+// test: function with single parameter performs arithmetic
 function single_param()
     function double(x)
         return x * 2
@@ -24,6 +32,7 @@ function single_param()
     result = double(-3)
     assert_equal(result, -6, "double(-3)")
 
+// test: function with multiple parameters performs addition
 function multiple_params()
     function add(a, b)
         return a + b
@@ -37,6 +46,7 @@ function multiple_params()
     result = add(0, 0)
     assert_equal(result, 0, "add(0, 0)")
 
+// test: function with string parameter returns formatted greeting
 function string_params()
     function greet(name)
         return "Hello, {name}!"
@@ -47,6 +57,7 @@ function string_params()
     result = greet("")
     assert_equal(result, "Hello, !", "greet('')")
 
+// test: function with no explicit return yields none
 function no_return()
     function do_nothing()
         x = 42
@@ -54,6 +65,7 @@ function no_return()
     result = do_nothing()
     assert_equal(result, none, "do_nothing()")
 
+// test: nested function calls with mixed arithmetic
 function nested_calls()
     function multiply(a, b)
         return a * b
@@ -67,6 +79,7 @@ function nested_calls()
     result = multiply(add(2, 3), add(1, 4))
     assert_equal(result, 25, "multiply(add(2, 3), add(1, 4))")
 
+// test: chained function calls computing discount
 function function_chain()
     function get_discount(price)
         return price * 0.9
@@ -81,6 +94,7 @@ function function_chain()
     result = calculate_total(50, 2)
     assert_equal(result, 90, "calculate_total(50, 2)")
 
+// test: function returning boolean based on condition
 function boolean_params()
     function is_adult(age)
         return age >= 18
@@ -94,6 +108,7 @@ function boolean_params()
     result = is_adult(18)
     assert_equal(result, true, "is_adult(18)")
 
+// test: function with many parameters (five args)
 function many_params()
     function sum_five(a, b, c, d, e)
         return a + b + c + d + e
@@ -101,6 +116,7 @@ function many_params()
     result = sum_five(1, 2, 3, 4, 5)
     assert_equal(result, 15, "sum_five(1, 2, 3, 4, 5)")
 
+// test: recursive function computes factorial
 function recursion()
     function factorial(n)
         if n <= 1
@@ -117,6 +133,7 @@ function recursion()
     result = factorial(0)
     assert_equal(result, 1, "factorial(0)")
 
+// test: function returning structured table data
 function return_table()
     function create_user(name, age)
         return ["name" = name, "age" = age, "active" = true]
@@ -126,6 +143,7 @@ function return_table()
     assert_equal(user["age"], 25, "create_user age")
     assert_equal(user["active"], true, "create_user active")
 
+// test: early return pattern in conditional function
 function early_return()
     function abs_value(x)
         if x < 0
@@ -141,6 +159,7 @@ function early_return()
     result = abs_value(0)
     assert_equal(result, 0, "abs_value(0)")
 
+// execute all function test cases
 no_params()
 single_param()
 multiple_params()
@@ -154,4 +173,5 @@ recursion()
 return_table()
 early_return()
 
+// report completion of function tests
 os.output("[PASS] integration/function.apex")
