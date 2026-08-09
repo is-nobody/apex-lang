@@ -54,6 +54,20 @@ function crypto_sha256()
     assert_equal(crypto.sha256(data), "7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069", "sha256 file via os.read")
     os.delete(test_file)
 
+// test: sha384 hash algorithm with various inputs
+function crypto_sha384()
+    assert_equal(crypto.sha384(""), "38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b", "sha384 empty")
+    assert_equal(crypto.sha384("abc"), "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7", "sha384 abc")
+    assert_equal(crypto.sha384("message digest"), "473ed35167ec1f5d8e550368a3db39be54639f828868e9454c239fc8b52e3c61dbd0d8b4de1390c256dcbb5d5fd99cd5", "sha384 message digest")
+    assert_equal(crypto.sha384("abcdefghijklmnopqrstuvwxyz"), "feb67349df3db6f5924815d6c3dc133f091809213731fe5c7b5f4999e463479ff2877f5f2936fa63bb43784b12f3ebb4", "sha384 alphabet")
+    assert_equal(crypto.sha384("Hello World!"), "bfd76c0ebbd006fee583410547c1887b0292be76d582d96c242d2a792723e3fd6fd061f9d5cfd13b8f961358e6adba4a", "sha384 Hello World!")
+
+    test_file = "_apex_test_sha384_file.txt"
+    os.write(test_file, "Hello World!")
+    data = os.read(test_file)
+    assert_equal(crypto.sha384(data), "bfd76c0ebbd006fee583410547c1887b0292be76d582d96c242d2a792723e3fd6fd061f9d5cfd13b8f961358e6adba4a", "sha384 file via os.read")
+    os.delete(test_file)
+
 // test: sha512 hash algorithm with various inputs
 function crypto_sha512()
     assert_equal(crypto.sha512(""), "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e", "sha512 empty")
@@ -86,6 +100,12 @@ function crypto_hmac_sha256()
     assert_equal(crypto.hmac_sha256("key", "The quick brown fox jumps over the lazy dog"), "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8", "hmac_sha256 key + brown fox")
     assert_equal(crypto.hmac_sha256("secret", "Hello World!"), "6fa7b4dea28ee348df10f9bb595ad985ff150a4adfd6131cca677d9acee07dc6", "hmac_sha256 secret + Hello World!")
 
+// test: hmac-sha384 message authentication
+function crypto_hmac_sha384()
+    assert_equal(crypto.hmac_sha384("", ""), "6c1f2ee938fad2e24bd91298474382ca218c75db3d83e114b3d4367776d14d3551289e75e8209cd4b792302840234adc", "hmac_sha384 empty key+msg")
+    assert_equal(crypto.hmac_sha384("key", "The quick brown fox jumps over the lazy dog"), "d7f4727e2c0b39ae0f1e40cc96f60242d5b7801841cea6fc592c5d3e1ae50700582a96cf35e1e554995fe4e03381c237", "hmac_sha384 key + brown fox")
+    assert_equal(crypto.hmac_sha384("secret", "Hello World!"), "dc8d3fb8ae94064eeda328a4af7d423477dbbb5d889ca42f69e2b8e59dd501bdd0d2c8371719efef975b3ddf52bbb96e", "hmac_sha384 secret + Hello World!")
+
 // test: hmac-sha512 message authentication
 function crypto_hmac_sha512()
     assert_equal(crypto.hmac_sha512("", ""), "b936cee86c9f87aa5d3c6f2e84cb5a4239a5fe50480a6ec66b70ab5b1f4ac6730c6c515421b327ec1d69402e53dfb49ad7381eb067b338fd7b0cb22247225d47", "hmac_sha512 empty key+msg")
@@ -106,6 +126,11 @@ function crypto_pbkdf2_sha1()
 function crypto_pbkdf2_sha256()
     result = crypto.pbkdf2_sha256("password", "salt", 1000, 32)
     assert_equal(result, "632c2812e46d4604102ba7618e9d6d7d2f8128f6266b4a03264d2a0460b7dcb3", "pbkdf2_sha256 password salt 1000 32")
+
+// test: pbkdf2 with sha384 (key derivation)
+function crypto_pbkdf2_sha384()
+    result = crypto.pbkdf2_sha384("password", "salt", 1000, 48)
+    assert_equal(result, "3bd37e2236941d4a77b1b5b714c6f913fabb6b0841a6d7d8656b99d611e900fe06edb93b5b809efaa9678b635ce513e0", "pbkdf2_sha384 password salt 1000 48")
 
 // test: pbkdf2 with sha512 (key derivation)
 function crypto_pbkdf2_sha512()
@@ -148,6 +173,44 @@ function crypto_aes128()
     encrypted_file = crypto.aes128_encrypt(key, data)
     decrypted_file = crypto.aes128_decrypt(key, encrypted_file)
     assert_equal(decrypted_file, data, "aes128 file")
+    os.delete(test_file)
+
+// test: aes192 encryption/decryption with various inputs
+function crypto_aes192()
+    key = "1234567890abcdef1234567890abcdef1234567890abcdef"
+    iv = "000102030405060708090a0b0c0d0e0f"
+    plaintext = "Hello World!"
+    
+    encrypted = crypto.aes192_encrypt(key, plaintext, iv)
+    assert_equal(encrypted, "d55cfbd5bded0d8e271df5533ce67e87", "aes192 encrypt")
+    decrypted = crypto.aes192_decrypt(key, encrypted, iv)
+    assert_equal(decrypted, plaintext, "aes192 decrypt")
+    
+    encrypted_empty = crypto.aes192_encrypt(key, "", iv)
+    assert_equal(encrypted_empty, "4795abb22bf7328cdc9cee5a2aca57e2", "aes192 empty encrypt")
+    decrypted_empty = crypto.aes192_decrypt(key, encrypted_empty, iv)
+    assert_equal(decrypted_empty, "", "aes192 empty decrypt")
+    
+    long_msg = "The quick brown fox jumps over the lazy dog"
+    encrypted_long = crypto.aes192_encrypt(key, long_msg, iv)
+    assert_equal(encrypted_long, "51d0abbd20153e6330fb0febdb4d7b44f3d893ad418c71c385c3a90692e69e3122949b1a031a53c7ba6ebef77d427118", "aes192 long encrypt")
+    decrypted_long = crypto.aes192_decrypt(key, encrypted_long, iv)
+    assert_equal(decrypted_long, long_msg, "aes192 long decrypt")
+    
+    wrong_key = "fedcba0987654321fedcba0987654321fedcba0987654321"
+    decrypted_wrong = crypto.aes192_decrypt(wrong_key, encrypted, iv)
+    assert_equal(decrypted_wrong != plaintext, true, "aes192 wrong key")
+    
+    iv2 = "0f0e0d0c0b0a09080706050403020100"
+    encrypted_iv2 = crypto.aes192_encrypt(key, plaintext, iv2)
+    assert_equal(encrypted_iv2, "c3f1c5d9441e2b7475945c45f9fb7f9c", "aes192 different IV")
+    
+    test_file = "_apex_test_aes192_file.txt"
+    os.write(test_file, "Secret file content!")
+    data = os.read(test_file)
+    encrypted_file = crypto.aes192_encrypt(key, data)
+    decrypted_file = crypto.aes192_decrypt(key, encrypted_file)
+    assert_equal(decrypted_file, data, "aes192 file")
     os.delete(test_file)
 
 // test: aes256 encryption/decryption with various inputs
@@ -212,16 +275,20 @@ function compare_digest()
 crypto_md5()
 crypto_sha1()
 crypto_sha256()
+crypto_sha384()
 crypto_sha512()
 crypto_hmac_md5()
 crypto_hmac_sha1()
 crypto_hmac_sha256()
+crypto_hmac_sha384()
 crypto_hmac_sha512()
 crypto_pbkdf2_md5()
 crypto_pbkdf2_sha1()
 crypto_pbkdf2_sha256()
+crypto_pbkdf2_sha384()
 crypto_pbkdf2_sha512()
 crypto_aes128()
+crypto_aes192()
 crypto_aes256()
 token_hex()
 secure_randint()

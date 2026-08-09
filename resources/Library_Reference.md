@@ -1655,6 +1655,22 @@ else
     os.output("SHA-256: {hash}")
 ```
 
+### crypto.sha384(str)
+Computes the SHA-384 hash of a string. Returns a 96-character lowercase hexadecimal string (384 bits). Returns `none` if the argument is not a string.
+
+```apex
+import os
+import crypto
+
+file = os.read("main.c")
+hash = crypto.sha384(file)
+
+if hash == none
+    os.output("Could not hash file")
+else
+    os.output("SHA-384: {hash}")
+```
+
 ### crypto.sha512(str)
 Computes the SHA-512 hash of a string. Returns a 128-character lowercase hexadecimal string (512 bits). Returns `none` if the argument is not a string.
 
@@ -1722,6 +1738,23 @@ else
     os.output("HMAC SHA-256: {signature}")
 ```
 
+### crypto.hmac_sha384(key, msg)
+Computes the HMAC SHA-384 of a message using a secret key. Both arguments must be strings. Returns a 96-character lowercase hexadecimal string. Returns `none` if either argument is not a string.
+
+```apex
+import os
+import crypto
+
+secret = "my-secret-key"
+file = os.read("main.c")
+signature = crypto.hmac_sha384(secret, file)
+
+if signature == none
+    os.output("Could not sign file")
+else
+    os.output("HMAC SHA-384: {signature}")
+```
+
 ### crypto.hmac_sha512(key, msg)
 Computes the HMAC SHA-512 of a message using a secret key. Both arguments must be strings. Returns a 128-character lowercase hexadecimal string. Returns `none` if either argument is not a string.
 
@@ -1784,6 +1817,21 @@ else
     os.output("PBKDF2 SHA-256: {key}")
 ```
 
+### crypto.pbkdf2_sha384(password, salt, iterations, key_len)
+Derives a key from a password and salt using PBKDF2-HMAC-SHA384. Returns a lowercase hexadecimal string of `key_len` bytes. Returns `none` if any argument is invalid or `iterations < 1`.
+
+```apex
+import os
+import crypto
+
+key = crypto.pbkdf2_sha384("password", "salt", 100000, 48)
+
+if key == none
+    os.output("Could not derive key")
+else
+    os.output("PBKDF2 SHA-384: {key}")
+```
+
 ### crypto.pbkdf2_sha512(password, salt, iterations, key_len)
 Derives a key from a password and salt using PBKDF2-HMAC-SHA512. Returns a lowercase hexadecimal string of `key_len` bytes. Returns `none` if any argument is invalid or `iterations < 1`.
 
@@ -1832,6 +1880,45 @@ plaintext = "Secret message"
 
 encrypted = crypto.aes128_encrypt(key, plaintext, iv)
 decrypted = crypto.aes128_decrypt(key, encrypted, iv)
+
+if decrypted == none
+    os.output("Could not decrypt data")
+else
+    os.output("Decrypted: {decrypted}")
+```
+
+### crypto.aes192_encrypt(key, plaintext, iv)
+Encrypts a string using AES-192-CBC. The `key` must be a 48-character hexadecimal string (24 bytes). The `plaintext` is the string to encrypt. The `iv` is optional and must be a 32-character hexadecimal string (16 bytes) if provided; defaults to all zeros. Returns the encrypted data as a lowercase hexadecimal string. Uses PKCS7 padding. Returns `none` if any argument is invalid.
+
+```apex
+import os
+import crypto
+
+key = crypto.token_hex(24)
+iv = crypto.token_hex(16)
+plaintext = "Hello World!"
+
+encrypted = crypto.aes192_encrypt(key, plaintext, iv)
+
+if encrypted == none
+    os.output("Could not encrypt data")
+else
+    os.output("Encrypted: {encrypted}")
+```
+
+### crypto.aes192_decrypt(key, ciphertext, iv)
+Decrypts a string previously encrypted with AES-192-CBC. The `key` must be a 48-character hexadecimal string (24 bytes). The `ciphertext` must be a hexadecimal string (as returned by `aes192_encrypt`). The `iv` is optional and must be a 32-character hexadecimal string (16 bytes) if provided; must match the IV used during encryption. Returns the decrypted plaintext string. Validates PKCS7 padding. Returns `none` if any argument is invalid or if the padding is corrupted (wrong key or IV).
+
+```apex
+import os
+import crypto
+
+key = crypto.token_hex(24)
+iv = crypto.token_hex(16)
+plaintext = "Secret message"
+
+encrypted = crypto.aes192_encrypt(key, plaintext, iv)
+decrypted = crypto.aes192_decrypt(key, encrypted, iv)
 
 if decrypted == none
     os.output("Could not decrypt data")
