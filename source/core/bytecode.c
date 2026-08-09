@@ -60,12 +60,11 @@ static const char* opcode_names[] = {
     [OP_PUSH_ARG]         = "PUSH_ARG",
     [OP_CALL]             = "CALL",
     [OP_CALL_BUILTIN]     = "CALL_BUILTIN",
-    [OP_RETURN]           = "RETURN",
-    [OP_RETURN_VOID]      = "RETURN_VOID",
-
     [OP_CALL_0]           = "CALL_0",
     [OP_CALL_1]           = "CALL_1",
     [OP_CALL_2]           = "CALL_2",
+    [OP_RETURN]           = "RETURN",
+    [OP_RETURN_VOID]      = "RETURN_VOID",
     [OP_RETURN_NUM]       = "RETURN_NUM",
 
     [OP_LOAD_GLOBAL]      = "LOAD_GLOBAL",

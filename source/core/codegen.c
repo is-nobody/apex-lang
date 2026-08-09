@@ -1199,38 +1199,27 @@ static void codegen_return(CodeGenerator* cg, ASTNode* node) {
         int value_reg = codegen_expression(cg, node->return_stmt.value);             // evaluate value
         
         ASTNode* val = node->return_stmt.value;                                      // value node
-        bool use_fast_return = false;                                                // fast return flag
+        bool is_number = false;                                                      // guaranteed number flag
         
         if (val->type == AST_LITERAL_NUMBER) {                                       // number literal
-            use_fast_return = true;                                                  // use fast
-        } else if (val->type == AST_IDENTIFIER) {                                    // identifier
-            use_fast_return = false;                                                 // don't use fast
+            is_number = true;
         } else if (val->type == AST_BINARY) {                                        // binary op
             TokenType op = val->binary.op;                                           // operator
             if (op == TOKEN_PLUS || op == TOKEN_MINUS || op == TOKEN_STAR ||         // arithmetic
                 op == TOKEN_SLASH || op == TOKEN_PERCENT) {
-                use_fast_return = true;                                              // use fast
+                is_number = true;
             }
         } else if (val->type == AST_UNARY && val->unary.op == TOKEN_MINUS) {         // unary minus
-            use_fast_return = true;                                                  // use fast
-        } else if (val->type == AST_CALL) {                                          // function call
-            ASTNode* callee = val->call.callee;                                      // callee
-            if (callee->type == AST_IDENTIFIER) {                                    // identifier callee
-                const char* name = callee->identifier.name;                          // name
-                if (cg->current_function >= 0 &&                                     // recursive call
-                    strcmp(name, cg->chunk->functions[cg->current_function].name) == 0) {
-                    use_fast_return = true;                                          // use fast
-                }
-            }
+            is_number = true;
         }
         
-        if (use_fast_return) {                                            // fast return
-            emit(cg, INST(OP_RETURN_NUM, value_reg, 0, 0), node->line);   // return number
-        } else {                                                          // normal return
-            emit(cg, INST(OP_RETURN, value_reg, 0, 0), node->line);       // return value
+        if (is_number) {                                                             // guaranteed number
+            emit(cg, INST(OP_RETURN_NUM, value_reg, 0, 0), node->line);
+        } else {                                                                     // may be any type
+            emit(cg, INST(OP_RETURN, value_reg, 0, 0), node->line);
         }
-    } else {                                                              // void return
-        emit(cg, INST(OP_RETURN_VOID, 0, 0, 0), node->line);              // return void
+    } else {                                                                         // void return
+        emit(cg, INST(OP_RETURN_VOID, 0, 0, 0), node->line);
     }
 }
 

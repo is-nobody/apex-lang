@@ -61,12 +61,11 @@ typedef enum {
     OP_PUSH_ARG,         // pushes an argument onto the call stack
     OP_CALL,             // calls a function at address, result goes to rdst
     OP_CALL_BUILTIN,     // calls a built-in by index, result to rdst
-    OP_RETURN,           // returns a value from the current function
-    OP_RETURN_VOID,      // returns without a value
-
     OP_CALL_0,           // calling a function with 0 arguments (fast way)
     OP_CALL_1,           // calling a function with 1 arguments (fast way)
     OP_CALL_2,           // calling a function with 2 arguments (fast way)
+    OP_RETURN,           // returns a value from the current function
+    OP_RETURN_VOID,      // returns without a value
     OP_RETURN_NUM,       // return a number (without refcounting)
 
     OP_LOAD_GLOBAL,      // loads a global variable into a register
