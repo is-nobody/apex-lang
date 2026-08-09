@@ -258,7 +258,7 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                       // builtin handled
     }
     
-    if (strcmp(name, "string.sub") == 0) {                 // substring extraction
+    if (strcmp(name, "string.slice") == 0) {                 // substring extraction
         if (arg_count < 3 || !IS_STRING(args[0])) {        // validate string and indices
             *result = MAKE_NONE();                         // invalid, return none
             return true;                                   // builtin handled

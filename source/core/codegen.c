@@ -292,7 +292,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "math.gcd", "math.factorial",
 
         "string.isletter", "string.isnumber",        "string.length", "string.lower",
-        "string.upper", "string.sub",                "string.split", "string.join",
+        "string.upper", "string.slice",                "string.split", "string.join",
         "string.trim", "string.find",                "string.replace",
 
         "table.remove", "table.has",                 "table.size", "table.keys",

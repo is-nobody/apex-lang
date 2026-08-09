@@ -5,7 +5,7 @@ function typing_print()
     delay = 0.05
 
     for i = 1, string.length(text)
-        line = string.sub(text, 0, i)
+        line = string.slice(text, 0, i)
         os.execute("clear")
         os.output(line)
         os.wait(delay)

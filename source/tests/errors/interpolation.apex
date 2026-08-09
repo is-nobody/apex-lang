@@ -18,8 +18,8 @@ os.output("Function call: {undefined_func()}")
 os.output('Abs string: {math.abs("hello")}')
 os.output("Abs bool: {math.abs(true)}")
 os.output("Sqrt negative: {math.sqrt(-1)}")
-os.output('Sub wrong args: {string.sub("hello")}')
-os.output('Sub too many: {string.sub("hello", 1, 2, 3)}')
+os.output('Sub wrong args: {string.slice("hello")}')
+os.output('Sub too many: {string.slice("hello", 1, 2, 3)}')
 os.output('Floor string: {math.floor("test")}')
 
 // undefined function errors

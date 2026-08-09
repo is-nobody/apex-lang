@@ -819,7 +819,7 @@ import string
 os.output(string.upper("hello"))     // "HELLO"
 ```
 
-### string.sub(s, start, end)
+### string.slice(s, start, end)
 Extracts a portion of a string — from `start` to `end`, but not including `end`. Positions start counting from `1`. Returns `none` on error.
 
 ```apex
@@ -827,7 +827,7 @@ import os
 import string
 
 text = "Hello, World"
-result = string.sub(text, 1, 5)
+result = string.slice(text, 1, 5)
 
 if result != none
     os.output(result)  // "Hello"
@@ -839,7 +839,7 @@ If `start` is negative, it's treated as `1`. If `end` is larger than the string 
 import os
 import string
 
-sub = string.sub("Apex", 2, 10)
+sub = string.slice("Apex", 2, 10)
 
 os.output(sub)  // "pex" (end is bigger than string, stops at end)
 ```

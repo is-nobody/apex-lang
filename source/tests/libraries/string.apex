@@ -37,53 +37,53 @@ function string_upper()
 
 // test: substring extraction with various scripts and edge cases
 function string_sub()
-    result = string.sub("Hello World", 1, 5)
-    assert_equal(result, "Hello", "string.sub english 1-5")
+    result = string.slice("Hello World", 1, 5)
+    assert_equal(result, "Hello", "string.slice english 1-5")
     
-    result = string.sub("Hello World", 7, 11)
-    assert_equal(result, "World", "string.sub english 7-11")
+    result = string.slice("Hello World", 7, 11)
+    assert_equal(result, "World", "string.slice english 7-11")
     
-    result = string.sub("你好世界", 1, 2)
-    assert_equal(result, "你好", "string.sub chinese 1-2")
+    result = string.slice("你好世界", 1, 2)
+    assert_equal(result, "你好", "string.slice chinese 1-2")
     
-    result = string.sub("你好世界", 3, 4)
-    assert_equal(result, "世界", "string.sub chinese 3-4")
+    result = string.slice("你好世界", 3, 4)
+    assert_equal(result, "世界", "string.slice chinese 3-4")
     
-    result = string.sub("Привет Мир", 1, 6)
-    assert_equal(result, "Привет", "string.sub russian 1-6")
+    result = string.slice("Привет Мир", 1, 6)
+    assert_equal(result, "Привет", "string.slice russian 1-6")
     
-    result = string.sub("Привет Мир", 8, 10)
-    assert_equal(result, "Мир", "string.sub russian 8-10")
+    result = string.slice("Привет Мир", 8, 10)
+    assert_equal(result, "Мир", "string.slice russian 8-10")
     
-    result = string.sub("السلام عليكم", 1, 6)
-    assert_equal(result, "السلام", "string.sub arabic 1-6")
+    result = string.slice("السلام عليكم", 1, 6)
+    assert_equal(result, "السلام", "string.slice arabic 1-6")
     
-    result = string.sub("السلام عليكم", 8, 13)
-    assert_equal(result, "عليكم", "string.sub arabic 8-13")
+    result = string.slice("السلام عليكم", 8, 13)
+    assert_equal(result, "عليكم", "string.slice arabic 8-13")
     
-    result = string.sub("Hello Привет 你好", 1, 5)
-    assert_equal(result, "Hello", "string.sub mixed 1-5")
+    result = string.slice("Hello Привет 你好", 1, 5)
+    assert_equal(result, "Hello", "string.slice mixed 1-5")
     
-    result = string.sub("Hello Привет 你好", 7, 12)
-    assert_equal(result, "Привет", "string.sub mixed 7-12")
+    result = string.slice("Hello Привет 你好", 7, 12)
+    assert_equal(result, "Привет", "string.slice mixed 7-12")
     
-    result = string.sub("Hello Привет 你好", 14, 15)
-    assert_equal(result, "你好", "string.sub mixed 14-15")
+    result = string.slice("Hello Привет 你好", 14, 15)
+    assert_equal(result, "你好", "string.slice mixed 14-15")
     
-    result = string.sub("", 1, 5)
-    assert_equal(result, "", "string.sub empty")
+    result = string.slice("", 1, 5)
+    assert_equal(result, "", "string.slice empty")
     
-    result = string.sub("Hello", 1, 10)
-    assert_equal(result, "Hello", "string.sub beyond end")
+    result = string.slice("Hello", 1, 10)
+    assert_equal(result, "Hello", "string.slice beyond end")
     
-    result = string.sub("Hello", -4, 5)
-    assert_equal(result, "Hello", "string.sub negative start")
+    result = string.slice("Hello", -4, 5)
+    assert_equal(result, "Hello", "string.slice negative start")
     
-    result = string.sub("😊🌟", 1, 1)
-    assert_equal(result, "😊", "string.sub emoji 1-1")
+    result = string.slice("😊🌟", 1, 1)
+    assert_equal(result, "😊", "string.slice emoji 1-1")
     
-    result = string.sub("😊🌟", 2, 2)
-    assert_equal(result, "🌟", "string.sub emoji 2-2")
+    result = string.slice("😊🌟", 2, 2)
+    assert_equal(result, "🌟", "string.slice emoji 2-2")
 
 // test: split string by delimiter into table
 function string_split()
@@ -190,7 +190,7 @@ function string_all_none_checks()
     assert_equal(test_replace("test", "a", nil_val), none, "replace(str,str,none)")
     
     function test_sub(a, b, c)
-        return string.sub(a, b, c)
+        return string.slice(a, b, c)
     
     assert_equal(test_sub(num, 0, 5), none, "sub(num,int,int)")
     assert_equal(test_sub("test", "0", 5), none, "sub(str,str,int)")

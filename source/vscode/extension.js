@@ -147,7 +147,7 @@ function activate(context) {
 
                 'string.isletter', 'string.isnumber',
                 'string.length',   'string.lower',
-                'string.upper',    'string.sub',
+                'string.upper',    'string.slice',
                 'string.split',    'string.join',
                 'string.trim',     'string.find',
                 'string.replace',
