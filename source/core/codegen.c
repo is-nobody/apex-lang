@@ -200,6 +200,17 @@ static int codegen_identifier(CodeGenerator* cg, ASTNode* node) {
         }
     }
     
+    if (cg->current_module && !strchr(name, '.')) {                                 // inside module and bare name
+        char qualified[512];                                                        // buffer for qualified name
+        snprintf(qualified, sizeof(qualified), "%s.%s", cg->current_module, name);  // build qualified name
+        int global_idx = bytecode_get_global(cg->chunk, qualified);                 // lookup qualified global
+        if (global_idx >= 0) {                                                      // found qualified global
+            int reg = alloc_register(cg);                                           // allocate register
+            emit(cg, INST(OP_LOAD_GLOBAL, reg, global_idx, 0), node->line);         // load qualified global
+            return reg;                                                             // return register
+        }
+    }
+    
     int global_idx = bytecode_get_global(cg->chunk, name);                   // lookup in global scope
     if (global_idx >= 0) {                                                   // found globally
         if (cg->current_function == 0) {                                     // top-level scope
@@ -212,6 +223,21 @@ static int codegen_identifier(CodeGenerator* cg, ASTNode* node) {
         return reg;                                                          // return register
     }
     
+    if (cg->current_module && !strchr(name, '.')) {                                 // inside module and bare name
+        char qualified[512];                                                        // buffer for qualified name
+        snprintf(qualified, sizeof(qualified), "%s.%s", cg->current_module, name);  // build qualified name
+        global_idx = bytecode_add_global(cg->chunk, qualified);                     // create qualified global slot
+        if (cg->current_function == 0) {                                            // top-level scope
+            int reg = add_local(cg, name);                                          // add as local for fast access
+            emit(cg, INST(OP_LOAD_GLOBAL, reg, global_idx, 0), node->line);         // load qualified global into local
+            return reg;                                                             // return local register
+        }
+        int reg = alloc_register(cg);                                            // allocate temp register
+        emit(cg, INST(OP_LOAD_GLOBAL, reg, global_idx, 0), node->line);          // load qualified global into temp
+        return reg;                                                              // return temp register
+    }
+    
+    // Fallback: create bare global (for non-module code)
     global_idx = bytecode_add_global(cg->chunk, name);                       // add new global
     if (cg->current_function == 0) {                                         // top-level scope
         int reg = add_local(cg, name);                                       // add as local
@@ -346,10 +372,35 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         emit(cg, INST(OP_CALL_BUILTIN, result_reg, name_idx, arg_count), node->line);  // call builtin
     } else {                                                                           // user function
         int func_idx = -1;                                                             // function index
-        for (int i = 0; i < cg->chunk->func_count; i++) {                              // find function
-            if (strcmp(cg->chunk->functions[i].name, func_name) == 0) {                // name matches
-                func_idx = i;                                                          // store index
+        
+        for (int i = 0; i < cg->chunk->func_count; i++) {                              // search function table
+            if (strcmp(cg->chunk->functions[i].name, func_name) == 0) {                // exact name match
+                func_idx = i;                                                          // store function index
                 break;                                                                 // exit loop
+            }
+        }
+        
+        if (func_idx < 0 && func_name[0] != '\0' && !strchr(func_name, '.') && cg->current_module) {
+            char qualified[512];                                                             // buffer for qualified name
+            snprintf(qualified, sizeof(qualified), "%s.%s", cg->current_module, func_name);  // build qualified name
+            for (int i = 0; i < cg->chunk->func_count; i++) {                                // search function table
+                if (strcmp(cg->chunk->functions[i].name, qualified) == 0) {                  // qualified name match
+                    func_idx = i;                                                            // store function index
+                    break;                                                                   // exit loop
+                }
+            }
+        }
+        
+        if (func_idx < 0 && func_name[0] != '\0') {                                    // still not found
+            const char* last_dot = strrchr(func_name, '.');                            // find last dot
+            if (last_dot) {                                                            // dotted name
+                const char* short_name = last_dot + 1;                                 // extract short name
+                for (int i = 0; i < cg->chunk->func_count; i++) {                      // search function table
+                    if (strcmp(cg->chunk->functions[i].name, short_name) == 0) {       // short name match
+                        func_idx = i;                                                  // store function index
+                        break;                                                         // exit loop
+                    }
+                }
             }
         }
         
@@ -376,7 +427,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
                 emit(cg, INST(OP_PUSH_ARG, arg_regs[i], 0, 0), node->line);
             }
             int name_idx = bytecode_add_string_constant(cg->chunk, func_name);             // add name constant
-            emit(cg, INST(OP_CALL_BUILTIN, result_reg, name_idx, arg_count), node->line);  // try builtin
+            emit(cg, INST(OP_CALL_BUILTIN, result_reg, name_idx, arg_count), node->line);  // fallback to builtin
         }
     }
     
@@ -1090,18 +1141,21 @@ static void codegen_continue(CodeGenerator* cg, ASTNode* node) {
 // emits a function declaration with proper body compilation and state isolation
 static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     const char* func_name = node->function_decl.name;                         // function name
-    char global_name[512];                                                    // qualified name
+    char global_name[512];                                                    // qualified name for global
+    char chunk_func_name[512];                                                // qualified name for chunk function table
     
-    if (cg->current_module) {                                                 // inside module
-        snprintf(global_name, sizeof(global_name), "%s.%s", cg->current_module, func_name);  // qualify
-        func_name = global_name;                                              // use qualified
-        add_module_global(cg, global_name);                                   // register
+    if (cg->current_module) {                                                 // inside a module
+        snprintf(chunk_func_name, sizeof(chunk_func_name), "%s.%s",           // qualify with module name
+                 cg->current_module, func_name);
+    } else {                                                                  // top-level code
+        strncpy(chunk_func_name, func_name, sizeof(chunk_func_name) - 1);     // use bare name
+        chunk_func_name[sizeof(chunk_func_name) - 1] = '\0';                  // ensure null termination
     }
 
     int param_count = node->function_decl.params->count;                      // parameter count
-    int func_idx = bytecode_add_function(cg->chunk, func_name, param_count);  // add function
+    int func_idx = bytecode_add_function(cg->chunk, chunk_func_name, param_count);  // add function with full name
 
-    int jump_over = bytecode_current_offset(cg->chunk);                       // jump over
+    int jump_over = bytecode_current_offset(cg->chunk);                       // jump over function body
     emit(cg, INST(OP_JUMP, 0, 0, 0), node->line);                             // emit jump
     
     int func_addr = bytecode_current_offset(cg->chunk);                       // function address
@@ -1188,13 +1242,17 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     int temp_reg = alloc_register(cg);                                               // allocate temp
     emit(cg, INST(OP_LOAD_CONST, temp_reg, func_const_idx, 0), node->line);          // load function
     
-    int local_reg = add_local(cg, node->function_decl.name);                         // add local
+    int local_reg = add_local(cg, node->function_decl.name);                         // add local with short name
     emit(cg, INST(OP_MOVE, local_reg, temp_reg, 0), node->line);                     // store local
     
-    if (cg->current_module) {                                                        // inside module
-        int global_idx = bytecode_get_global(cg->chunk, func_name);                  // lookup global
-        if (global_idx < 0) global_idx = bytecode_add_global(cg->chunk, func_name);  // add global
-        emit(cg, INST(OP_STORE_GLOBAL, temp_reg, global_idx, 0), node->line);        // store global
+    if (cg->current_module) {                                                        // inside a module
+        snprintf(global_name, sizeof(global_name), "%s.%s",                          // build qualified name
+                 cg->current_module, node->function_decl.name);
+        add_module_global(cg, global_name);                                          // register module-scoped global
+        
+        int global_idx = bytecode_get_global(cg->chunk, global_name);                  // lookup global slot
+        if (global_idx < 0) global_idx = bytecode_add_global(cg->chunk, global_name);  // create if not exists
+        emit(cg, INST(OP_STORE_GLOBAL, temp_reg, global_idx, 0), node->line);          // store function in global
     }
     
     free_register(cg, temp_reg);                                                     // free temp
