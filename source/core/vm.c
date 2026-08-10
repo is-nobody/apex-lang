@@ -1217,14 +1217,15 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     goto *dispatch_table[ip->opcode];      // jump to first opcode handler
 
     OP_MOVE_LABEL: {
-        int dest = ip->operands[0]; int src = ip->operands[1];  // dest and src register indices
-        Value sv = regs[src];          // read source value
-        if (IS_NUMBER(sv) || IS_BOOL(sv) || IS_NONE(sv)) {
-            regs[dest] = sv;           // immediate types, no refcount needed
+        int dest = ip->operands[0];              // dest register index
+        int src = ip->operands[1];               // source register index
+        Value sv = regs[src];                    // read source value
+        value_decref(regs[dest]);                // release old value in dest before overwriting
+        if (IS_NUMBER(sv) || IS_BOOL(sv)) {      // unboxed immediate types, no incref needed
+            regs[dest] = sv;                     // store directly without incref
         } else {
-            value_decref(regs[dest]);  // release old dest value
-            regs[dest] = sv;           // copy pointer
-            value_incref(regs[dest]);  // bump refcount for new reference
+            regs[dest] = sv;                     // store heap-allocated value
+            value_incref(regs[dest]);            // bump refcount for the new reference
         }
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
@@ -2026,12 +2027,12 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int dest = ip->operands[0];              // dest register index
         int idx = ip->operands[1];               // global variable index
         Value gv = vm->globals[idx];             // fetch global value
-        if (IS_NUMBER(gv) || IS_BOOL(gv) || IS_NONE(gv)) {
-            regs[dest] = gv;                     // immediate types, no refcount needed
+        value_decref(regs[dest]);                // release old value in dest before overwriting
+        if (IS_NUMBER(gv) || IS_BOOL(gv)) {      // unboxed immediate types, no refcount needed
+            regs[dest] = gv;                     // store directly without incref
         } else {
-            value_decref(regs[dest]);            // release old dest value
-            regs[dest] = gv;                     // copy global value
-            value_incref(regs[dest]);            // bump refcount for new reference
+            regs[dest] = gv;                     // store heap-allocated value
+            value_incref(regs[dest]);            // bump refcount for the new reference
         }
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
