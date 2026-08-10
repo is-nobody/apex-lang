@@ -12,7 +12,7 @@
 #include <math.h>
 
 // call stack limits
-#define VM_MAX_CALL_FRAMES 8192
+#define VM_MAX_CALL_FRAMES 1024
 #define VM_MAX_FRAMES VM_MAX_CALL_FRAMES
 #define VM_MAX_GLOBALS 512
 #define VM_MAX_ARGS_STACK 64

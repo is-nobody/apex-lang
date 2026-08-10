@@ -111,7 +111,6 @@ result = calculate(5, 10)
 ```
 
 - **Return:** Defaults to `none` if omitted.
-- **Recursion:** Supported up to depth 8192.
 - **Built-ins:** Organized in modules (`os`, `math`, `string`, `table`, `sys`, `ffi`, `random`, `codecs`, `regex`).
 
 ## Modules & Imports

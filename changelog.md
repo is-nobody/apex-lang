@@ -21,7 +21,7 @@
 - String interpolation: `"Hello {name}"`
 - Shebang support: `#!`
 - Resilient parsing: multiple errors per pass
-- Stack overflow detection (max 8192 call frames)
+- Stack overflow detection (max 1024 call frames)
 - Unreachable code detection
 - Unexpected indentation detection
 - Type checking: arithmetic, comparisons, logical operators, function arguments

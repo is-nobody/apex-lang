@@ -14,12 +14,12 @@ function ackermann(m, n)
         return ackermann(m - 1, 1)
     return ackermann(m - 1, ackermann(m, n - 1))
 
-// benchmark: ackermann(3, 10) - computationally intensive recursion
-function ackermann310()
+// benchmark: ackermann(3, 6) - computationally intensive recursion
+function ackermann36()
     start = sys.time()
-    result = ackermann(3, 10)
+    result = ackermann(3, 6)
     elapsed = sys.time() - start
-    os.output("Ackermann(3,10) = {result}, elapsed {elapsed}")
+    os.output("Ackermann(3,6) = {result}, elapsed {elapsed}")
 
 // execute benchmark
-ackermann310()
+ackermann36()
