@@ -350,7 +350,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "crypto.aes128_encrypt",   "crypto.aes128_decrypt",
         "crypto.aes192_encrypt",   "crypto.aes192_decrypt",
         "crypto.aes256_encrypt",   "crypto.aes256_decrypt",
-        "crypto.token_hex",        "crypto.secure_randint",
+        "crypto.random_hex",        "crypto.secure_randint",
         "crypto.compare_digest",
 
         "number", "string", "type",

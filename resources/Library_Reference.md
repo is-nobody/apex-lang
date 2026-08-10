@@ -1595,14 +1595,14 @@ else
 ## Crypto Library (crypto)
 The Crypto library provides cryptographic functions for hashing, HMAC, key derivation, AES encryption, and secure random generation. It supports MD5, SHA-1, SHA-256, SHA-512, and AES-128-CBC. Import it with `import crypto`.
 
-### crypto.token_hex(nbytes)
+### crypto.random_hex(nbytes)
 Returns a hexadecimal string representation of `nbytes` random bytes generated using a cryptographically secure source. The argument `nbytes` is required and must be a positive integer. Returns `none` on failure or if `nbytes <= 0`.
 
 ```apex
 import os
 import crypto
 
-token = crypto.token_hex(16)
+token = crypto.random_hex(16)
 
 if token != none
     os.output("Hex Token: {token}")
@@ -1885,8 +1885,8 @@ Encrypts a string using AES-128-CBC. The `key` must be a 32-character hexadecima
 import os
 import crypto
 
-key = crypto.token_hex(16)
-iv = crypto.token_hex(16)
+key = crypto.random_hex(16)
+iv = crypto.random_hex(16)
 plaintext = "Hello World!"
 
 encrypted = crypto.aes128_encrypt(key, plaintext, iv)
@@ -1904,8 +1904,8 @@ Decrypts a string previously encrypted with AES-128-CBC. The `key` must be a 32-
 import os
 import crypto
 
-key = crypto.token_hex(16)
-iv = crypto.token_hex(16)
+key = crypto.random_hex(16)
+iv = crypto.random_hex(16)
 plaintext = "Secret message"
 
 encrypted = crypto.aes128_encrypt(key, plaintext, iv)
@@ -1924,8 +1924,8 @@ Encrypts a string using AES-192-CBC. The `key` must be a 48-character hexadecima
 import os
 import crypto
 
-key = crypto.token_hex(24)
-iv = crypto.token_hex(16)
+key = crypto.random_hex(24)
+iv = crypto.random_hex(16)
 plaintext = "Hello World!"
 
 encrypted = crypto.aes192_encrypt(key, plaintext, iv)
@@ -1943,8 +1943,8 @@ Decrypts a string previously encrypted with AES-192-CBC. The `key` must be a 48-
 import os
 import crypto
 
-key = crypto.token_hex(24)
-iv = crypto.token_hex(16)
+key = crypto.random_hex(24)
+iv = crypto.random_hex(16)
 plaintext = "Secret message"
 
 encrypted = crypto.aes192_encrypt(key, plaintext, iv)
@@ -1963,8 +1963,8 @@ Encrypts a string using AES-256-CBC. The `key` must be a 64-character hexadecima
 import os
 import crypto
 
-key = crypto.token_hex(32)
-iv = crypto.token_hex(16)
+key = crypto.random_hex(32)
+iv = crypto.random_hex(16)
 plaintext = "Hello World!"
 
 encrypted = crypto.aes256_encrypt(key, plaintext, iv)
@@ -1982,8 +1982,8 @@ Decrypts a string previously encrypted with AES-256-CBC. The `key` must be a 64-
 import os
 import crypto
 
-key = crypto.token_hex(32)
-iv = crypto.token_hex(16)
+key = crypto.random_hex(32)
+iv = crypto.random_hex(16)
 plaintext = "Secret message"
 
 encrypted = crypto.aes256_encrypt(key, plaintext, iv)

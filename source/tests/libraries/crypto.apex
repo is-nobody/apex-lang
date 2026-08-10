@@ -254,7 +254,7 @@ function crypto_aes256()
 // test: token_hex generates hex string of specified length
 function token_hex()
     nbytes = 16
-    hex_str = crypto.token_hex(nbytes)
+    hex_str = crypto.random_hex(nbytes)
     assert_equal(string.length(hex_str), nbytes * 2, "token_hex length")
 
 // test: secure_randint returns integer within range [0, n)

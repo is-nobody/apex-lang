@@ -1787,7 +1787,7 @@ bool crypto_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return aes256_decrypt(vm, args, result);
     }
 
-    if (strcmp(name, "crypto.token_hex") == 0) {                     // secure hex token
+    if (strcmp(name, "crypto.random_hex") == 0) {                     // secure hex token
         if (arg_count != 1 || !IS_NUMBER(args[0])) {                 // need exactly 1 number arg
             *result = MAKE_NONE();
             return true;
