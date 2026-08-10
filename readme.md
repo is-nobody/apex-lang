@@ -21,7 +21,7 @@ This is the official repository for [Apex](https://github.com/is-nobody/apex-lan
 
 - **Performance:** Written in C with a register-based virtual machine, nan-boxing for efficient value representation, and optimized bytecode execution.
 
-- **Bundle Binaries:** Use `apex build` to package your source with interpreter into a single standalone executable.
+- **Bundle Binaries:** Use `apex build` to compile your source to bytecode and embed it with the interpreter for instant startup.
 
 ## Quick Start
 ### Install Apex
