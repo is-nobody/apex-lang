@@ -10,6 +10,7 @@ function assert_equal(actual, expected, name)
     if actual != expected
         os.output("[ERROR] {name}: got {actual}, expected {expected}")
 
+// test: command-line argument validation
 function args()
     arguments = os.args()
     first = arguments[1]
