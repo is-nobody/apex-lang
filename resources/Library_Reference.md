@@ -1608,14 +1608,14 @@ if token != none
     os.output("Hex Token: {token}")
 ```
 
-### crypto.secure_randint(n)
+### crypto.random_integer(n)
 Returns a secure random integer in the range `[0, n)`. Uses a cryptographically secure source. Returns `none` on failure or if `n <= 0`.
 
 ```apex
 import os
 import crypto
 
-val = crypto.secure_randint(100)
+val = crypto.random_integer(100)
 
 if val != none
     os.output("Secure random int: {val}")

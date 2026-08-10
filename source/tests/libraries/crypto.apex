@@ -260,7 +260,7 @@ function token_hex()
 // test: secure_randint returns integer within range [0, n)
 function secure_randint()
     n = 100
-    res = crypto.secure_randint(n)
+    res = crypto.random_integer(n)
     is_valid = res >= 0 and res < n
     assert_equal(is_valid, true, "secure_randint range [0,99]")
 

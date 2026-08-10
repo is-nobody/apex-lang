@@ -1816,7 +1816,7 @@ bool crypto_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                                 // builtin handled
     }
 
-    if (strcmp(name, "crypto.secure_randint") == 0) {     // secure random integer
+    if (strcmp(name, "crypto.random_integer") == 0) {     // secure random integer
         if (arg_count != 1 || !IS_NUMBER(args[0])) {      // validate
             *result = MAKE_NONE();
             return true;
