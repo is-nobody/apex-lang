@@ -80,7 +80,7 @@ function randint_reverse_bounds()
 
 // test: random returns number in [0,1) range
 function random_range()
-    val = random.random()
+    val = random.float()
     is_valid = type(val) == "number" and val >= 0.0 and val < 1.0
     assert_equal(is_valid, true, "random range [0,1)")
 
@@ -107,15 +107,15 @@ function sample_k_too_large()
 // test: seed ensures reproducible random sequence
 function seed_reproducibility()
     random.seed(12345)
-    r1 = random.random()
+    r1 = random.float()
     random.seed(12345)
-    r2 = random.random()
+    r2 = random.float()
     assert_equal(r1, r2, "seed reproducibility")
 
 // test: seed without arguments works
 function seed_no_args()
     random.seed()
-    r = random.random()
+    r = random.float()
     assert_equal(type(r) == "number", true, "seed no args")
 
 // test: shuffle preserves table size

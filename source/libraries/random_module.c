@@ -78,7 +78,7 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
     (void)vm;                                                              // suppress unused parameter warning
     ensure_seeded();                                                       // ensure generator seeded
 
-    if (strcmp(name, "random.random") == 0) {                              // uniform [0,1)
+    if (strcmp(name, "random.float") == 0) {                              // uniform [0,1)
         if (arg_count != 0) { *result = MAKE_NONE(); return true; }        // no args expected
         *result = MAKE_NUMBER((double)rand() / ((double)RAND_MAX + 1.0));  // random in [0,1)
         return true;                                                       // builtin handled

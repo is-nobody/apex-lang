@@ -161,7 +161,7 @@ function activate(context) {
                 'ffi.errno',  'ffi.strerror',
                 'ffi.malloc', 'ffi.free',
 
-                'random.random',      'random.integer',
+                'random.float',      'random.integer',
                 'random.choice',      'random.shuffle',
                 'random.sample',      'random.gauss',
                 'random.seed',        'random.triangular',

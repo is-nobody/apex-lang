@@ -1182,23 +1182,23 @@ import os
 import random
 
 random.seed(12345)
-r1 = random.random()
+r1 = random.float()
 
 random.seed(12345)
-r2 = random.random()
+r2 = random.float()
 
 if r1 == r2
     os.output("Seeds match!")
 ```
 
-### random.random()
+### random.float()
 Returns a random floating-point number in the range `[0.0, 1.0)`. Always succeeds.
 
 ```apex
 import os
 import random
 
-val = random.random()
+val = random.float()
 os.output("Random float: {val}")
 ```
 
