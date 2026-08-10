@@ -54,8 +54,8 @@ os.output("Nested strings: {'test \"nested\" here'}")
 os.output('Complex: {table["key"] + math.abs(-5)}')
 
 // library invalid argument errors
-os.output("Random range: {random.randint(1)}")
-os.output("Random range rev: {random.randint(10, 1)}")
+os.output("Random range: {random.integer(1)}")
+os.output("Random range rev: {random.integer(10, 1)}")
 os.output("File op: {os.read(123)}")
 os.output('Wait string: {os.wait("forever")}')
 

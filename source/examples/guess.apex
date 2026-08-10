@@ -2,7 +2,7 @@ import os
 import random
 
 function guess_game()
-    secret = random.randint(1, 10)
+    secret = random.integer(1, 10)
     attempts = 0
     os.output("I've picked a number between 1 and 10. Can you guess it?")
     

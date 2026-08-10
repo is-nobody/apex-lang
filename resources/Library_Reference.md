@@ -1202,14 +1202,14 @@ val = random.random()
 os.output("Random float: {val}")
 ```
 
-### random.randint(a, b)
+### random.integer(a, b)
 Returns a random integer `N` such that `a <= N <= b`. If `a > b`, the bounds are swapped automatically. Returns `none` if arguments are not numbers.
 
 ```apex
 import os
 import random
 
-dice = random.randint(1, 6)
+dice = random.integer(1, 6)
 
 if dice != none
     os.output("You rolled a {dice}")

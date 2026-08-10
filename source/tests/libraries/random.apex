@@ -63,18 +63,18 @@ function gauss_returns_number()
 // test: randint returns integer within specified range
 function randint_valid()
     random.seed(100)
-    i1 = random.randint(1, 10)
+    i1 = random.integer(1, 10)
     is_valid = type(i1) == "number" and i1 >= 1 and i1 <= 10
     assert_equal(is_valid, true, "randint(1, 10) valid")
 
 // test: randint with same bounds returns that value
 function randint_same_bounds()
-    i2 = random.randint(5, 5)
+    i2 = random.integer(5, 5)
     assert_equal(i2, 5, "randint(5, 5)")
 
 // test: randint auto-swaps when bounds reversed
 function randint_reverse_bounds()
-    i3 = random.randint(10, 1)
+    i3 = random.integer(10, 1)
     is_valid = type(i3) == "number" and i3 >= 1 and i3 <= 10
     assert_equal(is_valid, true, "randint(10, 1)")
 

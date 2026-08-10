@@ -178,7 +178,7 @@ static const BuiltinSig BUILTINS[] = {
     {"ffi.errno",    0, 0,  TYPE_ANY},    {"ffi.strerror",0, 1,  TYPE_NUMBER},
     {"ffi.malloc",   1, 1,  TYPE_NUMBER}, {"ffi.free",    1, 1,  TYPE_NUMBER},
 
-    {"random.random",        0, 0, TYPE_ANY},    {"random.randint",       2, 2, TYPE_NUMBER},
+    {"random.random",        0, 0, TYPE_ANY},    {"random.integer",       2, 2, TYPE_NUMBER},
     {"random.choice",        1, 1, TYPE_TABLE},  {"random.shuffle",       1, 1, TYPE_TABLE},
     {"random.sample",        2, 2, TYPE_TABLE},  {"random.gauss",         2, 2, TYPE_NUMBER},
     {"random.seed",          0, 1, TYPE_NUMBER}, {"random.triangular",    0, 3, TYPE_NUMBER},

@@ -84,7 +84,7 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                                       // builtin handled
     }
 
-    if (strcmp(name, "random.randint") == 0) {                            // random integer in range
+    if (strcmp(name, "random.integer") == 0) {                            // random integer in range
         if (arg_count != 2) { *result = MAKE_NONE(); return true; }       // need 2 args
         bool ok1, ok2;                                                    // validity flags
         double a = get_number_safe(args[0], &ok1);                        // get min

@@ -327,7 +327,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "ffi.open", "ffi.call",                      "ffi.errno", "ffi.strerror",
         "ffi.malloc", "ffi.free",
 
-        "random.random", "random.randint",           "random.choice", "random.shuffle",
+        "random.random", "random.integer",           "random.choice", "random.shuffle",
         "random.sample", "random.gauss",             "random.seed", "random.triangular",
         "random.expovariate", "random.betavariate",  
 

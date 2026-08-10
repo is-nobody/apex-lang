@@ -13,7 +13,7 @@ function fortuna()
     os.output("🎱 Magic 8-Ball")
     question = os.input("Ask a yes/no question: ")
 
-    idx = random.randint(1, table.size(answers))
+    idx = random.integer(1, table.size(answers))
     os.output(answers[idx])
 
 fortuna()

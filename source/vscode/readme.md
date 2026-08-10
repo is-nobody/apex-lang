@@ -24,7 +24,7 @@ Smart suggestions for:
 
 - **Keywords**: Control flow and logical operators.
 - **10 Standard Libraries**: `os`, `sys`, `math`, `string`, `table`, `ffi`, `random`, `codecs`, `regex`, `crypto`.
-- **Library Functions**: Auto-complete for hundreds of functions like `os.read()`, `sys.platform`, `random.randint()`, `codecs.json_write()`, etc.
+- **Library Functions**: Auto-complete for hundreds of functions like `os.read()`, `sys.platform`, `random.integer()`, `codecs.json_write()`, etc.
 
 ### Run Code
 Execute your current Apex file directly from VS Code:
