@@ -282,9 +282,9 @@ When you want to label each value with a name, use keys. Keys and values are con
 
 ```apex
 user = [
-    name = "Alice",
-    age = 30,
-    active = true
+    "name" = "Alice",
+    "age" = 30,
+    "active" = true
 ]
 ```
 
