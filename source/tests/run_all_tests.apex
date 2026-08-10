@@ -47,7 +47,7 @@ os.execute("apex source/tests/integration/table.apex")
 os.execute("apex source/tests/integration/import.apex")
 
 // standard library tests
-os.execute("apex source/tests/libraries/os.apex")
+os.execute("apex source/tests/libraries/os.apex first second")
 os.execute("apex source/tests/libraries/sys.apex")
 os.execute("apex source/tests/libraries/math.apex")
 os.execute("apex source/tests/libraries/random.apex")

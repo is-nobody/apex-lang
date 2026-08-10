@@ -4,12 +4,18 @@
 // MIT license
 
 import os
-import sys
 
 // helper: compares two values and reports mismatch with context
 function assert_equal(actual, expected, name)
     if actual != expected
         os.output("[ERROR] {name}: got {actual}, expected {expected}")
+
+function args()
+    arguments = os.args()
+    first = arguments[1]
+    second = arguments[2]
+    assert_equal(first, "first", "first argument")
+    assert_equal(second, "second", "second argument")
 
 // test: write, read, and delete a file
 function write_read_delete()
@@ -134,6 +140,7 @@ function access()
     os.delete("access.txt")
 
 // execute all OS library test cases
+args()
 write_read_delete()
 append()
 exists()
