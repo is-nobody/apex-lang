@@ -38,6 +38,8 @@ set(SOURCES
     source/utils/repl.c
     source/utils/commands.c
     source/utils/build.c
+    source/utils/compile.c
+    source/utils/loader.c
     source/utils/apex_api.c
 )
 

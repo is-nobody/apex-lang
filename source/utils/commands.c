@@ -7,6 +7,7 @@
 #include "execute.h"
 #include "platform.h"
 #include "build.h"
+#include "compile.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
@@ -32,7 +33,7 @@
 #define COMPILER_INFO "Unknown Compiler"
 #endif
 
-// dispatches cli commands like 'version' and 'build'
+// dispatches cli commands like 'version', 'build', and 'compile'
 int handle_commands(int argc, char** argv) {
     if (argc < 2) return -1;                                                    // need at least one argument
 
@@ -43,6 +44,10 @@ int handle_commands(int argc, char** argv) {
 
     if (strcmp(argv[1], "build") == 0) {   // build command
         return build_command(argc, argv);  // delegate to build handler
+    }
+
+    if (strcmp(argv[1], "compile") == 0) {  // compile command
+        return compile_command(argc, argv); // delegate to compile handler
     }
 
     return -1;                             // unknown command

@@ -27,6 +27,7 @@
 #include "repl.h"
 #include "platform.h"
 #include "commands.h"
+#include "loader.h"
 
 #define MARKER "__APEX_BIN_PAYLOAD__"  // magic marker identifying embedded payload in binary
 
@@ -181,6 +182,14 @@ static int execute_from_stdin(void) {
     return ok ? 0 : 1;                             // return exit code based on success
 }
 
+// checks if a file has a given extension
+static bool has_extension(const char* filename, const char* ext) {
+    size_t len = strlen(filename);
+    size_t ext_len = strlen(ext);
+    if (len < ext_len) return false;
+    return strcmp(filename + len - ext_len, ext) == 0;
+}
+
 // main entry point: checks for embedded binary, then commands, then file or repl
 int main(int argc, char** argv) {
     int embedded_result = execute_embedded_source(argc, argv);  // try to run as embedded binary first
@@ -198,7 +207,13 @@ int main(int argc, char** argv) {
     int result = 0;                                // default exit code
 
     if (argc > 1) {
-        result = execute_source(argv[1], argv[1], argc, argv, true) ? 0 : 1;  // execute script file from argument
+        const char* filename = argv[1];
+        
+        if (has_extension(filename, ".apexc")) {
+            result = execute_bytecode_file(filename, argc, argv, true) ? 0 : 1;
+        } else {
+            result = execute_source(filename, filename, argc, argv, true) ? 0 : 1;
+        }
     }
     else if (!isatty(STDIN_FILENO)) {
         result = execute_from_stdin();             // no file argument, read from piped stdin
