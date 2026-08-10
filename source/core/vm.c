@@ -1260,13 +1260,21 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_LOAD_CONST_NUM_LABEL: {
-        int dest = ip->operands[0]; int value = ip->operands[1];  // dest reg and integer constant
-        regs[dest] = MAKE_NUMBER((double)value);                  // cast int to double and box
+        int dest = ip->operands[0]; int value = ip->operands[1];  // dest register and immediate integer value
+        Value old = regs[dest];                                   // read current value in dest register
+        if ((old & QNAN) == QNAN) {                               // fast nan-boxing check: only nan-tagged values
+            value_decref(old);                                    // are heap objects needing refcount cleanup
+        }                                                         // unboxed numbers skip this branch entirely
+        regs[dest] = MAKE_NUMBER((double)value);                  // store new unboxed number, no incref needed
         ip++; goto *dispatch_table[ip->opcode];                   // advance to next instruction
     }
     OP_LOAD_BOOL_LABEL: {
         int dest = ip->operands[0];                    // dest register index
-        regs[dest] = MAKE_BOOL(ip->operands[1] != 0);  // convert operand to bool and store
+        Value old = regs[dest];                        // read current value in dest register
+        if ((old & QNAN) == QNAN) {                    // fast nan-boxing check: only nan-tagged values
+            value_decref(old);                         // are heap objects needing refcount cleanup
+        }                                              // unboxed numbers and other immediates skip this
+        regs[dest] = MAKE_BOOL(ip->operands[1] != 0);  // store new bool value
         ip++; goto *dispatch_table[ip->opcode];        // advance to next instruction
     }
 
