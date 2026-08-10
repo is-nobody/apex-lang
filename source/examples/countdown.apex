@@ -1,6 +1,6 @@
 import os
 
-fucntion countdown()
+function countdown()
     os.output("Countdown:")
     total = 10
 

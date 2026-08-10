@@ -1,4 +1,5 @@
 import os
+import string
 
 function typing_print()
     text = "Hello, I am Apex..."

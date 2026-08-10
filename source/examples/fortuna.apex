@@ -1,5 +1,6 @@
 import os
 import random
+import table
 
 function fortuna()
     answers = [
