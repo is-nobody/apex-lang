@@ -26,7 +26,7 @@
 #define TABLE_ARRAY_INIT 64
 
 // string intern table configuration
-#define INTERN_INITIAL_SIZE 16384
+#define INTERN_INITIAL_SIZE 4096
 #define INTERN_MAX_LOAD 0.75
 
 // object pool configuration
