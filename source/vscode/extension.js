@@ -113,7 +113,7 @@ function activate(context) {
                 'os.output',             'os.input',
                 'os.wait',               'os.exit',
                 'os.set_current_folder', 'os.access',
-                'os.get_current_folder', 'os.items',
+                'os.current_folder', 'os.items',
                 'os.kill',  'os.execute',
                 'os.create_folder',      'os.delete',
                 'os.create_file',        'os.size',

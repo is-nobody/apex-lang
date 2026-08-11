@@ -68,13 +68,13 @@ else
     os.output("Process terminated successfully")
 ```
 
-### os.get_current_folder()
+### os.current_folder()
 Returns the current directory as a string. Returns `none` on failure.
 
 ```apex
 import os
 
-current_folder = os.get_current_folder()
+current_folder = os.current_folder()
 
 if current_folder != none
     os.output("Running from: {current_folder}")

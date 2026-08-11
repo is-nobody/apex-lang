@@ -128,7 +128,7 @@ function wait()
 
 // test: get current working directory
 function get_current_folder()
-    result = os.get_current_folder()
+    result = os.current_folder()
     assert_equal(result != false, true, "get_current_folder returns string")
 
 // test: check file access permissions

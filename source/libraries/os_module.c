@@ -150,7 +150,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         return true;                                                                    // builtin handled
     }
     
-    if (strcmp(name, "os.get_current_folder") == 0) {                             // get current working directory
+    if (strcmp(name, "os.current_folder") == 0) {                             // get current working directory
         char cwd[4096];                                                           // buffer for cwd
         if (getcwd(cwd, sizeof(cwd))) *result = make_string_val(vm, cwd);         // return cwd
         else *result = MAKE_NONE();                                               // failed
