@@ -128,7 +128,7 @@ function activate(context) {
                 'sys.homedir',    'sys.apex_version',
                 'sys.executable', 'sys.environment',
                 'sys.disksize',   'sys.tempdir',
-                'sys.isterminal', 'sys.process_id',
+                'sys.is_terminal', 'sys.process_id',
                 'sys.time',       'sys.date',
 
                 'math.abs',     'math.floor',

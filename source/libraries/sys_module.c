@@ -275,7 +275,7 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         return true;                                 // builtin handled
     }
 
-    if (strcmp(name, "sys.isterminal") == 0) {       // check if fd is terminal
+    if (strcmp(name, "sys.is_terminal") == 0) {       // check if fd is terminal
         int fd = 1;                                  // default to stdout
         if (arg_count >= 1 && IS_NUMBER(args[0])) {  // check if fd provided
             fd = (int)AS_NUMBER(args[0]);            // use provided fd
