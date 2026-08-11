@@ -608,14 +608,14 @@ math.sqrt(2)   // 1.4142135623730951
 math.sqrt(-1)  // nan
 ```
 
-### math.pow(base, exponent)
+### math.power(base, exponent)
 Raises a number to a power. Returns `base` raised to the `exponent`. Returns `none` on error.
 
 ```apex
 import math
-math.pow(2, 3)    // 8
-math.pow(4, 0.5)  // 2 (same as square root)
-math.pow(10, -1)  // 0.1
+math.power(2, 3)    // 8
+math.power(4, 0.5)  // 2 (same as square root)
+math.power(10, -1)  // 0.1
 ```
 
 ### math.exp(x)

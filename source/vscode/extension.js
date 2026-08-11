@@ -140,7 +140,7 @@ function activate(context) {
                 'math.atan',    'math.pi',
                 'math.e',       'math.inf',
                 'math.is_nan',   'math.is_inf',
-                'math.drop_decimal',   'math.pow',
+                'math.drop_decimal',   'math.power',
                 'math.atan2',   'math.radians',
                 'math.degrees', 'math.hypotenuse',
                 'math.gcd',     'math.factorial',

@@ -215,7 +215,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
         return true;                                                  // builtin handled
     }
     
-    if (strcmp(name, "math.pow") == 0) {                                   // power function
+    if (strcmp(name, "math.power") == 0) {                                   // power function
         if (arg_count >= 2 && IS_NUMBER(args[0]) && IS_NUMBER(args[1])) {  // validate two numbers
             if (AS_NUMBER(args[0]) == 0 && AS_NUMBER(args[1]) == 0) {      // 0^0 special case
                 *result = MAKE_NUMBER(1.0);                                // return 1

@@ -111,8 +111,8 @@ function pi()
 
 // test: power function (base^exponent)
 function pow()
-    assert_equal(math.pow(2, 10), 1024, "math.pow(2, 10)")
-    assert_equal(math.pow(9, 0.5), 3, "math.pow(9, 0.5)")
+    assert_equal(math.power(2, 10), 1024, "math.power(2, 10)")
+    assert_equal(math.power(9, 0.5), 3, "math.power(9, 0.5)")
 
 // test: degrees to radians conversion
 function radians()
