@@ -298,7 +298,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
 
     static const char* builtins[] = {
         "os.output", "os.input",                     "os.wait", "os.exit",
-        "os.get_current_folder", "os.set_current_folder", "os.terminate_process", "os.execute",
+        "os.get_current_folder", "os.set_current_folder", "os.kill", "os.execute",
         "os.read", "os.write", "os.append",          "os.exists", "os.isfile",
         "os.isfolder", "os.size",                    "os.create_file", "os.create_folder",
         "os.delete", "os.rename",                    "os.move", "os.copy",

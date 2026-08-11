@@ -114,7 +114,7 @@ function activate(context) {
                 'os.wait',               'os.exit',
                 'os.set_current_folder', 'os.access',
                 'os.get_current_folder', 'os.items',
-                'os.terminate_process',  'os.execute',
+                'os.kill',  'os.execute',
                 'os.create_folder',      'os.delete',
                 'os.create_file',        'os.size',
                 'os.parentfolder',       'os.copy',
