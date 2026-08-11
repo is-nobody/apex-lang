@@ -296,74 +296,26 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         }
     }
 
-    static const char* builtins[] = {
-        "os.output", "os.input",                     "os.wait", "os.exit",
-        "os.current_folder", "os.change_folder", "os.terminate", "os.execute",
-        "os.read", "os.write", "os.append",          "os.exists", "os.is_file",
-        "os.is_folder", "os.size",                    "os.create_file", "os.create_folder",
-        "os.delete", "os.rename",                    "os.move", "os.copy",
-        "os.list_folder", "os.parent_folder",               "os.access", "os.args",
-
-        "sys.platform", "sys.architecture",          "sys.host", "sys.user",
-        "sys.home", "sys.apex_version",           "sys.executable", "sys.environment",
-        "sys.disk", "sys.temp",               "sys.is_terminal", "sys.process_id",
-        "sys.time", "sys.datetime",
-
-        "math.abs", "math.round_down",                    "math.round_up", "math.round",
-        "math.sqrt", "math.exponent",                     "math.log", "math.sin",
-        "math.cos", "math.tan",                      "math.asin", "math.acos",
-        "math.atan", "math.pi",                      "math.e", "math.inf",
-        "math.is_nan", "math.is_inf",                  "math.drop_decimal", "math.power",
-        "math.atan2", "math.radians",                "math.degrees", "math.hypotenuse",
-        "math.gcd", "math.factorial",
-
-        "string.is_letter", "string.is_number",        "string.length", "string.lower",
-        "string.upper", "string.slice",                "string.split", "string.join",
-        "string.trim", "string.find",                "string.replace",
-
-        "table.remove", "table.has",                 "table.size", "table.keys",
-        "table.values", "table.clear",               "table.copy", "table.merge",
-
-        "ffi.open", "ffi.call",                      "ffi.errno", "ffi.strerror",
-        "ffi.malloc", "ffi.free",
-
-        "random.float", "random.integer",           "random.choice", "random.shuffle",
-        "random.sample", "random.normal",             "random.seed", "random.triangular",
-        "random.expovariate", "random.betavariate",  
-
-        "codecs.json_decode", "codecs.json_encode",     "codecs.csv_decode", "codecs.csv_encode",
-        "codecs.xml_decode", "codecs.xml_encode",       "codecs.base64_decode", "codecs.base64_encode",
-        "codecs.base64url_encode",                        "codecs.base64url_decode",
-        "codecs.hex_encode",                            "codecs.hex_decode",
-
-        "regex.find_all", "regex.replace", "regex.split", "regex.search",
-
-        "crypto.md5",              "crypto.sha1",
-        "crypto.sha256",           "crypto.sha384",
-        "crypto.sha512",
-        "crypto.hmac_md5",         "crypto.hmac_sha1",
-        "crypto.hmac_sha256",      "crypto.hmac_sha384",
-        "crypto.hmac_sha512",
-        "crypto.pbkdf2_md5",       "crypto.pbkdf2_sha1",
-        "crypto.pbkdf2_sha256",    "crypto.pbkdf2_sha384",
-        "crypto.pbkdf2_sha512",
-        "crypto.aes128_encrypt",   "crypto.aes128_decrypt",
-        "crypto.aes192_encrypt",   "crypto.aes192_decrypt",
-        "crypto.aes256_encrypt",   "crypto.aes256_decrypt",
-        "crypto.random_hex",        "crypto.random_integer",
-        "crypto.compare_strings",
-
-        "number", "string", "type",
-        NULL
-    };
-    bool is_builtin = false;                                                  // builtin flag
-    for (int i = 0; builtins[i] != NULL; i++) {                               // check builtins
-        if (strcmp(func_name, builtins[i]) == 0) {                            // match found
-            is_builtin = true;                                                // mark as builtin
-            break;                                                            // exit loop
-        }
-    }
+    bool is_builtin = false;  // check if this is a known builtin
     
+    if (strcmp(func_name, "number") == 0 ||
+        strcmp(func_name, "string") == 0 ||
+        strcmp(func_name, "type") == 0) {
+        is_builtin = true;
+    }
+    else if (strncmp(func_name, "os.", 3) == 0 ||
+             strncmp(func_name, "sys.", 4) == 0 ||
+             strncmp(func_name, "math.", 5) == 0 ||
+             strncmp(func_name, "string.", 7) == 0 ||
+             strncmp(func_name, "table.", 6) == 0 ||
+             strncmp(func_name, "ffi.", 4) == 0 ||
+             strncmp(func_name, "random.", 7) == 0 ||
+             strncmp(func_name, "codecs.", 7) == 0 ||
+             strncmp(func_name, "regex.", 6) == 0 ||
+             strncmp(func_name, "crypto.", 7) == 0) {
+        is_builtin = true;
+    }
+
     if (is_builtin) {                                                         // built-in function
         for (int i = 0; i < arg_count; i++) {                                 // push args
             emit(cg, INST(OP_PUSH_ARG, arg_regs[i], 0, 0), node->line);
