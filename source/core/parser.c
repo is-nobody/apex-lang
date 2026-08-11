@@ -2503,8 +2503,40 @@ static ASTNode* parse_return_statement(Parser* parser) {
     }
 
     ASTNode* value = NULL;
-    if (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
-        value = parse_expression(parser);
+    if (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF) &&
+        !check(parser, TOKEN_DEDENT)) {
+        
+        if (check(parser, TOKEN_COMMA)) {
+            Token* comma = current_token(parser);
+            parser_error_at(parser, comma->line, comma->column, 1,
+                           "Unexpected token after return");
+            while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) advance(parser);
+        } else {
+            value = parse_expression(parser);
+            
+            if (match(parser, TOKEN_COMMA)) {
+                if (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF) &&
+                    !check(parser, TOKEN_COMMA) && !check(parser, TOKEN_DEDENT)) {
+                    ASTNode* second = parse_expression(parser);
+                    if (second) {
+                        parser_error_at(parser, second->line, second->column, get_node_len(second),
+                                       "Multiple return values are restricted");
+                        while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) advance(parser);
+                    }
+                } else {
+                    Token* comma = &parser->tokens[parser->current - 1];
+                    parser_error_at(parser, comma->line, comma->column, 1,
+                                   "Unexpected token after return");
+                }
+            } else if (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF) &&
+                       !check(parser, TOKEN_DEDENT)) {
+                Token* extra = current_token(parser);
+                parser_error_at(parser, extra->line, extra->column,
+                               extra->value ? (int)utf8_char_len(extra->value) : 1,
+                               "Unexpected token after return");
+                while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) advance(parser);
+            }
+        }
     }
     
     return ast_create_return(value, return_kw->line, return_kw->column);
