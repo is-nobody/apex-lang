@@ -180,7 +180,7 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                                 // builtin handled
     }
 
-    if (strcmp(name, "random.gauss") == 0) {                         // normal distribution
+    if (strcmp(name, "random.normal") == 0) {                         // normal distribution
         if (arg_count != 2) { *result = MAKE_NONE(); return true; }  // need 2 args
         bool ok1, ok2;                                               // validity flags
         double mu = get_number_safe(args[0], &ok1);                  // mean

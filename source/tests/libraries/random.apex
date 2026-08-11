@@ -57,7 +57,7 @@ function expovariate_zero_lambda()
 
 // test: gauss returns a number
 function gauss_returns_number()
-    g = random.gauss(0, 1)
+    g = random.normal(0, 1)
     assert_equal(type(g) == "number", true, "gauss returns number")
 
 // test: randint returns integer within specified range

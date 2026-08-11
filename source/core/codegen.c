@@ -328,7 +328,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "ffi.malloc", "ffi.free",
 
         "random.float", "random.integer",           "random.choice", "random.shuffle",
-        "random.sample", "random.gauss",             "random.seed", "random.triangular",
+        "random.sample", "random.normal",             "random.seed", "random.triangular",
         "random.expovariate", "random.betavariate",  
 
         "codecs.json_decode", "codecs.json_encode",     "codecs.csv_decode", "codecs.csv_encode",

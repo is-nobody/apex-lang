@@ -180,7 +180,7 @@ static const BuiltinSig BUILTINS[] = {
 
     {"random.float",        0, 0, TYPE_ANY},    {"random.integer",       2, 2, TYPE_NUMBER},
     {"random.choice",        1, 1, TYPE_TABLE},  {"random.shuffle",       1, 1, TYPE_TABLE},
-    {"random.sample",        2, 2, TYPE_TABLE},  {"random.gauss",         2, 2, TYPE_NUMBER},
+    {"random.sample",        2, 2, TYPE_TABLE},  {"random.normal",         2, 2, TYPE_NUMBER},
     {"random.seed",          0, 1, TYPE_NUMBER}, {"random.triangular",    0, 3, TYPE_NUMBER},
     {"random.expovariate",   1, 1, TYPE_NUMBER}, {"random.betavariate",   2, 2, TYPE_NUMBER},
 

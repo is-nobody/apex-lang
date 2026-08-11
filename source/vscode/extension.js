@@ -163,7 +163,7 @@ function activate(context) {
 
                 'random.float',      'random.integer',
                 'random.choice',      'random.shuffle',
-                'random.sample',      'random.gauss',
+                'random.sample',      'random.normal',
                 'random.seed',        'random.triangular',
                 'random.expovariate', 'random.betavariate',
 

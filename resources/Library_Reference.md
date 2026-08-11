@@ -1265,14 +1265,14 @@ else
     os.output("Winners: {winners}")
 ```
 
-### random.gauss(mu, sigma)
+### random.normal(mu, sigma)
 Returns a random floating-point number from a Gaussian (normal) distribution with mean `mu` and standard deviation `sigma`. Returns `none` if arguments are not numbers.
 
 ```apex
 import os
 import random
 
-height = random.gauss(175, 10)
+height = random.normal(175, 10)
 
 if height != none
     os.output("Simulated height: {height} cm")
