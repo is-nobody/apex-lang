@@ -284,7 +284,7 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         return true;                                 // builtin handled
     }
 
-    if (strcmp(name, "sys.tempdir") == 0) {          // get temporary directory
+    if (strcmp(name, "sys.temp") == 0) {          // get temporary directory
 #ifdef _WIN32
         char path[4096];                             // buffer for temp path
         if (GetTempPath(sizeof(path), path) != 0) {  // get temp path

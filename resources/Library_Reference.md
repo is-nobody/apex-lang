@@ -482,14 +482,14 @@ if info != none
     os.output("Free: {info['free'] / 1024} GB")
 ```
 
-### sys.tempdir()
+### sys.temp()
 Returns the path to the system's temporary directory. On Unix-like systems, checks the `TMPDIR`, `TMP`, and `TEMP` environment variables, falling back to `/tmp`. Returns `none` on failure.
 
 ```apex
 import os
 import sys
 
-temp_dir = sys.tempdir()
+temp_dir = sys.temp()
 
 if temp_dir != none
     os.output("Temporary directory: {temp_dir}")

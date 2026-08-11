@@ -97,7 +97,7 @@ function process_id()
 
 // test: returns system temp directory path
 function tempdir()
-    temp_dir = sys.tempdir()
+    temp_dir = sys.temp()
     is_string = type(temp_dir) == "string"
     assert_equal(is_string, true, "tempdir returns string")
 
