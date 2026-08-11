@@ -773,16 +773,16 @@ math.is_nan(42)             // false
 math.is_nan("42")           // false
 ```
 
-### math.isinf(x)
+### math.is_inf(x)
 Returns `true` if the value is positive or negative infinity, `false` otherwise. Infinity often results from division by zero or overflowing calculations. Returns `false` if the argument is not a number.
 
 ```apex
 import math
-math.isinf(math.inf())   // true
-math.isinf(-math.inf())  // true
-math.isinf(1000)         // false
-math.isinf(0)            // false
-math.isinf("0")          // false
+math.is_inf(math.inf())   // true
+math.is_inf(-math.inf())  // true
+math.is_inf(1000)         // false
+math.is_inf(0)            // false
+math.is_inf("0")          // false
 ```
 
 ## String Library (string)

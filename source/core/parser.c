@@ -156,7 +156,7 @@ static const BuiltinSig BUILTINS[] = {
     {"math.asin",     1, 1, TYPE_NUMBER}, {"math.acos",     1, 1, TYPE_NUMBER},
     {"math.atan",     1, 1, TYPE_NUMBER}, {"math.pi",       0, 0, TYPE_ANY},
     {"math.e",        0, 0, TYPE_ANY},    {"math.inf",      0, 0, TYPE_ANY},
-    {"math.is_nan",    1, 1, TYPE_NUMBER}, {"math.isinf",    1, 1, TYPE_NUMBER},
+    {"math.is_nan",    1, 1, TYPE_NUMBER}, {"math.is_inf",    1, 1, TYPE_NUMBER},
     {"math.trunc",    1, 1, TYPE_NUMBER}, {"math.pow",      2, 2, TYPE_NUMBER},
     {"math.atan2",    2, 2, TYPE_NUMBER}, {"math.radians",  1, 1, TYPE_NUMBER},
     {"math.degrees",  1, 1, TYPE_NUMBER}, {"math.gcd",      2, 2, TYPE_NUMBER},

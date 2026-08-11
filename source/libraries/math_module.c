@@ -197,7 +197,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
         return true;                                                  // builtin handled
     }
     
-    if (strcmp(name, "math.isinf") == 0) {                            // check if infinity
+    if (strcmp(name, "math.is_inf") == 0) {                            // check if infinity
         if (arg_count >= 1 && IS_NUMBER(args[0])) {                   // validate number argument
             *result = MAKE_BOOL(isinf(AS_NUMBER(args[0])));           // check for infinity
             return true;                                              // builtin handled

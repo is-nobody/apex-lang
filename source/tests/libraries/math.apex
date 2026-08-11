@@ -87,13 +87,13 @@ function hypot()
 // test: positive infinity constant
 function inf()
     result = math.inf()
-    is_inf = math.isinf(result)
+    is_inf = math.is_inf(result)
     assert_equal(is_inf, true, "math.inf() is infinite")
 
 // test: check if value is infinite
 function isinf()
-    assert_equal(math.isinf(math.inf()), true, "math.isinf(inf)")
-    assert_equal(math.isinf(1), false, "math.isinf(1)")
+    assert_equal(math.is_inf(math.inf()), true, "math.is_inf(inf)")
+    assert_equal(math.is_inf(1), false, "math.is_inf(1)")
 
 // test: check if value is NaN (not a number)
 function isnan()
