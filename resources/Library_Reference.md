@@ -905,20 +905,20 @@ if result != none
     os.output(result)  // "Hello Apex"
 ```
 
-### string.isletter(s)
+### string.is_letter(s)
 Checks if the first character of the string is a letter (supports all modern writing systems: Latin, Cyrillic, Arabic, Chinese, Japanese, Korean, Hebrew, Greek, Devanagari, and many more). Returns `false` on failure.
 
 ```apex
 import os
 import string
 
-os.output(string.isletter("Hello"))   // true
-os.output(string.isletter("Привет"))  // true (Cyrillic)
-os.output(string.isletter("مرحبا"))   // true (Arabic)
-os.output(string.isletter("你好"))     // true (Chinese)
-os.output(string.isletter("123"))     // false (number)
-os.output(string.isletter("!"))       // false (punctuation)
-os.output(string.isletter(""))        // false (empty string)
+os.output(string.is_letter("Hello"))   // true
+os.output(string.is_letter("Привет"))  // true (Cyrillic)
+os.output(string.is_letter("مرحبا"))   // true (Arabic)
+os.output(string.is_letter("你好"))     // true (Chinese)
+os.output(string.is_letter("123"))     // false (number)
+os.output(string.is_letter("!"))       // false (punctuation)
+os.output(string.is_letter(""))        // false (empty string)
 ```
 
 ### string.isnumber(s)

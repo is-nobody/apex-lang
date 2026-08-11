@@ -163,7 +163,7 @@ static const BuiltinSig BUILTINS[] = {
     {"math.hypot",    2, 2, TYPE_NUMBER}, {"math.factorial",1, 1, TYPE_NUMBER},
 
     {"string.length",  1, 1, TYPE_STRING}, {"string.lower",  1, 1, TYPE_STRING},
-    {"string.upper",   1, 1, TYPE_STRING}, {"string.isletter",1,1, TYPE_STRING},
+    {"string.upper",   1, 1, TYPE_STRING}, {"string.is_letter",1,1, TYPE_STRING},
     {"string.isnumber",1, 1, TYPE_STRING}, {"string.slice",    3, 3, TYPE_STRING},
     {"string.split",   2, 2, TYPE_STRING}, {"string.join",   2, 2, TYPE_TABLE},
     {"string.trim",    1, 1, TYPE_STRING}, {"string.find",   2, 2, TYPE_STRING},

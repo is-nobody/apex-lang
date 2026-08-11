@@ -317,7 +317,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "math.atan2", "math.radians",                "math.degrees", "math.hypot",
         "math.gcd", "math.factorial",
 
-        "string.isletter", "string.isnumber",        "string.length", "string.lower",
+        "string.is_letter", "string.isnumber",        "string.length", "string.lower",
         "string.upper", "string.slice",                "string.split", "string.join",
         "string.trim", "string.find",                "string.replace",
 
