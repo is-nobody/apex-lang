@@ -160,7 +160,7 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                                 // builtin handled
     }
     
-    if (strcmp(name, "string.isnumber") == 0) {                      // check if first char is digit
+    if (strcmp(name, "string.is_number") == 0) {                      // check if first char is digit
         if (arg_count < 1 || !IS_STRING(args[0])) {                  // validate string argument
             *result = MAKE_NONE();                                   // invalid, return none
             return true;                                             // builtin handled

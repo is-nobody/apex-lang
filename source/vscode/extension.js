@@ -145,7 +145,7 @@ function activate(context) {
                 'math.degrees', 'math.hypot',
                 'math.gcd',     'math.factorial',
 
-                'string.is_letter', 'string.isnumber',
+                'string.is_letter', 'string.is_number',
                 'string.length',   'string.lower',
                 'string.upper',    'string.slice',
                 'string.split',    'string.join',

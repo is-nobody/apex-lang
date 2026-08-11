@@ -921,17 +921,17 @@ os.output(string.is_letter("!"))       // false (punctuation)
 os.output(string.is_letter(""))        // false (empty string)
 ```
 
-### string.isnumber(s)
+### string.is_number(s)
 Checks if the first character of the string is a digit (0-9). Returns `false` on failure.
 
 ```apex
 import os
 import string
 
-os.output(string.isnumber("123"))     // true
-os.output(string.isnumber("5hello"))  // true (first char is '5')
-os.output(string.isnumber("abc"))     // false
-os.output(string.isnumber(""))        // false
+os.output(string.is_number("123"))     // true
+os.output(string.is_number("5hello"))  // true (first char is '5')
+os.output(string.is_number("abc"))     // false
+os.output(string.is_number(""))        // false
 ```
 
 ## Table Library (table)
