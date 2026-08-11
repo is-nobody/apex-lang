@@ -484,7 +484,7 @@ static bool get_opts(VM* vm, Value opts_val, bool* ci, bool* dotnl) {
 
 // dispatcher for regex built-in functions
 bool regex_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
-    if (strcmp(name, "regex.findall") == 0) {                               // find all pattern matches
+    if (strcmp(name, "regex.find_all") == 0) {                               // find all pattern matches
         if (arg_count < 2 || !IS_STRING(args[0]) || !IS_STRING(args[1])) {  // validate arguments
             *result = MAKE_NONE();                                          // return none
             return true;                                                    // builtin handled

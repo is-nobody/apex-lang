@@ -29,53 +29,53 @@ function assert_table_equal(actual, expected, name)
 
 // test: findall extracts all digit sequences
 function regex_findall()
-    result = regex.findall("\\d+", "abc 123 def 456")
+    result = regex.find_all("\\d+", "abc 123 def 456")
     assert_equal(result[1], "123", "findall digits [1]")
     assert_equal(result[2], "456", "findall digits [2]")
     
-    result = regex.findall("[a-z]+", "Hello World")
+    result = regex.find_all("[a-z]+", "Hello World")
     assert_equal(result[1], "ello", "findall lowercase [1]")
     assert_equal(result[2], "orld", "findall lowercase [2]")
     
-    result = regex.findall("\\w+", "hello world")
+    result = regex.find_all("\\w+", "hello world")
     assert_equal(result[1], "hello", "findall words [1]")
     assert_equal(result[2], "world", "findall words [2]")
     
-    result = regex.findall("x", "hello")
+    result = regex.find_all("x", "hello")
     assert_equal(table.size(result), 0, "findall no match")
 
 // test: findall with ignorecase flag
 function regex_findall_ignorecase()
     opts = ["ignorecase" = true]
-    result = regex.findall("[a-z]+", "HELLO World", opts)
+    result = regex.find_all("[a-z]+", "HELLO World", opts)
     assert_equal(result[1], "HELLO", "findall ignorecase [1]")
     assert_equal(result[2], "World", "findall ignorecase [2]")
 
 // test: findall with dotall flag for multiline matching
 function regex_findall_dotall()
     opts = ["dotall" = true]
-    result = regex.findall("h.*o", "hello\nworld", opts)
+    result = regex.find_all("h.*o", "hello\nworld", opts)
     assert_equal(result[1], "hello\nwo", "findall dotall multiline")
     
-    result = regex.findall("h.*o", "hello\nworld")
+    result = regex.find_all("h.*o", "hello\nworld")
     assert_equal(table.size(result), 1, "findall no dotall default")
 
 // test: findall with start and end anchors
 function regex_findall_anchors()
-    result = regex.findall("^\\w+", "hello world")
+    result = regex.find_all("^\\w+", "hello world")
     assert_equal(result[1], "hello", "findall start anchor")
     
-    result = regex.findall("\\w+$", "hello world")
+    result = regex.find_all("\\w+$", "hello world")
     assert_equal(result[1], "world", "findall end anchor")
 
 // test: findall with character classes
 function regex_findall_charclass()
-    result = regex.findall("[aeiou]+", "hello world")
+    result = regex.find_all("[aeiou]+", "hello world")
     assert_equal(result[1], "e", "findall vowels [1]")
     assert_equal(result[2], "o", "findall vowels [2]")
     assert_equal(result[3], "o", "findall vowels [3]")
     
-    result = regex.findall("[^aeiou\\s]+", "hello world")
+    result = regex.find_all("[^aeiou\\s]+", "hello world")
     assert_equal(result[1], "h", "findall not vowels [1]")
     assert_equal(result[2], "ll", "findall not vowels [2]")
     assert_equal(result[3], "w", "findall not vowels [3]")
@@ -83,37 +83,37 @@ function regex_findall_charclass()
 
 // test: findall with quantifiers (*, +, ?)
 function regex_findall_quantifiers()
-    result = regex.findall("ab*c", "ac abc abbc abbbc")
+    result = regex.find_all("ab*c", "ac abc abbc abbbc")
     assert_equal(result[1], "ac", "findall star zero")
     assert_equal(result[2], "abc", "findall star one")
     assert_equal(result[3], "abbc", "findall star two")
     assert_equal(result[4], "abbbc", "findall star three")
     
-    result = regex.findall("ab+c", "ac abc abbc abbbc")
+    result = regex.find_all("ab+c", "ac abc abbc abbbc")
     assert_equal(result[1], "abc", "findall plus one")
     assert_equal(result[2], "abbc", "findall plus two")
     assert_equal(result[3], "abbbc", "findall plus three")
     
-    result = regex.findall("ab?c", "ac abc abbc")
+    result = regex.find_all("ab?c", "ac abc abbc")
     assert_equal(result[1], "ac", "findall question zero")
     assert_equal(result[2], "abc", "findall question one")
 
 // test: findall with special character classes (\s, \S, \d, \D, \w, \W)
 function regex_findall_special()
-    result = regex.findall("\\s+", "hello\tworld\nfoo bar")
+    result = regex.find_all("\\s+", "hello\tworld\nfoo bar")
     assert_equal(result[1], "\t", "findall whitespace tab")
     assert_equal(result[2], "\n", "findall whitespace newline")
     assert_equal(result[3], " ", "findall whitespace space")
     
-    result = regex.findall("\\S+", "hello world")
+    result = regex.find_all("\\S+", "hello world")
     assert_equal(result[1], "hello", "findall non-whitespace [1]")
     assert_equal(result[2], "world", "findall non-whitespace [2]")
     
-    result = regex.findall("\\D+", "abc123def456")
+    result = regex.find_all("\\D+", "abc123def456")
     assert_equal(result[1], "abc", "findall non-digits [1]")
     assert_equal(result[2], "def", "findall non-digits [2]")
     
-    result = regex.findall("\\W+", "hello_world foo-bar")
+    result = regex.find_all("\\W+", "hello_world foo-bar")
     assert_equal(result[1], " ", "findall non-word space")
     assert_equal(result[2], "-", "findall non-word dash")
 
@@ -123,7 +123,7 @@ function regex_findall_invalid()
     num = 123
     
     function test_findall(pattern, text)
-        return regex.findall(pattern, text)
+        return regex.find_all(pattern, text)
     
     assert_equal(test_findall(num, "hello"), n, "findall invalid pattern")
     assert_equal(test_findall(n, "hello"), n, "findall none pattern")
@@ -257,16 +257,16 @@ function regex_search_invalid()
 
 // test: escape sequences for literal backslash patterns
 function regex_escape_sequences()
-    result = regex.findall("\\\\d", "abc\\d123")
+    result = regex.find_all("\\\\d", "abc\\d123")
     assert_equal(result[1], "\\d", "findall literal backslash-d")
     
-    result = regex.findall("\\\\w", "abc\\w123")
+    result = regex.find_all("\\\\w", "abc\\w123")
     assert_equal(result[1], "\\w", "findall literal backslash-w")
     
-    result = regex.findall("\\\\s", "abc\\s123")
+    result = regex.find_all("\\\\s", "abc\\s123")
     assert_equal(result[1], "\\s", "findall literal backslash-s")
     
-    result = regex.findall("\\[test\\]", "[test] hello [test]")
+    result = regex.find_all("\\[test\\]", "[test] hello [test]")
     assert_equal(result[1], "[test]", "findall literal brackets [1]")
     assert_equal(result[2], "[test]", "findall literal brackets [2]")
 

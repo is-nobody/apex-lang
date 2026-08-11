@@ -174,7 +174,7 @@ function activate(context) {
                 'codecs.baseurl_write', 'codecs.baseurl_read',
                 'codecs.hex_write',     'codecs.hex_read',
 
-                'regex.findall', 'regex.replace',
+                'regex.find_all', 'regex.replace',
                 'regex.split',   'regex.search',
 
                 'crypto.md5',            'crypto.sha1',

@@ -1544,14 +1544,14 @@ else
     os.output("No match found")
 ```
 
-### regex.findall(pattern, text, options)
+### regex.find_all(pattern, text, options)
 Finds **all non-overlapping** matches of a pattern in the text. Returns a table of matched strings, indexed by numbers starting from `1`. Returns an empty table if no matches are found, or `none` on error.
 
 ```apex
 import os
 import regex
 
-words = regex.findall("\\w+", "Hello, World! 123")
+words = regex.find_all("\\w+", "Hello, World! 123")
 
 if words == none
     os.output("Find failed")

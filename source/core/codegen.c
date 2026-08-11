@@ -336,7 +336,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "codecs.baseurl_write",                      "codecs.baseurl_read",
         "codecs.hex_write",                          "codecs.hex_read",
 
-        "regex.findall", "regex.replace", "regex.split", "regex.search",
+        "regex.find_all", "regex.replace", "regex.split", "regex.search",
 
         "crypto.md5",              "crypto.sha1",
         "crypto.sha256",           "crypto.sha384",
