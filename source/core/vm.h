@@ -30,7 +30,6 @@
 #define INTERN_MAX_LOAD 0.75
 
 // object pool configuration
-#define POOL_STRING_SIZE 512
 #define POOL_MAX_ITEMS 1024
 
 // helper macro for total table entry count
@@ -39,12 +38,10 @@
 // nan boxing value representation
 // uses ieee 754 double nan space to encode type tags in the mantissa bits
 // quiet nan has bits 51 set, we use bits 48-50 for type tags
-#define SIGN_BIT        ((uint64_t)0x8000000000000000ULL)
 #define QNAN            ((uint64_t)0x7FF8000000000000ULL)
 
 // type tags stored in bits 48-50 of the nan mantissa
 #define TAG_NONE        ((uint64_t)0)
-#define TAG_NULL        ((uint64_t)1)
 #define TAG_BOOL        ((uint64_t)2)
 #define TAG_STRING      ((uint64_t)3)
 #define TAG_TABLE       ((uint64_t)4)
@@ -177,8 +174,8 @@ typedef struct {
     Value* registers;                // hot pointer to current frame's registers
     int current_frame;               // index of the currently active frame
 
-    Value globals[VM_MAX_GLOBALS]; // global variable storage (persistent across frames)
-    int global_count;              // number of initialized globals
+    Value globals[VM_MAX_GLOBALS];   // global variable storage (persistent across frames)
+    int global_count;                // number of initialized globals
 
     Value args_stack[VM_MAX_ARGS_STACK]; // stack for passing arguments to functions
     int args_top;                        // top index of the arguments stack

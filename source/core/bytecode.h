@@ -88,12 +88,6 @@ typedef struct {
 #define INST1(op, a)      ((Instruction){op, {a, 0, 0}})
 #define INST0(op)         ((Instruction){op, {0, 0, 0}})
 
-// limits for vm resource pools to prevent unbounded growth
-#define MAX_REGISTERS 256
-#define MAX_CONSTANTS 65536
-#define MAX_GLOBALS   65536
-#define MAX_LOCALS    256
-
 // types of values that can be stored in the constant pool
 typedef enum {
     CONST_NUMBER,        // double-precision floating point
