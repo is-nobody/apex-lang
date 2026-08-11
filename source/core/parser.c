@@ -2534,6 +2534,34 @@ static ASTNode* parse_statement(Parser* parser) {
             return parse_continue_statement(parser);
             
         case TOKEN_IDENTIFIER: {
+            if (peek(parser, 1)->type == TOKEN_COMMA) {
+                int count = 0;
+                Token* idents[32];
+                
+                while (check(parser, TOKEN_IDENTIFIER)) {
+                    idents[count++] = advance(parser);
+                    if (!match(parser, TOKEN_COMMA)) break;
+                }
+                
+                if (count > 1 && check(parser, TOKEN_EQUAL)) {
+                    for (int i = 0; i < count; i++) {
+                        if (!parser_is_declared(parser, idents[i]->value)) {
+                            parser_declare_symbol(parser, idents[i]->value, PARSER_SYM_VARIABLE,
+                                                TYPE_ANY, 0, idents[i]->line, idents[i]->column);
+                        }
+                    }
+                    
+                    parser_error_at(parser, idents[1]->line, idents[1]->column,
+                                (int)utf8_char_len(idents[1]->value),
+                                "Multiple assignment is restricted");
+                    
+                    while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
+                        advance(parser);
+                    }
+                    return NULL;
+                }
+            }
+            
             if (peek(parser, 1)->type == TOKEN_EQUAL) {
                 ASTNode* node = parse_var_decl_or_assign(parser);
                 if (node) return node;
