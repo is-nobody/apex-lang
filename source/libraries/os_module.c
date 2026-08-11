@@ -166,7 +166,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         return true;                                                              // builtin handled
     }
     
-    if (strcmp(name, "os.kill") == 0) {                              // terminate process by pid
+    if (strcmp(name, "os.terminate") == 0) {                              // terminate process by pid
         if (arg_count >= 1 && IS_NUMBER(args[0])) {                               // validate pid
             int pid = (int)AS_NUMBER(args[0]);                                    // extract pid
             bool success = false;                                                 // success flag

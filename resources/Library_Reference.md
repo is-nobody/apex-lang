@@ -56,13 +56,13 @@ if command != none
     os.output("Command exited with code: {command}")
 ```
 
-### os.kill(pid)
+### os.terminate(pid)
 Terminates the process with the given PID. Returns `true` on success, `false` on failure.
 
 ```apex
 import os
 
-if os.kill(123456) == false
+if os.terminate(123456) == false
     os.output("Could not terminate process")
 else
     os.output("Process terminated successfully")
