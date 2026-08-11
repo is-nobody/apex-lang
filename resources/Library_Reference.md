@@ -252,13 +252,13 @@ else
     os.output("Deleted successfully")
 ```
 
-### os.items(path)
+### os.list_folder(path)
 Returns a table of names — all files and folders inside the given folder. If no path is given, lists the current folder. Returns `none` on failure.
 
 ```apex
 import os
 
-items = os.items(".")
+items = os.list_folder(".")
 
 if items == none
     os.output("Could not list directory contents")

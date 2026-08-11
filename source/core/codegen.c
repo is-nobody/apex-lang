@@ -302,7 +302,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "os.read", "os.write", "os.append",          "os.exists", "os.is_file",
         "os.is_folder", "os.size",                    "os.create_file", "os.create_folder",
         "os.delete", "os.rename",                    "os.move", "os.copy",
-        "os.items", "os.parent_folder",               "os.access", "os.args",
+        "os.list_folder", "os.parent_folder",               "os.access", "os.args",
 
         "sys.platform", "sys.architecture",          "sys.host", "sys.user",
         "sys.home", "sys.apex_version",           "sys.executable", "sys.environment",

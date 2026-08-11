@@ -492,7 +492,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         return true;                       // builtin handled
     }
     
-    if (strcmp(name, "os.items") == 0) {                              // list directory contents
+    if (strcmp(name, "os.list_folder") == 0) {                              // list directory contents
         const char* path = ".";                                       // default to current
         if (arg_count >= 1 && IS_STRING(args[0])) {                   // path provided
             path = AS_STRING(args[0])->chars;                         // use provided path

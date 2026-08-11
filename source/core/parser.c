@@ -136,7 +136,7 @@ static const BuiltinSig BUILTINS[] = {
     {"os.size",               1, 1, TYPE_STRING}, {"os.create_file",        1, 1, TYPE_STRING},
     {"os.create_folder",      1, 1, TYPE_STRING}, {"os.delete",             1, 1, TYPE_STRING},
     {"os.rename",             2, 2, TYPE_STRING}, {"os.move",               2, 2, TYPE_STRING},
-    {"os.copy",               2, 2, TYPE_STRING}, {"os.items",              0, 1, TYPE_STRING},
+    {"os.copy",               2, 2, TYPE_STRING}, {"os.list_folder",              0, 1, TYPE_STRING},
     {"os.parent_folder",       1, 1, TYPE_STRING}, {"os.access",             2, 2, TYPE_STRING},
     {"os.args",               0, 0, TYPE_ANY},
 
