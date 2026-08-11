@@ -139,7 +139,7 @@ function activate(context) {
                 'math.asin',    'math.acos',
                 'math.atan',    'math.pi',
                 'math.e',       'math.inf',
-                'math.isnan',   'math.isinf',
+                'math.is_nan',   'math.isinf',
                 'math.trunc',   'math.pow',
                 'math.atan2',   'math.radians',
                 'math.degrees', 'math.hypot',

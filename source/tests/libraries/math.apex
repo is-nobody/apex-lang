@@ -97,8 +97,8 @@ function isinf()
 
 // test: check if value is NaN (not a number)
 function isnan()
-    assert_equal(math.isnan(math.sqrt(-1)), true, "math.isnan(sqrt(-1))")
-    assert_equal(math.isnan(1), false, "math.isnan(1)")
+    assert_equal(math.is_nan(math.sqrt(-1)), true, "math.is_nan(sqrt(-1))")
+    assert_equal(math.is_nan(1), false, "math.is_nan(1)")
 
 // test: natural logarithm and base-N logarithm
 function log()

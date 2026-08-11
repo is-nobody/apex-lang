@@ -599,7 +599,7 @@ math.trunc(0.9)   // 0
 ```
 
 ### math.sqrt(x)
-Returns the square root of a number. Returns `nan` for negative numbers. Returns `none` if the argument is not a number. You can check the result with `math.isnan()`.
+Returns the square root of a number. Returns `nan` for negative numbers. Returns `none` if the argument is not a number. You can check the result with `math.is_nan()`.
 
 ```apex
 import math
@@ -762,15 +762,15 @@ math.factorial(2.5)  // none
 math.factorial(171)  // inf (too large)
 ```
 
-### math.isnan(x)
+### math.is_nan(x)
 Returns `true` if the value is NaN (Not a Number), `false` otherwise. NaN typically results from operations like `sqrt(-1)` or `0/0`. Returns `false` if the argument is not a number.
 
 ```apex
 import math
-math.isnan(math.sqrt(-1))  // true
-math.isnan(0)              // false
-math.isnan(42)             // false
-math.isnan("42")           // false
+math.is_nan(math.sqrt(-1))  // true
+math.is_nan(0)              // false
+math.is_nan(42)             // false
+math.is_nan("42")           // false
 ```
 
 ### math.isinf(x)

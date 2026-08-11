@@ -313,7 +313,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "math.sqrt", "math.exp",                     "math.log", "math.sin",
         "math.cos", "math.tan",                      "math.asin", "math.acos",
         "math.atan", "math.pi",                      "math.e", "math.inf",
-        "math.isnan", "math.isinf",                  "math.trunc", "math.pow",
+        "math.is_nan", "math.isinf",                  "math.trunc", "math.pow",
         "math.atan2", "math.radians",                "math.degrees", "math.hypot",
         "math.gcd", "math.factorial",
 
