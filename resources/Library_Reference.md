@@ -1560,7 +1560,7 @@ else
         os.output(word)
 ```
 
-### regex.sub(pattern, replacement, text, options)
+### regex.replace(pattern, replacement, text, options)
 Replaces **all** occurrences of the pattern in the text with the replacement string. Returns the resulting string. If no matches are found, the original text is returned unchanged. Returns `none` on error.
 
 ```apex
@@ -1568,7 +1568,7 @@ import os
 import regex
 
 text = "The quick brown fox jumps over the lazy dog"
-result = regex.sub("\\s+", "-", text)
+result = regex.replace("\\s+", "-", text)
 
 if result == none
     os.output("Substitution failed")

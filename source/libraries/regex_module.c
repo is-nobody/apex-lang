@@ -516,7 +516,7 @@ bool regex_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
         return true;                                                      // builtin handled
     }
     
-    if (strcmp(name, "regex.sub") == 0) {                                 // substitute pattern matches
+    if (strcmp(name, "regex.replace") == 0) {                                 // substitute pattern matches
         if (arg_count < 3 || !IS_STRING(args[0]) || !IS_STRING(args[1]) || !IS_STRING(args[2])) {  // validate arguments
             *result = MAKE_NONE();                                        // return none
             return true;                                                  // builtin handled

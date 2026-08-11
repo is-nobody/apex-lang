@@ -191,7 +191,7 @@ static const BuiltinSig BUILTINS[] = {
     {"codecs.base_write",  1, 1, TYPE_STRING}, {"codecs.base_read",   1, 1, TYPE_STRING},
     {"codecs.baseurl_write",1,1, TYPE_STRING}, {"codecs.baseurl_read",1, 1, TYPE_STRING},
 
-    {"regex.findall", 2, 3, TYPE_STRING},  {"regex.sub",    3, 4, TYPE_STRING},
+    {"regex.findall", 2, 3, TYPE_STRING},  {"regex.replace",    3, 4, TYPE_STRING},
     {"regex.split",   2, 3, TYPE_STRING},  {"regex.search", 2, 3, TYPE_STRING},
 
     {"crypto.md5", 1, 1, TYPE_STRING},            {"crypto.sha1", 1, 1, TYPE_STRING},

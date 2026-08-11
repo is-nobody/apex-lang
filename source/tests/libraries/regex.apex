@@ -132,22 +132,22 @@ function regex_findall_invalid()
 
 // test: sub replaces matched patterns with replacement
 function regex_sub()
-    result = regex.sub("\\d+", "NUM", "abc 123 def 456")
+    result = regex.replace("\\d+", "NUM", "abc 123 def 456")
     assert_equal(result, "abc NUM def NUM", "sub digits to NUM")
     
-    result = regex.sub("\\s+", "-", "hello world foo")
+    result = regex.replace("\\s+", "-", "hello world foo")
     assert_equal(result, "hello-world-foo", "sub whitespace to dash")
     
-    result = regex.sub("x", "y", "hello")
+    result = regex.replace("x", "y", "hello")
     assert_equal(result, "hello", "sub no match")
     
-    result = regex.sub("a", "b", "aaa")
+    result = regex.replace("a", "b", "aaa")
     assert_equal(result, "bbb", "sub multiple matches")
 
 // test: sub with ignorecase flag
 function regex_sub_ignorecase()
     opts = ["ignorecase" = true]
-    result = regex.sub("[a-z]+", "WORD", "Hello World", opts)
+    result = regex.replace("[a-z]+", "WORD", "Hello World", opts)
     assert_equal(result, "WORD WORD", "sub ignorecase")
 
 // test: sub with invalid input returns none
@@ -156,7 +156,7 @@ function regex_sub_invalid()
     num = 123
     
     function test_sub(pattern, repl, text)
-        return regex.sub(pattern, repl, text)
+        return regex.replace(pattern, repl, text)
     
     assert_equal(test_sub("\\d", "X", n), n, "sub none text")
     assert_equal(test_sub("\\d", n, "hello"), n, "sub none replacement")
