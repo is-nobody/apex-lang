@@ -1948,9 +1948,50 @@ static ASTNode* parse_expression(Parser* parser) {
 
 // parses a variable declaration or assignment
 static ASTNode* parse_var_decl_or_assign(Parser* parser) {
-    Token* name = current_token(parser);
+    Token* idents[32];
+    int ident_count = 0;
+    
+    idents[ident_count++] = current_token(parser);
     advance(parser);
-
+    
+    bool had_comma = false;
+    while (match(parser, TOKEN_COMMA)) {
+        had_comma = true;
+        if (check(parser, TOKEN_IDENTIFIER)) {
+            idents[ident_count++] = current_token(parser);
+            advance(parser);
+        } else {
+            break;
+        }
+    }
+    
+    if (ident_count > 1) {
+        for (int i = 0; i < ident_count; i++) {
+            if (!parser_is_declared(parser, idents[i]->value)) {
+                parser_declare_symbol(parser, idents[i]->value, PARSER_SYM_VARIABLE,
+                                    TYPE_ANY, 0, idents[i]->line, idents[i]->column);
+            }
+        }
+        parser_error_at(parser, idents[1]->line, idents[1]->column,
+                      (int)utf8_char_len(idents[1]->value),
+                      "Multiple assignment is restricted");
+        while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) advance(parser);
+        return NULL;
+    }
+    
+    if (had_comma) {
+        if (!parser_is_declared(parser, idents[0]->value)) {
+            parser_declare_symbol(parser, idents[0]->value, PARSER_SYM_VARIABLE,
+                                TYPE_ANY, 0, idents[0]->line, idents[0]->column);
+        }
+        parser_error_at(parser, idents[0]->line, 
+                      idents[0]->column + (int)utf8_char_len(idents[0]->value), 1,
+                       "Extra comma at the end of assignment");
+        while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) advance(parser);
+        return NULL;
+    }
+    
+    Token* name = idents[0];
     consume(parser, TOKEN_EQUAL, "Expected '=' in assignment");
     
     if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF)) {
@@ -1961,9 +2002,33 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
     }
     
     ASTNode* value = parse_expression(parser);
-    
     bool is_declaration = !parser_is_declared(parser, name->value);
-
+    
+    if (match(parser, TOKEN_COMMA)) {
+        if (check(parser, TOKEN_NEWLINE)) {
+            if (is_declaration) {
+                parser_declare_symbol(parser, name->value, PARSER_SYM_VARIABLE,
+                                    TYPE_ANY, 0, name->line, name->column);
+            }
+            Token* comma = &parser->tokens[parser->current - 1];
+            parser_error_at(parser, comma->line, comma->column, 1,
+                           "Extra comma at the end of the statement");
+            return ast_create_var_assign(name->value, value, false, NULL, name->line, name->column);
+        }
+        
+        if (is_declaration) {
+            parser_declare_symbol(parser, name->value, PARSER_SYM_VARIABLE,
+                                TYPE_ANY, 0, name->line, name->column);
+            is_declaration = false;
+        }
+        ASTNode* second = parse_expression(parser);
+        int len = second ? get_node_len(second) : 1;
+        parser_error_at(parser, second->line, second->column, len,
+                       "Multiple return values are restricted");
+        while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) advance(parser);
+        return ast_create_var_assign(name->value, value, false, NULL, name->line, name->column);
+    }
+    
     if (!parser->semantic_checks) {
         return ast_create_var_assign(name->value, value, is_declaration, NULL,
                                     name->line, name->column);
@@ -1977,8 +2042,7 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
                                     value_type, 0, name->line, name->column);
                 int idx = symbol_index_recursive(parser, name->value);
                 if (idx >= 0 && value->type == AST_LITERAL_NUMBER) {
-                    parser_symbol_set_const(parser, idx, true,
-                                            value->literal_number.number_value);
+                    parser_symbol_set_const(parser, idx, true, value->literal_number.number_value);
                 }
             }
         }
@@ -1990,16 +2054,11 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
                 "Cannot assign to '%s' (not a variable)", name->value);
         } else if (value) {
             ValueType new_type = infer_expression_type(parser, value);
-            ValueType old_type = parser->symbols.types[idx];
-            if (old_type == TYPE_UNKNOWN && new_type != TYPE_ERROR) {
-                parser->symbols.types[idx] = new_type;
-            } else if (new_type != TYPE_ERROR && new_type != TYPE_UNKNOWN) {
-                parser->symbols.types[idx] = new_type;
-            }
+            parser->symbols.types[idx] = (new_type != TYPE_ERROR && new_type != TYPE_UNKNOWN) 
+                                        ? new_type : parser->symbols.types[idx];
             parser_symbol_clear_const(parser, idx);
-            if (value && value->type == AST_LITERAL_NUMBER) {
-                parser_symbol_set_const(parser, idx, true,
-                                        value->literal_number.number_value);
+            if (value->type == AST_LITERAL_NUMBER) {
+                parser_symbol_set_const(parser, idx, true, value->literal_number.number_value);
             }
         }
     }
@@ -2534,39 +2593,12 @@ static ASTNode* parse_statement(Parser* parser) {
             return parse_continue_statement(parser);
             
         case TOKEN_IDENTIFIER: {
-            if (peek(parser, 1)->type == TOKEN_COMMA) {
-                int count = 0;
-                Token* idents[32];
-                
-                while (check(parser, TOKEN_IDENTIFIER)) {
-                    idents[count++] = advance(parser);
-                    if (!match(parser, TOKEN_COMMA)) break;
-                }
-                
-                if (count > 1 && check(parser, TOKEN_EQUAL)) {
-                    for (int i = 0; i < count; i++) {
-                        if (!parser_is_declared(parser, idents[i]->value)) {
-                            parser_declare_symbol(parser, idents[i]->value, PARSER_SYM_VARIABLE,
-                                                TYPE_ANY, 0, idents[i]->line, idents[i]->column);
-                        }
-                    }
-                    
-                    parser_error_at(parser, idents[1]->line, idents[1]->column,
-                                (int)utf8_char_len(idents[1]->value),
-                                "Multiple assignment is restricted");
-                    
-                    while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
-                        advance(parser);
-                    }
-                    return NULL;
-                }
-            }
-            
-            if (peek(parser, 1)->type == TOKEN_EQUAL) {
+            if (peek(parser, 1)->type == TOKEN_EQUAL || peek(parser, 1)->type == TOKEN_COMMA) {
                 ASTNode* node = parse_var_decl_or_assign(parser);
                 if (node) return node;
+                return NULL;
             }
-
+            
             ASTNode* expr = parse_expression(parser);
             if (expr) {
                 parser_check_expr_statement(parser, expr);
