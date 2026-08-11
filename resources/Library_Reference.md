@@ -268,13 +268,13 @@ else
         os.output(item)
 ```
 
-### os.parentfolder(path)
+### os.parent_folder(path)
 Returns the parent directory of the given path. For root paths like `/` or `C:\`, returns the root itself. If no directory separator is found in the path, returns `"."`. Returns `none` on failure or if no path is provided.
 
 ```apex
 import os
 
-parent = os.parentfolder("/home/user/my_folder")
+parent = os.parent_folder("/home/user/my_folder")
 
 if parent != none
     os.output("Parent folder: {parent}")

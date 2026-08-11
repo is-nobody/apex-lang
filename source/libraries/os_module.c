@@ -537,7 +537,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         return true;                                                  // builtin handled
     }
     
-    if (strcmp(name, "os.parentfolder") == 0) {            // get parent directory path
+    if (strcmp(name, "os.parent_folder") == 0) {            // get parent directory path
         if (arg_count >= 1 && IS_STRING(args[0])) {        // validate path
             const char* path = AS_STRING(args[0])->chars;  // extract path
             char* last_sep = strrchr(path, '/');           // find forward slash

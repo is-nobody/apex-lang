@@ -117,7 +117,7 @@ function activate(context) {
                 'os.kill',  'os.execute',
                 'os.create_folder',      'os.delete',
                 'os.create_file',        'os.size',
-                'os.parentfolder',       'os.copy',
+                'os.parent_folder',       'os.copy',
                 'os.read',               'os.write',
                 'os.append',             'os.exists',
                 'os.is_file',             'os.is_folder',
