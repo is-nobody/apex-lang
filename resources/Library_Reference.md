@@ -566,14 +566,14 @@ math.floor(3.1)   // 3
 math.floor(-2.3)  // -3 (goes down, so more negative)
 ```
 
-### math.ceil(x)
+### math.round_up(x)
 Rounds a number up to the nearest whole number. Returns `none` if the argument is not a number.
 
 ```apex
 import math
-math.ceil(3.1)   // 4
-math.ceil(3.7)   // 4
-math.ceil(-2.3)  // -2 (goes up toward zero)
+math.round_up(3.1)   // 4
+math.round_up(3.7)   // 4
+math.round_up(-2.3)  // -2 (goes up toward zero)
 ```
 
 ### math.round(x, digits)

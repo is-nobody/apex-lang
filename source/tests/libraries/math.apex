@@ -42,9 +42,9 @@ function atan2()
 
 // test: ceiling (round up to nearest integer)
 function ceil()
-    assert_equal(math.ceil(3.7), 4, "math.ceil(3.7)")
-    assert_equal(math.ceil(-3.7), -3, "math.ceil(-3.7)")
-    assert_equal(math.ceil(3.2), 4, "math.ceil(3.2)")
+    assert_equal(math.round_up(3.7), 4, "math.round_up(3.7)")
+    assert_equal(math.round_up(-3.7), -3, "math.round_up(-3.7)")
+    assert_equal(math.round_up(3.2), 4, "math.round_up(3.2)")
 
 // test: cosine of angle in radians
 function cos()

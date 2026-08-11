@@ -149,7 +149,7 @@ static const BuiltinSig BUILTINS[] = {
     {"sys.time",              0, 0, TYPE_ANY},    {"sys.datetime",              0, 0, TYPE_ANY},
 
     {"math.abs",      1, 1, TYPE_NUMBER}, {"math.floor",    1, 1, TYPE_NUMBER},
-    {"math.ceil",     1, 1, TYPE_NUMBER}, {"math.round",    1, 2, TYPE_NUMBER},
+    {"math.round_up",     1, 1, TYPE_NUMBER}, {"math.round",    1, 2, TYPE_NUMBER},
     {"math.sqrt",     1, 1, TYPE_NUMBER}, {"math.exp",      1, 1, TYPE_NUMBER},
     {"math.log",      1, 2, TYPE_NUMBER}, {"math.sin",      1, 1, TYPE_NUMBER},
     {"math.cos",      1, 1, TYPE_NUMBER}, {"math.tan",      1, 1, TYPE_NUMBER},

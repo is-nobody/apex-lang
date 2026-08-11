@@ -33,7 +33,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
         return true;                                              // builtin handled
     }
     
-    if (strcmp(name, "math.ceil") == 0) {                         // ceiling function
+    if (strcmp(name, "math.round_up") == 0) {                         // ceiling function
         if (arg_count >= 1 && IS_NUMBER(args[0])) {               // validate number argument
             *result = MAKE_NUMBER(ceil(AS_NUMBER(args[0])));      // return smallest integer >= x
             return true;                                          // builtin handled

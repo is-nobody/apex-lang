@@ -132,7 +132,7 @@ function activate(context) {
                 'sys.time',       'sys.datetime',
 
                 'math.abs',     'math.floor',
-                'math.ceil',    'math.round',
+                'math.round_up',    'math.round',
                 'math.sqrt',    'math.exp',
                 'math.log',     'math.sin',
                 'math.cos',     'math.tan',
