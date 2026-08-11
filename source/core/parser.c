@@ -738,18 +738,6 @@ static bool is_explicit_condition(ASTNode* node) {
         return is_explicit_condition(node->unary.operand);
     }
     
-    if (node->type == AST_LITERAL_BOOL) {
-        return true;
-    }
-    
-    if (node->type == AST_CALL) {
-        return false;
-    }
-    
-    if (node->type == AST_IDENTIFIER) {
-        return false;
-    }
-    
     return false;
 }
 
@@ -1167,16 +1155,17 @@ ValueType parser_check_expression(Parser* parser, ASTNode* node) {
 static void parser_check_condition(Parser* parser, ASTNode* condition, const char* context) {
     if (!parser->semantic_checks) return;
     if (!condition) return;
-
-    ValueType cond_type = infer_expression_type(parser, condition);
     
-    if (cond_type != TYPE_BOOLEAN && cond_type != TYPE_ANY && cond_type != TYPE_UNKNOWN) {
-        if (cond_type != TYPE_ERROR) {
-            parser_error_at(parser, condition->line, condition->column, get_node_len(condition),
-                "%s requires a comparison, got %s",
-                context, type_name(cond_type));
-        }
-        return;
+    if (condition->type == AST_BINARY && 
+        (condition->binary.op == TOKEN_AND || condition->binary.op == TOKEN_OR)) {
+        return;  // errors already reported by infer_binary_type
+    }
+    
+    if (!is_explicit_condition(condition)) {
+        ValueType cond_type = infer_expression_type(parser, condition);
+        parser_error_at(parser, condition->line, condition->column, get_node_len(condition),
+            "%s requires a comparison, got %s",
+            context, type_name(cond_type));
     }
 }
 
