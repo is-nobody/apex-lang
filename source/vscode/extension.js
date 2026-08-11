@@ -142,7 +142,7 @@ function activate(context) {
                 'math.is_nan',   'math.is_inf',
                 'math.trunc',   'math.pow',
                 'math.atan2',   'math.radians',
-                'math.degrees', 'math.hypot',
+                'math.degrees', 'math.hypotenuse',
                 'math.gcd',     'math.factorial',
 
                 'string.is_letter', 'string.is_number',

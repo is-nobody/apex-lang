@@ -628,14 +628,14 @@ math.exp(0)  // 1
 math.exp(2)  // 7.38905609893065
 ```
 
-### math.hypot(x, y)
+### math.hypotenuse(x, y)
 Returns the hypotenuse of a right triangle given the lengths of the two legs. Returns `none` on error.
 
 ```apex
 import math
-math.hypot(3, 4)   // 5
-math.hypot(5, 12)  // 13
-math.hypot(1, 1)   // 1.4142135623730951
+math.hypotenuse(3, 4)   // 5
+math.hypotenuse(5, 12)  // 13
+math.hypotenuse(1, 1)   // 1.4142135623730951
 ```
 
 ### math.log(x, base)

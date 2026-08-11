@@ -82,7 +82,7 @@ function gcd()
 
 // test: Euclidean norm (hypotenuse)
 function hypot()
-    assert_equal(math.hypot(3, 4), 5, "math.hypot(3, 4)")
+    assert_equal(math.hypotenuse(3, 4), 5, "math.hypotenuse(3, 4)")
 
 // test: positive infinity constant
 function inf()

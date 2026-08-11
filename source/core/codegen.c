@@ -313,8 +313,8 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "math.sqrt", "math.exp",                     "math.log", "math.sin",
         "math.cos", "math.tan",                      "math.asin", "math.acos",
         "math.atan", "math.pi",                      "math.e", "math.inf",
-        "math.is_nan", "math.is_inf",                  "math.trunc", "math.pow",
-        "math.atan2", "math.radians",                "math.degrees", "math.hypot",
+        "math.is_nan", "math.is_inf",                  "math.cut_decimal", "math.pow",
+        "math.atan2", "math.radians",                "math.degrees", "math.hypotenuse",
         "math.gcd", "math.factorial",
 
         "string.is_letter", "string.is_number",        "string.length", "string.lower",

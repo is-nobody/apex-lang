@@ -255,7 +255,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
         return true;                                                       // builtin handled
     }
     
-    if (strcmp(name, "math.hypot") == 0) {                                         // euclidean distance
+    if (strcmp(name, "math.hypotenuse") == 0) {                                         // euclidean distance
         if (arg_count >= 2 && IS_NUMBER(args[0]) && IS_NUMBER(args[1])) {          // validate two numbers
             *result = MAKE_NUMBER(hypot(AS_NUMBER(args[0]), AS_NUMBER(args[1])));  // compute hypotenuse
             return true;                                                           // builtin handled
