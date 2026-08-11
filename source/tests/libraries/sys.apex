@@ -27,7 +27,7 @@ function architecture()
 
 // test: returns disk usage table with total, free, used
 function disksize()
-    disk = sys.disksize()
+    disk = sys.disk()
     is_table = type(disk) == "table"
     assert_equal(is_table, true, "disksize returns table")
     if is_table == true

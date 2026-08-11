@@ -143,7 +143,7 @@ static const BuiltinSig BUILTINS[] = {
     {"sys.platform",          0, 0, TYPE_ANY},    {"sys.architecture",      0, 0, TYPE_ANY},
     {"sys.hostname",          0, 0, TYPE_ANY},    {"sys.user",              0, 0, TYPE_ANY},
     {"sys.home",           0, 0, TYPE_ANY},    {"sys.apex_version",      0, 0, TYPE_ANY},
-    {"sys.executable",        0, 0, TYPE_ANY},    {"sys.disksize",          0, 0, TYPE_STRING},
+    {"sys.executable",        0, 0, TYPE_ANY},    {"sys.disk",          0, 0, TYPE_STRING},
     {"sys.tempdir",           0, 0, TYPE_ANY},    {"sys.is_terminal",        0, 0, TYPE_ANY},
     {"sys.process_id",        0, 0, TYPE_ANY},    {"sys.environment",       0, 0, TYPE_ANY},
     {"sys.time",              0, 0, TYPE_ANY},    {"sys.date",              0, 0, TYPE_ANY},

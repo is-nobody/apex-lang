@@ -306,7 +306,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
 
         "sys.platform", "sys.architecture",          "sys.hostname", "sys.user",
         "sys.home", "sys.apex_version",           "sys.executable", "sys.environment",
-        "sys.disksize", "sys.tempdir",               "sys.is_terminal", "sys.process_id",
+        "sys.disk", "sys.tempdir",               "sys.is_terminal", "sys.process_id",
         "sys.time", "sys.date",
 
         "math.abs", "math.floor",                    "math.ceil", "math.round",

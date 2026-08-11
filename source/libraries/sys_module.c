@@ -228,7 +228,7 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         return true;                                 // builtin handled
     }
 
-    if (strcmp(name, "sys.disksize") == 0) {         // get disk space info
+    if (strcmp(name, "sys.disk") == 0) {         // get disk space info
         const char* path = ".";                      // default to current dir
         if (arg_count >= 1 && IS_STRING(args[0])) {  // check if path provided
             path = AS_STRING(args[0])->chars;        // use provided path

@@ -463,7 +463,7 @@ if path != none
     os.output("Running from: {path}")
 ```
 
-### sys.disksize(path)
+### sys.disk(path)
 Returns a table with disk usage information for the volume containing the given path. If no path is provided, uses the current directory. The table contains:
 - `total` — Total size in MB
 - `used` — Used space in MB
@@ -475,7 +475,7 @@ Returns a table on success, `none` on failure.
 import os
 import sys
 
-info = sys.disksize()
+info = sys.disk()
 
 if info != none
     os.output("Total: {info['total'] / 1024} GB")
