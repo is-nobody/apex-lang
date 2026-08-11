@@ -15,15 +15,15 @@ function assert_equal(actual, expected, name)
 // test: base64 encoding and decoding roundtrip
 function base64_roundtrip()
     text = "Hello, World! This is a test of Base64."
-    b64_str = codecs.base_encode(text)
-    decoded_b64 = codecs.base_decode(b64_str)
+    b64_str = codecs.base64_encode(text)
+    decoded_b64 = codecs.base64_decode(b64_str)
     assert_equal(decoded_b64, text, "base64 roundtrip")
 
 // test: base64url encoding and decoding roundtrip
 function base64url_roundtrip()
     url_data = "data?param=value&other=123"
-    b64url_str = codecs.baseurl_encode(url_data)
-    decoded_b64url = codecs.baseurl_decode(b64url_str)
+    b64url_str = codecs.base64url_encode(url_data)
+    decoded_b64url = codecs.base64url_decode(b64url_str)
     assert_equal(decoded_b64url, url_data, "base64url roundtrip")
 
 // test: hex encoding and decoding roundtrip
@@ -192,21 +192,21 @@ function json_invalid_input()
     result2 = codecs.json_decode(invalid_json2)
     assert_equal(type(result2), "none", "json_decode trailing comma returns none")
 
-// test: base_decode rejects invalid base64 characters
+// test: base64_decode rejects invalid base64 characters
 function base64_invalid_input()
     invalid_b64 = "ABC!DEF"
-    result = codecs.base_decode(invalid_b64)
-    assert_equal(type(result), "none", "base_decode invalid char returns none")
+    result = codecs.base64_decode(invalid_b64)
+    assert_equal(type(result), "none", "base64_decode invalid char returns none")
     
     invalid_b64_2 = "ABCD="
-    result2 = codecs.base_decode(invalid_b64_2)
-    assert_equal(type(result2), "none", "base_decode wrong padding returns none")
+    result2 = codecs.base64_decode(invalid_b64_2)
+    assert_equal(type(result2), "none", "base64_decode wrong padding returns none")
 
-// test: baseurl_decode rejects invalid base64url characters
+// test: base64url_decode rejects invalid base64url characters
 function base64url_invalid_input()
     invalid_b64url = "ABC!DEF"
-    result = codecs.baseurl_decode(invalid_b64url)
-    assert_equal(type(result), "none", "baseurl_decode invalid char returns none")
+    result = codecs.base64url_decode(invalid_b64url)
+    assert_equal(type(result), "none", "base64url_decode invalid char returns none")
 
 // test: csv_decode handles empty input gracefully
 function csv_invalid_input()

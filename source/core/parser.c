@@ -188,8 +188,8 @@ static const BuiltinSig BUILTINS[] = {
     {"codecs.csv_decode",    1, 3, TYPE_STRING}, {"codecs.csv_encode",   1, 3, TYPE_TABLE},
     {"codecs.xml_decode",    1, 1, TYPE_STRING}, {"codecs.xml_encode",   1, 1, TYPE_TABLE},
     {"codecs.hex_encode",   1, 1, TYPE_STRING}, {"codecs.hex_decode",    1, 1, TYPE_STRING},
-    {"codecs.base_encode",  1, 1, TYPE_STRING}, {"codecs.base_decode",   1, 1, TYPE_STRING},
-    {"codecs.baseurl_encode",1,1, TYPE_STRING}, {"codecs.baseurl_decode",1, 1, TYPE_STRING},
+    {"codecs.base64_encode",  1, 1, TYPE_STRING}, {"codecs.base64_decode",   1, 1, TYPE_STRING},
+    {"codecs.base64url_encode",1,1, TYPE_STRING}, {"codecs.base64url_decode",1, 1, TYPE_STRING},
 
     {"regex.find_all", 2, 3, TYPE_STRING},  {"regex.replace",    3, 4, TYPE_STRING},
     {"regex.split",   2, 3, TYPE_STRING},  {"regex.search", 2, 3, TYPE_STRING},

@@ -1320,14 +1320,14 @@ if probability != none
 ## Codecs Library (codecs)
 The Codecs library provides encoding and decoding functions for various formats. Import it with `import codecs`.
 
-### codecs.base_encode(data)
+### codecs.base64_encode(data)
 Encodes a string to standard Base64. Returns the encoded string, or `none` on failure.
 
 ```apex
 import os
 import codecs
 
-encoded = codecs.base_encode("Hello, Friend!")
+encoded = codecs.base64_encode("Hello, Friend!")
 
 if encoded == none
     os.output("Encoding failed")
@@ -1335,14 +1335,14 @@ else
     os.output(encoded)  // SGVsbG8sIEZyaWVuZCE=
 ```
 
-### codecs.base_decode(data)
+### codecs.base64_decode(data)
 Decodes a standard Base64 string. Returns the decoded string, or `none` on failure.
 
 ```apex
 import os
 import codecs
 
-decoded = codecs.base_decode("SGVsbG8sIEZyaWVuZCE=")
+decoded = codecs.base64_decode("SGVsbG8sIEZyaWVuZCE=")
 
 if decoded == none
     os.output("Decoding failed")
@@ -1350,14 +1350,14 @@ else
     os.output(decoded)  // Hello, Friend!
 ```
 
-### codecs.baseurl_encode(data)
+### codecs.base64url_encode(data)
 Encodes a string to URL-safe Base64. Returns the encoded string, or `none` on failure.
 
 ```apex
 import os
 import codecs
 
-encoded = codecs.baseurl_encode("Hello, Friend!")
+encoded = codecs.base64url_encode("Hello, Friend!")
 
 if encoded == none
     os.output("Encoding failed")
@@ -1365,14 +1365,14 @@ else
     os.output(encoded) // SGVsbG8sIEZyaWVuZCE
 ```
 
-### codecs.baseurl_decode(data)
+### codecs.base64url_decode(data)
 Decodes a URL-safe Base64 string. Returns the decoded string, or `none` on failure.
 
 ```apex
 import os
 import codecs
 
-decoded = codecs.baseurl_decode("SGVsbG8sIEZyaWVuZCE")
+decoded = codecs.base64url_decode("SGVsbG8sIEZyaWVuZCE")
 
 if decoded == none
     os.output("Decoding failed")

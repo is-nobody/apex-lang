@@ -170,8 +170,8 @@ function activate(context) {
                 'codecs.json_decode',     'codecs.json_encode',
                 'codecs.csv_decode',      'codecs.csv_encode',
                 'codecs.xml_decode',      'codecs.xml_encode',
-                'codecs.base_encode',    'codecs.base_decode',
-                'codecs.baseurl_encode', 'codecs.baseurl_decode',
+                'codecs.base64_encode',    'codecs.base64_decode',
+                'codecs.base64url_encode', 'codecs.base64url_decode',
                 'codecs.hex_encode',     'codecs.hex_decode',
 
                 'regex.find_all', 'regex.replace',

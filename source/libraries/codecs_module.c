@@ -905,7 +905,7 @@ static void xml_encode_node(VM* vm, Value v, int depth, StringBuilder* sb) {
 
 // main dispatcher for all codecs module built-in functions
 bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
-    if (strcmp(name, "codecs.base_encode") == 0) {                                   // base64 encode
+    if (strcmp(name, "codecs.base64_encode") == 0) {                                   // base64 encode
         if (arg_count < 1 || !IS_STRING(args[0])) {                                 // validate string
             *result = MAKE_NONE();                                                  // invalid
             return true;                                                            // builtin handled
@@ -921,7 +921,7 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                                                // builtin handled
     }
     
-    if (strcmp(name, "codecs.base_decode") == 0) {                                    // base64 decode
+    if (strcmp(name, "codecs.base64_decode") == 0) {                                    // base64 decode
         if (arg_count < 1 || !IS_STRING(args[0])) {                                 // validate string
             *result = MAKE_NONE();                                                  // invalid
             return true;                                                            // builtin handled
@@ -941,7 +941,7 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                                                // builtin handled
     }
 
-    if (strcmp(name, "codecs.baseurl_encode") == 0) {                                // base64url encode
+    if (strcmp(name, "codecs.base64url_encode") == 0) {                                // base64url encode
         if (arg_count < 1 || !IS_STRING(args[0])) {                                 // validate string
             *result = MAKE_NONE();                                                  // invalid
             return true;                                                            // builtin handled
@@ -957,7 +957,7 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                                                // builtin handled
     }
     
-    if (strcmp(name, "codecs.baseurl_decode") == 0) {                                 // base64url decode
+    if (strcmp(name, "codecs.base64url_decode") == 0) {                                 // base64url decode
         if (arg_count < 1 || !IS_STRING(args[0])) {                                 // validate string
             *result = MAKE_NONE();                                                  // invalid
             return true;                                                            // builtin handled
