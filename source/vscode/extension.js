@@ -112,7 +112,7 @@ function activate(context) {
             const libFuncs = [
                 'os.output',             'os.input',
                 'os.wait',               'os.exit',
-                'os.set_current_folder', 'os.access',
+                'os.change_folder', 'os.access',
                 'os.current_folder', 'os.items',
                 'os.kill',  'os.execute',
                 'os.create_folder',      'os.delete',

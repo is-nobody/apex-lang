@@ -157,7 +157,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         return true;                                                              // builtin handled
     }
     
-    if (strcmp(name, "os.set_current_folder") == 0) {                             // change directory
+    if (strcmp(name, "os.change_folder") == 0) {                             // change directory
         if (arg_count >= 1 && IS_STRING(args[0])) {                               // validate path
             *result = MAKE_BOOL(chdir(AS_STRING(args[0])->chars) == 0);           // change and return status
         } else {

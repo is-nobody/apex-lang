@@ -80,13 +80,13 @@ if current_folder != none
     os.output("Running from: {current_folder}")
 ```
 
-### os.set_current_folder(path)
+### os.change_folder(path)
 Changes the current directory. Returns `true` on success, `false` on failure.
 
 ```apex
 import os
 
-if os.set_current_folder("/home") == false
+if os.change_folder("/home") == false
     os.output("Could not change directory")
 else
     os.output("Directory changed successfully")
