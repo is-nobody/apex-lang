@@ -124,7 +124,7 @@ function activate(context) {
                 'os.rename',             'os.move',
 
                 'sys.platform',   'sys.architecture',
-                'sys.hostname',   'sys.user',
+                'sys.host',   'sys.user',
                 'sys.home',    'sys.apex_version',
                 'sys.executable', 'sys.environment',
                 'sys.disk',   'sys.temp',

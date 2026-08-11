@@ -304,7 +304,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "os.delete", "os.rename",                    "os.move", "os.copy",
         "os.items", "os.parentfolder",               "os.access", "os.args",
 
-        "sys.platform", "sys.architecture",          "sys.hostname", "sys.user",
+        "sys.platform", "sys.architecture",          "sys.host", "sys.user",
         "sys.home", "sys.apex_version",           "sys.executable", "sys.environment",
         "sys.disk", "sys.temp",               "sys.is_terminal", "sys.process_id",
         "sys.time", "sys.date",

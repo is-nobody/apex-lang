@@ -154,7 +154,7 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         return true;                                                     // builtin handled
     }
 
-    if (strcmp(name, "sys.hostname") == 0) {                             // get system hostname
+    if (strcmp(name, "sys.host") == 0) {                             // get system hostname
         char hostname[256];                                              // buffer for hostname
 #ifdef _WIN32
         DWORD size = sizeof(hostname);                                   // buffer size

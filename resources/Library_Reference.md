@@ -388,14 +388,14 @@ if arch != none
     os.output("System Architecture: {arch}")
 ```
 
-### sys.hostname()
+### sys.host()
 Returns the system's hostname as a string. Returns `none` on failure.
 
 ```apex
 import os
 import sys
 
-host = sys.hostname()
+host = sys.host()
 
 if host != none
     os.output("Hostname: {host}")

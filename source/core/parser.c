@@ -141,7 +141,7 @@ static const BuiltinSig BUILTINS[] = {
     {"os.args",               0, 0, TYPE_ANY},
 
     {"sys.platform",          0, 0, TYPE_ANY},    {"sys.architecture",      0, 0, TYPE_ANY},
-    {"sys.hostname",          0, 0, TYPE_ANY},    {"sys.user",              0, 0, TYPE_ANY},
+    {"sys.host",          0, 0, TYPE_ANY},    {"sys.user",              0, 0, TYPE_ANY},
     {"sys.home",           0, 0, TYPE_ANY},    {"sys.apex_version",      0, 0, TYPE_ANY},
     {"sys.executable",        0, 0, TYPE_ANY},    {"sys.disk",          0, 0, TYPE_STRING},
     {"sys.temp",           0, 0, TYPE_ANY},    {"sys.is_terminal",        0, 0, TYPE_ANY},

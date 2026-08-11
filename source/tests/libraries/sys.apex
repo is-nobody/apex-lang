@@ -74,7 +74,7 @@ function homedir()
 
 // test: returns system hostname
 function hostname()
-    host = sys.hostname()
+    host = sys.host()
     is_string = type(host) == "string"
     assert_equal(is_string, true, "hostname returns string")
 
