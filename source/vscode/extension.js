@@ -167,12 +167,12 @@ function activate(context) {
                 'random.seed',        'random.triangular',
                 'random.expovariate', 'random.betavariate',
 
-                'codecs.json_read',     'codecs.json_write',
-                'codecs.csv_read',      'codecs.csv_write',
-                'codecs.xml_read',      'codecs.xml_write',
-                'codecs.base_write',    'codecs.base_read',
-                'codecs.baseurl_write', 'codecs.baseurl_read',
-                'codecs.hex_write',     'codecs.hex_read',
+                'codecs.json_decode',     'codecs.json_encode',
+                'codecs.csv_decode',      'codecs.csv_encode',
+                'codecs.xml_decode',      'codecs.xml_encode',
+                'codecs.base_encode',    'codecs.base_decode',
+                'codecs.baseurl_encode', 'codecs.baseurl_decode',
+                'codecs.hex_encode',     'codecs.hex_decode',
 
                 'regex.find_all', 'regex.replace',
                 'regex.split',   'regex.search',

@@ -749,7 +749,7 @@ static Value xml_parse_element(VM* vm, XmlParser* xp) {
 }
 
 // recursively writes an xml node from a vm table
-static void xml_write_node(VM* vm, Value v, int depth, StringBuilder* sb) {
+static void xml_encode_node(VM* vm, Value v, int depth, StringBuilder* sb) {
     if (!IS_TABLE(v)) return;                                                  // not a table
     
     Table* table = AS_TABLE(v);                                                // unwrap table
@@ -849,7 +849,7 @@ static void xml_write_node(VM* vm, Value v, int depth, StringBuilder* sb) {
             Value child_val;                                                   // child value
             if (table_get(table, k, &child_val)) {                             // child found
                 value_decref(k);                                               // release key
-                xml_write_node(vm, child_val, depth + 1, sb);                  // recursively write child
+                xml_encode_node(vm, child_val, depth + 1, sb);                  // recursively write child
                 value_decref(child_val);                                       // release child value
             } else {
                 value_decref(k);                                               // release key
@@ -873,7 +873,7 @@ static void xml_write_node(VM* vm, Value v, int depth, StringBuilder* sb) {
                             }
                         }
                         if (is_numeric_key && key_str->length > 0) {           // numeric string key
-                            xml_write_node(vm, e->value, depth + 1, sb);       // recursively write child
+                            xml_encode_node(vm, e->value, depth + 1, sb);       // recursively write child
                         }
                     }
                 }
@@ -905,7 +905,7 @@ static void xml_write_node(VM* vm, Value v, int depth, StringBuilder* sb) {
 
 // main dispatcher for all codecs module built-in functions
 bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
-    if (strcmp(name, "codecs.base_write") == 0) {                                   // base64 encode
+    if (strcmp(name, "codecs.base_encode") == 0) {                                   // base64 encode
         if (arg_count < 1 || !IS_STRING(args[0])) {                                 // validate string
             *result = MAKE_NONE();                                                  // invalid
             return true;                                                            // builtin handled
@@ -921,7 +921,7 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                                                // builtin handled
     }
     
-    if (strcmp(name, "codecs.base_read") == 0) {                                    // base64 decode
+    if (strcmp(name, "codecs.base_decode") == 0) {                                    // base64 decode
         if (arg_count < 1 || !IS_STRING(args[0])) {                                 // validate string
             *result = MAKE_NONE();                                                  // invalid
             return true;                                                            // builtin handled
@@ -941,7 +941,7 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                                                // builtin handled
     }
 
-    if (strcmp(name, "codecs.baseurl_write") == 0) {                                // base64url encode
+    if (strcmp(name, "codecs.baseurl_encode") == 0) {                                // base64url encode
         if (arg_count < 1 || !IS_STRING(args[0])) {                                 // validate string
             *result = MAKE_NONE();                                                  // invalid
             return true;                                                            // builtin handled
@@ -957,7 +957,7 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                                                // builtin handled
     }
     
-    if (strcmp(name, "codecs.baseurl_read") == 0) {                                 // base64url decode
+    if (strcmp(name, "codecs.baseurl_decode") == 0) {                                 // base64url decode
         if (arg_count < 1 || !IS_STRING(args[0])) {                                 // validate string
             *result = MAKE_NONE();                                                  // invalid
             return true;                                                            // builtin handled
@@ -977,7 +977,7 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                                                // builtin handled
     }
 
-    if (strcmp(name, "codecs.hex_write") == 0) {                                    // hex encode
+    if (strcmp(name, "codecs.hex_encode") == 0) {                                    // hex encode
         if (arg_count < 1 || !IS_STRING(args[0])) {                                 // validate string
             *result = MAKE_NONE();                                                  // invalid
             return true;                                                            // builtin handled
@@ -1002,7 +1002,7 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                                                // builtin handled
     }
     
-    if (strcmp(name, "codecs.hex_read") == 0) {                                     // hex decode
+    if (strcmp(name, "codecs.hex_decode") == 0) {                                     // hex decode
         if (arg_count < 1 || !IS_STRING(args[0])) {                                 // validate string argument
             *result = MAKE_NONE();                                                  // invalid input
             return true;                                                            // builtin handled
@@ -1053,7 +1053,7 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                                                // builtin handled
     }
 
-    if (strcmp(name, "codecs.json_read") == 0) {                                    // parse json
+    if (strcmp(name, "codecs.json_decode") == 0) {                                    // parse json
         if (arg_count < 1 || !IS_STRING(args[0])) {                                 // validate string
             *result = MAKE_NONE();                                                  // invalid
             return true;                                                            // builtin handled
@@ -1066,7 +1066,7 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                                                // builtin handled
     }
     
-    if (strcmp(name, "codecs.json_write") == 0) {                                   // json serialize
+    if (strcmp(name, "codecs.json_encode") == 0) {                                   // json serialize
         if (arg_count < 1) {                                                        // need value
             *result = MAKE_NONE();                                                  // invalid
             return true;                                                            // builtin handled
@@ -1079,7 +1079,7 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                                                    // builtin handled
     }
 
-    if (strcmp(name, "codecs.csv_read") == 0) {                                  // parse csv
+    if (strcmp(name, "codecs.csv_decode") == 0) {                                  // parse csv
         if (arg_count < 1 || !IS_STRING(args[0])) {                              // validate string
             *result = MAKE_NONE();                                               // invalid
             return true;                                                         // builtin handled
@@ -1174,7 +1174,7 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                               // builtin handled
     }
     
-    if (strcmp(name, "codecs.csv_write") == 0) {                   // csv serialize
+    if (strcmp(name, "codecs.csv_encode") == 0) {                   // csv serialize
         if (arg_count < 1 || !IS_TABLE(args[0])) {                 // validate table
             *result = MAKE_NONE();                                 // invalid
             return true;                                           // builtin handled
@@ -1345,7 +1345,7 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                                          // builtin handled
     }
 
-    if (strcmp(name, "codecs.xml_read") == 0) {       // parse xml
+    if (strcmp(name, "codecs.xml_decode") == 0) {       // parse xml
         if (arg_count < 1 || !IS_STRING(args[0])) {   // validate string
             *result = MAKE_NONE();                    // invalid
             return true;                              // builtin handled
@@ -1364,14 +1364,14 @@ bool codecs_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                  // builtin handled
     }
 
-    if (strcmp(name, "codecs.xml_write") == 0) {    // xml serialize
+    if (strcmp(name, "codecs.xml_encode") == 0) {    // xml serialize
         if (arg_count < 1 || !IS_TABLE(args[0])) {  // validate table
             *result = MAKE_NONE();                  // invalid
             return true;                            // builtin handled
         }
         StringBuilder sb;                           // string builder
         sb_init(&sb, 256);                          // init builder
-        xml_write_node(vm, args[0], 0, &sb);        // write xml
+        xml_encode_node(vm, args[0], 0, &sb);        // write xml
         if (sb.length == 0) {                       // empty output
             sb_free(&sb);                           // free builder
             *result = MAKE_NONE();                  // return none

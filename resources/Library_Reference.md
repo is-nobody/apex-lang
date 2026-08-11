@@ -1320,14 +1320,14 @@ if probability != none
 ## Codecs Library (codecs)
 The Codecs library provides encoding and decoding functions for various formats. Import it with `import codecs`.
 
-### codecs.base_write(data)
+### codecs.base_encode(data)
 Encodes a string to standard Base64. Returns the encoded string, or `none` on failure.
 
 ```apex
 import os
 import codecs
 
-encoded = codecs.base_write("Hello, Friend!")
+encoded = codecs.base_encode("Hello, Friend!")
 
 if encoded == none
     os.output("Encoding failed")
@@ -1335,14 +1335,14 @@ else
     os.output(encoded)  // SGVsbG8sIEZyaWVuZCE=
 ```
 
-### codecs.base_read(data)
+### codecs.base_decode(data)
 Decodes a standard Base64 string. Returns the decoded string, or `none` on failure.
 
 ```apex
 import os
 import codecs
 
-decoded = codecs.base_read("SGVsbG8sIEZyaWVuZCE=")
+decoded = codecs.base_decode("SGVsbG8sIEZyaWVuZCE=")
 
 if decoded == none
     os.output("Decoding failed")
@@ -1350,14 +1350,14 @@ else
     os.output(decoded)  // Hello, Friend!
 ```
 
-### codecs.baseurl_write(data)
+### codecs.baseurl_encode(data)
 Encodes a string to URL-safe Base64. Returns the encoded string, or `none` on failure.
 
 ```apex
 import os
 import codecs
 
-encoded = codecs.baseurl_write("Hello, Friend!")
+encoded = codecs.baseurl_encode("Hello, Friend!")
 
 if encoded == none
     os.output("Encoding failed")
@@ -1365,14 +1365,14 @@ else
     os.output(encoded) // SGVsbG8sIEZyaWVuZCE
 ```
 
-### codecs.baseurl_read(data)
+### codecs.baseurl_decode(data)
 Decodes a URL-safe Base64 string. Returns the decoded string, or `none` on failure.
 
 ```apex
 import os
 import codecs
 
-decoded = codecs.baseurl_read("SGVsbG8sIEZyaWVuZCE")
+decoded = codecs.baseurl_decode("SGVsbG8sIEZyaWVuZCE")
 
 if decoded == none
     os.output("Decoding failed")
@@ -1380,7 +1380,7 @@ else
     os.output(decoded)  // Hello, Friend!
 ```
 
-### codecs.json_write(value)
+### codecs.json_encode(value)
 Converts an Apex value (none, boolean, number, string, table) to a JSON string. Returns the JSON string, or `none` on failure. Tables are encoded as objects `{}` if they have named keys, or arrays `[]` if they only have sequential numeric keys.
 
 ```apex
@@ -1388,7 +1388,7 @@ import os
 import codecs
 
 data = ["name" = "Alice", "age" = 30]
-json_str = codecs.json_write(data)
+json_str = codecs.json_encode(data)
 
 if json_str == none
     os.output("JSON encoding failed")
@@ -1396,7 +1396,7 @@ else
     os.output(json_str)  // {"age": 30, "name": "Alice"}
 ```
 
-### codecs.json_read(json_string)
+### codecs.json_decode(json_string)
 Parses a JSON string into an Apex value. Returns the parsed value (table, number, bool, string), or `none` on failure.
 
 ```apex
@@ -1404,7 +1404,7 @@ import os
 import codecs
 
 json_str = '\{"name": "Alice", "age": 30\}'
-data = codecs.json_read(json_str)
+data = codecs.json_decode(json_str)
 
 if data == none
     os.output("JSON parsing failed")
@@ -1412,7 +1412,7 @@ else
     os.output("Name: {data['name']}")  // Name: Alice
 ```
 
-### codecs.csv_write(table, has_header, delimiter)
+### codecs.csv_encode(table, has_header, delimiter)
 Converts a table of tables to a CSV string. `has_header` (bool) determines if the first row is treated as headers. `delimiter` (string) specifies the separator (default `,`). Returns the CSV string, or `none` on failure.
 
 ```apex
@@ -1424,7 +1424,7 @@ data = [
     2 = ["name" = "Bob", "age" = 25]
 ]
 
-csv_str = codecs.csv_write(data, true, ",")
+csv_str = codecs.csv_encode(data, true, ",")
 
 if csv_str == none
     os.output("CSV encoding failed")
@@ -1432,7 +1432,7 @@ else
     os.output(csv_str)
 ```
 
-### codecs.csv_read(csv_string, has_header, delimiter)
+### codecs.csv_decode(csv_string, has_header, delimiter)
 Parses a CSV string into a table of tables. `has_header` (bool) determines if the first row contains column names. `delimiter` (string) specifies the separator (default `,`). Returns a table of rows, or `none` on failure.
 
 ```apex
@@ -1440,7 +1440,7 @@ import os
 import codecs
 
 csv_str = "name,age\nAlice,30\nBob,25"
-data = codecs.csv_read(csv_str, true, ",")
+data = codecs.csv_decode(csv_str, true, ",")
 
 if data == none
     os.output("CSV parsing failed")
@@ -1448,7 +1448,7 @@ else
     os.output("First name: {data[1]['name']}")
 ```
 
-### codecs.xml_write(table)
+### codecs.xml_encode(table)
 Converts a table representing an XML structure to an XML string. The table should have a `__tag` key for the element name, `@key` keys for attributes, and `#text` for text content. Nested elements are stored with numeric keys. Returns the XML string, or `none` on failure.
 
 ```apex
@@ -1464,7 +1464,7 @@ xml_data = [
     ]
 ]
 
-xml_str = codecs.xml_write(xml_data)
+xml_str = codecs.xml_encode(xml_data)
 
 if xml_str == none
     os.output("XML encoding failed")
@@ -1472,7 +1472,7 @@ else
     os.output(xml_str)
 ```
 
-### codecs.xml_read(xml_string)
+### codecs.xml_decode(xml_string)
 Parses an XML string into a table structure. Returns the root element as a table, or `none` on failure.
 
 ```apex
@@ -1480,7 +1480,7 @@ import os
 import codecs
 
 xml_str = '<root id="1"><child>Hello</child></root>'
-data = codecs.xml_read(xml_str)
+data = codecs.xml_decode(xml_str)
 
 if data == none
     os.output("XML parsing failed")
@@ -1488,14 +1488,14 @@ else
     os.output("Tag: {data['__tag']}")
 ```
 
-### codecs.hex_write(data)
+### codecs.hex_encode(data)
 Encodes a string to a hexadecimal string (lowercase). Each byte is represented by two hex characters. Returns the encoded hex string, or `none` on failure.
 
 ```apex
 import os
 import codecs
 
-hex_str = codecs.hex_write("Hello, Friend!")
+hex_str = codecs.hex_encode("Hello, Friend!")
 
 if hex_str == none
     os.output("Hex encoding failed")
@@ -1503,14 +1503,14 @@ else
     os.output(hex_str)  // 48656c6c6f2c20467269656e6421
 ```
 
-### codecs.hex_read(hex_string)
+### codecs.hex_decode(hex_string)
 Decodes a hexadecimal string back to the original string. Handles uppercase, lowercase, and mixed case hex characters. Whitespace and invalid characters are silently skipped. Returns the decoded string, or `none` on failure.
 
 ```apex
 import os
 import codecs
 
-decoded = codecs.hex_read("48656c6c6f2c20467269656e6421")
+decoded = codecs.hex_decode("48656c6c6f2c20467269656e6421")
 
 if decoded == none
     os.output("Hex decoding failed")

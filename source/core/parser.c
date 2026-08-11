@@ -184,12 +184,12 @@ static const BuiltinSig BUILTINS[] = {
     {"random.seed",          0, 1, TYPE_NUMBER}, {"random.triangular",    0, 3, TYPE_NUMBER},
     {"random.expovariate",   1, 1, TYPE_NUMBER}, {"random.betavariate",   2, 2, TYPE_NUMBER},
 
-    {"codecs.json_read",   1, 1, TYPE_STRING}, {"codecs.json_write",  1, 1, TYPE_ANY},
-    {"codecs.csv_read",    1, 3, TYPE_STRING}, {"codecs.csv_write",   1, 3, TYPE_TABLE},
-    {"codecs.xml_read",    1, 1, TYPE_STRING}, {"codecs.xml_write",   1, 1, TYPE_TABLE},
-    {"codecs.hex_write",   1, 1, TYPE_STRING}, {"codecs.hex_read",    1, 1, TYPE_STRING},
-    {"codecs.base_write",  1, 1, TYPE_STRING}, {"codecs.base_read",   1, 1, TYPE_STRING},
-    {"codecs.baseurl_write",1,1, TYPE_STRING}, {"codecs.baseurl_read",1, 1, TYPE_STRING},
+    {"codecs.json_decode",   1, 1, TYPE_STRING}, {"codecs.json_encode",  1, 1, TYPE_ANY},
+    {"codecs.csv_decode",    1, 3, TYPE_STRING}, {"codecs.csv_encode",   1, 3, TYPE_TABLE},
+    {"codecs.xml_decode",    1, 1, TYPE_STRING}, {"codecs.xml_encode",   1, 1, TYPE_TABLE},
+    {"codecs.hex_encode",   1, 1, TYPE_STRING}, {"codecs.hex_decode",    1, 1, TYPE_STRING},
+    {"codecs.base_encode",  1, 1, TYPE_STRING}, {"codecs.base_decode",   1, 1, TYPE_STRING},
+    {"codecs.baseurl_encode",1,1, TYPE_STRING}, {"codecs.baseurl_decode",1, 1, TYPE_STRING},
 
     {"regex.find_all", 2, 3, TYPE_STRING},  {"regex.replace",    3, 4, TYPE_STRING},
     {"regex.split",   2, 3, TYPE_STRING},  {"regex.search", 2, 3, TYPE_STRING},
