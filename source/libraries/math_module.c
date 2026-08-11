@@ -206,7 +206,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
         return true;                                                  // builtin handled
     }
     
-    if (strcmp(name, "math.trunc") == 0) {                            // truncate to integer
+    if (strcmp(name, "math.drop_decimal") == 0) {                            // truncate to integer
         if (arg_count >= 1 && IS_NUMBER(args[0])) {                   // validate number argument
             *result = MAKE_NUMBER(trunc(AS_NUMBER(args[0])));         // truncate toward zero
             return true;                                              // builtin handled

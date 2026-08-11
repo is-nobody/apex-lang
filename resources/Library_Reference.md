@@ -588,14 +588,14 @@ math.round(3.14159, 2)  // 3.14
 math.round(3.14159, 3)  // 3.142
 ```
 
-### math.trunc(x)
+### math.drop_decimal(x)
 Truncates a number by removing the decimal part. Returns `none` if the argument is not a number.
 
 ```apex
 import math
-math.trunc(3.7)   // 3
-math.trunc(-3.7)  // -3
-math.trunc(0.9)   // 0
+math.drop_decimal(3.7)   // 3
+math.drop_decimal(-3.7)  // -3
+math.drop_decimal(0.9)   // 0
 ```
 
 ### math.sqrt(x)

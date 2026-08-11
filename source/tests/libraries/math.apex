@@ -142,8 +142,8 @@ function tan()
 
 // test: truncate decimal (remove fractional part)
 function trunc()
-    assert_equal(math.trunc(3.9), 3, "math.trunc(3.9)")
-    assert_equal(math.trunc(-3.9), -3, "math.trunc(-3.9)")
+    assert_equal(math.drop_decimal(3.9), 3, "math.drop_decimal(3.9)")
+    assert_equal(math.drop_decimal(-3.9), -3, "math.drop_decimal(-3.9)")
 
 // execute all math library test cases
 abs()
