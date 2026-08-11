@@ -142,13 +142,13 @@ else
     os.output("File found")
 ```
 
-### os.isfile(path)
+### os.is_file(path)
 Returns `true` if the path points to a file specifically (not a folder). Returns `false` otherwise.
 
 ```apex
 import os
 
-if os.isfile("my_file.txt") == false
+if os.is_file("my_file.txt") == false
     os.output("Not a file or doesn't exist")
 else
     os.output("It's a file")

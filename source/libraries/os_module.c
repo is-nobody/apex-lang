@@ -260,7 +260,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         return true;                                                      // builtin handled
     }
     
-    if (strcmp(name, "os.isfile") == 0) {                                 // check if path is file
+    if (strcmp(name, "os.is_file") == 0) {                                 // check if path is file
         if (arg_count >= 1 && IS_STRING(args[0])) {                       // validate path
             struct stat st;                                               // stat buffer
             if (stat(AS_STRING(args[0])->chars, &st) == 0) {              // get stats

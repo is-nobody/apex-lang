@@ -44,9 +44,9 @@ function exists()
 
 // test: check if path points to a regular file
 function isfile()
-    result = os.isfile("main.c")
+    result = os.is_file("main.c")
     assert_equal(result, true, "main.c is file")
-    result = os.isfile("nonexistent")
+    result = os.is_file("nonexistent")
     assert_equal(result, false, "nonexistent is file")
 
 // test: check if path points to a directory

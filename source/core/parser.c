@@ -132,7 +132,7 @@ static const BuiltinSig BUILTINS[] = {
     {"os.kill",  1, 1, TYPE_NUMBER}, {"os.execute",            1, 1, TYPE_STRING},
     {"os.read",               1, 1, TYPE_STRING}, {"os.write",              2, 2, TYPE_STRING},
     {"os.append",             2, 2, TYPE_STRING}, {"os.exists",             1, 1, TYPE_STRING},
-    {"os.isfile",             1, 1, TYPE_STRING}, {"os.is_folder",           1, 1, TYPE_STRING},
+    {"os.is_file",             1, 1, TYPE_STRING}, {"os.is_folder",           1, 1, TYPE_STRING},
     {"os.size",               1, 1, TYPE_STRING}, {"os.create_file",        1, 1, TYPE_STRING},
     {"os.create_folder",      1, 1, TYPE_STRING}, {"os.delete",             1, 1, TYPE_STRING},
     {"os.rename",             2, 2, TYPE_STRING}, {"os.move",               2, 2, TYPE_STRING},
