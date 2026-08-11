@@ -556,14 +556,14 @@ math.abs(-5)     // 5
 math.abs(-3.14)  // 3.14
 ```
 
-### math.floor(x)
+### math.round_down(x)
 Rounds a number down to the nearest whole number. Returns `none` if the argument is not a number.
 
 ```apex
 import math
-math.floor(3.7)   // 3
-math.floor(3.1)   // 3
-math.floor(-2.3)  // -3 (goes down, so more negative)
+math.round_down(3.7)   // 3
+math.round_down(3.1)   // 3
+math.round_down(-2.3)  // -3 (goes down, so more negative)
 ```
 
 ### math.round_up(x)

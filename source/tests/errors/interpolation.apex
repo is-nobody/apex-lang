@@ -20,7 +20,7 @@ os.output("Abs bool: {math.abs(true)}")
 os.output("Sqrt negative: {math.sqrt(-1)}")
 os.output('Sub wrong args: {string.slice("hello")}')
 os.output('Sub too many: {string.slice("hello", 1, 2, 3)}')
-os.output('Floor string: {math.floor("test")}')
+os.output('Floor string: {math.round_down("test")}')
 
 // undefined function errors
 os.output("Bad math func: {math.undefined_func(1)}")
@@ -43,7 +43,7 @@ os.output("Double dot: {math..abs(1)}")
 
 // mixed errors
 os.output('Mix: {undefined_var} and {math.abs("test")} and {string.bad()}')
-os.output('Deep: {math.abs(math.floor("test"))}')
+os.output('Deep: {math.abs(math.round_down("test"))}')
 
 // edge cases - valid but unusual
 os.output("Empty: {}")
@@ -61,4 +61,4 @@ os.output('Wait string: {os.wait("forever")}')
 
 // nested error propagation
 os.output('Nested call: {string.length(math.abs("test"))}')
-os.output("Chain error: {math.floor(string.length(123))}")
+os.output("Chain error: {math.round_down(string.length(123))}")

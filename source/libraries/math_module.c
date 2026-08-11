@@ -24,7 +24,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
         return true;                                              // builtin handled
     }
     
-    if (strcmp(name, "math.floor") == 0) {                        // floor function
+    if (strcmp(name, "math.round_down") == 0) {                        // floor function
         if (arg_count >= 1 && IS_NUMBER(args[0])) {               // validate number argument
             *result = MAKE_NUMBER(floor(AS_NUMBER(args[0])));     // return largest integer <= x
             return true;                                          // builtin handled

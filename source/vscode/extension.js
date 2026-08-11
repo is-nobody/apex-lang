@@ -131,7 +131,7 @@ function activate(context) {
                 'sys.is_terminal', 'sys.process_id',
                 'sys.time',       'sys.datetime',
 
-                'math.abs',     'math.floor',
+                'math.abs',     'math.round_down',
                 'math.round_up',    'math.round',
                 'math.sqrt',    'math.exp',
                 'math.log',     'math.sin',

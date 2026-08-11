@@ -6,7 +6,7 @@ function pomodoro()
     os.output("Pomodoro started! 25 minutes...")
 
     for remaining = work_seconds, 0, -1
-        mins = math.floor(remaining / 60)
+        mins = math.round_down(remaining / 60)
         secs = remaining % 60
         
         secs_str = secs

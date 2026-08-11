@@ -71,9 +71,9 @@ function factorial()
 
 // test: floor (round down to nearest integer)
 function floor()
-    assert_equal(math.floor(3.7), 3, "math.floor(3.7)")
-    assert_equal(math.floor(-3.7), -4, "math.floor(-3.7)")
-    assert_equal(math.floor(3.2), 3, "math.floor(3.2)")
+    assert_equal(math.round_down(3.7), 3, "math.round_down(3.7)")
+    assert_equal(math.round_down(-3.7), -4, "math.round_down(-3.7)")
+    assert_equal(math.round_down(3.2), 3, "math.round_down(3.2)")
 
 // test: greatest common divisor of two integers
 function gcd()
