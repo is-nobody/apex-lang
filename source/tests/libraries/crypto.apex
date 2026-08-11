@@ -268,7 +268,7 @@ function secure_randint()
 function compare_digest()
     a = "secret_token_123"
     b = "secret_token_123"
-    res = crypto.compare_digest(a, b)
+    res = crypto.compare_strings(a, b)
     assert_equal(res, true, "compare_digest identical strings")
 
 // execute all cryptographic test cases

@@ -1621,7 +1621,7 @@ if val != none
     os.output("Secure random int: {val}")
 ```
 
-### crypto.compare_digest(a, b)
+### crypto.compare_strings(a, b)
 Compares two strings in constant time to prevent timing attacks. Useful for comparing security tokens or hashes. Returns `true` if they match, `false` otherwise. Both arguments must be strings. Always succeeds.
 
 ```apex
@@ -1631,7 +1631,7 @@ import crypto
 secret = "my_secret_token"
 input = "my_secret_token"
 
-if crypto.compare_digest(secret, input) == true
+if crypto.compare_strings(secret, input) == true
     os.output("Access granted")
 else
     os.output("Access denied")

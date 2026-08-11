@@ -1832,7 +1832,7 @@ bool crypto_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                       // builtin handled
     }
 
-    if (strcmp(name, "crypto.compare_digest") == 0) {      // constant-time compare
+    if (strcmp(name, "crypto.compare_strings") == 0) {      // constant-time compare
         if (arg_count != 2) {                              // need 2 args
             *result = MAKE_BOOL(false);
             return true;
