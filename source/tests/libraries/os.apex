@@ -51,9 +51,9 @@ function isfile()
 
 // test: check if path points to a directory
 function isfolder()
-    result = os.isfolder("source")
+    result = os.is_folder("source")
     assert_equal(result, true, "source is folder")
-    result = os.isfolder("nonexistent")
+    result = os.is_folder("nonexistent")
     assert_equal(result, false, "nonexistent is folder")
 
 // test: create and delete a file

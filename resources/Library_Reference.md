@@ -154,13 +154,13 @@ else
     os.output("It's a file")
 ```
 
-### os.isfolder(path)
+### os.is_folder(path)
 Returns `true` if the path points to a folder specifically. Returns `false` otherwise.
 
 ```apex
 import os
 
-if os.isfolder("my_folder") == false
+if os.is_folder("my_folder") == false
     os.output("Not a folder or doesn't exist")
 else
     os.output("It's a folder")

@@ -120,7 +120,7 @@ function activate(context) {
                 'os.parentfolder',       'os.copy',
                 'os.read',               'os.write',
                 'os.append',             'os.exists',
-                'os.isfile',             'os.isfolder',
+                'os.isfile',             'os.is_folder',
                 'os.rename',             'os.move',
 
                 'sys.platform',   'sys.architecture',
