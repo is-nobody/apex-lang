@@ -129,7 +129,7 @@ function activate(context) {
                 'sys.executable', 'sys.environment',
                 'sys.disk',   'sys.temp',
                 'sys.is_terminal', 'sys.process_id',
-                'sys.time',       'sys.date',
+                'sys.time',       'sys.datetime',
 
                 'math.abs',     'math.floor',
                 'math.ceil',    'math.round',

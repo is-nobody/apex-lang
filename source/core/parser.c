@@ -146,7 +146,7 @@ static const BuiltinSig BUILTINS[] = {
     {"sys.executable",        0, 0, TYPE_ANY},    {"sys.disk",          0, 0, TYPE_STRING},
     {"sys.temp",           0, 0, TYPE_ANY},    {"sys.is_terminal",        0, 0, TYPE_ANY},
     {"sys.process_id",        0, 0, TYPE_ANY},    {"sys.environment",       0, 0, TYPE_ANY},
-    {"sys.time",              0, 0, TYPE_ANY},    {"sys.date",              0, 0, TYPE_ANY},
+    {"sys.time",              0, 0, TYPE_ANY},    {"sys.datetime",              0, 0, TYPE_ANY},
 
     {"math.abs",      1, 1, TYPE_NUMBER}, {"math.floor",    1, 1, TYPE_NUMBER},
     {"math.ceil",     1, 1, TYPE_NUMBER}, {"math.round",    1, 2, TYPE_NUMBER},

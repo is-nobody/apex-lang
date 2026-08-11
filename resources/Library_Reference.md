@@ -330,7 +330,7 @@ end = sys.time()
 os.output("Took {end - start} seconds")
 ```
 
-### sys.date()
+### sys.datetime()
 Returns the current UTC date and time as a table. All values are numbers. The table contains the following keys:
 
 - `year` — The current year (e.g., 2026)
@@ -346,7 +346,7 @@ Returns the current UTC date and time as a table. All values are numbers. The ta
 import os
 import sys
 
-now = sys.date()
+now = sys.datetime()
 
 os.output("Year: {now['year']}")
 os.output("Month: {now['month']}")

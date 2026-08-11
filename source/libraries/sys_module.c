@@ -315,7 +315,7 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         return true;                                                                // builtin handled
     }
 
-    if (strcmp(name, "sys.date") == 0) {                                        // get current date/time
+    if (strcmp(name, "sys.datetime") == 0) {                                        // get current date/time
         Table* t = table_create(16);                                            // create result table
         *result = MAKE_TABLE(t);                                                // box table as result
 #ifdef _WIN32

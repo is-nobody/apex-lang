@@ -114,7 +114,7 @@ function time()
 
 // test: returns current date/time as structured table
 function date()
-    d = sys.date()
+    d = sys.datetime()
     is_table = type(d) == "table"
     assert_equal(is_table, true, "date returns table")
     if is_table == true
