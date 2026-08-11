@@ -11,7 +11,6 @@
 - **String, table and function equality** (`==`, `!=`), including nested/recursive tables
 - **Ternary expressions:** `value if condition else value`
 - **Control flow:** `if`/`elif`/`else`, `for` (range, table, condition-based), `break`/`continue`/`return`
-- **First-class functions** with closures
 - **`none`** for absent values, missing keys, void returns
 - **String concatenation** via interpolation only
 
