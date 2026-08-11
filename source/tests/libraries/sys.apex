@@ -68,7 +68,7 @@ function executable()
 
 // test: returns user home directory path
 function homedir()
-    dir = sys.homedir()
+    dir = sys.home()
     is_string = type(dir) == "string"
     assert_equal(is_string, true, "homedir returns string")
 

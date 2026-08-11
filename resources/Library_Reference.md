@@ -414,14 +414,14 @@ if user != none
     os.output("Logged in as: {user}")
 ```
 
-### sys.homedir()
+### sys.home()
 Returns the current user's home directory path as a string. Returns `none` if it can't be determined.
 
 ```apex
 import os
 import sys
 
-home = sys.homedir()
+home = sys.home()
 
 if home != none
     os.output("Home folder: {home}")

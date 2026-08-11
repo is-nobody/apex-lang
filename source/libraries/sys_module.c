@@ -182,7 +182,7 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         return true;                                            // builtin handled
     }
 
-    if (strcmp(name, "sys.homedir") == 0) {                     // get user home directory
+    if (strcmp(name, "sys.home") == 0) {                     // get user home directory
 #ifdef _WIN32
         char* home = getenv("USERPROFILE");                                 // try USERPROFILE
         if (!home) {                                                        // if not set
