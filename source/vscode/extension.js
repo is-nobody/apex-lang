@@ -133,7 +133,7 @@ function activate(context) {
 
                 'math.abs',     'math.round_down',
                 'math.round_up',    'math.round',
-                'math.sqrt',    'math.exp',
+                'math.sqrt',    'math.exponent',
                 'math.log',     'math.sin',
                 'math.cos',     'math.tan',
                 'math.asin',    'math.acos',

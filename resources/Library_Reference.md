@@ -618,14 +618,14 @@ math.power(4, 0.5)  // 2 (same as square root)
 math.power(10, -1)  // 0.1
 ```
 
-### math.exp(x)
+### math.exponent(x)
 Returns `e` raised to the power of `x`. Returns `none` if the argument is not a number.
 
 ```apex
 import math
-math.exp(1)  // 2.718281828459045
-math.exp(0)  // 1
-math.exp(2)  // 7.38905609893065
+math.exponent(1)  // 2.718281828459045
+math.exponent(0)  // 1
+math.exponent(2)  // 7.38905609893065
 ```
 
 ### math.hypotenuse(x, y)

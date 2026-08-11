@@ -310,7 +310,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node) {
         "sys.time", "sys.datetime",
 
         "math.abs", "math.round_down",                    "math.round_up", "math.round",
-        "math.sqrt", "math.exp",                     "math.log", "math.sin",
+        "math.sqrt", "math.exponent",                     "math.log", "math.sin",
         "math.cos", "math.tan",                      "math.asin", "math.acos",
         "math.atan", "math.pi",                      "math.e", "math.inf",
         "math.is_nan", "math.is_inf",                  "math.drop_decimal", "math.power",

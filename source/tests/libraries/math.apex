@@ -61,8 +61,8 @@ function e()
 
 // test: exponential function e^x
 function exp()
-    assert_float_equal(math.exp(1), 2.71828182845905, "math.exp(1)")
-    assert_equal(math.exp(0), 1, "math.exp(0)")
+    assert_float_equal(math.exponent(1), 2.71828182845905, "math.exponent(1)")
+    assert_equal(math.exponent(0), 1, "math.exponent(0)")
 
 // test: factorial of integer
 function factorial()

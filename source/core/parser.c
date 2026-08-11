@@ -150,7 +150,7 @@ static const BuiltinSig BUILTINS[] = {
 
     {"math.abs",      1, 1, TYPE_NUMBER}, {"math.round_down",    1, 1, TYPE_NUMBER},
     {"math.round_up",     1, 1, TYPE_NUMBER}, {"math.round",    1, 2, TYPE_NUMBER},
-    {"math.sqrt",     1, 1, TYPE_NUMBER}, {"math.exp",      1, 1, TYPE_NUMBER},
+    {"math.sqrt",     1, 1, TYPE_NUMBER}, {"math.exponent",      1, 1, TYPE_NUMBER},
     {"math.log",      1, 2, TYPE_NUMBER}, {"math.sin",      1, 1, TYPE_NUMBER},
     {"math.cos",      1, 1, TYPE_NUMBER}, {"math.tan",      1, 1, TYPE_NUMBER},
     {"math.asin",     1, 1, TYPE_NUMBER}, {"math.acos",     1, 1, TYPE_NUMBER},

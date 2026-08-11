@@ -71,7 +71,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
         return true;                                              // builtin handled
     }
     
-    if (strcmp(name, "math.exp") == 0) {                          // exponential e^x
+    if (strcmp(name, "math.exponent") == 0) {                          // exponential e^x
         if (arg_count >= 1 && IS_NUMBER(args[0])) {               // validate number argument
             *result = MAKE_NUMBER(exp(AS_NUMBER(args[0])));       // compute e^x
             return true;                                          // builtin handled
