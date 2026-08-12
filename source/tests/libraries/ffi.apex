@@ -29,14 +29,14 @@ function load_library()
 // test: calls add function with positive integers
 function add_positive(lib)
     if lib == none
-        return
+        return none
     res = ffi.call(lib, "add", 10, 20)
     assert_equal(res, 30, "ffi.call add 10+20")
 
 // test: calls add function with negative integer
 function add_negative(lib)
     if lib == none
-        return
+        return none
     res = ffi.call(lib, "add", -5, 5)
     assert_equal(res, 0, "ffi.call add -5+5")
 
@@ -59,7 +59,7 @@ function errno()
 // test: handles missing function gracefully
 function non_existent_function(lib)
     if lib == none
-        return
+        return none
     bad_res = ffi.call(lib, "non_existent_function", 1)
     assert_equal(bad_res, none, "ffi.call non-existent function")
 

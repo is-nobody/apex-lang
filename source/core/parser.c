@@ -1620,16 +1620,16 @@ static ASTNode* parse_index_access(Parser* parser, ASTNode* object) {
 
 // parses dot member access with module validation
 static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
-    advance(parser);
+    advance(parser); // consume the dot
     Token* token = current_token(parser);
     
-    bool is_module = false;
-    
+    // Check if object is a module
     if (object->type == AST_IDENTIFIER) {
         int idx = symbol_index_recursive(parser, object->identifier.name);
-        if ((idx >= 0 && parser->symbols.kinds[idx] == PARSER_SYM_MODULE) ||
-            is_known_builtin_module(object->identifier.name)) {
-            is_module = true;
+        if (!((idx >= 0 && parser->symbols.kinds[idx] == PARSER_SYM_MODULE) ||
+              is_known_builtin_module(object->identifier.name))) {
+            parser->current--;
+            return NULL;
         }
     } else if (object->type == AST_INDEX_ACCESS) {
         ASTNode* current = object;
@@ -1639,20 +1639,18 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
         
         if (current->type == AST_IDENTIFIER) {
             int idx = symbol_index_recursive(parser, current->identifier.name);
-            if ((idx >= 0 && parser->symbols.kinds[idx] == PARSER_SYM_MODULE) ||
-                is_known_builtin_module(current->identifier.name)) {
-                is_module = true;
+            if (!((idx >= 0 && parser->symbols.kinds[idx] == PARSER_SYM_MODULE) ||
+                  is_known_builtin_module(current->identifier.name))) {
+                parser->current--;
+                return NULL;
             }
+        } else {
+            parser->current--;
+            return NULL;
         }
-    }
-    
-    if (!is_module) {
-        parser_error_at(parser, token->line, token->column, 
-                       token->value ? (int)utf8_char_len(token->value) : 1,
-            "Dot access is restricted to imported modules. Use bracket notation '[]' for table access.");
-        if (token->type == TOKEN_IDENTIFIER || token->type == TOKEN_NUMBER) 
-            advance(parser);
-        return object;
+    } else {
+        parser->current--;
+        return NULL;
     }
 
     if (token->type == TOKEN_IDENTIFIER || token->type == TOKEN_NUMBER || 
@@ -1728,7 +1726,10 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
             return access_node;
         }
     }
-    parser_error(parser, "Expected identifier after '.'");
+    
+    Token* dot_token = &parser->tokens[parser->current - 1];
+    parser_error_at(parser, dot_token->line, dot_token->column, 1,
+                    "Expected member name after '.'");
     return object;
 }
 
@@ -1801,8 +1802,14 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
             return parse_call(parser, left);
         case TOKEN_LBRACKET:
             return parse_index_access(parser, left);
-        case TOKEN_DOT:
-            return parse_member_access(parser, left);
+        case TOKEN_DOT: {
+            int pos_before = parser->current;
+            ASTNode* result = parse_member_access(parser, left);
+            if (!result || parser->current == pos_before) {
+                return left;
+            }
+            return result;
+        }
         
         case TOKEN_IF: {
             Token* if_token = advance(parser);
@@ -1903,7 +1910,14 @@ static ASTNode* parse_precedence(Parser* parser, Precedence precedence) {
         return NULL;
     }
     
+    int prev_pos = -1;
+    
     while (true) {
+        if (parser->current == prev_pos) {
+            break;
+        }
+        prev_pos = parser->current;
+        
         Token* token = current_token(parser);
         Precedence current_prec = get_precedence(token->type);
         if (token->type == TOKEN_LPAREN || token->type == TOKEN_LBRACKET || token->type == TOKEN_DOT) {
@@ -2482,6 +2496,20 @@ static ASTNode* parse_import_statement(Parser* parser) {
     return result;
 }
 
+// checks if a token type can start an expression
+static bool is_valid_expr_start(TokenType type) {
+    return type == TOKEN_IDENTIFIER ||
+           type == TOKEN_NUMBER ||
+           type == TOKEN_STRING ||
+           type == TOKEN_NONE ||
+           type == TOKEN_TRUE ||
+           type == TOKEN_FALSE ||
+           type == TOKEN_LPAREN ||
+           type == TOKEN_LBRACKET ||
+           type == TOKEN_MINUS ||
+           type == TOKEN_NOT;
+}
+
 // parses a return statement
 static ASTNode* parse_return_statement(Parser* parser) {
     Token* return_kw = advance(parser);
@@ -2491,40 +2519,42 @@ static ASTNode* parse_return_statement(Parser* parser) {
             "'return' outside of function");
     }
 
-    ASTNode* value = NULL;
-    if (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF) &&
+    if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF) || 
+        check(parser, TOKEN_DEDENT)) {
+        parser_error_at(parser, return_kw->line, return_kw->column + 7, 1,
+                       "Expected return value");
+        return ast_create_return(NULL, return_kw->line, return_kw->column);
+    }
+
+    if (!is_valid_expr_start(current_token(parser)->type)) {
+        Token* token = current_token(parser);
+        int len = token->value ? (int)utf8_char_len(token->value) : 1;
+        parser_error_at(parser, token->line, token->column, len,
+                       "Unexpected token after return");
+        while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
+            advance(parser);
+        }
+        return ast_create_return(NULL, return_kw->line, return_kw->column);
+    }
+
+    ASTNode* value = parse_expression(parser);
+
+    if (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF) && 
         !check(parser, TOKEN_DEDENT)) {
         
-        if (check(parser, TOKEN_COMMA)) {
-            Token* comma = current_token(parser);
-            parser_error_at(parser, comma->line, comma->column, 1,
-                           "Unexpected token after return");
-            while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) advance(parser);
+        Token* extra = current_token(parser);
+        int len = extra->value ? (int)utf8_char_len(extra->value) : 1;
+        
+        if (extra->type == TOKEN_COMMA && is_valid_expr_start(peek(parser, 1)->type)) {
+            parser_error_at(parser, extra->line, extra->column, len,
+                           "Multiple return values are restricted");
         } else {
-            value = parse_expression(parser);
-            
-            if (match(parser, TOKEN_COMMA)) {
-                if (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF) &&
-                    !check(parser, TOKEN_COMMA) && !check(parser, TOKEN_DEDENT)) {
-                    ASTNode* second = parse_expression(parser);
-                    if (second) {
-                        parser_error_at(parser, second->line, second->column, get_node_len(second),
-                                       "Multiple return values are restricted");
-                        while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) advance(parser);
-                    }
-                } else {
-                    Token* comma = &parser->tokens[parser->current - 1];
-                    parser_error_at(parser, comma->line, comma->column, 1,
-                                   "Unexpected token after return");
-                }
-            } else if (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF) &&
-                       !check(parser, TOKEN_DEDENT)) {
-                Token* extra = current_token(parser);
-                parser_error_at(parser, extra->line, extra->column,
-                               extra->value ? (int)utf8_char_len(extra->value) : 1,
-                               "Unexpected token after return");
-                while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) advance(parser);
-            }
+            parser_error_at(parser, extra->line, extra->column, len,
+                           "Unexpected token after return");
+        }
+        
+        while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
+            advance(parser);
         }
     }
     
@@ -2622,6 +2652,29 @@ static ASTNode* parse_statement(Parser* parser) {
             
             ASTNode* expr = parse_expression(parser);
             if (expr) {
+                if (check(parser, TOKEN_DOT)) {
+                    Token* dot = current_token(parser);
+                    int dot_line = dot->line;
+                    int dot_col = dot->column;
+                    advance(parser);
+                    
+                    Token* member = current_token(parser);
+                    if (member->type == TOKEN_IDENTIFIER || member->type == TOKEN_NUMBER || 
+                        (member->type >= TOKEN_FUNCTION && member->type <= TOKEN_FALSE)) {
+                        parser_error_at(parser, member->line, member->column,
+                                    member->value ? (int)utf8_char_len(member->value) : 1,
+                            "Dot access is restricted to imported modules. Use bracket notation '[]' for table access.");
+                        advance(parser);
+                    } else {
+                        parser_error_at(parser, dot_line, dot_col, 1,
+                            "Dot access is restricted to imported modules. Use bracket notation '[]' for table access.");
+                    }
+                    
+                    while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
+                        advance(parser);
+                    }
+                }
+                
                 parser_check_expr_statement(parser, expr);
                 return ast_create_expr_stmt(expr);
             }
@@ -2636,6 +2689,29 @@ static ASTNode* parse_statement(Parser* parser) {
         default: {
             ASTNode* expr = parse_expression(parser);
             if (expr) {
+                if (check(parser, TOKEN_DOT)) {
+                    Token* dot = current_token(parser);
+                    int dot_line = dot->line;
+                    int dot_col = dot->column;
+                    advance(parser);
+                    
+                    Token* member = current_token(parser);
+                    if (member->type == TOKEN_IDENTIFIER || member->type == TOKEN_NUMBER || 
+                        (member->type >= TOKEN_FUNCTION && member->type <= TOKEN_FALSE)) {
+                        parser_error_at(parser, member->line, member->column,
+                                    member->value ? (int)utf8_char_len(member->value) : 1,
+                            "Dot access is restricted to imported modules. Use bracket notation '[]' for table access.");
+                        advance(parser);
+                    } else {
+                        parser_error_at(parser, dot_line, dot_col, 1,
+                            "Dot access is restricted to imported modules. Use bracket notation '[]' for table access.");
+                    }
+                    
+                    while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
+                        advance(parser);
+                    }
+                }
+                
                 parser_check_expr_statement(parser, expr);
                 return ast_create_expr_stmt(expr);
             }

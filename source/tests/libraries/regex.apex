@@ -16,16 +16,13 @@ function assert_equal(actual, expected, name)
 function assert_table_equal(actual, expected, name)
     if type(actual) != "table" or type(expected) != "table"
         os.output("[ERROR] {name}: both must be tables")
-        return
 
     if table.size(actual) != table.size(expected)
         os.output("[ERROR] {name}: table sizes differ")
-        return
 
     for i = 1, table.size(actual)
         if actual[i] != expected[i]
             os.output("[ERROR] {name}[{i}]: got {actual[i]}, expected {expected[i]}")
-            return
 
 // test: findall extracts all digit sequences
 function regex_findall()
