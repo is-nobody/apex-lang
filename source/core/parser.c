@@ -464,6 +464,7 @@ static void symbols_grow(Parser* parser) {
     s->param_counts = (int*)realloc(s->param_counts, sizeof(int) * s->capacity);
     s->const_known = (bool*)realloc(s->const_known, sizeof(bool) * s->capacity);
     s->const_values = (double*)realloc(s->const_values, sizeof(double) * s->capacity);
+    s->is_constant = (bool*)realloc(s->is_constant, sizeof(bool) * s->capacity);
 }
 
 // finds a symbol index in a specific scope
@@ -505,6 +506,7 @@ void parser_exit_scope(Parser* parser) {
                 parser->symbols.param_counts[j] = parser->symbols.param_counts[j + 1];
                 parser->symbols.const_known[j] = parser->symbols.const_known[j + 1];
                 parser->symbols.const_values[j] = parser->symbols.const_values[j + 1];
+                parser->symbols.is_constant[j] = parser->symbols.is_constant[j + 1];
             }
             parser->symbols.count--;
         } else {
@@ -528,6 +530,7 @@ bool parser_declare_symbol(Parser* parser, const char* name, ParserSymbolKind ki
     parser->symbols.param_counts[i] = param_count;
     parser->symbols.const_known[i] = false;
     parser->symbols.const_values[i] = 0.0;
+    parser->symbols.is_constant[i] = (kind == PARSER_SYM_CONSTANT);
     return true;
 }
 
@@ -554,6 +557,7 @@ Parser* parser_create(Token* tokens, int count, const char* filename, const char
     parser->symbols.count = 0;
     parser->symbols.capacity = 0;
     parser->symbols.current_scope = 0;
+    parser->symbols.is_constant = NULL;
     parser->error_count = 0;
     parser->loop_depth = 0;
     parser->function_depth = 0;
@@ -590,7 +594,7 @@ void parser_destroy(Parser* parser) {
         free(parser->symbols.param_counts);
         free(parser->symbols.const_known);
         free(parser->symbols.const_values);
-
+        free(parser->symbols.is_constant);
         free(parser);
     }
 }
@@ -1283,6 +1287,7 @@ static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, in
             int new_idx = temp_parser->symbols.count - 1;
             temp_parser->symbols.const_known[new_idx] = parser->symbols.const_known[i];
             temp_parser->symbols.const_values[new_idx] = parser->symbols.const_values[i];
+            temp_parser->symbols.is_constant[new_idx] = parser->symbols.is_constant[i];
         }
     }
     temp_parser->symbols.current_scope = parser->symbols.current_scope;
@@ -1836,6 +1841,12 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
             advance(parser);
             ASTNode* right = parse_precedence(parser, PREC_ASSIGNMENT - 1);
             if (left->type == AST_IDENTIFIER) {
+                int idx = symbol_index_recursive(parser, left->identifier.name);
+                if (idx >= 0 && parser->symbols.is_constant[idx]) {
+                    parser_error_at(parser, left->line, left->column, 
+                                (int)utf8_char_len(left->identifier.name),
+                                "Cannot reassign constant '%s'", left->identifier.name);
+                }
                 return ast_create_var_assign(
                     left->identifier.name, right, false, NULL,
                     token->line, token->column);
@@ -1843,6 +1854,13 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
                 char* name = NULL;
                 if (left->access.object->type == AST_IDENTIFIER) {
                     name = left->access.object->identifier.name;
+                    int idx = symbol_index_recursive(parser, name);
+                    if (idx >= 0 && parser->symbols.is_constant[idx]) {
+                        parser_error_at(parser, left->access.object->line, 
+                                    left->access.object->column,
+                                    (int)utf8_char_len(name),
+                                    "Cannot modify element of constant '%s'", name);
+                    }
                 }
                 return ast_create_var_assign(
                     name, right, false, left,
@@ -1889,6 +1907,83 @@ static ASTNode* parse_precedence(Parser* parser, Precedence precedence) {
         left = new_left;
     }
     return left;
+}
+
+// parse a constant declaration
+static ASTNode* parse_constant_declaration(Parser* parser) {
+    Token* const_kw = advance(parser);
+    
+    if (!check(parser, TOKEN_IDENTIFIER)) {
+        parser_error_at(parser, const_kw->line, const_kw->column + 9, 1,
+                       "Expected variable name after 'constant'");
+        while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
+            advance(parser);
+        }
+        return NULL;
+    }
+    
+    Token* name = current_token(parser);
+    
+    if (symbol_index_in_scope(parser, name->value, parser->symbols.current_scope) >= 0) {
+        parser_error_at(parser, name->line, name->column, 
+                       (int)utf8_char_len(name->value),
+                       "Variable '%s' already declared in this scope", name->value);
+        while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
+            advance(parser);
+        }
+        return NULL;
+    }
+    
+    advance(parser);
+    
+    if (!match(parser, TOKEN_EQUAL)) {
+        parser_error_at(parser, name->line, name->column + (int)utf8_char_len(name->value), 1,
+                       "Constant must be initialized with '='");
+        while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
+            advance(parser);
+        }
+        return NULL;
+    }
+    
+    if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF)) {
+        parser_error_at(parser, name->line, 
+                       name->column + (int)utf8_char_len(name->value) + 1, 1,
+                       "Expected value for constant");
+        parser_declare_symbol(parser, name->value, PARSER_SYM_CONSTANT,
+                            TYPE_ANY, 0, name->line, name->column);
+        return NULL;
+    }
+    
+    ASTNode* value = parse_expression(parser);
+    
+    if (!value) {
+        parser_error_at(parser, name->line, name->column + (int)utf8_char_len(name->value), 1,
+                       "Expected value for constant");
+        parser_declare_symbol(parser, name->value, PARSER_SYM_CONSTANT,
+                            TYPE_ANY, 0, name->line, name->column);
+        return NULL;
+    }
+    
+    ValueType value_type = TYPE_ANY;
+    if (parser->semantic_checks) {
+        value_type = infer_expression_type(parser, value);
+        if (value_type == TYPE_ERROR) {
+            value_type = TYPE_ANY;
+        }
+    }
+    
+    parser_declare_symbol(parser, name->value, PARSER_SYM_CONSTANT,
+                         value_type, 0, name->line, name->column);
+    
+    if (value->type == AST_LITERAL_NUMBER) {
+        int idx = symbol_index_in_scope(parser, name->value, parser->symbols.current_scope);
+        if (idx >= 0) {
+            parser_symbol_set_const(parser, idx, true, value->literal_number.number_value);
+        }
+    }
+    
+    return ast_create_var_assign(name->value, value, true, NULL, 
+                                name->line, name->column);
 }
 
 // parses an expression using Pratt parser
@@ -1961,6 +2056,15 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
     
     ASTNode* value = parse_expression(parser);
     bool is_declaration = !parser_is_declared(parser, name->value);
+    
+    if (!is_declaration) {
+        int idx = symbol_index_recursive(parser, name->value);
+        if (idx >= 0 && parser->symbols.is_constant[idx]) {
+            parser_error_at(parser, name->line, name->column, 
+                          (int)utf8_char_len(name->value),
+                          "Cannot reassign constant '%s'", name->value);
+        }
+    }
     
     if (match(parser, TOKEN_COMMA)) {
         if (check(parser, TOKEN_NEWLINE)) {
@@ -2639,6 +2743,9 @@ static ASTNode* parse_statement(Parser* parser) {
             
         case TOKEN_IMPORT:
             return parse_import_statement(parser);
+            
+        case TOKEN_CONSTANT:
+            return parse_constant_declaration(parser);
             
         case TOKEN_FUNCTION:
             return parse_function(parser);

@@ -59,11 +59,11 @@ function activate(context) {
                 'return': 'Returns a value from a function.',
                 'break': 'Exits the current loop immediately.',
                 'continue': 'Skips the rest of the current loop iteration.',
+                'constant': 'Declares a constant variable that cannot be reassigned.\n\n```apex\nconstant name = "Apex"\n```',
                 'import': 'Imports a file or library.\n\n```apex\nimport os\nimport utils.math\n```',
                 'and': 'Logical AND operator.',
                 'or': 'Logical OR operator.',
                 'not': 'Logical NOT operator.',
-
                 'none': 'Represents the absence of a value.',
                 'true': 'Boolean literal — true.',
                 'false': 'Boolean literal — false.',
@@ -90,7 +90,7 @@ function activate(context) {
         provideCompletionItems() {         // called when user triggers autocomplete
             const keywords = [             // apex language keywords
                 'function', 'if', 'elif', 'else', 'for', 'break',
-                'continue', 'return', 'import', 'and', 'or', 'not',
+                'continue', 'return', 'import', 'constant', 'and', 'or', 'not',
                 'true', 'false', 'none'
             ];
 

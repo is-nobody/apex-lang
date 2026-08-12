@@ -318,7 +318,7 @@ const char* vm_value_type_name(Value value) {
     if (IS_NUMBER(value) || IS_NAN(value)) return "number";  // all nan-boxed doubles including real nan
     if (IS_STRING(value)) return "string";                   // string object pointer
     if (IS_NONE(value)) return "none";                       // special none tag
-    if (IS_BOOL(value)) return "bool";                       // special bool tag
+    if (IS_BOOL(value)) return "boolean";                    // special bool tag
     if (IS_TABLE(value)) return "table";                     // table object pointer
     if (IS_FUNCTION(value)) return "function";               // function index tag
     return "unknown";                                        // fallback for unhandled types

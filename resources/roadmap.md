@@ -9,7 +9,6 @@
 - Language server (LSP)
 - Debug mode
 - Code formatter before execute
-- `constant` keyword
 - Documentation `Apex as Embedded language`
 - Resolve Cyclic Reference problem
 - Assignment operators (`+=`, `-=`, `*=`, `/=`, `%=`)

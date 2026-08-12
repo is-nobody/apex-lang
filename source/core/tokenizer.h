@@ -19,6 +19,7 @@ typedef enum {
     TOKEN_CONTINUE,      // 'continue' to skip to next loop iteration
     TOKEN_RETURN,        // 'return' to exit a function with an optional value
     TOKEN_IMPORT,        // 'import' for loading external modules
+    TOKEN_CONSTANT,      // 'constant' for declaring immutable variables
     TOKEN_AND,           // logical 'and' operator
     TOKEN_OR,            // logical 'or' operator
     TOKEN_NOT,           // logical 'not' operator

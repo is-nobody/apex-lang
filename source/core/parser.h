@@ -25,6 +25,7 @@ typedef enum {
 // kinds of symbols tracked in the parser's symbol table
 typedef enum {
     PARSER_SYM_VARIABLE,     // local or global variable
+    PARSER_SYM_CONSTANT,     // constant variable
     PARSER_SYM_FUNCTION,     // function declaration
     PARSER_SYM_PARAMETER,    // function parameter
     PARSER_SYM_MODULE,       // imported module
@@ -39,6 +40,7 @@ typedef struct {
     int* param_counts;       // for functions: number of parameters (0 for non-functions)
     bool* const_known;       // whether the symbol has a known compile-time constant value
     double* const_values;    // constant value if const_known is true (for numeric folding)
+    bool* is_constant;       // whether the variable was declared with 'constant' keyword
     int count;               // number of symbols currently stored
     int capacity;            // allocated capacity of the symbol arrays
     int current_scope;       // current lexical scope depth for symbol lookup

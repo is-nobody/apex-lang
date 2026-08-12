@@ -79,7 +79,7 @@
       "patterns": [
         {
           "name": "constant.language.apex",
-          "match": "\\b(true|false|none)\\b"
+          "match": "\\b(true|false|none|constant)\\b"
         }
       ]
     },
