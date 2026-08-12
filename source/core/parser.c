@@ -427,43 +427,6 @@ static bool expr_has_side_effect(ASTNode* node) {
     }
 }
 
-// builds a filesystem path for a module from its dotted name
-static void build_module_path(Parser* parser, const char* module_path, char* out_path, int out_size) {
-    char relative[1024];
-    size_t len = 0;
-    relative[0] = '\0';
-    
-    char path_copy[1024];
-    strncpy(path_copy, module_path, sizeof(path_copy) - 1);
-    path_copy[sizeof(path_copy) - 1] = '\0';
-    
-    char* segment = strtok(path_copy, ".");
-    while (segment) {
-        if (len > 0) {
-            if (len + 1 < sizeof(relative)) {
-#ifdef _WIN32
-                relative[len++] = '\\';
-#else
-                relative[len++] = '/';
-#endif
-            }
-        }
-        size_t seg_len = strlen(segment);
-        memcpy(relative + len, segment, seg_len);
-        len += seg_len;
-        relative[len] = '\0';
-        segment = strtok(NULL, ".");
-    }
-    
-    strcat(relative, ".apex");
-    
-#ifdef _WIN32
-    snprintf(out_path, out_size, "%s\\%s", parser->source_dir, relative);
-#else
-    snprintf(out_path, out_size, "%s/%s", parser->source_dir, relative);
-#endif
-}
-
 // checks if a name is a known built-in module root
 static bool is_known_builtin_module(const char* name) {
     return strcmp(name, "os") == 0 ||
@@ -476,33 +439,6 @@ static bool is_known_builtin_module(const char* name) {
            strcmp(name, "codecs") == 0 ||
            strcmp(name, "regex") == 0 ||
            strcmp(name, "crypto") == 0;
-}
-
-// validates that an imported module file exists on disk
-static void parser_validate_import_file(Parser* parser, const char* module_path, int line, int column) {
-    if (!parser->semantic_checks || !parser->source_dir || !module_path) return;
-    if (strcmp(parser->filename, "stdin") == 0 || strcmp(parser->filename, "<interpolation>") == 0) return;
-    
-    char first_segment[256];
-    const char* dot = strchr(module_path, '.');
-    size_t first_len = dot ? (size_t)(dot - module_path) : strlen(module_path);
-    if (first_len >= sizeof(first_segment)) first_len = sizeof(first_segment) - 1;
-    memcpy(first_segment, module_path, first_len);
-    first_segment[first_len] = '\0';
-    
-    if (is_known_builtin_module(first_segment)) return;
-    
-    char full_path[PATH_MAX];
-    build_module_path(parser, module_path, full_path, sizeof(full_path));
-
-    #ifdef _WIN32
-    if (_access(full_path, F_OK) != 0) {
-    #else
-    if (access(full_path, F_OK) != 0) {
-    #endif
-        parser_error_at(parser, line, column, (int)utf8_char_len(module_path),
-                        "Module '%s' not found (expected '%s')", module_path, full_path);
-    }
 }
 
 // sets or clears a symbol's constant value
@@ -2361,36 +2297,105 @@ static ASTNode* parse_import_statement(Parser* parser) {
 } while(0)
 
     Token* first = current_token(parser);
-    if (!is_valid_import_segment(first->type)) {
-        free(module_path);
+    
+    if (first->type == TOKEN_NEWLINE || first->type == TOKEN_EOF) {
         parser_error_at(parser, import_kw->line, import_kw->column + 7, 1,
-                        "Expected module name");
+                       "Expected module name");
+        free(module_path);
+        return NULL;
+    }
+    
+    if (!is_valid_import_segment(first->type)) {
+        int len = first->value ? (int)utf8_char_len(first->value) : 1;
+        const char* token_str = first->value ? first->value : token_type_name(first->type);
+        parser_error_at(parser, first->line, first->column, len,
+                       "Unexpected token '%s' after import", token_str);
+        while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
+            advance(parser);
+        }
+        free(module_path);
         return NULL;
     }
     APPEND_PATH(first->value);
     advance(parser);
 
-    while (match(parser, TOKEN_DOT)) {
-        Token* dot_token = &parser->tokens[parser->current - 1];
-        APPEND_PATH(".");
-        Token* next = current_token(parser);
-        if (is_valid_import_segment(next->type)) {
-            APPEND_PATH(next->value);
+    bool is_builtin = is_known_builtin_module(first->value) && 
+                      !check(parser, TOKEN_SLASH) && !check(parser, TOKEN_DOT);
+
+    if (!is_builtin) {
+        while (match(parser, TOKEN_SLASH)) {
+            Token* sep = &parser->tokens[parser->current - 1];
+            APPEND_PATH("/");
+            Token* next = current_token(parser);
+            if (is_valid_import_segment(next->type)) {
+                APPEND_PATH(next->value);
+                advance(parser);
+            } else {
+                parser_error_at(parser, sep->line, sep->column + 1, 1,
+                              "Expected module name after '/'");
+                while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
+                    advance(parser);
+                }
+                free(module_path);
+                return NULL;
+            }
+        }
+
+        if (check(parser, TOKEN_DOT)) {
+            Token* dot_token = current_token(parser);
             advance(parser);
+            APPEND_PATH(".");
+            Token* next = current_token(parser);
+            if (next->type != TOKEN_EOF && next->type == TOKEN_IDENTIFIER && strcmp(next->value, "apex") == 0) {
+                APPEND_PATH("apex");
+                advance(parser);
+            } else {
+                parser_error_at(parser, dot_token->line, dot_token->column, 1,
+                              "Import path must end with '.apex'");
+                while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
+                    advance(parser);
+                }
+                free(module_path);
+                return NULL;
+            }
         } else {
-            parser_error_at(parser, dot_token->line, dot_token->column, 1,
-                          "Expected module name after '.'");
+            parser_error_at(parser, first->line, first->column, (int)utf8_char_len(module_path),
+                            "Import path must end with '.apex'");
+            while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
+                advance(parser);
+            }
             free(module_path);
             return NULL;
         }
     }
 
-    ASTNode* import_node = ast_create_import(module_path, import_kw->line, import_kw->column);
-    parser_validate_import_file(parser, module_path, first->line, first->column);
+    if (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
+        Token* extra = current_token(parser);
+        int len = extra->value ? (int)utf8_char_len(extra->value) : 1;
+        parser_error_at(parser, extra->line, extra->column, len,
+                       "Unexpected token after import");
+        while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
+            advance(parser);
+        }
+        free(module_path);
+        return NULL;
+    }
+
+    char* dot_name = (char*)malloc(strlen(module_path) + 1);
+    strcpy(dot_name, module_path);
+    if (!is_builtin) {
+        dot_name[strlen(dot_name) - 5] = '\0';
+    }
+    
+    for (char* p = dot_name; *p; p++) {
+        if (*p == '/') *p = '.';
+    }
+
+    ASTNode* import_node = ast_create_import(dot_name, import_kw->line, import_kw->column);
 
     {
         char path_copy[1024];
-        strncpy(path_copy, module_path, sizeof(path_copy) - 1);
+        strncpy(path_copy, dot_name, sizeof(path_copy) - 1);
         path_copy[sizeof(path_copy) - 1] = '\0';
         
         char* segment = strtok(path_copy, ".");
@@ -2411,24 +2416,21 @@ static ASTNode* parse_import_statement(Parser* parser) {
         }
     }
 
-    char first_segment[256];
-    const char* dot = strchr(module_path, '.');
-    size_t first_len = dot ? (size_t)(dot - module_path) : strlen(module_path);
-    if (first_len >= sizeof(first_segment)) first_len = sizeof(first_segment) - 1;
-    memcpy(first_segment, module_path, first_len);
-    first_segment[first_len] = '\0';
-
-    if (is_known_builtin_module(first_segment)) {
+    if (is_builtin) {
         free(module_path);
+        free(dot_name);
         return import_node;
     }
 
     char full_path[PATH_MAX];
-    build_module_path(parser, module_path, full_path, sizeof(full_path));
+    snprintf(full_path, sizeof(full_path), "%s/%s", parser->source_dir, module_path);
 
     FILE* f = fopen(full_path, "rb");
     if (!f) {
+        parser_error_at(parser, first->line, first->column, (int)utf8_char_len(module_path),
+                        "Module '%s' not found (expected '%s')", dot_name, full_path);
         free(module_path);
+        free(dot_name);
         return import_node;
     }
     fseek(f, 0, SEEK_END);
@@ -2459,7 +2461,7 @@ static ASTNode* parse_import_statement(Parser* parser) {
         if (mod_parser->symbols.scope_levels[i] == 0) {
             char full_name[1024];
             snprintf(full_name, sizeof(full_name), "%s.%s", 
-                     module_path, mod_parser->symbols.names[i]);
+                     dot_name, mod_parser->symbols.names[i]);
             
             if (symbol_index_recursive(parser, full_name) < 0) {
                 parser_declare_symbol(parser, full_name, 
@@ -2480,7 +2482,7 @@ static ASTNode* parse_import_statement(Parser* parser) {
                                    strlen(module_prefix)) == 0) {
                             char sub_full_name[1024];
                             snprintf(sub_full_name, sizeof(sub_full_name), "%s.%s", 
-                                     module_path, mod_parser->symbols.names[j]);
+                                     dot_name, mod_parser->symbols.names[j]);
                             
                             if (symbol_index_recursive(parser, sub_full_name) < 0) {
                                 parser_declare_symbol(parser, sub_full_name, 
@@ -2500,18 +2502,19 @@ static ASTNode* parse_import_statement(Parser* parser) {
     tokenizer_destroy(mod_tok);
     free(source);
     
-    char* saved_module_path = strdup(module_path);
+    char* saved_dot_name = strdup(dot_name);
     free(module_path);
+    free(dot_name);
 #undef APPEND_PATH
 
     if (!mod_ast) {
-        free(saved_module_path);
+        free(saved_dot_name);
         return import_node;
     }
 
     ast_free_node(import_node);
-    ASTNode* result = ast_create_module_block(saved_module_path, mod_ast, import_kw->line, import_kw->column);
-    free(saved_module_path);
+    ASTNode* result = ast_create_module_block(saved_dot_name, mod_ast, import_kw->line, import_kw->column);
+    free(saved_dot_name);
     return result;
 }
 

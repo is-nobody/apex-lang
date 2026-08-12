@@ -5,10 +5,10 @@
 
 import os
 import math
-import lib
-import lib.subfolder.math_utils
-import lib.string_utils
-import lib.fib
+import lib.apex
+import lib/subfolder/math_utils.apex
+import lib/string_utils.apex
+import lib/fib.apex
 
 // helper: compares two values and reports mismatch with context
 function assert_equal(actual, expected, name)
