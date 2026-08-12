@@ -2276,7 +2276,9 @@ static ASTNode* parse_for_statement(Parser* parser) {
     parser_exit_scope(parser);
     parser->loop_depth--;
 
-    return ast_create_for(var_name, condition, start, end, step, body, for_kw->line, for_kw->column);
+    ASTNode* result = ast_create_for(var_name, condition, start, end, step, body, for_kw->line, for_kw->column);
+    free(var_name);
+    return result;
 }
 
 // parses an import statement with module file loading
