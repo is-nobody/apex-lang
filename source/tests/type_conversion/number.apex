@@ -20,6 +20,21 @@ function number_from_decimal_string()
     result = number("3.14")
     assert_equal(result, 3.14, "number('3.14')")
 
+// test: converts number to number (returns same value)
+function number_from_number()
+    result = number(123)
+    assert_equal(result, 123, "number(123)")
+
+// test: converts negative number to number
+function number_from_negative_number()
+    result = number(-456)
+    assert_equal(result, -456, "number(-456)")
+
+// test: converts float number to number
+function number_from_float_number()
+    result = number(78.9)
+    assert_equal(result, 78.9, "number(78.9)")
+
 // test: boolean true returns none (not numeric)
 function number_from_true()
     result = number(true)
@@ -58,6 +73,9 @@ function number_from_table()
 // execute all number conversion test cases
 number_from_int_string()
 number_from_decimal_string()
+number_from_number()
+number_from_negative_number()
+number_from_float_number()
 number_from_true()
 number_from_false()
 number_from_invalid_string()

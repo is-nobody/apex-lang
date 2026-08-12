@@ -20,6 +20,16 @@ function string_from_decimal()
     result = string(3.14)
     assert_equal(result, "3.14", "string(3.14)")
 
+// test: converts string to string (returns same value)
+function string_from_string()
+    result = string("hello world")
+    assert_equal(result, "hello world", "string('hello world')")
+
+// test: converts empty string to string
+function string_from_empty_string()
+    result = string("")
+    assert_equal(result, "", "string('')")
+
 // test: converts boolean true to string
 function string_from_true()
     result = string(true)
@@ -53,6 +63,8 @@ function string_from_table()
 // execute all string conversion test cases
 string_from_int()
 string_from_decimal()
+string_from_string()
+string_from_empty_string()
 string_from_true()
 string_from_false()
 string_from_negative()
