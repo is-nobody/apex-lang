@@ -923,6 +923,31 @@ static const char* resolve_call_name(ASTNode* callee, char* buffer, size_t bufle
     return NULL;
 }
 
+static bool check_builtin_module_imported(Parser* parser, ASTNode* callee, const char* module_name) {
+    if (is_known_builtin_module(module_name) && symbol_index_recursive(parser, module_name) < 0) {
+        int mod_line = callee->line;
+        int mod_column = callee->column;
+        int mod_len = (int)utf8_char_len(module_name);
+        
+        if (callee->type == AST_INDEX_ACCESS) {
+            ASTNode* current = callee;
+            while (current->type == AST_INDEX_ACCESS) {
+                current = current->access.object;
+            }
+            if (current->type == AST_IDENTIFIER) {
+                mod_line = current->line;
+                mod_column = current->column;
+                mod_len = (int)utf8_char_len(current->identifier.name);
+            }
+        }
+        
+        parser_error_at(parser, mod_line, mod_column, mod_len,
+            "Built-in module '%s' must be imported with 'import %s'", module_name, module_name);
+        return true;
+    }
+    return false;
+}
+
 // infers the return type of a function call with signature validation
 static ValueType infer_call_type(Parser* parser, ASTNode* node) {
     ValueType callee_type = infer_expression_type(parser, node->call.callee);
@@ -960,10 +985,7 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
                 strncpy(root, func_name, root_len);
                 root[root_len] = '\0';
                 
-                if (is_known_builtin_module(root) && symbol_index_recursive(parser, root) < 0) {
-                    int err_len = get_node_len(node->call.callee);
-                    parser_error_at(parser, node->call.callee->line, node->call.callee->column, err_len > 0 ? err_len : 1,
-                        "Built-in module '%s' must be imported with 'import %s'", root, root);
+                if (check_builtin_module_imported(parser, node->call.callee, root)) {
                     return TYPE_ANY;
                 }
             }
@@ -1017,11 +1039,9 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
                 root_module[root_len] = '\0';
                 
                 if (is_known_builtin_module(root_module)) {
-                    ASTNode* member = node->call.callee->access.member;
-                    int len = get_node_len(member);
-                    parser_error_at(parser, member->line, member->column, len,
-                        "Undefined function '%s' in module '%s'", dot_pos + 1, root_module);
-                    return TYPE_ANY;
+                    if (check_builtin_module_imported(parser, node->call.callee, root_module)) {
+                        return TYPE_ANY;
+                    }
                 }
             }
         }
@@ -1039,10 +1059,9 @@ static ValueType infer_index_access_type(Parser* parser, ASTNode* node) {
     if (node->access.object->type == AST_IDENTIFIER && 
         node->access.member->type == AST_IDENTIFIER) {
         const char* mod_name = node->access.object->identifier.name;
-        if (is_known_builtin_module(mod_name) && symbol_index_recursive(parser, mod_name) < 0) {
-            parser_error_at(parser, node->access.object->line, node->access.object->column,
-                (int)utf8_char_len(mod_name),
-                "Built-in module '%s' must be imported with 'import %s'", mod_name, mod_name);
+        
+        if (check_builtin_module_imported(parser, node, mod_name)) {
+            return TYPE_ANY;
         }
         return TYPE_ANY; 
     }
