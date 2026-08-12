@@ -1283,9 +1283,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
         du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double
         double r = a.d + b.d;                    // perform addition
+        value_decref(regs[dest]);                // release old value
         if (r != r) {                            // check for nan result
             if (a.d != a.d || b.d != b.d) {      // one of the operands is nan (not a number)
-                value_decref(regs[dest]);        // release old value
                 regs[dest] = MAKE_NONE();        // nan operands produce none
             } else {
                 regs[dest] = MAKE_NUMBER(r);     // genuine nan result, store as number
@@ -1300,9 +1300,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double
         du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double
         double r = a.d - b.d;                    // perform subtraction
+        value_decref(regs[dest]);                // release old value
         if (r != r) {                            // check for nan result
             if (a.d != a.d || b.d != b.d) {      // one of the operands is nan
-                value_decref(regs[dest]);        // release old value
                 regs[dest] = MAKE_NONE();        // nan operands produce none
             } else {
                 regs[dest] = MAKE_NUMBER(r);     // genuine nan result, store as number
@@ -1317,9 +1317,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double
         du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double
         double r = a.d * b.d;                    // perform multiplication
+        value_decref(regs[dest]);                // release old value
         if (r != r) {                            // check for nan result
             if (a.d != a.d || b.d != b.d) {      // one of the operands is nan
-                value_decref(regs[dest]);        // release old value
                 regs[dest] = MAKE_NONE();        // nan operands produce none
             } else {
                 regs[dest] = MAKE_NUMBER(r);     // genuine nan result, store as number
@@ -1334,9 +1334,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double
         du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double
         double r = a.d / b.d;                    // perform division
+        value_decref(regs[dest]);                // release old value
         if (r != r) {                            // check for nan result
             if (a.d != a.d || b.d != b.d) {      // one of the operands is nan
-                value_decref(regs[dest]);        // release old value
                 regs[dest] = MAKE_NONE();        // nan operands produce none
             } else {
                 regs[dest] = MAKE_NUMBER(r);     // genuine nan result, store as number
@@ -1351,9 +1351,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double
         du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double
         double r = fmod(a.d, b.d);               // perform modulo using fmod
+        value_decref(regs[dest]);                // release old value
         if (r != r) {                            // check for nan result
             if (a.d != a.d || b.d != b.d) {      // one of the operands is nan
-                value_decref(regs[dest]);        // release old value
                 regs[dest] = MAKE_NONE();        // nan operands produce none
             } else {
                 regs[dest] = MAKE_NUMBER(r);     // genuine nan result, store as number
