@@ -1218,12 +1218,13 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int dest = ip->operands[0];              // dest register index
         int src = ip->operands[1];               // source register index
         Value sv = regs[src];                    // read source value
-        value_decref(regs[dest]);                // release old value in dest before overwriting
-        if (IS_NUMBER(sv) || IS_BOOL(sv)) {      // unboxed immediate types, no incref needed
-            regs[dest] = sv;                     // store directly without incref
-        } else {
-            regs[dest] = sv;                     // store heap-allocated value
-            value_incref(regs[dest]);            // bump refcount for the new reference
+        Value old = regs[dest];                  // read old dest value
+        if ((old & QNAN) == QNAN) {
+            value_decref(old);                   // release old heap object
+        }
+        regs[dest] = sv;                         // copy source to dest
+        if ((sv & QNAN) == QNAN) {
+            value_incref(sv);                    // bump refcount for stored reference
         }
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
