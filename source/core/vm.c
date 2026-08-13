@@ -1277,91 +1277,100 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         regs[dest] = MAKE_BOOL(ip->operands[1] != 0);  // store new bool value
         ip++; goto *dispatch_table[ip->opcode];        // advance to next instruction
     }
-
     OP_ADD_LABEL: {
         int dest = ip->operands[0];              // dest register index
-        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
-        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double
+        du64 a = {.u = regs[ip->operands[1]]};   // left operand as double
+        du64 b = {.u = regs[ip->operands[2]]};   // right operand as double
         double r = a.d + b.d;                    // perform addition
-        value_decref(regs[dest]);                // release old value
-        if (r != r) {                            // check for nan result
-            if (a.d != a.d || b.d != b.d) {      // one of the operands is nan (not a number)
-                regs[dest] = MAKE_NONE();        // nan operands produce none
-            } else {
-                regs[dest] = MAKE_NUMBER(r);     // genuine nan result, store as number
-            }
+        uint64_t old = regs[dest];               // save old value for decref
+
+        if (r != r) {                            // nan result (rare)
+            value_decref(old);                   // release heap object if any
+            regs[dest] = MAKE_NONE();            // store none
         } else {
-            regs[dest] = MAKE_NUMBER(r);         // normal result, store as unboxed number
+            if ((old & QNAN) == QNAN) {          // fast check: old is nan-boxed
+                value_decref(old);               // release heap object
+            }
+            regs[dest] = MAKE_NUMBER(r);         // store number
         }
-        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
+        
+        ip++; goto *dispatch_table[ip->opcode];  // next instruction
     }
     OP_SUB_LABEL: {
         int dest = ip->operands[0];              // dest register index
-        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double
-        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double
+        du64 a = {.u = regs[ip->operands[1]]};   // left operand as double
+        du64 b = {.u = regs[ip->operands[2]]};   // right operand as double
         double r = a.d - b.d;                    // perform subtraction
-        value_decref(regs[dest]);                // release old value
-        if (r != r) {                            // check for nan result
-            if (a.d != a.d || b.d != b.d) {      // one of the operands is nan
-                regs[dest] = MAKE_NONE();        // nan operands produce none
-            } else {
-                regs[dest] = MAKE_NUMBER(r);     // genuine nan result, store as number
-            }
+        uint64_t old = regs[dest];               // save old value for decref
+
+        if (r != r) {                            // nan result (rare)
+            value_decref(old);                   // release heap object if any
+            regs[dest] = MAKE_NONE();            // store none
         } else {
-            regs[dest] = MAKE_NUMBER(r);         // normal result
+            if ((old & QNAN) == QNAN) {          // fast check: old is nan-boxed
+                value_decref(old);               // release heap object
+            }
+            regs[dest] = MAKE_NUMBER(r);         // store number
         }
-        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
+        
+        ip++; goto *dispatch_table[ip->opcode];  // next instruction
     }
     OP_MUL_LABEL: {
         int dest = ip->operands[0];              // dest register index
-        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double
-        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double
+        du64 a = {.u = regs[ip->operands[1]]};   // left operand as double
+        du64 b = {.u = regs[ip->operands[2]]};   // right operand as double
         double r = a.d * b.d;                    // perform multiplication
-        value_decref(regs[dest]);                // release old value
-        if (r != r) {                            // check for nan result
-            if (a.d != a.d || b.d != b.d) {      // one of the operands is nan
-                regs[dest] = MAKE_NONE();        // nan operands produce none
-            } else {
-                regs[dest] = MAKE_NUMBER(r);     // genuine nan result, store as number
-            }
+        uint64_t old = regs[dest];               // save old value for decref
+
+        if (r != r) {                            // nan result (rare)
+            value_decref(old);                   // release heap object if any
+            regs[dest] = MAKE_NONE();            // store none
         } else {
-            regs[dest] = MAKE_NUMBER(r);         // normal result
+            if ((old & QNAN) == QNAN) {          // fast check: old is nan-boxed
+                value_decref(old);               // release heap object
+            }
+            regs[dest] = MAKE_NUMBER(r);         // store number
         }
-        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
+        
+        ip++; goto *dispatch_table[ip->opcode];  // next instruction
     }
     OP_DIV_LABEL: {
         int dest = ip->operands[0];              // dest register index
-        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double
-        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double
+        du64 a = {.u = regs[ip->operands[1]]};   // left operand as double
+        du64 b = {.u = regs[ip->operands[2]]};   // right operand as double
         double r = a.d / b.d;                    // perform division
-        value_decref(regs[dest]);                // release old value
-        if (r != r) {                            // check for nan result
-            if (a.d != a.d || b.d != b.d) {      // one of the operands is nan
-                regs[dest] = MAKE_NONE();        // nan operands produce none
-            } else {
-                regs[dest] = MAKE_NUMBER(r);     // genuine nan result, store as number
-            }
+        uint64_t old = regs[dest];               // save old value for decref
+
+        if (r != r) {                            // nan result (rare)
+            value_decref(old);                   // release heap object if any
+            regs[dest] = MAKE_NONE();            // store none
         } else {
-            regs[dest] = MAKE_NUMBER(r);         // normal result
+            if ((old & QNAN) == QNAN) {          // fast check: old is nan-boxed
+                value_decref(old);               // release heap object
+            }
+            regs[dest] = MAKE_NUMBER(r);         // store number
         }
-        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
+        
+        ip++; goto *dispatch_table[ip->opcode];  // next instruction
     }
     OP_MOD_LABEL: {
         int dest = ip->operands[0];              // dest register index
-        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double
-        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double
-        double r = fmod(a.d, b.d);               // perform modulo using fmod
-        value_decref(regs[dest]);                // release old value
-        if (r != r) {                            // check for nan result
-            if (a.d != a.d || b.d != b.d) {      // one of the operands is nan
-                regs[dest] = MAKE_NONE();        // nan operands produce none
-            } else {
-                regs[dest] = MAKE_NUMBER(r);     // genuine nan result, store as number
-            }
+        du64 a = {.u = regs[ip->operands[1]]};   // left operand as double
+        du64 b = {.u = regs[ip->operands[2]]};   // right operand as double
+        double r = fmod(a.d, b.d);               // perform modulo
+        uint64_t old = regs[dest];               // save old value for decref
+
+        if (r != r) {                            // nan result (rare)
+            value_decref(old);                   // release heap object if any
+            regs[dest] = MAKE_NONE();            // store none
         } else {
-            regs[dest] = MAKE_NUMBER(r);         // normal result
+            if ((old & QNAN) == QNAN) {          // fast check: old is nan-boxed
+                value_decref(old);               // release heap object
+            }
+            regs[dest] = MAKE_NUMBER(r);         // store number
         }
-        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
+        
+        ip++; goto *dispatch_table[ip->opcode];  // next instruction
     }
     OP_NEG_LABEL: {
         int dest = ip->operands[0];                                   // dest register index

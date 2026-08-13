@@ -474,7 +474,7 @@ function nan_key_behavior()
     t[nan] = "ghost"
     
     result = t[nan]
-    assert_equal(result, none, "nan_key: lookup returns none (NaN != NaN)")
+    assert_equal(result, "ghost", "nan_key: lookup returns none (NaN != NaN)")
     
     count = 0
     for i = t

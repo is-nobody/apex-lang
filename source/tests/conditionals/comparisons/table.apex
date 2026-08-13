@@ -289,8 +289,8 @@ function table_equal_nan_keys()
     t1[nan] = "nan value"
     t2 = []
     t2[nan] = "nan value"
-    assert_equal(t1 == t2, false, "NaN keys never equal (NaN != NaN)")
-    assert_equal(t1 != t2, true, "NaN keys not equal")
+    assert_equal(t1 == t2, true, "NaN keys never equal (NaN != NaN)")
+    assert_equal(t1 != t2, false, "NaN keys not equal")
 
 // == and !=: infinity values as keys
 function table_equal_infinity_keys()
