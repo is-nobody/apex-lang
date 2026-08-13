@@ -1909,6 +1909,21 @@ static ASTNode* parse_precedence(Parser* parser, Precedence precedence) {
     return left;
 }
 
+// checks if a token type can start an expression
+static bool is_valid_expr_start(TokenType type) {
+    return type == TOKEN_IDENTIFIER ||
+           type == TOKEN_NUMBER ||
+           type == TOKEN_STRING ||
+           type == TOKEN_NONE ||
+           type == TOKEN_TRUE ||
+           type == TOKEN_FALSE ||
+           type == TOKEN_LPAREN ||
+           type == TOKEN_LBRACKET ||
+           type == TOKEN_MINUS ||
+           type == TOKEN_NOT;
+}
+
+
 // parse a constant declaration
 static ASTNode* parse_constant_declaration(Parser* parser) {
     Token* const_kw = advance(parser);
@@ -1922,22 +1937,11 @@ static ASTNode* parse_constant_declaration(Parser* parser) {
         return NULL;
     }
     
-    Token* name = current_token(parser);
-    
-    if (symbol_index_in_scope(parser, name->value, parser->symbols.current_scope) >= 0) {
-        parser_error_at(parser, name->line, name->column, 
-                       (int)utf8_char_len(name->value),
-                       "Variable '%s' already declared in this scope", name->value);
-        while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
-            advance(parser);
-        }
-        return NULL;
-    }
-    
-    advance(parser);
+    Token* name = advance(parser);
     
     if (!match(parser, TOKEN_EQUAL)) {
-        parser_error_at(parser, name->line, name->column + (int)utf8_char_len(name->value), 1,
+        parser_error_at(parser, name->line, name->column, 
+                       (int)utf8_char_len(name->value),
                        "Constant must be initialized with '='");
         while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
             advance(parser);
@@ -1945,32 +1949,34 @@ static ASTNode* parse_constant_declaration(Parser* parser) {
         return NULL;
     }
     
-    if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF)) {
-        parser_error_at(parser, name->line, 
-                       name->column + (int)utf8_char_len(name->value) + 1, 1,
-                       "Expected value for constant");
+    if (!is_valid_expr_start(current_token(parser)->type)) {
+        Token* bad_token = current_token(parser);
+        
+        if (bad_token->type == TOKEN_CONSTANT) {
+            parser_error_at(parser, bad_token->line, 
+                        bad_token->column + (int)utf8_char_len(bad_token->value) + 1, 
+                        1,
+                        "Expected variable name after 'constant'");
+        }
+        
         parser_declare_symbol(parser, name->value, PARSER_SYM_CONSTANT,
                             TYPE_ANY, 0, name->line, name->column);
+        
+        while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
+            advance(parser);
+        }
         return NULL;
     }
     
     ASTNode* value = parse_expression(parser);
-    
     if (!value) {
-        parser_error_at(parser, name->line, name->column + (int)utf8_char_len(name->value), 1,
-                       "Expected value for constant");
         parser_declare_symbol(parser, name->value, PARSER_SYM_CONSTANT,
                             TYPE_ANY, 0, name->line, name->column);
         return NULL;
     }
     
-    ValueType value_type = TYPE_ANY;
-    if (parser->semantic_checks) {
-        value_type = infer_expression_type(parser, value);
-        if (value_type == TYPE_ERROR) {
-            value_type = TYPE_ANY;
-        }
-    }
+    ValueType value_type = parser->semantic_checks ? infer_expression_type(parser, value) : TYPE_ANY;
+    if (value_type == TYPE_ERROR) value_type = TYPE_ANY;
     
     parser_declare_symbol(parser, name->value, PARSER_SYM_CONSTANT,
                          value_type, 0, name->line, name->column);
@@ -2622,20 +2628,6 @@ static ASTNode* parse_import_statement(Parser* parser) {
     ASTNode* result = ast_create_module_block(saved_dot_name, mod_ast, import_kw->line, import_kw->column);
     free(saved_dot_name);
     return result;
-}
-
-// checks if a token type can start an expression
-static bool is_valid_expr_start(TokenType type) {
-    return type == TOKEN_IDENTIFIER ||
-           type == TOKEN_NUMBER ||
-           type == TOKEN_STRING ||
-           type == TOKEN_NONE ||
-           type == TOKEN_TRUE ||
-           type == TOKEN_FALSE ||
-           type == TOKEN_LPAREN ||
-           type == TOKEN_LBRACKET ||
-           type == TOKEN_MINUS ||
-           type == TOKEN_NOT;
 }
 
 // parses a return statement
