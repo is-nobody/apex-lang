@@ -20,77 +20,6 @@ static int utf8_char_len(unsigned char c) {
     return 1;                                                         // fallback
 }
 
-// decodes a UTF-8 sequence into a Unicode code point
-static int utf8_decode(const char* s, unsigned int* codepoint) {
-    unsigned char c = (unsigned char)s[0];                            // get first byte
-    
-    if (c < 0x80) {                                                   // ascii character
-        *codepoint = c;                                               // store ascii value
-        return 1;                                                     // 1 byte consumed
-    }
-    if ((c & 0xE0) == 0xC0) {                                         // 2-byte sequence
-        *codepoint = ((c & 0x1F) << 6) | (s[1] & 0x3F);               // decode 2-byte
-        return 2;                                                     // 2 bytes consumed
-    }
-    if ((c & 0xF0) == 0xE0) {                                         // 3-byte sequence
-        *codepoint = ((c & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F);  // decode 3-byte
-        return 3;                                                     // 3 bytes consumed
-    }
-    if ((c & 0xF8) == 0xF0) {                                         // 4-byte sequence
-        *codepoint = ((c & 0x07) << 18) | ((s[1] & 0x3F) << 12) | ((s[2] & 0x3F) << 6) | (s[3] & 0x3F);  // decode 4-byte
-        return 4;                                                     // 4 bytes consumed
-    }
-    *codepoint = c;                                                   // fallback
-    return 1;                                                         // 1 byte consumed
-}
-
-// checks if a Unicode code point is a letter (all modern writing systems)
-static bool unicode_is_letter(unsigned int cp) {
-    return (cp >= 'A' && cp <= 'Z') ||                               // basic latin uppercase
-           (cp >= 'a' && cp <= 'z') ||                               // basic latin lowercase
-           (cp >= 0x00C0 && cp <= 0x024F) ||                         // latin extended
-           (cp >= 0x0400 && cp <= 0x04FF) ||                         // cyrillic
-           (cp >= 0x0370 && cp <= 0x03FF) ||                         // greek
-           (cp >= 0x0530 && cp <= 0x058F) ||                         // armenian
-           (cp >= 0x0590 && cp <= 0x05FF) ||                         // hebrew
-           (cp >= 0x0600 && cp <= 0x06FF) ||                         // arabic
-           (cp >= 0x0750 && cp <= 0x077F) ||                         // arabic extended
-           (cp >= 0xFB50 && cp <= 0xFDFF) ||                         // arabic presentation
-           (cp >= 0x0900 && cp <= 0x097F) ||                         // devanagari
-           (cp >= 0x0980 && cp <= 0x09FF) ||                         // bengali
-           (cp >= 0x0A00 && cp <= 0x0A7F) ||                         // gurmukhi
-           (cp >= 0x0A80 && cp <= 0x0AFF) ||                         // gujarati
-           (cp >= 0x0B80 && cp <= 0x0BFF) ||                         // oriya
-           (cp >= 0x0C00 && cp <= 0x0C7F) ||                         // telugu
-           (cp >= 0x0C80 && cp <= 0x0CFF) ||                         // kannada
-           (cp >= 0x0D00 && cp <= 0x0D7F) ||                         // malayalam
-           (cp >= 0x0D80 && cp <= 0x0DFF) ||                         // sinhala
-           (cp >= 0x0E00 && cp <= 0x0E7F) ||                         // thai
-           (cp >= 0x0E80 && cp <= 0x0EFF) ||                         // lao
-           (cp >= 0x0F00 && cp <= 0x0FFF) ||                         // tibetan
-           (cp >= 0x1000 && cp <= 0x109F) ||                         // myanmar
-           (cp >= 0x10A0 && cp <= 0x10FF) ||                         // georgian
-           (cp >= 0x1100 && cp <= 0x11FF) ||                         // hangul jamo
-           (cp >= 0x3130 && cp <= 0x318F) ||                         // hangul compatibility
-           (cp >= 0xAC00 && cp <= 0xD7AF) ||                         // hangul syllables
-           (cp >= 0x1200 && cp <= 0x137F) ||                         // ethiopic
-           (cp >= 0x2D80 && cp <= 0x2DDF) ||                         // ethiopic extended
-           (cp >= 0x13A0 && cp <= 0x13FF) ||                         // cherokee
-           (cp >= 0x1400 && cp <= 0x167F) ||                         // canadian aboriginal
-           (cp >= 0x1780 && cp <= 0x17FF) ||                         // khmer
-           (cp >= 0x1800 && cp <= 0x18AF) ||                         // mongolian
-           (cp >= 0x3040 && cp <= 0x30FF) ||                         // hiragana + katakana
-           (cp >= 0x3400 && cp <= 0x4DBF) ||                         // cjk extended a
-           (cp >= 0x4E00 && cp <= 0x9FFF) ||                         // cjk unified
-           (cp >= 0xF900 && cp <= 0xFAFF) ||                         // cjk compatibility
-           (cp >= 0xFF00 && cp <= 0xFFEF);                           // halfwidth/fullwidth
-}
-
-// checks if a Unicode code point is a digit
-static bool unicode_is_digit(unsigned int cp) {
-    return (cp >= '0' && cp <= '9');                                 // ascii digits only
-}
-
 // returns the number of characters (code points) in a UTF-8 string
 static size_t utf8_strlen(const char* s) {
     if (!s) return 0;                                                // guard against null
@@ -142,36 +71,6 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         }
         size_t char_count = utf8_strlen(AS_STRING(args[0])->chars);  // count unicode characters
         *result = MAKE_NUMBER((double)char_count);                   // return character count
-        return true;                                                 // builtin handled
-    }
-    
-    if (strcmp(name, "string.is_letter") == 0) {                      // check if first char is letter
-        if (arg_count < 1 || !IS_STRING(args[0])) {                  // validate string argument
-            *result = MAKE_NONE();                                   // invalid, return none
-            return true;                                             // builtin handled
-        }
-        if (AS_STRING(args[0])->length == 0) {                       // empty string
-            *result = MAKE_BOOL(false);                              // not a letter
-            return true;                                             // builtin handled
-        }
-        unsigned int cp;                                             // code point storage
-        utf8_decode(AS_STRING(args[0])->chars, &cp);                 // decode first character
-        *result = MAKE_BOOL(unicode_is_letter(cp));                  // check if letter
-        return true;                                                 // builtin handled
-    }
-    
-    if (strcmp(name, "string.is_number") == 0) {                      // check if first char is digit
-        if (arg_count < 1 || !IS_STRING(args[0])) {                  // validate string argument
-            *result = MAKE_NONE();                                   // invalid, return none
-            return true;                                             // builtin handled
-        }
-        if (AS_STRING(args[0])->length == 0) {                       // empty string
-            *result = MAKE_BOOL(false);                              // not a digit
-            return true;                                             // builtin handled
-        }
-        unsigned int cp;                                             // code point storage
-        utf8_decode(AS_STRING(args[0])->chars, &cp);                 // decode first character
-        *result = MAKE_BOOL(unicode_is_digit(cp));                   // check if digit
         return true;                                                 // builtin handled
     }
     
