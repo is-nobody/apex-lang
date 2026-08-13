@@ -1923,8 +1923,6 @@ static bool is_valid_expr_start(TokenType type) {
            type == TOKEN_NOT;
 }
 
-
-// parse a constant declaration
 static ASTNode* parse_constant_declaration(Parser* parser) {
     Token* const_kw = advance(parser);
     
@@ -1946,6 +1944,18 @@ static ASTNode* parse_constant_declaration(Parser* parser) {
         while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
             advance(parser);
         }
+        return NULL;
+    }
+    
+    if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF)) {
+        parser_error_at(parser, name->line, 
+                       name->column + (int)utf8_char_len(name->value) + 1, 
+                       1,
+                       "Expected expression after '='");
+        
+        parser_declare_symbol(parser, name->value, PARSER_SYM_CONSTANT,
+                            TYPE_ANY, 0, name->line, name->column);
+        
         return NULL;
     }
     
