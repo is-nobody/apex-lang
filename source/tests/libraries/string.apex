@@ -12,7 +12,7 @@ function assert_equal(actual, expected, name)
         os.output("[ERROR] {name}: got {actual}, expected {expected}")
 
 // test: string length returns character count
-function string_len()
+function string_length()
     len = string.length("Hello")
     assert_equal(len, 5, "string.length Hello")
     
@@ -36,7 +36,7 @@ function string_upper()
     assert_equal(result, "HELLO WORLD", "string.upper Hello World")
 
 // test: substring extraction with various scripts and edge cases
-function string_sub()
+function string_slice()
     result = string.slice("Hello World", 1, 5)
     assert_equal(result, "Hello", "string.slice english 1-5")
     
@@ -127,12 +127,202 @@ function string_find()
     assert_equal(index, -1, "string.find not found")
 
 // test: replace substring with another
+// test: replace substring with another
 function string_replace()
+    // basic replacement tests
     result = string.replace("Hello World", "World", "Apex")
     assert_equal(result, "Hello Apex", "string.replace World->Apex")
     
     result = string.replace("Hello World", "xyz", "abc")
     assert_equal(result, "Hello World", "string.replace not found")
+    
+    // replace all occurrences (multiple matches)
+    result = string.replace("aaa", "a", "b")
+    assert_equal(result, "bbb", "string.replace all a->b")
+    
+    result = string.replace("hello hello hello", "hello", "bye")
+    assert_equal(result, "bye bye bye", "string.replace all hello->bye")
+    
+    result = string.replace("test test test", "test", "exam")
+    assert_equal(result, "exam exam exam", "string.replace all test->exam")
+    
+    // replace with longer string
+    result = string.replace("a b c", " ", "---")
+    assert_equal(result, "a---b---c", "string.replace space->dashes")
+    
+    result = string.replace("one two three", " ", "_X_")
+    assert_equal(result, "one_X_two_X_three", "string.replace space->_X_")
+    
+    // replace with shorter string
+    result = string.replace("aaa---bbb---ccc", "---", "-")
+    assert_equal(result, "aaa-bbb-ccc", "string.replace ---->-")
+    
+    result = string.replace("hello world hello world", "hello ", "")
+    assert_equal(result, "world world", "string.replace hello->empty")
+    
+    // replace with empty string (deletion)
+    result = string.replace("remove spaces here", " ", "")
+    assert_equal(result, "removespaceshere", "string.replace spaces->empty")
+    
+    result = string.replace("abcabcabc", "b", "")
+    assert_equal(result, "acacac", "string.replace b->empty")
+    
+    // overlapping patterns (non-overlapping replacement)
+    result = string.replace("aaaa", "aa", "b")
+    assert_equal(result, "bb", "string.replace overlapping aa->b")
+    
+    result = string.replace("aaaaa", "aa", "a")
+    assert_equal(result, "aaa", "string.replace overlapping aa->a")
+    
+    // replace at beginning and end
+    result = string.replace("start middle end", "start", "begin")
+    assert_equal(result, "begin middle end", "string.replace at beginning")
+    
+    result = string.replace("start middle end", "end", "finish")
+    assert_equal(result, "start middle finish", "string.replace at end")
+    
+    result = string.replace("xxx test", "xxx", "yyy")
+    assert_equal(result, "yyy test", "string.replace prefix xxx->yyy")
+    
+    result = string.replace("test xxx", "xxx", "yyy")
+    assert_equal(result, "test yyy", "string.replace suffix xxx->yyy")
+    
+    // replace entire string
+    result = string.replace("complete", "complete", "done")
+    assert_equal(result, "done", "string.replace entire string")
+    
+    result = string.replace("exact", "exact", "")
+    assert_equal(result, "", "string.replace entire->empty")
+    
+    // case sensitivity
+    result = string.replace("Hello hello HELLO", "hello", "bye")
+    assert_equal(result, "Hello bye HELLO", "string.replace case sensitive")
+    
+    result = string.replace("ABC abc AbC", "abc", "XYZ")
+    assert_equal(result, "ABC XYZ AbC", "string.replace case sensitive 2")
+    
+    // unicode replacement
+    result = string.replace("你好世界你好", "你好", "再见")
+    assert_equal(result, "再见世界再见", "string.replace chinese 你好->再见")
+    
+    result = string.replace("Привет мир Привет", "Привет", "Здравствуй")
+    assert_equal(result, "Здравствуй мир Здравствуй", "string.replace russian Привет->Здравствуй")
+    
+    result = string.replace("مرحبا عالم مرحبا", "مرحبا", "أهلا")
+    assert_equal(result, "أهلا عالم أهلا", "string.replace arabic مرحبا->أهلا")
+    
+    // mixed scripts replacement
+    result = string.replace("Hello 你好 World 你好", "你好", "Привет")
+    assert_equal(result, "Hello Привет World Привет", "string.replace mixed 你好->Привет")
+    
+    // emoji replacement
+    result = string.replace("😊🌟😊", "😊", "😀")
+    assert_equal(result, "😀🌟😀", "string.replace emoji 😊->😀")
+    
+    result = string.replace("🌟😊🌟😊", "😊", "")
+    assert_equal(result, "🌟🌟", "string.replace emoji 😊->empty")
+    
+    // special characters
+    result = string.replace("a.b.c.d", ".", "/")
+    assert_equal(result, "a/b/c/d", "string.replace dots->slashes")
+    
+    result = string.replace("path\\to\\file", "\\", "/")
+    assert_equal(result, "path/to/file", "string.replace backslash->slash")
+    
+    result = string.replace("line1\nline2\nline3", "\n", "|")
+    assert_equal(result, "line1|line2|line3", "string.replace newlines->pipe")
+    
+    result = string.replace("tab\tseparated\tvalues", "\t", ",")
+    assert_equal(result, "tab,separated,values", "string.replace tabs->commas")
+    
+    // numbers and mixed content
+    result = string.replace("1-2-3-4-5", "-", "+")
+    assert_equal(result, "1+2+3+4+5", "string.replace dashes->plus")
+    
+    result = string.replace("a1b2c3", "1", "one")
+    assert_equal(result, "aoneb2c3", "string.replace digits->words")
+    
+    result = string.replace("version 1.0 version 2.0", "version", "v")
+    assert_equal(result, "v 1.0 v 2.0", "string.replace version->v")
+    
+    // empty string edge cases
+    result = string.replace("", "a", "b")
+    assert_equal(result, "", "string.replace empty source")
+    
+    result = string.replace("test", "", "x")
+    assert_equal(result, "test", "string.replace empty pattern")
+    
+    result = string.replace("test", "t", "")
+    assert_equal(result, "es", "string.replace t->empty")
+    
+    // single character replacements
+    result = string.replace("aaaa", "a", "b")
+    assert_equal(result, "bbbb", "string.replace a->b")
+    
+    result = string.replace("aaaa", "a", "bb")
+    assert_equal(result, "bbbbbbbb", "string.replace a->bb")
+    
+    result = string.replace("aaaa", "aa", "b")
+    assert_equal(result, "bb", "string.replace aa->b")
+    
+    // multiple different patterns
+    result = string.replace("red green blue red", "red", "yellow")
+    assert_equal(result, "yellow green blue yellow", "string.replace red->yellow")
+    
+    result = string.replace("one one one", "one", "1")
+    assert_equal(result, "1 1 1", "string.replace one->1")
+    
+    // consecutive patterns
+    result = string.replace("abcabcabc", "abc", "")
+    assert_equal(result, "", "string.replace abc->empty")
+    
+    result = string.replace(",,,", ",", ";")
+    assert_equal(result, ";;;", "string.replace commas->semicolons")
+    
+    // patterns appearing as substrings of other patterns
+    result = string.replace("cat concatenate category", "cat", "dog")
+    assert_equal(result, "dog condogenate dogegory", "string.replace cat->dog")
+    
+    result = string.replace("test testing tested", "test", "exam")
+    assert_equal(result, "exam examing examed", "string.replace test->exam")
+    
+    // long strings with many replacements
+    result = string.replace("aaaa bbbb aaaa cccc aaaa", "aaaa", "AAAA")
+    assert_equal(result, "AAAA bbbb AAAA cccc AAAA", "string.replace many aaaa->AAAA")
+    
+    result = string.replace("aaaaaaaaaa", "aa", "a")
+    assert_equal(result, "aaaaa", "string.replace aa->a in aaaaaaaaaa")
+    
+    // replace with same string
+    result = string.replace("same same same", "same", "same")
+    assert_equal(result, "same same same", "string.replace same->same")
+    
+    result = string.replace("no change", "xyz", "abc")
+    assert_equal(result, "no change", "string.replace no matches")
+    
+    // whitespace patterns
+    result = string.replace("  spaces  everywhere  ", "  ", " ")
+    assert_equal(result, " spaces everywhere ", "string.replace double spaces->single")
+    
+    result = string.replace("one  two   three", "  ", " ")
+    assert_equal(result, "one two  three", "string.replace multiple spaces")
+    
+    // mixed case patterns
+    result = string.replace("AaAa", "A", "B")
+    assert_equal(result, "BaBa", "string.replace uppercase A->B")
+    
+    result = string.replace("aAaA", "a", "b")
+    assert_equal(result, "bAbA", "string.replace lowercase a->b")
+    
+    // punctuation and symbols
+    result = string.replace("!!!", "!", "?")
+    assert_equal(result, "???", "string.replace !->?")
+    
+    result = string.replace("### ### ###", "#", "@")
+    assert_equal(result, "@@@ @@@ @@@", "string.replace #->@")
+    
+    result = string.replace("a$$b$$c", "$$", "$")
+    assert_equal(result, "a$b$c", "string.replace $$->$")
 
 // test: all string functions return none for invalid input types
 function string_all_none_checks()
@@ -215,10 +405,10 @@ function string_all_none_checks()
     assert_equal(test_join("not table", ","), none, "join(string,str)")
 
 // execute all string library test cases
-string_len()
+string_length()
 string_lower()
 string_upper()
-string_sub()
+string_slice()
 string_split()
 string_join()
 string_trim()

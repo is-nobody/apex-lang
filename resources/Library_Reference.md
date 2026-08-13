@@ -893,16 +893,16 @@ if result != none
 ```
 
 ### string.replace(s, old, new)
-Replaces the **first** occurrence of `old` with `new` in the string. If `old` isn't found, returns the original string unchanged. Returns `none` on error.
+Replaces **all** occurrences of `old` with `new` in the string. If `old` isn't found, returns the original string unchanged. Returns `none` on error.
 
 ```apex
 import os
 import string
 
-result = string.replace("Hello World", "World", "Apex")
+result = string.replace("Hello World Hello", "Hello", "Apex")
 
 if result != none
-    os.output(result)  // "Hello Apex"
+    os.output(result)  // "Apex World Apex"
 ```
 
 ## Table Library (table)

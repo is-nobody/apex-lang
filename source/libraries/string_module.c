@@ -132,29 +132,66 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                                        // builtin handled
     }
     
-    if (strcmp(name, "string.replace") == 0) {                       // replace first occurrence
+    if (strcmp(name, "string.replace") == 0) {                       // replace all occurrences
         if (arg_count < 3 || !IS_STRING(args[0]) ||                  // validate 3 string args
             !IS_STRING(args[1]) || !IS_STRING(args[2])) {
             *result = MAKE_NONE();                                   // invalid, return none
             return true;                                             // builtin handled
         }
-        char* str = strdup(AS_STRING(args[0])->chars);                   // duplicate original
-        char* pos = strstr(str, AS_STRING(args[1])->chars);              // find target substring
-        if (pos) {                                                       // found
-            int prefix_len = pos - str;                                  // length before match
-            const char* replacement = AS_STRING(args[2])->chars;         // replacement string
-            char* result_str = (char*)malloc(strlen(str) + strlen(replacement) + 1);  // allocate result
-            strncpy(result_str, str, prefix_len);                         // copy prefix
-            result_str[prefix_len] = '\0';                                // null terminate
-            strcat(result_str, replacement);                              // append replacement
-            strcat(result_str, pos + strlen(AS_STRING(args[1])->chars));  // append rest
-            *result = make_string_val(vm, result_str);                    // intern and return
-            free(result_str);                              // free temporary
-        } else {                                           // not found
-            *result = make_string_val(vm, str);            // return original
+        
+        const char* str = AS_STRING(args[0])->chars;                 // source string
+        const char* find = AS_STRING(args[1])->chars;                // substring to find
+        const char* replacement = AS_STRING(args[2])->chars;         // replacement string
+        
+        size_t find_len = strlen(find);                              // length of search pattern
+        size_t repl_len = strlen(replacement);                       // length of replacement
+        
+        if (find_len == 0) {                                         // empty search pattern
+            *result = make_string_val(vm, str);                      // return original string
+            return true;                                             // builtin handled
         }
-        free(str);                                         // free duplicate
-        return true;                                       // builtin handled
+        
+        size_t count = 0;                                            // occurrence counter
+        const char* scan = str;                                      // scanning pointer
+        while ((scan = strstr(scan, find)) != NULL) {                // find all occurrences
+            count++;                                                 // increment counter
+            scan += find_len;                                        // move past match
+        }
+        
+        if (count == 0) {                                            // no matches found
+            *result = make_string_val(vm, str);                      // return original string
+            return true;                                             // builtin handled
+        }
+        
+        size_t str_len = strlen(str);                                // source length
+        size_t result_len = str_len + count * (repl_len - find_len); // final length
+        if (repl_len < find_len) {                                   // result will be shorter
+            result_len = str_len - count * (find_len - repl_len);    // subtract difference
+        }
+        
+        char* result_str = (char*)malloc(result_len + 1);            // allocate result buffer
+        if (!result_str) {                                           // allocation failed
+            *result = MAKE_NONE();                                   // return none
+            return true;                                             // builtin handled
+        }
+        
+        char* dest = result_str;                                     // destination pointer
+        const char* src = str;                                       // source pointer
+        const char* match;                                           // match pointer
+        
+        while ((match = strstr(src, find)) != NULL) {                // find next occurrence
+            size_t prefix_len = match - src;                         // length before match
+            memcpy(dest, src, prefix_len);                           // copy prefix
+            dest += prefix_len;                                      // advance destination
+            memcpy(dest, replacement, repl_len);                     // copy replacement
+            dest += repl_len;                                        // advance destination
+            src = match + find_len;                                  // move past match
+        }
+        strcpy(dest, src);                                           // copy remaining tail
+        
+        *result = make_string_val(vm, result_str);                   // intern and return
+        free(result_str);                                            // free temporary
+        return true;                                                 // builtin handled
     }
     
     if (strcmp(name, "string.slice") == 0) {                 // substring extraction
