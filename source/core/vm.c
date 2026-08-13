@@ -262,20 +262,18 @@ void value_incref(Value v) {
 
 // decrements the reference count and frees the object when it reaches zero
 void value_decref(Value v) {
+    if ((v & QNAN) != QNAN) return;                    // unboxed immediate, no refcount needed
+    
     if (IS_STRING(v)) {
-        StringObject* str = AS_STRING(v);               // unwrap string pointer
-        if (str) {
-            if (str->header.ref_count == INT_MAX) {     // interned string, never freed
-                return;                                 // skip decref for immortal strings
-            }
-            if (--str->header.ref_count == 0) {         // decrement and check if dead
-                string_destroy(str);                    // free string memory
-            }
+        StringObject* str = AS_STRING(v);              // unwrap string pointer
+        if (str->header.ref_count == INT_MAX) return;  // interned string, never freed
+        if (--str->header.ref_count == 0) {            // decrement and check if dead
+            string_destroy(str);                       // free string memory
         }
     } else if (IS_TABLE(v)) {
-        Table* table = AS_TABLE(v);                     // unwrap table pointer
-        if (table && --table->header.ref_count == 0) {  // decrement and check if dead
-            table_destroy(table);                       // destroy table and all entries
+        Table* table = AS_TABLE(v);                    // unwrap table pointer
+        if (--table->header.ref_count == 0) {          // decrement and check if dead
+            table_destroy(table);                      // destroy table and all entries
         }
     }
 }
