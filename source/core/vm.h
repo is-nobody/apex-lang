@@ -291,20 +291,11 @@ void string_intern_table_free(StringInternTable* it);
 // creates a pooled string object (reuses from pool if available)
 StringObject* string_create_pooled(ObjectPool* pool, const char* chars, int length);
 
-// returns a string to the pool for reuse
-void string_destroy_pooled(ObjectPool* pool, StringObject* str);
-
 // creates a pooled table (reuses from pool if available)
 Table* table_create_pooled(ObjectPool* pool, int capacity);
 
 // returns a table to the pool for reuse
 void table_destroy_pooled(ObjectPool* pool, Table* table);
-
-// initializes the object pool
-void object_pool_init(ObjectPool* pool);
-
-// frees all objects in the pool
-void object_pool_free(ObjectPool* pool);
 
 // populates vm->args_table with user command line arguments (1-indexed)
 void vm_set_args(VM* vm, int argc, char** argv, bool skip_script_name);

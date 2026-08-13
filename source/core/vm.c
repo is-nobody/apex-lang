@@ -40,39 +40,6 @@ ValueType_VM value_get_type(Value v) {
     return (ValueType_VM)GET_TYPE(v);        // extract type tag from nan-boxed value
 }
 
-// initializes the object pool with empty arrays
-void object_pool_init(ObjectPool* pool) {
-    pool->string_pool_count = 0;                              // reset string pool count
-    pool->table_pool_count = 0;                               // reset table pool count
-    memset(pool->string_pool, 0, sizeof(pool->string_pool));  // zero out string pool pointers
-    memset(pool->table_pool, 0, sizeof(pool->table_pool));    // zero out table pool pointers
-}
-
-// frees all objects remaining in the pool
-void object_pool_free(ObjectPool* pool) {
-    for (int i = 0; i < pool->string_pool_count; i++) {
-        free(pool->string_pool[i]);          // free each pooled string
-    }
-    pool->string_pool_count = 0;             // reset string pool count
-    for (int i = 0; i < pool->table_pool_count; i++) {
-        table_destroy(pool->table_pool[i]);  // destroy each pooled table
-    }
-    pool->table_pool_count = 0;              // reset table pool count
-}
-
-// creates a string from the pool if available, otherwise allocates new
-StringObject* string_create_pooled(ObjectPool* pool, const char* chars, int length) {
-    (void)pool;                              // pool currently unused, direct alloc
-    return string_create(chars, length);     // allocate new string
-}
-
-// returns a string to the pool for reuse if it's small enough
-void string_destroy_pooled(ObjectPool* pool, StringObject* str) {
-    (void)pool;                              // pool currently unused, direct free
-    if (!str) return;                        // guard against null
-    string_destroy(str);                     // free string memory
-}
-
 // creates a table from the pool if available, otherwise allocates new
 Table* table_create_pooled(ObjectPool* pool, int capacity) {
     if (pool->table_pool_count > 0) {                 // reuse pooled table if available
@@ -1002,7 +969,6 @@ VM* vm_create(const char* source) {
     vm->source = source;                          // store source pointer
     
     string_intern_table_init(&vm->intern_table);  // init string intern table
-    object_pool_init(&vm->obj_pool);              // init object pool
     return vm;                                    // return new vm
 }
 
@@ -1050,7 +1016,6 @@ void vm_destroy(VM* vm) {
     }
     
     string_intern_table_free(&vm->intern_table);  // free interned strings
-    object_pool_free(&vm->obj_pool);              // free pooled objects
     free(vm);                                     // free vm struct
 }
 
