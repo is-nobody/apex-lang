@@ -146,7 +146,7 @@ static int codegen_literal_number(CodeGenerator* cg, ASTNode* node) {
     double val = node->literal_number.number_value;                        // extract value
     if (val == (int)val && val >= 0 && val <= 65535) {                       // fits in immediate
         int reg = alloc_register(cg);                                      // allocate register
-        emit(cg, INST(OP_LOAD_CONST_NUM, reg, (int)val, 0), node->line);   // load immediate
+        emit(cg, INST(OP_LOAD_NUM, reg, (int)val, 0), node->line);   // load immediate
         return reg;                                                        // return register
     }
     int reg = alloc_register(cg);                                          // allocate register

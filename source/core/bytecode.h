@@ -13,7 +13,7 @@
 typedef enum {
     OP_MOVE,             // copies a value from one register to another
     OP_LOAD_CONST,       // loads a constant from the pool into a register
-    OP_LOAD_CONST_NUM,   // loads an immediate number into rdst (optimized path)
+    OP_LOAD_NUM,         // loads an immediate number into rdst
     OP_LOAD_BOOL,        // loads true/false directly with an immediate operand
 
     OP_ADD,              // arithmetic addition: rdst = rleft + rright

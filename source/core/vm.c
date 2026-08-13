@@ -1151,7 +1151,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     static void* dispatch_table[] = {
         [OP_MOVE]             = &&OP_MOVE_LABEL,
         [OP_LOAD_CONST]       = &&OP_LOAD_CONST_LABEL,
-        [OP_LOAD_CONST_NUM]   = &&OP_LOAD_CONST_NUM_LABEL,
+        [OP_LOAD_NUM]         = &&OP_LOAD_NUM_LABEL,
         [OP_LOAD_BOOL]        = &&OP_LOAD_BOOL_LABEL,
         
         [OP_ADD]              = &&OP_ADD_LABEL,
@@ -1259,7 +1259,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
-    OP_LOAD_CONST_NUM_LABEL: {
+    OP_LOAD_NUM_LABEL: {
         int dest = ip->operands[0]; int value = ip->operands[1];  // dest register and immediate integer value
         Value old = regs[dest];                                   // read current value in dest register
         if ((old & QNAN) == QNAN) {                               // fast nan-boxing check: only nan-tagged values
