@@ -66,8 +66,8 @@ typedef enum {
     OP_CALL_1,           // calling a function with 1 arguments (fast way)
     OP_CALL_2,           // calling a function with 2 arguments (fast way)
     OP_RETURN,           // returns a value from the current function
-    OP_RETURN_VOID,      // returns without a value
     OP_RETURN_NUM,       // return a number (without refcounting)
+    OP_RETURN_NONE,      // return none value
 
     OP_LOAD_GLOBAL,      // loads a global variable into a register
     OP_STORE_GLOBAL,     // stores a register value into a global variable

@@ -65,8 +65,8 @@ static const char* opcode_names[] = {
     [OP_CALL_1]           = "CALL_1",
     [OP_CALL_2]           = "CALL_2",
     [OP_RETURN]           = "RETURN",
-    [OP_RETURN_VOID]      = "RETURN_VOID",
     [OP_RETURN_NUM]       = "RETURN_NUM",
+    [OP_RETURN_NONE]      = "RETURN_NONE",
 
     [OP_LOAD_GLOBAL]      = "LOAD_GLOBAL",
     [OP_STORE_GLOBAL]     = "STORE_GLOBAL",

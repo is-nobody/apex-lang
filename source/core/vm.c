@@ -1167,8 +1167,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_CALL_1]           = &&OP_CALL_1_LABEL,
         [OP_CALL_2]           = &&OP_CALL_2_LABEL,
         [OP_RETURN]           = &&OP_RETURN_LABEL,
-        [OP_RETURN_VOID]      = &&OP_RETURN_VOID_LABEL,
         [OP_RETURN_NUM]       = &&OP_RETURN_NUM_LABEL,
+        [OP_RETURN_NONE]      = &&OP_RETURN_NONE_LABEL,
 
         [OP_LOAD_GLOBAL]      = &&OP_LOAD_GLOBAL_LABEL,
         [OP_STORE_GLOBAL]     = &&OP_STORE_GLOBAL_LABEL,
@@ -1980,22 +1980,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         value_decref(ret_val);                   // release return value
         goto OP_HALT_LABEL;                      // jump to halt
     }
-    OP_RETURN_VOID_LABEL: {
-        if (vm->call_depth > 0) {                // returning from a function call
-            vm->call_depth--;                    // pop call frame
-            int return_addr = vm->call_stack[vm->call_depth].return_address;  // get return address
-            int dest_reg = vm->call_stack[vm->call_depth].dest_reg;           // get dest register
-            vm->current_frame = vm->call_stack[vm->call_depth].frame_index;   // restore frame index
-            vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // restore register frame
-            regs = vm->registers;                // update local regs pointer
-            value_decref(regs[dest_reg]);        // release old value in dest
-            regs[dest_reg] = MAKE_NONE();        // void return, store none in dest
-            ip = &vm->code[return_addr];         // jump to return address
-            goto *dispatch_table[ip->opcode];    // dispatch next instruction
-        }
-        vm->running = false;                     // top-level return, stop execution
-        goto OP_HALT_LABEL;                      // jump to halt
-    }
     OP_RETURN_NUM_LABEL: {
         int value_reg = ip->operands[0];         // register holding return value
         Value ret_val = regs[value_reg];         // fetch return value
@@ -2008,6 +1992,23 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             regs = vm->registers;                // update local regs pointer
             vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
             regs[dest_reg] = ret_val;            // store return value in caller's dest reg (no incref, unboxed number)
+            ip = &vm->code[return_addr];         // jump to return address
+            goto *dispatch_table[ip->opcode];    // dispatch next instruction
+        }
+        vm->running = false;                     // top-level return, stop execution
+        goto OP_HALT_LABEL;                      // jump to halt
+    }
+    OP_RETURN_NONE_LABEL: {
+        if (vm->call_depth > 0) {                // returning from a function call
+            vm->call_depth--;                    // pop call frame
+            int return_addr = vm->call_stack[vm->call_depth].return_address;  // get return address
+            int dest_reg = vm->call_stack[vm->call_depth].dest_reg;           // get dest register
+            vm->current_frame = vm->call_stack[vm->call_depth].frame_index;   // restore frame index
+            vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // restore register frame
+            regs = vm->registers;                // update local regs pointer
+            vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
+            value_decref(regs[dest_reg]);        // release old value in dest
+            regs[dest_reg] = MAKE_NONE();        // store none in caller's dest reg (no incref needed)
             ip = &vm->code[return_addr];         // jump to return address
             goto *dispatch_table[ip->opcode];    // dispatch next instruction
         }

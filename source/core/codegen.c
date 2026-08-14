@@ -1149,16 +1149,14 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     bool ends_with_return = false;                                            // return flag
     if (cg->chunk->code_count > 0) {                                          // has code
         Instruction* last = &cg->chunk->code[cg->chunk->code_count - 1];      // last instruction
-        if (last->opcode == OP_RETURN || last->opcode == OP_RETURN_VOID ||    // return type
+        if (last->opcode == OP_RETURN || last->opcode == OP_RETURN_NONE ||    // return type
             last->opcode == OP_RETURN_NUM) {
             ends_with_return = true;                                          // has return
         }
     }
 
     if (!ends_with_return) {
-        int none_reg = alloc_register(cg);                                    // allocate reg
-        emit(cg, INST(OP_LOAD_NONE, none_reg, 0, 0), node->line);             // load none directly
-        emit(cg, INST(OP_RETURN, none_reg, 0, 0), node->line);                // return none
+        emit(cg, INST(OP_RETURN_NONE, 0, 0, 0), node->line);                  // implicit return none
     }
 
     cg->chunk->functions[func_idx].local_count = cg->locals.count;                   // store local count
@@ -1233,8 +1231,8 @@ static void codegen_return(CodeGenerator* cg, ASTNode* node) {
         } else {                                                                     // may be any type
             emit(cg, INST(OP_RETURN, value_reg, 0, 0), node->line);
         }
-    } else {                                                                         // void return
-        emit(cg, INST(OP_RETURN_VOID, 0, 0, 0), node->line);
+    } else {
+        emit(cg, INST(OP_RETURN_NONE, 0, 0, 0), node->line);                         // return none directly
     }
 }
 
