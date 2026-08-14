@@ -1105,24 +1105,24 @@ When your project grows beyond a few dozen lines, keeping everything in one file
 Imports solve all of this by letting you organize your code across multiple files.
 
 ### How Apex Finds Files
-Every import path is relative to the main file — the file you run with `apex filename.apex`. Think of your main file as the front door. All imports are paths from that front door, not from wherever you're standing.
+Every import path is relative to the main file — the file you run with `apex file.apex`. Think of your main file as the front door. All imports are paths from that front door, not from wherever you're standing.
 
 ## 6.1 Importing an Entire File
 To import everything from a file in the same folder:
 
 ```apex
 import os
-import database
+import database.apex
 
-// Use items with the filename as a prefix
+// use items with the filename as a prefix
 database.connect()
-os.output(database.APP_NAME)
+os.output(database["APP_NAME"])
 ```
 
 When you import a file, you must use the filename as a prefix to access its contents.
 
 ## 6.2 Importing from Sub-folders
-Use dots (`.`) to navigate into folders:
+Use dots (`/`) to navigate into folders:
 
 ```
 my_project/
@@ -1133,10 +1133,10 @@ my_project/
 ```
 
 ```apex
-import utils.math
+import utils/math.apex
 ```
 
-Each dot in imports means "go inside this folder." `utils.math` looks for `utils/math.apex`.
+Each `/` in imports means "go inside this folder."
 
 ## 6.3 Importing from One Sub-folder into Another
 Here's where beginners often get confused. You have this structure:
@@ -1153,8 +1153,8 @@ my_project/
 You want to use `math.apex` inside `calculator.apex`. What path do you use? Always write the path as if you were importing from `main.apex`.
 
 ```apex
-// Inside features/calculator.apex
-import helpers.math         // Same as you would in main.apex!
+// inside features/calculator.apex
+import helpers/math.apex  // same as you would in main.apex!
 ```
 
 Apex always starts looking from the main file's folder. This keeps your imports consistent — no matter how deep your folder structure gets, you always know exactly how to import any file.

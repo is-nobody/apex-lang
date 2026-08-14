@@ -119,9 +119,9 @@ result = calculate(5, 10)
 Paths are relative to the **entry point** file.
 
 ```apex
-import os             // built-in
-import utils.helper   // loads 'utils/helper.apex'
+import os                 // built-in
+import utils/helper.apex  // loads 'utils/helper.apex'
 ```
 
-- **Access:** `helper.my_func()`.
+- **Access:** `utils.helper.my_func()`.
 - **Dot Restriction:** Dot access (`mod.func`) is reserved **strictly** for imported modules. Use brackets `t["key"]` for table keys.

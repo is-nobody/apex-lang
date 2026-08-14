@@ -760,7 +760,7 @@ final_price = calculate_total(100, 3)   // 100 * 3 = 300, then 300 * 0.9 = 270
 ```
 
 # 6. Imports
-Imports give you the ability to use code from other files. Every import path is relative to the main file — the file you run with `apex filename.apex`.
+Imports give you the ability to use code from other files. Every import path is relative to the main file — the file you run with `apex file.apex`.
 
 ## 6.1 Importing an Entire File
 To import everything from a file in the same folder:
@@ -769,15 +769,15 @@ To import everything from a file in the same folder:
 import os
 import database
 
-// Use items with the filename as a prefix
+// use items with the filename as a prefix
 database.connect()
-os.output(database.APP_NAME)
+os.output(database["APP_NAME"])
 ```
 
 When you import a file, you must use the filename as a prefix to access its contents.
 
 ## 6.2 Importing from Sub-folders
-Use dots (`.`) to navigate into folders:
+Use dots (`/`) to navigate into folders:
 
 ```
 my_project/
@@ -788,10 +788,8 @@ my_project/
 ```
 
 ```apex
-import utils.math
+import utils/math.apex
 ```
-
-Each dot in imports means "go inside this folder." `utils.math` looks for `utils/math.apex`.
 
 ## 6.3 Importing from One Sub-folder into Another
 You have this structure:
