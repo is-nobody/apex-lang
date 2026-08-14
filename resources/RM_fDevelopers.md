@@ -424,11 +424,13 @@ Comparison operators `<`, `>`, `<=`, `>=` work only with numbers. Using them wit
 ## 2.3 Logical Operators
 Logical operators combine boolean values (`true` or `false`) to create more complex conditions.
 
-| Operator | Name | What It Does | Example | Result |
-|----------|------|--------------|---------|--------|
-| `and` | AND | Both sides must be true | `true and true` | `true` |
-| `or` | OR | At least one side must be true | `true or false` | `true` |
-| `not` | NOT | Reverses the value | `not true` | `false` |
+| Operator |          What It Does          |         Example        |
+|----------|--------------------------------|------------------------|
+| `and`    | Both sides must be true        | `(5 < 10) and (2 > 1)` |
+| `or`     | At least one side must be true | `(2 > 1) or (2 < 1)`   |
+| `not`    | Reverses the value             | `not true`             |
+
+> Logical operators `and` & `or` requires explicit condition
 
 ### Operator Precedence
 Logical operators have their own order. `not` happens first, then `and`, then `or`.
@@ -488,7 +490,7 @@ if x > 5  // correct because comparison returns boolean
     os.output("Hello")
 ```
 
-Always use comparison operators (`==`, `!=`, `<`, `>`, etc.) or logical operators (`and`, `or`, `not`) to ensure your condition results in a `boolean` value.
+Always use comparison operators (`==`, `!=`, `<`, `>`, etc.) to create boolean values, then combine them with logical operators (`and`, `or`, `not`) if needed.
 
 ## 3.1 If Statement
 ```apex

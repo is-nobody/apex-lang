@@ -588,11 +588,11 @@ Comparison operators have lower precedence than arithmetic. Math happens first, 
 ## 2.3 Logical Operators
 Logical operators combine boolean values (`true` or `false`) to create more complex conditions.
 
-| Operator | Name | What It Does | Example | Result |
-|----------|------|--------------|---------|--------|
-| `and` | AND | Both sides must be true | `true and true` | `true` |
-| `or` | OR | At least one side must be true | `true or false` | `true` |
-| `not` | NOT | Reverses the value | `not true` | `false` |
+| Operator |          What It Does          |         Example        |
+|----------|--------------------------------|------------------------|
+| `and`    | Both sides must be true        | `(5 < 10) and (2 > 1)` |
+| `or`     | At least one side must be true | `(2 > 1) or (2 < 1)`   |
+| `not`    | Reverses the value             | `not true`             |
 
 ### AND (`and`)
 Both conditions must be true for the result to be true.
@@ -600,7 +600,7 @@ Both conditions must be true for the result to be true.
 ```apex
 age = 25
 has_license = true
-can_drive = age >= 18 and has_license     // true
+can_drive = age >= 18 and has_license == true  // true
 ```
 
 ### OR (`or`)
@@ -609,7 +609,7 @@ At least one condition must be true for the result to be true.
 ```apex
 day = "Saturday"
 is_holiday = false
-can_relax = day == "Saturday" or is_holiday     // true
+can_relax = day == "Saturday" or is_holiday == true  // true
 ```
 
 ### NOT (`not`)
@@ -703,7 +703,7 @@ if x > 5  // correct because comparison returns boolean
     os.output("Hello")
 ```
 
-Always use comparison operators (`==`, `!=`, `<`, `>`, etc.) or logical operators (`and`, `or`, `not`) to ensure your condition results in a `boolean` value.
+Always use comparison operators (`==`, `!=`, `<`, `>`, etc.) to create boolean values, then combine them with logical operators (`and`, `or`, `not`) if needed.
 
 ## 3.1 If Statement
 We don't have a user, and we check: if he doesn't exist, then display output about him. But if we have user, we does nothing and moves on.
