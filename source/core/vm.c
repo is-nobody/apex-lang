@@ -1378,21 +1378,35 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     OP_INC_LABEL: {
         int reg_idx = ip->operands[0];               // register index to increment
         du64 a = {.u = regs[reg_idx]};               // reinterpret current value as double via union
+        double r = a.d + 1.0;                        // increment by 1 (NaN for non-numbers)
         uint64_t old = regs[reg_idx];                // save old value for decref
-        if ((old & QNAN) == QNAN) {                  // fast check: old is nan-boxed
-            value_decref(old);                       // release heap object
+        
+        if (r != r) {                                // nan result (non-number input)
+            value_decref(old);                       // release heap object if any
+            regs[reg_idx] = MAKE_NONE();             // store none
+        } else {
+            if ((old & QNAN) == QNAN) {              // fast check: old is nan-boxed
+                value_decref(old);                   // release heap object
+            }
+            regs[reg_idx] = MAKE_NUMBER(r);          // store incremented number
         }
-        regs[reg_idx] = MAKE_NUMBER(a.d + 1.0);      // increment by 1 and store (no refcount needed for new number)
         ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
     OP_DEC_LABEL: {
         int reg_idx = ip->operands[0];               // register index to decrement
         du64 a = {.u = regs[reg_idx]};               // reinterpret current value as double via union
+        double r = a.d - 1.0;                        // decrement by 1 (NaN for non-numbers)
         uint64_t old = regs[reg_idx];                // save old value for decref
-        if ((old & QNAN) == QNAN) {                  // fast check: old is nan-boxed
-            value_decref(old);                       // release heap object
+        
+        if (r != r) {                                // nan result (non-number input)
+            value_decref(old);                       // release heap object if any
+            regs[reg_idx] = MAKE_NONE();             // store none
+        } else {
+            if ((old & QNAN) == QNAN) {              // fast check: old is nan-boxed
+                value_decref(old);                   // release heap object
+            }
+            regs[reg_idx] = MAKE_NUMBER(r);          // store decremented number
         }
-        regs[reg_idx] = MAKE_NUMBER(a.d - 1.0);      // decrement by 1 and store (no refcount needed for new number)
         ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
 
