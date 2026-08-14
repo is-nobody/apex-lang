@@ -1368,19 +1368,31 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_NEG_LABEL: {
         int dest = ip->operands[0];                                   // dest register index
+        uint64_t old = regs[dest];                                    // save old value for decref
+        if ((old & QNAN) == QNAN) {                                   // fast check: old is nan-boxed
+            value_decref(old);                                        // release heap object
+        }
         regs[dest] = MAKE_NUMBER(-AS_NUMBER(regs[ip->operands[1]]));  // negate and store as unboxed number
         ip++; goto *dispatch_table[ip->opcode];                       // advance to next instruction
     }
     OP_INC_LABEL: {
         int reg_idx = ip->operands[0];               // register index to increment
         du64 a = {.u = regs[reg_idx]};               // reinterpret current value as double via union
-        regs[reg_idx] = MAKE_NUMBER(a.d + 1.0);      // increment by 1 and store (no refcount needed)
+        uint64_t old = regs[reg_idx];                // save old value for decref
+        if ((old & QNAN) == QNAN) {                  // fast check: old is nan-boxed
+            value_decref(old);                       // release heap object
+        }
+        regs[reg_idx] = MAKE_NUMBER(a.d + 1.0);      // increment by 1 and store (no refcount needed for new number)
         ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
     OP_DEC_LABEL: {
         int reg_idx = ip->operands[0];               // register index to decrement
         du64 a = {.u = regs[reg_idx]};               // reinterpret current value as double via union
-        regs[reg_idx] = MAKE_NUMBER(a.d - 1.0);      // decrement by 1 and store (no refcount needed)
+        uint64_t old = regs[reg_idx];                // save old value for decref
+        if ((old & QNAN) == QNAN) {                  // fast check: old is nan-boxed
+            value_decref(old);                       // release heap object
+        }
+        regs[reg_idx] = MAKE_NUMBER(a.d - 1.0);      // decrement by 1 and store (no refcount needed for new number)
         ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
 
