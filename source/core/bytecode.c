@@ -14,6 +14,7 @@ static const char* opcode_names[] = {
     [OP_LOAD_CONST]       = "LOAD_CONST",
     [OP_LOAD_NUM]         = "LOAD_NUM",
     [OP_LOAD_BOOL]        = "LOAD_BOOL",
+    [OP_LOAD_NONE]        = "LOAD_NONE",
 
     [OP_ADD]              = "ADD",
     [OP_SUB]              = "SUB",

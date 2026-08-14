@@ -164,11 +164,10 @@ static int codegen_literal_string(CodeGenerator* cg, ASTNode* node) {
     return reg;                                                            // return register
 }
 
-// emits a none/null literal by adding it to the constant pool
+// emits a none/null literal using the dedicated load-none instruction
 static int codegen_literal_none(CodeGenerator* cg, ASTNode* node) {
     int reg = alloc_register(cg);                                          // allocate register
-    int none_idx = bytecode_add_none_constant(cg->chunk);                  // add none constant
-    emit(cg, INST(OP_LOAD_CONST, reg, none_idx, 0), node->line);           // load constant
+    emit(cg, INST(OP_LOAD_NONE, reg, 0, 0), node->line);                   // load none directly
     return reg;                                                            // return register
 }
 
@@ -565,7 +564,7 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
 static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
     if (!node) {                                                                     // null node
         int reg = alloc_register(cg);                                                // allocate register
-        emit(cg, INST(OP_LOAD_BOOL, reg, 0, 0), 0);                                  // load false
+        emit(cg, INST(OP_LOAD_NONE, reg, 0, 0), 0);                                  // load none
         return reg;                                                                  // return register
     }
 
@@ -1156,10 +1155,9 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
         }
     }
 
-    if (!ends_with_return) {                                                  // missing return
-        int none_idx = bytecode_add_none_constant(cg->chunk);                 // add none constant
+    if (!ends_with_return) {
         int none_reg = alloc_register(cg);                                    // allocate reg
-        emit(cg, INST(OP_LOAD_CONST, none_reg, none_idx, 0), node->line);     // load none
+        emit(cg, INST(OP_LOAD_NONE, none_reg, 0, 0), node->line);             // load none directly
         emit(cg, INST(OP_RETURN, none_reg, 0, 0), node->line);                // return none
     }
 

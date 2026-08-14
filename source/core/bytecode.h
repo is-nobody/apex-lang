@@ -15,6 +15,7 @@ typedef enum {
     OP_LOAD_CONST,       // loads a constant from the pool into a register
     OP_LOAD_NUM,         // loads an immediate number into rdst
     OP_LOAD_BOOL,        // loads true/false directly with an immediate operand
+    OP_LOAD_NONE,        // load none/null value into register without constant pool access
 
     OP_ADD,              // arithmetic addition: rdst = rleft + rright
     OP_SUB,              // subtraction: rdst = rleft - rright

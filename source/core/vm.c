@@ -1116,7 +1116,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_LOAD_CONST]       = &&OP_LOAD_CONST_LABEL,
         [OP_LOAD_NUM]         = &&OP_LOAD_NUM_LABEL,
         [OP_LOAD_BOOL]        = &&OP_LOAD_BOOL_LABEL,
-        
+        [OP_LOAD_NONE]        = &&OP_LOAD_NONE_LABEL,
+
         [OP_ADD]              = &&OP_ADD_LABEL,
         [OP_SUB]              = &&OP_SUB_LABEL,
         [OP_MUL]              = &&OP_MUL_LABEL,
@@ -1241,6 +1242,16 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         regs[dest] = MAKE_BOOL(ip->operands[1] != 0);  // store new bool value
         ip++; goto *dispatch_table[ip->opcode];        // advance to next instruction
     }
+    OP_LOAD_NONE_LABEL: {
+        int dest = ip->operands[0];                    // dest register index
+        Value old = regs[dest];                        // read current value in dest register
+        if ((old & QNAN) == QNAN) {                    // fast nan-boxing check: only nan-tagged values
+            value_decref(old);                         // are heap objects needing refcount cleanup
+        }                                              // unboxed numbers and other immediates skip this
+        regs[dest] = MAKE_NONE();                      // store none value (no incref needed, immediate)
+        ip++; goto *dispatch_table[ip->opcode];        // advance to next instruction
+    }
+
     OP_ADD_LABEL: {
         int dest = ip->operands[0];              // dest register index
         du64 a = {.u = regs[ip->operands[1]]};   // left operand as double
