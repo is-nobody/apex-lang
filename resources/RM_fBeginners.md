@@ -13,7 +13,8 @@ This manual is written with step-by-step learning in mind and strives to be mini
 - [1.3 Booleans](#13-booleans)
 - [1.4 Strings](#14-strings)
 - [1.5 Tables](#15-tables)
-- [1.6 Type Functions](#16-type-functions)
+- [1.6 Constants](#16-constants)
+- [1.7 Type Functions](#17-type-functions)
 
 ### 2. Operators
 - [2.1 Arithmetic Operators](#21-arithmetic-operators)
@@ -400,7 +401,22 @@ first_employee = company["employees"][1]        // "Alice"
 city = company["address"]["city"]               // "Dubai"
 ```
 
-## 1.6 Type Functions
+## 1.6 Constant
+Constants are variables that cannot be reassigned after their initial declaration. They're useful for values that should never change during program execution — configuration settings, mathematical constants, fixed limits.
+
+> Keep in mind: `constant` doesn't define a new **data type**, it's a modifier that makes a variable read-only after declaration.
+
+```apex
+constant APP_NAME = "MyApp"
+APP_NAME = none  // ERROR: Cannot reassign constant 'APP_NAME'
+```
+
+### When to Use Constants
+- Values that never change (PI, gravity, speed of light)
+- Configuration limits (max retries, timeout durations)
+- Preventing accidental modification of critical values
+
+## 1.7 Type Functions
 Sometimes you have a value of one type but need it in another.
 `os.input()` always returns a string — even if the user types `42`.
 To do math with it, convert to number first.

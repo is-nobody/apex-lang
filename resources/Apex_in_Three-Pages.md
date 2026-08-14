@@ -10,6 +10,8 @@ x = none        // none (intentional absence)
 x = []          // table (universal container)
 ```
 
+Also, `constant` is a modifier that makes a variable read-only after declaration.
+
 - **Conversion:** `number("10")`, `string(10)`. Returns `none` on failure.
 - **Scope:** `function` and `for` create new scopes, top-level variables are optimized as locals, `if`/`elif`/`else` don't create scope.
 
@@ -111,7 +113,7 @@ result = calculate(5, 10)
 ```
 
 - **Return:** Defaults to `none` if omitted.
-- **Built-ins:** Organized in modules (`os`, `math`, `string`, `table`, `sys`, `ffi`, `random`, `codecs`, `regex`).
+- **Built-ins:** Organized in modules (`os`, `math`, `string`, `table`, `sys`, `ffi`, `random`, `codecs`, `regex`, `crypto`).
 
 ## Modules & Imports
 Paths are relative to the **entry point** file.

@@ -12,7 +12,8 @@ This manual is minimalistic. Each section builds on the previous ones. For the b
 - [1.3 Booleans](#13-booleans)
 - [1.4 Strings](#14-strings)
 - [1.5 Tables](#15-tables)
-- [1.6 Type Functions](#16-type-functions)
+- [1.6 Constants](#16-constants)
+- [1.7 Type Functions](#17-type-functions)
 
 ### 2. Operators
 - [2.1 Arithmetic Operators](#21-arithmetic-operators)
@@ -341,7 +342,15 @@ first_employee = company["employees"][1]        // "Alice"
 city = company["address"]["city"]               // "Dubai"
 ```
 
-## 1.6 Type Functions
+## 1.6 Constant
+Constants makes a variable read-only after declaration.
+
+```apex
+constant APP_NAME = "MyApp"
+APP_NAME = none  // ERROR: Cannot reassign constant 'APP_NAME'
+```
+
+## 1.7 Type Functions
 Apex provides two built-in functions for explicit type conversion:
 
 | Function | What it does | Example |
