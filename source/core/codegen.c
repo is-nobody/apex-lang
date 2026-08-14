@@ -886,6 +886,20 @@ static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node) {
             if (bin->binary.left->type == AST_IDENTIFIER &&                      // x = x op y
                 strcmp(bin->binary.left->identifier.name, node->var_assign.name) == 0) {
                 
+                if (bin->binary.op == TOKEN_PLUS &&                              // x = x + 1
+                    bin->binary.right->type == AST_LITERAL_NUMBER &&             // right is number literal
+                    bin->binary.right->literal_number.number_value == 1.0) {     // exactly 1
+                    emit(cg, INST(OP_INC, local_reg, 0, 0), node->line);         // in-place increment
+                    return local_reg;                                            // return local
+                }
+                
+                if (bin->binary.op == TOKEN_MINUS &&                             // x = x - 1
+                    bin->binary.right->type == AST_LITERAL_NUMBER &&             // right is number literal
+                    bin->binary.right->literal_number.number_value == 1.0) {     // exactly 1
+                    emit(cg, INST(OP_DEC, local_reg, 0, 0), node->line);         // in-place decrement
+                    return local_reg;                                            // return local
+                }
+                
                 int right_reg = codegen_expression(cg, bin->binary.right);       // evaluate right
                 bool can_optimize = true;                                        // optimize flag
                 Opcode op;                                                       // operation

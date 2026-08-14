@@ -24,6 +24,8 @@ typedef enum {
     OP_DIV,              // division: rdst = rleft / rright
     OP_MOD,              // modulo: rdst = rleft % rright
     OP_NEG,              // unary negation: rdst = -rsrc
+    OP_INC,              // increment number in register by 1
+    OP_DEC,              // decrement number in register by 1
 
     OP_JUMP,             // unconditional branch to address
     OP_JUMP_IF_FALSE,    // branch if rcond is falsy

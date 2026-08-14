@@ -1125,7 +1125,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_DIV]              = &&OP_DIV_LABEL,
         [OP_MOD]              = &&OP_MOD_LABEL,
         [OP_NEG]              = &&OP_NEG_LABEL,
-        
+        [OP_INC]              = &&OP_INC_LABEL,
+        [OP_DEC]              = &&OP_DEC_LABEL,
+
         [OP_JUMP]             = &&OP_JUMP_LABEL,
         [OP_JUMP_IF_FALSE]    = &&OP_JUMP_IF_FALSE_LABEL,
         [OP_JUMP_IF_EQ]       = &&OP_JUMP_IF_EQ_LABEL,
@@ -1368,6 +1370,18 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int dest = ip->operands[0];                                   // dest register index
         regs[dest] = MAKE_NUMBER(-AS_NUMBER(regs[ip->operands[1]]));  // negate and store as unboxed number
         ip++; goto *dispatch_table[ip->opcode];                       // advance to next instruction
+    }
+    OP_INC_LABEL: {
+        int reg_idx = ip->operands[0];               // register index to increment
+        du64 a = {.u = regs[reg_idx]};               // reinterpret current value as double via union
+        regs[reg_idx] = MAKE_NUMBER(a.d + 1.0);      // increment by 1 and store (no refcount needed)
+        ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
+    }
+    OP_DEC_LABEL: {
+        int reg_idx = ip->operands[0];               // register index to decrement
+        du64 a = {.u = regs[reg_idx]};               // reinterpret current value as double via union
+        regs[reg_idx] = MAKE_NUMBER(a.d - 1.0);      // decrement by 1 and store (no refcount needed)
+        ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
 
     OP_JUMP_LABEL:

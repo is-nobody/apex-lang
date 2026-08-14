@@ -23,6 +23,8 @@ static const char* opcode_names[] = {
     [OP_DIV]              = "DIV",
     [OP_MOD]              = "MOD",
     [OP_NEG]              = "NEG",
+    [OP_INC]              = "INC",
+    [OP_DEC]              = "DEC",
 
     [OP_JUMP]             = "JUMP",
     [OP_JUMP_IF_FALSE]    = "JUMP_IF_FALSE",
