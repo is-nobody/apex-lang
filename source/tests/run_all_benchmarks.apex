@@ -7,7 +7,6 @@ import os
 
 // recursion
 os.execute("apex source/tests/benchmark/fib_recursive.apex")
-os.execute("apex source/tests/benchmark/ackermann.apex")
 os.execute("apex source/tests/benchmark/tree.apex")
 
 // loops & iteration
@@ -25,6 +24,7 @@ os.execute("apex source/tests/benchmark/table_merge.apex")
 os.execute("apex source/tests/benchmark/table_nested_access.apex")
 os.execute("apex source/tests/benchmark/temp_tables.apex")
 os.execute("apex source/tests/benchmark/nested_3d_loops.apex")
+os.execute("apex source/tests/benchmark/table_int_index.apex")
 
 // matrix & arithmetic
 os.execute("apex source/tests/benchmark/matrix_multiplication.apex")

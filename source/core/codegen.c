@@ -742,6 +742,16 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
             int obj_reg = codegen_expression(cg, node->access.object);                           // evaluate object
             int result_reg = alloc_register(cg);                                                 // result register
             
+            if (node->access.member->type == AST_LITERAL_NUMBER) {                               // member is number literal
+                double key_val = node->access.member->literal_number.number_value;               // get key value
+                
+                if (key_val == (int)key_val && key_val >= 1 && key_val <= 65535) {               // fits in immediate
+                    emit(cg, INST(OP_TABLE_GET_INT, result_reg, obj_reg, (int)key_val), node->line);  // direct array access
+                    free_register(cg, obj_reg);                                                  // free object
+                    return result_reg;                                                           // return result
+                }
+            }
+            
             if (node->access.member->type == AST_IDENTIFIER) {                                   // member identifier
                 int local_reg = find_local(cg, node->access.member->identifier.name);            // check local
                 if (local_reg >= 0) {                                                            // local variable
@@ -1088,6 +1098,18 @@ static int codegen_index_assign(CodeGenerator* cg, ASTNode* node) {
     for (int i = chain_len - 1; i > 0; i--) {                                    // traverse from end
         ASTNode* acc = chain[i];                                                 // current access
         int next_obj_reg = alloc_register(cg);                                   // allocate next reg
+        
+        if (acc->access.member->type == AST_LITERAL_NUMBER) {                    // member is number literal
+            double key_val = acc->access.member->literal_number.number_value;    // get key value
+            
+            if (key_val == (int)key_val && key_val >= 1 && key_val <= 65535) {   // fits in immediate
+                emit(cg, INST(OP_TABLE_GET_INT, next_obj_reg, current_obj_reg, (int)key_val), acc->line);  // direct array access
+                free_register(cg, current_obj_reg);                              // free old object
+                current_obj_reg = next_obj_reg;                                  // update object
+                continue;                                                        // next chain element
+            }
+        }
+        
         int key_reg = codegen_expression(cg, acc->access.member);                // evaluate key
         emit(cg, INST(OP_TABLE_GET, next_obj_reg, current_obj_reg, key_reg), acc->line);  // get
         free_register(cg, key_reg);                                              // free key
@@ -1097,6 +1119,17 @@ static int codegen_index_assign(CodeGenerator* cg, ASTNode* node) {
     
     int val_reg = codegen_expression(cg, value_node);                            // evaluate value
     ASTNode* final_acc = chain[0];                                               // final access
+    
+    if (final_acc->access.member->type == AST_LITERAL_NUMBER) {                  // member is number literal
+        double key_val = final_acc->access.member->literal_number.number_value;  // get key value
+        
+        if (key_val == (int)key_val && key_val >= 1 && key_val <= 65535) {       // fits in immediate
+            emit(cg, INST(OP_TABLE_SET_INT, current_obj_reg, (int)key_val, val_reg), final_acc->line);  // direct array set
+            free_register(cg, current_obj_reg);                                  // free object
+            return val_reg;                                                      // return value
+        }
+    }
+    
     int key_reg = codegen_expression(cg, final_acc->access.member);              // evaluate key
     emit(cg, INST(OP_TABLE_SET, current_obj_reg, key_reg, val_reg), final_acc->line);  // set
     free_register(cg, key_reg);                                                  // free key
