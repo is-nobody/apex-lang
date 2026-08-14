@@ -28,6 +28,8 @@ typedef enum {
     OP_JUMP_IF_FALSE,    // branch if rcond is falsy
     OP_JUMP_IF_EQ,       // branch if r[op1] == r[op2]
     OP_JUMP_IF_NEQ,      // branch if r[op1] != r[op2]
+    OP_JUMP_IF_EQ_NUM,   // jump if two numbers are equal (unboxed, no type checks)
+    OP_JUMP_IF_NEQ_NUM,  // jump if two numbers are not equal (unboxed, no type checks)
     OP_JUMP_IF_LT,       // branch if r[op1] < r[op2] (for range loops)
     OP_JUMP_IF_GT,       // branch if r[op1] > r[op2]
     OP_JUMP_IF_LTE,      // branch if r[op1] <= r[op2]
@@ -35,6 +37,8 @@ typedef enum {
 
     OP_CMP_EQ,           // equality comparison: rdst = (rleft == rright)
     OP_CMP_NEQ,          // inequality: rdst = (rleft != rright)
+    OP_CMP_EQ_NUM,       // compare two numbers for equality (unboxed, no type checks)
+    OP_CMP_NEQ_NUM,      // compare two numbers for inequality (unboxed, no type checks)
     OP_CMP_LT,           // less-than: rdst = (rleft < rright)
     OP_CMP_GT,           // greater-than: rdst = (rleft > rright)
     OP_CMP_LTE,          // less-or-equal: rdst = (rleft <= rright)

@@ -19,6 +19,21 @@ static bool is_known_builtin_module(const char* name) {
            strcmp(name, "crypto") == 0;
 }
 
+// checks if a binary operator always produces a number result
+static bool is_arithmetic_op(TokenType op) {
+    return op == TOKEN_PLUS || op == TOKEN_MINUS || op == TOKEN_STAR ||
+           op == TOKEN_SLASH || op == TOKEN_PERCENT;
+}
+
+// checks if an expression is guaranteed to produce a number
+static bool is_number_expression(ASTNode* node) {
+    if (!node) return false;
+    if (node->type == AST_LITERAL_NUMBER) return true;
+    if (node->type == AST_BINARY && is_arithmetic_op(node->binary.op)) return true;
+    if (node->type == AST_UNARY && node->unary.op == TOKEN_MINUS) return true;
+    return false;
+}
+
 static int codegen_expression(CodeGenerator* cg, ASTNode* node);
 static void codegen_block(CodeGenerator* cg, ASTNode* node);
 static int codegen_optimized_condition(CodeGenerator* cg, ASTNode* condition, int line);
@@ -502,13 +517,16 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
         if (condition) {                                                            // has condition
             if (condition->type == AST_BINARY) {                                    // binary condition
                 TokenType op = condition->binary.op;                                // operator
+                bool both_numbers = is_number_expression(condition->binary.left) && // check if both operands are numbers
+                                    is_number_expression(condition->binary.right);
+                
                 switch (op) {                                                       // map to jump op
                     case TOKEN_LESS:          jump_op = OP_JUMP_IF_GTE; optimized = true; break;
                     case TOKEN_LESS_EQUAL:    jump_op = OP_JUMP_IF_GT;  optimized = true; break;
                     case TOKEN_GREATER:       jump_op = OP_JUMP_IF_LTE; optimized = true; break;
                     case TOKEN_GREATER_EQUAL: jump_op = OP_JUMP_IF_LT;  optimized = true; break;
-                    case TOKEN_EQUAL_EQUAL:   jump_op = OP_JUMP_IF_NEQ; optimized = true; break;
-                    case TOKEN_NOT_EQUAL:     jump_op = OP_JUMP_IF_EQ;  optimized = true; break;
+                    case TOKEN_EQUAL_EQUAL:   jump_op = both_numbers ? OP_JUMP_IF_NEQ_NUM : OP_JUMP_IF_NEQ; optimized = true; break;  // specialized if both numbers
+                    case TOKEN_NOT_EQUAL:     jump_op = both_numbers ? OP_JUMP_IF_EQ_NUM : OP_JUMP_IF_EQ; optimized = true; break;     // specialized if both numbers
                     default: break;                                                 // not optimizable
                 }
                 if (optimized) {                                                    // can optimize
@@ -637,6 +655,9 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
             int right_reg = codegen_expression(cg, node->binary.right);             // evaluate right
             int result_reg = alloc_register(cg);                                    // result register
             
+            bool both_numbers = is_number_expression(node->binary.left) &&          // check if both operands are numbers
+                                is_number_expression(node->binary.right);
+            
             Opcode op;                                                              // opcode
             switch (node->binary.op) {                                              // map operator
                 case TOKEN_PLUS:           op = OP_ADD; break;
@@ -644,8 +665,8 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
                 case TOKEN_STAR:           op = OP_MUL; break;
                 case TOKEN_SLASH:          op = OP_DIV; break;
                 case TOKEN_PERCENT:        op = OP_MOD; break;
-                case TOKEN_EQUAL_EQUAL:    op = OP_CMP_EQ; break;
-                case TOKEN_NOT_EQUAL:      op = OP_CMP_NEQ; break;
+                case TOKEN_EQUAL_EQUAL:    op = both_numbers ? OP_CMP_EQ_NUM : OP_CMP_EQ; break;    // specialized if both numbers
+                case TOKEN_NOT_EQUAL:      op = both_numbers ? OP_CMP_NEQ_NUM : OP_CMP_NEQ; break;  // specialized if both numbers
                 case TOKEN_LESS:           op = OP_CMP_LT; break;
                 case TOKEN_GREATER:        op = OP_CMP_GT; break;
                 case TOKEN_LESS_EQUAL:     op = OP_CMP_LTE; break;
@@ -992,13 +1013,16 @@ static int codegen_optimized_condition(CodeGenerator* cg, ASTNode* condition, in
         TokenType op = condition->binary.op;                                      // operator
         Opcode jump_op;                                                           // jump opcode
         
+        bool both_numbers = is_number_expression(condition->binary.left) &&       // check if both operands are numbers
+                            is_number_expression(condition->binary.right);
+        
         switch (op) {                                                             // map to jump
             case TOKEN_LESS:          jump_op = OP_JUMP_IF_GTE; break;
             case TOKEN_LESS_EQUAL:    jump_op = OP_JUMP_IF_GT;  break;
             case TOKEN_GREATER:       jump_op = OP_JUMP_IF_LTE; break;
             case TOKEN_GREATER_EQUAL: jump_op = OP_JUMP_IF_LT;  break;
-            case TOKEN_EQUAL_EQUAL:   jump_op = OP_JUMP_IF_NEQ; break;
-            case TOKEN_NOT_EQUAL:     jump_op = OP_JUMP_IF_EQ;  break;
+            case TOKEN_EQUAL_EQUAL:   jump_op = both_numbers ? OP_JUMP_IF_NEQ_NUM : OP_JUMP_IF_NEQ; break;  // specialized
+            case TOKEN_NOT_EQUAL:     jump_op = both_numbers ? OP_JUMP_IF_EQ_NUM : OP_JUMP_IF_EQ; break;    // specialized
             default: return -1;                                                   // not optimizable
         }
         

@@ -27,6 +27,8 @@ static const char* opcode_names[] = {
     [OP_JUMP_IF_FALSE]    = "JUMP_IF_FALSE",
     [OP_JUMP_IF_EQ]       = "JUMP_IF_EQ",
     [OP_JUMP_IF_NEQ]      = "JUMP_IF_NEQ",
+    [OP_JUMP_IF_EQ_NUM]   = "JUMP_IF_EQ_NUM",
+    [OP_JUMP_IF_NEQ_NUM]  = "JUMP_IF_NEQ_NUM",
     [OP_JUMP_IF_LT]       = "JUMP_IF_LT",
     [OP_JUMP_IF_GT]       = "JUMP_IF_GT",
     [OP_JUMP_IF_LTE]      = "JUMP_IF_LTE",
@@ -34,6 +36,8 @@ static const char* opcode_names[] = {
 
     [OP_CMP_EQ]           = "CMP_EQ",
     [OP_CMP_NEQ]          = "CMP_NEQ",
+    [OP_CMP_EQ_NUM]       = "CMP_EQ_NUM",
+    [OP_CMP_NEQ_NUM]      = "CMP_NEQ_NUM",
     [OP_CMP_LT]           = "CMP_LT",
     [OP_CMP_GT]           = "CMP_GT",
     [OP_CMP_LTE]          = "CMP_LTE",

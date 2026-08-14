@@ -1129,6 +1129,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_JUMP_IF_FALSE]    = &&OP_JUMP_IF_FALSE_LABEL,
         [OP_JUMP_IF_EQ]       = &&OP_JUMP_IF_EQ_LABEL,
         [OP_JUMP_IF_NEQ]      = &&OP_JUMP_IF_NEQ_LABEL,
+        [OP_JUMP_IF_EQ_NUM]   = &&OP_JUMP_IF_EQ_NUM_LABEL,
+        [OP_JUMP_IF_NEQ_NUM]  = &&OP_JUMP_IF_NEQ_NUM_LABEL,
         [OP_JUMP_IF_LT]       = &&OP_JUMP_IF_LT_LABEL,
         [OP_JUMP_IF_GT]       = &&OP_JUMP_IF_GT_LABEL,
         [OP_JUMP_IF_LTE]      = &&OP_JUMP_IF_LTE_LABEL,
@@ -1136,6 +1138,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         
         [OP_CMP_EQ]           = &&OP_CMP_EQ_LABEL,
         [OP_CMP_NEQ]          = &&OP_CMP_NEQ_LABEL,
+        [OP_CMP_EQ_NUM]       = &&OP_CMP_EQ_NUM_LABEL,
+        [OP_CMP_NEQ_NUM]      = &&OP_CMP_NEQ_NUM_LABEL,
         [OP_CMP_LT]           = &&OP_CMP_LT_LABEL,
         [OP_CMP_GT]           = &&OP_CMP_GT_LABEL,
         [OP_CMP_LTE]          = &&OP_CMP_LTE_LABEL,
@@ -1412,6 +1416,26 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
         ip++; goto *dispatch_table[ip->opcode];  // fall through
     }
+    OP_JUMP_IF_EQ_NUM_LABEL: {
+        int target = ip->operands[0];            // jump target address
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
+        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double via union
+        if (a.d == b.d) {                        // compare doubles for equality (no type checks)
+            ip = &vm->code[target];              // jump to target
+            goto *dispatch_table[ip->opcode];    // dispatch next instruction
+        }
+        ip++; goto *dispatch_table[ip->opcode];  // fall through to next instruction
+    }
+    OP_JUMP_IF_NEQ_NUM_LABEL: {
+        int target = ip->operands[0];            // jump target address
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
+        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double via union
+        if (a.d != b.d) {                        // compare doubles for inequality (no type checks)
+            ip = &vm->code[target];              // jump to target
+            goto *dispatch_table[ip->opcode];    // dispatch next instruction
+        }
+        ip++; goto *dispatch_table[ip->opcode];  // fall through to next instruction
+    }
     OP_JUMP_IF_LT_LABEL: {
         int target = ip->operands[0];            // jump target address
         du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
@@ -1503,6 +1527,20 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             result = !table_equal(AS_TABLE(left), AS_TABLE(right), 0);  // compare tables
         }
         regs[dest] = MAKE_BOOL(result);          // store result as bool
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
+    }
+    OP_CMP_EQ_NUM_LABEL: {
+        int dest = ip->operands[0];              // dest register index
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
+        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double via union
+        regs[dest] = MAKE_BOOL(a.d == b.d);      // compare doubles and store bool result (no type checks)
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
+    }
+    OP_CMP_NEQ_NUM_LABEL: {
+        int dest = ip->operands[0];              // dest register index
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
+        du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double via union
+        regs[dest] = MAKE_BOOL(a.d != b.d);      // compare doubles and store bool result (no type checks)
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_CMP_LT_LABEL: {
