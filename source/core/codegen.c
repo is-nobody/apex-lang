@@ -117,13 +117,11 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->module_globals_capacity = 0;                                       // no capacity
 
     cg->cache.zero_reg = alloc_register(cg);                               // allocate zero register
-    int zero_idx = bytecode_add_number_constant(chunk, 0.0);               // add zero constant
-    emit(cg, INST(OP_LOAD_CONST, cg->cache.zero_reg, zero_idx, 0), 0);     // load zero
+    emit(cg, INST(OP_LOAD_NUM_IMM, cg->cache.zero_reg, 0, 0), 0);          // load zero immediate
     
     cg->cache.one_reg = alloc_register(cg);                                // allocate one register
-    int one_idx = bytecode_add_number_constant(chunk, 1.0);                // add one constant
-    emit(cg, INST(OP_LOAD_CONST, cg->cache.one_reg, one_idx, 0), 0);       // load one
-    
+    emit(cg, INST(OP_LOAD_NUM_IMM, cg->cache.one_reg, 1, 0), 0);           // load one immediate
+
     cg->cache.empty_str = alloc_register(cg);                              // allocate empty string register
     int empty_idx = bytecode_add_string_constant(chunk, "");               // add empty string constant
     emit(cg, INST(OP_LOAD_CONST, cg->cache.empty_str, empty_idx, 0), 0);   // load empty string
@@ -159,14 +157,14 @@ void codegen_destroy(CodeGenerator* cg) {
 // emits a number literal, using immediate form for small integers
 static int codegen_literal_number(CodeGenerator* cg, ASTNode* node) {
     double val = node->literal_number.number_value;                        // extract value
-    if (val == (int)val && val >= 0 && val <= 65535) {                       // fits in immediate
+    if (val == (int)val && val >= 0 && val <= 65535) {                     // fits in immediate
         int reg = alloc_register(cg);                                      // allocate register
-        emit(cg, INST(OP_LOAD_NUM, reg, (int)val, 0), node->line);   // load immediate
+        emit(cg, INST(OP_LOAD_NUM_IMM, reg, (int)val, 0), node->line);     // load immediate
         return reg;                                                        // return register
     }
     int reg = alloc_register(cg);                                          // allocate register
     int const_idx = bytecode_add_number_constant(cg->chunk, val);          // add to constant pool
-    emit(cg, INST(OP_LOAD_CONST, reg, const_idx, 0), node->line);          // load constant
+    emit(cg, INST(OP_LOAD_NUM, reg, const_idx, 0), node->line);            // load from constant pool
     return reg;                                                            // return register
 }
 
@@ -475,8 +473,7 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
                 step_reg = codegen_expression(cg, node->for_stmt.step);             // evaluate step
             } else {                                                                // default step = 1
                 step_reg = alloc_register(cg);                                      // allocate register
-                int one_idx = bytecode_add_number_constant(cg->chunk, 1.0);         // add constant
-                emit(cg, INST(OP_LOAD_CONST, step_reg, one_idx, 0), node->line);    // load 1
+                emit(cg, INST(OP_LOAD_NUM_IMM, step_reg, 1, 0), node->line);        // load 1 immediate
             }
 
             int var_reg = add_local(cg, node->for_stmt.var_name);                   // add loop variable

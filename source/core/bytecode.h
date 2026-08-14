@@ -13,7 +13,8 @@
 typedef enum {
     OP_MOVE,             // copies a value from one register to another
     OP_LOAD_CONST,       // loads a constant from the pool into a register
-    OP_LOAD_NUM,         // loads an immediate number into rdst
+    OP_LOAD_NUM_IMM,     // load small integer (0-65535) directly from instruction operand
+    OP_LOAD_NUM,         // load full double precision number from constant pool
     OP_LOAD_BOOL,        // loads true/false directly with an immediate operand
     OP_LOAD_NONE,        // load none/null value into register without constant pool access
 
