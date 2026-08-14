@@ -13,6 +13,7 @@ Please note that by participating in this project, you agree to abide by our [Co
 - [Understanding the Project](#understanding-the-project)
 - [Finding a Task](#finding-a-task)
 - [Code Style Rules](#code-style-rules)
+- [Using AI Agents](#using-ai-agents)
 - [Making Changes](#making-changes)
 - [Testing Your Changes](#testing-your-changes)
 - [Submitting Changes](#submitting-changes)
@@ -122,6 +123,23 @@ Format:
 ```
 
 Keep commits focused: one logical change per commit with its type prefix.
+
+## Using AI Agents
+### Project Policy
+Apex permits the use of AI tools to accelerate development, but with restrictions.
+
+### Usage Rules
+1. **Code Review**: You bear full responsibility for the quality and correctness of AI-generated code
+2. **Understanding**: You must understand and be able to explain every fragment of code you submit
+3. **Testing**: AI-generated code must pass the same testing as manually written code
+
+Remember: you are the author of the code, and AI is merely a tool.
+
+**IT IS STRICTLY PROHIBITED** to use AI in any component of `source/core`, especially the VM. Reasons:
+
+- **Performance-critical code paths**: AI-generated code **ALWAYS** contains redundant operations and unnecessary checks, which, when multiplied across millions of executions, leads to performance degradation by orders of magnitude.
+
+- **Deep contextual understanding required**: The core VM relies on complex invariants, execution order guarantees, and subtle interaction mechanisms between components spanning thousands of lines of code. AI lacks understanding of these interdependencies even if it has seen the entire project.
 
 ## Making Changes
 ### Step-by-Step Process
