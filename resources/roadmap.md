@@ -8,7 +8,6 @@
 - Package manager
 - Language server (LSP)
 - Debug mode
-- Code formatter before execute
 - Documentation `Apex as Embedded language`
 - Resolve Cyclic Reference problem
 - Assignment operators (`+=`, `-=`, `*=`, `/=`, `%=`)

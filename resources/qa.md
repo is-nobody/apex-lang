@@ -38,5 +38,5 @@
 - **Q**: Why no `truthy/falsy` values in comparisons?  
 - **A**: Good luck reading someone else's code at 3 AM! Implicit truthiness always raises questions — is `""` true? Is `[]` false?
 
-- **Q**: Will formatting be a separate opt-in command (`apex fmt`) or mandatory before every run?  
-- **A**: Mandatory. This ensures there is no difference between code written by an experienced developer and a beginner.
+**Q:** Will there be a code formatter?  
+**A:** No, because the parser itself enforces correct code style. You cannot write valid and unreadable code in Apex.
