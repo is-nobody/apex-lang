@@ -20,7 +20,7 @@ static bool is_known_builtin_module(const char* name) {
 }
 
 // checks if a binary operator always produces a number result
-static bool is_arithmetic_op(TokenType op) {
+static bool is_arithmetic_op(ApexTokenType op) {
     return op == TOKEN_PLUS || op == TOKEN_MINUS || op == TOKEN_STAR ||
            op == TOKEN_SLASH || op == TOKEN_PERCENT;
 }
@@ -513,7 +513,7 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
 
         if (condition) {                                                            // has condition
             if (condition->type == AST_BINARY) {                                    // binary condition
-                TokenType op = condition->binary.op;                                // operator
+                ApexTokenType op = condition->binary.op;                                // operator
                 bool both_numbers = is_number_expression(condition->binary.left) && // check if both operands are numbers
                                     is_number_expression(condition->binary.right);
                 
@@ -1031,7 +1031,7 @@ static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
 // tries to optimize comparison conditions into direct jump instructions
 static int codegen_optimized_condition(CodeGenerator* cg, ASTNode* condition, int line) {
     if (condition->type == AST_BINARY) {                                          // binary condition
-        TokenType op = condition->binary.op;                                      // operator
+        ApexTokenType op = condition->binary.op;                                      // operator
         Opcode jump_op;                                                           // jump opcode
         
         bool both_numbers = is_number_expression(condition->binary.left) &&       // check if both operands are numbers
@@ -1285,7 +1285,7 @@ static void codegen_return(CodeGenerator* cg, ASTNode* node) {
         if (val->type == AST_LITERAL_NUMBER) {                                       // number literal
             is_number = true;
         } else if (val->type == AST_BINARY) {                                        // binary op
-            TokenType op = val->binary.op;                                           // operator
+            ApexTokenType op = val->binary.op;                                           // operator
             if (op == TOKEN_PLUS || op == TOKEN_MINUS || op == TOKEN_STAR ||         // arithmetic
                 op == TOKEN_SLASH || op == TOKEN_PERCENT) {
                 is_number = true;

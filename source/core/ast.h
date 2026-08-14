@@ -77,14 +77,14 @@ struct ASTNode {
         
         // binary operation with a token operator and two child expressions
         struct {
-            TokenType op;        // operator token (PLUS, MINUS, STAR, etc.)
+            ApexTokenType op;        // operator token (PLUS, MINUS, STAR, etc.)
             ASTNode* left;       // left operand expression
             ASTNode* right;      // right operand expression
         } binary;
         
         // unary operation with an operator and a single operand
         struct {
-            TokenType op;        // operator token (MINUS, NOT)
+            ApexTokenType op;        // operator token (MINUS, NOT)
             ASTNode* operand;    // operand expression
         } unary;
         
@@ -217,10 +217,10 @@ ASTNode* ast_create_literal_bool(bool value, int line, int column);
 ASTNode* ast_create_identifier(const char* name, int line, int column);
 
 // binary operation combines two subexpressions with a token operator
-ASTNode* ast_create_binary(TokenType op, ASTNode* left, ASTNode* right);
+ASTNode* ast_create_binary(ApexTokenType op, ASTNode* left, ASTNode* right);
 
 // unary operation applies to a single operand (negation, logical not)
-ASTNode* ast_create_unary(TokenType op, ASTNode* operand);
+ASTNode* ast_create_unary(ApexTokenType op, ASTNode* operand);
 
 // function call with a callee expression and a list of argument nodes
 ASTNode* ast_create_call(ASTNode* callee, ASTNodeList* arguments);

@@ -36,7 +36,7 @@ static ASTNode* parse_block(Parser* parser, bool require_indent, const char* aft
 static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, int line, int column);
 static ValueType infer_expression_type(Parser* parser, ASTNode* node);
 static int symbol_index_recursive(Parser* parser, const char* name);
-static const char* binary_op_name(TokenType op);
+static const char* binary_op_name(ApexTokenType op);
 static ASTNode* parse_call(Parser* parser, ASTNode* callee);
 static void parser_check_condition(Parser* parser, ASTNode* condition, const char* context);
 
@@ -287,7 +287,7 @@ static bool is_comparable_type(ValueType type) {
 }
 
 // returns the string representation of a binary operator token
-static const char* binary_op_name(TokenType op) {
+static const char* binary_op_name(ApexTokenType op) {
     switch (op) {
         case TOKEN_PLUS: return "+";
         case TOKEN_MINUS: return "-";
@@ -617,7 +617,7 @@ static Token* advance(Parser* parser) {
 }
 
 // checks if the current token is of the given type
-static bool check(Parser* parser, TokenType type) {
+static bool check(Parser* parser, ApexTokenType type) {
     if (current_token(parser)->type == TOKEN_EOF) {
         return type == TOKEN_EOF; 
     }
@@ -625,13 +625,13 @@ static bool check(Parser* parser, TokenType type) {
 }
 
 // checks if the next token is of the given type
-static bool check_next(Parser* parser, TokenType type) {
+static bool check_next(Parser* parser, ApexTokenType type) {
     if (peek(parser, 1)->type == TOKEN_EOF) return false;
     return peek(parser, 1)->type == type;
 }
 
 // consumes a token if it matches the expected type
-static bool match(Parser* parser, TokenType type) {
+static bool match(Parser* parser, ApexTokenType type) {
     if (check(parser, type)) {
         advance(parser);
         return true;
@@ -640,7 +640,7 @@ static bool match(Parser* parser, TokenType type) {
 }
 
 // consumes a token or reports an error if the type doesn't match
-static Token* consume(Parser* parser, TokenType type, const char* message) {
+static Token* consume(Parser* parser, ApexTokenType type, const char* message) {
     if (check(parser, type)) {
         return advance(parser);
     }
@@ -660,7 +660,7 @@ static bool is_explicit_condition(ASTNode* node) {
     if (!node) return false;
     
     if (node->type == AST_BINARY) {
-        TokenType op = node->binary.op;
+        ApexTokenType op = node->binary.op;
         if (op == TOKEN_EQUAL_EQUAL || op == TOKEN_NOT_EQUAL || 
             op == TOKEN_LESS || op == TOKEN_GREATER || 
             op == TOKEN_LESS_EQUAL || op == TOKEN_GREATER_EQUAL) {
@@ -1174,7 +1174,7 @@ typedef enum {
 } Precedence;
 
 // returns the precedence of a token type for Pratt parsing
-static Precedence get_precedence(TokenType type) {
+static Precedence get_precedence(ApexTokenType type) {
     switch (type) {
         case TOKEN_EQUAL: return PREC_ASSIGNMENT;
         case TOKEN_OR: return PREC_OR;
@@ -1912,7 +1912,7 @@ static ASTNode* parse_precedence(Parser* parser, Precedence precedence) {
 }
 
 // checks if a token type can start an expression
-static bool is_valid_expr_start(TokenType type) {
+static bool is_valid_expr_start(ApexTokenType type) {
     return type == TOKEN_IDENTIFIER ||
            type == TOKEN_NUMBER ||
            type == TOKEN_STRING ||
@@ -2284,7 +2284,7 @@ static ASTNode* parse_if_statement(Parser* parser) {
 }
 
 // checks if a token type is a valid import segment
-static bool is_valid_import_segment(TokenType type) {
+static bool is_valid_import_segment(ApexTokenType type) {
     if (type == TOKEN_IDENTIFIER) return true;
     if (type >= TOKEN_FUNCTION && type <= TOKEN_FALSE) return true;
     if (type == TOKEN_NUMBER || type == TOKEN_STRING) return true;

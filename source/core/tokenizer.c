@@ -34,7 +34,7 @@ static const char* token_type_names[] = {
 // keyword lookup table for case-sensitive language keywords
 typedef struct {
     const char* keyword;  // keyword string
-    TokenType type;       // corresponding token type
+    ApexTokenType type;       // corresponding token type
 } KeywordEntry;
 
 static KeywordEntry keywords[] = {
@@ -58,7 +58,7 @@ static KeywordEntry keywords[] = {
 };
 
 // returns the string name for a token type, used for debugging
-const char* token_type_name(TokenType type) {
+const char* token_type_name(ApexTokenType type) {
     if (type >= 0 && type < (int)(sizeof(token_type_names) / sizeof(token_type_names[0]))) {
         return token_type_names[type];                     // return name from lookup table
     }
@@ -133,7 +133,7 @@ static char advance(Tokenizer* tokenizer) {
 }
 
 // adds a new token to the dynamic array, resizing if necessary
-static void add_token(Tokenizer* tokenizer, TokenType type, const char* value, int line, int column) {
+static void add_token(Tokenizer* tokenizer, ApexTokenType type, const char* value, int line, int column) {
     if (tokenizer->token_count >= tokenizer->token_capacity) {
         tokenizer->token_capacity *= 2;                         // double capacity when full
         tokenizer->tokens = (Token*)realloc(tokenizer->tokens, 
@@ -363,7 +363,7 @@ static char* read_identifier(Tokenizer* tokenizer) {
 }
 
 // checks if an identifier is a keyword, returns the appropriate token type
-static TokenType lookup_keyword(const char* identifier) {
+static ApexTokenType lookup_keyword(const char* identifier) {
     if (strcasecmp(identifier, "true") == 0) return TOKEN_TRUE;    // case-insensitive check for true
     if (strcasecmp(identifier, "false") == 0) return TOKEN_FALSE;  // case-insensitive check for false
     
@@ -474,7 +474,7 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
         
         if (isalpha(c) || c == '_' || (unsigned char)c >= 0x80) {
             char* identifier = read_identifier(tokenizer);      // read identifier or keyword
-            TokenType type = lookup_keyword(identifier);        // determine if it's a keyword
+            ApexTokenType type = lookup_keyword(identifier);        // determine if it's a keyword
             add_token(tokenizer, type, identifier, line, col);  // emit identifier or keyword token
             free(identifier);                                   // free temporary identifier buffer
             continue;                                           // move to next iteration

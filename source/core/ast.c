@@ -56,7 +56,7 @@ ASTNode* ast_create_identifier(const char* name, int line, int column) {
 }
 
 // binary operation combines two subexpressions with a token operator
-ASTNode* ast_create_binary(TokenType op, ASTNode* left, ASTNode* right) {
+ASTNode* ast_create_binary(ApexTokenType op, ASTNode* left, ASTNode* right) {
     ASTNode* node = ast_create_node(AST_BINARY, left->line, left->column);  // create binary node with left location
     node->binary.op = op;                                                   // store operator type
     node->binary.left = left;                                               // store left operand
@@ -65,7 +65,7 @@ ASTNode* ast_create_binary(TokenType op, ASTNode* left, ASTNode* right) {
 }
 
 // unary operation applies to a single operand, e.g. negation or not
-ASTNode* ast_create_unary(TokenType op, ASTNode* operand) {
+ASTNode* ast_create_unary(ApexTokenType op, ASTNode* operand) {
     ASTNode* node = ast_create_node(AST_UNARY, operand->line, operand->column);  // create unary node with operand location
     node->unary.op = op;                                                         // store operator type
     node->unary.operand = operand;                                               // store operand

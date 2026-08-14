@@ -56,11 +56,11 @@ typedef enum {
 
     TOKEN_INDENT,        // indentation increase (block start)
     TOKEN_DEDENT,        // indentation decrease (block end)
-} TokenType;
+} ApexTokenType;
 
 // token structure with type, lexeme, and source position
 typedef struct {
-    TokenType type;      // token kind (keyword, operator, literal, etc.)
+    ApexTokenType type;      // token kind (keyword, operator, literal, etc.)
     char* value;         // dynamically allocated string for the lexeme
     int line;            // 1-based line number
     int column;          // 0-based column within the line
@@ -93,7 +93,7 @@ void tokenizer_destroy(Tokenizer* tokenizer);
 Token* tokenizer_tokenize(Tokenizer* tokenizer, int* token_count);
 
 // returns a human-readable name for a token type
-const char* token_type_name(TokenType type);
+const char* token_type_name(ApexTokenType type);
 
 // returns whether an error occurred during tokenization
 bool tokenizer_has_error(Tokenizer* tokenizer);
