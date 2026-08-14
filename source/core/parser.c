@@ -1407,7 +1407,10 @@ static ASTNode* parse_string(Parser* parser) {
                 memcpy(expr_str, expr_start, expr_len);
                 expr_str[expr_len] = '\0';
                 
-                int expr_column = token->column + (int)(expr_start - value);
+                int expr_column = token->column;
+                for (const char* p = value; p < expr_start; p++) {
+                    if ((*p & 0xC0) != 0x80) expr_column++;
+                }
                 
                 ASTNode* expr_node = parse_string_expression(
                     parser, expr_str,

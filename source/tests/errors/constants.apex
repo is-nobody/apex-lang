@@ -24,3 +24,4 @@ constant x =  // Expected expression after '='
 // error: cannot reassign constant 'name'
 constant name = none
 name = true  // Cannot reassign constant 'name'
+var = "{name = 5}"  // Cannot reassign constant 'name'
