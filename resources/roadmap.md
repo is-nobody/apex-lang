@@ -10,7 +10,6 @@
 - Debug mode
 - Documentation `Apex as Embedded language`
 - Resolve Cyclic Reference problem
-- Assignment operators (`+=`, `-=`, `*=`, `/=`, `%=`)
 - Concurrency model
 
 **What's NOT on the roadmap**

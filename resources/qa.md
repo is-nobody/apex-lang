@@ -40,3 +40,6 @@
 
 **Q:** Will there be a code formatter?  
 **A:** No, because the parser itself enforces correct code style. You cannot write valid and unreadable code in Apex.
+
+**Q:** Are there plans for shorthand assignment operators?
+**A:** No. "Assignment operators" are an unnecessary feature that encourages writing code like `x += y * z`, which obscures the order of operations and the assignment itself. 
