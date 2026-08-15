@@ -1237,7 +1237,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int dest = ip->operands[0];                    // dest register index
         int value = ip->operands[1];                   // immediate integer value (0-65535)
         Value old = regs[dest];                        // read current value in dest register
-        if ((old & QNAN) == QNAN) {                    // fast nan-boxing check: only nan-tagged values
+        if (unlikely((old & QNAN) == QNAN)) {         // fast nan-boxing check: only nan-tagged values
             value_decref(old);                         // are heap objects needing refcount cleanup
         }                                              // unboxed numbers skip this branch entirely
         regs[dest] = MAKE_NUMBER((double)value);       // store unboxed number, no incref needed
@@ -1248,7 +1248,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int const_idx = ip->operands[1];               // constant pool index for double value
         double value = chunk->constants[const_idx].number_value;  // fetch double from constant pool
         Value old = regs[dest];                        // read current value in dest register
-        if ((old & QNAN) == QNAN) {                    // fast nan-boxing check: only nan-tagged values
+        if (unlikely((old & QNAN) == QNAN)) {         // fast nan-boxing check: only nan-tagged values
             value_decref(old);                         // are heap objects needing refcount cleanup
         }                                              // unboxed numbers skip this branch entirely
         regs[dest] = MAKE_NUMBER(value);               // store unboxed double, no incref needed
@@ -1280,11 +1280,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         double r = a.d + b.d;                    // perform addition
         uint64_t old = regs[dest];               // save old value for decref
 
-        if (r != r) {                            // nan result (rare)
+        if (unlikely(r != r)) {                  // nan result (rare)
             value_decref(old);                   // release heap object if any
             regs[dest] = MAKE_NONE();            // store none
         } else {
-            if ((old & QNAN) == QNAN) {          // fast check: old is nan-boxed
+            if (unlikely((old & QNAN) == QNAN)) {  // fast check: old is nan-boxed
                 value_decref(old);               // release heap object
             }
             regs[dest] = MAKE_NUMBER(r);         // store number
@@ -1299,11 +1299,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         double r = a.d - b.d;                    // perform subtraction
         uint64_t old = regs[dest];               // save old value for decref
 
-        if (r != r) {                            // nan result (rare)
+        if (unlikely(r != r)) {                  // nan result (rare)
             value_decref(old);                   // release heap object if any
             regs[dest] = MAKE_NONE();            // store none
         } else {
-            if ((old & QNAN) == QNAN) {          // fast check: old is nan-boxed
+            if (unlikely((old & QNAN) == QNAN)) {  // fast check: old is nan-boxed
                 value_decref(old);               // release heap object
             }
             regs[dest] = MAKE_NUMBER(r);         // store number
@@ -1318,11 +1318,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         double r = a.d * b.d;                    // perform multiplication
         uint64_t old = regs[dest];               // save old value for decref
 
-        if (r != r) {                            // nan result (rare)
+        if (unlikely(r != r)) {                  // nan result (rare)
             value_decref(old);                   // release heap object if any
             regs[dest] = MAKE_NONE();            // store none
         } else {
-            if ((old & QNAN) == QNAN) {          // fast check: old is nan-boxed
+            if (unlikely((old & QNAN) == QNAN)) {  // fast check: old is nan-boxed
                 value_decref(old);               // release heap object
             }
             regs[dest] = MAKE_NUMBER(r);         // store number
@@ -1337,11 +1337,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         double r = a.d / b.d;                    // perform division
         uint64_t old = regs[dest];               // save old value for decref
 
-        if (r != r) {                            // nan result (rare)
+        if (unlikely(r != r)) {                  // nan result (rare)
             value_decref(old);                   // release heap object if any
             regs[dest] = MAKE_NONE();            // store none
         } else {
-            if ((old & QNAN) == QNAN) {          // fast check: old is nan-boxed
+            if (unlikely((old & QNAN) == QNAN)) {  // fast check: old is nan-boxed
                 value_decref(old);               // release heap object
             }
             regs[dest] = MAKE_NUMBER(r);         // store number
@@ -1356,11 +1356,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         double r = fmod(a.d, b.d);               // perform modulo
         uint64_t old = regs[dest];               // save old value for decref
 
-        if (r != r) {                            // nan result (rare)
+        if (unlikely(r != r)) {                  // nan result (rare)
             value_decref(old);                   // release heap object if any
             regs[dest] = MAKE_NONE();            // store none
         } else {
-            if ((old & QNAN) == QNAN) {          // fast check: old is nan-boxed
+            if (unlikely((old & QNAN) == QNAN)) {  // fast check: old is nan-boxed
                 value_decref(old);               // release heap object
             }
             regs[dest] = MAKE_NUMBER(r);         // store number
@@ -1371,7 +1371,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     OP_NEG_LABEL: {
         int dest = ip->operands[0];                                   // dest register index
         uint64_t old = regs[dest];                                    // save old value for decref
-        if ((old & QNAN) == QNAN) {                                   // fast check: old is nan-boxed
+        if (unlikely((old & QNAN) == QNAN)) {                         // fast check: old is nan-boxed
             value_decref(old);                                        // release heap object
         }
         regs[dest] = MAKE_NUMBER(-AS_NUMBER(regs[ip->operands[1]]));  // negate and store as unboxed number
@@ -1383,11 +1383,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         double r = a.d + 1.0;                        // increment by 1 (NaN for non-numbers)
         uint64_t old = regs[reg_idx];                // save old value for decref
         
-        if (r != r) {                                // nan result (non-number input)
+        if (unlikely(r != r)) {                      // nan result (non-number input)
             value_decref(old);                       // release heap object if any
             regs[reg_idx] = MAKE_NONE();             // store none
         } else {
-            if ((old & QNAN) == QNAN) {              // fast check: old is nan-boxed
+            if (unlikely((old & QNAN) == QNAN)) {    // old is nan-boxed heap object
                 value_decref(old);                   // release heap object
             }
             regs[reg_idx] = MAKE_NUMBER(r);          // store incremented number
@@ -1400,11 +1400,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         double r = a.d - 1.0;                        // decrement by 1 (NaN for non-numbers)
         uint64_t old = regs[reg_idx];                // save old value for decref
         
-        if (r != r) {                                // nan result (non-number input)
+        if (unlikely(r != r)) {                      // nan result (non-number input)
             value_decref(old);                       // release heap object if any
             regs[reg_idx] = MAKE_NONE();             // store none
         } else {
-            if ((old & QNAN) == QNAN) {              // fast check: old is nan-boxed
+            if (unlikely((old & QNAN) == QNAN)) {    // old is nan-boxed heap object
                 value_decref(old);                   // release heap object
             }
             regs[reg_idx] = MAKE_NUMBER(r);          // store decremented number

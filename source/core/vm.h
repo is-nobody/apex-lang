@@ -11,6 +11,12 @@
 #include <stdint.h>
 #include <math.h>
 
+// branch prediction hints for compiler optimization
+#if defined(__GNUC__) || defined(__clang__)
+    #define likely(x)   __builtin_expect(!!(x), 1)
+    #define unlikely(x) __builtin_expect(!!(x), 0)
+#endif
+
 // call stack limits
 #define VM_MAX_CALL_FRAMES 1024
 #define VM_MAX_FRAMES VM_MAX_CALL_FRAMES
