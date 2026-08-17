@@ -205,8 +205,8 @@ static const BuiltinSig BUILTINS[] = {
     {"crypto.aes128_encrypt", 2, 3, TYPE_STRING}, {"crypto.aes128_decrypt", 2, 3, TYPE_STRING},
     {"crypto.aes192_encrypt", 2, 3, TYPE_STRING}, {"crypto.aes192_decrypt", 2, 3, TYPE_STRING},
     {"crypto.aes256_encrypt", 2, 3, TYPE_STRING}, {"crypto.aes256_decrypt", 2, 3, TYPE_STRING},
-    {"crypto.random_hex", 1, 1, TYPE_NUMBER},      {"crypto.random_integer", 1, 1, TYPE_NUMBER},
-    {"crypto.compare_strings", 2, 2, TYPE_STRING},
+    {"crypto.random_hex", 1, 1, TYPE_NUMBER},     {"crypto.compare_strings", 2, 2, TYPE_STRING},
+    {"crypto.random_integer", 1, 1, TYPE_NUMBER}, {"crypto.random_float", 0, 0, TYPE_ANY},
 
     {"number", 1, 1, TYPE_ANY}, {"string", 1, 1, TYPE_ANY}, {"type", 1, 1, TYPE_ANY}
 };

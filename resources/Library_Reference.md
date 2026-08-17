@@ -1592,6 +1592,19 @@ if val != none
     os.output("Secure random int: {val}")
 ```
 
+### crypto.random_float()
+Returns a cryptographically secure random floating-point number in the range `[0, 1)`. The function uses 53 bits of randomness for uniform distribution. Takes no arguments. Always succeeds.
+
+```apex
+import os
+import crypto
+
+val = crypto.random_float()
+
+if val != none
+    os.output("Secure random float: {val}")
+```
+
 ### crypto.compare_strings(a, b)
 Compares two strings in constant time to prevent timing attacks. Useful for comparing security tokens or hashes. Returns `true` if they match, `false` otherwise. Both arguments must be strings. Always succeeds.
 

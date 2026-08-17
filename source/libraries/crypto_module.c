@@ -1637,11 +1637,6 @@ static bool aes256_decrypt(VM* vm, Value* args, Value* result) {
 
 // dispatcher for crypto built-in functions
 bool crypto_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
-    if (arg_count < 1) {
-        *result = MAKE_NONE();
-        return true;
-    }
-
     if (strcmp(name, "crypto.md5") == 0) {               // md5 hash of string
         MD5_CTX context;
         return hash_string(vm, args, result, &context, sizeof(context),
@@ -1830,6 +1825,26 @@ bool crypto_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         get_secure_bytes(&rb, 1);                          // get secure byte
         *result = MAKE_NUMBER((double)(rb % n));           // reduce modulo n
         return true;                                       // builtin handled
+    }
+
+    if (strcmp(name, "crypto.random_float") == 0) {      // secure random float [0.0, 1.0)
+        if (arg_count != 0) {                            // no arguments expected
+            *result = MAKE_NONE();
+            return true;
+        }
+        unsigned char bytes[8];                          // 8 bytes for double precision
+        get_secure_bytes(bytes, 8);                      // fill with secure random bytes
+        
+        uint64_t mantissa = 0;
+        for (int i = 0; i < 7; i++) {                    // use 7 bytes (56 bits)
+            mantissa = (mantissa << 8) | bytes[i];       // accumulate bytes
+        }
+        mantissa &= ((1ULL << 53) - 1);                  // mask to 53 bits
+        
+        double random_val = (double)mantissa / (double)(1ULL << 53);
+        
+        *result = MAKE_NUMBER(random_val);               // return as number
+        return true;                                     // builtin handled
     }
 
     if (strcmp(name, "crypto.compare_strings") == 0) {      // constant-time compare

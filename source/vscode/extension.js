@@ -188,8 +188,8 @@ function activate(context) {
                 'crypto.aes128_encrypt', 'crypto.aes128_decrypt',
                 'crypto.aes192_encrypt', 'crypto.aes192_decrypt',
                 'crypto.aes256_encrypt', 'crypto.aes256_decrypt',
-                'crypto.random_hex',      'crypto.random_integer',
-                'crypto.compare_strings',
+                'crypto.random_hex',     'crypto.compare_strings',
+                'crypto.random_integer', 'crypto.random_float',
 
                 'number', 'string', 'type'
             ];
