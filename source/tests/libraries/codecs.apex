@@ -26,20 +26,67 @@ function base64url_roundtrip()
     decoded_b64url = codecs.base64url_decode(b64url_str)
     assert_equal(decoded_b64url, url_data, "base64url roundtrip")
 
-// test: hex encoding and decoding roundtrip
+// test: hex encoding handles UTF-8 text with multiple languages
 function hex_roundtrip()
-    input_text = "Hello, World!"
-    hex_result = codecs.hex_encode(input_text)
-    decoded_result = codecs.hex_decode(hex_result)
-    assert_equal(decoded_result, input_text, "hex roundtrip")
-    assert_equal(hex_result, "48656c6c6f2c20576f726c6421", "hex write lowercase output")
-
-// test: hex encoding handles UTF-8 text
-function hex_utf8_text()
-    utf8_input = "Hello 世界"
-    hex_result = codecs.hex_encode(utf8_input)
-    decoded_result = codecs.hex_decode(hex_result)
-    assert_equal(decoded_result, utf8_input, "hex UTF-8 roundtrip")
+    chinese_text = "你好，世界！"
+    hex_chinese = codecs.hex_encode(chinese_text)
+    decoded_chinese = codecs.hex_decode(hex_chinese)
+    assert_equal(decoded_chinese, chinese_text, "hex UTF-8 Chinese roundtrip")
+    
+    japanese_text = "こんにちは世界"
+    hex_japanese = codecs.hex_encode(japanese_text)
+    decoded_japanese = codecs.hex_decode(hex_japanese)
+    assert_equal(decoded_japanese, japanese_text, "hex UTF-8 Japanese roundtrip")
+    
+    korean_text = "안녕하세요 세계"
+    hex_korean = codecs.hex_encode(korean_text)
+    decoded_korean = codecs.hex_decode(hex_korean)
+    assert_equal(decoded_korean, korean_text, "hex UTF-8 Korean roundtrip")
+    
+    russian_text = "Привет, мир!"
+    hex_russian = codecs.hex_encode(russian_text)
+    decoded_russian = codecs.hex_decode(hex_russian)
+    assert_equal(decoded_russian, russian_text, "hex UTF-8 Russian roundtrip")
+    
+    arabic_text = "مرحبا بالعالم"
+    hex_arabic = codecs.hex_encode(arabic_text)
+    decoded_arabic = codecs.hex_decode(hex_arabic)
+    assert_equal(decoded_arabic, arabic_text, "hex UTF-8 Arabic roundtrip")
+    
+    hebrew_text = "שלום עולם"
+    hex_hebrew = codecs.hex_encode(hebrew_text)
+    decoded_hebrew = codecs.hex_decode(hex_hebrew)
+    assert_equal(decoded_hebrew, hebrew_text, "hex UTF-8 Hebrew roundtrip")
+    
+    greek_text = "Γειά σου Κόσμε"
+    hex_greek = codecs.hex_encode(greek_text)
+    decoded_greek = codecs.hex_decode(hex_greek)
+    assert_equal(decoded_greek, greek_text, "hex UTF-8 Greek roundtrip")
+    
+    thai_text = "สวัสดีชาวโลก"
+    hex_thai = codecs.hex_encode(thai_text)
+    decoded_thai = codecs.hex_decode(hex_thai)
+    assert_equal(decoded_thai, thai_text, "hex UTF-8 Thai roundtrip")
+    
+    hindi_text = "नमस्ते दुनिया"
+    hex_hindi = codecs.hex_encode(hindi_text)
+    decoded_hindi = codecs.hex_decode(hex_hindi)
+    assert_equal(decoded_hindi, hindi_text, "hex UTF-8 Hindi roundtrip")
+    
+    vietnamese_text = "Xin chào thế giới"
+    hex_vietnamese = codecs.hex_encode(vietnamese_text)
+    decoded_vietnamese = codecs.hex_decode(hex_vietnamese)
+    assert_equal(decoded_vietnamese, vietnamese_text, "hex UTF-8 Vietnamese roundtrip")
+    
+    emoji_text = "Hello 🌍🚀💻"
+    hex_emoji = codecs.hex_encode(emoji_text)
+    decoded_emoji = codecs.hex_decode(hex_emoji)
+    assert_equal(decoded_emoji, emoji_text, "hex UTF-8 emoji roundtrip")
+    
+    mixed_text = "Hello 世界 안녕하세요 Привет مرحبا"
+    hex_mixed = codecs.hex_encode(mixed_text)
+    decoded_mixed = codecs.hex_decode(hex_mixed)
+    assert_equal(decoded_mixed, mixed_text, "hex UTF-8 mixed languages roundtrip")
 
 // test: hex encoding handles binary data
 function hex_binary_data()
@@ -278,7 +325,6 @@ function csv_encode_custom_delimiter()
 base64_roundtrip()
 base64url_roundtrip()
 hex_roundtrip()
-hex_utf8_text()
 hex_binary_data()
 hex_case_insensitive()
 hex_with_spaces()
