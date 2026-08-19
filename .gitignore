@@ -3,3 +3,9 @@ build/
 
 # vscode folder
 .vscode/
+
+# clion folder
+.idea/
+
+# cache folder
+.cache/
