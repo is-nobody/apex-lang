@@ -120,3 +120,57 @@ Here's the mental model to carry with you:
 - The five types are `none`, `number`, `string`, `boolean`, and `table`.
 
 In the following sections, we'll explore each data type in detail — how to create values of that type, what operations work with it, and the common pitfalls to avoid. By the end, you'll have an intuitive feel for which type to use in any situation.
+
+## Numbers
+Numbers are the foundation of computation. Counting items, calculating prices, tracking scores, measuring distances, timing events — if it involves quantity, it involves numbers. In Apex, working with numbers is designed to feel natural and frictionless.
+
+### No Distinctions, No Friction
+In many programming languages, numbers come in multiple flavors: integers, floats, doubles, longs, unsigned integers, and more. Each has different rules, different limits, and different gotchas. This is a source of endless confusion for beginners.
+
+Apex sweeps all of that away. A number is a number. That's it.
+
+```apex
+apples = 4
+temperature = -12
+big_number = 1000000
+price = 3.99
+tiny = 0.00001
+```
+
+Notice that there's no special syntax for different kinds of numbers. You don't write `4` differently from `3.99`. You don't declare "this is a whole number" versus "this is a decimal." Apex figures out the details behind the scenes and lets you focus on your actual problem.
+
+### Whole Numbers
+Whole numbers — numbers without a decimal point — are written exactly as you'd expect:
+
+```apex
+year = 2024
+count = 0
+negative = -50
+big_number = 1000000
+```
+
+Use whole numbers when you're counting things that can't be split into pieces: the number of users, the number of items in a cart, the number of times a loop has run.
+
+### Decimal Numbers
+For numbers with fractional parts, use a decimal point:
+
+```apex
+weight = 71.5
+height = 1.83
+tax_rate = 0.07
+balance = -15.25
+```
+
+Important: Apex uses a dot `.` for decimals, not a comma. The comma has a different job in Apex — it separates items in tables and arguments in function calls. If you write `3,14` expecting a decimal number, Apex will not understand what you mean.
+
+Use decimals when precision matters: money, measurements, percentages, scientific values.
+
+### Positive and Negative
+Numbers can be positive or negative. Negative numbers are written with a minus sign directly before the number:
+
+```apex
+temperature = -5
+balance = -100.50
+```
+
+Positive numbers can optionally have a plus sign, but nobody does this — it's just `5`, not `+5`.
