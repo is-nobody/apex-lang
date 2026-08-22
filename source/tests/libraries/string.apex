@@ -117,6 +117,7 @@ function string_trim()
 
 // test: find substring position
 function string_find()
+    // basic find tests
     index = string.find("Hello World", "World")
     assert_equal(index, 7, "string.find World")
     
@@ -125,8 +126,457 @@ function string_find()
     
     index = string.find("Hello World", "xyz")
     assert_equal(index, -1, "string.find not found")
+    
+    // find at beginning and end
+    index = string.find("start middle end", "start")
+    assert_equal(index, 1, "string.find at beginning")
+    
+    index = string.find("start middle end", "end")
+    assert_equal(index, 14, "string.find at end")
+    
+    // find entire string
+    index = string.find("complete", "complete")
+    assert_equal(index, 1, "string.find entire string")
+    
+    // find single character
+    index = string.find("hello", "h")
+    assert_equal(index, 1, "string.find single char h")
+    
+    index = string.find("hello", "o")
+    assert_equal(index, 5, "string.find single char o")
+    
+    index = string.find("hello", "l")
+    assert_equal(index, 3, "string.find first occurrence l")
+    
+    // find empty string
+    index = string.find("test", "")
+    assert_equal(index, 1, "string.find empty pattern")
+    
+    index = string.find("", "a")
+    assert_equal(index, -1, "string.find empty source")
+    
+    // find with multiple occurrences
+    index = string.find("hello hello hello", "hello")
+    assert_equal(index, 1, "string.find first hello")
+    
+    index = string.find("test testing tested", "test")
+    assert_equal(index, 1, "string.find first test")
+    
+    // find substring within word
+    index = string.find("cat concatenate category", "cat")
+    assert_equal(index, 1, "string.find cat in cat concatenate")
+    
+    index = string.find("concatenate", "cat")
+    assert_equal(index, 4, "string.find cat in concatenate")
+    
+    // case sensitivity
+    index = string.find("Hello hello HELLO", "hello")
+    assert_equal(index, 7, "string.find case sensitive hello")
+    
+    index = string.find("Hello hello HELLO", "HELLO")
+    assert_equal(index, 13, "string.find case sensitive HELLO")
+    
+    index = string.find("Hello hello HELLO", "Hello")
+    assert_equal(index, 1, "string.find case sensitive Hello")
+    
+    // unicode find
+    index = string.find("你好世界你好", "你好")
+    assert_equal(index, 1, "string.find chinese 你好 first")
+    
+    index = string.find("你好世界你好", "世界")
+    assert_equal(index, 3, "string.find chinese 世界")
+    
+    index = string.find("Привет мир Привет", "Привет")
+    assert_equal(index, 1, "string.find russian Привет first")
+    
+    index = string.find("Привет мир Привет", "мир")
+    assert_equal(index, 8, "string.find russian мир")
+    
+    index = string.find("مرحبا عالم مرحبا", "مرحبا")
+    assert_equal(index, 1, "string.find arabic مرحبا first")
+    
+    index = string.find("مرحبا عالم مرحبا", "عالم")
+    assert_equal(index, 7, "string.find arabic عالم")
+    
+    // mixed scripts find
+    index = string.find("Hello Привет 你好", "Привет")
+    assert_equal(index, 7, "string.find mixed Привет")
+    
+    index = string.find("Hello Привет 你好", "你好")
+    assert_equal(index, 14, "string.find mixed 你好")
+    
+    index = string.find("Hello Привет 你好", "Hello")
+    assert_equal(index, 1, "string.find mixed Hello")
+    
+    // emoji find
+    index = string.find("😊🌟😊", "😊")
+    assert_equal(index, 1, "string.find emoji 😊 first")
+    
+    index = string.find("😊🌟😊", "🌟")
+    assert_equal(index, 2, "string.find emoji 🌟")
+    
+    index = string.find("🌟😊🌟😊", "😊")
+    assert_equal(index, 2, "string.find emoji 😊 in 🌟😊🌟😊")
+    
+    // special characters
+    index = string.find("a.b.c.d", ".")
+    assert_equal(index, 2, "string.find dot first")
+    
+    index = string.find("a.b.c.d", ".d")
+    assert_equal(index, 6, "string.find .d")
+    
+    index = string.find("path\\to\\file", "\\")
+    assert_equal(index, 5, "string.find backslash first")
+    
+    index = string.find("path\\to\\file", "file")
+    assert_equal(index, 9, "string.find file after backslash")
+    
+    index = string.find("line1\nline2\nline3", "\n")
+    assert_equal(index, 6, "string.find newline first")
+    
+    index = string.find("line1\nline2\nline3", "line2")
+    assert_equal(index, 7, "string.find line2")
+    
+    index = string.find("tab\tseparated\tvalues", "\t")
+    assert_equal(index, 4, "string.find tab first")
+    
+    index = string.find("tab\tseparated\tvalues", "values")
+    assert_equal(index, 15, "string.find values")
+    
+    // numbers and mixed content
+    index = string.find("1-2-3-4-5", "-")
+    assert_equal(index, 2, "string.find dash first")
+    
+    index = string.find("1-2-3-4-5", "3")
+    assert_equal(index, 5, "string.find digit 3")
+    
+    index = string.find("a1b2c3", "1")
+    assert_equal(index, 2, "string.find digit 1 in a1b2c3")
+    
+    index = string.find("a1b2c3", "b2")
+    assert_equal(index, 3, "string.find b2")
+    
+    index = string.find("version 1.0 version 2.0", "version")
+    assert_equal(index, 1, "string.find version first")
+    
+    index = string.find("version 1.0 version 2.0", "2.0")
+    assert_equal(index, 21, "string.find 2.0")
+    
+    // find with spaces
+    index = string.find("  spaces  everywhere  ", "spaces")
+    assert_equal(index, 3, "string.find spaces")
+    
+    index = string.find("  spaces  everywhere  ", "everywhere")
+    assert_equal(index, 11, "string.find everywhere")
+    
+    index = string.find("one  two   three", "  ")
+    assert_equal(index, 4, "string.find double space")
+    
+    index = string.find("one  two   three", "three")
+    assert_equal(index, 12, "string.find three")
+    
+    // find patterns as substrings of other patterns
+    index = string.find("cat concatenate category", "con")
+    assert_equal(index, 5, "string.find con in concatenate")
+    
+    index = string.find("test testing tested", "testi")
+    assert_equal(index, 6, "string.find testi in testing")
+    
+    index = string.find("test testing tested", "tested")
+    assert_equal(index, 14, "string.find tested")
+    
+    // find with punctuation and symbols
+    index = string.find("!!!", "!")
+    assert_equal(index, 1, "string.find ! first")
+    
+    index = string.find("!!!", "!!")
+    assert_equal(index, 1, "string.find !! first")
+    
+    index = string.find("### ### ###", "###")
+    assert_equal(index, 1, "string.find ### first")
+    
+    index = string.find("### ### ###", "#")
+    assert_equal(index, 1, "string.find # first")
+    
+    index = string.find("a$$b$$c", "$$")
+    assert_equal(index, 2, "string.find $$ first")
+    
+    index = string.find("a$$b$$c", "$")
+    assert_equal(index, 2, "string.find $ first")
+    
+    // find with pattern longer than source
+    index = string.find("short", "very long pattern")
+    assert_equal(index, -1, "string.find pattern longer than source")
+    
+    index = string.find("a", "abc")
+    assert_equal(index, -1, "string.find pattern too long")
+    
+    // find with overlapping patterns (first occurrence only)
+    index = string.find("aaaa", "aa")
+    assert_equal(index, 1, "string.find first aa in aaaa")
+    
+    index = string.find("aaaaa", "aa")
+    assert_equal(index, 1, "string.find first aa in aaaaa")
+    
+    index = string.find("aaaa", "aaa")
+    assert_equal(index, 1, "string.find first aaa in aaaa")
+    
+    // find with pattern not in source
+    index = string.find("hello world", "xyz")
+    assert_equal(index, -1, "string.find xyz not found")
+    
+    index = string.find("hello world", "worlds")
+    assert_equal(index, -1, "string.find worlds not found")
+    
+    index = string.find("hello world", "Hello")
+    assert_equal(index, -1, "string.find case mismatch not found")
+    
+    index = string.find("hello world", "hello world!")
+    assert_equal(index, -1, "string.find longer pattern not found")
+    
+    index = string.find("hello world", "hello  world")
+    assert_equal(index, -1, "string.find double space not found")
+    
+    index = string.find("12345", "6")
+    assert_equal(index, -1, "string.find digit 6 not found")
+    
+    index = string.find("12345", "123456")
+    assert_equal(index, -1, "string.find longer number not found")
+    
+    index = string.find("!@#$%", "^")
+    assert_equal(index, -1, "string.find caret not found")
+    
+    index = string.find("!@#$%", "&")
+    assert_equal(index, -1, "string.find ampersand not found")
+    
+    // find with file paths
+    index = string.find("/home/user/file.txt", "/")
+    assert_equal(index, 1, "string.find path slash first")
+    
+    index = string.find("/home/user/file.txt", "user")
+    assert_equal(index, 7, "string.find user in path")
+    
+    index = string.find("/home/user/file.txt", ".txt")
+    assert_equal(index, 16, "string.find .txt in path")
+    
+    // find with URLs
+    index = string.find("https://example.com", "://")
+    assert_equal(index, 6, "string.find protocol separator")
+    
+    index = string.find("https://example.com", "example")
+    assert_equal(index, 9, "string.find domain in URL")
+    
+    index = string.find("https://example.com", ".com")
+    assert_equal(index, 16, "string.find .com in URL")
+    
+    index = string.find("https://example.com", "https")
+    assert_equal(index, 1, "string.find https in URL")
+    
+    // find with consecutive patterns
+    index = string.find("abcabcabc", "abc")
+    assert_equal(index, 1, "string.find first abc")
+    
+    index = string.find("abcabcabc", "bc")
+    assert_equal(index, 2, "string.find first bc")
+    
+    index = string.find("abcabcabc", "c")
+    assert_equal(index, 3, "string.find first c")
+    
+    index = string.find(",,,", ",")
+    assert_equal(index, 1, "string.find first comma")
+    
+    index = string.find(",,,", ",,")
+    assert_equal(index, 1, "string.find double comma")
+    
+    // find with pattern appearing multiple times
+    index = string.find("red green blue red", "red")
+    assert_equal(index, 1, "string.find first red")
+    
+    index = string.find("red green blue red", "green")
+    assert_equal(index, 5, "string.find green")
+    
+    index = string.find("red green blue red", "blue")
+    assert_equal(index, 11, "string.find blue")
+    
+    index = string.find("one one one", "one")
+    assert_equal(index, 1, "string.find first one")
+    
+    // find with whitespace at boundaries
+    index = string.find(" test", "test")
+    assert_equal(index, 2, "string.find test after space")
+    
+    index = string.find("test ", "test")
+    assert_equal(index, 1, "string.find test before space")
+    
+    index = string.find(" test ", "test")
+    assert_equal(index, 2, "string.find test between spaces")
+    
+    index = string.find("\ttest\t", "test")
+    assert_equal(index, 2, "string.find test between tabs")
+    
+    index = string.find("\ntest\n", "test")
+    assert_equal(index, 2, "string.find test between newlines")
+    
+    // find with pattern partially matching
+    index = string.find("hello world", "hello w")
+    assert_equal(index, 1, "string.find partial hello w")
+    
+    index = string.find("hello world", "o world")
+    assert_equal(index, 5, "string.find partial o world")
+    
+    index = string.find("hello world", "lo wo")
+    assert_equal(index, 4, "string.find partial lo wo")
+    
+    index = string.find("hello world", "hello world")
+    assert_equal(index, 1, "string.find full match")
+    
+    index = string.find("hello world", "hello worl")
+    assert_equal(index, 1, "string.find partial hello worl")
+    
+    index = string.find("hello world", "ello worl")
+    assert_equal(index, 2, "string.find partial ello worl")
+    
+    index = string.find("hello world", "o w")
+    assert_equal(index, 5, "string.find partial o w")
+    
+    index = string.find("hello world", " ")
+    assert_equal(index, 6, "string.find space")
+    
+    index = string.find("hello world", "world")
+    assert_equal(index, 7, "string.find world")
+    
+    index = string.find("hello world", "d")
+    assert_equal(index, 11, "string.find last char d")
+    
+    // find with repeating characters
+    index = string.find("aaaa", "a")
+    assert_equal(index, 1, "string.find a in aaaa")
+    
+    index = string.find("aaaa", "aa")
+    assert_equal(index, 1, "string.find aa in aaaa")
+    
+    index = string.find("aaaa", "aaa")
+    assert_equal(index, 1, "string.find aaa in aaaa")
+    
+    index = string.find("aaaa", "aaaa")
+    assert_equal(index, 1, "string.find aaaa in aaaa")
+    
+    index = string.find("aaaa", "aaaaa")
+    assert_equal(index, -1, "string.find aaaaa in aaaa not found")
+    
+    index = string.find("aaaa", "b")
+    assert_equal(index, -1, "string.find b in aaaa not found")
+    
+    // find with mixed repeating patterns
+    index = string.find("aabbaabb", "aa")
+    assert_equal(index, 1, "string.find aa in aabbaabb")
+    
+    index = string.find("aabbaabb", "bb")
+    assert_equal(index, 3, "string.find bb in aabbaabb")
+    
+    index = string.find("aabbaabb", "ab")
+    assert_equal(index, 2, "string.find ab in aabbaabb")
+    
+    index = string.find("aabbaabb", "ba")
+    assert_equal(index, 4, "string.find ba in aabbaabb")
+    
+    index = string.find("aabbaabb", "aabb")
+    assert_equal(index, 1, "string.find aabb in aabbaabb")
+    
+    index = string.find("aabbaabb", "bbaa")
+    assert_equal(index, 3, "string.find bbaa in aabbaabb")
+    
+    index = string.find("aabbaabb", "aabbaabb")
+    assert_equal(index, 1, "string.find full aabbaabb")
+    
+    index = string.find("aabbaabb", "aabbaab")
+    assert_equal(index, 1, "string.find partial aabbaab")
+    
+    index = string.find("aabbaabb", "abbaabb")
+    assert_equal(index, 2, "string.find partial abbaabb")
+    
+    index = string.find("aabbaabb", "aab")
+    assert_equal(index, 1, "string.find aab in aabbaabb")
+    
+    index = string.find("aabbaabb", "abb")
+    assert_equal(index, 2, "string.find abb in aabbaabb")
+    
+    index = string.find("aabbaabb", "bba")
+    assert_equal(index, 3, "string.find bba in aabbaabb")
+    
+    index = string.find("aabbaabb", "baa")
+    assert_equal(index, 4, "string.find baa in aabbaabb")
+    
+    index = string.find("aabbaabb", "a")
+    assert_equal(index, 1, "string.find a in aabbaabb")
+    
+    index = string.find("aabbaabb", "b")
+    assert_equal(index, 3, "string.find b in aabbaabb")
+    
+    // find with pattern at various positions in longer string
+    index = string.find("abcdefghijklmnopqrstuvwxyz", "abc")
+    assert_equal(index, 1, "string.find abc in alphabet")
+    
+    index = string.find("abcdefghijklmnopqrstuvwxyz", "def")
+    assert_equal(index, 4, "string.find def in alphabet")
+    
+    index = string.find("abcdefghijklmnopqrstuvwxyz", "ghi")
+    assert_equal(index, 7, "string.find ghi in alphabet")
+    
+    index = string.find("abcdefghijklmnopqrstuvwxyz", "jkl")
+    assert_equal(index, 10, "string.find jkl in alphabet")
+    
+    index = string.find("abcdefghijklmnopqrstuvwxyz", "mno")
+    assert_equal(index, 13, "string.find mno in alphabet")
+    
+    index = string.find("abcdefghijklmnopqrstuvwxyz", "pqr")
+    assert_equal(index, 16, "string.find pqr in alphabet")
+    
+    index = string.find("abcdefghijklmnopqrstuvwxyz", "stu")
+    assert_equal(index, 19, "string.find stu in alphabet")
+    
+    index = string.find("abcdefghijklmnopqrstuvwxyz", "vwx")
+    assert_equal(index, 22, "string.find vwx in alphabet")
+    
+    index = string.find("abcdefghijklmnopqrstuvwxyz", "yz")
+    assert_equal(index, 25, "string.find yz in alphabet")
+    
+    index = string.find("abcdefghijklmnopqrstuvwxyz", "z")
+    assert_equal(index, 26, "string.find z in alphabet")
+    
+    index = string.find("abcdefghijklmnopqrstuvwxyz", "a")
+    assert_equal(index, 1, "string.find a in alphabet")
+    
+    index = string.find("abcdefghijklmnopqrstuvwxyz", "abcdefghijklmnopqrstuvwxyz")
+    assert_equal(index, 1, "string.find full alphabet")
+    
+    index = string.find("abcdefghijklmnopqrstuvwxyz", "xyz")
+    assert_equal(index, 24, "string.find xyz in alphabet")
+    
+    index = string.find("abcdefghijklmnopqrstuvwxyz", "wxyz")
+    assert_equal(index, 23, "string.find wxyz in alphabet")
+    
+    index = string.find("abcdefghijklmnopqrstuvwxyz", "vwxyz")
+    assert_equal(index, 22, "string.find vwxyz in alphabet")
+    
+    index = string.find("abcdefghijklmnopqrstuvwxyz", "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    assert_equal(index, -1, "string.find uppercase alphabet not found")
+    
+    index = string.find("abcdefghijklmnopqrstuvwxyz", "1234567890")
+    assert_equal(index, -1, "string.find numbers not found in alphabet")
+    
+    index = string.find("abcdefghijklmnopqrstuvwxyz", "!@#$%^&*()")
+    assert_equal(index, -1, "string.find symbols not found in alphabet")
+    
+    index = string.find("abcdefghijklmnopqrstuvwxyz", " ")
+    assert_equal(index, -1, "string.find space not found in alphabet")
+    
+    index = string.find("abcdefghijklmnopqrstuvwxyz", "")
+    assert_equal(index, 1, "string.find empty string in alphabet")
+    
+    index = string.find("abcdefghijklmnopqrstuvwxyz", "m")
+    assert_equal(index, 13, "string.find m at middle of alphabet")
 
-// test: replace substring with another
 // test: replace substring with another
 function string_replace()
     // basic replacement tests

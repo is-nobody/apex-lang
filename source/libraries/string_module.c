@@ -42,6 +42,19 @@ static size_t utf8_byte_offset(const char* s, size_t char_pos) {
     return s - start;                                                // return byte offset
 }
 
+// returns the number of characters in the first byte_len bytes of a UTF-8 string
+static size_t utf8_strlen_len(const char* s, size_t byte_len) {
+    if (!s) return 0;                                                // guard against null
+    size_t count = 0;                                                // character counter
+    size_t pos = 0;                                                  // byte position counter
+    
+    while (s[pos] && pos < byte_len) {                               // iterate until byte_len or null
+        count++;                                                     // count one character
+        pos += utf8_char_len((unsigned char)s[pos]);                 // skip to next character
+    }
+    return count;                                                    // return character count
+}
+
 // helper to create an interned string value
 static Value make_string_val(VM* vm, const char* str) {
     int len = (int)strlen(str);                                      // compute string length
@@ -123,9 +136,15 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             *result = MAKE_NONE();                                          // invalid, return none
             return true;                                                    // builtin handled
         }
-        char* pos = strstr(AS_STRING(args[0])->chars, AS_STRING(args[1])->chars);  // find substring
-        if (pos) {                                                          // found
-            *result = MAKE_NUMBER((pos - AS_STRING(args[0])->chars) + 1);   // return byte offset
+        
+        const char* haystack = AS_STRING(args[0])->chars;                   // source string
+        const char* needle = AS_STRING(args[1])->chars;                     // substring to find
+        
+        char* byte_pos = strstr(haystack, needle);                          // find byte position
+        if (byte_pos) {                                                     // found
+            size_t byte_offset = byte_pos - haystack;                       // byte offset
+            size_t char_pos = utf8_strlen_len(haystack, byte_offset);       // count chars before match
+            *result = MAKE_NUMBER((double)(char_pos + 1));                  // return 1-based char position
         } else {                                                            // not found
             *result = MAKE_NUMBER(-1);                                      // return -1
         }
