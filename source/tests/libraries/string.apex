@@ -37,53 +37,563 @@ function string_upper()
 
 // test: substring extraction with various scripts and edge cases
 function string_slice()
-    result = string.slice("Hello World", 1, 5)
-    assert_equal(result, "Hello", "string.slice english 1-5")
+    // basic slice positions
+    result = string.slice("Hello World", 1, 1)
+    assert_equal(result, "H", "string.slice single char H")
     
-    result = string.slice("Hello World", 7, 11)
-    assert_equal(result, "World", "string.slice english 7-11")
+    result = string.slice("Hello World", 11, 11)
+    assert_equal(result, "d", "string.slice single char d")
     
-    result = string.slice("你好世界", 1, 2)
-    assert_equal(result, "你好", "string.slice chinese 1-2")
+    result = string.slice("Hello World", 6, 6)
+    assert_equal(result, " ", "string.slice space char")
     
-    result = string.slice("你好世界", 3, 4)
-    assert_equal(result, "世界", "string.slice chinese 3-4")
+    // slice entire string
+    result = string.slice("complete", 1, 8)
+    assert_equal(result, "complete", "string.slice entire string")
     
-    result = string.slice("Привет Мир", 1, 6)
-    assert_equal(result, "Привет", "string.slice russian 1-6")
+    result = string.slice("exact", 1, 5)
+    assert_equal(result, "exact", "string.slice exact length")
+    
+    // slice with start beyond end
+    result = string.slice("short", 10, 15)
+    assert_equal(result, "", "string.slice start beyond end")
+    
+    result = string.slice("short", 6, 10)
+    assert_equal(result, "", "string.slice start after last char")
+    
+    // slice with end beyond end
+    result = string.slice("hello", 3, 100)
+    assert_equal(result, "llo", "string.slice end far beyond")
+    
+    result = string.slice("hello", 5, 50)
+    assert_equal(result, "o", "string.slice last char to beyond")
+    
+    // slice with start greater than end
+    result = string.slice("hello", 5, 1)
+    assert_equal(result, "", "string.slice start > end")
+    
+    result = string.slice("hello", 3, 2)
+    assert_equal(result, "", "string.slice reversed range")
+    
+    // slice with negative start
+    result = string.slice("hello", -1, 3)
+    assert_equal(result, "hel", "string.slice negative start -1")
+    
+    result = string.slice("hello", -10, 5)
+    assert_equal(result, "hello", "string.slice very negative start")
+    
+    // slice with zero start
+    result = string.slice("hello", 0, 3)
+    assert_equal(result, "hel", "string.slice zero start")
+    
+    result = string.slice("hello", 0, 0)
+    assert_equal(result, "", "string.slice zero start and end")
+    
+    // slice empty string
+    result = string.slice("", 1, 1)
+    assert_equal(result, "", "string.slice empty string")
+    
+    result = string.slice("", 0, 5)
+    assert_equal(result, "", "string.slice empty string range")
+    
+    result = string.slice("", -5, 5)
+    assert_equal(result, "", "string.slice empty negative start")
+    
+    // unicode slice tests
+    result = string.slice("你好世界", 1, 1)
+    assert_equal(result, "你", "string.slice chinese single char")
+    
+    result = string.slice("你好世界", 4, 4)
+    assert_equal(result, "界", "string.slice chinese last char")
+    
+    result = string.slice("你好世界", 2, 3)
+    assert_equal(result, "好世", "string.slice chinese middle chars")
+    
+    result = string.slice("你好世界", 1, 4)
+    assert_equal(result, "你好世界", "string.slice chinese entire")
+    
+    result = string.slice("你好世界", 5, 10)
+    assert_equal(result, "", "string.slice chinese beyond end")
+    
+    result = string.slice("你好世界", -2, 2)
+    assert_equal(result, "你好", "string.slice chinese negative start")
+    
+    // russian slice tests
+    result = string.slice("Привет Мир", 1, 1)
+    assert_equal(result, "П", "string.slice russian single char")
+    
+    result = string.slice("Привет Мир", 10, 10)
+    assert_equal(result, "р", "string.slice russian last char")
+    
+    result = string.slice("Привет Мир", 7, 7)
+    assert_equal(result, " ", "string.slice russian space")
     
     result = string.slice("Привет Мир", 8, 10)
-    assert_equal(result, "Мир", "string.slice russian 8-10")
+    assert_equal(result, "Мир", "string.slice russian word")
     
-    result = string.slice("السلام عليكم", 1, 6)
-    assert_equal(result, "السلام", "string.slice arabic 1-6")
+    result = string.slice("Привет Мир", 1, 10)
+    assert_equal(result, "Привет Мир", "string.slice russian entire")
     
-    result = string.slice("السلام عليكم", 8, 13)
-    assert_equal(result, "عليكم", "string.slice arabic 8-13")
+    result = string.slice("Привет Мир", 11, 15)
+    assert_equal(result, "", "string.slice russian beyond end")
     
-    result = string.slice("Hello Привет 你好", 1, 5)
-    assert_equal(result, "Hello", "string.slice mixed 1-5")
+    result = string.slice("Привет Мир", -3, 6)
+    assert_equal(result, "Привет", "string.slice russian negative start")
     
-    result = string.slice("Hello Привет 你好", 7, 12)
-    assert_equal(result, "Привет", "string.slice mixed 7-12")
+    // arabic slice tests
+    result = string.slice("السلام عليكم", 1, 1)
+    assert_equal(result, "ا", "string.slice arabic first char")
+
+    result = string.slice("السلام عليكم", 12, 12)
+    assert_equal(result, "م", "string.slice arabic last char")
+
+    result = string.slice("السلام عليكم", 7, 7)
+    assert_equal(result, " ", "string.slice arabic space")
+
+    result = string.slice("السلام عليكم", 1, 12)
+    assert_equal(result, "السلام عليكم", "string.slice arabic entire")
+
+    result = string.slice("السلام عليكم", 13, 20)
+    assert_equal(result, "", "string.slice arabic beyond end")
+
+    result = string.slice("السلام عليكم", -5, 8)
+    assert_equal(result, "السلام ع", "string.slice arabic negative start")
     
-    result = string.slice("Hello Привет 你好", 14, 15)
-    assert_equal(result, "你好", "string.slice mixed 14-15")
+    // mixed scripts slice
+    result = string.slice("Hello Привет 你好", 1, 1)
+    assert_equal(result, "H", "string.slice mixed first char")
     
-    result = string.slice("", 1, 5)
-    assert_equal(result, "", "string.slice empty")
+    result = string.slice("Hello Привет 你好", 15, 15)
+    assert_equal(result, "好", "string.slice mixed last char")
     
-    result = string.slice("Hello", 1, 10)
-    assert_equal(result, "Hello", "string.slice beyond end")
+    result = string.slice("Hello Привет 你好", 6, 6)
+    assert_equal(result, " ", "string.slice mixed space 1")
     
-    result = string.slice("Hello", -4, 5)
-    assert_equal(result, "Hello", "string.slice negative start")
+    result = string.slice("Hello Привет 你好", 13, 13)
+    assert_equal(result, " ", "string.slice mixed space 2")
     
-    result = string.slice("😊🌟", 1, 1)
-    assert_equal(result, "😊", "string.slice emoji 1-1")
+    result = string.slice("Hello Привет 你好", 1, 15)
+    assert_equal(result, "Hello Привет 你好", "string.slice mixed entire")
     
-    result = string.slice("😊🌟", 2, 2)
-    assert_equal(result, "🌟", "string.slice emoji 2-2")
+    result = string.slice("Hello Привет 你好", 16, 20)
+    assert_equal(result, "", "string.slice mixed beyond end")
+    
+    result = string.slice("Hello Привет 你好", -8, 5)
+    assert_equal(result, "Hello", "string.slice mixed negative start")
+    
+    // emoji slice tests
+    result = string.slice("😊🌟😊", 1, 1)
+    assert_equal(result, "😊", "string.slice emoji first")
+    
+    result = string.slice("😊🌟😊", 2, 2)
+    assert_equal(result, "🌟", "string.slice emoji middle")
+    
+    result = string.slice("😊🌟😊", 3, 3)
+    assert_equal(result, "😊", "string.slice emoji last")
+    
+    result = string.slice("😊🌟😊", 1, 3)
+    assert_equal(result, "😊🌟😊", "string.slice emoji entire")
+    
+    result = string.slice("😊🌟😊", 4, 5)
+    assert_equal(result, "", "string.slice emoji beyond end")
+    
+    result = string.slice("😊🌟😊", -1, 2)
+    assert_equal(result, "😊🌟", "string.slice emoji negative start")
+    
+    result = string.slice("😊🌟😊", 0, 1)
+    assert_equal(result, "😊", "string.slice emoji zero start")
+    
+    // special characters slice
+    result = string.slice("a.b.c.d", 2, 2)
+    assert_equal(result, ".", "string.slice dot single")
+    
+    result = string.slice("a.b.c.d", 1, 7)
+    assert_equal(result, "a.b.c.d", "string.slice dots entire")
+    
+    result = string.slice("path\\to\\file", 5, 5)
+    assert_equal(result, "\\", "string.slice backslash single")
+    
+    result = string.slice("path\\to\\file", 9, 12)
+    assert_equal(result, "file", "string.slice file after backslash")
+    
+    result = string.slice("line1\nline2\nline3", 6, 6)
+    assert_equal(result, "\n", "string.slice newline single")
+    
+    result = string.slice("line1\nline2\nline3", 7, 11)
+    assert_equal(result, "line2", "string.slice line2")
+    
+    result = string.slice("tab\tseparated\tvalues", 4, 4)
+    assert_equal(result, "\t", "string.slice tab single")
+    
+    result = string.slice("tab\tseparated\tvalues", 15, 20)
+    assert_equal(result, "values", "string.slice values after tab")
+    
+    // numbers and mixed content slice
+    result = string.slice("1-2-3-4-5", 2, 2)
+    assert_equal(result, "-", "string.slice dash single")
+    
+    result = string.slice("1-2-3-4-5", 5, 5)
+    assert_equal(result, "3", "string.slice digit 3")
+    
+    result = string.slice("1-2-3-4-5", 1, 9)
+    assert_equal(result, "1-2-3-4-5", "string.slice numbers entire")
+    
+    result = string.slice("a1b2c3", 2, 2)
+    assert_equal(result, "1", "string.slice digit in mixed")
+    
+    result = string.slice("a1b2c3", 3, 4)
+    assert_equal(result, "b2", "string.slice b2 in mixed")
+    
+    result = string.slice("version 1.0 version 2.0", 1, 7)
+    assert_equal(result, "version", "string.slice first version")
+    
+    result = string.slice("version 1.0 version 2.0", 21, 23)
+    assert_equal(result, "2.0", "string.slice 2.0")
+    
+    // slice with whitespace boundaries
+    result = string.slice(" test", 2, 5)
+    assert_equal(result, "test", "string.slice test after space")
+    
+    result = string.slice("test ", 1, 4)
+    assert_equal(result, "test", "string.slice test before space")
+    
+    result = string.slice(" test ", 2, 5)
+    assert_equal(result, "test", "string.slice test between spaces")
+    
+    result = string.slice("\ttest\t", 2, 5)
+    assert_equal(result, "test", "string.slice test between tabs")
+    
+    result = string.slice("\ntest\n", 2, 5)
+    assert_equal(result, "test", "string.slice test between newlines")
+    
+    result = string.slice("  spaces  everywhere  ", 3, 8)
+    assert_equal(result, "spaces", "string.slice spaces word")
+    
+    result = string.slice("  spaces  everywhere  ", 11, 20)
+    assert_equal(result, "everywhere", "string.slice everywhere word")
+    
+    result = string.slice("one  two   three", 12, 16)
+    assert_equal(result, "three", "string.slice three word")
+    
+    // slice with repeating characters
+    result = string.slice("aaaa", 1, 1)
+    assert_equal(result, "a", "string.slice a single")
+    
+    result = string.slice("aaaa", 1, 4)
+    assert_equal(result, "aaaa", "string.slice aaaa entire")
+    
+    result = string.slice("aaaa", 2, 3)
+    assert_equal(result, "aa", "string.slice aa middle")
+    
+    result = string.slice("aaaa", 4, 4)
+    assert_equal(result, "a", "string.slice a last")
+    
+    result = string.slice("aaaa", 5, 6)
+    assert_equal(result, "", "string.slice a beyond")
+    
+    // slice with mixed repeating patterns
+    result = string.slice("aabbaabb", 1, 2)
+    assert_equal(result, "aa", "string.slice aa in aabbaabb")
+    
+    result = string.slice("aabbaabb", 3, 4)
+    assert_equal(result, "bb", "string.slice bb in aabbaabb")
+    
+    result = string.slice("aabbaabb", 2, 3)
+    assert_equal(result, "ab", "string.slice ab in aabbaabb")
+    
+    result = string.slice("aabbaabb", 4, 5)
+    assert_equal(result, "ba", "string.slice ba in aabbaabb")
+    
+    result = string.slice("aabbaabb", 1, 4)
+    assert_equal(result, "aabb", "string.slice aabb in aabbaabb")
+    
+    result = string.slice("aabbaabb", 3, 6)
+    assert_equal(result, "bbaa", "string.slice bbaa in aabbaabb")
+    
+    result = string.slice("aabbaabb", 1, 8)
+    assert_equal(result, "aabbaabb", "string.slice full aabbaabb")
+    
+    result = string.slice("aabbaabb", 1, 7)
+    assert_equal(result, "aabbaab", "string.slice partial aabbaab")
+    
+    result = string.slice("aabbaabb", 2, 8)
+    assert_equal(result, "abbaabb", "string.slice partial abbaabb")
+    
+    result = string.slice("aabbaabb", 1, 3)
+    assert_equal(result, "aab", "string.slice aab")
+    
+    result = string.slice("aabbaabb", 2, 4)
+    assert_equal(result, "abb", "string.slice abb")
+    
+    result = string.slice("aabbaabb", 3, 5)
+    assert_equal(result, "bba", "string.slice bba")
+    
+    result = string.slice("aabbaabb", 4, 6)
+    assert_equal(result, "baa", "string.slice baa")
+    
+    // slice alphabet at various positions
+    result = string.slice("abcdefghijklmnopqrstuvwxyz", 1, 3)
+    assert_equal(result, "abc", "string.slice abc in alphabet")
+    
+    result = string.slice("abcdefghijklmnopqrstuvwxyz", 4, 6)
+    assert_equal(result, "def", "string.slice def in alphabet")
+    
+    result = string.slice("abcdefghijklmnopqrstuvwxyz", 7, 9)
+    assert_equal(result, "ghi", "string.slice ghi in alphabet")
+    
+    result = string.slice("abcdefghijklmnopqrstuvwxyz", 10, 12)
+    assert_equal(result, "jkl", "string.slice jkl in alphabet")
+    
+    result = string.slice("abcdefghijklmnopqrstuvwxyz", 13, 15)
+    assert_equal(result, "mno", "string.slice mno in alphabet")
+    
+    result = string.slice("abcdefghijklmnopqrstuvwxyz", 16, 18)
+    assert_equal(result, "pqr", "string.slice pqr in alphabet")
+    
+    result = string.slice("abcdefghijklmnopqrstuvwxyz", 19, 21)
+    assert_equal(result, "stu", "string.slice stu in alphabet")
+    
+    result = string.slice("abcdefghijklmnopqrstuvwxyz", 22, 24)
+    assert_equal(result, "vwx", "string.slice vwx in alphabet")
+    
+    result = string.slice("abcdefghijklmnopqrstuvwxyz", 25, 26)
+    assert_equal(result, "yz", "string.slice yz in alphabet")
+    
+    result = string.slice("abcdefghijklmnopqrstuvwxyz", 26, 26)
+    assert_equal(result, "z", "string.slice z in alphabet")
+    
+    result = string.slice("abcdefghijklmnopqrstuvwxyz", 1, 1)
+    assert_equal(result, "a", "string.slice a in alphabet")
+    
+    result = string.slice("abcdefghijklmnopqrstuvwxyz", 1, 26)
+    assert_equal(result, "abcdefghijklmnopqrstuvwxyz", "string.slice full alphabet")
+    
+    result = string.slice("abcdefghijklmnopqrstuvwxyz", 24, 26)
+    assert_equal(result, "xyz", "string.slice xyz in alphabet")
+    
+    result = string.slice("abcdefghijklmnopqrstuvwxyz", 23, 26)
+    assert_equal(result, "wxyz", "string.slice wxyz in alphabet")
+    
+    result = string.slice("abcdefghijklmnopqrstuvwxyz", 22, 26)
+    assert_equal(result, "vwxyz", "string.slice vwxyz in alphabet")
+    
+    result = string.slice("abcdefghijklmnopqrstuvwxyz", 13, 13)
+    assert_equal(result, "m", "string.slice m at middle")
+    
+    // slice with punctuation and symbols
+    result = string.slice("!!!", 1, 1)
+    assert_equal(result, "!", "string.slice exclamation single")
+    
+    result = string.slice("!!!", 1, 2)
+    assert_equal(result, "!!", "string.slice exclamation double")
+    
+    result = string.slice("!!!", 1, 3)
+    assert_equal(result, "!!!", "string.slice exclamation triple")
+    
+    result = string.slice("### ### ###", 1, 3)
+    assert_equal(result, "###", "string.slice hash triple")
+    
+    result = string.slice("### ### ###", 5, 7)
+    assert_equal(result, "###", "string.slice hash triple middle")
+    
+    result = string.slice("a$$b$$c", 2, 3)
+    assert_equal(result, "$$", "string.slice dollar double")
+    
+    result = string.slice("a$$b$$c", 2, 2)
+    assert_equal(result, "$", "string.slice dollar single")
+    
+    // slice with file paths
+    result = string.slice("/home/user/file.txt", 1, 1)
+    assert_equal(result, "/", "string.slice path slash first")
+    
+    result = string.slice("/home/user/file.txt", 7, 10)
+    assert_equal(result, "user", "string.slice user in path")
+    
+    result = string.slice("/home/user/file.txt", 16, 19)
+    assert_equal(result, ".txt", "string.slice .txt in path")
+    
+    result = string.slice("/home/user/file.txt", 1, 19)
+    assert_equal(result, "/home/user/file.txt", "string.slice full path")
+    
+    // slice with URLs
+    result = string.slice("https://example.com", 6, 8)
+    assert_equal(result, "://", "string.slice protocol separator")
+    
+    result = string.slice("https://example.com", 9, 15)
+    assert_equal(result, "example", "string.slice domain in URL")
+    
+    result = string.slice("https://example.com", 16, 19)
+    assert_equal(result, ".com", "string.slice .com in URL")
+    
+    result = string.slice("https://example.com", 1, 5)
+    assert_equal(result, "https", "string.slice https in URL")
+    
+    result = string.slice("https://example.com", 1, 19)
+    assert_equal(result, "https://example.com", "string.slice full URL")
+    
+    // slice with consecutive patterns
+    result = string.slice("abcabcabc", 1, 3)
+    assert_equal(result, "abc", "string.slice first abc")
+    
+    result = string.slice("abcabcabc", 4, 6)
+    assert_equal(result, "abc", "string.slice second abc")
+    
+    result = string.slice("abcabcabc", 7, 9)
+    assert_equal(result, "abc", "string.slice third abc")
+    
+    result = string.slice("abcabcabc", 2, 3)
+    assert_equal(result, "bc", "string.slice first bc")
+    
+    result = string.slice("abcabcabc", 3, 3)
+    assert_equal(result, "c", "string.slice first c")
+    
+    result = string.slice(",,,", 1, 1)
+    assert_equal(result, ",", "string.slice first comma")
+    
+    result = string.slice(",,,", 1, 2)
+    assert_equal(result, ",,", "string.slice double comma")
+    
+    result = string.slice(",,,", 1, 3)
+    assert_equal(result, ",,,", "string.slice all commas")
+    
+    // slice with words at various positions
+    result = string.slice("red green blue red", 1, 3)
+    assert_equal(result, "red", "string.slice first red")
+    
+    result = string.slice("red green blue red", 5, 9)
+    assert_equal(result, "green", "string.slice green")
+    
+    result = string.slice("red green blue red", 11, 14)
+    assert_equal(result, "blue", "string.slice blue")
+    
+    result = string.slice("red green blue red", 16, 18)
+    assert_equal(result, "red", "string.slice last red")
+    
+    result = string.slice("one one one", 1, 3)
+    assert_equal(result, "one", "string.slice first one")
+    
+    result = string.slice("one one one", 5, 7)
+    assert_equal(result, "one", "string.slice second one")
+    
+    result = string.slice("one one one", 9, 11)
+    assert_equal(result, "one", "string.slice third one")
+    
+    // slice with partial word boundaries
+    result = string.slice("hello world", 1, 7)
+    assert_equal(result, "hello w", "string.slice partial hello w")
+    
+    result = string.slice("hello world", 5, 11)
+    assert_equal(result, "o world", "string.slice partial o world")
+    
+    result = string.slice("hello world", 4, 8)
+    assert_equal(result, "lo wo", "string.slice partial lo wo")
+    
+    result = string.slice("hello world", 1, 11)
+    assert_equal(result, "hello world", "string.slice full match")
+    
+    result = string.slice("hello world", 1, 10)
+    assert_equal(result, "hello worl", "string.slice partial hello worl")
+    
+    result = string.slice("hello world", 2, 10)
+    assert_equal(result, "ello worl", "string.slice partial ello worl")
+    
+    result = string.slice("hello world", 5, 7)
+    assert_equal(result, "o w", "string.slice partial o w")
+    
+    result = string.slice("hello world", 6, 6)
+    assert_equal(result, " ", "string.slice space")
+    
+    result = string.slice("hello world", 7, 11)
+    assert_equal(result, "world", "string.slice world")
+    
+    result = string.slice("hello world", 11, 11)
+    assert_equal(result, "d", "string.slice last char d")
+    
+    // slice with zero and negative boundaries
+    result = string.slice("test", 0, 0)
+    assert_equal(result, "", "string.slice zero zero")
+    
+    result = string.slice("test", 0, 1)
+    assert_equal(result, "t", "string.slice zero to one")
+    
+    result = string.slice("test", -0, 2)
+    assert_equal(result, "te", "string.slice negative zero to two")
+    
+    result = string.slice("test", -100, 100)
+    assert_equal(result, "test", "string.slice huge negative to huge positive")
+    
+    result = string.slice("test", 100, 200)
+    assert_equal(result, "", "string.slice huge positive range")
+    
+    result = string.slice("test", -100, -50)
+    assert_equal(result, "test", "string.slice huge negative range")
+    
+    // slice with single character strings
+    result = string.slice("a", 1, 1)
+    assert_equal(result, "a", "string.slice single char string")
+    
+    result = string.slice("a", 0, 1)
+    assert_equal(result, "a", "string.slice single char zero start")
+    
+    result = string.slice("a", 2, 2)
+    assert_equal(result, "", "string.slice single char beyond")
+    
+    result = string.slice("a", 1, 10)
+    assert_equal(result, "a", "string.slice single char to beyond")
+    
+    result = string.slice("a", -1, 1)
+    assert_equal(result, "a", "string.slice single char negative start")
+    
+    // slice with two character strings
+    result = string.slice("ab", 1, 1)
+    assert_equal(result, "a", "string.slice two chars first")
+    
+    result = string.slice("ab", 2, 2)
+    assert_equal(result, "b", "string.slice two chars second")
+    
+    result = string.slice("ab", 1, 2)
+    assert_equal(result, "ab", "string.slice two chars both")
+    
+    result = string.slice("ab", 0, 1)
+    assert_equal(result, "a", "string.slice two chars zero start")
+    
+    result = string.slice("ab", 2, 5)
+    assert_equal(result, "b", "string.slice two chars last to beyond")
+    
+    // slice with three character strings
+    result = string.slice("abc", 1, 1)
+    assert_equal(result, "a", "string.slice three chars first")
+    
+    result = string.slice("abc", 2, 2)
+    assert_equal(result, "b", "string.slice three chars middle")
+    
+    result = string.slice("abc", 3, 3)
+    assert_equal(result, "c", "string.slice three chars last")
+    
+    result = string.slice("abc", 1, 3)
+    assert_equal(result, "abc", "string.slice three chars all")
+    
+    result = string.slice("abc", 2, 3)
+    assert_equal(result, "bc", "string.slice three chars bc")
+    
+    result = string.slice("abc", 1, 2)
+    assert_equal(result, "ab", "string.slice three chars ab")
+    
+    // slice with long strings
+    result = string.slice("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1, 25)
+    assert_equal(result, "aaaaaaaaaaaaaaaaaaaaaaaaa", "string.slice long string first 25")
+    
+    result = string.slice("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 26, 50)
+    assert_equal(result, "aaaaaaaaaaaaaaaaaaaaaaaaa", "string.slice long string second 25")
+    
+    result = string.slice("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1, 50)
+    assert_equal(result, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "string.slice long string entire")
+    
+    result = string.slice("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 51, 60)
+    assert_equal(result, "", "string.slice long string beyond")
+    
+    result = string.slice("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 0, 25)
+    assert_equal(result, "aaaaaaaaaaaaaaaaaaaaaaaaa", "string.slice long string zero start")
 
 // test: split string by delimiter into table
 function string_split()
