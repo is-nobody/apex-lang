@@ -1212,12 +1212,356 @@ function string_split()
 
 // test: join table elements into string with separator
 function string_join()
+    // basic join tests
     parts = string.split("a,b,c", ",")
     result = string.join(parts, "-")
     assert_equal(result, "a-b-c", "string.join with dash")
     
     result = string.join(parts, "")
     assert_equal(result, "abc", "string.join empty separator")
+    
+    result = string.join(parts, ", ")
+    assert_equal(result, "a, b, c", "string.join comma space")
+    
+    result = string.join(parts, " ")
+    assert_equal(result, "a b c", "string.join space")
+    
+    result = string.join(parts, ":")
+    assert_equal(result, "a:b:c", "string.join colon")
+    
+    result = string.join(parts, ";")
+    assert_equal(result, "a;b;c", "string.join semicolon")
+    
+    result = string.join(parts, "|")
+    assert_equal(result, "a|b|c", "string.join pipe")
+    
+    result = string.join(parts, ".")
+    assert_equal(result, "a.b.c", "string.join dot")
+    
+    result = string.join(parts, "/")
+    assert_equal(result, "a/b/c", "string.join slash")
+    
+    result = string.join(parts, "\\")
+    assert_equal(result, "a\\b\\c", "string.join backslash")
+    
+    result = string.join(parts, "---")
+    assert_equal(result, "a---b---c", "string.join multi-char separator")
+    
+    result = string.join(parts, "===")
+    assert_equal(result, "a===b===c", "string.join equals separator")
+    
+    result = string.join(parts, "___")
+    assert_equal(result, "a___b___c", "string.join underscore separator")
+    
+    result = string.join(parts, "***")
+    assert_equal(result, "a***b***c", "string.join asterisk separator")
+    
+    // join with special separators
+    result = string.join(parts, "\t")
+    assert_equal(result, "a\tb\tc", "string.join tab separator")
+    
+    result = string.join(parts, "\n")
+    assert_equal(result, "a\nb\nc", "string.join newline separator")
+    
+    result = string.join(parts, " ")
+    assert_equal(result, "a b c", "string.join space separator")
+    
+    result = string.join(parts, "")
+    assert_equal(result, "abc", "string.join no separator")
+    
+    // join with two elements
+    parts = string.split("hello,world", ",")
+    result = string.join(parts, " ")
+    assert_equal(result, "hello world", "string.join two elements")
+    
+    result = string.join(parts, "-")
+    assert_equal(result, "hello-world", "string.join two elements dash")
+    
+    result = string.join(parts, "")
+    assert_equal(result, "helloworld", "string.join two elements empty sep")
+    
+    // join with one element
+    parts = string.split("single", ",")
+    result = string.join(parts, "-")
+    assert_equal(result, "single", "string.join single element")
+    
+    result = string.join(parts, "")
+    assert_equal(result, "single", "string.join single element empty sep")
+    
+    result = string.join(parts, ", ")
+    assert_equal(result, "single", "string.join single element comma space")
+    
+    // join with many elements
+    parts = string.split("1,2,3,4,5,6,7,8,9,10", ",")
+    result = string.join(parts, "-")
+    assert_equal(result, "1-2-3-4-5-6-7-8-9-10", "string.join ten numbers")
+    
+    result = string.join(parts, ", ")
+    assert_equal(result, "1, 2, 3, 4, 5, 6, 7, 8, 9, 10", "string.join ten numbers comma")
+    
+    result = string.join(parts, "")
+    assert_equal(result, "12345678910", "string.join ten numbers empty")
+    
+    // join with words
+    parts = string.split("red,green,blue,yellow,purple", ",")
+    result = string.join(parts, " ")
+    assert_equal(result, "red green blue yellow purple", "string.join colors space")
+    
+    result = string.join(parts, ", ")
+    assert_equal(result, "red, green, blue, yellow, purple", "string.join colors comma")
+    
+    result = string.join(parts, "|")
+    assert_equal(result, "red|green|blue|yellow|purple", "string.join colors pipe")
+    
+    // join unicode strings
+    parts = string.split("你好,世界,朋友", ",")
+    result = string.join(parts, "-")
+    assert_equal(result, "你好-世界-朋友", "string.join chinese dash")
+    
+    result = string.join(parts, "")
+    assert_equal(result, "你好世界朋友", "string.join chinese empty")
+    
+    result = string.join(parts, " ")
+    assert_equal(result, "你好 世界 朋友", "string.join chinese space")
+    
+    parts = string.split("Привет,мир,друг", ",")
+    result = string.join(parts, " ")
+    assert_equal(result, "Привет мир друг", "string.join russian space")
+    
+    result = string.join(parts, "-")
+    assert_equal(result, "Привет-мир-друг", "string.join russian dash")
+    
+    result = string.join(parts, "")
+    assert_equal(result, "Приветмирдруг", "string.join russian empty")
+    
+    parts = string.split("مرحبا,عالم,صديق", ",")
+    result = string.join(parts, " ")
+    assert_equal(result, "مرحبا عالم صديق", "string.join arabic space")
+    
+    result = string.join(parts, "-")
+    assert_equal(result, "مرحبا-عالم-صديق", "string.join arabic dash")
+    
+    // join emoji
+    parts = string.split("😊,🌟,😀", ",")
+    result = string.join(parts, " ")
+    assert_equal(result, "😊 🌟 😀", "string.join emoji space")
+    
+    result = string.join(parts, "-")
+    assert_equal(result, "😊-🌟-😀", "string.join emoji dash")
+    
+    result = string.join(parts, "")
+    assert_equal(result, "😊🌟😀", "string.join emoji empty")
+    
+    // join mixed scripts
+    parts = string.split("Hello,你好,Привет,مرحبا", ",")
+    result = string.join(parts, " ")
+    assert_equal(result, "Hello 你好 Привет مرحبا", "string.join mixed scripts space")
+    
+    result = string.join(parts, "-")
+    assert_equal(result, "Hello-你好-Привет-مرحبا", "string.join mixed scripts dash")
+    
+    result = string.join(parts, ", ")
+    assert_equal(result, "Hello, 你好, Привет, مرحبا", "string.join mixed scripts comma")
+    
+    // join with file paths
+    parts = string.split("home,user,documents", ",")
+    result = string.join(parts, "/")
+    assert_equal(result, "home/user/documents", "string.join path")
+    
+    result = string.join(parts, "\\")
+    assert_equal(result, "home\\user\\documents", "string.join windows path")
+    
+    // join with URL parts
+    parts = string.split("https,example,com", ",")
+    result = string.join(parts, ".")
+    assert_equal(result, "https.example.com", "string.join URL")
+    
+    parts = string.split("example,com", ",")
+    result = string.join(parts, ".")
+    assert_equal(result, "example.com", "string.join domain")
+    
+    // join with sentences
+    parts = string.split("Hello,world,this,is,a,test", ",")
+    result = string.join(parts, " ")
+    assert_equal(result, "Hello world this is a test", "string.join sentence")
+    
+    result = string.join(parts, ", ")
+    assert_equal(result, "Hello, world, this, is, a, test", "string.join sentence comma")
+    
+    // join with empty strings in table
+    parts = string.split("a,,c", ",")
+    result = string.join(parts, "-")
+    assert_equal(result, "a--c", "string.join with empty elements")
+    
+    result = string.join(parts, ", ")
+    assert_equal(result, "a, , c", "string.join with empty elements comma")
+    
+    result = string.join(parts, "")
+    assert_equal(result, "ac", "string.join with empty elements empty sep")
+    
+    // join with leading/trailing empties
+    parts = string.split(",a,b,c,", ",")
+    result = string.join(parts, "-")
+    assert_equal(result, "-a-b-c-", "string.join with leading trailing empties")
+    
+    result = string.join(parts, "|")
+    assert_equal(result, "|a|b|c|", "string.join with leading trailing empties pipe")
+    
+    // join with numbers
+    parts = string.split("10,20,30,40,50", ",")
+    result = string.join(parts, "+")
+    assert_equal(result, "10+20+30+40+50", "string.join numbers plus")
+    
+    result = string.join(parts, " + ")
+    assert_equal(result, "10 + 20 + 30 + 40 + 50", "string.join numbers plus spaces")
+    
+    // join with dates
+    parts = string.split("2024,01,15", ",")
+    result = string.join(parts, "-")
+    assert_equal(result, "2024-01-15", "string.join date")
+    
+    parts = string.split("15,01,2024", ",")
+    result = string.join(parts, "/")
+    assert_equal(result, "15/01/2024", "string.join date slash")
+    
+    // join with time
+    parts = string.split("12,30,45", ",")
+    result = string.join(parts, ":")
+    assert_equal(result, "12:30:45", "string.join time")
+    
+    // join with IP address parts
+    parts = string.split("192,168,1,1", ",")
+    result = string.join(parts, ".")
+    assert_equal(result, "192.168.1.1", "string.join IP address")
+    
+    // join with version numbers
+    parts = string.split("1,2,3", ",")
+    result = string.join(parts, ".")
+    assert_equal(result, "1.2.3", "string.join version")
+    
+    parts = string.split("1,0,0", ",")
+    result = string.join(parts, ".")
+    assert_equal(result, "1.0.0", "string.join semver")
+    
+    // join with CSV-like data
+    parts = string.split("John,Doe,30,Engineer", ",")
+    result = string.join(parts, "|")
+    assert_equal(result, "John|Doe|30|Engineer", "string.join CSV pipe")
+    
+    result = string.join(parts, "\t")
+    assert_equal(result, "John\tDoe\t30\tEngineer", "string.join CSV tab")
+    
+    // join with special characters
+    parts = string.split("a,b,c", ",")
+    result = string.join(parts, "!@#")
+    assert_equal(result, "a!@#b!@#c", "string.join special chars sep")
+    
+    result = string.join(parts, "%%%")
+    assert_equal(result, "a%%%b%%%c", "string.join percent sep")
+    
+    result = string.join(parts, "&&&")
+    assert_equal(result, "a&&&b&&&c", "string.join ampersand sep")
+    
+    // join with long separator
+    parts = string.split("one,two,three", ",")
+    result = string.join(parts, " and ")
+    assert_equal(result, "one and two and three", "string.join long separator")
+    
+    result = string.join(parts, " then ")
+    assert_equal(result, "one then two then three", "string.join then separator")
+    
+    result = string.join(parts, " is not ")
+    assert_equal(result, "one is not two is not three", "string.join is not separator")
+    
+    // join with multiple character separator
+    result = string.join(parts, "<->")
+    assert_equal(result, "one<->two<->three", "string.join arrow separator")
+    
+    result = string.join(parts, "::")
+    assert_equal(result, "one::two::three", "string.join double colon separator")
+    
+    result = string.join(parts, "//")
+    assert_equal(result, "one//two//three", "string.join double slash separator")
+    
+    // join with alternating case
+    parts = string.split("hello,wORLD,Test", ",")
+    result = string.join(parts, " ")
+    assert_equal(result, "hello wORLD Test", "string.join mixed case")
+    
+    result = string.join(parts, "-")
+    assert_equal(result, "hello-wORLD-Test", "string.join mixed case dash")
+    
+    // join with punctuation elements
+    parts = string.split("Hello!,How?,Are you.", ",")
+    result = string.join(parts, " ")
+    assert_equal(result, "Hello! How? Are you.", "string.join punctuation elements")
+    
+    // join with quoted strings
+    parts = string.split("\"a\",\"b\",\"c\"", ",")
+    result = string.join(parts, " ")
+    assert_equal(result, "\"a\" \"b\" \"c\"", "string.join quoted elements")
+    
+    // join with brackets
+    parts = string.split("[1],[2],[3]", ",")
+    result = string.join(parts, " ")
+    assert_equal(result, "[1] [2] [3]", "string.join bracket elements")
+    
+    result = string.join(parts, "")
+    assert_equal(result, "[1][2][3]", "string.join bracket elements empty")
+    
+    // join with braces
+    parts = string.split("\{a\},\{b\},\{c\}", ",")
+    result = string.join(parts, " ")
+    assert_equal(result, "\{a\} \{b\} \{c\}", "string.join brace elements")
+    
+    // join with parentheses
+    parts = string.split("(1),(2),(3)", ",")
+    result = string.join(parts, " ")
+    assert_equal(result, "(1) (2) (3)", "string.join parenthesis elements")
+    
+    // join with long strings
+    parts = string.split("aaaaaaaaaa,bbbbbbbbbb,cccccccccc", ",")
+    result = string.join(parts, "-")
+    assert_equal(result, "aaaaaaaaaa-bbbbbbbbbb-cccccccccc", "string.join long strings")
+    
+    result = string.join(parts, "")
+    assert_equal(result, "aaaaaaaaaabbbbbbbbbbcccccccccc", "string.join long strings empty")
+    
+    // join with repeating patterns
+    parts = string.split("abc,abc,abc", ",")
+    result = string.join(parts, " ")
+    assert_equal(result, "abc abc abc", "string.join repeating pattern")
+    
+    result = string.join(parts, "-")
+    assert_equal(result, "abc-abc-abc", "string.join repeating pattern dash")
+    
+    // join with whitespace elements
+    parts = string.split(" , , ", ",")
+    result = string.join(parts, "|")
+    assert_equal(result, " | | ", "string.join whitespace elements")
+    
+    // join with newline separator
+    parts = string.split("line1,line2,line3,line4", ",")
+    result = string.join(parts, "\n")
+    assert_equal(result, "line1\nline2\nline3\nline4", "string.join newline")
+    
+    // join with tab separator
+    result = string.join(parts, "\t")
+    assert_equal(result, "line1\tline2\tline3\tline4", "string.join tab")
+    
+    // join with mixed separators
+    parts = string.split("a,b,c,d,e", ",")
+    result = string.join(parts, "->")
+    assert_equal(result, "a->b->c->d->e", "string.join arrow")
+    
+    result = string.join(parts, " => ")
+    assert_equal(result, "a => b => c => d => e", "string.join fat arrow")
+    
+    result = string.join(parts, " | ")
+    assert_equal(result, "a | b | c | d | e", "string.join pipe spaces")
+    
+    result = string.join(parts, " & ")
+    assert_equal(result, "a & b & c & d & e", "string.join ampersand spaces")
 
 // test: trim whitespace from both ends
 function string_trim()
