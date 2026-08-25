@@ -141,6 +141,13 @@ typedef struct {
     char** local_names;          // local variable names for debugging (debug info)
 } FunctionInfo;
 
+// hash table entry for fast string interning lookup
+typedef struct StringHashEntry {
+    const char* str;              // pointer to interned string
+    int const_index;              // cached constant pool index for this string (-1 if not added yet)
+    struct StringHashEntry* next; // for collision chaining
+} StringHashEntry;
+
 // bytecode chunk holds all code, constants, globals, functions, and debug data
 typedef struct {
     Instruction* code;           // dynamically growing array of bytecode instructions
@@ -169,6 +176,10 @@ typedef struct {
         char** strings;          // string interning pool for deduplication
         int count;               // number of interned strings
         int capacity;            // allocated capacity of the string pool
+        
+        // hash table for O(1) string lookup
+        StringHashEntry** hash_table;  // array of hash buckets
+        int hash_size;                 // number of buckets (power of 2)
     } string_pool;               // shared string storage to reduce memory duplication
 } BytecodeChunk;
 
