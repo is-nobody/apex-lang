@@ -1221,6 +1221,7 @@ function string_join()
 
 // test: trim whitespace from both ends
 function string_trim()
+    // basic trim tests
     result = string.trim("  hello  ")
     assert_equal(result, "hello", "string.trim spaces")
     
@@ -1229,6 +1230,290 @@ function string_trim()
     
     result = string.trim("hello")
     assert_equal(result, "hello", "string.trim no change")
+    
+    // trim with only spaces
+    result = string.trim("   spaces   ")
+    assert_equal(result, "spaces", "string.trim multiple spaces")
+    
+    result = string.trim(" single space ")
+    assert_equal(result, "single space", "string.trim single spaces")
+    
+    result = string.trim("  double  spaces  ")
+    assert_equal(result, "double  spaces", "string.trim internal spaces preserved")
+    
+    // trim with tabs
+    result = string.trim("\ttabbed\t")
+    assert_equal(result, "tabbed", "string.trim tabs")
+    
+    result = string.trim("\t\tmultiple tabs\t\t")
+    assert_equal(result, "multiple tabs", "string.trim multiple tabs")
+    
+    result = string.trim("\t mixed \t")
+    assert_equal(result, "mixed", "string.trim mixed tabs spaces")
+    
+    // trim with newlines
+    result = string.trim("\nnewline\n")
+    assert_equal(result, "newline", "string.trim newlines")
+    
+    result = string.trim("\n\nmultiple newlines\n\n")
+    assert_equal(result, "multiple newlines", "string.trim multiple newlines")
+    
+    result = string.trim("\r\ncarriage return\r\n")
+    assert_equal(result, "carriage return", "string.trim carriage return")
+    
+    // trim with mixed whitespace
+    result = string.trim(" \t\nmixed whitespace\n\t ")
+    assert_equal(result, "mixed whitespace", "string.trim mixed whitespace")
+    
+    result = string.trim("\t \n \tall types\t \n \t")
+    assert_equal(result, "all types", "string.trim all whitespace types")
+    
+    // trim with only whitespace
+    result = string.trim("   ")
+    assert_equal(result, "", "string.trim only spaces")
+    
+    result = string.trim("\t\t")
+    assert_equal(result, "", "string.trim only tabs")
+    
+    result = string.trim("\n\n")
+    assert_equal(result, "", "string.trim only newlines")
+    
+    result = string.trim(" \t\n ")
+    assert_equal(result, "", "string.trim only mixed whitespace")
+    
+    // trim empty string
+    result = string.trim("")
+    assert_equal(result, "", "string.trim empty string")
+    
+    // trim single character
+    result = string.trim("a")
+    assert_equal(result, "a", "string.trim single char")
+    
+    result = string.trim(" a")
+    assert_equal(result, "a", "string.trim space before char")
+    
+    result = string.trim("a ")
+    assert_equal(result, "a", "string.trim space after char")
+    
+    result = string.trim(" a ")
+    assert_equal(result, "a", "string.trim spaces around char")
+    
+    // trim with special characters
+    result = string.trim("  !@#$%  ")
+    assert_equal(result, "!@#$%", "string.trim special chars")
+    
+    result = string.trim("  ...  ")
+    assert_equal(result, "...", "string.trim dots")
+    
+    result = string.trim("  ,,,  ")
+    assert_equal(result, ",,,", "string.trim commas")
+    
+    // trim with punctuation
+    result = string.trim("  Hello, World!  ")
+    assert_equal(result, "Hello, World!", "string.trim punctuation")
+    
+    result = string.trim("  What's up?  ")
+    assert_equal(result, "What's up?", "string.trim apostrophe")
+    
+    result = string.trim("  (parentheses)  ")
+    assert_equal(result, "(parentheses)", "string.trim parentheses")
+    
+    // trim with numbers
+    result = string.trim("  12345  ")
+    assert_equal(result, "12345", "string.trim numbers")
+    
+    result = string.trim("  1-2-3-4-5  ")
+    assert_equal(result, "1-2-3-4-5", "string.trim numbers with dashes")
+    
+    result = string.trim("  100%  ")
+    assert_equal(result, "100%", "string.trim percentage")
+    
+    result = string.trim("  $100.50  ")
+    assert_equal(result, "$100.50", "string.trim currency")
+    
+    // trim with Unicode
+    result = string.trim("  你好  ")
+    assert_equal(result, "你好", "string.trim chinese")
+    
+    result = string.trim("  你好世界  ")
+    assert_equal(result, "你好世界", "string.trim chinese multi")
+    
+    result = string.trim("  Привет  ")
+    assert_equal(result, "Привет", "string.trim russian")
+    
+    result = string.trim("  Привет Мир  ")
+    assert_equal(result, "Привет Мир", "string.trim russian multi")
+    
+    result = string.trim("  مرحبا  ")
+    assert_equal(result, "مرحبا", "string.trim arabic")
+    
+    result = string.trim("  السلام عليكم  ")
+    assert_equal(result, "السلام عليكم", "string.trim arabic multi")
+    
+    result = string.trim("  こんにちは  ")
+    assert_equal(result, "こんにちは", "string.trim japanese")
+    
+    result = string.trim("  안녕하세요  ")
+    assert_equal(result, "안녕하세요", "string.trim korean")
+    
+    // trim with emoji
+    result = string.trim("  😊  ")
+    assert_equal(result, "😊", "string.trim emoji")
+    
+    result = string.trim("  😊🌟😊  ")
+    assert_equal(result, "😊🌟😊", "string.trim emoji multi")
+    
+    result = string.trim("  🎉🎊🎈  ")
+    assert_equal(result, "🎉🎊🎈", "string.trim celebration emojis")
+    
+    // trim with mixed scripts
+    result = string.trim("  Hello Привет 你好  ")
+    assert_equal(result, "Hello Привет 你好", "string.trim mixed scripts")
+    
+    result = string.trim("  123 abc 你好  ")
+    assert_equal(result, "123 abc 你好", "string.trim mixed alphanumeric")
+    
+    // trim with file paths and URLs
+    result = string.trim("  /home/user/file.txt  ")
+    assert_equal(result, "/home/user/file.txt", "string.trim file path")
+    
+    result = string.trim("  https://example.com  ")
+    assert_equal(result, "https://example.com", "string.trim URL")
+    
+    result = string.trim("  C:\\Users\\test  ")
+    assert_equal(result, "C:\\Users\\test", "string.trim windows path")
+    
+    // trim with email
+    result = string.trim("  user@example.com  ")
+    assert_equal(result, "user@example.com", "string.trim email")
+    
+    result = string.trim("  test.user@sub.domain.com  ")
+    assert_equal(result, "test.user@sub.domain.com", "string.trim long email")
+    
+    // trim with code
+    result = string.trim("  function test() \{ \}  ")
+    assert_equal(result, "function test() \{ \}", "string.trim function")
+    
+    result = string.trim("  var x = 10;  ")
+    assert_equal(result, "var x = 10;", "string.trim variable")
+    
+    result = string.trim("  if (x > 5) \{ return true; \}  ")
+    assert_equal(result, "if (x > 5) \{ return true; \}", "string.trim if statement")
+    
+    // trim with JSON
+    result = string.trim("  \{\"key\": \"value\"\}  ")
+    assert_equal(result, "\{\"key\": \"value\"\}", "string.trim JSON")
+    
+    result = string.trim("  [1, 2, 3]  ")
+    assert_equal(result, "[1, 2, 3]", "string.trim array")
+    
+    // trim with HTML
+    result = string.trim("  <div>content</div>  ")
+    assert_equal(result, "<div>content</div>", "string.trim HTML")
+    
+    result = string.trim("  <p class=\"test\">text</p>  ")
+    assert_equal(result, "<p class=\"test\">text</p>", "string.trim HTML attrs")
+    
+    // trim with multiline strings
+    result = string.trim("  line1\nline2\nline3  ")
+    assert_equal(result, "line1\nline2\nline3", "string.trim multiline")
+    
+    result = string.trim("\n  first\n  second\n  third  \n")
+    assert_equal(result, "first\n  second\n  third", "string.trim preserve internal newlines")
+    
+    // trim with long strings
+    result = string.trim("  aaaaaaaaaaaaaaaaaaaaaaaaaa  ")
+    assert_equal(result, "aaaaaaaaaaaaaaaaaaaaaaaaaa", "string.trim long string")
+    
+    result = string.trim("  abcabcabcabcabcabcabcabcabcabc  ")
+    assert_equal(result, "abcabcabcabcabcabcabcabcabcabc", "string.trim repeated pattern")
+    
+    // trim with repeating characters
+    result = string.trim("  aaaa  ")
+    assert_equal(result, "aaaa", "string.trim repeating chars")
+    
+    result = string.trim("  aabbaabb  ")
+    assert_equal(result, "aabbaabb", "string.trim mixed repeating")
+    
+    // trim with leading only
+    result = string.trim("  hello")
+    assert_equal(result, "hello", "string.trim leading only")
+    
+    result = string.trim("\t\nhello")
+    assert_equal(result, "hello", "string.trim leading tabs newlines")
+    
+    result = string.trim(" \t\n hello")
+    assert_equal(result, "hello", "string.trim leading mixed")
+    
+    // trim with trailing only
+    result = string.trim("hello  ")
+    assert_equal(result, "hello", "string.trim trailing only")
+    
+    result = string.trim("hello\t\n")
+    assert_equal(result, "hello", "string.trim trailing tabs newlines")
+    
+    result = string.trim("hello \t\n ")
+    assert_equal(result, "hello", "string.trim trailing mixed")
+    
+    // trim with asymmetric whitespace
+    result = string.trim("   hello ")
+    assert_equal(result, "hello", "string.trim asymmetric spaces")
+    
+    result = string.trim("\t hello \n")
+    assert_equal(result, "hello", "string.trim asymmetric mixed")
+    
+    // trim with many whitespace characters
+    result = string.trim("                    hello                    ")
+    assert_equal(result, "hello", "string.trim many spaces")
+    
+    result = string.trim("\t\t\t\t\t\t\t\t hello \t\t\t\t\t\t\t\t")
+    assert_equal(result, "hello", "string.trim many tabs")
+    
+    // trim preserving internal whitespace exactly
+    result = string.trim("  hello   world  ")
+    assert_equal(result, "hello   world", "string.trim preserve internal spaces")
+    
+    result = string.trim("  hello\tworld  ")
+    assert_equal(result, "hello\tworld", "string.trim preserve internal tab")
+    
+    result = string.trim("  hello\nworld  ")
+    assert_equal(result, "hello\nworld", "string.trim preserve internal newline")
+    
+    result = string.trim("  hello \t\n world  ")
+    assert_equal(result, "hello \t\n world", "string.trim preserve internal mixed")
+    
+    // trim with strings that are all whitespace
+    result = string.trim("                    ")
+    assert_equal(result, "", "string.trim all spaces long")
+    
+    result = string.trim("\t\t\t\t\t\t\t\t\t\t")
+    assert_equal(result, "", "string.trim all tabs long")
+    
+    result = string.trim("\n\n\n\n\n\n\n\n\n\n")
+    assert_equal(result, "", "string.trim all newlines long")
+    
+    result = string.trim(" \t\n \t\n \t\n \t\n ")
+    assert_equal(result, "", "string.trim all mixed long")
+    
+    // trim with whitespace and special characters
+    result = string.trim("  \"quoted\"  ")
+    assert_equal(result, "\"quoted\"", "string.trim quoted")
+    
+    result = string.trim("  'single quoted'  ")
+    assert_equal(result, "'single quoted'", "string.trim single quoted")
+    
+    result = string.trim("  \{braces\}  ")
+    assert_equal(result, "\{braces\}", "string.trim braces")
+    
+    result = string.trim("  [brackets]  ")
+    assert_equal(result, "[brackets]", "string.trim brackets")
+    
+    // trim with escaped characters
+    result = string.trim("  C:\\Users\\test  ")
+    assert_equal(result, "C:\\Users\\test", "string.trim escaped backslashes")
+    
+    result = string.trim("  \"escaped \\\" quotes\"  ")
+    assert_equal(result, "\"escaped \\\" quotes\"", "string.trim escaped quotes")
 
 // test: find substring position
 function string_find()
