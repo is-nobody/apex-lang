@@ -1549,43 +1549,39 @@ static bool aes_cbc_decrypt_generic(VM* vm, Value* args, Value* result,
         memcpy(prev_block, current_block, 16);         // update previous block
     }
     
-    int pad_len = ciphertext[ciphertext_len - 1];      // get padding length from last byte
-    if (pad_len < 1 || pad_len > 16) {                 // invalid padding
-        free(ciphertext);                              // free buffer
-        free(round_keys);                              // free round keys
-        memset(key, 0, sizeof(key));                   // clear key
-        *result = MAKE_NONE();                         // return none
-        return true;                                   // builtin handled
+    unsigned char pad_len = ciphertext[ciphertext_len - 1];  // get padding length from last byte
+    unsigned char valid = 1;                                 // validation flag (1 = valid, 0 = invalid)
+    
+    valid &= (unsigned char)((pad_len >= 1) & (pad_len <= 16));  // check if pad_len is in valid range (1-16)
+    
+    for (int i = 0; i < 16; i++) {  // check all padding bytes in constant time
+        unsigned char should_check = (unsigned char)(i < pad_len);
+        unsigned char is_padding_byte = (unsigned char)(ciphertext[ciphertext_len - 1 - i] == pad_len);
+        valid &= (unsigned char)((!should_check) | is_padding_byte);
     }
     
-    for (int i = 0; i < pad_len; i++) {                // check each padding byte
-        if (ciphertext[ciphertext_len - 1 - i] != pad_len) {  // invalid padding byte
-            free(ciphertext);                          // free buffer
-            free(round_keys);                          // free round keys
-            memset(key, 0, sizeof(key));               // clear key
-            *result = MAKE_NONE();                     // return none
-            return true;                               // builtin handled
+    int plaintext_len = ciphertext_len - pad_len;              // calculate plaintext length
+    
+    char* plaintext_str = NULL;                                // plaintext string buffer
+    
+    if (valid && pad_len <= ciphertext_len) {                  // if padding is valid
+        plaintext_str = (char*)malloc(plaintext_len + 1);      // allocate string buffer
+        if (plaintext_str) {                                   // allocation succeeded
+            memcpy(plaintext_str, ciphertext, plaintext_len);  // copy plaintext
+            plaintext_str[plaintext_len] = '\0';               // null terminate
+            *result = make_string_val(vm, plaintext_str);      // return plaintext string
+        } else {
+            *result = MAKE_NONE();                     // allocation failed
         }
+    } else {
+        *result = MAKE_NONE();                         // invalid padding
     }
     
-    int plaintext_len = ciphertext_len - pad_len;      // actual plaintext length
-    
-    char* plaintext_str = (char*)malloc(plaintext_len + 1);  // allocate string buffer
-    if (!plaintext_str) {                              // allocation failed
-        free(ciphertext);                              // free buffer
-        free(round_keys);                              // free round keys
-        memset(key, 0, sizeof(key));                   // clear key
-        *result = MAKE_NONE();                         // return none
-        return true;                                   // builtin handled
-    }
-    
-    memcpy(plaintext_str, ciphertext, plaintext_len);  // copy plaintext
-    plaintext_str[plaintext_len] = '\0';               // null terminate
-    
-    *result = make_string_val(vm, plaintext_str);      // return plaintext string
-    
+    memset(ciphertext, 0, ciphertext_len);             // clear ciphertext/plaintext buffer
     free(ciphertext);                                  // free ciphertext buffer
-    free(plaintext_str);                               // free string buffer
+    if (plaintext_str) {                               // if string was allocated
+        free(plaintext_str);                           // free string buffer
+    }
     free(round_keys);                                  // free round keys
     memset(key, 0, sizeof(key));                       // clear key
     memset(iv, 0, 16);                                 // clear iv
