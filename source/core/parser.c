@@ -2324,12 +2324,10 @@ static ASTNode* parse_if_statement(Parser* parser) {
         return NULL;
     }
     
-    Token* next = current_token(parser);
-    int remaining_len = get_line_length(parser->source, next->line) - (next->column - 1);
-    if (remaining_len < 1) remaining_len = 1;
-    
     ASTNode* condition = parse_expression(parser);
     if (!condition) {
+        int remaining_len = get_line_length(parser->source, kw_token->line) - (kw_token->column - 1);
+        if (remaining_len < 1) remaining_len = 1;
         parser_error_at(parser, kw_token->line, kw_token->column + kw_len,
                      remaining_len, "Expected condition after '%s'", keyword);
         return NULL;
@@ -2342,7 +2340,7 @@ static ASTNode* parse_if_statement(Parser* parser) {
         (kw_token->type == TOKEN_IF) ? "if" : "elif");
     
     if (kw_token->type == TOKEN_ELIF) {
-        ASTNode* elif_node = (ASTNode*)calloc(1, sizeof(ASTNode));
+        ASTNode* elif_node = (ASTNode*)malloc(sizeof(ASTNode));
         elif_node->type = AST_IF_STMT;
         elif_node->line = kw_token->line;
         elif_node->column = kw_token->column;
@@ -2358,17 +2356,17 @@ static ASTNode* parse_if_statement(Parser* parser) {
     
     skip_newlines(parser);
     
+    ASTNode* elif_tail = NULL;
+    
     while (check(parser, TOKEN_ELIF)) {
         ASTNode* elif_node = parse_if_statement(parser);
         
         if (!elif_chain) {
             elif_chain = elif_node;
+            elif_tail = elif_node;
         } else {
-            ASTNode* last = elif_chain;
-            while (last->if_stmt.elif_chain) {
-                last = last->if_stmt.elif_chain;
-            }
-            last->if_stmt.elif_chain = elif_node;
+            elif_tail->if_stmt.elif_chain = elif_node;
+            elif_tail = elif_node;
         }
         
         skip_newlines(parser);
@@ -2377,12 +2375,8 @@ static ASTNode* parse_if_statement(Parser* parser) {
     if (match(parser, TOKEN_ELSE)) {
         parser->expecting_indented_block = true;
         else_branch = parse_block(parser, true, "else");
-        if (elif_chain) {
-            ASTNode* last = elif_chain;
-            while (last->if_stmt.elif_chain) {
-                last = last->if_stmt.elif_chain;
-            }
-            last->if_stmt.else_branch = else_branch;
+        if (elif_tail) {
+            elif_tail->if_stmt.else_branch = else_branch;
         }
     }
     
