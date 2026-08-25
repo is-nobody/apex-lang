@@ -1767,12 +1767,16 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int table_reg = ip->operands[1];             // register holding the table
         int index = ip->operands[2];                 // immediate integer key (1-based)
         
-        Table* table = AS_TABLE(regs[table_reg]);    // parser guarantees table type
+        Value table_val = regs[table_reg];           // fetch table value
         Value val = MAKE_NONE();                     // default to none
         
-        if (table->array_part != NULL && index >= 1 && index <= table->array_count) {  // bounds check
-            val = table->array_part[index - 1];      // direct array access (0-based)
-            value_incref(val);                       // bump refcount (no-op for numbers)
+        if (likely(IS_TABLE(table_val))) {
+            Table* table = AS_TABLE(table_val);      // unwrap table pointer
+            
+            if (table->array_part != NULL && index >= 1 && index <= table->array_count) {
+                val = table->array_part[index - 1];  // direct array access (0-based)
+                value_incref(val);                   // bump refcount (no-op for numbers)
+            }
         }
         
         value_decref(regs[dest]);                    // release old dest value
