@@ -40,6 +40,16 @@ static const char* binary_op_name(ApexTokenType op);
 static ASTNode* parse_call(Parser* parser, ASTNode* callee);
 static void parser_check_condition(Parser* parser, ASTNode* condition, const char* context);
 
+// djb2 hash function for fast string lookup in symbol hash table
+static unsigned int hash_string_parser(const char* str) {
+    unsigned int hash = 5381;
+    int c;
+    while ((c = *str++)) {
+        hash = ((hash << 5) + hash) + c;
+    }
+    return hash;
+}
+
 // helper for counting utf-8 characters
 static size_t utf8_char_len(const char* s) {
     if (!s) return 0;
@@ -211,13 +221,60 @@ static const BuiltinSig BUILTINS[] = {
     {"number", 1, 1, TYPE_ANY}, {"string", 1, 1, TYPE_ANY}, {"type", 1, 1, TYPE_ANY}
 };
 
-// looks up a built-in function signature by name
-static const BuiltinSig* lookup_builtin(const char* name) {
+// djb2 hash function for fast string lookup in builtin hash table
+static unsigned int hash_string(const char* str) {
+    unsigned int hash = 5381;
+    int c;
+    while ((c = *str++)) {
+        hash = ((hash << 5) + hash) + c;
+    }
+    return hash;
+}
+
+// builtin hash table size (power of 2 for fast modulo)
+#define BUILTIN_HASH_SIZE 256
+#define BUILTIN_HASH_MASK (BUILTIN_HASH_SIZE - 1)
+
+// hash table entry for builtin function lookup
+typedef struct BuiltinHashEntry {
+    const char* name;              // builtin function name
+    const BuiltinSig* sig;         // pointer to builtin signature
+    struct BuiltinHashEntry* next; // for collision chaining
+} BuiltinHashEntry;
+
+// static hash table initialized once for O(1) lookup
+static BuiltinHashEntry* builtin_hash_table[BUILTIN_HASH_SIZE] = {NULL};
+static bool builtin_hash_initialized = false;
+
+// initializes the builtin hash table for O(1) lookup
+static void init_builtin_hash(void) {
+    if (builtin_hash_initialized) return;
+    
     for (size_t i = 0; i < sizeof(BUILTINS) / sizeof(BUILTINS[0]); i++) {
-        if (strcmp(BUILTINS[i].name, name) == 0) {
-            return &BUILTINS[i];
+        unsigned int h = hash_string(BUILTINS[i].name) & BUILTIN_HASH_MASK;
+        
+        BuiltinHashEntry* entry = (BuiltinHashEntry*)malloc(sizeof(BuiltinHashEntry));
+        entry->name = BUILTINS[i].name;
+        entry->sig = &BUILTINS[i];
+        entry->next = builtin_hash_table[h];
+        builtin_hash_table[h] = entry;
+    }
+    
+    builtin_hash_initialized = true;
+}
+
+// looks up a built-in function signature by name using hash table
+static const BuiltinSig* lookup_builtin(const char* name) {
+    init_builtin_hash();
+    
+    unsigned int h = hash_string(name) & BUILTIN_HASH_MASK;
+    
+    for (BuiltinHashEntry* entry = builtin_hash_table[h]; entry; entry = entry->next) {
+        if (strcmp(entry->name, name) == 0) {
+            return entry->sig;
         }
     }
+    
     return NULL;
 }
 
@@ -426,18 +483,29 @@ static bool expr_has_side_effect(ASTNode* node) {
     }
 }
 
-// checks if a name is a known built-in module root
+// checks if a name is a known built-in module root using first-char switch
 static bool is_known_builtin_module(const char* name) {
-    return strcmp(name, "os") == 0 ||
-           strcmp(name, "sys") == 0 ||
-           strcmp(name, "math") == 0 ||
-           strcmp(name, "string") == 0 ||
-           strcmp(name, "table") == 0 ||
-           strcmp(name, "ffi") == 0 ||
-           strcmp(name, "random") == 0 ||
-           strcmp(name, "codecs") == 0 ||
-           strcmp(name, "regex") == 0 ||
-           strcmp(name, "crypto") == 0;
+    switch (name[0]) {
+        case 'o':
+            return strcmp(name, "os") == 0;        // only os starts with 'o'
+        case 's':
+            return strcmp(name, "sys") == 0 ||     // sys module
+                   strcmp(name, "string") == 0;    // string module
+        case 'm':
+            return strcmp(name, "math") == 0;      // only math starts with 'm'
+        case 't':
+            return strcmp(name, "table") == 0;     // only table starts with 't'
+        case 'f':
+            return strcmp(name, "ffi") == 0;       // only ffi starts with 'f'
+        case 'r':
+            return strcmp(name, "random") == 0 ||  // random module
+                   strcmp(name, "regex") == 0;     // regex module
+        case 'c':
+            return strcmp(name, "codecs") == 0 ||  // codecs module
+                   strcmp(name, "crypto") == 0;    // crypto module
+        default:
+            return false;                          // no builtin module matches
+    }
 }
 
 // sets or clears a symbol's constant value
@@ -466,14 +534,16 @@ static void symbols_grow(Parser* parser) {
     s->is_constant = (bool*)realloc(s->is_constant, sizeof(bool) * s->capacity);
 }
 
-// finds a symbol index in a specific scope
+// finds a symbol index in a specific scope using hash table for O(1) lookup
 static int symbol_index_in_scope(Parser* parser, const char* name, int scope) {
-    for (int i = 0; i < parser->symbols.count; i++) {
-        if (parser->symbols.scope_levels[i] == scope &&
-            strcmp(parser->symbols.names[i], name) == 0) {
-            return i;
+    unsigned int h = hash_string_parser(name) & (parser->symbols.hash_size - 1);
+    
+    for (SymbolHashEntry* entry = parser->symbols.hash_table[h]; entry; entry = entry->next) {
+        if (entry->scope_level == scope && strcmp(entry->name, name) == 0) {
+            return entry->symbol_index;
         }
     }
+    
     return -1;
 }
 
@@ -496,7 +566,25 @@ void parser_exit_scope(Parser* parser) {
     int i = 0;
     while (i < parser->symbols.count) {
         if (parser->symbols.scope_levels[i] == parser->symbols.current_scope) {
+            unsigned int h = hash_string_parser(parser->symbols.names[i]) & (parser->symbols.hash_size - 1);
+            SymbolHashEntry* prev = NULL;
+            SymbolHashEntry* entry = parser->symbols.hash_table[h];
+            
+            while (entry) {
+                if (entry->symbol_index == i) {
+                    if (prev) {
+                        prev->next = entry->next;
+                    } else {
+                        parser->symbols.hash_table[h] = entry->next;
+                    }
+                    free(entry);
+                    break;
+                }
+                prev = entry;
+                entry = entry->next;
+            }
             free(parser->symbols.names[i]);
+            
             for (int j = i; j < parser->symbols.count - 1; j++) {
                 parser->symbols.names[j] = parser->symbols.names[j + 1];
                 parser->symbols.scope_levels[j] = parser->symbols.scope_levels[j + 1];
@@ -508,6 +596,14 @@ void parser_exit_scope(Parser* parser) {
                 parser->symbols.is_constant[j] = parser->symbols.is_constant[j + 1];
             }
             parser->symbols.count--;
+            
+            for (int bucket = 0; bucket < parser->symbols.hash_size; bucket++) {
+                for (SymbolHashEntry* e = parser->symbols.hash_table[bucket]; e; e = e->next) {
+                    if (e->symbol_index > i) {
+                        e->symbol_index--;
+                    }
+                }
+            }
         } else {
             i++;
         }
@@ -530,6 +626,14 @@ bool parser_declare_symbol(Parser* parser, const char* name, ParserSymbolKind ki
     parser->symbols.const_known[i] = false;
     parser->symbols.const_values[i] = 0.0;
     parser->symbols.is_constant[i] = (kind == PARSER_SYM_CONSTANT);
+    unsigned int h = hash_string_parser(name) & (parser->symbols.hash_size - 1);
+    SymbolHashEntry* entry = (SymbolHashEntry*)malloc(sizeof(SymbolHashEntry));
+    entry->name = parser->symbols.names[i];
+    entry->symbol_index = i;
+    entry->scope_level = parser->symbols.current_scope;
+    entry->next = parser->symbols.hash_table[h];
+    parser->symbols.hash_table[h] = entry;
+    
     return true;
 }
 
@@ -557,6 +661,8 @@ Parser* parser_create(Token* tokens, int count, const char* filename, const char
     parser->symbols.capacity = 0;
     parser->symbols.current_scope = 0;
     parser->symbols.is_constant = NULL;
+    parser->symbols.hash_size = 64;
+    parser->symbols.hash_table = (SymbolHashEntry**)calloc(parser->symbols.hash_size, sizeof(SymbolHashEntry*));
     parser->error_count = 0;
     parser->loop_depth = 0;
     parser->function_depth = 0;

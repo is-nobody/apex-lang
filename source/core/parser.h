@@ -31,6 +31,14 @@ typedef enum {
     PARSER_SYM_MODULE,       // imported module
 } ParserSymbolKind;
 
+// hash table entry for fast symbol lookup
+typedef struct SymbolHashEntry {
+    char* name;                    // symbol name for hash lookup
+    int symbol_index;              // index into the symbol arrays
+    int scope_level;               // scope depth for this entry
+    struct SymbolHashEntry* next;  // for collision chaining
+} SymbolHashEntry;
+
 // symbol table entry with name, scope, kind, type, and constant folding data
 typedef struct {
     char** names;            // symbol names (dynamically allocated)
@@ -44,6 +52,8 @@ typedef struct {
     int count;               // number of symbols currently stored
     int capacity;            // allocated capacity of the symbol arrays
     int current_scope;       // current lexical scope depth for symbol lookup
+    SymbolHashEntry** hash_table;  // array of hash buckets
+    int hash_size;                 // number of buckets (power of 2)
 } ParserSymbolTable;
 
 // forward declaration so the struct can reference itself in function signatures
