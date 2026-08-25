@@ -321,19 +321,537 @@ function string_length()
 
 // test: convert string to lowercase
 function string_lower()
+    // basic lowercase tests
     result = string.lower("HELLO")
     assert_equal(result, "hello", "string.lower HELLO")
     
     result = string.lower("Hello World")
     assert_equal(result, "hello world", "string.lower Hello World")
+    
+    result = string.lower("hello")
+    assert_equal(result, "hello", "string.lower already lowercase")
+    
+    result = string.lower("hELLO")
+    assert_equal(result, "hello", "string.lower mixed case")
+    
+    result = string.lower("HeLLo WoRLd")
+    assert_equal(result, "hello world", "string.lower mixed case 2")
+    
+    // lowercase single characters
+    result = string.lower("A")
+    assert_equal(result, "a", "string.lower single uppercase")
+    
+    result = string.lower("a")
+    assert_equal(result, "a", "string.lower single lowercase")
+    
+    result = string.lower("Z")
+    assert_equal(result, "z", "string.lower Z to z")
+    
+    result = string.lower("M")
+    assert_equal(result, "m", "string.lower M to m")
+    
+    // lowercase alphabet
+    result = string.lower("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    assert_equal(result, "abcdefghijklmnopqrstuvwxyz", "string.lower full alphabet")
+    
+    result = string.lower("abcdefghijklmnopqrstuvwxyz")
+    assert_equal(result, "abcdefghijklmnopqrstuvwxyz", "string.lower lowercase alphabet")
+    
+    // lowercase with spaces
+    result = string.lower("HELLO WORLD")
+    assert_equal(result, "hello world", "string.lower uppercase with space")
+    
+    result = string.lower("  SPACES  ")
+    assert_equal(result, "  spaces  ", "string.lower with leading trailing spaces")
+    
+    result = string.lower("MULTIPLE   SPACES")
+    assert_equal(result, "multiple   spaces", "string.lower multiple spaces")
+    
+    // lowercase with tabs and newlines
+    result = string.lower("HELLO\tWORLD")
+    assert_equal(result, "hello\tworld", "string.lower with tab")
+    
+    result = string.lower("LINE1\nLINE2")
+    assert_equal(result, "line1\nline2", "string.lower with newline")
+    
+    // lowercase with punctuation
+    result = string.lower("HELLO, WORLD!")
+    assert_equal(result, "hello, world!", "string.lower with punctuation")
+    
+    result = string.lower("WHAT'S UP?")
+    assert_equal(result, "what's up?", "string.lower with apostrophe")
+    
+    result = string.lower("(PARENTHESES)")
+    assert_equal(result, "(parentheses)", "string.lower parentheses")
+    
+    result = string.lower("[BRACKETS]")
+    assert_equal(result, "[brackets]", "string.lower brackets")
+    
+    result = string.lower("\{BRACES\}")
+    assert_equal(result, "\{braces\}", "string.lower braces")
+    
+    // lowercase with special characters
+    result = string.lower("!@#$%^&*()")
+    assert_equal(result, "!@#$%^&*()", "string.lower special chars unchanged")
+    
+    result = string.lower("...")
+    assert_equal(result, "...", "string.lower dots unchanged")
+    
+    result = string.lower(",,,")
+    assert_equal(result, ",,,", "string.lower commas unchanged")
+    
+    // lowercase with numbers
+    result = string.lower("ABC123")
+    assert_equal(result, "abc123", "string.lower letters and numbers")
+    
+    result = string.lower("VERSION 1.0")
+    assert_equal(result, "version 1.0", "string.lower version")
+    
+    result = string.lower("100% DONE")
+    assert_equal(result, "100% done", "string.lower percentage")
+    
+    result = string.lower("$100.50 TOTAL")
+    assert_equal(result, "$100.50 total", "string.lower currency")
+    
+    // lowercase with file paths
+    result = string.lower("/HOME/USER/FILE.TXT")
+    assert_equal(result, "/home/user/file.txt", "string.lower file path")
+    
+    result = string.lower("C:\\USERS\\TEST")
+    assert_equal(result, "c:\\users\\test", "string.lower windows path")
+    
+    // lowercase with URLs
+    result = string.lower("HTTPS://EXAMPLE.COM")
+    assert_equal(result, "https://example.com", "string.lower URL")
+    
+    result = string.lower("WWW.GOOGLE.COM")
+    assert_equal(result, "www.google.com", "string.lower domain")
+    
+    // lowercase with email
+    result = string.lower("USER@EXAMPLE.COM")
+    assert_equal(result, "user@example.com", "string.lower email")
+    
+    result = string.lower("TEST.USER@SUB.DOMAIN.COM")
+    assert_equal(result, "test.user@sub.domain.com", "string.lower long email")
+    
+    // lowercase with code
+    result = string.lower("FUNCTION TEST()")
+    assert_equal(result, "function test()", "string.lower function")
+    
+    result = string.lower("VAR X = 10;")
+    assert_equal(result, "var x = 10;", "string.lower variable")
+    
+    result = string.lower("IF (X > 5) \{ RETURN TRUE; \}")
+    assert_equal(result, "if (x > 5) \{ return true; \}", "string.lower if statement")
+    
+    // lowercase with JSON
+    result = string.lower("\{\"KEY\": \"VALUE\"\}")
+    assert_equal(result, "\{\"key\": \"value\"\}", "string.lower JSON")
+    
+    // lowercase with HTML
+    result = string.lower("<DIV>CONTENT</DIV>")
+    assert_equal(result, "<div>content</div>", "string.lower HTML")
+    
+    result = string.lower("<P CLASS=\"TEST\">TEXT</P>")
+    assert_equal(result, "<p class=\"test\">text</p>", "string.lower HTML attrs")
+    
+    // lowercase with mixed content
+    result = string.lower("ABC def GHI jkl MNO")
+    assert_equal(result, "abc def ghi jkl mno", "string.lower alternating case")
+    
+    result = string.lower("UPPER lower MIXED")
+    assert_equal(result, "upper lower mixed", "string.lower mixed words")
+    
+    // lowercase with long strings
+    result = string.lower("AAAAAAAAAAAAAAAAAAAAAAAAAA")
+    assert_equal(result, "aaaaaaaaaaaaaaaaaaaaaaaaaa", "string.lower long uppercase")
+    
+    result = string.lower("ABCABCABCABCABCABCABCABCABCABC")
+    assert_equal(result, "abcabcabcabcabcabcabcabcabcabc", "string.lower repeated pattern")
+    
+    // lowercase with empty string
+    result = string.lower("")
+    assert_equal(result, "", "string.lower empty string")
+    
+    // lowercase with single space
+    result = string.lower(" ")
+    assert_equal(result, " ", "string.lower single space")
+    
+    // lowercase with all caps words
+    result = string.lower("HELLO WORLD APEX LANGUAGE")
+    assert_equal(result, "hello world apex language", "string.lower all caps words")
+    
+    result = string.lower("THE QUICK BROWN FOX")
+    assert_equal(result, "the quick brown fox", "string.lower pangram uppercase")
+    
+    // lowercase with title case
+    result = string.lower("Hello World")
+    assert_equal(result, "hello world", "string.lower title case")
+    
+    result = string.lower("The Quick Brown Fox")
+    assert_equal(result, "the quick brown fox", "string.lower title case pangram")
+    
+    // lowercase with camelCase
+    result = string.lower("camelCaseString")
+    assert_equal(result, "camelcasestring", "string.lower camelCase")
+    
+    result = string.lower("PascalCaseString")
+    assert_equal(result, "pascalcasestring", "string.lower PascalCase")
+    
+    result = string.lower("snake_case_string")
+    assert_equal(result, "snake_case_string", "string.lower snake_case")
+    
+    // lowercase with kebab-case
+    result = string.lower("KEBAB-CASE-STRING")
+    assert_equal(result, "kebab-case-string", "string.lower kebab-case")
+    
+    // lowercase with repetitive uppercase
+    result = string.lower("AAAA BBBB CCCC")
+    assert_equal(result, "aaaa bbbb cccc", "string.lower repetitive uppercase")
+    
+    // lowercase with mixed symbols
+    result = string.lower("A@B#C$D%E^F&G*H")
+    assert_equal(result, "a@b#c$d%e^f&g*h", "string.lower with symbols between")
+    
+    result = string.lower("A.B.C.D")
+    assert_equal(result, "a.b.c.d", "string.lower dotted uppercase")
+    
+    result = string.lower("A-B-C-D")
+    assert_equal(result, "a-b-c-d", "string.lower dashed uppercase")
+    
+    result = string.lower("A_B_C_D")
+    assert_equal(result, "a_b_c_d", "string.lower underscored uppercase")
+    
+    result = string.lower("A/B/C/D")
+    assert_equal(result, "a/b/c/d", "string.lower slashed uppercase")
+    
+    result = string.lower("A\\B\\C\\D")
+    assert_equal(result, "a\\b\\c\\d", "string.lower backslashed uppercase")
+    
+    // lowercase with quotes
+    result = string.lower("\"QUOTED\"")
+    assert_equal(result, "\"quoted\"", "string.lower double quoted")
+    
+    result = string.lower("'SINGLE QUOTED'")
+    assert_equal(result, "'single quoted'", "string.lower single quoted")
+    
+    // lowercase with multiline
+    result = string.lower("LINE1\nLINE2\nLINE3")
+    assert_equal(result, "line1\nline2\nline3", "string.lower multiline")
+    
+    result = string.lower("FIRST\nSECOND\nTHIRD\nFOURTH")
+    assert_equal(result, "first\nsecond\nthird\nfourth", "string.lower four lines")
+    
+    // lowercase with tab-separated
+    result = string.lower("COL1\tCOL2\tCOL3")
+    assert_equal(result, "col1\tcol2\tcol3", "string.lower tab separated")
+    
+    // lowercase with mixed whitespace
+    result = string.lower("  MIXED\tWHITESPACE\nTEST  ")
+    assert_equal(result, "  mixed\twhitespace\ntest  ", "string.lower mixed whitespace")
+    
+    // lowercase with leading/trailing spaces
+    result = string.lower("  UPPERCASE")
+    assert_equal(result, "  uppercase", "string.lower leading spaces")
+    
+    result = string.lower("UPPERCASE  ")
+    assert_equal(result, "uppercase  ", "string.lower trailing spaces")
+    
+    result = string.lower("  UPPERCASE  ")
+    assert_equal(result, "  uppercase  ", "string.lower both spaces")
+    
+    // lowercase with only uppercase letters
+    result = string.lower("A")
+    assert_equal(result, "a", "string.lower A")
+    
+    result = string.lower("AB")
+    assert_equal(result, "ab", "string.lower AB")
+    
+    result = string.lower("ABC")
+    assert_equal(result, "abc", "string.lower ABC")
+    
+    result = string.lower("ABCD")
+    assert_equal(result, "abcd", "string.lower ABCD")
+    
+    // lowercase with all letters uppercase
+    result = string.lower("THE")
+    assert_equal(result, "the", "string.lower THE")
+    
+    result = string.lower("AND")
+    assert_equal(result, "and", "string.lower AND")
+    
+    result = string.lower("FOR")
+    assert_equal(result, "for", "string.lower FOR")
+    
+    result = string.lower("WITH")
+    assert_equal(result, "with", "string.lower WITH")
 
 // test: convert string to uppercase
 function string_upper()
+    // basic uppercase tests
     result = string.upper("hello")
     assert_equal(result, "HELLO", "string.upper hello")
     
     result = string.upper("Hello World")
     assert_equal(result, "HELLO WORLD", "string.upper Hello World")
+    
+    result = string.upper("HELLO")
+    assert_equal(result, "HELLO", "string.upper already uppercase")
+    
+    result = string.upper("hELLO")
+    assert_equal(result, "HELLO", "string.upper mixed case")
+    
+    result = string.upper("HeLLo WoRLd")
+    assert_equal(result, "HELLO WORLD", "string.upper mixed case 2")
+    
+    // uppercase single characters
+    result = string.upper("a")
+    assert_equal(result, "A", "string.upper single lowercase")
+    
+    result = string.upper("A")
+    assert_equal(result, "A", "string.upper single uppercase")
+    
+    result = string.upper("z")
+    assert_equal(result, "Z", "string.upper z to Z")
+    
+    result = string.upper("m")
+    assert_equal(result, "M", "string.upper m to M")
+    
+    // uppercase alphabet
+    result = string.upper("abcdefghijklmnopqrstuvwxyz")
+    assert_equal(result, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "string.upper full alphabet")
+    
+    result = string.upper("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    assert_equal(result, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "string.upper uppercase alphabet")
+    
+    // uppercase with spaces
+    result = string.upper("hello world")
+    assert_equal(result, "HELLO WORLD", "string.upper lowercase with space")
+    
+    result = string.upper("  spaces  ")
+    assert_equal(result, "  SPACES  ", "string.upper with leading trailing spaces")
+    
+    result = string.upper("multiple   spaces")
+    assert_equal(result, "MULTIPLE   SPACES", "string.upper multiple spaces")
+    
+    // uppercase with tabs and newlines
+    result = string.upper("hello\tworld")
+    assert_equal(result, "HELLO\tWORLD", "string.upper with tab")
+    
+    result = string.upper("line1\nline2")
+    assert_equal(result, "LINE1\nLINE2", "string.upper with newline")
+    
+    // uppercase with punctuation
+    result = string.upper("hello, world!")
+    assert_equal(result, "HELLO, WORLD!", "string.upper with punctuation")
+    
+    result = string.upper("what's up?")
+    assert_equal(result, "WHAT'S UP?", "string.upper with apostrophe")
+    
+    result = string.upper("(parentheses)")
+    assert_equal(result, "(PARENTHESES)", "string.upper parentheses")
+    
+    result = string.upper("[brackets]")
+    assert_equal(result, "[BRACKETS]", "string.upper brackets")
+    
+    result = string.upper("\{braces\}")
+    assert_equal(result, "\{BRACES\}", "string.upper braces")
+    
+    // uppercase with special characters
+    result = string.upper("!@#$%^&*()")
+    assert_equal(result, "!@#$%^&*()", "string.upper special chars unchanged")
+    
+    result = string.upper("...")
+    assert_equal(result, "...", "string.upper dots unchanged")
+    
+    result = string.upper(",,,")
+    assert_equal(result, ",,,", "string.upper commas unchanged")
+    
+    // uppercase with numbers
+    result = string.upper("abc123")
+    assert_equal(result, "ABC123", "string.upper letters and numbers")
+    
+    result = string.upper("version 1.0")
+    assert_equal(result, "VERSION 1.0", "string.upper version")
+    
+    result = string.upper("100% done")
+    assert_equal(result, "100% DONE", "string.upper percentage")
+    
+    result = string.upper("$100.50 total")
+    assert_equal(result, "$100.50 TOTAL", "string.upper currency")
+    
+    // uppercase with file paths
+    result = string.upper("/home/user/file.txt")
+    assert_equal(result, "/HOME/USER/FILE.TXT", "string.upper file path")
+    
+    result = string.upper("C:\\Users\\test")
+    assert_equal(result, "C:\\USERS\\TEST", "string.upper windows path")
+    
+    // uppercase with URLs
+    result = string.upper("https://example.com")
+    assert_equal(result, "HTTPS://EXAMPLE.COM", "string.upper URL")
+    
+    result = string.upper("www.google.com")
+    assert_equal(result, "WWW.GOOGLE.COM", "string.upper domain")
+    
+    // uppercase with email
+    result = string.upper("user@example.com")
+    assert_equal(result, "USER@EXAMPLE.COM", "string.upper email")
+    
+    result = string.upper("test.user@sub.domain.com")
+    assert_equal(result, "TEST.USER@SUB.DOMAIN.COM", "string.upper long email")
+    
+    // uppercase with code
+    result = string.upper("function test()")
+    assert_equal(result, "FUNCTION TEST()", "string.upper function")
+    
+    result = string.upper("var x = 10;")
+    assert_equal(result, "VAR X = 10;", "string.upper variable")
+    
+    result = string.upper("if (x > 5) \{ return true; \}")
+    assert_equal(result, "IF (X > 5) \{ RETURN TRUE; \}", "string.upper if statement")
+    
+    // uppercase with JSON
+    result = string.upper("\{\"key\": \"value\"\}")
+    assert_equal(result, "\{\"KEY\": \"VALUE\"\}", "string.upper JSON")
+    
+    // uppercase with HTML
+    result = string.upper("<div>content</div>")
+    assert_equal(result, "<DIV>CONTENT</DIV>", "string.upper HTML")
+    
+    result = string.upper("<p class=\"test\">text</p>")
+    assert_equal(result, "<P CLASS=\"TEST\">TEXT</P>", "string.upper HTML attrs")
+    
+    // uppercase with mixed content
+    result = string.upper("abc DEF ghi JKL mno")
+    assert_equal(result, "ABC DEF GHI JKL MNO", "string.upper alternating case")
+    
+    result = string.upper("upper LOWER mixed")
+    assert_equal(result, "UPPER LOWER MIXED", "string.upper mixed words")
+    
+    // uppercase with long strings
+    result = string.upper("aaaaaaaaaaaaaaaaaaaaaaaaaa")
+    assert_equal(result, "AAAAAAAAAAAAAAAAAAAAAAAAAA", "string.upper long lowercase")
+    
+    result = string.upper("abcabcabcabcabcabcabcabcabcabc")
+    assert_equal(result, "ABCABCABCABCABCABCABCABCABCABC", "string.upper repeated pattern")
+    
+    // uppercase with empty string
+    result = string.upper("")
+    assert_equal(result, "", "string.upper empty string")
+    
+    // uppercase with single space
+    result = string.upper(" ")
+    assert_equal(result, " ", "string.upper single space")
+    
+    // uppercase with all lowercase words
+    result = string.upper("hello world apex language")
+    assert_equal(result, "HELLO WORLD APEX LANGUAGE", "string.upper all lowercase words")
+    
+    result = string.upper("the quick brown fox")
+    assert_equal(result, "THE QUICK BROWN FOX", "string.upper pangram lowercase")
+    
+    // uppercase with title case
+    result = string.upper("Hello World")
+    assert_equal(result, "HELLO WORLD", "string.upper title case")
+    
+    result = string.upper("The Quick Brown Fox")
+    assert_equal(result, "THE QUICK BROWN FOX", "string.upper title case pangram")
+    
+    // uppercase with camelCase
+    result = string.upper("camelCaseString")
+    assert_equal(result, "CAMELCASESTRING", "string.upper camelCase")
+    
+    result = string.upper("PascalCaseString")
+    assert_equal(result, "PASCALCASESTRING", "string.upper PascalCase")
+    
+    result = string.upper("snake_case_string")
+    assert_equal(result, "SNAKE_CASE_STRING", "string.upper snake_case")
+    
+    // uppercase with kebab-case
+    result = string.upper("kebab-case-string")
+    assert_equal(result, "KEBAB-CASE-STRING", "string.upper kebab-case")
+    
+    // uppercase with repetitive lowercase
+    result = string.upper("aaaa bbbb cccc")
+    assert_equal(result, "AAAA BBBB CCCC", "string.upper repetitive lowercase")
+    
+    // uppercase with mixed symbols
+    result = string.upper("a@b#c$d%e^f&g*h")
+    assert_equal(result, "A@B#C$D%E^F&G*H", "string.upper with symbols between")
+    
+    result = string.upper("a.b.c.d")
+    assert_equal(result, "A.B.C.D", "string.upper dotted lowercase")
+    
+    result = string.upper("a-b-c-d")
+    assert_equal(result, "A-B-C-D", "string.upper dashed lowercase")
+    
+    result = string.upper("a_b_c_d")
+    assert_equal(result, "A_B_C_D", "string.upper underscored lowercase")
+    
+    result = string.upper("a/b/c/d")
+    assert_equal(result, "A/B/C/D", "string.upper slashed lowercase")
+    
+    result = string.upper("a\\b\\c\\d")
+    assert_equal(result, "A\\B\\C\\D", "string.upper backslashed lowercase")
+    
+    // uppercase with quotes
+    result = string.upper("\"quoted\"")
+    assert_equal(result, "\"QUOTED\"", "string.upper double quoted")
+    
+    result = string.upper("'single quoted'")
+    assert_equal(result, "'SINGLE QUOTED'", "string.upper single quoted")
+    
+    // uppercase with multiline
+    result = string.upper("line1\nline2\nline3")
+    assert_equal(result, "LINE1\nLINE2\nLINE3", "string.upper multiline")
+    
+    result = string.upper("first\nsecond\nthird\nfourth")
+    assert_equal(result, "FIRST\nSECOND\nTHIRD\nFOURTH", "string.upper four lines")
+    
+    // uppercase with tab-separated
+    result = string.upper("col1\tcol2\tcol3")
+    assert_equal(result, "COL1\tCOL2\tCOL3", "string.upper tab separated")
+    
+    // uppercase with mixed whitespace
+    result = string.upper("  mixed\twhitespace\ntest  ")
+    assert_equal(result, "  MIXED\tWHITESPACE\nTEST  ", "string.upper mixed whitespace")
+    
+    // uppercase with leading/trailing spaces
+    result = string.upper("  lowercase")
+    assert_equal(result, "  LOWERCASE", "string.upper leading spaces")
+    
+    result = string.upper("lowercase  ")
+    assert_equal(result, "LOWERCASE  ", "string.upper trailing spaces")
+    
+    result = string.upper("  lowercase  ")
+    assert_equal(result, "  LOWERCASE  ", "string.upper both spaces")
+    
+    // uppercase with only lowercase letters
+    result = string.upper("a")
+    assert_equal(result, "A", "string.upper a")
+    
+    result = string.upper("ab")
+    assert_equal(result, "AB", "string.upper ab")
+    
+    result = string.upper("abc")
+    assert_equal(result, "ABC", "string.upper abc")
+    
+    result = string.upper("abcd")
+    assert_equal(result, "ABCD", "string.upper abcd")
+    
+    // uppercase with all letters lowercase
+    result = string.upper("the")
+    assert_equal(result, "THE", "string.upper the")
+    
+    result = string.upper("and")
+    assert_equal(result, "AND", "string.upper and")
+    
+    result = string.upper("for")
+    assert_equal(result, "FOR", "string.upper for")
+    
+    result = string.upper("with")
+    assert_equal(result, "WITH", "string.upper with")
 
 // test: substring extraction with various scripts and edge cases
 function string_slice()
