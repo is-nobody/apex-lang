@@ -597,6 +597,7 @@ function string_slice()
 
 // test: split string by delimiter into table
 function string_split()
+    // basic split tests
     parts = string.split("a,b,c", ",")
     is_table = type(parts) == "table"
     assert_equal(is_table, true, "string.split returns table")
@@ -604,6 +605,310 @@ function string_split()
         assert_equal(parts[1], "a", "string.split[1]")
         assert_equal(parts[2], "b", "string.split[2]")
         assert_equal(parts[3], "c", "string.split[3]")
+    
+    // split with different delimiters
+    parts = string.split("a;b;c", ";")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split semicolon returns table")
+    if is_table == true
+        assert_equal(parts[1], "a", "string.split semicolon[1]")
+        assert_equal(parts[2], "b", "string.split semicolon[2]")
+        assert_equal(parts[3], "c", "string.split semicolon[3]")
+    
+    parts = string.split("a:b:c", ":")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split colon returns table")
+    if is_table == true
+        assert_equal(parts[1], "a", "string.split colon[1]")
+        assert_equal(parts[2], "b", "string.split colon[2]")
+        assert_equal(parts[3], "c", "string.split colon[3]")
+    
+    parts = string.split("a|b|c", "|")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split pipe returns table")
+    if is_table == true
+        assert_equal(parts[1], "a", "string.split pipe[1]")
+        assert_equal(parts[2], "b", "string.split pipe[2]")
+        assert_equal(parts[3], "c", "string.split pipe[3]")
+    
+    // split with space delimiter
+    parts = string.split("hello world apex", " ")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split space returns table")
+    if is_table == true
+        assert_equal(parts[1], "hello", "string.split space[1]")
+        assert_equal(parts[2], "world", "string.split space[2]")
+        assert_equal(parts[3], "apex", "string.split space[3]")
+    
+    // split with multi-character delimiter
+    parts = string.split("a---b---c", "---")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split multi-char delimiter returns table")
+    if is_table == true
+        assert_equal(parts[1], "a", "string.split multi-char[1]")
+        assert_equal(parts[2], "b", "string.split multi-char[2]")
+        assert_equal(parts[3], "c", "string.split multi-char[3]")
+    
+    // split with special characters
+    parts = string.split("a.b.c.d", ".")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split dot returns table")
+    if is_table == true
+        assert_equal(parts[1], "a", "string.split dot[1]")
+        assert_equal(parts[2], "b", "string.split dot[2]")
+        assert_equal(parts[3], "c", "string.split dot[3]")
+        assert_equal(parts[4], "d", "string.split dot[4]")
+    
+    parts = string.split("path\\to\\file", "\\")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split backslash returns table")
+    if is_table == true
+        assert_equal(parts[1], "path", "string.split backslash[1]")
+        assert_equal(parts[2], "to", "string.split backslash[2]")
+        assert_equal(parts[3], "file", "string.split backslash[3]")
+    
+    // split with newline
+    parts = string.split("line1\nline2\nline3", "\n")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split newline returns table")
+    if is_table == true
+        assert_equal(parts[1], "line1", "string.split newline[1]")
+        assert_equal(parts[2], "line2", "string.split newline[2]")
+        assert_equal(parts[3], "line3", "string.split newline[3]")
+    
+    // split with tab
+    parts = string.split("col1\tcol2\tcol3", "\t")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split tab returns table")
+    if is_table == true
+        assert_equal(parts[1], "col1", "string.split tab[1]")
+        assert_equal(parts[2], "col2", "string.split tab[2]")
+        assert_equal(parts[3], "col3", "string.split tab[3]")
+    
+    // split with no delimiter in string
+    parts = string.split("nodellimiter", ",")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split no delimiter returns table")
+    if is_table == true
+        assert_equal(parts[1], "nodellimiter", "string.split no delimiter[1]")
+    
+    // split with multiple delimiters
+    parts = string.split("a,,b,,c", ",,")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split double delimiter returns table")
+    if is_table == true
+        assert_equal(parts[1], "a", "string.split double delimiter[1]")
+        assert_equal(parts[2], "b", "string.split double delimiter[2]")
+        assert_equal(parts[3], "c", "string.split double delimiter[3]")
+    
+    // split with consecutive delimiters (single char)
+    parts = string.split("a,,b,,c", ",")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split consecutive commas returns table")
+    if is_table == true
+        assert_equal(parts[1], "a", "string.split consecutive commas[1]")
+        assert_equal(parts[2], "", "string.split consecutive commas[2]")
+        assert_equal(parts[3], "b", "string.split consecutive commas[3]")
+        assert_equal(parts[4], "", "string.split consecutive commas[4]")
+        assert_equal(parts[5], "c", "string.split consecutive commas[5]")
+    
+    // split with leading delimiter
+    parts = string.split(",a,b,c", ",")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split leading delimiter returns table")
+    if is_table == true
+        assert_equal(parts[1], "", "string.split leading delimiter[1]")
+        assert_equal(parts[2], "a", "string.split leading delimiter[2]")
+        assert_equal(parts[3], "b", "string.split leading delimiter[3]")
+        assert_equal(parts[4], "c", "string.split leading delimiter[4]")
+    
+    // split with trailing delimiter
+    parts = string.split("a,b,c,", ",")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split trailing delimiter returns table")
+    if is_table == true
+        assert_equal(parts[1], "a", "string.split trailing delimiter[1]")
+        assert_equal(parts[2], "b", "string.split trailing delimiter[2]")
+        assert_equal(parts[3], "c", "string.split trailing delimiter[3]")
+        assert_equal(parts[4], "", "string.split trailing delimiter[4]")
+    
+    // split with leading and trailing delimiters
+    parts = string.split(",a,b,c,", ",")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split both delimiters returns table")
+    if is_table == true
+        assert_equal(parts[1], "", "string.split both delimiters[1]")
+        assert_equal(parts[2], "a", "string.split both delimiters[2]")
+        assert_equal(parts[3], "b", "string.split both delimiters[3]")
+        assert_equal(parts[4], "c", "string.split both delimiters[4]")
+        assert_equal(parts[5], "", "string.split both delimiters[5]")
+    
+    // split empty string
+    parts = string.split("", ",")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split empty string returns table")
+    if is_table == true
+        assert_equal(parts[1], "", "string.split empty string[1]")
+    
+    // split string with only delimiter
+    parts = string.split(",", ",")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split only delimiter returns table")
+    if is_table == true
+        assert_equal(parts[1], "", "string.split only delimiter[1]")
+        assert_equal(parts[2], "", "string.split only delimiter[2]")
+    
+    // split with multiple characters
+    parts = string.split("red,green,blue,yellow,purple", ",")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split colors returns table")
+    if is_table == true
+        assert_equal(parts[1], "red", "string.split colors[1]")
+        assert_equal(parts[2], "green", "string.split colors[2]")
+        assert_equal(parts[3], "blue", "string.split colors[3]")
+        assert_equal(parts[4], "yellow", "string.split colors[4]")
+        assert_equal(parts[5], "purple", "string.split colors[5]")
+    
+    // split numbers
+    parts = string.split("1,2,3,4,5,6,7,8,9,10", ",")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split numbers returns table")
+    if is_table == true
+        assert_equal(parts[1], "1", "string.split numbers[1]")
+        assert_equal(parts[2], "2", "string.split numbers[2]")
+        assert_equal(parts[3], "3", "string.split numbers[3]")
+        assert_equal(parts[4], "4", "string.split numbers[4]")
+        assert_equal(parts[5], "5", "string.split numbers[5]")
+        assert_equal(parts[6], "6", "string.split numbers[6]")
+        assert_equal(parts[7], "7", "string.split numbers[7]")
+        assert_equal(parts[8], "8", "string.split numbers[8]")
+        assert_equal(parts[9], "9", "string.split numbers[9]")
+        assert_equal(parts[10], "10", "string.split numbers[10]")
+    
+    // split unicode
+    parts = string.split("你好,世界,朋友", ",")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split chinese returns table")
+    if is_table == true
+        assert_equal(parts[1], "你好", "string.split chinese[1]")
+        assert_equal(parts[2], "世界", "string.split chinese[2]")
+        assert_equal(parts[3], "朋友", "string.split chinese[3]")
+    
+    parts = string.split("Привет,мир,друг", ",")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split russian returns table")
+    if is_table == true
+        assert_equal(parts[1], "Привет", "string.split russian[1]")
+        assert_equal(parts[2], "мир", "string.split russian[2]")
+        assert_equal(parts[3], "друг", "string.split russian[3]")
+    
+    parts = string.split("مرحبا,عالم,صديق", ",")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split arabic returns table")
+    if is_table == true
+        assert_equal(parts[1], "مرحبا", "string.split arabic[1]")
+        assert_equal(parts[2], "عالم", "string.split arabic[2]")
+        assert_equal(parts[3], "صديق", "string.split arabic[3]")
+    
+    // split emoji
+    parts = string.split("😊,🌟,😀", ",")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split emoji returns table")
+    if is_table == true
+        assert_equal(parts[1], "😊", "string.split emoji[1]")
+        assert_equal(parts[2], "🌟", "string.split emoji[2]")
+        assert_equal(parts[3], "😀", "string.split emoji[3]")
+    
+    // split mixed content
+    parts = string.split("word1 word2 word3 word4", " ")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split words returns table")
+    if is_table == true
+        assert_equal(parts[1], "word1", "string.split words[1]")
+        assert_equal(parts[2], "word2", "string.split words[2]")
+        assert_equal(parts[3], "word3", "string.split words[3]")
+        assert_equal(parts[4], "word4", "string.split words[4]")
+    
+    // split with single character string
+    parts = string.split("a", ",")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split single char returns table")
+    if is_table == true
+        assert_equal(parts[1], "a", "string.split single char[1]")
+    
+    // split with long delimiter
+    parts = string.split("part1###part2###part3", "###")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split long delimiter returns table")
+    if is_table == true
+        assert_equal(parts[1], "part1", "string.split long delimiter[1]")
+        assert_equal(parts[2], "part2", "string.split long delimiter[2]")
+        assert_equal(parts[3], "part3", "string.split long delimiter[3]")
+    
+    // split with whitespace variations
+    parts = string.split("one two  three   four", " ")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split spaces returns table")
+    if is_table == true
+        assert_equal(parts[1], "one", "string.split spaces[1]")
+        assert_equal(parts[2], "two", "string.split spaces[2]")
+        assert_equal(parts[3], "", "string.split spaces[3]")
+        assert_equal(parts[4], "three", "string.split spaces[4]")
+        assert_equal(parts[5], "", "string.split spaces[5]")
+        assert_equal(parts[6], "", "string.split spaces[6]")
+        assert_equal(parts[7], "four", "string.split spaces[7]")
+    
+    // split file path
+    parts = string.split("/home/user/file.txt", "/")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split path returns table")
+    if is_table == true
+        assert_equal(parts[1], "", "string.split path[1]")
+        assert_equal(parts[2], "home", "string.split path[2]")
+        assert_equal(parts[3], "user", "string.split path[3]")
+        assert_equal(parts[4], "file.txt", "string.split path[4]")
+    
+    // split URL
+    parts = string.split("https://example.com/path/to/page", "/")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split URL returns table")
+    if is_table == true
+        assert_equal(parts[1], "https:", "string.split URL[1]")
+        assert_equal(parts[2], "", "string.split URL[2]")
+        assert_equal(parts[3], "example.com", "string.split URL[3]")
+        assert_equal(parts[4], "path", "string.split URL[4]")
+        assert_equal(parts[5], "to", "string.split URL[5]")
+        assert_equal(parts[6], "page", "string.split URL[6]")
+    
+    // split with punctuation
+    parts = string.split("sentence one. sentence two. sentence three.", ".")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split sentences returns table")
+    if is_table == true
+        assert_equal(parts[1], "sentence one", "string.split sentences[1]")
+        assert_equal(parts[2], " sentence two", "string.split sentences[2]")
+        assert_equal(parts[3], " sentence three", "string.split sentences[3]")
+        assert_equal(parts[4], "", "string.split sentences[4]")
+    
+    // split with mixed delimiters
+    parts = string.split("key=value&name=test&id=123", "&")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split query params returns table")
+    if is_table == true
+        assert_equal(parts[1], "key=value", "string.split query params[1]")
+        assert_equal(parts[2], "name=test", "string.split query params[2]")
+        assert_equal(parts[3], "id=123", "string.split query params[3]")
+    
+    // split very long string
+    parts = string.split("aaaaaaaaaa,bbbbbbbbbb,cccccccccc,dddddddddd,eeeeeeeeee", ",")
+    is_table = type(parts) == "table"
+    assert_equal(is_table, true, "string.split long strings returns table")
+    if is_table == true
+        assert_equal(parts[1], "aaaaaaaaaa", "string.split long strings[1]")
+        assert_equal(parts[2], "bbbbbbbbbb", "string.split long strings[2]")
+        assert_equal(parts[3], "cccccccccc", "string.split long strings[3]")
+        assert_equal(parts[4], "dddddddddd", "string.split long strings[4]")
+        assert_equal(parts[5], "eeeeeeeeee", "string.split long strings[5]")
 
 // test: join table elements into string with separator
 function string_join()

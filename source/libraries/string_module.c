@@ -256,24 +256,69 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             *result = MAKE_NONE();                            // invalid, return none
             return true;                                      // builtin handled
         }
-        const char* sep = " ";                                // default separator
+        const char* sep = " ";                                // default separator is space
         if (arg_count >= 2 && IS_STRING(args[1])) {           // custom separator provided
             sep = AS_STRING(args[1])->chars;                  // use custom separator
         }
         
         Table* t = table_create(8);                           // create result table
         *result = MAKE_TABLE(t);                              // box table as result
-        char* str = strdup(AS_STRING(args[0])->chars);        // duplicate for tokenization
-        char* token = strtok(str, sep);                       // get first token
-        int idx = 1;                                          // starting index
         
-        while (token) {                                       // iterate over tokens
-            Value k = MAKE_NUMBER((double)idx++);             // create index key
-            table_set(t, k, make_string_val(vm, token));      // store token
-            value_decref(k);                                  // release key reference
-            token = strtok(NULL, sep);                        // get next token
+        const char* str = AS_STRING(args[0])->chars;          // source string to split
+        size_t sep_len = strlen(sep);                          // length of separator
+        int idx = 1;                                           // starting index (1-based)
+        
+        if (sep_len == 0) {                                    // empty separator case
+            const char* p = str;                               // pointer to current char
+            while (*p) {                                       // iterate through all chars
+                int char_len = utf8_char_len((unsigned char)*p); // get UTF-8 char length
+                char* token = (char*)malloc(char_len + 1);     // allocate token buffer
+                strncpy(token, p, char_len);                   // copy single character
+                token[char_len] = '\0';                        // null terminate token
+                
+                Value k = MAKE_NUMBER((double)idx++);          // create index key
+                table_set(t, k, make_string_val(vm, token));   // store character as string
+                value_decref(k);                               // release key reference
+                free(token);                                   // free token buffer
+                
+                p += char_len;                                 // move to next character
+            }
+        } else {                                               // non-empty separator case
+            const char* start = str;                           // start of current token
+            const char* p = str;                               // scanning pointer
+            
+            while (1) {                                          // infinite loop until break
+                if (strncmp(p, sep, sep_len) == 0) {             // found separator match
+                    size_t token_len = p - start;                // calculate token length
+                    char* token = (char*)malloc(token_len + 1);  // allocate token buffer
+                    strncpy(token, start, token_len);            // copy token content
+                    token[token_len] = '\0';                     // null terminate token
+                    
+                    Value k = MAKE_NUMBER((double)idx++);        // create index key
+                    table_set(t, k, make_string_val(vm, token)); // store token in table
+                    value_decref(k);                             // release key reference
+                    free(token);                                 // free token buffer
+                    
+                    p += sep_len;                              // move past separator
+                    start = p;                                 // next token starts here
+                } else if (*p == '\0') {                       // reached end of string
+                    size_t token_len = p - start;              // calculate token length
+                    char* token = (char*)malloc(token_len + 1); // allocate token buffer
+                    strncpy(token, start, token_len);          // copy token content
+                    token[token_len] = '\0';                   // null terminate token
+                    
+                    Value k = MAKE_NUMBER((double)idx++);      // create index key
+                    table_set(t, k, make_string_val(vm, token)); // store token in table
+                    value_decref(k);                           // release key reference
+                    free(token);                               // free token buffer
+                    
+                    break;                                     // exit loop
+                } else {                                       // not separator, not end
+                    p++;                                       // move to next character
+                }
+            }
         }
-        free(str);                                            // free duplicate
+        
         return true;                                          // builtin handled
     }
     
