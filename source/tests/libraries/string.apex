@@ -13,11 +13,311 @@ function assert_equal(actual, expected, name)
 
 // test: string length returns character count
 function string_length()
+    // basic ASCII tests
     len = string.length("Hello")
     assert_equal(len, 5, "string.length Hello")
     
     len = string.length("")
     assert_equal(len, 0, "string.length empty")
+    
+    len = string.length("a")
+    assert_equal(len, 1, "string.length single char")
+    
+    len = string.length("ab")
+    assert_equal(len, 2, "string.length two chars")
+    
+    len = string.length("abc")
+    assert_equal(len, 3, "string.length three chars")
+    
+    // longer ASCII strings
+    len = string.length("Hello World")
+    assert_equal(len, 11, "string.length Hello World")
+    
+    len = string.length("The quick brown fox jumps over the lazy dog")
+    assert_equal(len, 43, "string.length pangram")
+    
+    len = string.length("abcdefghijklmnopqrstuvwxyz")
+    assert_equal(len, 26, "string.length alphabet lowercase")
+    
+    len = string.length("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    assert_equal(len, 26, "string.length alphabet uppercase")
+    
+    len = string.length("0123456789")
+    assert_equal(len, 10, "string.length digits")
+    
+    // whitespace strings
+    len = string.length(" ")
+    assert_equal(len, 1, "string.length single space")
+    
+    len = string.length("   ")
+    assert_equal(len, 3, "string.length three spaces")
+    
+    len = string.length("\t")
+    assert_equal(len, 1, "string.length tab")
+    
+    len = string.length("\n")
+    assert_equal(len, 1, "string.length newline")
+    
+    len = string.length("\t\n")
+    assert_equal(len, 2, "string.length tab newline")
+    
+    len = string.length(" \t\n ")
+    assert_equal(len, 4, "string.length mixed whitespace")
+    
+    // special characters
+    len = string.length("!@#$%^&*()")
+    assert_equal(len, 10, "string.length special chars")
+    
+    len = string.length("...")
+    assert_equal(len, 3, "string.length dots")
+    
+    len = string.length(",,,")
+    assert_equal(len, 3, "string.length commas")
+    
+    len = string.length(";;;")
+    assert_equal(len, 3, "string.length semicolons")
+    
+    len = string.length("::: ")
+    assert_equal(len, 4, "string.length colons space")
+    
+    len = string.length("|\\/")
+    assert_equal(len, 3, "string.length pipe slash backslash")
+    
+    // punctuation
+    len = string.length("Hello, World!")
+    assert_equal(len, 13, "string.length with punctuation")
+    
+    len = string.length("What's up?")
+    assert_equal(len, 10, "string.length with apostrophe")
+    
+    len = string.length("\"quoted\"")
+    assert_equal(len, 8, "string.length with quotes")
+    
+    len = string.length("(parentheses)")
+    assert_equal(len, 13, "string.length with parentheses")
+    
+    len = string.length("[brackets]")
+    assert_equal(len, 10, "string.length with brackets")
+    
+    len = string.length("\{braces\}")
+    assert_equal(len, 8, "string.length with braces")
+    
+    // numbers and mixed content
+    len = string.length("12345")
+    assert_equal(len, 5, "string.length numbers 12345")
+    
+    len = string.length("1-2-3-4-5")
+    assert_equal(len, 9, "string.length numbers with dashes")
+    
+    len = string.length("a1b2c3")
+    assert_equal(len, 6, "string.length mixed alphanumeric")
+    
+    len = string.length("version 1.0")
+    assert_equal(len, 11, "string.length version string")
+    
+    len = string.length("100%")
+    assert_equal(len, 4, "string.length percentage")
+    
+    len = string.length("$100.50")
+    assert_equal(len, 7, "string.length currency")
+    
+    // Unicode - Chinese
+    len = string.length("你好")
+    assert_equal(len, 2, "string.length chinese 2 chars")
+    
+    len = string.length("你好世界")
+    assert_equal(len, 4, "string.length chinese 4 chars")
+    
+    len = string.length("你好世界你好")
+    assert_equal(len, 6, "string.length chinese 6 chars")
+    
+    len = string.length("中文测试")
+    assert_equal(len, 4, "string.length chinese test")
+    
+    // Unicode - Russian
+    len = string.length("Привет")
+    assert_equal(len, 6, "string.length russian Привет")
+    
+    len = string.length("Привет Мир")
+    assert_equal(len, 10, "string.length russian Привет Мир")
+    
+    len = string.length("Здравствуйте")
+    assert_equal(len, 12, "string.length russian Здравствуйте")
+    
+    len = string.length("русский текст")
+    assert_equal(len, 13, "string.length russian text")
+    
+    // Unicode - Arabic
+    len = string.length("مرحبا")
+    assert_equal(len, 5, "string.length arabic مرحبا")
+    
+    len = string.length("السلام عليكم")
+    assert_equal(len, 12, "string.length arabic السلام عليكم")
+    
+    len = string.length("عربي")
+    assert_equal(len, 4, "string.length arabic عربي")
+    
+    // Unicode - Japanese
+    len = string.length("こんにちは")
+    assert_equal(len, 5, "string.length japanese こんにちは")
+    
+    len = string.length("日本語")
+    assert_equal(len, 3, "string.length japanese 日本語")
+    
+    len = string.length("テスト")
+    assert_equal(len, 3, "string.length japanese テスト")
+    
+    // Unicode - Korean
+    len = string.length("안녕하세요")
+    assert_equal(len, 5, "string.length korean 안녕하세요")
+    
+    len = string.length("한국어")
+    assert_equal(len, 3, "string.length korean 한국어")
+    
+    // Unicode - Emoji
+    len = string.length("😊")
+    assert_equal(len, 1, "string.length emoji single")
+    
+    len = string.length("😊🌟😊")
+    assert_equal(len, 3, "string.length emoji three")
+    
+    len = string.length("👍🏽")
+    assert_equal(len, 2, "string.length emoji with skin tone")
+    
+    len = string.length("🎉🎊🎈")
+    assert_equal(len, 3, "string.length celebration emojis")
+    
+    len = string.length("❤️💙💚")
+    assert_equal(len, 4, "string.length heart emojis")
+    
+    // Mixed scripts
+    len = string.length("Hello Привет")
+    assert_equal(len, 12, "string.length mixed latin cyrillic")
+    
+    len = string.length("Hello 你好")
+    assert_equal(len, 8, "string.length mixed latin chinese")
+    
+    len = string.length("Привет 你好")
+    assert_equal(len, 9, "string.length mixed cyrillic chinese")
+    
+    len = string.length("Hello Привет 你好")
+    assert_equal(len, 15, "string.length mixed three scripts")
+    
+    len = string.length("123 abc 你好")
+    assert_equal(len, 10, "string.length mixed numbers latin chinese")
+    
+    len = string.length("😊 Hello 你好")
+    assert_equal(len, 10, "string.length mixed emoji latin chinese")
+    
+    // Long strings
+    len = string.length("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    assert_equal(len, 50, "string.length 50 a's")
+    
+    len = string.length("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    assert_equal(len, 100, "string.length 100 a's")
+    
+    len = string.length("abcabcabcabcabcabcabcabcabcabc")
+    assert_equal(len, 30, "string.length repeated abc")
+    
+    len = string.length("012345678901234567890123456789")
+    assert_equal(len, 30, "string.length repeated digits")
+    
+    // Strings with repeating patterns
+    len = string.length("aaaa")
+    assert_equal(len, 4, "string.length four a's")
+    
+    len = string.length("aabbaabb")
+    assert_equal(len, 8, "string.length aabbaabb")
+    
+    len = string.length("abcabcabc")
+    assert_equal(len, 9, "string.length abcabcabc")
+    
+    // Strings with mixed case
+    len = string.length("Hello")
+    assert_equal(len, 5, "string.length Hello mixed case")
+    
+    len = string.length("hELLO")
+    assert_equal(len, 5, "string.length hELLO mixed case")
+    
+    len = string.length("HeLLo WoRLd")
+    assert_equal(len, 11, "string.length HeLLo WoRLd")
+    
+    // File paths and URLs
+    len = string.length("/home/user/file.txt")
+    assert_equal(len, 19, "string.length file path")
+    
+    len = string.length("https://example.com")
+    assert_equal(len, 19, "string.length URL")
+    
+    len = string.length("C:\\Users\\test")
+    assert_equal(len, 13, "string.length windows path")
+    
+    len = string.length("../relative/path/")
+    assert_equal(len, 17, "string.length relative path")
+    
+    // Email addresses
+    len = string.length("user@example.com")
+    assert_equal(len, 16, "string.length email")
+    
+    len = string.length("test.user@sub.domain.com")
+    assert_equal(len, 24, "string.length long email")
+    
+    // Code snippets
+    len = string.length("function test() \{ \}")
+    assert_equal(len, 19, "string.length function")
+    
+    len = string.length("var x = 10;")
+    assert_equal(len, 11, "string.length variable declaration")
+    
+    len = string.length("if (x > 5) \{ return true; \}")
+    assert_equal(len, 27, "string.length if statement")
+    
+    // JSON-like strings
+    len = string.length("\{\"key\": \"value\"\}")
+    assert_equal(len, 16, "string.length JSON")
+    
+    len = string.length("[1, 2, 3]")
+    assert_equal(len, 9, "string.length array")
+    
+    // HTML tags
+    len = string.length("<div>content</div>")
+    assert_equal(len, 18, "string.length HTML")
+    
+    len = string.length("<p class=\"test\">text</p>")
+    assert_equal(len, 24, "string.length HTML with attributes")
+    
+    // Multi-line strings
+    len = string.length("line1\nline2\nline3")
+    assert_equal(len, 17, "string.length multiline")
+    
+    len = string.length("first\nsecond\nthird\nfourth")
+    assert_equal(len, 25, "string.length four lines")
+    
+    // Strings with leading/trailing spaces
+    len = string.length("  hello")
+    assert_equal(len, 7, "string.length leading spaces")
+    
+    len = string.length("hello  ")
+    assert_equal(len, 7, "string.length trailing spaces")
+    
+    len = string.length("  hello  ")
+    assert_equal(len, 9, "string.length both spaces")
+    
+    len = string.length("\thello\t")
+    assert_equal(len, 7, "string.length with tabs")
+    
+    len = string.length("\nhello\n")
+    assert_equal(len, 7, "string.length with newlines")
+    
+    // Very long repeated Unicode
+    len = string.length("你好你好你好你好你好")
+    assert_equal(len, 10, "string.length repeated chinese")
+    
+    len = string.length("😊😊😊😊😊😊😊😊😊😊")
+    assert_equal(len, 10, "string.length repeated emoji")
+    
+    len = string.length("ПриветПриветПривет")
+    assert_equal(len, 18, "string.length repeated russian")
 
 // test: convert string to lowercase
 function string_lower()
