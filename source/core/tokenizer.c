@@ -69,6 +69,7 @@ const char* token_type_name(ApexTokenType type) {
 Tokenizer* tokenizer_create(const char* source, const char* filename) {
     Tokenizer* tokenizer = (Tokenizer*)malloc(sizeof(Tokenizer));     // allocate tokenizer struct
     tokenizer->source = strdup(source);                               // duplicate source string for ownership
+    tokenizer->source_length = strlen(source);                        // cache source length once to avoid repeated strlen calls
     tokenizer->filename = strdup(filename ? filename : "<unknown>");  // duplicate filename or use default
     tokenizer->pos = 0;                                     // start at beginning of source
     tokenizer->line = 1;                                    // start at line 1
@@ -108,7 +109,7 @@ static void tokenizer_error(Tokenizer* tokenizer, int len, const char* message) 
 // peeks at a character ahead in the source without consuming it
 static char peek(Tokenizer* tokenizer, int offset) {
     int index = tokenizer->pos + offset;            // compute absolute position in source
-    if (index >= (int)strlen(tokenizer->source)) {
+    if (index >= (int)tokenizer->source_length) {   // use cached length instead of calling strlen
         return '\0';                                // return null terminator at end of source
     }
     return tokenizer->source[index];                // return character at offset
@@ -116,7 +117,7 @@ static char peek(Tokenizer* tokenizer, int offset) {
 
 // consumes and returns the next character, updating line and column positions
 static char advance(Tokenizer* tokenizer) {
-    if (tokenizer->pos >= (int)strlen(tokenizer->source)) {
+    if (tokenizer->pos >= (int)tokenizer->source_length) {  // use cached length instead of calling strlen
         return '\0';                               // return null terminator at end of source
     }
     char c = tokenizer->source[tokenizer->pos++];  // read and advance position
@@ -200,7 +201,7 @@ static char* read_string(Tokenizer* tokenizer) {
             tokenizer->line = quote_line;                // restore line for error context
             tokenizer->column = quote_column;            // restore column for error context
             tokenizer_error(tokenizer, 1, "Unterminated string");  // report unterminated string error
-            tokenizer->pos = strlen(tokenizer->source);  // advance to end to stop further tokenizing
+            tokenizer->pos = tokenizer->source_length;   // use cached length to advance to end
             free(buffer);                                // free partial buffer
             return NULL;                                 // return null on error
         }
@@ -214,7 +215,7 @@ static char* read_string(Tokenizer* tokenizer) {
                 tokenizer->line = quote_line;                // restore line for error context
                 tokenizer->column = quote_column;            // restore column for error context
                 tokenizer_error(tokenizer, 1, "Unterminated string");  // report unterminated string error
-                tokenizer->pos = strlen(tokenizer->source);  // advance to end to stop further tokenizing
+                tokenizer->pos = tokenizer->source_length;   // use cached length to advance to end
                 free(buffer);                                // free partial buffer
                 return NULL;                                 // return null on error
             }
@@ -383,10 +384,10 @@ bool tokenizer_has_error(Tokenizer* tokenizer) {
 
 // main tokenization loop that processes the entire source and returns tokens
 Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
-    while (tokenizer->pos < (int)strlen(tokenizer->source)) {
+    while (tokenizer->pos < (int)tokenizer->source_length) {   // use cached length in main loop
         skip_whitespace(tokenizer);                            // skip spaces and tabs before each token
         
-        if (tokenizer->pos >= (int)strlen(tokenizer->source)) {
+        if (tokenizer->pos >= (int)tokenizer->source_length) { // use cached length for bounds check
             break;                                             // reached end of source after skipping whitespace
         }
         
@@ -398,7 +399,7 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
         advance(tokenizer);                                    // consume newline character
         add_token(tokenizer, TOKEN_NEWLINE, "\n", line, col);  // emit newline token
         
-        while (tokenizer->pos  < (int)strlen(tokenizer->source)) {
+        while (tokenizer->pos  < (int)tokenizer->source_length) {  // use cached length for newline loop
             char nc = peek(tokenizer, 0);                // peek at character after newline
             if (nc == ' ' || nc == '\t' || nc == '\r') {
                 advance(tokenizer);                      // skip inline whitespace after newline
@@ -414,7 +415,7 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
         
         if (tokenizer->paren_depth == 0) {
             int current_indent = 0;                      // default indent level
-            if (tokenizer->pos < (int)strlen(tokenizer->source)) {
+            if (tokenizer->pos < (int)tokenizer->source_length) {  // use cached length for indent check
                 current_indent = tokenizer->column - 1;  // measure indentation from column position
             }
             int prev_indent = tokenizer->indent_stack[tokenizer->indent_depth - 1];  // get previous indentation level

@@ -6,6 +6,7 @@
 #ifndef TOKENIZER_H
 #define TOKENIZER_H
 
+#include <stddef.h>
 #include <stdbool.h>
 
 // all token types recognized by the lexer, including keywords, literals, and delimiters
@@ -69,6 +70,7 @@ typedef struct {
 // tokenizer state tracking source scan position, indentation, and output buffer
 typedef struct {
     char* source;            // the entire source code string
+    size_t source_length;    // cached length of source to avoid repeated strlen calls
     char* filename;          // source file name for error reporting
     int pos;                 // current position in the source
     int line;                // current line number
