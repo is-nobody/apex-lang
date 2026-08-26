@@ -113,7 +113,7 @@ result = calculate(5, 10)
 ```
 
 - **Return:** Defaults to `none` if omitted.
-- **Built-ins:** Organized in modules (`os`, `math`, `string`, `table`, `sys`, `ffi`, `random`, `codecs`, `regex`, `crypto`).
+- **Built-ins:** Organized in modules (`os`, `sys`, `math`, `string`, `table`, `ffi`, `random`, `json`, `xml`, `csv`, `hex`, `base`, `regex`, `crypto`).
 
 ## Modules & Imports
 Paths are relative to the **entry point** file.

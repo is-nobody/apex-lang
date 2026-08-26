@@ -15,7 +15,9 @@ static bool is_known_builtin_module(const char* name) {
            strcmp(name, "sys") == 0 || strcmp(name, "math") == 0 ||
            strcmp(name, "string") == 0 || strcmp(name, "table") == 0 ||
            strcmp(name, "ffi") == 0 || strcmp(name, "random") == 0 ||
-           strcmp(name, "codecs") == 0 || strcmp(name, "regex") == 0 ||
+           strcmp(name, "json") == 0 || strcmp(name, "xml") == 0 ||
+           strcmp(name, "csv") == 0 || strcmp(name, "hex") == 0 ||
+           strcmp(name, "base") == 0 || strcmp(name, "regex") == 0 ||
            strcmp(name, "crypto") == 0;
 }
 

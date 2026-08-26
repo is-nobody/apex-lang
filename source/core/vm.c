@@ -11,7 +11,11 @@
 #include "table_module.h"
 #include "ffi_module.h"
 #include "random_module.h"
-#include "codecs_module.h"
+#include "json_module.h"
+#include "xml_module.h"
+#include "csv_module.h"
+#include "hex_module.h"
+#include "base_module.h"
 #include "regex_module.h"
 #include "crypto_module.h"
 #include <stdio.h>
@@ -1028,7 +1032,11 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
     if (strncmp(name, "table.", 6) == 0) return table_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "ffi.", 4) == 0) return ffi_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "random.", 7) == 0) return random_call_builtin(vm, name, arg_count, args, result);
-    if (strncmp(name, "codecs.", 7) == 0) return codecs_call_builtin(vm, name, arg_count, args, result);
+    if (strncmp(name, "json.", 5) == 0) return json_call_builtin(vm, name, arg_count, args, result);
+    if (strncmp(name, "xml.", 4) == 0) return xml_call_builtin(vm, name, arg_count, args, result);
+    if (strncmp(name, "csv.", 4) == 0) return csv_call_builtin(vm, name, arg_count, args, result);
+    if (strncmp(name, "hex.", 4) == 0) return hex_call_builtin(vm, name, arg_count, args, result);
+    if (strncmp(name, "base.", 5) == 0) return base_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "regex.", 6) == 0) return regex_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "crypto.", 7) == 0) return crypto_call_builtin(vm, name, arg_count, args, result);
 

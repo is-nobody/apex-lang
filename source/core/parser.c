@@ -268,12 +268,16 @@ static const BuiltinSig BUILTINS[] = {
     {"random.seed",          0, 1, TYPE_NUMBER}, {"random.triangular",    0, 3, TYPE_NUMBER},
     {"random.expovariate",   1, 1, TYPE_NUMBER}, {"random.betavariate",   2, 2, TYPE_NUMBER},
 
-    {"codecs.json_decode",   1, 1, TYPE_STRING}, {"codecs.json_encode",  1, 1, TYPE_ANY},
-    {"codecs.csv_decode",    1, 3, TYPE_STRING}, {"codecs.csv_encode",   1, 3, TYPE_TABLE},
-    {"codecs.xml_decode",    1, 1, TYPE_STRING}, {"codecs.xml_encode",   1, 1, TYPE_TABLE},
-    {"codecs.hex_encode",   1, 1, TYPE_STRING}, {"codecs.hex_decode",    1, 1, TYPE_STRING},
-    {"codecs.base64_encode",  1, 1, TYPE_STRING}, {"codecs.base64_decode",   1, 1, TYPE_STRING},
-    {"codecs.base64url_encode",1,1, TYPE_STRING}, {"codecs.base64url_decode",1, 1, TYPE_STRING},
+    {"json.decode",  1, 1, TYPE_STRING}, {"json.encode", 1, 1, TYPE_ANY},
+    
+    {"xml.decode",   1, 1, TYPE_STRING}, {"xml.encode",  1, 1, TYPE_TABLE},
+    
+    {"csv.decode",   1, 3, TYPE_STRING}, {"csv.encode",  1, 3, TYPE_TABLE},
+    
+    {"hex.encode",   1, 1, TYPE_STRING}, {"hex.decode",  1, 1, TYPE_STRING},
+    
+    {"base.encode",        1, 1, TYPE_STRING}, {"base.decode",        1, 1, TYPE_STRING},
+    {"base.url_encode",    1, 1, TYPE_STRING}, {"base.url_decode",    1, 1, TYPE_STRING},
 
     {"regex.find_all", 2, 3, TYPE_STRING},  {"regex.replace",    3, 4, TYPE_STRING},
     {"regex.split",   2, 3, TYPE_STRING},  {"regex.search", 2, 3, TYPE_STRING},
@@ -576,8 +580,16 @@ static bool is_known_builtin_module(const char* name) {
             return strcmp(name, "random") == 0 ||  // random module
                    strcmp(name, "regex") == 0;     // regex module
         case 'c':
-            return strcmp(name, "codecs") == 0 ||  // codecs module
+            return strcmp(name, "csv") == 0 ||     // csv module
                    strcmp(name, "crypto") == 0;    // crypto module
+        case 'j':
+            return strcmp(name, "json") == 0;      // json module
+        case 'x':
+            return strcmp(name, "xml") == 0;       // xml module
+        case 'h':
+            return strcmp(name, "hex") == 0;       // hex module
+        case 'b':
+            return strcmp(name, "base") == 0;      // base module
         default:
             return false;                          // no builtin module matches
     }

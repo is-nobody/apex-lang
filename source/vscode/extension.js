@@ -14,7 +14,11 @@ const libDocs = {
     'table': 'Table library.',
     'ffi': 'Foreign Function Interface library.',
     'random': 'Random generation.',
-    'codecs': 'Encoding/decoding library.',
+    'json': 'JSON encoding/decoding library.',
+    'xml': 'XML encoding/decoding library.',
+    'csv': 'CSV encoding/decoding library.',
+    'hex': 'HEX encoding/decoding library.',
+    'base': 'Base encoding/decoding library.',
     'regex': 'Regular expressions library.',
     'crypto': 'Cryptography library.'
 };
@@ -166,12 +170,16 @@ function activate(context) {
                 'random.seed',        'random.triangular',
                 'random.expovariate', 'random.betavariate',
 
-                'codecs.json_decode',     'codecs.json_encode',
-                'codecs.csv_decode',      'codecs.csv_encode',
-                'codecs.xml_decode',      'codecs.xml_encode',
-                'codecs.base64_encode',    'codecs.base64_decode',
-                'codecs.base64url_encode', 'codecs.base64url_decode',
-                'codecs.hex_encode',     'codecs.hex_decode',
+                'json.decode',           'json.encode',
+                
+                'xml.decode',            'xml.encode',
+                
+                'csv.decode',            'csv.encode',
+                
+                'hex.encode',            'hex.decode',
+
+                'base.encode',           'base.decode',
+                'base.url_encode',       'base.url_decode',
 
                 'regex.find_all', 'regex.replace',
                 'regex.split',   'regex.search',
