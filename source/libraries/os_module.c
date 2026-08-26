@@ -45,6 +45,17 @@
 #include <sys/wait.h>
 #endif
 
+// normalize path separators for windows filesystem
+static void normalize_path(char* path) {
+#ifdef _WIN32
+    for (char* p = path; *p; p++) {          // iterate all characters
+        if (*p == '/') *p = '\\';            // replace forward slash
+    }
+#else
+    (void)path;                              // suppress unused warning
+#endif
+}
+
 // recursively calculates the total size of a directory in bytes
 static double calculate_dir_size(const char* path) {
     double total_size = 0;                                                         // accumulated size
@@ -159,7 +170,10 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     
     if (strcmp(name, "os.change_folder") == 0) {                             // change directory
         if (arg_count >= 1 && IS_STRING(args[0])) {                               // validate path
-            *result = MAKE_BOOL(chdir(AS_STRING(args[0])->chars) == 0);           // change and return status
+            char path[4096];                                                      // normalized path buffer
+            snprintf(path, sizeof(path), "%s", AS_STRING(args[0])->chars);        // copy path
+            normalize_path(path);                                                 // normalize separators
+            *result = MAKE_BOOL(chdir(path) == 0);                                // change and return status
         } else {
             *result = MAKE_BOOL(false);                                           // invalid argument
         }
@@ -198,7 +212,10 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
 
     if (strcmp(name, "os.read") == 0) {                         // read file content
         if (arg_count >= 1 && IS_STRING(args[0])) {             // validate path
-            FILE* f = fopen(AS_STRING(args[0])->chars, "rb");   // open file binary
+            char path[4096];                                    // normalized path buffer
+            snprintf(path, sizeof(path), "%s", AS_STRING(args[0])->chars);  // copy path
+            normalize_path(path);                               // normalize separators
+            FILE* f = fopen(path, "rb");                        // open file binary
             if (f) {                                            // opened
                 fseek(f, 0, SEEK_END);                          // seek end
                 long size = ftell(f);                           // get size
@@ -221,7 +238,10 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     
     if (strcmp(name, "os.write") == 0) {                                   // write file content
         if (arg_count >= 2 && IS_STRING(args[0]) && IS_STRING(args[1])) {  // validate path and content
-            FILE* f = fopen(AS_STRING(args[0])->chars, "wb");              // open file binary write
+            char path[4096];                                               // normalized path buffer
+            snprintf(path, sizeof(path), "%s", AS_STRING(args[0])->chars); // copy path
+            normalize_path(path);                                          // normalize separators
+            FILE* f = fopen(path, "wb");                                   // open file binary write
             if (f) {                                                       // opened
                 fputs(AS_STRING(args[1])->chars, f);                       // write content
                 fclose(f);                                                 // close file
@@ -237,7 +257,10 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     
     if (strcmp(name, "os.append") == 0) {                                  // append to file
         if (arg_count >= 2 && IS_STRING(args[0]) && IS_STRING(args[1])) {  // validate path and content
-            FILE* f = fopen(AS_STRING(args[0])->chars, "ab");              // open file binary append
+            char path[4096];                                               // normalized path buffer
+            snprintf(path, sizeof(path), "%s", AS_STRING(args[0])->chars); // copy path
+            normalize_path(path);                                          // normalize separators
+            FILE* f = fopen(path, "ab");                                   // open file binary append
             if (f) {                                                       // opened
                 fputs(AS_STRING(args[1])->chars, f);                       // append content
                 fclose(f);                                                 // close file
@@ -253,7 +276,10 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     
     if (strcmp(name, "os.exists") == 0) {                                       // check if path exists
         if (arg_count >= 1 && IS_STRING(args[0])) {                             // validate path
-            *result = MAKE_BOOL(access(AS_STRING(args[0])->chars, F_OK) == 0);  // check existence
+            char path[4096];                                                    // normalized path buffer
+            snprintf(path, sizeof(path), "%s", AS_STRING(args[0])->chars);      // copy path
+            normalize_path(path);                                               // normalize separators
+            *result = MAKE_BOOL(access(path, F_OK) == 0);                       // check existence
         } else {
             *result = MAKE_BOOL(false);                                   // invalid argument
         }
@@ -262,8 +288,11 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     
     if (strcmp(name, "os.is_file") == 0) {                                 // check if path is file
         if (arg_count >= 1 && IS_STRING(args[0])) {                       // validate path
+            char path[4096];                                              // normalized path buffer
+            snprintf(path, sizeof(path), "%s", AS_STRING(args[0])->chars); // copy path
+            normalize_path(path);                                         // normalize separators
             struct stat st;                                               // stat buffer
-            if (stat(AS_STRING(args[0])->chars, &st) == 0) {              // get stats
+            if (stat(path, &st) == 0) {                                   // get stats
                 *result = MAKE_BOOL(S_ISREG(st.st_mode) ? true : false);  // check regular file
             } else {
                 *result = MAKE_BOOL(false);                               // stat failed
@@ -276,8 +305,11 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     
     if (strcmp(name, "os.is_folder") == 0) {                               // check if path is directory
         if (arg_count >= 1 && IS_STRING(args[0])) {                       // validate path
+            char path[4096];                                              // normalized path buffer
+            snprintf(path, sizeof(path), "%s", AS_STRING(args[0])->chars); // copy path
+            normalize_path(path);                                         // normalize separators
             struct stat st;                                               // stat buffer
-            if (stat(AS_STRING(args[0])->chars, &st) == 0) {              // get stats
+            if (stat(path, &st) == 0) {                                   // get stats
                 *result = MAKE_BOOL(S_ISDIR(st.st_mode) ? true : false);  // check directory
             } else {
                 *result = MAKE_BOOL(false);                               // stat failed
@@ -290,12 +322,15 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     
     if (strcmp(name, "os.size") == 0) {                                                    // get file/dir size
         if (arg_count >= 1 && IS_STRING(args[0])) {                                        // validate path
+            char path[4096];                                                              // normalized path buffer
+            snprintf(path, sizeof(path), "%s", AS_STRING(args[0])->chars);                // copy path
+            normalize_path(path);                                                         // normalize separators
             struct stat st;                                                                // stat buffer
-            if (stat(AS_STRING(args[0])->chars, &st) == 0) {                               // get stats
+            if (stat(path, &st) == 0) {                                                    // get stats
                 if (S_ISREG(st.st_mode)) {                                                 // regular file
                     *result = MAKE_NUMBER((double)st.st_size);                             // return file size
                 } else if (S_ISDIR(st.st_mode)) {                                          // directory
-                    *result = MAKE_NUMBER(calculate_dir_size(AS_STRING(args[0])->chars));  // compute size
+                    *result = MAKE_NUMBER(calculate_dir_size(path));                       // compute size
                 } else {
                     *result = MAKE_NONE();  // unknown type
                 }
@@ -310,7 +345,10 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     
     if (strcmp(name, "os.create_file") == 0) {                                  // create empty file
         if (arg_count >= 1 && IS_STRING(args[0])) {                             // validate path
-            FILE* f = fopen(AS_STRING(args[0])->chars, "w");                    // create file
+            char path[4096];                                                    // normalized path buffer
+            snprintf(path, sizeof(path), "%s", AS_STRING(args[0])->chars);      // copy path
+            normalize_path(path);                                               // normalize separators
+            FILE* f = fopen(path, "w");                                         // create file
             if (f) {                                                            // created
                 fclose(f);                                                      // close
                 *result = MAKE_BOOL(true);                                      // success
@@ -325,10 +363,13 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     
     if (strcmp(name, "os.create_folder") == 0) {                                // create directory
         if (arg_count >= 1 && IS_STRING(args[0])) {                             // validate path
+            char path[4096];                                                    // normalized path buffer
+            snprintf(path, sizeof(path), "%s", AS_STRING(args[0])->chars);      // copy path
+            normalize_path(path);                                               // normalize separators
 #ifdef _WIN32
-            *result = MAKE_BOOL(_mkdir(AS_STRING(args[0])->chars) == 0);        // create directory
+            *result = MAKE_BOOL(_mkdir(path) == 0);                             // create directory
 #else
-            *result = MAKE_BOOL(mkdir(AS_STRING(args[0])->chars, 0755) == 0);   // create directory with permissions
+            *result = MAKE_BOOL(mkdir(path, 0755) == 0);                        // create directory with permissions
 #endif
         } else {
             *result = MAKE_BOOL(false);                                         // invalid argument
@@ -338,13 +379,16 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     
     if (strcmp(name, "os.delete") == 0) {                                       // delete file or directory
         if (arg_count >= 1 && IS_STRING(args[0])) {                             // validate path
+            char path[4096];                                                    // normalized path buffer
+            snprintf(path, sizeof(path), "%s", AS_STRING(args[0])->chars);      // copy path
+            normalize_path(path);                                               // normalize separators
             struct stat st;                                                     // stat buffer
-            if (stat(AS_STRING(args[0])->chars, &st) == 0) {                    // get stats
+            if (stat(path, &st) == 0) {                                         // get stats
                 bool success = false;                                           // success flag
                 if (S_ISDIR(st.st_mode)) {                                      // is directory
-                    success = (rmdir(AS_STRING(args[0])->chars) == 0);          // remove directory
+                    success = (rmdir(path) == 0);                               // remove directory
                 } else {
-                    success = (unlink(AS_STRING(args[0])->chars) == 0);         // remove file
+                    success = (unlink(path) == 0);                              // remove file
                 }
                 *result = MAKE_BOOL(success);                                   // return status
             } else {
@@ -358,7 +402,12 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     
     if (strcmp(name, "os.rename") == 0) {                                       // rename file/dir
         if (arg_count >= 2 && IS_STRING(args[0]) && IS_STRING(args[1])) {       // validate paths
-            *result = MAKE_BOOL(rename(AS_STRING(args[0])->chars, AS_STRING(args[1])->chars) == 0);  // rename
+            char src[4096], dst[4096];                                          // normalized path buffers
+            snprintf(src, sizeof(src), "%s", AS_STRING(args[0])->chars);        // copy source
+            snprintf(dst, sizeof(dst), "%s", AS_STRING(args[1])->chars);        // copy destination
+            normalize_path(src);                                                // normalize source
+            normalize_path(dst);                                                // normalize destination
+            *result = MAKE_BOOL(rename(src, dst) == 0);                         // rename
         } else {
             *result = MAKE_BOOL(false);                                         // invalid argument
         }
@@ -367,7 +416,16 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     
     if (strcmp(name, "os.move") == 0) {                                         // move file/dir
         if (arg_count >= 2 && IS_STRING(args[0]) && IS_STRING(args[1])) {       // validate paths
-            *result = MAKE_BOOL(rename(AS_STRING(args[0])->chars, AS_STRING(args[1])->chars) == 0);  // rename
+            char src[4096], dst[4096];                                          // normalized path buffers
+            snprintf(src, sizeof(src), "%s", AS_STRING(args[0])->chars);        // copy source
+            snprintf(dst, sizeof(dst), "%s", AS_STRING(args[1])->chars);        // copy destination
+            normalize_path(src);                                                // normalize source
+            normalize_path(dst);                                                // normalize destination
+#ifdef _WIN32
+            *result = MAKE_BOOL(MoveFile(src, dst) != 0);                       // windows move api
+#else
+            *result = MAKE_BOOL(rename(src, dst) == 0);                         // unix rename
+#endif
         } else {
             *result = MAKE_BOOL(false);                                         // invalid argument
         }
@@ -376,8 +434,11 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     
     if (strcmp(name, "os.copy") == 0) {                                         // copy file/directory recursively
         if (arg_count >= 2 && IS_STRING(args[0]) && IS_STRING(args[1])) {       // validate paths
-            const char* src_path = AS_STRING(args[0])->chars;                   // source path
-            const char* dst_path = AS_STRING(args[1])->chars;                   // destination path
+            char src_path[4096], dst_path[4096];                                // normalized path buffers
+            snprintf(src_path, sizeof(src_path), "%s", AS_STRING(args[0])->chars);  // copy source
+            snprintf(dst_path, sizeof(dst_path), "%s", AS_STRING(args[1])->chars);  // copy destination
+            normalize_path(src_path);                                           // normalize source
+            normalize_path(dst_path);                                           // normalize destination
             
             struct stat st;                                                     // stat buffer
             if (stat(src_path, &st) != 0) {                                     // source not found
@@ -494,8 +555,11 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     
     if (strcmp(name, "os.list_folder") == 0) {                              // list directory contents
         const char* path = ".";                                       // default to current
+        char normalized[4096];                                        // normalized path buffer
         if (arg_count >= 1 && IS_STRING(args[0])) {                   // path provided
-            path = AS_STRING(args[0])->chars;                         // use provided path
+            snprintf(normalized, sizeof(normalized), "%s", AS_STRING(args[0])->chars);  // copy path
+            normalize_path(normalized);                               // normalize separators
+            path = normalized;                                        // use normalized path
         }
         
     #ifdef _WIN32
@@ -575,10 +639,17 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     
     if (strcmp(name, "os.access") == 0) {                                  // change file permissions
         if (arg_count >= 2 && IS_STRING(args[0]) && IS_NUMBER(args[1])) {  // validate path and mode
+            char path[4096];                                               // normalized path buffer
+            snprintf(path, sizeof(path), "%s", AS_STRING(args[0])->chars); // copy path
+            normalize_path(path);                                          // normalize separators
 #ifdef _WIN32
-            *result = MAKE_BOOL(_chmod(AS_STRING(args[0])->chars, (int)AS_NUMBER(args[1])) == 0);   // chmod on windows
+            int unix_mode = (int)AS_NUMBER(args[1]);                       // extract unix mode
+            int win_mode = 0;                                              // windows mode flags
+            if (unix_mode & 4) win_mode |= _S_IREAD;                       // unix read -> windows read
+            if (unix_mode & 2) win_mode |= _S_IWRITE;                      // unix write -> windows write
+            *result = MAKE_BOOL(_chmod(path, win_mode) == 0);              // chmod on windows
 #else
-            *result = MAKE_BOOL(chmod(AS_STRING(args[0])->chars, (mode_t)AS_NUMBER(args[1])) == 0); // chmod on unix
+            *result = MAKE_BOOL(chmod(path, (mode_t)AS_NUMBER(args[1])) == 0); // chmod on unix
 #endif
         } else {
             *result = MAKE_BOOL(false);  // invalid argument
