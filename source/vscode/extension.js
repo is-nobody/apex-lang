@@ -60,7 +60,7 @@ function activate(context) {
                 'break': 'Exits the current loop immediately.',
                 'continue': 'Skips the rest of the current loop iteration.',
                 'constant': 'Declares a constant variable that cannot be reassigned.\n\n```apex\nconstant name = "Apex"\n```',
-                'import': 'Imports a file or library.\n\n```apex\nimport os\nimport utils.math\n```',
+                'import': 'Imports a file or library.\n\n```apex\nimport os\nimport utils/math.apex\n```',
                 'and': 'Logical AND operator.',
                 'or': 'Logical OR operator.',
                 'not': 'Logical NOT operator.',
