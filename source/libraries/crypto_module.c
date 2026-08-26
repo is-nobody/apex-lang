@@ -713,8 +713,11 @@ static void sha512_update(SHA512_CTX* context, const unsigned char* data, unsign
     if (len >= part_len) {                                    // transform as needed
         memcpy(&context->buffer[index], data, part_len);      // fill buffer
         sha512_transform(context->state, context->buffer);    // transform
-        for (i = part_len; i + 127 < len; i += 128)           // transform blocks
-            sha512_transform(context->state, &data[i]);       // transform
+        for (i = part_len; i + 127 < len; i += 128) {         // transform blocks
+            if (i + 128 <= len) {
+                sha512_transform(context->state, &data[i]);   // transform
+            }
+        }
         index = 0;                                            // reset index
     } else {
         i = 0;                                                // no transform
