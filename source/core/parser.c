@@ -50,6 +50,56 @@ static unsigned int hash_string_parser(const char* str) {
     return hash;                                   // return computed hash
 }
 
+// initializes the string arena for symbol name allocation
+static void arena_init(StringArena* arena) {
+    arena->capacity = 64 * 1024;                   // 64KB initial capacity
+    arena->data = (char*)malloc(arena->capacity);  // allocate buffer
+    arena->used = 0;                               // nothing used yet
+}
+
+// duplicates a string into the arena, growing if needed
+static char* arena_strdup(StringArena* arena, const char* str) {
+    size_t len = strlen(str) + 1;                  // include null terminator
+    if (arena->used + len > arena->capacity) {     // need more space
+        arena->capacity *= 2;                      // double capacity
+        arena->data = (char*)realloc(arena->data, arena->capacity);  // grow buffer
+    }
+    char* result = arena->data + arena->used;      // allocate from arena
+    memcpy(result, str, len);                      // copy string
+    arena->used += len;                            // advance used pointer
+    return result;                                 // return allocated string
+}
+
+// frees the string arena
+static void arena_destroy(StringArena* arena) {
+    free(arena->data);                             // free arena buffer
+    arena->data = NULL;                            // clear pointer
+    arena->used = 0;                               // reset used
+    arena->capacity = 0;                           // reset capacity
+}
+
+// allocates a hash entry from the pool, creating new pool if needed
+static SymbolHashEntry* pool_alloc(Parser* parser) {
+    HashEntryPool* pool = parser->symbols.entry_pool;  // get current pool
+    if (!pool || pool->count >= 1024) {            // no pool or full
+        HashEntryPool* new_pool = (HashEntryPool*)malloc(sizeof(HashEntryPool));  // create new pool
+        new_pool->count = 0;                       // reset count
+        new_pool->next = pool;                     // link to previous pool
+        parser->symbols.entry_pool = new_pool;     // set as current pool
+        pool = new_pool;                           // use new pool
+    }
+    return &pool->entries[pool->count++];          // return next free entry
+}
+
+// frees all hash entry pools
+static void pool_destroy(HashEntryPool* pool) {
+    while (pool) {                                 // iterate all pools
+        HashEntryPool* next = pool->next;          // save next pool
+        free(pool);                                // free current pool
+        pool = next;                               // move to next
+    }
+}
+
 // helper for counting utf-8 characters in a string
 static size_t utf8_char_len(const char* s) {
     if (!s) return 0;                              // null string, zero length
@@ -539,7 +589,9 @@ static int symbol_index_in_scope(Parser* parser, const char* name, int scope) {
     unsigned int h = hash_string_parser(name) & (parser->symbols.hash_size - 1);  // compute bucket
     
     for (SymbolHashEntry* entry = parser->symbols.hash_table[h]; entry; entry = entry->next) {
-        if (entry->scope_level == scope && strcmp(entry->name, name) == 0) {  // matching scope and name
+        if (entry->symbol_index >= 0 &&            // skip entries marked as invalid
+            entry->scope_level == scope && 
+            strcmp(entry->name, name) == 0) {      // matching scope and name
             return entry->symbol_index;            // return symbol index
         }
     }
@@ -563,51 +615,56 @@ void parser_enter_scope(Parser* parser) {
 
 // exits the current lexical scope, removing all symbols declared there
 void parser_exit_scope(Parser* parser) {
-    int i = 0;
-    while (i < parser->symbols.count) {
-        if (parser->symbols.scope_levels[i] == parser->symbols.current_scope) {  // symbol in current scope
-            unsigned int h = hash_string_parser(parser->symbols.names[i]) & (parser->symbols.hash_size - 1);
-            SymbolHashEntry* prev = NULL;
-            SymbolHashEntry* entry = parser->symbols.hash_table[h];
-            
-            while (entry) {
-                if (entry->symbol_index == i) {    // found matching entry
-                    if (prev) {
-                        prev->next = entry->next;  // unlink from middle
-                    } else {
-                        parser->symbols.hash_table[h] = entry->next;  // unlink from head
-                    }
-                    free(entry);                   // free hash entry
-                    break;
+    int scope = parser->symbols.current_scope;     // capture scope being exited
+    
+    // remove hash entries for this scope
+    for (int bucket = 0; bucket < parser->symbols.hash_size; bucket++) {
+        SymbolHashEntry* prev = NULL;              // previous entry in chain
+        SymbolHashEntry* entry = parser->symbols.hash_table[bucket];  // current entry
+        
+        while (entry) {
+            SymbolHashEntry* next = entry->next;   // save next before unlinking
+            if (entry->scope_level == scope) {     // entry belongs to exited scope
+                if (prev) {
+                    prev->next = next;             // unlink from middle of chain
+                } else {
+                    parser->symbols.hash_table[bucket] = next;  // unlink from head of chain
                 }
-                prev = entry;
-                entry = entry->next;
+            } else {
+                prev = entry;                      // keep entry, move prev forward
             }
-            free(parser->symbols.names[i]);        // free symbol name
-            
-            for (int j = i; j < parser->symbols.count - 1; j++) {  // shift remaining symbols
-                parser->symbols.names[j] = parser->symbols.names[j + 1];
-                parser->symbols.scope_levels[j] = parser->symbols.scope_levels[j + 1];
-                parser->symbols.kinds[j] = parser->symbols.kinds[j + 1];
-                parser->symbols.types[j] = parser->symbols.types[j + 1];
-                parser->symbols.param_counts[j] = parser->symbols.param_counts[j + 1];
-                parser->symbols.const_known[j] = parser->symbols.const_known[j + 1];
-                parser->symbols.const_values[j] = parser->symbols.const_values[j + 1];
-                parser->symbols.is_constant[j] = parser->symbols.is_constant[j + 1];
-            }
-            parser->symbols.count--;               // decrement symbol count
-            
-            for (int bucket = 0; bucket < parser->symbols.hash_size; bucket++) {  // update hash entry indices
-                for (SymbolHashEntry* e = parser->symbols.hash_table[bucket]; e; e = e->next) {
-                    if (e->symbol_index > i) {
-                        e->symbol_index--;         // decrement index for shifted symbols
-                    }
-                }
-            }
-        } else {
-            i++;                                   // skip symbols in other scopes
+            entry = next;                          // move to next entry
         }
     }
+    
+    // compact symbols array by removing symbols from this scope
+    int write = 0;                                 // write index for compaction
+    for (int read = 0; read < parser->symbols.count; read++) {
+        if (parser->symbols.scope_levels[read] != scope) {  // keep symbol from other scope
+            if (write != read) {                   // need to shift
+                parser->symbols.names[write] = parser->symbols.names[read];
+                parser->symbols.scope_levels[write] = parser->symbols.scope_levels[read];
+                parser->symbols.kinds[write] = parser->symbols.kinds[read];
+                parser->symbols.types[write] = parser->symbols.types[read];
+                parser->symbols.param_counts[write] = parser->symbols.param_counts[read];
+                parser->symbols.const_known[write] = parser->symbols.const_known[read];
+                parser->symbols.const_values[write] = parser->symbols.const_values[read];
+                parser->symbols.is_constant[write] = parser->symbols.is_constant[read];
+            }
+            write++;                               // advance write index
+        }
+    }
+    parser->symbols.count = write;                 // update symbol count
+    
+    // mark hash entries pointing to removed symbols as invalid
+    for (int bucket = 0; bucket < parser->symbols.hash_size; bucket++) {
+        for (SymbolHashEntry* entry = parser->symbols.hash_table[bucket]; entry; entry = entry->next) {
+            if (entry->symbol_index >= write) {    // index was compacted away
+                entry->symbol_index = -1;          // mark as invalid
+            }
+        }
+    }
+    
     parser->symbols.current_scope--;               // decrement scope depth
 }
 
@@ -616,9 +673,15 @@ bool parser_declare_symbol(Parser* parser, const char* name, ParserSymbolKind ki
                            ValueType type, int param_count, int line, int column) {
     (void)line;                                    // unused
     (void)column;                                  // unused
+    
+    int existing = symbol_index_in_scope(parser, name, parser->symbols.current_scope);
+    if (existing >= 0) {
+        return false;                              // already declared in this scope
+    }
+    
     symbols_grow(parser);                          // ensure capacity
     int i = parser->symbols.count++;               // allocate new slot
-    parser->symbols.names[i] = strdup(name);       // copy name
+    parser->symbols.names[i] = arena_strdup(&parser->symbols.name_arena, name);  // copy name from arena
     parser->symbols.scope_levels[i] = parser->symbols.current_scope;  // current scope
     parser->symbols.kinds[i] = kind;               // store symbol kind
     parser->symbols.types[i] = type;               // store type
@@ -627,7 +690,7 @@ bool parser_declare_symbol(Parser* parser, const char* name, ParserSymbolKind ki
     parser->symbols.const_values[i] = 0.0;         // default value
     parser->symbols.is_constant[i] = (kind == PARSER_SYM_CONSTANT);  // mark constants
     unsigned int h = hash_string_parser(name) & (parser->symbols.hash_size - 1);  // compute bucket
-    SymbolHashEntry* entry = (SymbolHashEntry*)malloc(sizeof(SymbolHashEntry));
+    SymbolHashEntry* entry = pool_alloc(parser);   // allocate from pool
     entry->name = parser->symbols.names[i];
     entry->symbol_index = i;
     entry->scope_level = parser->symbols.current_scope;
@@ -663,6 +726,8 @@ Parser* parser_create(Token* tokens, int count, const char* filename, const char
     parser->symbols.is_constant = NULL;            // is_constant flags
     parser->symbols.hash_size = 64;                // hash table size
     parser->symbols.hash_table = (SymbolHashEntry**)calloc(parser->symbols.hash_size, sizeof(SymbolHashEntry*));  // allocate hash table
+    arena_init(&parser->symbols.name_arena);       // initialize name arena
+    parser->symbols.entry_pool = NULL;             // no hash entry pools yet
     parser->error_count = 0;                       // no errors yet
     parser->loop_depth = 0;                        // not in any loop
     parser->function_depth = 0;                    // not in any function
@@ -689,9 +754,7 @@ void parser_destroy(Parser* parser) {
         free(parser->filename);                    // free filename
         free(parser->source_dir);                  // free source directory
 
-        for (int i = 0; i < parser->symbols.count; i++) {
-            free(parser->symbols.names[i]);        // free each symbol name
-        }
+        arena_destroy(&parser->symbols.name_arena);  // free name arena (frees all names)
         free(parser->symbols.names);               // free names array
         free(parser->symbols.scope_levels);        // free scope levels array
         free(parser->symbols.kinds);               // free kinds array
@@ -700,6 +763,12 @@ void parser_destroy(Parser* parser) {
         free(parser->symbols.const_known);         // free const flags
         free(parser->symbols.const_values);        // free const values
         free(parser->symbols.is_constant);         // free is_constant flags
+        
+        for (int i = 0; i < parser->symbols.hash_size; i++) {
+            // entries are freed by pool_destroy
+        }
+        pool_destroy(parser->symbols.entry_pool);  // free all hash entry pools
+        free(parser->symbols.hash_table);          // free hash table buckets
         free(parser);                              // free parser itself
     }
 }

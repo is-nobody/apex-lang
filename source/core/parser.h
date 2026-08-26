@@ -39,6 +39,21 @@ typedef struct SymbolHashEntry {
     struct SymbolHashEntry* next;  // for collision chaining
 } SymbolHashEntry;
 
+// arena for string allocation to avoid strdup per symbol
+typedef struct StringArena {
+    char* data;                                    // current chunk buffer
+    size_t used;                                   // bytes used in current chunk
+    size_t capacity;                               // total capacity of current chunk
+    struct StringArena* prev;                      // previous chunk
+} StringArena;
+
+// pool for hash entries to avoid malloc per entry
+typedef struct HashEntryPool {
+    SymbolHashEntry entries[1024];                 // fixed-size entry array
+    int count;                                     // entries used
+    struct HashEntryPool* next;                    // next pool chunk
+} HashEntryPool;
+
 // symbol table entry with name, scope, kind, type, and constant folding data
 typedef struct {
     char** names;            // symbol names (dynamically allocated)
@@ -52,8 +67,10 @@ typedef struct {
     int count;               // number of symbols currently stored
     int capacity;            // allocated capacity of the symbol arrays
     int current_scope;       // current lexical scope depth for symbol lookup
-    SymbolHashEntry** hash_table;  // array of hash buckets
-    int hash_size;                 // number of buckets (power of 2)
+    int hash_size;           // number of buckets (power of 2)
+    SymbolHashEntry** hash_table;  // hash table buckets
+    StringArena name_arena;        // arena for symbol names
+    HashEntryPool* entry_pool;     // pool for hash entries
 } ParserSymbolTable;
 
 // forward declaration so the struct can reference itself in function signatures
