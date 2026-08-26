@@ -39,12 +39,18 @@ typedef struct SymbolHashEntry {
     struct SymbolHashEntry* next;  // for collision chaining
 } SymbolHashEntry;
 
+// arena block for string allocation (fixed size, no realloc)
+typedef struct StringArenaBlock {
+    char* data;                                    // block buffer
+    size_t used;                                   // bytes used in this block
+    size_t capacity;                               // capacity of this block
+    struct StringArenaBlock* next;                 // next block
+} StringArenaBlock;
+
 // arena for string allocation to avoid strdup per symbol
 typedef struct StringArena {
-    char* data;                                    // current chunk buffer
-    size_t used;                                   // bytes used in current chunk
-    size_t capacity;                               // total capacity of current chunk
-    struct StringArena* prev;                      // previous chunk
+    StringArenaBlock* first;                       // first block
+    StringArenaBlock* current;                     // current block for allocation
 } StringArena;
 
 // pool for hash entries to avoid malloc per entry

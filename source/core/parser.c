@@ -52,30 +52,55 @@ static unsigned int hash_string_parser(const char* str) {
 
 // initializes the string arena for symbol name allocation
 static void arena_init(StringArena* arena) {
-    arena->capacity = 64 * 1024;                   // 64KB initial capacity
-    arena->data = (char*)malloc(arena->capacity);  // allocate buffer
-    arena->used = 0;                               // nothing used yet
+    arena->first = NULL;                           // no blocks yet
+    arena->current = NULL;                         // no current block
 }
 
-// duplicates a string into the arena, growing if needed
+// creates a new arena block with the given capacity
+static StringArenaBlock* arena_new_block(size_t capacity) {
+    StringArenaBlock* block = (StringArenaBlock*)malloc(sizeof(StringArenaBlock));  // allocate block struct
+    block->data = (char*)malloc(capacity);         // allocate block buffer
+    block->used = 0;                               // nothing used yet
+    block->capacity = capacity;                    // store capacity
+    block->next = NULL;                            // no next block yet
+    return block;                                  // return new block
+}
+
+// duplicates a string into the arena, allocating new blocks as needed
 static char* arena_strdup(StringArena* arena, const char* str) {
     size_t len = strlen(str) + 1;                  // include null terminator
-    if (arena->used + len > arena->capacity) {     // need more space
-        arena->capacity *= 2;                      // double capacity
-        arena->data = (char*)realloc(arena->data, arena->capacity);  // grow buffer
+    
+    if (!arena->first) {                           // no blocks allocated yet
+        arena->first = arena_new_block(64 * 1024); // create first 64KB block
+        arena->current = arena->first;             // use it as current
     }
-    char* result = arena->data + arena->used;      // allocate from arena
-    memcpy(result, str, len);                      // copy string
-    arena->used += len;                            // advance used pointer
-    return result;                                 // return allocated string
+    
+    if (arena->current->used + len > arena->current->capacity) {  // not enough space in current block
+        size_t new_capacity = 64 * 1024;           // default new block size
+        if (len > new_capacity) {                  // string larger than default block
+            new_capacity = len;                    // ensure block is big enough
+        }
+        arena->current->next = arena_new_block(new_capacity);  // link new block
+        arena->current = arena->current->next;     // use new block as current
+    }
+    
+    char* result = arena->current->data + arena->current->used;  // allocate from current block
+    memcpy(result, str, len);                      // copy string into block
+    arena->current->used += len;                   // advance used pointer
+    return result;                                 // return allocated string (stable pointer)
 }
 
-// frees the string arena
+// frees all arena blocks and resets the arena
 static void arena_destroy(StringArena* arena) {
-    free(arena->data);                             // free arena buffer
-    arena->data = NULL;                            // clear pointer
-    arena->used = 0;                               // reset used
-    arena->capacity = 0;                           // reset capacity
+    StringArenaBlock* block = arena->first;        // start with first block
+    while (block) {                                // iterate all blocks
+        StringArenaBlock* next = block->next;      // save next block before freeing
+        free(block->data);                         // free block buffer
+        free(block);                               // free block struct
+        block = next;                              // move to next block
+    }
+    arena->first = NULL;                           // clear first pointer
+    arena->current = NULL;                         // clear current pointer
 }
 
 // allocates a hash entry from the pool, creating new pool if needed
