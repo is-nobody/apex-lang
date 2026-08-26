@@ -29,110 +29,110 @@
     #endif
 #endif
 
-static Token* current_token(Parser* parser);
-static ASTNode* parse_statement(Parser* parser);
-static ASTNode* parse_expression(Parser* parser);
-static ASTNode* parse_block(Parser* parser, bool require_indent, const char* after_keyword);
-static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, int line, int column);
-static ValueType infer_expression_type(Parser* parser, ASTNode* node);
-static int symbol_index_recursive(Parser* parser, const char* name);
-static const char* binary_op_name(ApexTokenType op);
-static ASTNode* parse_call(Parser* parser, ASTNode* callee);
-static void parser_check_condition(Parser* parser, ASTNode* condition, const char* context);
+static Token* current_token(Parser* parser);                         // get current token without consuming
+static ASTNode* parse_statement(Parser* parser);                     // parse a single statement
+static ASTNode* parse_expression(Parser* parser);                    // parse expression using Pratt
+static ASTNode* parse_block(Parser* parser, bool require_indent, const char* after_keyword);  // parse indented block
+static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, int line, int column);  // parse interpolated expr
+static ValueType infer_expression_type(Parser* parser, ASTNode* node);  // type inference for expression
+static int symbol_index_recursive(Parser* parser, const char* name); // find symbol in any scope
+static const char* binary_op_name(ApexTokenType op);                // get string name for binary op
+static ASTNode* parse_call(Parser* parser, ASTNode* callee);        // parse function call
+static void parser_check_condition(Parser* parser, ASTNode* condition, const char* context);  // validate condition
 
 // djb2 hash function for fast string lookup in symbol hash table
 static unsigned int hash_string_parser(const char* str) {
-    unsigned int hash = 5381;
+    unsigned int hash = 5381;                      // djb2 initial seed
     int c;
     while ((c = *str++)) {
-        hash = ((hash << 5) + hash) + c;
+        hash = ((hash << 5) + hash) + c;           // hash * 33 + char
     }
-    return hash;
+    return hash;                                   // return computed hash
 }
 
-// helper for counting utf-8 characters
+// helper for counting utf-8 characters in a string
 static size_t utf8_char_len(const char* s) {
-    if (!s) return 0;
-    size_t len = 0;
+    if (!s) return 0;                              // null string, zero length
+    size_t len = 0;                                // character counter
     while (*s) {
         unsigned char c = (unsigned char)*s;
-        if (c < 0x80) s += 1;
-        else if ((c & 0xE0) == 0xC0) s += 2;
-        else if ((c & 0xF0) == 0xE0) s += 3;
-        else if ((c & 0xF8) == 0xF0) s += 4;
-        else s += 1;
+        if (c < 0x80) s += 1;                      // ascii: 1 byte
+        else if ((c & 0xE0) == 0xC0) s += 2;       // 2-byte utf-8
+        else if ((c & 0xF0) == 0xE0) s += 3;       // 3-byte utf-8
+        else if ((c & 0xF8) == 0xF0) s += 4;       // 4-byte utf-8
+        else s += 1;                               // invalid, skip one
         len++;
     }
-    return len;
+    return len;                                    // return character count
 }
 
 // estimates the source length of a node for error reporting (in characters)
 static int get_node_len(ASTNode* node) {
-    if (!node) return 1;
+    if (!node) return 1;                           // null node, default length
     switch (node->type) {
         case AST_LITERAL_STRING:
             if (node->literal_string.string_value) {
-                return (int)strlen(node->literal_string.string_value) + 2;
+                return (int)strlen(node->literal_string.string_value) + 2;  // quotes + content
             }
-            return 2;
+            return 2;                               // empty string
         case AST_LITERAL_NONE:
-            return 4;
+            return 4;                               // "none"
         case AST_IDENTIFIER:
-            return (int)utf8_char_len(node->identifier.name);
+            return (int)utf8_char_len(node->identifier.name);  // identifier length
         case AST_LITERAL_BOOL:
-            return node->literal_bool.bool_value ? 4 : 5;
+            return node->literal_bool.bool_value ? 4 : 5;  // "true" or "false"
         case AST_LITERAL_NUMBER: {
             char buf[64];
             snprintf(buf, sizeof(buf), "%g", node->literal_number.number_value);
-            return (int)utf8_char_len(buf);
+            return (int)utf8_char_len(buf);        // formatted number length
         }
         case AST_BINARY: {
             int left_len = get_node_len(node->binary.left);
             int right_len = get_node_len(node->binary.right);
             const char* op_str = binary_op_name(node->binary.op);
-            return left_len + (int)utf8_char_len(op_str) + right_len + 2;
+            return left_len + (int)utf8_char_len(op_str) + right_len + 2;  // left + op + right + spaces
         }
         case AST_UNARY:
-            return get_node_len(node->unary.operand) + (node->unary.op == TOKEN_NOT ? 4 : 1);
+            return get_node_len(node->unary.operand) + (node->unary.op == TOKEN_NOT ? 4 : 1);  // op + operand
         case AST_CALL:
-            return get_node_len(node->call.callee);
+            return get_node_len(node->call.callee);  // function name length
         case AST_INDEX_ACCESS: {
             if (node->access.member->type == AST_IDENTIFIER) {
-                return get_node_len(node->access.object) + 1 + get_node_len(node->access.member);
+                return get_node_len(node->access.object) + 1 + get_node_len(node->access.member);  // obj + . + member
             }
-            return get_node_len(node->access.object) + get_node_len(node->access.member) + 2;
+            return get_node_len(node->access.object) + get_node_len(node->access.member) + 2;  // obj + [ + member + ]
         }
         case AST_TABLE_LITERAL: {
-            int len = 2;
+            int len = 2;                           // '[' and ']'
             for (int i = 0; i < node->table_literal.items->count; i++) {
-                if (i > 0) len += 2;
+                if (i > 0) len += 2;               // comma and space
                 len += get_node_len(node->table_literal.items->nodes[i]);
             }
             for (int i = 0; i < node->table_literal.key_values->count; i++) {
-                if (i > 0 || node->table_literal.items->count > 0) len += 2;
+                if (i > 0 || node->table_literal.items->count > 0) len += 2;  // comma and space
                 ASTNode* kv = node->table_literal.key_values->nodes[i];
-                len += get_node_len(kv->binary.left) + 3 + get_node_len(kv->binary.right);
+                len += get_node_len(kv->binary.left) + 3 + get_node_len(kv->binary.right);  // key + " = " + value
             }
             return len;
         }
         case AST_STRING_INTERP: {
-            int len = 2;
+            int len = 2;                           // quotes
             for (int i = 0; i < node->string_interp.parts->count; i++) {
                 len += get_node_len(node->string_interp.parts->nodes[i]);
             }
             return len;
         }
         default:
-            return 1;
+            return 1;                              // unknown type, default
     }
 }
 
 // built-in function signatures for argument count and type validation
 typedef struct {
-    const char* name;
-    int min_args;
-    int max_args;
-    ValueType arg_type;
+    const char* name;                              // function name
+    int min_args;                                  // minimum required arguments
+    int max_args;                                  // maximum allowed arguments
+    ValueType arg_type;                            // expected argument type
 } BuiltinSig;
 
 static const BuiltinSig BUILTINS[] = {
@@ -223,12 +223,12 @@ static const BuiltinSig BUILTINS[] = {
 
 // djb2 hash function for fast string lookup in builtin hash table
 static unsigned int hash_string(const char* str) {
-    unsigned int hash = 5381;
+    unsigned int hash = 5381;                      // djb2 initial seed
     int c;
     while ((c = *str++)) {
-        hash = ((hash << 5) + hash) + c;
+        hash = ((hash << 5) + hash) + c;           // hash * 33 + char
     }
-    return hash;
+    return hash;                                   // return computed hash
 }
 
 // builtin hash table size (power of 2 for fast modulo)
@@ -248,71 +248,71 @@ static bool builtin_hash_initialized = false;
 
 // initializes the builtin hash table for O(1) lookup
 static void init_builtin_hash(void) {
-    if (builtin_hash_initialized) return;
+    if (builtin_hash_initialized) return;          // already initialized
     
     for (size_t i = 0; i < sizeof(BUILTINS) / sizeof(BUILTINS[0]); i++) {
-        unsigned int h = hash_string(BUILTINS[i].name) & BUILTIN_HASH_MASK;
+        unsigned int h = hash_string(BUILTINS[i].name) & BUILTIN_HASH_MASK;  // compute bucket
         
         BuiltinHashEntry* entry = (BuiltinHashEntry*)malloc(sizeof(BuiltinHashEntry));
         entry->name = BUILTINS[i].name;
         entry->sig = &BUILTINS[i];
-        entry->next = builtin_hash_table[h];
+        entry->next = builtin_hash_table[h];        // prepend to bucket chain
         builtin_hash_table[h] = entry;
     }
     
-    builtin_hash_initialized = true;
+    builtin_hash_initialized = true;               // mark as initialized
 }
 
 // looks up a built-in function signature by name using hash table
 static const BuiltinSig* lookup_builtin(const char* name) {
-    init_builtin_hash();
+    init_builtin_hash();                           // ensure table is ready
     
-    unsigned int h = hash_string(name) & BUILTIN_HASH_MASK;
+    unsigned int h = hash_string(name) & BUILTIN_HASH_MASK;  // compute bucket
     
     for (BuiltinHashEntry* entry = builtin_hash_table[h]; entry; entry = entry->next) {
-        if (strcmp(entry->name, name) == 0) {
+        if (strcmp(entry->name, name) == 0) {        // found matching name
             return entry->sig;
         }
     }
     
-    return NULL;
+    return NULL;                                     // not a builtin
 }
 
 // reports a parse error at a specific source position with formatting
 void parser_error_at(Parser* parser, int line, int column, int len,
                      const char* format, ...) {
-    for (int i = 0; i < ERROR_HISTORY_SIZE; i++) {
+    for (int i = 0; i < ERROR_HISTORY_SIZE; i++) {  // check for duplicate errors
         if (parser->last_error_lines[i] == line && 
             parser->last_error_columns[i] == column) {
-            return; 
+            return;                                 // already reported this error
         }
     }
     
-    parser->last_error_lines[parser->last_error_idx] = line;
-    parser->last_error_columns[parser->last_error_idx] = column;
-    parser->last_error_idx = (parser->last_error_idx + 1) % ERROR_HISTORY_SIZE;
+    parser->last_error_lines[parser->last_error_idx] = line;     // store error line
+    parser->last_error_columns[parser->last_error_idx] = column; // store error column
+    parser->last_error_idx = (parser->last_error_idx + 1) % ERROR_HISTORY_SIZE;  // advance ring buffer
 
-    char buffer[1024];
+    char buffer[1024];                             // format buffer
     va_list args;
     va_start(args, format);
     vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
 
-    parser->error_count++;
+    parser->error_count++;                         // increment error counter
     print_error_with_context(parser->filename, parser->source,
-                             line, column, len, "Parse Error", buffer);
+                             line, column, len, "Parse Error", buffer);  // print with context
 }
 
 // reports a parse error at the current token position
 void parser_error(Parser* parser, const char* message) {
-    Token* token = current_token(parser);
-    int len = token->value ? (int)utf8_char_len(token->value) : 1;
-    parser_error_at(parser, token->line, token->column, len, "%s", message);
+    Token* token = current_token(parser);          // get current token
+    int len = token->value ? (int)utf8_char_len(token->value) : 1;  // token length
+    parser_error_at(parser, token->line, token->column, len, "%s", message);  // delegate
 }
 
 // returns true if any error was encountered during parsing
 bool parser_had_errors(const Parser* parser) {
-    return parser->error_count > 0;
+    return parser->error_count > 0;                // return error flag
 }
 
 // returns a string name for a value type
@@ -333,14 +333,14 @@ static const char* type_name(ValueType type) {
 
 // checks if a type is numeric (for arithmetic operations)
 static bool is_numeric_type(ValueType type) {
-    return type == TYPE_NUMBER;
+    return type == TYPE_NUMBER;                    // only numbers support arithmetic
 }
 
 // checks if a type supports comparison operations
 static bool is_comparable_type(ValueType type) {
     return type == TYPE_NUMBER || type == TYPE_STRING || 
            type == TYPE_BOOLEAN || type == TYPE_NONE || 
-           type == TYPE_TABLE;
+           type == TYPE_TABLE;                     // types that can be compared
 }
 
 // returns the string representation of a binary operator token
@@ -365,52 +365,52 @@ static const char* binary_op_name(ApexTokenType op) {
 
 // sets the source directory for module resolution
 static void parser_set_source_dir(Parser* parser, const char* filename) {
-    parser->source_dir = (char*)malloc(PATH_MAX);
-    if (!parser->source_dir) return;
+    parser->source_dir = (char*)malloc(PATH_MAX); // allocate path buffer
+    if (!parser->source_dir) return;              // allocation failed
     
     if (!filename || filename[0] == '\0' ||
         strcmp(filename, "stdin") == 0 || strcmp(filename, "<interpolation>") == 0) {
-        strcpy(parser->source_dir, ".");
+        strcpy(parser->source_dir, ".");           // default to current directory
         return;
     }
     
-    strncpy(parser->source_dir, filename, PATH_MAX - 1);
-    parser->source_dir[PATH_MAX - 1] = '\0';
+    strncpy(parser->source_dir, filename, PATH_MAX - 1);  // copy filename
+    parser->source_dir[PATH_MAX - 1] = '\0';       // ensure null termination
     
-    char* last_sep = strrchr(parser->source_dir, '/');
-    char* last_sep_win = strrchr(parser->source_dir, '\\');
+    char* last_sep = strrchr(parser->source_dir, '/');  // unix path separator
+    char* last_sep_win = strrchr(parser->source_dir, '\\');  // windows path separator
     
     if (last_sep_win && (!last_sep || last_sep_win > last_sep)) {
-        last_sep = last_sep_win;
+        last_sep = last_sep_win;                   // prefer windows separator
     }
     
     if (last_sep) {
-        *last_sep = '\0';
+        *last_sep = '\0';                          // trim to directory
     } else {
-        strcpy(parser->source_dir, ".");
+        strcpy(parser->source_dir, ".");           // no separator, use current
     }
 }
 
 // evaluates a numeric constant expression, returns true if successful
 static bool evaluate_numeric_constant(Parser* parser, ASTNode* node, double* out_value) {
-    if (!node) return false;
+    if (!node) return false;                       // null node, fail
     switch (node->type) {
         case AST_LITERAL_NUMBER:
-            *out_value = node->literal_number.number_value;
+            *out_value = node->literal_number.number_value;  // direct value
             return true;
         case AST_IDENTIFIER: {
-            int idx = symbol_index_recursive(parser, node->identifier.name);
+            int idx = symbol_index_recursive(parser, node->identifier.name);  // find constant
             if (idx >= 0 && parser->symbols.const_known[idx]) {
-                *out_value = parser->symbols.const_values[idx];
+                *out_value = parser->symbols.const_values[idx];  // known constant value
                 return true;
             }
             return false;
         }
         case AST_UNARY:
-            if (node->unary.op == TOKEN_MINUS) {
+            if (node->unary.op == TOKEN_MINUS) {   // unary minus
                 double val;
                 if (evaluate_numeric_constant(parser, node->unary.operand, &val)) {
-                    *out_value = -val;
+                    *out_value = -val;             // negate value
                     return true;
                 }
             }
@@ -420,15 +420,15 @@ static bool evaluate_numeric_constant(Parser* parser, ASTNode* node, double* out
             if (evaluate_numeric_constant(parser, node->binary.left, &lval) &&
                 evaluate_numeric_constant(parser, node->binary.right, &rval)) {
                 switch (node->binary.op) {
-                    case TOKEN_PLUS: *out_value = lval + rval; return true;
-                    case TOKEN_MINUS: *out_value = lval - rval; return true;
-                    case TOKEN_STAR: *out_value = lval * rval; return true;
+                    case TOKEN_PLUS: *out_value = lval + rval; return true;  // addition
+                    case TOKEN_MINUS: *out_value = lval - rval; return true;  // subtraction
+                    case TOKEN_STAR: *out_value = lval * rval; return true;  // multiplication
                     case TOKEN_SLASH: 
-                        if (rval == 0.0) { *out_value = 0.0; }
+                        if (rval == 0.0) { *out_value = 0.0; }  // division by zero
                         else { *out_value = lval / rval; }
                         return true;
                     case TOKEN_PERCENT:
-                        if (rval == 0.0) { *out_value = 0.0; }
+                        if (rval == 0.0) { *out_value = 0.0; }  // modulo by zero
                         else { *out_value = fmod(lval, rval); }
                         return true;
                     default: return false;
@@ -437,29 +437,29 @@ static bool evaluate_numeric_constant(Parser* parser, ASTNode* node, double* out
             return false;
         }
         default:
-            return false;
+            return false;                           // unsupported node type
     }
 }
 
 // checks if an expression has side effects (calls, assignments)
 static bool expr_has_side_effect(ASTNode* node) {
-    if (!node) return false;
+    if (!node) return false;                       // null node, no effect
     switch (node->type) {
         case AST_CALL:
         case AST_ASSIGN:
         case AST_VAR_DECL:
-            return true;
+            return true;                            // these always have side effects
         case AST_BINARY:
             return expr_has_side_effect(node->binary.left) ||
-                   expr_has_side_effect(node->binary.right);
+                   expr_has_side_effect(node->binary.right);  // check both sides
         case AST_UNARY:
-            return expr_has_side_effect(node->unary.operand);
+            return expr_has_side_effect(node->unary.operand);  // check operand
         case AST_INDEX_ACCESS:
-            return expr_has_side_effect(node->access.object);
+            return expr_has_side_effect(node->access.object);  // check object
         case AST_STRING_INTERP: {
             for (int i = 0; i < node->string_interp.parts->count; i++) {
                 if (expr_has_side_effect(node->string_interp.parts->nodes[i])) {
-                    return true;
+                    return true;                    // any part has effect
                 }
             }
             return false;
@@ -467,19 +467,19 @@ static bool expr_has_side_effect(ASTNode* node) {
         case AST_TABLE_LITERAL: {
             for (int i = 0; i < node->table_literal.items->count; i++) {
                 if (expr_has_side_effect(node->table_literal.items->nodes[i])) {
-                    return true;
+                    return true;                    // any item has effect
                 }
             }
             for (int i = 0; i < node->table_literal.key_values->count; i++) {
                 ASTNode* kv = node->table_literal.key_values->nodes[i];
                 if (expr_has_side_effect(kv->binary.left) || expr_has_side_effect(kv->binary.right)) {
-                    return true;
+                    return true;                    // key or value has effect
                 }
             }
             return false;
         }
         default:
-            return false;
+            return false;                           // no side effects
     }
 }
 
@@ -510,82 +510,82 @@ static bool is_known_builtin_module(const char* name) {
 
 // sets or clears a symbol's constant value
 static void parser_symbol_set_const(Parser* parser, int idx, bool known, double value) {
-    if (idx < 0) return;
-    parser->symbols.const_known[idx] = known;
-    parser->symbols.const_values[idx] = value;
+    if (idx < 0) return;                           // invalid index
+    parser->symbols.const_known[idx] = known;      // mark known state
+    parser->symbols.const_values[idx] = value;     // store value
 }
 
 static void parser_symbol_clear_const(Parser* parser, int idx) {
-    parser_symbol_set_const(parser, idx, false, 0.0);
+    parser_symbol_set_const(parser, idx, false, 0.0);  // clear constant
 }
 
 // grows the symbol table when capacity is reached
 static void symbols_grow(Parser* parser) {
-    if (parser->symbols.count < parser->symbols.capacity) return;
-    parser->symbols.capacity = parser->symbols.capacity == 0 ? 16 : parser->symbols.capacity * 2;
+    if (parser->symbols.count < parser->symbols.capacity) return;  // enough space
+    parser->symbols.capacity = parser->symbols.capacity == 0 ? 16 : parser->symbols.capacity * 2;  // double or init
     ParserSymbolTable* s = &parser->symbols;
-    s->names = (char**)realloc(s->names, sizeof(char*) * s->capacity);
-    s->scope_levels = (int*)realloc(s->scope_levels, sizeof(int) * s->capacity);
-    s->kinds = (ParserSymbolKind*)realloc(s->kinds, sizeof(ParserSymbolKind) * s->capacity);
-    s->types = (ValueType*)realloc(s->types, sizeof(ValueType) * s->capacity);
-    s->param_counts = (int*)realloc(s->param_counts, sizeof(int) * s->capacity);
-    s->const_known = (bool*)realloc(s->const_known, sizeof(bool) * s->capacity);
-    s->const_values = (double*)realloc(s->const_values, sizeof(double) * s->capacity);
-    s->is_constant = (bool*)realloc(s->is_constant, sizeof(bool) * s->capacity);
+    s->names = (char**)realloc(s->names, sizeof(char*) * s->capacity);  // grow name array
+    s->scope_levels = (int*)realloc(s->scope_levels, sizeof(int) * s->capacity);  // grow scope array
+    s->kinds = (ParserSymbolKind*)realloc(s->kinds, sizeof(ParserSymbolKind) * s->capacity);  // grow kind array
+    s->types = (ValueType*)realloc(s->types, sizeof(ValueType) * s->capacity);  // grow type array
+    s->param_counts = (int*)realloc(s->param_counts, sizeof(int) * s->capacity);  // grow param count
+    s->const_known = (bool*)realloc(s->const_known, sizeof(bool) * s->capacity);  // grow const flags
+    s->const_values = (double*)realloc(s->const_values, sizeof(double) * s->capacity);  // grow const values
+    s->is_constant = (bool*)realloc(s->is_constant, sizeof(bool) * s->capacity);  // grow is_constant flags
 }
 
 // finds a symbol index in a specific scope using hash table for O(1) lookup
 static int symbol_index_in_scope(Parser* parser, const char* name, int scope) {
-    unsigned int h = hash_string_parser(name) & (parser->symbols.hash_size - 1);
+    unsigned int h = hash_string_parser(name) & (parser->symbols.hash_size - 1);  // compute bucket
     
     for (SymbolHashEntry* entry = parser->symbols.hash_table[h]; entry; entry = entry->next) {
-        if (entry->scope_level == scope && strcmp(entry->name, name) == 0) {
-            return entry->symbol_index;
+        if (entry->scope_level == scope && strcmp(entry->name, name) == 0) {  // matching scope and name
+            return entry->symbol_index;            // return symbol index
         }
     }
     
-    return -1;
+    return -1;                                     // not found in this scope
 }
 
 // finds a symbol by name searching from innermost to outermost scope
 static int symbol_index_recursive(Parser* parser, const char* name) {
     for (int scope = parser->symbols.current_scope; scope >= 0; scope--) {
-        int idx = symbol_index_in_scope(parser, name, scope);
-        if (idx >= 0) return idx;
+        int idx = symbol_index_in_scope(parser, name, scope);  // search this scope
+        if (idx >= 0) return idx;                  // found in current or outer scope
     }
-    return -1;
+    return -1;                                     // not found in any scope
 }
 
 // enters a new lexical scope
 void parser_enter_scope(Parser* parser) {
-    parser->symbols.current_scope++;
+    parser->symbols.current_scope++;               // increment scope depth
 }
 
 // exits the current lexical scope, removing all symbols declared there
 void parser_exit_scope(Parser* parser) {
     int i = 0;
     while (i < parser->symbols.count) {
-        if (parser->symbols.scope_levels[i] == parser->symbols.current_scope) {
+        if (parser->symbols.scope_levels[i] == parser->symbols.current_scope) {  // symbol in current scope
             unsigned int h = hash_string_parser(parser->symbols.names[i]) & (parser->symbols.hash_size - 1);
             SymbolHashEntry* prev = NULL;
             SymbolHashEntry* entry = parser->symbols.hash_table[h];
             
             while (entry) {
-                if (entry->symbol_index == i) {
+                if (entry->symbol_index == i) {    // found matching entry
                     if (prev) {
-                        prev->next = entry->next;
+                        prev->next = entry->next;  // unlink from middle
                     } else {
-                        parser->symbols.hash_table[h] = entry->next;
+                        parser->symbols.hash_table[h] = entry->next;  // unlink from head
                     }
-                    free(entry);
+                    free(entry);                   // free hash entry
                     break;
                 }
                 prev = entry;
                 entry = entry->next;
             }
-            free(parser->symbols.names[i]);
+            free(parser->symbols.names[i]);        // free symbol name
             
-            for (int j = i; j < parser->symbols.count - 1; j++) {
+            for (int j = i; j < parser->symbols.count - 1; j++) {  // shift remaining symbols
                 parser->symbols.names[j] = parser->symbols.names[j + 1];
                 parser->symbols.scope_levels[j] = parser->symbols.scope_levels[j + 1];
                 parser->symbols.kinds[j] = parser->symbols.kinds[j + 1];
@@ -595,195 +595,195 @@ void parser_exit_scope(Parser* parser) {
                 parser->symbols.const_values[j] = parser->symbols.const_values[j + 1];
                 parser->symbols.is_constant[j] = parser->symbols.is_constant[j + 1];
             }
-            parser->symbols.count--;
+            parser->symbols.count--;               // decrement symbol count
             
-            for (int bucket = 0; bucket < parser->symbols.hash_size; bucket++) {
+            for (int bucket = 0; bucket < parser->symbols.hash_size; bucket++) {  // update hash entry indices
                 for (SymbolHashEntry* e = parser->symbols.hash_table[bucket]; e; e = e->next) {
                     if (e->symbol_index > i) {
-                        e->symbol_index--;
+                        e->symbol_index--;         // decrement index for shifted symbols
                     }
                 }
             }
         } else {
-            i++;
+            i++;                                   // skip symbols in other scopes
         }
     }
-    parser->symbols.current_scope--;
+    parser->symbols.current_scope--;               // decrement scope depth
 }
 
 // declares a new symbol in the current scope
 bool parser_declare_symbol(Parser* parser, const char* name, ParserSymbolKind kind,
                            ValueType type, int param_count, int line, int column) {
-    (void)line;
-    (void)column;
-    symbols_grow(parser);
-    int i = parser->symbols.count++;
-    parser->symbols.names[i] = strdup(name);
-    parser->symbols.scope_levels[i] = parser->symbols.current_scope;
-    parser->symbols.kinds[i] = kind;
-    parser->symbols.types[i] = type;
-    parser->symbols.param_counts[i] = param_count;
-    parser->symbols.const_known[i] = false;
-    parser->symbols.const_values[i] = 0.0;
-    parser->symbols.is_constant[i] = (kind == PARSER_SYM_CONSTANT);
-    unsigned int h = hash_string_parser(name) & (parser->symbols.hash_size - 1);
+    (void)line;                                    // unused
+    (void)column;                                  // unused
+    symbols_grow(parser);                          // ensure capacity
+    int i = parser->symbols.count++;               // allocate new slot
+    parser->symbols.names[i] = strdup(name);       // copy name
+    parser->symbols.scope_levels[i] = parser->symbols.current_scope;  // current scope
+    parser->symbols.kinds[i] = kind;               // store symbol kind
+    parser->symbols.types[i] = type;               // store type
+    parser->symbols.param_counts[i] = param_count; // store param count for functions
+    parser->symbols.const_known[i] = false;        // not a known constant yet
+    parser->symbols.const_values[i] = 0.0;         // default value
+    parser->symbols.is_constant[i] = (kind == PARSER_SYM_CONSTANT);  // mark constants
+    unsigned int h = hash_string_parser(name) & (parser->symbols.hash_size - 1);  // compute bucket
     SymbolHashEntry* entry = (SymbolHashEntry*)malloc(sizeof(SymbolHashEntry));
     entry->name = parser->symbols.names[i];
     entry->symbol_index = i;
     entry->scope_level = parser->symbols.current_scope;
-    entry->next = parser->symbols.hash_table[h];
+    entry->next = parser->symbols.hash_table[h];   // prepend to bucket chain
     parser->symbols.hash_table[h] = entry;
     
-    return true;
+    return true;                                   // success
 }
 
 // checks if a symbol is declared in any accessible scope
 bool parser_is_declared(Parser* parser, const char* name) {
-    return symbol_index_recursive(parser, name) >= 0;
+    return symbol_index_recursive(parser, name) >= 0;  // search all scopes
 }
 
 // creates a new parser instance for a token stream
 Parser* parser_create(Token* tokens, int count, const char* filename, const char* source) {
-    Parser* parser = (Parser*)malloc(sizeof(Parser));
-    parser->tokens = tokens;
-    parser->count = count;
-    parser->current = 0;
-    parser->filename = strdup(filename);
+    Parser* parser = (Parser*)malloc(sizeof(Parser));  // allocate parser struct
+    parser->tokens = tokens;                       // store token array
+    parser->count = count;                         // token count
+    parser->current = 0;                           // start at first token
+    parser->filename = strdup(filename);           // copy filename
     
-    parser->symbols.names = NULL;
-    parser->symbols.scope_levels = NULL;
-    parser->symbols.kinds = NULL;
-    parser->symbols.types = NULL;
-    parser->symbols.param_counts = NULL;
-    parser->symbols.const_known = NULL;
-    parser->symbols.const_values = NULL;
-    parser->symbols.count = 0;
-    parser->symbols.capacity = 0;
-    parser->symbols.current_scope = 0;
-    parser->symbols.is_constant = NULL;
-    parser->symbols.hash_size = 64;
-    parser->symbols.hash_table = (SymbolHashEntry**)calloc(parser->symbols.hash_size, sizeof(SymbolHashEntry*));
-    parser->error_count = 0;
-    parser->loop_depth = 0;
-    parser->function_depth = 0;
-    parser->semantic_checks = true;
-    parser->expecting_indented_block = false;
-    parser->source = source;
-    parser->source_dir = NULL;
-    parser_set_source_dir(parser, filename);
+    parser->symbols.names = NULL;                  // symbol name array
+    parser->symbols.scope_levels = NULL;           // scope level array
+    parser->symbols.kinds = NULL;                  // symbol kind array
+    parser->symbols.types = NULL;                  // type array
+    parser->symbols.param_counts = NULL;           // param count array
+    parser->symbols.const_known = NULL;            // const known flags
+    parser->symbols.const_values = NULL;           // const values
+    parser->symbols.count = 0;                     // no symbols yet
+    parser->symbols.capacity = 0;                  // no capacity yet
+    parser->symbols.current_scope = 0;             // global scope
+    parser->symbols.is_constant = NULL;            // is_constant flags
+    parser->symbols.hash_size = 64;                // hash table size
+    parser->symbols.hash_table = (SymbolHashEntry**)calloc(parser->symbols.hash_size, sizeof(SymbolHashEntry*));  // allocate hash table
+    parser->error_count = 0;                       // no errors yet
+    parser->loop_depth = 0;                        // not in any loop
+    parser->function_depth = 0;                    // not in any function
+    parser->semantic_checks = true;                // perform semantic checks by default
+    parser->expecting_indented_block = false;      // not expecting indent
+    parser->source = source;                       // store source pointer
+    parser->source_dir = NULL;                     // will be set below
+    parser_set_source_dir(parser, filename);       // set source directory
 
-    for (int i = 0; i < ERROR_HISTORY_SIZE; i++) {
+    for (int i = 0; i < ERROR_HISTORY_SIZE; i++) {  // init error history
         parser->last_error_lines[i] = -1;
         parser->last_error_columns[i] = -1;
     }
-    parser->last_error_idx = 0;
-    parser->last_error_line = -1;
-    parser->last_error_column = -1;
+    parser->last_error_idx = 0;                    // start at beginning
+    parser->last_error_line = -1;                  // no last error
+    parser->last_error_column = -1;                // no last error
 
-    return parser;
+    return parser;                                 // return new parser
 }
 
 // destroys a parser and frees all associated resources
 void parser_destroy(Parser* parser) {
     if (parser) {
-        free(parser->filename);
-        free(parser->source_dir);
+        free(parser->filename);                    // free filename
+        free(parser->source_dir);                  // free source directory
 
         for (int i = 0; i < parser->symbols.count; i++) {
-            free(parser->symbols.names[i]);
+            free(parser->symbols.names[i]);        // free each symbol name
         }
-        free(parser->symbols.names);
-        free(parser->symbols.scope_levels);
-        free(parser->symbols.kinds);
-        free(parser->symbols.types);
-        free(parser->symbols.param_counts);
-        free(parser->symbols.const_known);
-        free(parser->symbols.const_values);
-        free(parser->symbols.is_constant);
-        free(parser);
+        free(parser->symbols.names);               // free names array
+        free(parser->symbols.scope_levels);        // free scope levels array
+        free(parser->symbols.kinds);               // free kinds array
+        free(parser->symbols.types);               // free types array
+        free(parser->symbols.param_counts);        // free param counts
+        free(parser->symbols.const_known);         // free const flags
+        free(parser->symbols.const_values);        // free const values
+        free(parser->symbols.is_constant);         // free is_constant flags
+        free(parser);                              // free parser itself
     }
 }
 
 // peeks at a token ahead without consuming it
 static Token* peek(Parser* parser, int offset) {
-    int idx = parser->current + offset;
-    if (idx >= parser->count) return &parser->tokens[parser->count - 1];
-    return &parser->tokens[idx];
+    int idx = parser->current + offset;            // compute token index
+    if (idx >= parser->count) return &parser->tokens[parser->count - 1];  // EOF
+    return &parser->tokens[idx];                   // return token
 }
 
 // returns the current token without consuming it
 static Token* current_token(Parser* parser) {
-    return peek(parser, 0);
+    return peek(parser, 0);                        // peek at offset 0
 }
 
 // advances to the next token and returns the previous one
 static Token* advance(Parser* parser) {
-    if (parser->current >= parser->count) return &parser->tokens[parser->count - 1];
-    return &parser->tokens[parser->current++];
+    if (parser->current >= parser->count) return &parser->tokens[parser->count - 1];  // EOF
+    return &parser->tokens[parser->current++];     // return current and advance
 }
 
 // checks if the current token is of the given type
 static bool check(Parser* parser, ApexTokenType type) {
     if (current_token(parser)->type == TOKEN_EOF) {
-        return type == TOKEN_EOF; 
+        return type == TOKEN_EOF;                  // EOF matches EOF only
     }
-    return current_token(parser)->type == type;
+    return current_token(parser)->type == type;    // compare types
 }
 
 // checks if the next token is of the given type
 static bool check_next(Parser* parser, ApexTokenType type) {
-    if (peek(parser, 1)->type == TOKEN_EOF) return false;
-    return peek(parser, 1)->type == type;
+    if (peek(parser, 1)->type == TOKEN_EOF) return false;  // next is EOF
+    return peek(parser, 1)->type == type;                  // compare next token type
 }
 
 // consumes a token if it matches the expected type
 static bool match(Parser* parser, ApexTokenType type) {
-    if (check(parser, type)) {
-        advance(parser);
-        return true;
+    if (check(parser, type)) {  // current token matches
+        advance(parser);        // consume it
+        return true;            // matched
     }
-    return false;
+    return false;               // no match
 }
 
 // consumes a token or reports an error if the type doesn't match
 static Token* consume(Parser* parser, ApexTokenType type, const char* message) {
-    if (check(parser, type)) {
-        return advance(parser);
+    if (check(parser, type)) {                     // current token matches
+        return advance(parser);                    // consume and return
     }
-    parser_error(parser, message);
-    return NULL;
+    parser_error(parser, message);                 // report error
+    return NULL;                                   // error
 }
 
 // skips over newline tokens
 static void skip_newlines(Parser* parser) {
-    while (check(parser, TOKEN_NEWLINE)) {
-        advance(parser);
+    while (check(parser, TOKEN_NEWLINE)) {         // while newline token
+        advance(parser);                           // skip it
     }
 }
 
 // checks if an expression is an explicit boolean condition
 static bool is_explicit_condition(ASTNode* node) {
-    if (!node) return false;
+    if (!node) return false;                       // null node, not explicit
     
     if (node->type == AST_BINARY) {
         ApexTokenType op = node->binary.op;
         if (op == TOKEN_EQUAL_EQUAL || op == TOKEN_NOT_EQUAL || 
             op == TOKEN_LESS || op == TOKEN_GREATER || 
             op == TOKEN_LESS_EQUAL || op == TOKEN_GREATER_EQUAL) {
-            return true;
+            return true;                           // comparison operators are explicit
         }
         if (op == TOKEN_AND || op == TOKEN_OR) {
             return is_explicit_condition(node->binary.left) && 
-                   is_explicit_condition(node->binary.right);
+                   is_explicit_condition(node->binary.right);  // both sides explicit
         }
-        return false;
+        return false;                              // other binary ops not conditions
     }
     
     if (node->type == AST_UNARY && node->unary.op == TOKEN_NOT) {
-        return is_explicit_condition(node->unary.operand);
+        return is_explicit_condition(node->unary.operand);  // check operand
     }
     
-    return false;
+    return false;                                  // not a condition
 }
 
 // infers the type of a binary operation with type checking
@@ -792,14 +792,14 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
     ValueType right_type = infer_expression_type(parser, node->binary.right);
 
     if (left_type == TYPE_ERROR || right_type == TYPE_ERROR) {
-        return TYPE_ANY;
+        return TYPE_ANY;                           // error already reported
     }
 
     if (node->binary.op == TOKEN_PLUS) {
         if (left_type == TYPE_STRING || right_type == TYPE_STRING) {
             parser_error_at(parser, node->line, node->column, get_node_len(node),
                 "Arithmetic '+' requires numbers. For strings, use interpolation.");
-            return TYPE_ERROR;
+            return TYPE_ERROR;                     // string addition not allowed
         }
     }
 
@@ -810,94 +810,92 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
             case TOKEN_STAR:
             case TOKEN_SLASH:
             case TOKEN_PERCENT:
-                return TYPE_NUMBER;
+                return TYPE_NUMBER;                // arithmetic with any -> number
             case TOKEN_EQUAL_EQUAL:
             case TOKEN_NOT_EQUAL:
             case TOKEN_LESS:
             case TOKEN_GREATER:
             case TOKEN_LESS_EQUAL:
             case TOKEN_GREATER_EQUAL:
-                return TYPE_BOOLEAN;
+                return TYPE_BOOLEAN;               // comparison -> boolean
             case TOKEN_AND:
             case TOKEN_OR:
-                return TYPE_BOOLEAN;
+                return TYPE_BOOLEAN;               // logical ops -> boolean
             default:
-                return TYPE_ANY;
+                return TYPE_ANY;                   // unknown -> any
         }
     }
 
-    if (left_type == TYPE_UNKNOWN || right_type == TYPE_UNKNOWN) return TYPE_UNKNOWN;
+    if (left_type == TYPE_UNKNOWN || right_type == TYPE_UNKNOWN) return TYPE_UNKNOWN;  // unknown
 
     switch (node->binary.op) {
         case TOKEN_PLUS:
             if (left_type == TYPE_STRING || right_type == TYPE_STRING) {
                 parser_error_at(parser, node->line, node->column, get_node_len(node),
                     "Arithmetic '+' requires numbers. For strings, use interpolation.");
-                return TYPE_ERROR;
+                return TYPE_ERROR;                 // string addition not allowed
             }
             if (!is_numeric_type(left_type) || !is_numeric_type(right_type)) {
                 parser_error_at(parser, node->line, node->column, get_node_len(node),
                     "Arithmetic operator '+' requires number operands, got %s and %s",
                     type_name(left_type), type_name(right_type));
-                return TYPE_ERROR;
+                return TYPE_ERROR;                 // non-number operands
             }
-            return TYPE_NUMBER;
-            
+            return TYPE_NUMBER;                    // number + number
         case TOKEN_MINUS: case TOKEN_STAR: case TOKEN_SLASH: case TOKEN_PERCENT:
             if (!is_numeric_type(left_type) || !is_numeric_type(right_type)) {
                 parser_error_at(parser, node->line, node->column, get_node_len(node),
                     "Arithmetic operator '%s' requires number operands, got %s and %s",
                     binary_op_name(node->binary.op), type_name(left_type), type_name(right_type));
-                return TYPE_ERROR;
+                return TYPE_ERROR;                 // non-number operands
             }
-            return TYPE_NUMBER;
+            return TYPE_NUMBER;                    // arithmetic result
 
         case TOKEN_EQUAL_EQUAL: case TOKEN_NOT_EQUAL:
             if (left_type == TYPE_NONE || right_type == TYPE_NONE) {
-                return TYPE_BOOLEAN;
+                return TYPE_BOOLEAN;               // none comparison always works
             }
             if (left_type == TYPE_TABLE && right_type == TYPE_TABLE) {
-                return TYPE_BOOLEAN;
+                return TYPE_BOOLEAN;               // table comparison allowed
             }
             if (!is_comparable_type(left_type) || !is_comparable_type(right_type)) {
                 parser_error_at(parser, node->binary.left->line, node->binary.left->column, get_node_len(node->binary.left),
                                 "Cannot compare types %s and %s", type_name(left_type), type_name(right_type));
-                return TYPE_ERROR;
+                return TYPE_ERROR;                 // non-comparable types
             }
             if (left_type != right_type) {
                 parser_error_at(parser, node->binary.left->line, node->binary.left->column, get_node_len(node->binary.left),
                                 "Cannot compare %s with %s", type_name(left_type), type_name(right_type));
-                return TYPE_ERROR;
+                return TYPE_ERROR;                 // type mismatch
             }
-            return TYPE_BOOLEAN;
+            return TYPE_BOOLEAN;                   // comparison result
 
         case TOKEN_LESS: case TOKEN_GREATER: case TOKEN_LESS_EQUAL: case TOKEN_GREATER_EQUAL:
             if (!is_numeric_type(left_type) || !is_numeric_type(right_type)) {
                 parser_error_at(parser, node->line, node->column, get_node_len(node),
                     "Comparison operator '%s' requires number operands, got %s and %s",
                     binary_op_name(node->binary.op), type_name(left_type), type_name(right_type));
-                return TYPE_ERROR;
+                return TYPE_ERROR;                 // non-number operands
             }
-            return TYPE_BOOLEAN;
-            
+            return TYPE_BOOLEAN;                   // comparison result
         case TOKEN_AND: case TOKEN_OR:
             if (left_type != TYPE_BOOLEAN && left_type != TYPE_ANY && left_type != TYPE_UNKNOWN) {
                 parser_error_at(parser, node->binary.left->line, node->binary.left->column, 
                             get_node_len(node->binary.left),
                             "Logical operator '%s' requires boolean operands, got %s",
                             binary_op_name(node->binary.op), type_name(left_type));
-                return TYPE_ERROR;
+                return TYPE_ERROR;                 // non-boolean operand
             }
             if (right_type != TYPE_BOOLEAN && right_type != TYPE_ANY && right_type != TYPE_UNKNOWN) {
                 parser_error_at(parser, node->binary.right->line, node->binary.right->column,
                             get_node_len(node->binary.right),
                             "Logical operator '%s' requires boolean operands, got %s",
                             binary_op_name(node->binary.op), type_name(right_type));
-                return TYPE_ERROR;
+                return TYPE_ERROR;                 // non-boolean operand
             }
-            return TYPE_BOOLEAN;
+            return TYPE_BOOLEAN;                   // logical operation result
         default:
-            return TYPE_ERROR;
+            return TYPE_ERROR;                     // unknown operator
     }
 }
 
@@ -905,67 +903,67 @@ static ValueType infer_binary_type(Parser* parser, ASTNode* node) {
 static ValueType infer_unary_type(Parser* parser, ASTNode* node) {
     ValueType operand_type = infer_expression_type(parser, node->unary.operand);
     if (operand_type == TYPE_ANY) {
-        if (node->unary.op == TOKEN_MINUS) return TYPE_NUMBER;
-        if (node->unary.op == TOKEN_NOT) return TYPE_BOOLEAN;
+        if (node->unary.op == TOKEN_MINUS) return TYPE_NUMBER;  // minus any -> number
+        if (node->unary.op == TOKEN_NOT) return TYPE_BOOLEAN;   // not any -> boolean
     }
-    if (operand_type == TYPE_UNKNOWN) return TYPE_UNKNOWN;
+    if (operand_type == TYPE_UNKNOWN) return TYPE_UNKNOWN;  // unknown
 
     switch (node->unary.op) {
         case TOKEN_MINUS:
             if (!is_numeric_type(operand_type)) {
                 parser_error_at(parser, node->unary.operand->line, node->unary.operand->column, get_node_len(node->unary.operand),
                                 "Unary minus requires number operand, got %s", type_name(operand_type));
-                return TYPE_ERROR;
+                return TYPE_ERROR;                 // non-number operand
             }
-            return TYPE_NUMBER;
+            return TYPE_NUMBER;                    // -number -> number
         case TOKEN_NOT:
             if (operand_type != TYPE_BOOLEAN) {
                 parser_error_at(parser, node->unary.operand->line, node->unary.operand->column, get_node_len(node->unary.operand),
                                 "Logical not requires boolean operand, got %s", type_name(operand_type));
-                return TYPE_ERROR;
+                return TYPE_ERROR;                 // non-boolean operand
             }
-            return TYPE_BOOLEAN;
+            return TYPE_BOOLEAN;                   // not boolean -> boolean
         default:
-            return TYPE_ERROR;
+            return TYPE_ERROR;                     // unknown operator
     }
 }
 
 // resolves the name of a callable expression
 static const char* resolve_call_name(ASTNode* callee, char* buffer, size_t buflen) {
     if (callee->type == AST_IDENTIFIER) {
-        return callee->identifier.name;
+        return callee->identifier.name;            // simple identifier
     }
     if (callee->type == AST_INDEX_ACCESS) {
         ASTNode* parts[32];
         int count = 0;
         ASTNode* current = callee;
         
-        while (current->type == AST_INDEX_ACCESS) {
+        while (current->type == AST_INDEX_ACCESS) {  // traverse chain
             if (current->access.member->type == AST_IDENTIFIER) {
-                parts[count++] = current->access.member;
+                parts[count++] = current->access.member;  // add member
             } else {
-                return NULL;
+                return NULL;                       // non-identifier member
             }
-            current = current->access.object;
+            current = current->access.object;      // move to parent
         }
         
         if (current->type == AST_IDENTIFIER) {
-            parts[count++] = current;
+            parts[count++] = current;              // add root
         } else {
-            return NULL;
+            return NULL;                           // non-identifier root
         }
         
-        buffer[0] = '\0';
-        for (int i = count - 1; i >= 0; i--) {
+        buffer[0] = '\0';                          // clear buffer
+        for (int i = count - 1; i >= 0; i--) {     // build dotted name
             if (strlen(buffer) > 0) {
                 strncat(buffer, ".", buflen - strlen(buffer) - 1);
             }
             strncat(buffer, parts[i]->identifier.name, buflen - strlen(buffer) - 1);
         }
         
-        return buffer;
+        return buffer;                             // return dotted name
     }
-    return NULL;
+    return NULL;                                   // not callable
 }
 
 static bool check_builtin_module_imported(Parser* parser, ASTNode* callee, const char* module_name) {
@@ -974,7 +972,7 @@ static bool check_builtin_module_imported(Parser* parser, ASTNode* callee, const
         int mod_column = callee->column;
         int mod_len = (int)utf8_char_len(module_name);
         
-        if (callee->type == AST_INDEX_ACCESS) {
+        if (callee->type == AST_INDEX_ACCESS) {    // find root module
             ASTNode* current = callee;
             while (current->type == AST_INDEX_ACCESS) {
                 current = current->access.object;
@@ -987,10 +985,10 @@ static bool check_builtin_module_imported(Parser* parser, ASTNode* callee, const
         }
         
         parser_error_at(parser, mod_line, mod_column, mod_len,
-            "Built-in module '%s' must be imported with 'import %s'", module_name, module_name);
-        return true;
+            "Built-in module '%s' must be imported with 'import %s'", module_name, module_name);  // error
+        return true;                               // module not imported
     }
-    return false;
+    return false;                                  // module imported or not builtin
 }
 
 // infers the return type of a function call with signature validation
@@ -998,18 +996,18 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
     ValueType callee_type = infer_expression_type(parser, node->call.callee);
     
     if (callee_type == TYPE_ERROR) {
-        return TYPE_ANY;
+        return TYPE_ANY;                           // error already reported
     }
 
-    char full_name[256] = "";
-    const char* func_name = resolve_call_name(node->call.callee, full_name, sizeof(full_name));
+    char full_name[256] = "";                      // buffer for full name
+    const char* func_name = resolve_call_name(node->call.callee, full_name, sizeof(full_name));  // resolve name
 
     if (func_name && (strcmp(func_name, "number") == 0 || 
                       strcmp(func_name, "string") == 0 || 
-                      strcmp(func_name, "type") == 0)) {
-        if (strcmp(func_name, "number") == 0) return TYPE_NUMBER;
-        if (strcmp(func_name, "string") == 0) return TYPE_STRING;
-        if (strcmp(func_name, "type") == 0) return TYPE_STRING;
+                      strcmp(func_name, "type") == 0)) {  // type conversion builtins
+        if (strcmp(func_name, "number") == 0) return TYPE_NUMBER;  // number() -> number
+        if (strcmp(func_name, "string") == 0) return TYPE_STRING;  // string() -> string
+        if (strcmp(func_name, "type") == 0) return TYPE_STRING;    // type() -> string
     }
 
     if (callee_type != TYPE_FUNCTION && callee_type != TYPE_ANY && 
@@ -1017,7 +1015,7 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
         int err_len = get_node_len(node->call.callee);
         parser_error_at(parser, node->call.callee->line, node->call.callee->column,
             err_len > 0 ? err_len : 1,
-            "Cannot call non-function (type: %s)", type_name(callee_type));
+            "Cannot call non-function (type: %s)", type_name(callee_type));  // error
         return TYPE_ANY;
     }
 
@@ -1030,22 +1028,22 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
                 strncpy(root, func_name, root_len);
                 root[root_len] = '\0';
                 
-                if (check_builtin_module_imported(parser, node->call.callee, root)) {
+                if (check_builtin_module_imported(parser, node->call.callee, root)) {  // check import
                     return TYPE_ANY;
                 }
             }
         }
         
-        const BuiltinSig* builtin = lookup_builtin(func_name);
+        const BuiltinSig* builtin = lookup_builtin(func_name);  // lookup builtin
         if (builtin) {
             int actual = node->call.arguments->count;
-            if (actual < builtin->min_args || actual > builtin->max_args) {
+            if (actual < builtin->min_args || actual > builtin->max_args) {  // validate arg count
                 int err_len = get_node_len(node->call.callee);
                 parser_error_at(parser, node->call.callee->line, node->call.callee->column, err_len > 0 ? err_len : 1,
                     "Function '%s' expected %d to %d arguments, got %d",
                     func_name, builtin->min_args, builtin->max_args, actual);
             }
-            if (actual >= 1 && builtin->arg_type != TYPE_ANY) {
+            if (actual >= 1 && builtin->arg_type != TYPE_ANY) {  // validate arg type
                 ASTNode* arg = node->call.arguments->nodes[0];
                 ValueType arg_t = infer_expression_type(parser, arg);
                 if (arg_t != builtin->arg_type && arg_t != TYPE_ANY && arg_t != TYPE_UNKNOWN) {
@@ -1060,19 +1058,19 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
                         "%s argument must be %s, got %s", func_name, type_name(builtin->arg_type), type_name(arg_t));
                 }
             }
-            return TYPE_ANY;
+            return TYPE_ANY;                       // builtin return type any
         }
 
-        int sym_idx = symbol_index_recursive(parser, func_name);
+        int sym_idx = symbol_index_recursive(parser, func_name);  // find user function
         if (sym_idx >= 0 && parser->symbols.kinds[sym_idx] == PARSER_SYM_FUNCTION) {
             int expected = parser->symbols.param_counts[sym_idx];
             int actual = node->call.arguments->count;
-            if (expected != actual) {
+            if (expected != actual) {              // validate arg count
                 int err_len = get_node_len(node->call.callee);
                 parser_error_at(parser, node->call.callee->line, node->call.callee->column, err_len > 0 ? err_len : 1,
                     "Function '%s' expected %d arguments, got %d", func_name, expected, actual);
             }
-            return TYPE_ANY;
+            return TYPE_ANY;                       // user function return type any
         }
 
         char root_module[64] = {0};
@@ -1085,18 +1083,18 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
                 
                 if (is_known_builtin_module(root_module)) {
                     if (check_builtin_module_imported(parser, node->call.callee, root_module)) {
-                        return TYPE_ANY;
+                        return TYPE_ANY;           // module not imported
                     }
                 }
             }
         }
     }
 
-    for (int i = 0; i < node->call.arguments->count; i++) {
+    for (int i = 0; i < node->call.arguments->count; i++) {  // type-check each argument
         infer_expression_type(parser, node->call.arguments->nodes[i]);
     }
     
-    return TYPE_UNKNOWN;
+    return TYPE_UNKNOWN;                           // unknown return type
 }
 
 // infers the type of an index access expression
@@ -1105,51 +1103,51 @@ static ValueType infer_index_access_type(Parser* parser, ASTNode* node) {
         node->access.member->type == AST_IDENTIFIER) {
         const char* mod_name = node->access.object->identifier.name;
         
-        if (check_builtin_module_imported(parser, node, mod_name)) {
+        if (check_builtin_module_imported(parser, node, mod_name)) {  // check module import
             return TYPE_ANY;
         }
-        return TYPE_ANY; 
+        return TYPE_ANY;                           // module access
     }
     
     ValueType object_type = infer_expression_type(parser, node->access.object);
-    if (object_type == TYPE_ERROR) return TYPE_ANY;
+    if (object_type == TYPE_ERROR) return TYPE_ANY;  // error already reported
     if (object_type != TYPE_TABLE && object_type != TYPE_UNKNOWN && object_type != TYPE_ANY) {
         int obj_len = (node->access.object->type == AST_IDENTIFIER) ? 
                       (int)utf8_char_len(node->access.object->identifier.name) : 0;
         parser_error_at(parser, node->line, node->column, obj_len,
-            "Cannot access element of non-table type %s", type_name(object_type));
+            "Cannot access element of non-table type %s", type_name(object_type));  // error
         return TYPE_ANY;
     }
-    infer_expression_type(parser, node->access.member);
-    return TYPE_UNKNOWN;
+    infer_expression_type(parser, node->access.member);  // type-check member
+    return TYPE_UNKNOWN;                           // table access type unknown
 }
 
 // main type inference dispatcher for all expression types
 static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
-    if (!node) return TYPE_UNKNOWN;
+    if (!node) return TYPE_UNKNOWN;                // null node
     switch (node->type) {
-        case AST_LITERAL_NUMBER: return TYPE_NUMBER;
-        case AST_LITERAL_STRING: return TYPE_STRING;
-        case AST_LITERAL_NONE: return TYPE_NONE;
-        case AST_LITERAL_BOOL: return TYPE_BOOLEAN;
+        case AST_LITERAL_NUMBER: return TYPE_NUMBER;  // number literal
+        case AST_LITERAL_STRING: return TYPE_STRING;  // string literal
+        case AST_LITERAL_NONE: return TYPE_NONE;      // none literal
+        case AST_LITERAL_BOOL: return TYPE_BOOLEAN;   // boolean literal
         case AST_ASSIGN:
         case AST_VAR_DECL:
-            return infer_expression_type(parser, node->var_assign.value);
+            return infer_expression_type(parser, node->var_assign.value);  // value type
         case AST_IDENTIFIER: {
             const char* name = node->identifier.name;
-            int idx = symbol_index_recursive(parser, name);
+            int idx = symbol_index_recursive(parser, name);  // find symbol
             if (idx >= 0) {
-                return parser->symbols.types[idx];
+                return parser->symbols.types[idx];   // return symbol type
             }
             if (lookup_builtin(name)) {
-                return TYPE_FUNCTION;
+                return TYPE_FUNCTION;                // builtin function
             }
             if (is_known_builtin_module(name)) {
-                return TYPE_UNKNOWN;
+                return TYPE_UNKNOWN;                 // builtin module
             }
             int len = (int)utf8_char_len(name);
             parser_error_at(parser, node->line, node->column, len,
-                            "Undefined variable or function '%s'", name);
+                            "Undefined variable or function '%s'", name);  // error
             return TYPE_ERROR;
         }
         case AST_BINARY: return infer_binary_type(parser, node);
@@ -1161,107 +1159,107 @@ static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
             if (resolved) {
                 int idx = symbol_index_recursive(parser, resolved);
                 if (idx >= 0) {
-                    return parser->symbols.types[idx];
+                    return parser->symbols.types[idx];  // symbol type
                 }
                 const BuiltinSig* builtin = lookup_builtin(resolved);
                 if (builtin) {
-                    return TYPE_FUNCTION;
+                    return TYPE_FUNCTION;            // builtin function
                 }
             }
             return infer_index_access_type(parser, node);
         }
         case AST_TABLE_LITERAL: {
             for (int i = 0; i < node->table_literal.items->count; i++) {
-                infer_expression_type(parser, node->table_literal.items->nodes[i]);
+                infer_expression_type(parser, node->table_literal.items->nodes[i]);  // type-check items
             }
             for (int i = 0; i < node->table_literal.key_values->count; i++) {
                 ASTNode* kv = node->table_literal.key_values->nodes[i];
-                infer_expression_type(parser, kv->binary.right);
+                infer_expression_type(parser, kv->binary.right);  // type-check values
             }
-            return TYPE_TABLE;
+            return TYPE_TABLE;                       // table literal type
         }
         case AST_STRING_INTERP: {
             for (int i = 0; i < node->string_interp.parts->count; i++) {
                 ASTNode* part = node->string_interp.parts->nodes[i];
                 if (part->type != AST_LITERAL_STRING) {
-                    infer_expression_type(parser, part);
+                    infer_expression_type(parser, part);  // type-check interpolated exprs
                 }
             }
-            return TYPE_STRING;
+            return TYPE_STRING;                      // interpolation result is string
         }
         case AST_TERNARY: {
             ValueType true_type = infer_expression_type(parser, node->ternary.true_expr);
             ValueType false_type = infer_expression_type(parser, node->ternary.false_expr);
             
-            parser_check_condition(parser, node->ternary.condition, "Ternary");
+            parser_check_condition(parser, node->ternary.condition, "Ternary");  // validate condition
             
             if (true_type == false_type) {
-                return true_type;
+                return true_type;                    // both branches same type
             }
             if (true_type == TYPE_ANY || false_type == TYPE_ANY) {
-                return TYPE_ANY;
+                return TYPE_ANY;                     // any type
             }
-            return TYPE_UNKNOWN;
+            return TYPE_UNKNOWN;                     // different types
         }
-        case AST_FUNCTION_DECL: return TYPE_FUNCTION;
+        case AST_FUNCTION_DECL: return TYPE_FUNCTION;  // function declaration
         default:
-            return TYPE_ERROR;
+            return TYPE_ERROR;                       // unknown node type
     }
 }
 
 // public API for type checking an expression
 ValueType parser_check_expression(Parser* parser, ASTNode* node) {
-    if (!parser->semantic_checks) return TYPE_UNKNOWN;
-    return infer_expression_type(parser, node);
+    if (!parser->semantic_checks) return TYPE_UNKNOWN;  // no checks
+    return infer_expression_type(parser, node);    // delegate to inference
 }
 
 // validates that a condition expression is boolean and explicit
 static void parser_check_condition(Parser* parser, ASTNode* condition, const char* context) {
-    if (!parser->semantic_checks) return;
-    if (!condition) return;
+    if (!parser->semantic_checks) return;          // no checks
+    if (!condition) return;                        // no condition
     
     if (condition->type == AST_BINARY && 
         (condition->binary.op == TOKEN_AND || condition->binary.op == TOKEN_OR)) {
-        return;  // errors already reported by infer_binary_type
+        return;                                    // errors already reported by infer_binary_type
     }
     
     if (!is_explicit_condition(condition)) {
         ValueType cond_type = infer_expression_type(parser, condition);
         parser_error_at(parser, condition->line, condition->column, get_node_len(condition),
             "%s requires a comparison, got %s",
-            context, type_name(cond_type));
+            context, type_name(cond_type));        // error
     }
 }
 
 // validates that an expression is a number
 static void parser_check_number_expr(Parser* parser, ASTNode* expr, const char* context) {
-    if (!parser->semantic_checks) return;
+    if (!parser->semantic_checks) return;          // no checks
     ValueType t = infer_expression_type(parser, expr);
     if (t != TYPE_NUMBER && t != TYPE_ANY && t != TYPE_UNKNOWN) {
         parser_error_at(parser, expr->line, expr->column, get_node_len(expr),
-                        "%s must be a number, got %s", context, type_name(t));
+                        "%s must be a number, got %s", context, type_name(t));  // error
     }
 }
 
 // returns the length of a source line for error reporting
 static int get_line_length(const char* source, int line_num) {
-    if (!source) return 0;
-    int current_line = 1;
-    int i = 0;
+    if (!source) return 0;                         // no source
+    int current_line = 1;                          // line counter
+    int i = 0;                                     // position in source
     while (source[i] != '\0') {
-        if (current_line == line_num) {
+        if (current_line == line_num) {            // found target line
             int start = i;
             while (source[i] != '\0' && source[i] != '\n' && source[i] != '\r') {
-                i++;
+                i++;                               // skip to end of line
             }
-            return i - start;
+            return i - start;                      // return line length
         }
         if (source[i] == '\n') {
-            current_line++;
+            current_line++;                        // next line
         }
         i++;
     }
-    return 0;
+    return 0;                                      // line not found
 }
 
 // Pratt parser precedence levels
@@ -1282,22 +1280,22 @@ typedef enum {
 // returns the precedence of a token type for Pratt parsing
 static Precedence get_precedence(ApexTokenType type) {
     switch (type) {
-        case TOKEN_EQUAL: return PREC_ASSIGNMENT;
-        case TOKEN_OR: return PREC_OR;
-        case TOKEN_AND: return PREC_AND;
-        case TOKEN_IF: return PREC_OR;
+        case TOKEN_EQUAL: return PREC_ASSIGNMENT;    // lowest precedence
+        case TOKEN_OR: return PREC_OR;               // logical or
+        case TOKEN_AND: return PREC_AND;             // logical and
+        case TOKEN_IF: return PREC_OR;               // ternary
         case TOKEN_EQUAL_EQUAL:
-        case TOKEN_NOT_EQUAL: return PREC_EQUALITY;
+        case TOKEN_NOT_EQUAL: return PREC_EQUALITY;  // equality
         case TOKEN_LESS:
         case TOKEN_GREATER:
         case TOKEN_LESS_EQUAL:
-        case TOKEN_GREATER_EQUAL: return PREC_COMPARISON;
+        case TOKEN_GREATER_EQUAL: return PREC_COMPARISON;  // comparison
         case TOKEN_PLUS:
-        case TOKEN_MINUS: return PREC_TERM;
+        case TOKEN_MINUS: return PREC_TERM;          // addition/subtraction
         case TOKEN_STAR:
         case TOKEN_SLASH:
-        case TOKEN_PERCENT: return PREC_FACTOR;
-        default: return PREC_NONE;
+        case TOKEN_PERCENT: return PREC_FACTOR;      // multiplication/division
+        default: return PREC_NONE;                   // no precedence
     }
 }
 
@@ -1307,80 +1305,80 @@ static ASTNode* parse_precedence(Parser* parser, Precedence precedence);
 
 // parses a number literal token
 static ASTNode* parse_number(Parser* parser) {
-    Token* token = advance(parser);
-    double value = atof(token->value);
-    return ast_create_literal_number(value, token->line, token->column);
+    Token* token = advance(parser);                // consume number token
+    double value = atof(token->value);             // convert to double
+    return ast_create_literal_number(value, token->line, token->column);  // create node
 }
 
 static const char* find_closing_brace(const char* str) {
-    int brace_count = 0;
-    bool in_double_quotes = false;
-    bool in_single_quotes = false;
+    int brace_count = 0;                           // nested brace counter
+    bool in_double_quotes = false;                 // inside double quotes
+    bool in_single_quotes = false;                 // inside single quotes
     
     while (*str) {
         if (in_double_quotes) {
             if (*str == '\\' && *(str + 1)) {
-                str += 2;
+                str += 2;                           // skip escaped char
                 continue;
             }
             if (*str == '"') {
-                in_double_quotes = false;
+                in_double_quotes = false;           // exit double quotes
             }
         } else if (in_single_quotes) {
             if (*str == '\\' && *(str + 1)) {
-                str += 2;
+                str += 2;                           // skip escaped char
                 continue;
             }
             if (*str == '\'') {
-                in_single_quotes = false;
+                in_single_quotes = false;           // exit single quotes
             }
         } else {
             if (*str == '"') {
-                in_double_quotes = true;
+                in_double_quotes = true;            // enter double quotes
             } else if (*str == '\'') {
-                in_single_quotes = true;
+                in_single_quotes = true;            // enter single quotes
             } else if (*str == '{') {
-                brace_count++;
+                brace_count++;                       // nested opening
             } else if (*str == '}') {
                 if (brace_count == 0) {
-                    return str;
+                    return str;                      // found matching closing brace
                 }
-                brace_count--;
+                brace_count--;                       // nested closing
             }
         }
         str++;
     }
-    return NULL;
+    return NULL;                                     // no matching brace found
 }
 
 // parses a string expression with interpolation support
 static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, int line, int column) {
-    Tokenizer* temp_tokenizer = tokenizer_create(expr_str, "<interpolation>");
+    Tokenizer* temp_tokenizer = tokenizer_create(expr_str, "<interpolation>");  // create temp tokenizer
 
     int temp_count;
-    Token* temp_tokens = tokenizer_tokenize(temp_tokenizer, &temp_count);
+    Token* temp_tokens = tokenizer_tokenize(temp_tokenizer, &temp_count);  // tokenize interpolated expr
     
-    int base_column = column;
+    int base_column = column;                      // base column offset
     
     for (int i = 0; i < temp_count; i++) {
         int token_line = temp_tokens[i].line;
         int token_col = temp_tokens[i].column;
         
         if (token_line == 1) {
-            temp_tokens[i].line = line;
-            temp_tokens[i].column = base_column + token_col;
+            temp_tokens[i].line = line;            // same line as string start
+            temp_tokens[i].column = base_column + token_col;  // adjust column
         } else {
-            temp_tokens[i].line = line + (token_line - 1);
+            temp_tokens[i].line = line + (token_line - 1);  // relative line offset
         }
     }
 
     Parser* temp_parser = parser_create(temp_tokens, temp_count, "<interpolation>", parser->source);
-    temp_parser->semantic_checks = false;
+    temp_parser->semantic_checks = false;          // disable type checking
     
     free(temp_parser->source_dir);
-    temp_parser->source_dir = strdup(parser->source_dir);
+    temp_parser->source_dir = strdup(parser->source_dir);  // inherit source dir
 
-    for (int i = 0; i < parser->symbols.count; i++) {
+    for (int i = 0; i < parser->symbols.count; i++) {  // copy symbols from parent
         if (parser->symbols.scope_levels[i] <= parser->symbols.current_scope) {
             parser_declare_symbol(temp_parser, 
                                   parser->symbols.names[i], 
@@ -1395,11 +1393,11 @@ static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, in
             temp_parser->symbols.is_constant[new_idx] = parser->symbols.is_constant[i];
         }
     }
-    temp_parser->symbols.current_scope = parser->symbols.current_scope;
+    temp_parser->symbols.current_scope = parser->symbols.current_scope;  // match scope
 
-    ASTNode* expr = parse_expression(temp_parser);
+    ASTNode* expr = parse_expression(temp_parser);  // parse the expression
     
-    if (expr) {
+    if (expr) {                                    // mark all nodes as in interpolation
         ASTNode* stack[256];
         int stack_top = 0;
         stack[stack_top++] = expr;
@@ -1408,7 +1406,7 @@ static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, in
             ASTNode* node = stack[--stack_top];
             if (!node) continue;
             
-            node->in_interpolation = true;
+            node->in_interpolation = true;         // mark for error context
             
             switch (node->type) {
                 case AST_BINARY:
@@ -1449,44 +1447,44 @@ static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, in
         }
     }
     
-    parser_destroy(temp_parser);
-    tokenizer_destroy(temp_tokenizer);
-    return expr;
+    parser_destroy(temp_parser);                   // clean up temp parser
+    tokenizer_destroy(temp_tokenizer);             // clean up tokenizer
+    return expr;                                   // return parsed expression
 }
 
 // parses a string literal with interpolation detection
 static ASTNode* parse_string(Parser* parser) {
-    Token* token = advance(parser);
-    const char* value = token->value;
+    Token* token = advance(parser);                // consume string token
+    const char* value = token->value;              // string content
     
-    if (!strchr(value, '{')) {
-        return ast_create_literal_string(value, token->line, token->column);
+    if (!strchr(value, '{')) {                     // no interpolation
+        return ast_create_literal_string(value, token->line, token->column);  // simple string
     }
 
-    ASTNodeList* parts = ast_list_create();
-    const char* p = value;
-    const char* start = value;
+    ASTNodeList* parts = ast_list_create();        // list of string parts
+    const char* p = value;                          // current position
+    const char* start = value;                      // start of current segment
 
     while (*p) {
-        if (*p == '\\' && *(p + 1) != '\0') {
+        if (*p == '\\' && *(p + 1) != '\0') {      // skip escaped chars
             p += 2;
             continue;
         }
 
-        if (*p == '{') {
-            if (p > start) {
+        if (*p == '{') {                            // start of interpolation
+            if (p > start) {                        // literal text before interpolation
                 size_t len = p - start;
                 char* text = (char*)malloc(len + 1);
                 memcpy(text, start, len);
                 text[len] = '\0';
                 
-                char* processed = (char*)malloc(len + 1);
+                char* processed = (char*)malloc(len + 1);  // process escapes
                 size_t j = 0;
                 for (size_t i = 0; i < len; i++) {
                     if (text[i] == '\\' && i + 1 < len) {
                         char next = text[i + 1];
                         if (next == '{' || next == '}') {
-                            processed[j++] = next;
+                            processed[j++] = next;   // unescape
                             i++;
                         } else {
                             processed[j++] = text[i];
@@ -1499,13 +1497,13 @@ static ASTNode* parse_string(Parser* parser) {
                 
                 ASTNode* str_node = ast_create_literal_string(
                     processed, token->line, token->column + (int)(start - value));
-                ast_list_add(parts, str_node);
+                ast_list_add(parts, str_node);      // add literal part
                 free(processed);
                 free(text);
             }
 
-            const char* expr_start = p + 1;
-            const char* expr_end = find_closing_brace(expr_start);
+            const char* expr_start = p + 1;         // start of expression
+            const char* expr_end = find_closing_brace(expr_start);  // find matching '}'
             
             if (expr_end) {
                 size_t expr_len = expr_end - expr_start;
@@ -1513,23 +1511,23 @@ static ASTNode* parse_string(Parser* parser) {
                 memcpy(expr_str, expr_start, expr_len);
                 expr_str[expr_len] = '\0';
                 
-                int expr_column = token->column;
+                int expr_column = token->column;    // compute column position
                 for (const char* p = value; p < expr_start; p++) {
                     if ((*p & 0xC0) != 0x80) expr_column++;
                 }
                 
-                ASTNode* expr_node = parse_string_expression(
+                ASTNode* expr_node = parse_string_expression(   // parse interpolated expr
                     parser, expr_str,
                     token->line,
                     expr_column);
                 
                 if (expr_node) {
-                    ast_list_add(parts, expr_node);
+                    ast_list_add(parts, expr_node);  // add expression part
                 }
                 
                 free(expr_str);
-                p = expr_end + 1;
-                start = p;
+                p = expr_end + 1;                   // skip past '}'
+                start = p;                           // start new segment
             } else {
                 p++;
             }
@@ -1538,19 +1536,19 @@ static ASTNode* parse_string(Parser* parser) {
         }
     }
     
-    if (p > start) {
+    if (p > start) {                                // trailing literal text
         size_t len = p - start;
         char* text = (char*)malloc(len + 1);
         memcpy(text, start, len);
         text[len] = '\0';
         
-        char* processed = (char*)malloc(len + 1);
+        char* processed = (char*)malloc(len + 1);  // process escapes
         size_t j = 0;
         for (size_t i = 0; i < len; i++) {
             if (text[i] == '\\' && i + 1 < len) {
                 char next = text[i + 1];
                 if (next == '{' || next == '}') {
-                    processed[j++] = next;
+                    processed[j++] = next;           // unescape
                     i++;
                 } else {
                     processed[j++] = text[i];
@@ -1563,54 +1561,54 @@ static ASTNode* parse_string(Parser* parser) {
         
         ASTNode* str_node = ast_create_literal_string(
             processed, token->line, token->column + (int)(start - value));
-        ast_list_add(parts, str_node);
+        ast_list_add(parts, str_node);              // add trailing literal
         free(processed);
         free(text);
     }
     
-    return ast_create_string_interp(parts);
+    return ast_create_string_interp(parts);         // create interpolation node
 }
 
 // parses a none/null literal
 static ASTNode* parse_none(Parser* parser) {
-    Token* token = advance(parser);
+    Token* token = advance(parser);                // consume 'none' token
     return ast_create_literal_none(token->line, token->column);
 }
 
 // parses a boolean literal
 static ASTNode* parse_bool(Parser* parser) {
-    Token* token = advance(parser);
+    Token* token = advance(parser);                // consume 'true' or 'false'
     return ast_create_literal_bool(
         token->type == TOKEN_TRUE, token->line, token->column);
 }
 
 // parses an identifier
 static ASTNode* parse_identifier(Parser* parser) {
-    Token* token = advance(parser);
+    Token* token = advance(parser);                // consume identifier token
     return ast_create_identifier(token->value, token->line, token->column);
 }
 
 // parses a table literal with positional items and key-value pairs
 static ASTNode* parse_table_literal(Parser* parser) {
-    Token* open_bracket = advance(parser);
+    Token* open_bracket = advance(parser);         // consume '['
     int line = open_bracket->line;
     int column = open_bracket->column;
 
-    ASTNodeList* items = ast_list_create();
-    ASTNodeList* key_values = ast_list_create();
+    ASTNodeList* items = ast_list_create();        // positional items list
+    ASTNodeList* key_values = ast_list_create();   // key-value pairs list
 
-    skip_newlines(parser);
+    skip_newlines(parser);                         // skip whitespace
 
-    if (!check(parser, TOKEN_RBRACKET)) {
+    if (!check(parser, TOKEN_RBRACKET)) {          // not empty table
         while (true) {
             skip_newlines(parser);
 
             bool is_key = (check(parser, TOKEN_STRING) || check(parser, TOKEN_NUMBER)) &&
-                          check_next(parser, TOKEN_EQUAL);
+                          check_next(parser, TOKEN_EQUAL);  // detect key-value
 
             if (is_key) {
                 Token* key_token = advance(parser);
-                advance(parser); // '='
+                advance(parser);                    // '='
 
                 ASTNode* key_node;
                 if (key_token->type == TOKEN_NUMBER) {
@@ -1623,7 +1621,7 @@ static ASTNode* parse_table_literal(Parser* parser) {
 
                 ASTNode* value = parse_expression(parser);
                 ASTNode* kv_node = ast_create_binary(TOKEN_EQUAL, key_node, value);
-                ast_list_add(key_values, kv_node);
+                ast_list_add(key_values, kv_node);   // add key-value pair
             } else {
                 if (check(parser, TOKEN_IDENTIFIER) && check_next(parser, TOKEN_EQUAL)) {
                     Token* id_token = advance(parser);
@@ -1632,63 +1630,63 @@ static ASTNode* parse_table_literal(Parser* parser) {
                     int len = id_token->value ? (int)utf8_char_len(id_token->value) : 1;
                     parser_error_at(parser, id_token->line, id_token->column, len,
                                     "Table keys must be strings, got identifier '%s'. Use \"%s\" instead",
-                                    id_token->value, id_token->value);
+                                    id_token->value, id_token->value);  // error
                     
-                    parse_expression(parser);
+                    parse_expression(parser);      // skip value
                 } else {
                     ASTNode* item = parse_expression(parser);
-                    ast_list_add(items, item);
+                    ast_list_add(items, item);      // add positional item
                 }
             }
 
             skip_newlines(parser);
             
-            if (check(parser, TOKEN_COMMA)) {
+            if (check(parser, TOKEN_COMMA)) {      // comma separator
                 Token* comma_token = current_token(parser);
                 advance(parser);
                 
                 skip_newlines(parser);
                 
-                if (check(parser, TOKEN_RBRACKET)) {
+                if (check(parser, TOKEN_RBRACKET)) {  // trailing comma
                     parser_error_at(parser, comma_token->line, comma_token->column, 1,
                                     "Extra comma at the end of the table");
                     break;
                 }
             } else {
-                break;
+                break;                              // end of table
             }
         }
     }
 
     skip_newlines(parser);
-    consume(parser, TOKEN_RBRACKET, "Expected ']' after table literal");
+    consume(parser, TOKEN_RBRACKET, "Expected ']' after table literal");  // closing bracket
 
     return ast_create_table_literal(items, key_values, line, column);
 }
 
 // parses a parenthesized expression
 static ASTNode* parse_group(Parser* parser) {
-    advance(parser);
+    advance(parser);                               // consume '('
     skip_newlines(parser);
-    ASTNode* expr = parse_expression(parser);
+    ASTNode* expr = parse_expression(parser);      // parse inner expression
     skip_newlines(parser);
-    consume(parser, TOKEN_RPAREN, "Expected ')' after expression");
-    return expr;
+    consume(parser, TOKEN_RPAREN, "Expected ')' after expression");  // closing paren
+    return expr;                                   // return inner expression
 }
 
 // parses index access using brackets
 static ASTNode* parse_index_access(Parser* parser, ASTNode* object) {
-    advance(parser);
+    advance(parser);                               // consume '['
     skip_newlines(parser);
-    ASTNode* index = parse_expression(parser);
+    ASTNode* index = parse_expression(parser);     // parse index expression
     skip_newlines(parser);
-    consume(parser, TOKEN_RBRACKET, "Expected ']' after index");
-    return ast_create_index_access(object, index);
+    consume(parser, TOKEN_RBRACKET, "Expected ']' after index");  // closing bracket
+    return ast_create_index_access(object, index); // create access node
 }
 
 // parses dot member access with module validation
 static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
-    advance(parser); // consume the dot
+    advance(parser);                               // consume '.'
     Token* token = current_token(parser);
     
     // Check if object is a module
@@ -1696,12 +1694,12 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
         int idx = symbol_index_recursive(parser, object->identifier.name);
         if (!((idx >= 0 && parser->symbols.kinds[idx] == PARSER_SYM_MODULE) ||
               is_known_builtin_module(object->identifier.name))) {
-            parser->current--;
+            parser->current--;                      // not a module, backtrack
             return NULL;
         }
     } else if (object->type == AST_INDEX_ACCESS) {
         ASTNode* current = object;
-        while (current->type == AST_INDEX_ACCESS) {
+        while (current->type == AST_INDEX_ACCESS) { // traverse to root
             current = current->access.object;
         }
         
@@ -1709,15 +1707,15 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
             int idx = symbol_index_recursive(parser, current->identifier.name);
             if (!((idx >= 0 && parser->symbols.kinds[idx] == PARSER_SYM_MODULE) ||
                   is_known_builtin_module(current->identifier.name))) {
-                parser->current--;
+                parser->current--;                  // not a module, backtrack
                 return NULL;
             }
         } else {
-            parser->current--;
+            parser->current--;                      // not a module, backtrack
             return NULL;
         }
     } else {
-        parser->current--;
+        parser->current--;                          // not a module, backtrack
         return NULL;
     }
 
@@ -1728,7 +1726,7 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
         int member_col = token->column;
         char* member_name = strdup(token->value);
         
-        advance(parser);
+        advance(parser);                           // consume member token
         ASTNode* member_node = ast_create_identifier(member_name, member_line, member_col);
         ASTNode* access_node = ast_create_index_access(object, member_node);
         
@@ -1738,7 +1736,7 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
         char* parts[32];
         int part_count = 0;
         
-        while (temp->type == AST_INDEX_ACCESS) {
+        while (temp->type == AST_INDEX_ACCESS) {    // collect path parts
             if (temp->access.member->type == AST_IDENTIFIER) {
                 parts[part_count++] = temp->access.member->identifier.name;
             }
@@ -1748,7 +1746,7 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
             parts[part_count++] = temp->identifier.name;
         }
         
-        for (int i = part_count - 1; i >= 0; i--) {
+        for (int i = part_count - 1; i >= 0; i--) {  // build dotted name
             if (strlen(full_name) > 0) strcat(full_name, ".");
             strcat(full_name, parts[i]);
         }
@@ -1765,12 +1763,12 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
         if (is_function) {
             if (check(parser, TOKEN_LPAREN)) {
                 free(member_name);
-                return parse_call(parser, access_node);
+                return parse_call(parser, access_node);  // function call
             } else {
                 parser_error_at(parser, member_line, member_col, 
                               (int)utf8_char_len(member_name),
                               "Function '%s' must be called with parentheses '()'",
-                              full_name);
+                              full_name);          // error
                 free(member_name);
                 return access_node;
             }
@@ -1779,25 +1777,25 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
                 parser_error_at(parser, member_line, member_col, 
                               (int)utf8_char_len(member_name),
                               "Variable '%s' cannot be called with parentheses",
-                              full_name);
+                              full_name);          // error
                 free(member_name);
                 return access_node;
             }
             free(member_name);
-            return access_node;
+            return access_node;                      // variable access
         } else {
             if (check(parser, TOKEN_LPAREN)) {
                 free(member_name);
-                return parse_call(parser, access_node);
+                return parse_call(parser, access_node);  // unknown call
             }
             free(member_name);
-            return access_node;
+            return access_node;                      // unknown access
         }
     }
     
     Token* dot_token = &parser->tokens[parser->current - 1];
     parser_error_at(parser, dot_token->line, dot_token->column, 1,
-                    "Expected member name after '.'");
+                    "Expected member name after '.'");  // error
     return object;
 }
 
@@ -1814,8 +1812,8 @@ static ASTNode* parse_prefix(Parser* parser) {
         case TOKEN_LBRACKET:   return parse_table_literal(parser);
         case TOKEN_LPAREN:     return parse_group(parser);
         case TOKEN_MINUS: {
-            advance(parser);
-            ASTNode* operand = parse_precedence(parser, PREC_UNARY);
+            advance(parser);                           // consume '-'
+            ASTNode* operand = parse_precedence(parser, PREC_UNARY);  // parse operand
             if (!operand) {
                 parser_error(parser, "Expected expression after unary minus");
                 return NULL;
@@ -1823,8 +1821,8 @@ static ASTNode* parse_prefix(Parser* parser) {
             return ast_create_unary(TOKEN_MINUS, operand);
         }
         case TOKEN_NOT: {
-            advance(parser);
-            ASTNode* operand = parse_precedence(parser, PREC_UNARY);
+            advance(parser);                           // consume 'not'
+            ASTNode* operand = parse_precedence(parser, PREC_UNARY);  // parse operand
             if (!operand) {
                 parser_error(parser, "Expected expression after 'not'");
                 return NULL;
@@ -1833,7 +1831,7 @@ static ASTNode* parse_prefix(Parser* parser) {
         }
         case TOKEN_EOF:
         case TOKEN_NEWLINE:
-            return NULL;
+            return NULL;                             // no expression
         default:
             parser_error(parser, "Expected expression");
             return NULL;
@@ -1842,23 +1840,23 @@ static ASTNode* parse_prefix(Parser* parser) {
 
 // parses a function call
 static ASTNode* parse_call(Parser* parser, ASTNode* callee) {
-    advance(parser);
-    ASTNodeList* arguments = ast_list_create();
+    advance(parser);                               // consume '('
+    ASTNodeList* arguments = ast_list_create();     // argument list
     
     skip_newlines(parser);
     if (!check(parser, TOKEN_RPAREN)) {
         while (true) {
             skip_newlines(parser);
-            ast_list_add(arguments, parse_expression(parser));
+            ast_list_add(arguments, parse_expression(parser));  // parse argument
             
             skip_newlines(parser);
-            if (!match(parser, TOKEN_COMMA)) break;
+            if (!match(parser, TOKEN_COMMA)) break;  // no more args
             skip_newlines(parser);
         }
     }
     skip_newlines(parser);
-    consume(parser, TOKEN_RPAREN, "Expected ')' after arguments");
-    return ast_create_call(callee, arguments);
+    consume(parser, TOKEN_RPAREN, "Expected ')' after arguments");  // closing paren
+    return ast_create_call(callee, arguments);      // create call node
 }
 
 // parses an infix expression (binary, call, or access)
@@ -1867,22 +1865,22 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
 
     switch (token->type) {
         case TOKEN_LPAREN:
-            return parse_call(parser, left);
+            return parse_call(parser, left);         // function call
         case TOKEN_LBRACKET:
-            return parse_index_access(parser, left);
+            return parse_index_access(parser, left); // index access
         case TOKEN_DOT: {
             int pos_before = parser->current;
-            ASTNode* result = parse_member_access(parser, left);
+            ASTNode* result = parse_member_access(parser, left);  // member access
             if (!result || parser->current == pos_before) {
-                return left;
+                return left;                         // not a member access
             }
             return result;
         }
         
         case TOKEN_IF: {
-            Token* if_token = advance(parser);
+            Token* if_token = advance(parser);       // consume 'if'
             
-            ASTNode* condition = parse_expression(parser);
+            ASTNode* condition = parse_expression(parser);  // parse condition
             
             if (!condition) {
                 parser_error_at(parser, if_token->line, if_token->column, 2,
@@ -1890,11 +1888,11 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
                 return left;
             }
 
-            parser_check_condition(parser, condition, "Ternary");
+            parser_check_condition(parser, condition, "Ternary");  // validate condition
             
-            consume(parser, TOKEN_ELSE, "Expected 'else' in ternary expression");
+            consume(parser, TOKEN_ELSE, "Expected 'else' in ternary expression");  // 'else'
             
-            ASTNode* false_expr = parse_precedence(parser, PREC_OR);
+            ASTNode* false_expr = parse_precedence(parser, PREC_OR);  // false branch
             
             if (check(parser, TOKEN_ELSE) || check(parser, TOKEN_IF)) {
                 Token* next_token = current_token(parser);
@@ -1921,9 +1919,9 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
         case TOKEN_GREATER_EQUAL:
         case TOKEN_AND:
         case TOKEN_OR: {
-            advance(parser);
+            advance(parser);                           // consume operator
             Precedence prec = get_precedence(token->type);
-            ASTNode* right = parse_precedence(parser, prec);
+            ASTNode* right = parse_precedence(parser, prec);  // parse right operand
             
             if (!right) {
                 return left;
@@ -1934,26 +1932,26 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
                 if (!is_explicit_condition(left)) {
                     parser_error_at(parser, left->line, left->column, get_node_len(left),
                         "Logical operator '%s' requires explicit condition",
-                        binary_op_name(token->type));
+                        binary_op_name(token->type));  // error
                 }
                 if (!is_explicit_condition(right)) {
                     parser_error_at(parser, right->line, right->column, get_node_len(right),
                         "Logical operator '%s' requires explicit condition",
-                        binary_op_name(token->type));
+                        binary_op_name(token->type));  // error
                 }
             }
             
             return ast_create_binary(token->type, left, right);
         }
         case TOKEN_EQUAL: {
-            advance(parser);
-            ASTNode* right = parse_precedence(parser, PREC_ASSIGNMENT - 1);
+            advance(parser);                           // consume '='
+            ASTNode* right = parse_precedence(parser, PREC_ASSIGNMENT - 1);  // parse value
             if (left->type == AST_IDENTIFIER) {
                 int idx = symbol_index_recursive(parser, left->identifier.name);
                 if (idx >= 0 && parser->symbols.is_constant[idx]) {
                     parser_error_at(parser, left->line, left->column, 
                                 (int)utf8_char_len(left->identifier.name),
-                                "Cannot reassign constant '%s'", left->identifier.name);
+                                "Cannot reassign constant '%s'", left->identifier.name);  // error
                 }
                 return ast_create_var_assign(
                     left->identifier.name, right, false, NULL,
@@ -1967,7 +1965,7 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
                         parser_error_at(parser, left->access.object->line, 
                                     left->access.object->column,
                                     (int)utf8_char_len(name),
-                                    "Cannot modify element of constant '%s'", name);
+                                    "Cannot modify element of constant '%s'", name);  // error
                     }
                 }
                 return ast_create_var_assign(
@@ -1979,40 +1977,40 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
             return NULL;
         }
         default:
-            return NULL;
+            return NULL;                             // not an infix operator
     }
 }
 
 // core Pratt parser that handles precedence climbing
 static ASTNode* parse_precedence(Parser* parser, Precedence precedence) {
-    ASTNode* left = parse_prefix(parser);
+    ASTNode* left = parse_prefix(parser);           // parse prefix expression
     
     if (!left) {
-        return NULL;
+        return NULL;                                 // no expression
     }
     
-    int prev_pos = -1;
+    int prev_pos = -1;                              // prevent infinite loops
     
     while (true) {
         if (parser->current == prev_pos) {
-            break;
+            break;                                   // stuck, exit
         }
         prev_pos = parser->current;
         
         Token* token = current_token(parser);
         Precedence current_prec = get_precedence(token->type);
         if (token->type == TOKEN_LPAREN || token->type == TOKEN_LBRACKET || token->type == TOKEN_DOT) {
-            current_prec = PREC_CALL;
+            current_prec = PREC_CALL;                // call precedence
         }
-        if (current_prec <= precedence) break;
+        if (current_prec <= precedence) break;       // stop if lower precedence
         
-        ASTNode* new_left = parse_infix(parser, left);
+        ASTNode* new_left = parse_infix(parser, left);  // parse infix
         
         if (!new_left) {
-            return left;
+            return left;                             // no more infix
         }
         
-        left = new_left;
+        left = new_left;                            // continue with new left
     }
     return left;
 }
@@ -2032,25 +2030,25 @@ static bool is_valid_expr_start(ApexTokenType type) {
 }
 
 static ASTNode* parse_constant_declaration(Parser* parser) {
-    Token* const_kw = advance(parser);
+    Token* const_kw = advance(parser);             // consume 'constant'
     
     if (!check(parser, TOKEN_IDENTIFIER)) {
         parser_error_at(parser, const_kw->line, const_kw->column + 9, 1,
-                       "Expected variable name after 'constant'");
+                       "Expected variable name after 'constant'");  // error
         while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
-            advance(parser);
+            advance(parser);                        // skip to line end
         }
         return NULL;
     }
     
-    Token* name = advance(parser);
+    Token* name = advance(parser);                 // consume name
     
     if (!match(parser, TOKEN_EQUAL)) {
         parser_error_at(parser, name->line, name->column, 
                        (int)utf8_char_len(name->value),
-                       "Constant must be initialized with '='");
+                       "Constant must be initialized with '='");  // error
         while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
-            advance(parser);
+            advance(parser);                        // skip to line end
         }
         return NULL;
     }
@@ -2059,10 +2057,10 @@ static ASTNode* parse_constant_declaration(Parser* parser) {
         parser_error_at(parser, name->line, 
                        name->column + (int)utf8_char_len(name->value) + 1, 
                        1,
-                       "Expected expression after '='");
+                       "Expected expression after '='");  // error
         
         parser_declare_symbol(parser, name->value, PARSER_SYM_CONSTANT,
-                            TYPE_ANY, 0, name->line, name->column);
+                            TYPE_ANY, 0, name->line, name->column);  // declare anyway
         
         return NULL;
     }
@@ -2074,22 +2072,22 @@ static ASTNode* parse_constant_declaration(Parser* parser) {
             parser_error_at(parser, bad_token->line, 
                         bad_token->column + (int)utf8_char_len(bad_token->value) + 1, 
                         1,
-                        "Expected variable name after 'constant'");
+                        "Expected variable name after 'constant'");  // error
         }
         
         parser_declare_symbol(parser, name->value, PARSER_SYM_CONSTANT,
-                            TYPE_ANY, 0, name->line, name->column);
+                            TYPE_ANY, 0, name->line, name->column);  // declare anyway
         
         while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
-            advance(parser);
+            advance(parser);                        // skip to line end
         }
         return NULL;
     }
     
-    ASTNode* value = parse_expression(parser);
+    ASTNode* value = parse_expression(parser);     // parse constant value
     if (!value) {
         parser_declare_symbol(parser, name->value, PARSER_SYM_CONSTANT,
-                            TYPE_ANY, 0, name->line, name->column);
+                            TYPE_ANY, 0, name->line, name->column);  // declare anyway
         return NULL;
     }
     
@@ -2097,9 +2095,9 @@ static ASTNode* parse_constant_declaration(Parser* parser) {
     if (value_type == TYPE_ERROR) value_type = TYPE_ANY;
     
     parser_declare_symbol(parser, name->value, PARSER_SYM_CONSTANT,
-                         value_type, 0, name->line, name->column);
+                         value_type, 0, name->line, name->column);  // declare constant
     
-    if (value->type == AST_LITERAL_NUMBER) {
+    if (value->type == AST_LITERAL_NUMBER) {       // store known constant value
         int idx = symbol_index_in_scope(parser, name->value, parser->symbols.current_scope);
         if (idx >= 0) {
             parser_symbol_set_const(parser, idx, true, value->literal_number.number_value);
@@ -2112,27 +2110,27 @@ static ASTNode* parse_constant_declaration(Parser* parser) {
 
 // parses an expression using Pratt parser
 static ASTNode* parse_expression(Parser* parser) {
-    skip_newlines(parser);
+    skip_newlines(parser);                         // skip whitespace
     if (check(parser, TOKEN_EOF)) {
-        return NULL;
+        return NULL;                                // no expression
     }
-    ASTNode* expr = parse_precedence(parser, PREC_NONE);
+    ASTNode* expr = parse_precedence(parser, PREC_NONE);  // parse with lowest precedence
     if (expr) {
-        parser_check_expression(parser, expr);
+        parser_check_expression(parser, expr);      // type-check expression
     }
     return expr;
 }
 
 // parses a variable declaration or assignment
 static ASTNode* parse_var_decl_or_assign(Parser* parser) {
-    Token* idents[32];
+    Token* idents[32];                             // identifiers for multi-assignment
     int ident_count = 0;
     
-    idents[ident_count++] = current_token(parser);
+    idents[ident_count++] = current_token(parser);  // first identifier
     advance(parser);
     
     bool had_comma = false;
-    while (match(parser, TOKEN_COMMA)) {
+    while (match(parser, TOKEN_COMMA)) {           // check for comma
         had_comma = true;
         if (check(parser, TOKEN_IDENTIFIER)) {
             idents[ident_count++] = current_token(parser);
@@ -2143,7 +2141,7 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
     }
     
     if (ident_count > 1) {
-        for (int i = 0; i < ident_count; i++) {
+        for (int i = 0; i < ident_count; i++) {    // declare all variables
             if (!parser_is_declared(parser, idents[i]->value)) {
                 parser_declare_symbol(parser, idents[i]->value, PARSER_SYM_VARIABLE,
                                     TYPE_ANY, 0, idents[i]->line, idents[i]->column);
@@ -2151,7 +2149,7 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
         }
         parser_error_at(parser, idents[1]->line, idents[1]->column,
                       (int)utf8_char_len(idents[1]->value),
-                      "Multiple assignment is restricted");
+                      "Multiple assignment is restricted");  // error
         while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) advance(parser);
         return NULL;
     }
@@ -2163,17 +2161,17 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
         }
         parser_error_at(parser, idents[0]->line, 
                       idents[0]->column + (int)utf8_char_len(idents[0]->value), 1,
-                       "Extra comma at the end of assignment");
+                       "Extra comma at the end of assignment");  // error
         while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) advance(parser);
         return NULL;
     }
     
     Token* name = idents[0];
-    consume(parser, TOKEN_EQUAL, "Expected '=' in assignment");
+    consume(parser, TOKEN_EQUAL, "Expected '=' in assignment");  // '='
     
     if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF)) {
         parser_error_at(parser, name->line, name->column + (int)utf8_char_len(name->value) + 1, 1,
-                       "Expected expression after '='");
+                       "Expected expression after '='");  // error
         return ast_create_var_assign(name->value, NULL, !parser_is_declared(parser, name->value), NULL,
                                     name->line, name->column);
     }
@@ -2186,11 +2184,11 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
         if (idx >= 0 && parser->symbols.is_constant[idx]) {
             parser_error_at(parser, name->line, name->column, 
                           (int)utf8_char_len(name->value),
-                          "Cannot reassign constant '%s'", name->value);
+                          "Cannot reassign constant '%s'", name->value);  // error
         }
     }
     
-    if (match(parser, TOKEN_COMMA)) {
+    if (match(parser, TOKEN_COMMA)) {              // trailing comma
         if (check(parser, TOKEN_NEWLINE)) {
             if (is_declaration) {
                 parser_declare_symbol(parser, name->value, PARSER_SYM_VARIABLE,
@@ -2198,7 +2196,7 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
             }
             Token* comma = &parser->tokens[parser->current - 1];
             parser_error_at(parser, comma->line, comma->column, 1,
-                           "Extra comma at the end of the statement");
+                           "Extra comma at the end of the statement");  // error
             return ast_create_var_assign(name->value, value, false, NULL, name->line, name->column);
         }
         
@@ -2210,7 +2208,7 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
         ASTNode* second = parse_expression(parser);
         int len = second ? get_node_len(second) : 1;
         parser_error_at(parser, second->line, second->column, len,
-                       "Multiple return values are restricted");
+                       "Multiple return values are restricted");  // error
         while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) advance(parser);
         return ast_create_var_assign(name->value, value, false, NULL, name->line, name->column);
     }
@@ -2225,7 +2223,7 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
             ValueType value_type = infer_expression_type(parser, value);
             if (value_type != TYPE_ERROR) {
                 parser_declare_symbol(parser, name->value, PARSER_SYM_VARIABLE,
-                                    value_type, 0, name->line, name->column);
+                                    value_type, 0, name->line, name->column);  // declare with inferred type
                 int idx = symbol_index_recursive(parser, name->value);
                 if (idx >= 0 && value->type == AST_LITERAL_NUMBER) {
                     parser_symbol_set_const(parser, idx, true, value->literal_number.number_value);
@@ -2237,11 +2235,11 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
         if (parser->symbols.kinds[idx] != PARSER_SYM_VARIABLE &&
             parser->symbols.kinds[idx] != PARSER_SYM_PARAMETER) {
             parser_error_at(parser, name->line, name->column, (int)utf8_char_len(name->value),
-                "Cannot assign to '%s' (not a variable)", name->value);
+                "Cannot assign to '%s' (not a variable)", name->value);  // error
         } else if (value) {
             ValueType new_type = infer_expression_type(parser, value);
             parser->symbols.types[idx] = (new_type != TYPE_ERROR && new_type != TYPE_UNKNOWN) 
-                                        ? new_type : parser->symbols.types[idx];
+                                        ? new_type : parser->symbols.types[idx];  // update type
             parser_symbol_clear_const(parser, idx);
             if (value->type == AST_LITERAL_NUMBER) {
                 parser_symbol_set_const(parser, idx, true, value->literal_number.number_value);
@@ -2255,65 +2253,65 @@ static ASTNode* parse_var_decl_or_assign(Parser* parser) {
 
 // parses a function declaration with parameters and body
 static ASTNode* parse_function(Parser* parser) {
-    advance(parser);
+    advance(parser);                               // consume 'function'
     Token* name = consume(parser, TOKEN_IDENTIFIER, "Expected function name");
     if (!name) return NULL;
 
-    consume(parser, TOKEN_LPAREN, "Expected '(' after function name");
-    ASTNodeList* params = ast_list_create();
+    consume(parser, TOKEN_LPAREN, "Expected '(' after function name");  // '('
+    ASTNodeList* params = ast_list_create();        // parameter list
     if (!check(parser, TOKEN_RPAREN)) {
         while (true) {
             if (check(parser, TOKEN_RPAREN) || check(parser, TOKEN_EOF)) {
-                break; 
+                break;                              // end of params
             }
             
             Token* param_name = consume(parser, TOKEN_IDENTIFIER, "Expected parameter name");
             if (!param_name) {
-                break; 
+                break;                              // error
             }
             
             ASTNode* param = ast_create_param(param_name->value, param_name->line, param_name->column);
-            ast_list_add(params, param);
+            ast_list_add(params, param);            // add parameter
             
-            if (!match(parser, TOKEN_COMMA)) break;
+            if (!match(parser, TOKEN_COMMA)) break;  // no more params
         }
     }
-    consume(parser, TOKEN_RPAREN, "Expected ')' after parameters");
+    consume(parser, TOKEN_RPAREN, "Expected ')' after parameters");  // ')'
 
     parser_declare_symbol(parser, name->value, PARSER_SYM_FUNCTION,
-                          TYPE_FUNCTION, params->count, name->line, name->column);
+                          TYPE_FUNCTION, params->count, name->line, name->column);  // declare function
 
-    parser->function_depth++;
-    parser_enter_scope(parser);
+    parser->function_depth++;                       // enter function
+    parser_enter_scope(parser);                    // new scope for params
 
     for (int i = 0; i < params->count; i++) {
         ASTNode* param = params->nodes[i];
         parser_declare_symbol(parser, param->param.name, PARSER_SYM_PARAMETER,
-                              TYPE_ANY, 0, param->line, param->column);
+                              TYPE_ANY, 0, param->line, param->column);  // declare parameter
     }
 
     parser->expecting_indented_block = true;
-    ASTNode* body = parse_block(parser, true, "function");
+    ASTNode* body = parse_block(parser, true, "function");  // parse function body
 
-    parser_exit_scope(parser);
-    parser->function_depth--;
+    parser_exit_scope(parser);                     // exit parameter scope
+    parser->function_depth--;                       // exit function
 
     return ast_create_function(name->value, params, body, name->line, name->column);
 }
 
 // parses an if statement with elif and else clauses
 static ASTNode* parse_if_statement(Parser* parser) {
-    Token* kw_token = advance(parser);
+    Token* kw_token = advance(parser);              // consume 'if' or 'elif'
     const char* keyword = (kw_token->type == TOKEN_IF) ? "if" : "elif";
     int kw_len = (int)utf8_char_len(keyword);
     
     if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF) || 
         check(parser, TOKEN_INDENT)) {
         parser_error_at(parser, kw_token->line, kw_token->column + kw_len,
-                      1, "Expected condition after '%s'", keyword);
+                      1, "Expected condition after '%s'", keyword);  // error
         
         skip_newlines(parser);
-        if (match(parser, TOKEN_INDENT)) {
+        if (match(parser, TOKEN_INDENT)) {         // skip indented block if any
             int depth = 1;
             while (depth > 0 && !check(parser, TOKEN_EOF)) {
                 if (check(parser, TOKEN_INDENT)) depth++;
@@ -2324,23 +2322,23 @@ static ASTNode* parse_if_statement(Parser* parser) {
         return NULL;
     }
     
-    ASTNode* condition = parse_expression(parser);
+    ASTNode* condition = parse_expression(parser); // parse condition
     if (!condition) {
         int remaining_len = get_line_length(parser->source, kw_token->line) - (kw_token->column - 1);
         if (remaining_len < 1) remaining_len = 1;
         parser_error_at(parser, kw_token->line, kw_token->column + kw_len,
-                     remaining_len, "Expected condition after '%s'", keyword);
+                     remaining_len, "Expected condition after '%s'", keyword);  // error
         return NULL;
     }
 
-    parser_check_condition(parser, condition, "If");
+    parser_check_condition(parser, condition, "If");  // validate condition
 
     parser->expecting_indented_block = true;
     ASTNode* then_branch = parse_block(parser, true, 
-        (kw_token->type == TOKEN_IF) ? "if" : "elif");
+        (kw_token->type == TOKEN_IF) ? "if" : "elif");  // parse then branch
     
     if (kw_token->type == TOKEN_ELIF) {
-        ASTNode* elif_node = (ASTNode*)malloc(sizeof(ASTNode));
+        ASTNode* elif_node = (ASTNode*)malloc(sizeof(ASTNode));  // create elif node
         elif_node->type = AST_IF_STMT;
         elif_node->line = kw_token->line;
         elif_node->column = kw_token->column;
@@ -2351,14 +2349,14 @@ static ASTNode* parse_if_statement(Parser* parser) {
         return elif_node;
     }
     
-    ASTNode* elif_chain = NULL;
-    ASTNode* else_branch = NULL;
+    ASTNode* elif_chain = NULL;                    // chain of elif clauses
+    ASTNode* else_branch = NULL;                   // else clause
     
     skip_newlines(parser);
     
     ASTNode* elif_tail = NULL;
     
-    while (check(parser, TOKEN_ELIF)) {
+    while (check(parser, TOKEN_ELIF)) {            // parse all elifs
         ASTNode* elif_node = parse_if_statement(parser);
         
         if (!elif_chain) {
@@ -2372,7 +2370,7 @@ static ASTNode* parse_if_statement(Parser* parser) {
         skip_newlines(parser);
     }
     
-    if (match(parser, TOKEN_ELSE)) {
+    if (match(parser, TOKEN_ELSE)) {               // parse else
         parser->expecting_indented_block = true;
         else_branch = parse_block(parser, true, "else");
         if (elif_tail) {
@@ -2393,7 +2391,7 @@ static bool is_valid_import_segment(ApexTokenType type) {
 
 // parses a for loop with range, table, or condition-based iteration
 static ASTNode* parse_for_statement(Parser* parser) {
-    Token* for_kw = advance(parser);
+    Token* for_kw = advance(parser);               // consume 'for'
     skip_newlines(parser);
 
     ASTNode* condition = NULL;
@@ -2403,7 +2401,7 @@ static ASTNode* parse_for_statement(Parser* parser) {
     int var_col = for_kw->column;
     bool is_table_iter = false;
 
-    if (!check(parser, TOKEN_IDENTIFIER)) {
+    if (!check(parser, TOKEN_IDENTIFIER)) {        // not an identifier
         Token* bad_token = current_token(parser);
         int len = bad_token->value ? (int)utf8_char_len(bad_token->value) : 1;
         if (bad_token->type == TOKEN_STRING) {
@@ -2418,95 +2416,95 @@ static ASTNode* parse_for_statement(Parser* parser) {
             default: got = token_type_name(bad_token->type); break;
         }
         parser_error_at(parser, bad_token->line, bad_token->column, len,
-                        "Expected variable name or condition, got %s", got);
+                        "Expected variable name or condition, got %s", got);  // error
         while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
             advance(parser);
         }
         return NULL;
     }
 
-    bool is_loop_var = check_next(parser, TOKEN_EQUAL);
+    bool is_loop_var = check_next(parser, TOKEN_EQUAL);  // check if '=' follows
 
     if (is_loop_var) {
-        Token* id_tok = advance(parser);
+        Token* id_tok = advance(parser);            // consume variable name
         var_line = id_tok->line;
         var_col = id_tok->column;
-        advance(parser);
+        advance(parser);                            // consume '='
         
         var_name = strdup(id_tok->value);
-        start = parse_expression(parser);
+        start = parse_expression(parser);           // parse start value
         
         if (check(parser, TOKEN_COMMA)) {
-            Token* comma_token = advance(parser);
+            Token* comma_token = advance(parser);    // consume comma
             
             if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF) || 
                 check(parser, TOKEN_INDENT)) {
                 parser_error_at(parser, comma_token->line, comma_token->column + 2, 1,
-                            "Expected end value after ','");
+                            "Expected end value after ','");  // error
                 free(var_name);
                 var_name = NULL;
             } else {
-                end = parse_expression(parser);
+                end = parse_expression(parser);     // parse end value
                 if (end) {
-                    parser_check_number_expr(parser, end, "For loop end");
+                    parser_check_number_expr(parser, end, "For loop end");  // validate number
                 }
 
-                if (var_name && match(parser, TOKEN_COMMA)) {
+                if (var_name && match(parser, TOKEN_COMMA)) {  // optional step
                     Token* comma2_token = &parser->tokens[parser->current - 1];
                     if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF) || 
                         check(parser, TOKEN_INDENT)) {
                         parser_error_at(parser, comma2_token->line, comma2_token->column + 2, 1,
-                                    "Expected step value after ','");
+                                    "Expected step value after ','");  // error
                     } else {
-                        step = parse_expression(parser);
+                        step = parse_expression(parser);  // parse step
                         if (step) {
-                            parser_check_number_expr(parser, step, "For loop step");
+                            parser_check_number_expr(parser, step, "For loop step");  // validate number
                             double step_val;
                             if (step && evaluate_numeric_constant(parser, step, &step_val) && step_val == 0.0) {
-                                parser_error_at(parser, step->line, step->column, 0, "For loop step cannot be zero");
+                                parser_error_at(parser, step->line, step->column, 0, "For loop step cannot be zero");  // error
                             }
                         }
                     }
                 }
             }
         } else {
-            is_table_iter = true;
+            is_table_iter = true;                    // table iteration
             if (start && parser->semantic_checks) {
                 ValueType start_type = infer_expression_type(parser, start);
                 if (start_type != TYPE_TABLE && start_type != TYPE_ANY && start_type != TYPE_UNKNOWN) {
                     parser_error_at(parser, start->line, start->column, get_node_len(start),
-                                  "For loop table must be a table, got %s", type_name(start_type));
+                                  "For loop table must be a table, got %s", type_name(start_type));  // error
                 }
             }
         }
     } else {
-        condition = parse_expression(parser);
+        condition = parse_expression(parser);       // parse condition
         if (condition) {
-            parser_check_condition(parser, condition, "For");
+            parser_check_condition(parser, condition, "For");  // validate condition
         }
     }
 
-    parser->loop_depth++;
+    parser->loop_depth++;                           // enter loop
 
-    parser_enter_scope(parser);
+    parser_enter_scope(parser);                    // new scope for loop variable
     if (var_name) {
         ValueType vtype = is_table_iter ? TYPE_ANY : TYPE_NUMBER;
-        parser_declare_symbol(parser, var_name, PARSER_SYM_VARIABLE, vtype, 0, var_line, var_col);
+        parser_declare_symbol(parser, var_name, PARSER_SYM_VARIABLE, vtype, 0, var_line, var_col);  // declare variable
     }
     parser->expecting_indented_block = true;
-    ASTNode* body = parse_block(parser, true, "for");
-    parser_exit_scope(parser);
-    parser->loop_depth--;
+    ASTNode* body = parse_block(parser, true, "for");  // parse loop body
+    parser_exit_scope(parser);                     // exit loop scope
+    parser->loop_depth--;                           // exit loop
 
     ASTNode* result = ast_create_for(var_name, condition, start, end, step, body, for_kw->line, for_kw->column);
-    free(var_name);
+    free(var_name);                                 // free variable name
     return result;
 }
 
 // parses an import statement with module file loading
 static ASTNode* parse_import_statement(Parser* parser) {
-    Token* import_kw = advance(parser);
-    char* module_path = (char*)malloc(128);
+    Token* import_kw = advance(parser);             // consume 'import'
+    char* module_path = (char*)malloc(128);         // module path buffer
     int path_len = 0, path_cap = 128;
     module_path[0] = '\0';
 
@@ -2524,7 +2522,7 @@ static ASTNode* parse_import_statement(Parser* parser) {
     
     if (first->type == TOKEN_NEWLINE || first->type == TOKEN_EOF) {
         parser_error_at(parser, import_kw->line, import_kw->column + 7, 1,
-                       "Expected module name");
+                       "Expected module name");      // error
         free(module_path);
         return NULL;
     }
@@ -2533,21 +2531,21 @@ static ASTNode* parse_import_statement(Parser* parser) {
         int len = first->value ? (int)utf8_char_len(first->value) : 1;
         const char* token_str = first->value ? first->value : token_type_name(first->type);
         parser_error_at(parser, first->line, first->column, len,
-                       "Unexpected token '%s' after import", token_str);
+                       "Unexpected token '%s' after import", token_str);  // error
         while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
             advance(parser);
         }
         free(module_path);
         return NULL;
     }
-    APPEND_PATH(first->value);
+    APPEND_PATH(first->value);                      // add first segment
     advance(parser);
 
     bool is_builtin = is_known_builtin_module(first->value) && 
                       !check(parser, TOKEN_SLASH) && !check(parser, TOKEN_DOT);
 
     if (!is_builtin) {
-        while (match(parser, TOKEN_SLASH)) {
+        while (match(parser, TOKEN_SLASH)) {        // handle path separators
             Token* sep = &parser->tokens[parser->current - 1];
             APPEND_PATH("/");
             Token* next = current_token(parser);
@@ -2556,7 +2554,7 @@ static ASTNode* parse_import_statement(Parser* parser) {
                 advance(parser);
             } else {
                 parser_error_at(parser, sep->line, sep->column + 1, 1,
-                              "Expected module name after '/'");
+                              "Expected module name after '/'");  // error
                 while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
                     advance(parser);
                 }
@@ -2565,7 +2563,7 @@ static ASTNode* parse_import_statement(Parser* parser) {
             }
         }
 
-        if (check(parser, TOKEN_DOT)) {
+        if (check(parser, TOKEN_DOT)) {            // '.apex' extension
             Token* dot_token = current_token(parser);
             advance(parser);
             APPEND_PATH(".");
@@ -2575,7 +2573,7 @@ static ASTNode* parse_import_statement(Parser* parser) {
                 advance(parser);
             } else {
                 parser_error_at(parser, dot_token->line, dot_token->column, 1,
-                              "Import path must end with '.apex'");
+                              "Import path must end with '.apex'");  // error
                 while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
                     advance(parser);
                 }
@@ -2584,7 +2582,7 @@ static ASTNode* parse_import_statement(Parser* parser) {
             }
         } else {
             parser_error_at(parser, first->line, first->column, (int)utf8_char_len(module_path),
-                            "Import path must end with '.apex'");
+                            "Import path must end with '.apex'");  // error
             while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
                 advance(parser);
             }
@@ -2597,7 +2595,7 @@ static ASTNode* parse_import_statement(Parser* parser) {
         Token* extra = current_token(parser);
         int len = extra->value ? (int)utf8_char_len(extra->value) : 1;
         parser_error_at(parser, extra->line, extra->column, len,
-                       "Unexpected token after import");
+                       "Unexpected token after import");  // error
         while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
             advance(parser);
         }
@@ -2608,11 +2606,11 @@ static ASTNode* parse_import_statement(Parser* parser) {
     char* dot_name = (char*)malloc(strlen(module_path) + 1);
     strcpy(dot_name, module_path);
     if (!is_builtin) {
-        dot_name[strlen(dot_name) - 5] = '\0';
+        dot_name[strlen(dot_name) - 5] = '\0';      // remove '.apex'
     }
     
     for (char* p = dot_name; *p; p++) {
-        if (*p == '/') *p = '.';
+        if (*p == '/') *p = '.';                    // convert '/' to '.'
     }
 
     ASTNode* import_node = ast_create_import(dot_name, import_kw->line, import_kw->column);
@@ -2622,7 +2620,7 @@ static ASTNode* parse_import_statement(Parser* parser) {
         strncpy(path_copy, dot_name, sizeof(path_copy) - 1);
         path_copy[sizeof(path_copy) - 1] = '\0';
         
-        char* segment = strtok(path_copy, ".");
+        char* segment = strtok(path_copy, ".");     // split by '.'
         char accumulated[1024] = "";
         
         while (segment) {
@@ -2633,69 +2631,69 @@ static ASTNode* parse_import_statement(Parser* parser) {
             
             if (symbol_index_recursive(parser, accumulated) < 0) {
                 parser_declare_symbol(parser, accumulated, PARSER_SYM_MODULE, 
-                                    TYPE_TABLE, 0, import_kw->line, import_kw->column);
+                                    TYPE_TABLE, 0, import_kw->line, import_kw->column);  // declare module
             }
             
             segment = strtok(NULL, ".");
         }
     }
 
-    if (is_builtin) {
+    if (is_builtin) {                               // builtin module, no file to load
         free(module_path);
         free(dot_name);
         return import_node;
     }
 
     char full_path[PATH_MAX];
-    snprintf(full_path, sizeof(full_path), "%s/%s", parser->source_dir, module_path);
+    snprintf(full_path, sizeof(full_path), "%s/%s", parser->source_dir, module_path);  // build full path
 
-    FILE* f = fopen(full_path, "rb");
+    FILE* f = fopen(full_path, "rb");               // try to open file
     if (!f) {
         parser_error_at(parser, first->line, first->column, (int)utf8_char_len(module_path),
-                        "Module '%s' not found (expected '%s')", dot_name, full_path);
+                        "Module '%s' not found (expected '%s')", dot_name, full_path);  // error
         free(module_path);
         free(dot_name);
         return import_node;
     }
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    char* source = (char*)malloc(size + 1);
-    size_t bytes_read = fread(source, 1, size, f);
+    fseek(f, 0, SEEK_END);                         // seek to end
+    long size = ftell(f);                           // get file size
+    fseek(f, 0, SEEK_SET);                         // seek to start
+    char* source = (char*)malloc(size + 1);         // allocate buffer
+    size_t bytes_read = fread(source, 1, size, f);  // read file
     (void)bytes_read;
-    source[size] = '\0';
+    source[size] = '\0';                            // null terminate
     fclose(f);
 
-    Tokenizer* mod_tok = tokenizer_create(source, full_path);
+    Tokenizer* mod_tok = tokenizer_create(source, full_path);  // tokenize module
     int mod_count;
     Token* mod_tokens = tokenizer_tokenize(mod_tok, &mod_count);
 
     Parser* mod_parser = parser_create(mod_tokens, mod_count, full_path, source);
-    mod_parser->semantic_checks = parser->semantic_checks;
+    mod_parser->semantic_checks = parser->semantic_checks;  // inherit semantic checks
     free(mod_parser->source_dir);
-    mod_parser->source_dir = strdup(parser->source_dir);
+    mod_parser->source_dir = strdup(parser->source_dir);  // inherit source dir
 
-    ASTNode* mod_ast = parse_program(mod_parser);
+    ASTNode* mod_ast = parse_program(mod_parser);   // parse module
 
     if (parser_had_errors(mod_parser)) {
-        parser->error_count += mod_parser->error_count;
+        parser->error_count += mod_parser->error_count;  // accumulate errors
     }
 
-    for (int i = 0; i < mod_parser->symbols.count; i++) {
+    for (int i = 0; i < mod_parser->symbols.count; i++) {  // import symbols
         if (mod_parser->symbols.scope_levels[i] == 0) {
             char full_name[1024];
             snprintf(full_name, sizeof(full_name), "%s.%s", 
-                     dot_name, mod_parser->symbols.names[i]);
+                     dot_name, mod_parser->symbols.names[i]);  // prefix with module name
             
             if (symbol_index_recursive(parser, full_name) < 0) {
                 parser_declare_symbol(parser, full_name, 
                                     mod_parser->symbols.kinds[i],
                                     mod_parser->symbols.types[i],
                                     mod_parser->symbols.param_counts[i],
-                                    import_kw->line, import_kw->column);
+                                    import_kw->line, import_kw->column);  // declare imported symbol
             }
             
-            if (mod_parser->symbols.kinds[i] == PARSER_SYM_MODULE) {
+            if (mod_parser->symbols.kinds[i] == PARSER_SYM_MODULE) {  // nested modules
                 char module_prefix[1024];
                 snprintf(module_prefix, sizeof(module_prefix), "%s.", 
                          mod_parser->symbols.names[i]);
@@ -2713,7 +2711,7 @@ static ASTNode* parse_import_statement(Parser* parser) {
                                                     mod_parser->symbols.kinds[j],
                                                     mod_parser->symbols.types[j],
                                                     mod_parser->symbols.param_counts[j],
-                                                    import_kw->line, import_kw->column);
+                                                    import_kw->line, import_kw->column);  // declare nested symbol
                             }
                         }
                     }
@@ -2722,9 +2720,9 @@ static ASTNode* parse_import_statement(Parser* parser) {
         }
     }
 
-    parser_destroy(mod_parser);
-    tokenizer_destroy(mod_tok);
-    free(source);
+    parser_destroy(mod_parser);                    // clean up module parser
+    tokenizer_destroy(mod_tok);                    // clean up tokenizer
+    free(source);                                  // free source buffer
     
     char* saved_dot_name = strdup(dot_name);
     free(module_path);
@@ -2736,7 +2734,7 @@ static ASTNode* parse_import_statement(Parser* parser) {
         return import_node;
     }
 
-    ast_free_node(import_node);
+    ast_free_node(import_node);                    // free placeholder import
     ASTNode* result = ast_create_module_block(saved_dot_name, mod_ast, import_kw->line, import_kw->column);
     free(saved_dot_name);
     return result;
@@ -2744,17 +2742,17 @@ static ASTNode* parse_import_statement(Parser* parser) {
 
 // parses a return statement
 static ASTNode* parse_return_statement(Parser* parser) {
-    Token* return_kw = advance(parser);
+    Token* return_kw = advance(parser);            // consume 'return'
 
     if (parser->semantic_checks && parser->function_depth == 0) {
         parser_error_at(parser, return_kw->line, return_kw->column, 6,
-            "'return' outside of function");
+            "'return' outside of function");        // error
     }
 
     if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF) || 
         check(parser, TOKEN_DEDENT)) {
         parser_error_at(parser, return_kw->line, return_kw->column + 7, 1,
-                       "Expected return value");
+                       "Expected return value");    // error
         return ast_create_return(NULL, return_kw->line, return_kw->column);
     }
 
@@ -2762,14 +2760,14 @@ static ASTNode* parse_return_statement(Parser* parser) {
         Token* token = current_token(parser);
         int len = token->value ? (int)utf8_char_len(token->value) : 1;
         parser_error_at(parser, token->line, token->column, len,
-                       "Unexpected token after return");
+                       "Unexpected token after return");  // error
         while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
             advance(parser);
         }
         return ast_create_return(NULL, return_kw->line, return_kw->column);
     }
 
-    ASTNode* value = parse_expression(parser);
+    ASTNode* value = parse_expression(parser);     // parse return value
 
     if (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF) && 
         !check(parser, TOKEN_DEDENT)) {
@@ -2779,10 +2777,10 @@ static ASTNode* parse_return_statement(Parser* parser) {
         
         if (extra->type == TOKEN_COMMA && is_valid_expr_start(peek(parser, 1)->type)) {
             parser_error_at(parser, extra->line, extra->column, len,
-                           "Multiple return values are restricted");
+                           "Multiple return values are restricted");  // error
         } else {
             parser_error_at(parser, extra->line, extra->column, len,
-                           "Unexpected token after return");
+                           "Unexpected token after return");  // error
         }
         
         while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
@@ -2795,20 +2793,20 @@ static ASTNode* parse_return_statement(Parser* parser) {
 
 // parses a break statement
 static ASTNode* parse_break_statement(Parser* parser) {
-    Token* break_kw = advance(parser);
+    Token* break_kw = advance(parser);             // consume 'break'
     if (parser->semantic_checks && parser->loop_depth == 0) {
         parser_error_at(parser, break_kw->line, break_kw->column, 5,
-            "'break' outside of loop");
+            "'break' outside of loop");            // error
     }
     return ast_create_node(AST_BREAK_STMT, break_kw->line, break_kw->column);
 }
 
 // parses a continue statement
 static ASTNode* parse_continue_statement(Parser* parser) {
-    Token* cont_kw = advance(parser);
+    Token* cont_kw = advance(parser);              // consume 'continue'
     if (parser->semantic_checks && parser->loop_depth == 0) {
         parser_error_at(parser, cont_kw->line, cont_kw->column, 8,
-            "'continue' outside of loop");
+            "'continue' outside of loop");         // error
     }
     return ast_create_node(AST_CONTINUE_STMT, cont_kw->line, cont_kw->column);
 }
@@ -2817,22 +2815,22 @@ static ASTNode* parse_continue_statement(Parser* parser) {
 static void parser_check_expr_statement(Parser* parser, ASTNode* expr) {
     if (!parser->semantic_checks || !expr) return;
     
-    if (!expr_has_side_effect(expr)) {
+    if (!expr_has_side_effect(expr)) {             // expression has no effect
         int line_len = get_line_length(parser->source, expr->line);
         int len = line_len - (expr->column - 1);
         if (len < 1) len = 1;
         
         parser_error_at(parser, expr->line, expr->column, len,
-                        "Expression statement has no effect");
+                        "Expression statement has no effect");  // warning
     }
 }
 
 // parses a single statement, dispatching by token type
 static ASTNode* parse_statement(Parser* parser) {
-    skip_newlines(parser);
+    skip_newlines(parser);                         // skip whitespace
 
     if (check(parser, TOKEN_EOF)) {
-        return NULL;
+        return NULL;                                // no more tokens
     }
     
     Token* token = current_token(parser);
@@ -2843,7 +2841,7 @@ static ASTNode* parse_statement(Parser* parser) {
             
         case TOKEN_NEWLINE:
             advance(parser);
-            return NULL;
+            return NULL;                             // empty line
             
         case TOKEN_IMPORT:
             return parse_import_statement(parser);
@@ -2863,7 +2861,7 @@ static ASTNode* parse_statement(Parser* parser) {
         case TOKEN_ELSE: {
             advance(parser);
             parser->expecting_indented_block = true;
-            return parse_block(parser, true, "else");
+            return parse_block(parser, true, "else");  // else block
         }
 
         case TOKEN_FOR:
@@ -2880,14 +2878,14 @@ static ASTNode* parse_statement(Parser* parser) {
             
         case TOKEN_IDENTIFIER: {
             if (peek(parser, 1)->type == TOKEN_EQUAL || peek(parser, 1)->type == TOKEN_COMMA) {
-                ASTNode* node = parse_var_decl_or_assign(parser);
+                ASTNode* node = parse_var_decl_or_assign(parser);  // variable declaration or assignment
                 if (node) return node;
                 return NULL;
             }
             
             ASTNode* expr = parse_expression(parser);
             if (expr) {
-                if (check(parser, TOKEN_DOT)) {
+                if (check(parser, TOKEN_DOT)) {    // dot access in statement - error
                     Token* dot = current_token(parser);
                     int dot_line = dot->line;
                     int dot_col = dot->column;
@@ -2898,11 +2896,11 @@ static ASTNode* parse_statement(Parser* parser) {
                         (member->type >= TOKEN_FUNCTION && member->type <= TOKEN_FALSE)) {
                         parser_error_at(parser, member->line, member->column,
                                     member->value ? (int)utf8_char_len(member->value) : 1,
-                            "Dot access is restricted to imported modules. Use bracket notation '[]' for table access.");
+                            "Dot access is restricted to imported modules. Use bracket notation '[]' for table access.");  // error
                         advance(parser);
                     } else {
                         parser_error_at(parser, dot_line, dot_col, 1,
-                            "Dot access is restricted to imported modules. Use bracket notation '[]' for table access.");
+                            "Dot access is restricted to imported modules. Use bracket notation '[]' for table access.");  // error
                     }
                     
                     while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
@@ -2910,7 +2908,7 @@ static ASTNode* parse_statement(Parser* parser) {
                     }
                 }
                 
-                parser_check_expr_statement(parser, expr);
+                parser_check_expr_statement(parser, expr);  // check for side effects
                 return ast_create_expr_stmt(expr);
             }
             return NULL;
@@ -2919,12 +2917,12 @@ static ASTNode* parse_statement(Parser* parser) {
         case TOKEN_INDENT:
         case TOKEN_DEDENT:
             advance(parser);
-            return NULL;
+            return NULL;                             // indentation tokens
 
         default: {
             ASTNode* expr = parse_expression(parser);
             if (expr) {
-                if (check(parser, TOKEN_DOT)) {
+                if (check(parser, TOKEN_DOT)) {    // dot access in statement - error
                     Token* dot = current_token(parser);
                     int dot_line = dot->line;
                     int dot_col = dot->column;
@@ -2935,11 +2933,11 @@ static ASTNode* parse_statement(Parser* parser) {
                         (member->type >= TOKEN_FUNCTION && member->type <= TOKEN_FALSE)) {
                         parser_error_at(parser, member->line, member->column,
                                     member->value ? (int)utf8_char_len(member->value) : 1,
-                            "Dot access is restricted to imported modules. Use bracket notation '[]' for table access.");
+                            "Dot access is restricted to imported modules. Use bracket notation '[]' for table access.");  // error
                         advance(parser);
                     } else {
                         parser_error_at(parser, dot_line, dot_col, 1,
-                            "Dot access is restricted to imported modules. Use bracket notation '[]' for table access.");
+                            "Dot access is restricted to imported modules. Use bracket notation '[]' for table access.");  // error
                     }
                     
                     while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
@@ -2947,7 +2945,7 @@ static ASTNode* parse_statement(Parser* parser) {
                     }
                 }
                 
-                parser_check_expr_statement(parser, expr);
+                parser_check_expr_statement(parser, expr);  // check for side effects
                 return ast_create_expr_stmt(expr);
             }
             advance(parser);
@@ -2958,11 +2956,11 @@ static ASTNode* parse_statement(Parser* parser) {
 
 // parses a block of statements with indentation
 static ASTNode* parse_block(Parser* parser, bool require_indent, const char* after_keyword) {
-    ASTNodeList* statements = ast_list_create();
+    ASTNodeList* statements = ast_list_create();   // statement list
     
     if (require_indent) {
         skip_newlines(parser);
-        if (!match(parser, TOKEN_INDENT)) {
+        if (!match(parser, TOKEN_INDENT)) {        // missing indent
             Token* tok = current_token(parser);
             int line_len = get_line_length(parser->source, tok->line);
             if (line_len == 0) {
@@ -2972,7 +2970,7 @@ static ASTNode* parse_block(Parser* parser, bool require_indent, const char* aft
             if (len < 1) len = 1;
             
             parser_error_at(parser, tok->line, tok->column, len,
-                            "Expected indented block after '%s'", after_keyword ? after_keyword : "block");
+                            "Expected indented block after '%s'", after_keyword ? after_keyword : "block");  // error
             
             while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
                 advance(parser);
@@ -2984,7 +2982,7 @@ static ASTNode* parse_block(Parser* parser, bool require_indent, const char* aft
     }
 
     while (!check(parser, TOKEN_EOF) && !check(parser, TOKEN_DEDENT)) {
-        if (check(parser, TOKEN_INDENT)) {
+        if (check(parser, TOKEN_INDENT)) {         // unexpected indent
             if (!parser->expecting_indented_block) {
                 Token* indent = current_token(parser);
                 
@@ -2993,12 +2991,12 @@ static ASTNode* parse_block(Parser* parser, bool require_indent, const char* aft
                 
                 parser_error_at(parser, indent->line, indent->column,
                               line_len,
-                              "Unexpected indentation");
+                              "Unexpected indentation");  // error
                 
                 advance(parser);
                 ASTNode* stmt = parse_statement(parser);
                 if (stmt) {
-                    ast_free_node(stmt);
+                    ast_free_node(stmt);            // free skipped statement
                 }
                 continue;
             }
@@ -3006,7 +3004,7 @@ static ASTNode* parse_block(Parser* parser, bool require_indent, const char* aft
             continue;
         }
 
-        if (statements->count > 0) {
+        if (statements->count > 0) {               // check for unreachable code
             ASTNode* last = statements->nodes[statements->count - 1];
             bool is_unreachable = (last->type == AST_BREAK_STMT) ||
                                 (last->type == AST_CONTINUE_STMT) ||
@@ -3015,42 +3013,42 @@ static ASTNode* parse_block(Parser* parser, bool require_indent, const char* aft
                 Token* tok = current_token(parser);
                 parser_error_at(parser, tok->line, tok->column, 
                             tok->value ? (int)utf8_char_len(tok->value) : 1,
-                            "Unreachable code after control flow statement");
+                            "Unreachable code after control flow statement");  // warning
             }
         }
 
-        ASTNode* stmt = parse_statement(parser);
+        ASTNode* stmt = parse_statement(parser);    // parse next statement
         if (stmt) {
-            ast_list_add(statements, stmt);
+            ast_list_add(statements, stmt);         // add to block
             parser->expecting_indented_block = false;
         }
         skip_newlines(parser);
     }
-    match(parser, TOKEN_DEDENT);
-    return ast_create_block(statements);
+    match(parser, TOKEN_DEDENT);                   // consume dedent
+    return ast_create_block(statements);           // return block node
 }
 
 // parses the entire program as a sequence of statements
 ASTNode* parse_program(Parser* parser) {
-    ASTNodeList* statements = ast_list_create();
+    ASTNodeList* statements = ast_list_create();   // program statements
     
-    int prev_pos = -1;
+    int prev_pos = -1;                              // prevent infinite loops
     
     while (!check(parser, TOKEN_EOF)) {
         if (parser->current == prev_pos) {
-            break;
+            break;                                  // stuck, exit
         }
         prev_pos = parser->current;
         
-        ASTNode* stmt = parse_statement(parser);
+        ASTNode* stmt = parse_statement(parser);    // parse each statement
         if (stmt) {
-            ast_list_add(statements, stmt);
+            ast_list_add(statements, stmt);         // add to program
         }
         
         skip_newlines(parser);
     }
     
     ASTNode* program = ast_create_block(statements);
-    program->type = AST_PROGRAM;
+    program->type = AST_PROGRAM;                    // mark as program root
     return program;
 }
