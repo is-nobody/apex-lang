@@ -26,15 +26,9 @@ By contributing to Apex, you agree that your contributions will be licensed unde
 
 ## Development Setup
 ### Prerequisites
-- **C Compiler** - The language itself
+- **C Compiler** - For compiling the code
+- **CMake** - For bundling the project
 - **Git** - For version control
-
-### Install Apex
-If you haven't installed Apex yet:
-
-1. Go to the [GitHub releases](https://github.com/is-nobody/apex-lang/releases)
-2. Download the appropriate file for your operating system
-3. Run the downloaded file.
 
 ### Set Up Your Workspace
 Create your own copy of the project:
@@ -67,14 +61,14 @@ Branch naming examples:
 
 ## Understanding the Project
 ### Project Structure
-| Location | Description |
-|----------|-------------|
-| [`main.c`](main.c) | Main entry point |
-| [`source/`](source/) | Source code |
-| [`source/core`](source/core/) | Core components |
-| [`source/libraries/`](source/libraries/) | Built-in libraries |
-| [`source/tests/`](source/tests/) | Test suite |
-| [`resources/`](resources/) | Resources of the project |
+| Location                                 | Description              |
+|------------------------------------------|--------------------------|
+| [`main.c`](main.c)                       | Main entry point         |
+| [`source/`](source/)                     | Source code              |
+| [`source/core`](source/core/)            | Core components          |
+| [`source/libraries/`](source/libraries/) | Built-in libraries       |
+| [`source/tests/`](source/tests/)         | Test suite               |
+| [`resources/`](resources/)               | Resources of the project |
 
 ## Finding a Task
 Before making changes, check these places:
@@ -82,16 +76,6 @@ Before making changes, check these places:
 - **Issues** - Look for issues
 - **Discussions** - Ask questions or suggest ideas
 - **Roadmap** - Check `resources/roadmap.md` for planned features
-
-### Issue Labels
-| Label | Meaning |
-|-------|---------|
-| `bug` | Something isn't working correctly |
-| `enhancement` | New feature or improvement |
-| `documentation` | Docs need updating |
-| `good-first-issue` | Great for new contributors |
-| `help-wanted` | Maintainer seeking assistance |
-| `testing` | Needs tests written |
 
 ## Code Style Rules
 ### Apex Code Style
@@ -109,12 +93,12 @@ Rules to follow:
 ### Commit Messages
 Write clear, descriptive commit messages. Each commit message must include a type prefix:
 
-| Type | Description | Example |
-|------|-------------|---------|
-| `feature` | New feature or functionality | `feature: add division-by-zero check to the calculator` |
-| `fix` | Bug fix | `fix: resolve parser crash on empty input` |
-| `docs` | Documentation updates | `docs: update installation guide for macOS` |
-| `refactor` | Code restructuring (no behavior change) | `refactor: simplify tokenizer loop logic` |
+| Type       | Description                  | Example                                     |
+|------------|------------------------------|---------------------------------------------|
+| `feature`  | New feature or functionality | `feature: json library`                     |
+| `fix`      | Bug fix                      | `fix: resolve parser crash on empty input`  |
+| `docs`     | Documentation updates        | `docs: update installation guide for linux` |
+| `refactor` | Code restructuring           | `refactor: simplify tokenizer loop logic`   |
 
 Format:
 
@@ -227,6 +211,7 @@ Once approved, your changes will be merged
 2. Search existing issues and discussions
 3. Look at similar code in the project
 4. Read the [Apex Reference Manual for Developers](resources/RM_fDevelopers.md)
+5. Check the [Roadmap](resources/roadmap.md)
 
 ### When You Need Help
 1. **Ask in Discussions** - For general questions
