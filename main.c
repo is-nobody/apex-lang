@@ -10,17 +10,22 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <errno.h>
+#include <fcntl.h>
 
 #ifdef _WIN32
 #include <io.h>
 #include <windows.h>
 #include <direct.h>
+#include <share.h>
 #define mkdir(path, mode) _mkdir(path)  // windows uses _mkdir instead of mkdir
 #define isatty _isatty                  // windows uses _isatty instead of isatty
 #define STDIN_FILENO 0                  // stdin file descriptor on windows
+#define stat _stat                      // windows stat
+#define fstat _fstat                    // windows fstat
 #else
 #include <unistd.h>
 #include <limits.h>
+#include <sys/mman.h>
 #endif
 
 #include "execute.h"
@@ -87,7 +92,6 @@ static int execute_embedded_bytecode(int argc, char** argv) {
         return -1;
     }
     
-    // Read payload (payload_size bytes before size)
     long payload_start = file_size - 24 - payload_size;  // calculate start offset of payload data
     if (payload_start < 0) {                             // invalid payload start
         fclose(f);
@@ -142,10 +146,8 @@ static int execute_embedded_bytecode(int argc, char** argv) {
     fclose(out);                            // close temp file
     free(payload);                          // release payload memory
     
-    // Execute the bytecode file
     bool ok = execute_bytecode_file(temp_path, argc, argv, false);  // execute the extracted bytecode
     
-    // Clean up
     remove(temp_path);                      // delete temporary file
     
     return ok ? 0 : 1;                      // return exit code based on success
@@ -154,26 +156,71 @@ static int execute_embedded_bytecode(int argc, char** argv) {
 // executes code piped from stdin
 static int execute_from_stdin(void) {
     char* temp_path = NULL;                 // path to temporary file
-    size_t buf_size = 4096;                 // initial read buffer size
-    size_t total_read = 0;                  // total bytes read from stdin
-    char* data = malloc(buf_size);          // allocate initial read buffer
-    if (!data) return 1;                    // allocation failed
-    size_t n;
-    while ((n = fread(data + total_read, 1, buf_size - total_read - 1, stdin)) > 0) {  // read stdin in chunks
-        total_read += n;                               // accumulate total bytes read
-        if (total_read + 4096 >= buf_size) {           // buffer nearly full, need to grow
-            buf_size *= 2;                             // double buffer size
-            char* new_data = realloc(data, buf_size);  // resize buffer
-            if (!new_data) {                           // realloc failed
-                free(data);                            // free original buffer
-                return 1;                              // return error
+    
+#ifdef _WIN32
+    struct stat st;
+    if (fstat(STDIN_FILENO, &st) == 0 && st.st_size > 0) {        // get stdin size if known
+        char* data = (char*)malloc(st.st_size + 1);               // allocate exact buffer
+        if (!data) return 1;                                      // allocation failed
+        size_t read_bytes = fread(data, 1, st.st_size, stdin);    // read all data
+        data[read_bytes] = '\0';                                  // null terminate
+        temp_path = platform_create_temp_file(data, read_bytes);  // write to temp file
+        free(data);                                               // free buffer
+    } else {
+        size_t buf_size = 4096;                 // initial read buffer size
+        size_t total_read = 0;                  // total bytes read from stdin
+        char* data = malloc(buf_size);          // allocate initial read buffer
+        if (!data) return 1;                    // allocation failed
+        size_t n;
+        while ((n = fread(data + total_read, 1, buf_size - total_read - 1, stdin)) > 0) {  // read stdin in chunks
+            total_read += n;                               // accumulate total bytes read
+            if (total_read + 4096 >= buf_size) {           // buffer nearly full, need to grow
+                buf_size *= 2;                             // double buffer size
+                char* new_data = realloc(data, buf_size);  // resize buffer
+                if (!new_data) {                           // realloc failed
+                    free(data);                            // free original buffer
+                    return 1;                              // return error
+                }
+                data = new_data;                           // update data pointer
             }
-            data = new_data;                           // update data pointer
         }
+        data[total_read] = '\0';                                  // null terminate the input data
+        temp_path = platform_create_temp_file(data, total_read);  // write stdin data to temp file
+        free(data);                                               // free input buffer
     }
-    data[total_read] = '\0';                                  // null terminate the input data
-    temp_path = platform_create_temp_file(data, total_read);  // write stdin data to temp file
-    free(data);                                               // free input buffer
+#else
+    struct stat st;
+    if (fstat(STDIN_FILENO, &st) == 0 && st.st_size > 0) {  // get stdin size if known
+        char* data = (char*)malloc(st.st_size + 1);         // allocate exact buffer
+        if (!data) return 1;                                // allocation failed
+        size_t read_bytes = fread(data, 1, st.st_size, stdin);  // read all data
+        data[read_bytes] = '\0';                            // null terminate
+        temp_path = platform_create_temp_file(data, read_bytes);  // write to temp file
+        free(data);                                         // free buffer
+    } else {
+        size_t buf_size = 4096;                 // initial read buffer size
+        size_t total_read = 0;                  // total bytes read from stdin
+        char* data = malloc(buf_size);          // allocate initial read buffer
+        if (!data) return 1;                    // allocation failed
+        size_t n;
+        while ((n = fread(data + total_read, 1, buf_size - total_read - 1, stdin)) > 0) {  // read stdin in chunks
+            total_read += n;                               // accumulate total bytes read
+            if (total_read + 4096 >= buf_size) {           // buffer nearly full, need to grow
+                buf_size *= 2;                             // double buffer size
+                char* new_data = realloc(data, buf_size);  // resize buffer
+                if (!new_data) {                           // realloc failed
+                    free(data);                            // free original buffer
+                    return 1;                              // return error
+                }
+                data = new_data;                           // update data pointer
+            }
+        }
+        data[total_read] = '\0';                                  // null terminate the input data
+        temp_path = platform_create_temp_file(data, total_read);  // write stdin data to temp file
+        free(data);                                               // free input buffer
+    }
+#endif
+
     if (!temp_path) {                                         // temp file creation failed
         print_error("Cannot create temporary file");          // report error
         return 1;                                             // return error
@@ -184,15 +231,14 @@ static int execute_from_stdin(void) {
     return ok ? 0 : 1;                                             // return exit code based on success
 }
 
-// checks if a file has a given extension
+// checks if a file has a given extension - optimized with strrchr
 static bool has_extension(const char* filename, const char* ext) {
-    size_t len = strlen(filename);                      // filename length
-    size_t ext_len = strlen(ext);                       // extension length
-    if (len < ext_len) return false;                    // filename too short
-    return strcmp(filename + len - ext_len, ext) == 0;  // compare extension
+    const char* dot = strrchr(filename, '.');          // find last dot in filename
+    if (!dot) return false;                            // no extension found
+    return strcmp(dot, ext) == 0;                      // compare extension including dot
 }
 
-// main entry point: checks for embedded bytecode, then commands, then file or repl
+// main entry point: optimized for fast startup
 int main(int argc, char** argv) {
     int embedded_result = execute_embedded_bytecode(argc, argv);  // try to run as embedded binary first
     if (embedded_result >= 0) {
@@ -204,6 +250,15 @@ int main(int argc, char** argv) {
     int cmd_result = handle_commands(argc, argv);  // check for built-in commands (build, compile, etc.)
     if (cmd_result >= 0) {
         return cmd_result;                         // command handled, exit with its result
+    }
+
+    if (argc > 1) {                                // file argument provided
+        const char* filename = argv[1];            // get filename
+        struct stat st;
+        if (stat(filename, &st) != 0) {            // check if file exists
+            print_error("Cannot open file '%s'", filename);  // report error
+            return 1;                              // exit immediately
+        }
     }
 
     int result = 0;                                // default exit code
