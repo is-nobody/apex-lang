@@ -575,7 +575,7 @@ void table_append(Table* table, Value value) {
 bool table_set(Table* table, Value key, Value value) {
     if (IS_NUMBER(key)) {                             // try array part for integer keys
         double num = AS_NUMBER(key);                  // unwrap number
-        if (num >= 1 && num == (int)num) {            // positive integer
+        if (num >= 1 && num <= 2147483647.0 && (int)num == num) {  // positive integer
             int idx = (int)num - 1;                   // convert to 0-based index
             if (table->array_part == NULL) {
                 if (idx < TABLE_ARRAY_INIT * 2) return table_set_int(table, idx, value);  // small index, use array
@@ -638,7 +638,7 @@ bool table_get(Table* table, Value key, Value* out_value) {
     if (!table) return false;                      // guard against null
     if (IS_NUMBER(key)) {                          // try array part for integer keys
         double num = AS_NUMBER(key);               // unwrap number
-        if (num >= 1 && num == (int)num) {         // positive integer
+        if (num >= 1 && num <= 2147483647.0 && (int)num == num) {  // positive integer
             int idx = (int)num - 1;                // convert to 0-based index
             if (table->array_part != NULL && idx < table->array_count) {  // within array bounds
                 if (!IS_NONE(table->array_part[idx])) {                   // slot is occupied
