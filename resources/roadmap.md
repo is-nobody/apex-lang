@@ -5,6 +5,8 @@
 - `network` library
 - `archive` library (zip, 7z, tar: pack/unpack)
 - `\x` escape sequence support
+- `as` keyword as alias for user imports
+- `match`/`case`/`default`
 - Package manager
 - Language server (LSP)
 - Debug mode
@@ -16,13 +18,12 @@
 - GC due to uncontrolled pauses
 - JIT because the main CPU work is on the stdlib written in C
 - AOT because good interpretation is better than bad compilation
-- OOP because Apex must be simple
+- OOP because hidden state makes behavior unpredictable
 - Splitting a `number` to integer and float
 - Exceptions because errors as values is faster and easy
 - Decorators because they add hidden behavior
 - Default parameters because functions must accept exactly the number of arguments they declare
 - Lambdas because functions deserve a name for readability
-- Pattern matching because `if/elif/else` are explicit
 - Closures because functions should be pure and predictable
 - Multiple return values because functions must return exactly one value
 - Multiple assignment because it adds abuse which kills the style
