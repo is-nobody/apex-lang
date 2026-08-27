@@ -401,7 +401,7 @@ function negative_zero_hash()
     assert_equal(t[-0.0], "plus", "t[-0.0] sees same value as t[0.0]")
     
     count = 0
-    for i = t
+    for i in t
         count = count + 1
     assert_equal(count, 1, "negative_zero_hash: only one entry for +/-0.0")
 
@@ -477,7 +477,7 @@ function nan_key_behavior()
     assert_equal(result, "ghost", "nan_key: lookup returns none (NaN != NaN)")
     
     count = 0
-    for i = t
+    for i in t
         count = count + 1
     assert_equal(count, 1, "nan_key: entry exists in table")
     
@@ -502,7 +502,7 @@ function infinity_key_behavior()
     assert_equal(t[1], "one", "inf_key: array_part still works")
     
     count = 0
-    for i = t
+    for i in t
         count = count + 1
     assert_equal(count, 3, "inf_key: three entries total")
 
@@ -532,10 +532,10 @@ function zero_normalization_consistency()
     assert_equal(result2, "another", "zero_norm: set with 0.0, get with -0.0")
     
     count1 = 0
-    for i = t
+    for i in t
         count1 = count1 + 1
     count2 = 0
-    for i = t2
+    for i in t2
         count2 = count2 + 1
     assert_equal(count1, 1, "zero_norm: first table size 1")
     assert_equal(count2, 1, "zero_norm: second table size 1")

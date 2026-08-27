@@ -2529,58 +2529,68 @@ static ASTNode* parse_for_statement(Parser* parser) {
         return NULL;
     }
 
-    bool is_loop_var = check_next(parser, TOKEN_EQUAL);  // check if '=' follows
+    bool is_range_loop = check_next(parser, TOKEN_EQUAL);  // check if '=' follows
+    bool is_table_loop = check_next(parser, TOKEN_IN);     // check if 'in' follows
 
-    if (is_loop_var) {
+    if (is_range_loop || is_table_loop) {
         Token* id_tok = advance(parser);            // consume variable name
         var_line = id_tok->line;
         var_col = id_tok->column;
-        advance(parser);                            // consume '='
-        
         var_name = strdup(id_tok->value);
-        start = parse_expression(parser);           // parse start value
-        
-        if (check(parser, TOKEN_COMMA)) {
-            Token* comma_token = advance(parser);    // consume comma
-            
-            if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF) || 
-                check(parser, TOKEN_INDENT)) {
-                parser_error_at(parser, comma_token->line, comma_token->column + 2, 1,
-                            "Expected end value after ','");  // error
-                free(var_name);
-                var_name = NULL;
-            } else {
-                end = parse_expression(parser);     // parse end value
-                if (end) {
-                    parser_check_number_expr(parser, end, "For loop end");  // validate number
-                }
 
-                if (var_name && match(parser, TOKEN_COMMA)) {  // optional step
-                    Token* comma2_token = &parser->tokens[parser->current - 1];
-                    if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF) || 
-                        check(parser, TOKEN_INDENT)) {
-                        parser_error_at(parser, comma2_token->line, comma2_token->column + 2, 1,
-                                    "Expected step value after ','");  // error
-                    } else {
-                        step = parse_expression(parser);  // parse step
-                        if (step) {
-                            parser_check_number_expr(parser, step, "For loop step");  // validate number
-                            double step_val;
-                            if (step && evaluate_numeric_constant(parser, step, &step_val) && step_val == 0.0) {
-                                parser_error_at(parser, step->line, step->column, 0, "For loop step cannot be zero");  // error
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            is_table_iter = true;                    // table iteration
+        if (is_table_loop) {
+            advance(parser);                        // consume 'in'
+            start = parse_expression(parser);       // parse table expression
+            is_table_iter = true;                   // table iteration
             if (start && parser->semantic_checks) {
                 ValueType start_type = infer_expression_type(parser, start);
                 if (start_type != TYPE_TABLE && start_type != TYPE_ANY && start_type != TYPE_UNKNOWN) {
                     parser_error_at(parser, start->line, start->column, get_node_len(start),
                                   "For loop table must be a table, got %s", type_name(start_type));  // error
                 }
+            }
+        } else {
+            advance(parser);                        // consume '='
+            start = parse_expression(parser);       // parse start value
+            
+            if (check(parser, TOKEN_COMMA)) {
+                Token* comma_token = advance(parser);    // consume comma
+                
+                if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF) || 
+                    check(parser, TOKEN_INDENT)) {
+                    parser_error_at(parser, comma_token->line, comma_token->column + 2, 1,
+                                "Expected end value after ','");  // error
+                    free(var_name);
+                    var_name = NULL;
+                } else {
+                    end = parse_expression(parser);     // parse end value
+                    if (end) {
+                        parser_check_number_expr(parser, end, "For loop end");  // validate number
+                    }
+
+                    if (var_name && match(parser, TOKEN_COMMA)) {  // optional step
+                        Token* comma2_token = &parser->tokens[parser->current - 1];
+                        if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF) || 
+                            check(parser, TOKEN_INDENT)) {
+                            parser_error_at(parser, comma2_token->line, comma2_token->column + 2, 1,
+                                        "Expected step value after ','");  // error
+                        } else {
+                            step = parse_expression(parser);  // parse step
+                            if (step) {
+                                parser_check_number_expr(parser, step, "For loop step");  // validate number
+                                double step_val;
+                                if (step && evaluate_numeric_constant(parser, step, &step_val) && step_val == 0.0) {
+                                    parser_error_at(parser, step->line, step->column, 0, "For loop step cannot be zero");  // error
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                parser_error_at(parser, start->line, start->column + get_node_len(start), 1,
+                                "Expected comma after start value");  // error
+                free(var_name);
+                var_name = NULL;
             }
         }
     } else {

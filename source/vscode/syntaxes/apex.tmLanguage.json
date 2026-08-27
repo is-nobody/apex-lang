@@ -71,7 +71,7 @@
       "patterns": [
         {
           "name": "keyword.control.apex",
-          "match": "\\b(if|elif|else|for|break|continue|return|import|and|or|not)\\b"
+          "match": "\\b(if|elif|else|for|in|break|continue|return|import|and|or|not)\\b"
         }
       ]
     },

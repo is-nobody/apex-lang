@@ -800,7 +800,7 @@ Sometimes you need to do the same thing many times. Print "Hello" ten times. Kee
 | Syntax                | When to Use                    | Example          |
 |-----------------------|--------------------------------|------------------|
 | `for r = start, end`  | You know the exact range       | `for r = 1, 5`   |
-| `for v = table`       | Iterate over table items       | `for v = table`  |
+| `for v in table`      | Iterate over table items       | `for v in table` |
 | `for c == true`       | Repeat while condition is true | `for c == true`  |
 
 ### Blocks and Scoping in Loops
@@ -860,14 +860,14 @@ for i = 5, 1, -1
 This prints 5, 4, 3, 2, 1. The loop stops when the variable goes below the `end` value.
 
 ## 4.2 For Table Iteration
-You can iterate over any table using `for value = table`:
+You can iterate over any table using `for value in table`:
 
 ```apex
 import os
 
 fruits = ["apple", "banana", "cherry"]
 
-for fruit = fruits
+for fruit in fruits
     os.output(fruit)
 ```
 

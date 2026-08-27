@@ -99,7 +99,7 @@ for running == true
 ```apex
 import os
 table = ["apple", "banana", "cherry"]
-for fruit = table    // iterates over values
+for fruit in table    // iterates over values
     os.output(fruit)
 ```
 

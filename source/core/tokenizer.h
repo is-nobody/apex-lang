@@ -21,10 +21,11 @@ typedef enum {
     TOKEN_RETURN,        // 'return' to exit a function with an optional value
     TOKEN_IMPORT,        // 'import' for loading external modules
     TOKEN_CONSTANT,      // 'constant' for declaring immutable variables
+    TOKEN_IN,            // 'in' keyword for table iteration
     TOKEN_AND,           // logical 'and' operator
     TOKEN_OR,            // logical 'or' operator
     TOKEN_NOT,           // logical 'not' operator
-    
+
     TOKEN_NONE,          // 'none' value
     TOKEN_TRUE,          // boolean literal 'true'
     TOKEN_FALSE,         // boolean literal 'false'

@@ -59,12 +59,13 @@ function activate(context) {
                 'if': 'Conditional statement.\n\n```apex\nif condition\n    // code\nelif other_condition\n    // code\nelse\n    // code\n```',
                 'elif': 'Else-if branch in conditional statements.',
                 'else': 'Default branch in conditional statements.',
-                'for': 'Numeric, table, and conditional loops.\n\n```apex\n// Numeric loop\nfor i = 1, 10\nfor i = 10, 1, -1\n\n// Table loop\nfor k = my_table\n\n// Conditional loop\nfor x < 10\n```',
+                'for': 'Numeric, table, and conditional loops.\n\n```apex\n// Numeric loop\nfor i = 1, 10\nfor i = 10, 1, -1\n\n// Table loop\nfor value in my_table\n\n// Conditional loop\nfor x < 10\n```',
                 'return': 'Returns a value from a function.',
                 'break': 'Exits the current loop immediately.',
                 'continue': 'Skips the rest of the current loop iteration.',
-                'constant': 'Declares a constant variable that cannot be reassigned.\n\n```apex\nconstant name = "Apex"\n```',
                 'import': 'Imports a file or library.\n\n```apex\nimport os\nimport utils/math.apex\n```',
+                'constant': 'Declares a constant variable that cannot be reassigned.\n\n```apex\nconstant name = "Apex"\n```',
+                'in': 'Keyword for table iteration in for loops.\n\n```apex\nfor value in table\n    os.output(value)\n```',
                 'and': 'Logical AND operator.',
                 'or': 'Logical OR operator.',
                 'not': 'Logical NOT operator.',
@@ -93,7 +94,7 @@ function activate(context) {
     const completion = vscode.languages.registerCompletionItemProvider('apex', {
         provideCompletionItems() {         // called when user triggers autocomplete
             const keywords = [             // apex language keywords
-                'function', 'if', 'elif', 'else', 'for', 'break',
+                'function', 'if', 'elif', 'else', 'for', 'in', 'break',
                 'continue', 'return', 'import', 'constant', 'and', 'or', 'not',
                 'true', 'false', 'none'
             ];
