@@ -1439,16 +1439,16 @@ else
 ```
 
 ## Base Library (base)
-The Base library provides encoding and decoding functions for Base64 and Base64URL formats. Import it with `import base`.
+The Base library provides encoding and decoding functions for Base16, Base32, Base32Hex, Base64, and Base64URL formats. Import it with `import base`.
 
-### base.encode(data)
+### base.encode_64(data)
 Encodes a string to standard Base64. Returns the encoded string, or `none` on failure.
 
 ```apex
 import os
 import base
 
-encoded = base.encode("Hello, Friend!")
+encoded = base.encode_64("Hello, Friend!")
 
 if encoded == none
     os.output("Encoding failed")
@@ -1456,14 +1456,14 @@ else
     os.output(encoded)  // SGVsbG8sIEZyaWVuZCE=
 ```
 
-### base.decode(data)
+### base.decode_64(data)
 Decodes a standard Base64 string. Returns the decoded string, or `none` on failure.
 
 ```apex
 import os
 import base
 
-decoded = base.decode("SGVsbG8sIEZyaWVuZCE=")
+decoded = base.decode_64("SGVsbG8sIEZyaWVuZCE=")
 
 if decoded == none
     os.output("Decoding failed")
@@ -1471,14 +1471,14 @@ else
     os.output(decoded)  // Hello, Friend!
 ```
 
-### base.url_encode(data)
+### base.encode_64url(data)
 Encodes a string to URL-safe Base64. Returns the encoded string, or `none` on failure.
 
 ```apex
 import os
 import base
 
-encoded = base.url_encode("Hello, Friend!")
+encoded = base.encode_64url("Hello, Friend!")
 
 if encoded == none
     os.output("Encoding failed")
@@ -1486,14 +1486,104 @@ else
     os.output(encoded) // SGVsbG8sIEZyaWVuZCE
 ```
 
-### base.url_decode(data)
+### base.decode_64url(data)
 Decodes a URL-safe Base64 string. Returns the decoded string, or `none` on failure.
 
 ```apex
 import os
 import base
 
-decoded = base.url_decode("SGVsbG8sIEZyaWVuZCE")
+decoded = base.decode_64url("SGVsbG8sIEZyaWVuZCE")
+
+if decoded == none
+    os.output("Decoding failed")
+else
+    os.output(decoded)  // Hello, Friend!
+```
+
+### base.encode_16(data)
+Encodes a string to Base16 (hexadecimal). Returns the encoded string, or `none` on failure.
+
+```apex
+import os
+import base
+
+encoded = base.encode_16("Hello, Friend!")
+
+if encoded == none
+    os.output("Encoding failed")
+else
+    os.output(encoded)  // 48656C6C6F2C20467269656E6421
+```
+
+### base.decode_16(data)
+Decodes a Base16 (hexadecimal) string. Returns the decoded string, or `none` on failure.
+
+```apex
+import os
+import base
+
+decoded = base.decode_16("48656C6C6F2C20467269656E6421")
+
+if decoded == none
+    os.output("Decoding failed")
+else
+    os.output(decoded)  // Hello, Friend!
+```
+
+### base.encode_32(data)
+Encodes a string to standard Base32. Returns the encoded string, or `none` on failure.
+
+```apex
+import os
+import base
+
+encoded = base.encode_32("Hello, Friend!")
+
+if encoded == none
+    os.output("Encoding failed")
+else
+    os.output(encoded)  // JBSWY3DPFQQEM4TJMVXGIII=
+```
+
+### base.decode_32(data)
+Decodes a standard Base32 string. Returns the decoded string, or `none` on failure.
+
+```apex
+import os
+import base
+
+decoded = base.decode_32("JBSWY3DPFQQEM4TJMVXGIII=")
+
+if decoded == none
+    os.output("Decoding failed")
+else
+    os.output(decoded)  // Hello, Friend!
+```
+
+### base.encode_32hex(data)
+Encodes a string to Base32Hex (extended hex alphabet). Returns the encoded string, or `none` on failure.
+
+```apex
+import os
+import base
+
+encoded = base.encode_32hex("Hello, Friend!")
+
+if encoded == none
+    os.output("Encoding failed")
+else
+    os.output(encoded)  // 91IMOR3F5GG4CSJ9CLN6888=
+```
+
+### base.decode_32hex(data)
+Decodes a Base32Hex string. Returns the decoded string, or `none` on failure.
+
+```apex
+import os
+import base
+
+decoded = base.decode_32hex("91IMOR3F5GG4CSJ9CLN6888=")
 
 if decoded == none
     os.output("Decoding failed")

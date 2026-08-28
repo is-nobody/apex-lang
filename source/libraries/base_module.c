@@ -200,6 +200,158 @@ static bool base16_decode(const char* str, unsigned char* out, int* out_len) {
     return true;                                                             // success
 }
 
+// standard base32 character set (RFC 4648)
+static const char b32_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567=";
+
+// encodes binary data to base32 with padding
+static void base32_encode(const unsigned char* data, int len, char* out) {
+    int i = 0, j = 0;                                                        // input and output indices
+    uint64_t buffer = 0;                                                     // bit buffer (64-bit for safety)
+    int bits_left = 0;                                                       // bits remaining
+    
+    while (i < len) {                                                        // iterate over input
+        buffer = (buffer << 8) | data[i++];                                  // add byte
+        bits_left += 8;                                                      // increment bits
+        while (bits_left >= 5) {                                             // extract 5-bit chunks
+            int char_idx = (buffer >> (bits_left - 5)) & 0x1F;               // get 5-bit index
+            out[j++] = b32_chars[char_idx];                                  // append base32 char
+            bits_left -= 5;                                                  // remove processed bits
+        }
+    }
+    
+    if (bits_left > 0) {                                                     // leftover bits
+        int char_idx = (buffer << (5 - bits_left)) & 0x1F;                   // pad with zeros
+        out[j++] = b32_chars[char_idx];                                      // append last char
+    }
+    
+    while (j % 8 != 0) {                                                     // add padding to multiple of 8
+        out[j++] = '=';                                                      // padding char
+    }
+    out[j] = '\0';                                                           // null terminate
+}
+
+// decodes a single base32 character
+static int base32_decode_char(char c) {
+    if (c >= 'A' && c <= 'Z') return c - 'A';                                // uppercase
+    if (c >= 'a' && c <= 'z') return c - 'a';                                // lowercase (case-insensitive)
+    if (c >= '2' && c <= '7') return c - '2' + 26;                           // digits 2-7
+    if (c == '=') return 0;                                                  // padding
+    return -1;                                                               // invalid
+}
+
+// decodes a base32 string into binary data
+static bool base32_decode(const char* str, unsigned char* out, int* out_len) {
+    int len = strlen(str);                                                   // input length
+    if (len == 0) {                                                          // empty input
+        *out_len = 0;                                                        // empty output
+        return true;
+    }
+    
+    uint64_t buffer = 0;                                                     // bit buffer
+    int bits_left = 0;                                                       // bits remaining
+    *out_len = 0;                                                            // output length
+    int padding = 0;                                                         // padding count
+    
+    for (int i = 0; i < len; i++) {                                          // iterate over input
+        if (str[i] == '=') {                                                 // padding
+            padding++;                                                       // count padding
+            continue;                                                        // skip
+        }
+        int val = base32_decode_char(str[i]);                                // decode char
+        if (val < 0) return false;                                           // invalid
+        
+        buffer = (buffer << 5) | val;                                        // add to buffer
+        bits_left += 5;                                                      // increment bits
+        
+        if (bits_left >= 8) {                                                // have enough for byte
+            out[(*out_len)++] = (unsigned char)(buffer >> (bits_left - 8));  // extract byte
+            bits_left -= 8;                                                  // remove processed bits
+        }
+    }
+    
+    // validate padding
+    if (padding > 6) return false;                                          // too much padding
+    if (padding == 0 && len % 8 != 0) return false;                        // no padding, length must be multiple of 8
+    
+    return true;                                                             // success
+}
+
+// extended hex base32 character set (RFC 4648)
+static const char b32hex_chars[] = "0123456789ABCDEFGHIJKLMNOPQRSTUV=";
+
+// encodes binary data to base32hex with padding
+static void base32hex_encode(const unsigned char* data, int len, char* out) {
+    int i = 0, j = 0;                                                        // input and output indices
+    uint64_t buffer = 0;                                                     // bit buffer
+    int bits_left = 0;                                                       // bits remaining
+    
+    while (i < len) {                                                        // iterate over input
+        buffer = (buffer << 8) | data[i++];                                  // add byte
+        bits_left += 8;                                                      // increment bits
+        while (bits_left >= 5) {                                             // extract 5-bit chunks
+            int char_idx = (buffer >> (bits_left - 5)) & 0x1F;               // get 5-bit index
+            out[j++] = b32hex_chars[char_idx];                               // append base32hex char
+            bits_left -= 5;                                                  // remove processed bits
+        }
+    }
+    
+    if (bits_left > 0) {                                                     // leftover bits
+        int char_idx = (buffer << (5 - bits_left)) & 0x1F;                   // pad with zeros
+        out[j++] = b32hex_chars[char_idx];                                   // append last char
+    }
+    
+    while (j % 8 != 0) {                                                     // add padding to multiple of 8
+        out[j++] = '=';                                                      // padding char
+    }
+    out[j] = '\0';                                                           // null terminate
+}
+
+// decodes a single base32hex character
+static int base32hex_decode_char(char c) {
+    if (c >= '0' && c <= '9') return c - '0';                                // digits
+    if (c >= 'A' && c <= 'V') return c - 'A' + 10;                           // uppercase A-V
+    if (c >= 'a' && c <= 'v') return c - 'a' + 10;                           // lowercase a-v
+    if (c == '=') return 0;                                                  // padding
+    return -1;                                                               // invalid
+}
+
+// decodes a base32hex string into binary data
+static bool base32hex_decode(const char* str, unsigned char* out, int* out_len) {
+    int len = strlen(str);                                                   // input length
+    if (len == 0) {                                                          // empty input
+        *out_len = 0;                                                        // empty output
+        return true;
+    }
+    
+    uint64_t buffer = 0;                                                     // bit buffer
+    int bits_left = 0;                                                       // bits remaining
+    *out_len = 0;                                                            // output length
+    int padding = 0;                                                         // padding count
+    
+    for (int i = 0; i < len; i++) {                                          // iterate over input
+        if (str[i] == '=') {                                                 // padding
+            padding++;                                                       // count padding
+            continue;                                                        // skip
+        }
+        int val = base32hex_decode_char(str[i]);                             // decode char
+        if (val < 0) return false;                                           // invalid
+        
+        buffer = (buffer << 5) | val;                                        // add to buffer
+        bits_left += 5;                                                      // increment bits
+        
+        if (bits_left >= 8) {                                                // have enough for byte
+            out[(*out_len)++] = (unsigned char)(buffer >> (bits_left - 8));  // extract byte
+            bits_left -= 8;                                                  // remove processed bits
+        }
+    }
+    
+    // validate padding
+    if (padding > 6) return false;                                          // too much padding
+    if (padding == 0 && len % 8 != 0) return false;                        // no padding, length must be multiple of 8
+    
+    return true;                                                             // success
+}
+
 // main dispatcher for base module built-in functions
 bool base_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     if (strcmp(name, "base.encode_64") == 0) {                               // base64 encode
@@ -301,6 +453,78 @@ bool base_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
         if (!out) { *result = MAKE_NONE(); return true; }                    // allocation failed
         int out_len = 0;                                                     // output length
         if (base16_decode(input_str->chars, out, &out_len)) {                // decode
+            out[out_len] = '\0';                                             // null terminate
+            *result = MAKE_STRING(string_intern(&vm->intern_table, (char*)out, out_len)); // intern result
+        } else {
+            *result = MAKE_NONE();                                           // decode failed
+        }
+        free(out);                                                           // free output
+        return true;                                                         // builtin handled
+    }
+
+    if (strcmp(name, "base.encode_32") == 0) {                               // base32 encode
+        if (arg_count < 1 || !IS_STRING(args[0])) {                          // validate string
+            *result = MAKE_NONE();                                           // invalid
+            return true;                                                     // builtin handled
+        }
+        StringObject* input_str = AS_STRING(args[0]);                        // input string
+        int input_len = input_str->length;                                   // input length
+        int out_size = ((input_len + 4) / 5) * 8 + 1;                        // output size
+        char* out = (char*)malloc(out_size);                                 // allocate output
+        if (!out) { *result = MAKE_NONE(); return true; }                    // allocation failed
+        base32_encode((const unsigned char*)input_str->chars, input_len, out);   // encode
+        *result = MAKE_STRING(string_intern(&vm->intern_table, out, strlen(out)));  // intern result
+        free(out);                                                           // free output
+        return true;                                                         // builtin handled
+    }
+    
+    if (strcmp(name, "base.decode_32") == 0) {                               // base32 decode
+        if (arg_count < 1 || !IS_STRING(args[0])) {                          // validate string
+            *result = MAKE_NONE();                                           // invalid
+            return true;                                                     // builtin handled
+        }
+        StringObject* input_str = AS_STRING(args[0]);                        // input string
+        int input_len = input_str->length;                                   // input length
+        unsigned char* out = (unsigned char*)malloc(input_len + 1);          // allocate output
+        if (!out) { *result = MAKE_NONE(); return true; }                    // allocation failed
+        int out_len = 0;                                                     // output length
+        if (base32_decode(input_str->chars, out, &out_len)) {                // decode
+            out[out_len] = '\0';                                             // null terminate
+            *result = MAKE_STRING(string_intern(&vm->intern_table, (char*)out, out_len)); // intern result
+        } else {
+            *result = MAKE_NONE();                                           // decode failed
+        }
+        free(out);                                                           // free output
+        return true;                                                         // builtin handled
+    }
+
+    if (strcmp(name, "base.encode_32hex") == 0) {                            // base32hex encode
+        if (arg_count < 1 || !IS_STRING(args[0])) {                          // validate string
+            *result = MAKE_NONE();                                           // invalid
+            return true;                                                     // builtin handled
+        }
+        StringObject* input_str = AS_STRING(args[0]);                        // input string
+        int input_len = input_str->length;                                   // input length
+        int out_size = ((input_len + 4) / 5) * 8 + 1;                        // output size
+        char* out = (char*)malloc(out_size);                                 // allocate output
+        if (!out) { *result = MAKE_NONE(); return true; }                    // allocation failed
+        base32hex_encode((const unsigned char*)input_str->chars, input_len, out); // encode
+        *result = MAKE_STRING(string_intern(&vm->intern_table, out, strlen(out)));  // intern result
+        free(out);                                                           // free output
+        return true;                                                         // builtin handled
+    }
+    
+    if (strcmp(name, "base.decode_32hex") == 0) {                            // base32hex decode
+        if (arg_count < 1 || !IS_STRING(args[0])) {                          // validate string
+            *result = MAKE_NONE();                                           // invalid
+            return true;                                                     // builtin handled
+        }
+        StringObject* input_str = AS_STRING(args[0]);                        // input string
+        int input_len = input_str->length;                                   // input length
+        unsigned char* out = (unsigned char*)malloc(input_len + 1);          // allocate output
+        if (!out) { *result = MAKE_NONE(); return true; }                    // allocation failed
+        int out_len = 0;                                                     // output length
+        if (base32hex_decode(input_str->chars, out, &out_len)) {             // decode
             out[out_len] = '\0';                                             // null terminate
             *result = MAKE_STRING(string_intern(&vm->intern_table, (char*)out, out_len)); // intern result
         } else {

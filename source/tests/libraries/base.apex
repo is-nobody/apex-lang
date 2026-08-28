@@ -1,5 +1,5 @@
 // source/tests/libraries/base.apex
-// Implementation of Base Library Tests for Apex language
+// Implementation of Base Library tests for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
 
@@ -150,13 +150,113 @@ function base16_known_values()
     decoded7 = base.decode_16("666F6F626172")
     assert_equal(decoded7, "foobar", "base16 decode '666F6F626172'")
     
-    // Test lowercase hex decoding
+    // test lowercase hex decoding
     decoded_lower = base.decode_16("666f6f626172")
     assert_equal(decoded_lower, "foobar", "base16 decode lowercase hex")
     
-    // Test mixed case hex decoding
+    // test mixed case hex decoding
     decoded_mixed = base.decode_16("666F6f626172")
     assert_equal(decoded_mixed, "foobar", "base16 decode mixed case hex")
+
+// test: base32 encoding with rfc 4648 test vectors
+function base32_known_values()
+    // rfc 4648 Section 10 test vectors for base32
+    encoded1 = base.encode_32("")
+    assert_equal(encoded1, "", "base32 encode empty string")
+    
+    encoded2 = base.encode_32("f")
+    assert_equal(encoded2, "MY======", "base32 encode 'f'")
+    
+    encoded3 = base.encode_32("fo")
+    assert_equal(encoded3, "MZXQ====", "base32 encode 'fo'")
+    
+    encoded4 = base.encode_32("foo")
+    assert_equal(encoded4, "MZXW6===", "base32 encode 'foo'")
+    
+    encoded5 = base.encode_32("foob")
+    assert_equal(encoded5, "MZXW6YQ=", "base32 encode 'foob'")
+    
+    encoded6 = base.encode_32("fooba")
+    assert_equal(encoded6, "MZXW6YTB", "base32 encode 'fooba'")
+    
+    encoded7 = base.encode_32("foobar")
+    assert_equal(encoded7, "MZXW6YTBOI======", "base32 encode 'foobar'")
+    
+    // rfc 4648 decoding test vectors
+    decoded1 = base.decode_32("")
+    assert_equal(decoded1, "", "base32 decode empty string")
+    
+    decoded2 = base.decode_32("MY======")
+    assert_equal(decoded2, "f", "base32 decode 'MY======'")
+    
+    decoded3 = base.decode_32("MZXQ====")
+    assert_equal(decoded3, "fo", "base32 decode 'MZXQ===='")
+    
+    decoded4 = base.decode_32("MZXW6===")
+    assert_equal(decoded4, "foo", "base32 decode 'MZXW6==='")
+    
+    decoded5 = base.decode_32("MZXW6YQ=")
+    assert_equal(decoded5, "foob", "base32 decode 'MZXW6YQ='")
+    
+    decoded6 = base.decode_32("MZXW6YTB")
+    assert_equal(decoded6, "fooba", "base32 decode 'MZXW6YTB'")
+    
+    decoded7 = base.decode_32("MZXW6YTBOI======")
+    assert_equal(decoded7, "foobar", "base32 decode 'MZXW6YTBOI======'")
+    
+    // test lowercase decoding (case-insensitive)
+    decoded_lower = base.decode_32("mzxw6ytboi======")
+    assert_equal(decoded_lower, "foobar", "base32 decode lowercase")
+
+// test: base32hex encoding with rfc 4648 test vectors
+function base32hex_known_values()
+    // rfc 4648 Section 10 test vectors for base32hex
+    encoded1 = base.encode_32hex("")
+    assert_equal(encoded1, "", "base32hex encode empty string")
+    
+    encoded2 = base.encode_32hex("f")
+    assert_equal(encoded2, "CO======", "base32hex encode 'f'")
+    
+    encoded3 = base.encode_32hex("fo")
+    assert_equal(encoded3, "CPNG====", "base32hex encode 'fo'")
+    
+    encoded4 = base.encode_32hex("foo")
+    assert_equal(encoded4, "CPNMU===", "base32hex encode 'foo'")
+    
+    encoded5 = base.encode_32hex("foob")
+    assert_equal(encoded5, "CPNMUOG=", "base32hex encode 'foob'")
+    
+    encoded6 = base.encode_32hex("fooba")
+    assert_equal(encoded6, "CPNMUOJ1", "base32hex encode 'fooba'")
+    
+    encoded7 = base.encode_32hex("foobar")
+    assert_equal(encoded7, "CPNMUOJ1E8======", "base32hex encode 'foobar'")
+    
+    // rfc 4648 decoding test vectors
+    decoded1 = base.decode_32hex("")
+    assert_equal(decoded1, "", "base32hex decode empty string")
+    
+    decoded2 = base.decode_32hex("CO======")
+    assert_equal(decoded2, "f", "base32hex decode 'CO======'")
+    
+    decoded3 = base.decode_32hex("CPNG====")
+    assert_equal(decoded3, "fo", "base32hex decode 'CPNG===='")
+    
+    decoded4 = base.decode_32hex("CPNMU===")
+    assert_equal(decoded4, "foo", "base32hex decode 'CPNMU==='")
+    
+    decoded5 = base.decode_32hex("CPNMUOG=")
+    assert_equal(decoded5, "foob", "base32hex decode 'CPNMUOG='")
+    
+    decoded6 = base.decode_32hex("CPNMUOJ1")
+    assert_equal(decoded6, "fooba", "base32hex decode 'CPNMUOJ1'")
+    
+    decoded7 = base.decode_32hex("CPNMUOJ1E8======")
+    assert_equal(decoded7, "foobar", "base32hex decode 'CPNMUOJ1E8======'")
+    
+    // test lowercase decoding (case-insensitive)
+    decoded_lower = base.decode_32hex("cpnmuoj1e8======")
+    assert_equal(decoded_lower, "foobar", "base32hex decode lowercase")
 
 // test: base64_decode rejects invalid base64 characters
 function base64_invalid_input()
@@ -184,13 +284,37 @@ function base16_invalid_input()
     result2 = base.decode_16(invalid_hex_odd)
     assert_equal(type(result2), "none", "base16_decode odd length returns none")
 
+// test: base32_decode rejects invalid base32 characters
+function base32_invalid_input()
+    invalid_b32 = "ABC!DEF"
+    result = base.decode_32(invalid_b32)
+    assert_equal(type(result), "none", "base32_decode invalid char returns none")
+    
+    invalid_b32_2 = "ABC1DEF"
+    result2 = base.decode_32(invalid_b32_2)
+    assert_equal(type(result2), "none", "base32_decode invalid char 1 returns none")
+
+// test: base32hex_decode rejects invalid base32hex characters
+function base32hex_invalid_input()
+    invalid_b32hex = "ABC!DEF"
+    result = base.decode_32hex(invalid_b32hex)
+    assert_equal(type(result), "none", "base32hex_decode invalid char returns none")
+    
+    invalid_b32hex_2 = "WXYZ1234"
+    result2 = base.decode_32hex(invalid_b32hex_2)
+    assert_equal(type(result2), "none", "base32hex_decode invalid char W returns none")
+
 // execute all base library test cases
 base64_known_values()
 base64url_known_values()
 base16_known_values()
+base32_known_values()
+base32hex_known_values()
 base64_invalid_input()
 base64url_invalid_input()
 base16_invalid_input()
+base32_invalid_input()
+base32hex_invalid_input()
 
 // report completion of base library tests
 os.output("[PASS] libraries/base.apex")
