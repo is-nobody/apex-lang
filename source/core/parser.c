@@ -1170,6 +1170,25 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
             return TYPE_ANY;                       // builtin return type any
         }
 
+        // check if this is a dotted name on a known builtin module
+        char root_module[64] = {0};
+        const char* dot_pos = strchr(func_name, '.');
+        if (dot_pos) {
+            size_t root_len = dot_pos - func_name;
+            if (root_len < sizeof(root_module)) {
+                strncpy(root_module, func_name, root_len);
+                root_module[root_len] = '\0';
+                
+                if (is_known_builtin_module(root_module)) {  // unknown function on builtin module
+                    int err_len = get_node_len(node->call.callee);
+                    parser_error_at(parser, node->call.callee->line, node->call.callee->column,
+                        err_len > 0 ? err_len : 1,
+                        "Unknown function '%s' in module '%s'", func_name, root_module);  // error
+                    return TYPE_ANY;
+                }
+            }
+        }
+
         int sym_idx = symbol_index_recursive(parser, func_name);  // find user function
         if (sym_idx >= 0 && parser->symbols.kinds[sym_idx] == PARSER_SYM_FUNCTION) {
             int expected = parser->symbols.param_counts[sym_idx];
@@ -1182,20 +1201,13 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
             return TYPE_ANY;                       // user function return type any
         }
 
-        char root_module[64] = {0};
-        const char* dot_pos = strchr(func_name, '.');
-        if (dot_pos) {
-            size_t root_len = dot_pos - func_name;
-            if (root_len < sizeof(root_module)) {
-                strncpy(root_module, func_name, root_len);
-                root_module[root_len] = '\0';
-                
-                if (is_known_builtin_module(root_module)) {
-                    if (check_builtin_module_imported(parser, node->call.callee, root_module)) {
-                        return TYPE_ANY;           // module not imported
-                    }
-                }
-            }
+        // check for variable being called as function
+        if (sym_idx >= 0 && parser->symbols.kinds[sym_idx] != PARSER_SYM_FUNCTION) {
+            int err_len = get_node_len(node->call.callee);
+            parser_error_at(parser, node->call.callee->line, node->call.callee->column,
+                err_len > 0 ? err_len : 1,
+                "'%s' is not a function", func_name);  // error
+            return TYPE_ANY;
         }
     }
 
