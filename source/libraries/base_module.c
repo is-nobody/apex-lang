@@ -156,79 +156,159 @@ static bool base64url_decode(const char* str, unsigned char* out, int* out_len) 
     return true;                                                             // success
 }
 
+// hexadecimal character set for base16 encoding
+static const char b16_chars[] = "0123456789ABCDEF";
+
+// encodes binary data to base16 (hexadecimal)
+static void base16_encode(const unsigned char* data, int len, char* out) {
+    for (int i = 0; i < len; i++) {                                          // iterate over input bytes
+        out[i * 2] = b16_chars[(data[i] >> 4) & 0x0F];                       // high nibble
+        out[i * 2 + 1] = b16_chars[data[i] & 0x0F];                          // low nibble
+    }
+    out[len * 2] = '\0';                                                     // null terminate
+}
+
+// decodes a single hexadecimal character
+static int base16_decode_char(char c) {
+    if (c >= '0' && c <= '9') return c - '0';                                // digits
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;                           // uppercase
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;                           // lowercase
+    return -1;                                                               // invalid
+}
+
+// decodes a base16 (hexadecimal) string into binary data
+static bool base16_decode(const char* str, unsigned char* out, int* out_len) {
+    int len = strlen(str);                                                   // input length
+    if (len == 0) {                                                          // empty input
+        *out_len = 0;                                                        // empty output
+        return true;
+    }
+    
+    if (len % 2 != 0) return false;                                          // must be even length
+    
+    *out_len = 0;                                                            // output length
+    
+    for (int i = 0; i < len; i += 2) {                                       // iterate over pairs
+        int high = base16_decode_char(str[i]);                               // decode high nibble
+        int low = base16_decode_char(str[i + 1]);                            // decode low nibble
+        
+        if (high < 0 || low < 0) return false;                              // invalid character
+        
+        out[(*out_len)++] = (unsigned char)((high << 4) | low);              // combine nibbles
+    }
+    
+    return true;                                                             // success
+}
+
 // main dispatcher for base module built-in functions
 bool base_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
-    if (strcmp(name, "base.encode") == 0) {                                      // base64 encode
-        if (arg_count < 1 || !IS_STRING(args[0])) {                              // validate string
-            *result = MAKE_NONE();                                               // invalid
-            return true;                                                         // builtin handled
+    if (strcmp(name, "base.encode_64") == 0) {                               // base64 encode
+        if (arg_count < 1 || !IS_STRING(args[0])) {                          // validate string
+            *result = MAKE_NONE();                                           // invalid
+            return true;                                                     // builtin handled
         }
-        StringObject* input_str = AS_STRING(args[0]);                            // input string
-        int input_len = input_str->length;                                       // input length
-        int out_size = ((input_len + 2) / 3) * 4 + 1;                            // output size
-        char* out = (char*)malloc(out_size);                                     // allocate output
-        if (!out) { *result = MAKE_NONE(); return true; }                        // allocation failed
+        StringObject* input_str = AS_STRING(args[0]);                        // input string
+        int input_len = input_str->length;                                   // input length
+        int out_size = ((input_len + 2) / 3) * 4 + 1;                        // output size
+        char* out = (char*)malloc(out_size);                                 // allocate output
+        if (!out) { *result = MAKE_NONE(); return true; }                    // allocation failed
         base64_encode((const unsigned char*)input_str->chars, input_len, out);   // encode
         *result = MAKE_STRING(string_intern(&vm->intern_table, out, strlen(out)));  // intern result
-        free(out);                                                               // free output
-        return true;                                                             // builtin handled
+        free(out);                                                           // free output
+        return true;                                                         // builtin handled
     }
     
-    if (strcmp(name, "base.decode") == 0) {                                      // base64 decode
-        if (arg_count < 1 || !IS_STRING(args[0])) {                              // validate string
-            *result = MAKE_NONE();                                               // invalid
-            return true;                                                         // builtin handled
+    if (strcmp(name, "base.decode_64") == 0) {                               // base64 decode
+        if (arg_count < 1 || !IS_STRING(args[0])) {                          // validate string
+            *result = MAKE_NONE();                                           // invalid
+            return true;                                                     // builtin handled
         }
-        StringObject* input_str = AS_STRING(args[0]);                            // input string
-        int input_len = input_str->length;                                       // input length
-        unsigned char* out = (unsigned char*)malloc(input_len + 1);              // allocate output
-        if (!out) { *result = MAKE_NONE(); return true; }                        // allocation failed
-        int out_len = 0;                                                         // output length
-        if (base64_decode(input_str->chars, out, &out_len)) {                    // decode
-            out[out_len] = '\0';                                                 // null terminate
+        StringObject* input_str = AS_STRING(args[0]);                        // input string
+        int input_len = input_str->length;                                   // input length
+        unsigned char* out = (unsigned char*)malloc(input_len + 1);          // allocate output
+        if (!out) { *result = MAKE_NONE(); return true; }                    // allocation failed
+        int out_len = 0;                                                     // output length
+        if (base64_decode(input_str->chars, out, &out_len)) {                // decode
+            out[out_len] = '\0';                                             // null terminate
             *result = MAKE_STRING(string_intern(&vm->intern_table, (char*)out, out_len)); // intern result
         } else {
-            *result = MAKE_NONE();                                               // decode failed
+            *result = MAKE_NONE();                                           // decode failed
         }
-        free(out);                                                               // free output
-        return true;                                                             // builtin handled
+        free(out);                                                           // free output
+        return true;                                                         // builtin handled
     }
 
-    if (strcmp(name, "base.url_encode") == 0) {                                  // base64url encode
-        if (arg_count < 1 || !IS_STRING(args[0])) {                              // validate string
-            *result = MAKE_NONE();                                               // invalid
-            return true;                                                         // builtin handled
+    if (strcmp(name, "base.encode_64url") == 0) {                            // base64url encode
+        if (arg_count < 1 || !IS_STRING(args[0])) {                          // validate string
+            *result = MAKE_NONE();                                           // invalid
+            return true;                                                     // builtin handled
         }
-        StringObject* input_str = AS_STRING(args[0]);                            // input string
-        int input_len = input_str->length;                                       // input length
-        int out_size = ((input_len + 2) / 3) * 4 + 1;                            // output size
-        char* out = (char*)malloc(out_size);                                     // allocate output
-        if (!out) { *result = MAKE_NONE(); return true; }                        // allocation failed
+        StringObject* input_str = AS_STRING(args[0]);                        // input string
+        int input_len = input_str->length;                                   // input length
+        int out_size = ((input_len + 2) / 3) * 4 + 1;                        // output size
+        char* out = (char*)malloc(out_size);                                 // allocate output
+        if (!out) { *result = MAKE_NONE(); return true; }                    // allocation failed
         base64url_encode((const unsigned char*)input_str->chars, input_len, out); // encode
         *result = MAKE_STRING(string_intern(&vm->intern_table, out, strlen(out))); // intern result
-        free(out);                                                               // free output
-        return true;                                                             // builtin handled
+        free(out);                                                           // free output
+        return true;                                                         // builtin handled
     }
     
-    if (strcmp(name, "base.url_decode") == 0) {                                  // base64url decode
-        if (arg_count < 1 || !IS_STRING(args[0])) {                              // validate string
-            *result = MAKE_NONE();                                               // invalid
-            return true;                                                         // builtin handled
+    if (strcmp(name, "base.decode_64url") == 0) {                            // base64url decode
+        if (arg_count < 1 || !IS_STRING(args[0])) {                          // validate string
+            *result = MAKE_NONE();                                           // invalid
+            return true;                                                     // builtin handled
         }
-        StringObject* input_str = AS_STRING(args[0]);                            // input string
-        int input_len = input_str->length;                                       // input length
-        unsigned char* out = (unsigned char*)malloc(input_len + 1);              // allocate output
-        if (!out) { *result = MAKE_NONE(); return true; }                        // allocation failed
-        int out_len = 0;                                                         // output length
-        if (base64url_decode(input_str->chars, out, &out_len)) {                 // decode
-            out[out_len] = '\0';                                                 // null terminate
+        StringObject* input_str = AS_STRING(args[0]);                        // input string
+        int input_len = input_str->length;                                   // input length
+        unsigned char* out = (unsigned char*)malloc(input_len + 1);          // allocate output
+        if (!out) { *result = MAKE_NONE(); return true; }                    // allocation failed
+        int out_len = 0;                                                     // output length
+        if (base64url_decode(input_str->chars, out, &out_len)) {             // decode
+            out[out_len] = '\0';                                             // null terminate
             *result = MAKE_STRING(string_intern(&vm->intern_table, (char*)out, out_len));  // intern result
         } else {
-            *result = MAKE_NONE();                                               // decode failed
+            *result = MAKE_NONE();                                           // decode failed
         }
-        free(out);                                                               // free output
-        return true;                                                             // builtin handled
+        free(out);                                                           // free output
+        return true;                                                         // builtin handled
     }
 
-    return false;                                                                // not a recognized builtin
+    if (strcmp(name, "base.encode_16") == 0) {                               // base16 (hex) encode
+        if (arg_count < 1 || !IS_STRING(args[0])) {                          // validate string
+            *result = MAKE_NONE();                                           // invalid
+            return true;                                                     // builtin handled
+        }
+        StringObject* input_str = AS_STRING(args[0]);                        // input string
+        int input_len = input_str->length;                                   // input length
+        int out_size = input_len * 2 + 1;                                    // output size (2 chars per byte + null)
+        char* out = (char*)malloc(out_size);                                 // allocate output
+        if (!out) { *result = MAKE_NONE(); return true; }                    // allocation failed
+        base16_encode((const unsigned char*)input_str->chars, input_len, out); // encode
+        *result = MAKE_STRING(string_intern(&vm->intern_table, out, strlen(out))); // intern result
+        free(out);                                                           // free output
+        return true;                                                         // builtin handled
+    }
+    
+    if (strcmp(name, "base.decode_16") == 0) {                               // base16 (hex) decode
+        if (arg_count < 1 || !IS_STRING(args[0])) {                          // validate string
+            *result = MAKE_NONE();                                           // invalid
+            return true;                                                     // builtin handled
+        }
+        StringObject* input_str = AS_STRING(args[0]);                        // input string
+        int input_len = input_str->length;                                   // input length
+        unsigned char* out = (unsigned char*)malloc(input_len / 2 + 1);      // allocate output
+        if (!out) { *result = MAKE_NONE(); return true; }                    // allocation failed
+        int out_len = 0;                                                     // output length
+        if (base16_decode(input_str->chars, out, &out_len)) {                // decode
+            out[out_len] = '\0';                                             // null terminate
+            *result = MAKE_STRING(string_intern(&vm->intern_table, (char*)out, out_len)); // intern result
+        } else {
+            *result = MAKE_NONE();                                           // decode failed
+        }
+        free(out);                                                           // free output
+        return true;                                                         // builtin handled
+    }
+
+    return false;                                                            // not a recognized builtin
 }

@@ -276,8 +276,9 @@ static const BuiltinSig BUILTINS[] = {
     
     {"hex.encode",   1, 1, TYPE_STRING}, {"hex.decode",  1, 1, TYPE_STRING},
     
-    {"base.encode",        1, 1, TYPE_STRING}, {"base.decode",        1, 1, TYPE_STRING},
-    {"base.url_encode",    1, 1, TYPE_STRING}, {"base.url_decode",    1, 1, TYPE_STRING},
+    {"base.encode_64",     1, 1, TYPE_STRING}, {"base.decode_64",     1, 1, TYPE_STRING},
+    {"base.encode_64url",  1, 1, TYPE_STRING}, {"base.decode_64url",  1, 1, TYPE_STRING},
+    {"base.encode_16",     1, 1, TYPE_STRING}, {"base.decode_16",     1, 1, TYPE_STRING},
 
     {"regex.find_all", 2, 3, TYPE_STRING},  {"regex.replace",    3, 4, TYPE_STRING},
     {"regex.split",   2, 3, TYPE_STRING},  {"regex.search", 2, 3, TYPE_STRING},

@@ -179,8 +179,9 @@ function activate(context) {
                 
                 'hex.encode',            'hex.decode',
 
-                'base.encode',           'base.decode',
-                'base.url_encode',       'base.url_decode',
+                'base.encode_64',        'base.decode_64',
+                'base.encode_64url',     'base.decode_64url',
+                'base.encode_16',        'base.decode_16',
 
                 'regex.find_all', 'regex.replace',
                 'regex.split',   'regex.search',
