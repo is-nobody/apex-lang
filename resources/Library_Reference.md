@@ -1367,10 +1367,10 @@ else
 ```
 
 ## CSV Library (csv)
-The CSV library provides encoding and decoding functions for CSV format. Import it with `import csv`.
+The CSV library provides encoding and decoding functions for RFC 4180 compliant CSV format. Import it with `import csv`.
 
-### csv.encode(table, has_header, delimiter)
-Converts a table of tables to a CSV string. `has_header` (bool) determines if the first row is treated as headers. `delimiter` (string) specifies the separator (default `,`). Returns the CSV string, or `none` on failure.
+### csv.encode(table)
+Converts a table of tables to a CSV string. The first row's keys are used as column headers. Returns the CSV string, or `none` on failure.
 
 ```apex
 import os
@@ -1381,7 +1381,7 @@ data = [
     2 = ["name" = "Bob", "age" = 25]
 ]
 
-csv_str = csv.encode(data, true, ",")
+csv_str = csv.encode(data)
 
 if csv_str == none
     os.output("CSV encoding failed")
@@ -1389,15 +1389,15 @@ else
     os.output(csv_str)
 ```
 
-### csv.decode(csv_string, has_header, delimiter)
-Parses a CSV string into a table of tables. `has_header` (bool) determines if the first row contains column names. `delimiter` (string) specifies the separator (default `,`). Returns a table of rows, or `none` on failure.
+### csv.decode(csv_string)
+Parses an RFC 4180 compliant CSV string into a table of tables. The first row is used as column headers for all subsequent rows. Returns a table of rows, or `none` on failure.
 
 ```apex
 import os
 import csv
 
 csv_str = "name,age\nAlice,30\nBob,25"
-data = csv.decode(csv_str, true, ",")
+data = csv.decode(csv_str)
 
 if data == none
     os.output("CSV parsing failed")

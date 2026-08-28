@@ -272,7 +272,7 @@ static const BuiltinSig BUILTINS[] = {
     
     {"xml.decode",   1, 1, TYPE_STRING}, {"xml.encode",  1, 1, TYPE_TABLE},
     
-    {"csv.decode",   1, 3, TYPE_STRING}, {"csv.encode",  1, 3, TYPE_TABLE},
+    {"csv.decode",   1, 1, TYPE_STRING}, {"csv.encode",  1, 1, TYPE_TABLE},
     
     {"hex.encode",   1, 1, TYPE_STRING}, {"hex.decode",  1, 1, TYPE_STRING},
     
