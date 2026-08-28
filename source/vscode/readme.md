@@ -44,6 +44,15 @@ Execute your current Apex file directly from VS Code:
 3. Open any file with the `.apex` extension.
 
 ## Release Notes
+### 26.08 (August 31, 2026)
+- Added `in` and `constant` keywords with syntax highlighting, IntelliSense, and hover documentation.
+- Expanded standard library support: added `json`, `xml`, `csv`, `regex`, and `crypto` modules.
+- Added `base` module with encoding functions for Base16/32/32hex/62/64/64url/85.
+- Replaced `codecs` module with modular libraries (`json`, `xml`, `csv`, `base`).
+- Updated standard library function names (e.g., `os.current_folder` instead of `os.get_current_folder`).
+- Improved hover documentation with a shared library description system.
+- Added syntax highlighting for new libraries in `library-call` pattern.
+
 ### 26.07 (July 31, 2026)
 - Syntax highlighting for shebang (`#!`) at the beginning of scripts.
 - Indentation-based folding for code blocks.
