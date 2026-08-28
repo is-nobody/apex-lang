@@ -184,6 +184,8 @@ function activate(context) {
                 'base.encode_16',        'base.decode_16',
                 'base.encode_32',        'base.decode_32',
                 'base.encode_32hex',     'base.decode_32hex',
+                'base.encode_62',        'base.decode_62',
+                'base.encode_85',        'base.decode_85',
 
                 'regex.find_all', 'regex.replace',
                 'regex.split',   'regex.search',

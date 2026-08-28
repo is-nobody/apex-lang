@@ -1591,6 +1591,66 @@ else
     os.output(decoded)  // Hello, Friend!
 ```
 
+### base.encode_62(data)
+Encodes a string to Base62 (alphanumeric characters 0-9, A-Z, a-z). Returns the encoded string, or `none` on failure.
+
+```apex
+import os
+import base
+
+encoded = base.encode_62("Hello, Friend!")
+
+if encoded == none
+    os.output("Encoding failed")
+else
+    os.output(encoded)  // 80nEsxhzYSyNfj8Z0hl
+```
+
+### base.decode_62(data)
+Decodes a Base62 string. Returns the decoded string, or `none` on failure.
+
+```apex
+import os
+import base
+
+decoded = base.decode_62("80nEsxhzYSyNfj8Z0hl")
+
+if decoded == none
+    os.output("Decoding failed")
+else
+    os.output(decoded)  // Hello, Friend!
+```
+
+### base.encode_85(data)
+Encodes a string to Ascii85 (also known as Base85). Returns the encoded string, or `none` on failure.
+
+```apex
+import os
+import base
+
+encoded = base.encode_85("Hello, Friend!")
+
+if encoded == none
+    os.output("Encoding failed")
+else
+    os.output(encoded)  // 87cURD_*##EbT*&A0C
+```
+
+### base.decode_85(data)
+Decodes an Ascii85 string. Returns the decoded string, or `none` on failure.
+
+```apex
+import os
+import base
+
+decoded = base.decode_85("87cURD_*##EbT*&A0C")
+
+if decoded == none
+    os.output("Decoding failed")
+else
+    os.output(decoded)  // Hello, Friend!
+```
+
 ## Regex Library (regex)
 The Regex library provides functions for working with regular expressions: searching, matching, replacing, and splitting text. Import it with `import regex`.
 
