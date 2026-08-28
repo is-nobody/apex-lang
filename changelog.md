@@ -28,7 +28,7 @@
 - Nested block depth limits (512 functions, 512 loops)
 
 ## Built-in Modules
-`os`, `sys`, `math`, `string`, `table`, `ffi`, `random`, `json`, `xml`, `csv`, `hex`, `base`, `regex`, `crypto`
+`os`, `sys`, `math`, `string`, `table`, `ffi`, `random`, `json`, `xml`, `csv`, `base`, `regex`, `crypto`
 
 ## Tooling
 - Cross-platform: Windows, Linux, macOS

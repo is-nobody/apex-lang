@@ -1405,39 +1405,6 @@ else
     os.output("First name: {data[1]['name']}")
 ```
 
-## Hex Library (hex)
-The Hex library provides encoding and decoding functions for hexadecimal format. Import it with `import hex`.
-
-### hex.encode(data)
-Encodes a string to a hexadecimal string (lowercase). Each byte is represented by two hex characters. Returns the encoded hex string, or `none` on failure.
-
-```apex
-import os
-import hex
-
-hex_str = hex.encode("Hello, Friend!")
-
-if hex_str == none
-    os.output("Hex encoding failed")
-else
-    os.output(hex_str)  // 48656c6c6f2c20467269656e6421
-```
-
-### hex.decode(hex_string)
-Decodes a hexadecimal string back to the original string. Handles uppercase, lowercase, and mixed case hex characters. Whitespace and invalid characters are silently skipped. Returns the decoded string, or `none` on failure.
-
-```apex
-import os
-import hex
-
-decoded = hex.decode("48656c6c6f2c20467269656e6421")
-
-if decoded == none
-    os.output("Hex decoding failed")
-else
-    os.output(decoded)  // Hello, Friend!
-```
-
 ## Base Library (base)
 The Base library provides encoding and decoding functions for Base16, Base32, Base32Hex, Base64, and Base64URL formats. Import it with `import base`.
 

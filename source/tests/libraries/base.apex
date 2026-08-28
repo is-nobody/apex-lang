@@ -158,6 +158,145 @@ function base16_known_values()
     decoded_mixed = base.decode_16("666F6f626172")
     assert_equal(decoded_mixed, "foobar", "base16 decode mixed case hex")
 
+// test: base16 encoding handles utf-8 text with multiple languages
+function base16_utf8_roundtrip()
+    chinese_text = "你好，世界！"
+    hex_chinese = base.encode_16(chinese_text)
+    decoded_chinese = base.decode_16(hex_chinese)
+    assert_equal(decoded_chinese, chinese_text, "base16 UTF-8 Chinese roundtrip")
+    
+    japanese_text = "こんにちは世界"
+    hex_japanese = base.encode_16(japanese_text)
+    decoded_japanese = base.decode_16(hex_japanese)
+    assert_equal(decoded_japanese, japanese_text, "base16 UTF-8 Japanese roundtrip")
+    
+    korean_text = "안녕하세요 세계"
+    hex_korean = base.encode_16(korean_text)
+    decoded_korean = base.decode_16(hex_korean)
+    assert_equal(decoded_korean, korean_text, "base16 UTF-8 Korean roundtrip")
+    
+    russian_text = "Привет, мир!"
+    hex_russian = base.encode_16(russian_text)
+    decoded_russian = base.decode_16(hex_russian)
+    assert_equal(decoded_russian, russian_text, "base16 UTF-8 Russian roundtrip")
+    
+    arabic_text = "مرحبا بالعالم"
+    hex_arabic = base.encode_16(arabic_text)
+    decoded_arabic = base.decode_16(hex_arabic)
+    assert_equal(decoded_arabic, arabic_text, "base16 UTF-8 Arabic roundtrip")
+    
+    hebrew_text = "שלום עולם"
+    hex_hebrew = base.encode_16(hebrew_text)
+    decoded_hebrew = base.decode_16(hex_hebrew)
+    assert_equal(decoded_hebrew, hebrew_text, "base16 UTF-8 Hebrew roundtrip")
+    
+    greek_text = "Γειά σου Κόσμε"
+    hex_greek = base.encode_16(greek_text)
+    decoded_greek = base.decode_16(hex_greek)
+    assert_equal(decoded_greek, greek_text, "base16 UTF-8 Greek roundtrip")
+    
+    thai_text = "สวัสดีชาวโลก"
+    hex_thai = base.encode_16(thai_text)
+    decoded_thai = base.decode_16(hex_thai)
+    assert_equal(decoded_thai, thai_text, "base16 UTF-8 Thai roundtrip")
+    
+    hindi_text = "नमस्ते दुनिया"
+    hex_hindi = base.encode_16(hindi_text)
+    decoded_hindi = base.decode_16(hex_hindi)
+    assert_equal(decoded_hindi, hindi_text, "base16 UTF-8 Hindi roundtrip")
+    
+    vietnamese_text = "Xin chào thế giới"
+    hex_vietnamese = base.encode_16(vietnamese_text)
+    decoded_vietnamese = base.decode_16(hex_vietnamese)
+    assert_equal(decoded_vietnamese, vietnamese_text, "base16 UTF-8 Vietnamese roundtrip")
+    
+    emoji_text = "Hello 🌍🚀💻"
+    hex_emoji = base.encode_16(emoji_text)
+    decoded_emoji = base.decode_16(hex_emoji)
+    assert_equal(decoded_emoji, emoji_text, "base16 UTF-8 emoji roundtrip")
+    
+    mixed_text = "Hello 世界 안녕하세요 Привет مرحبا"
+    hex_mixed = base.encode_16(mixed_text)
+    decoded_mixed = base.decode_16(hex_mixed)
+    assert_equal(decoded_mixed, mixed_text, "base16 UTF-8 mixed languages roundtrip")
+
+// test: base16 encoding handles binary data
+function base16_binary_data()
+    binary_data = base.decode_16("00010203FFFEFD")
+    hex_result = base.encode_16(binary_data)
+    decoded_result = base.decode_16(hex_result)
+    assert_equal(decoded_result, binary_data, "base16 binary data roundtrip")
+    assert_equal(hex_result, "00010203FFFEFD", "base16 binary encoding")
+
+// test: base16 decode is case insensitive
+function base16_case_insensitive()
+    lower_input = "48656c6c6f"
+    upper_input = "48656C6C6F"
+    mixed_input = "48656c6C6f"
+    
+    decoded_lower = base.decode_16(lower_input)
+    decoded_upper = base.decode_16(upper_input)
+    decoded_mixed = base.decode_16(mixed_input)
+    
+    assert_equal(decoded_lower, "Hello", "base16 lowercase decode")
+    assert_equal(decoded_upper, "Hello", "base16 uppercase decode")
+    assert_equal(decoded_mixed, "Hello", "base16 mixed case decode")
+
+// test: base16 decode handles spaces and formatting
+function base16_with_spaces()
+    spaced_hex = "48 65 6c 6c 6f"
+    newline_hex = "48\n65\t6c\r6c6f"
+    
+    decoded_spaces = base.decode_16(spaced_hex)
+    decoded_newlines = base.decode_16(newline_hex)
+    
+    assert_equal(type(decoded_spaces), "none", "base16 decode with spaces returns none")
+    assert_equal(type(decoded_newlines), "none", "base16 decode with whitespace returns none")
+
+// test: base16 decode handles empty input
+function base16_empty_input()
+    empty_str = ""
+    result = base.decode_16(empty_str)
+    assert_equal(result, "", "base16 decode empty string returns empty")
+    
+    whitespace_only = "   \t\n  "
+    result2 = base.decode_16(whitespace_only)
+    assert_equal(type(result2), "none", "base16 decode only whitespace returns none")
+
+// test: base16 decode handles odd number of hex characters
+function base16_odd_characters()
+    odd_input = "48656c6c6f2"  // missing last nibble
+    result = base.decode_16(odd_input)
+    assert_equal(type(result), "none", "base16 decode odd chars returns none")
+    
+    single_input = "4"
+    result2 = base.decode_16(single_input)
+    assert_equal(type(result2), "none", "base16 decode single char returns none")
+
+// test: base16 decode handles empty input
+function base16_empty_input()
+    empty_str = ""
+    result = base.decode_16(empty_str)
+    assert_equal(result, "", "base16 decode empty string returns empty")
+    
+    whitespace_only = "   \t\n  "
+    result2 = base.decode_16(whitespace_only)
+    assert_equal(result2, "", "base16 decode only whitespace returns empty")
+
+// test: base16 decode rejects invalid characters
+function base16_invalid_characters()
+    invalid_input = "48GG65"  // G is invalid hex
+    result = base.decode_16(invalid_input)
+    assert_equal(type(result), "none", "base16 decode invalid chars returns none")
+    
+    invalid_hex = "12G4"
+    result2 = base.decode_16(invalid_hex)
+    assert_equal(type(result2), "none", "base16 decode invalid char G returns none")
+    
+    invalid_hex_odd = "123"
+    result3 = base.decode_16(invalid_hex_odd)
+    assert_equal(type(result3), "none", "base16 decode odd length returns none")
+
 // test: base32 encoding/decoding
 function base32_known_values()
     // base32 encoding
@@ -442,6 +581,13 @@ function base85_invalid_input()
 base64_known_values()
 base64url_known_values()
 base16_known_values()
+base16_utf8_roundtrip()
+base16_binary_data()
+base16_case_insensitive()
+base16_with_spaces()
+base16_odd_characters()
+base16_empty_input()
+base16_invalid_characters()
 base32_known_values()
 base32hex_known_values()
 base62_known_values()

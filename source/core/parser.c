@@ -274,8 +274,6 @@ static const BuiltinSig BUILTINS[] = {
     
     {"csv.decode",   1, 1, TYPE_STRING}, {"csv.encode",  1, 1, TYPE_TABLE},
     
-    {"hex.encode",   1, 1, TYPE_STRING}, {"hex.decode",  1, 1, TYPE_STRING},
-    
     {"base.encode_64",     1, 1, TYPE_STRING}, {"base.decode_64",     1, 1, TYPE_STRING},
     {"base.encode_64url",  1, 1, TYPE_STRING}, {"base.decode_64url",  1, 1, TYPE_STRING},
     {"base.encode_16",     1, 1, TYPE_STRING}, {"base.decode_16",     1, 1, TYPE_STRING},

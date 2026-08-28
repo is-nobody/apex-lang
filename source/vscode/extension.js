@@ -177,8 +177,6 @@ function activate(context) {
                 
                 'csv.decode',            'csv.encode',
                 
-                'hex.encode',            'hex.decode',
-
                 'base.encode_64',        'base.decode_64',
                 'base.encode_64url',     'base.decode_64url',
                 'base.encode_16',        'base.decode_16',

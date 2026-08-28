@@ -23,7 +23,7 @@ Full syntax highlighting for:
 Smart suggestions for:
 
 - **Keywords**: Control flow and logical operators.
-- **14 Standard Libraries**: `os`, `sys`, `math`, `string`, `table`, `ffi`, `random`, `json`, `xml`, `csv`, `hex`, `base`, `regex`, `crypto`.
+- **14 Standard Libraries**: `os`, `sys`, `math`, `string`, `table`, `ffi`, `random`, `json`, `xml`, `csv`, `base`, `regex`, `crypto`.
 - **Library Functions**: Auto-complete for hundreds of functions like `os.read()`, `sys.platform`, `random.integer()`, `json.encode()`, etc.
 
 ### Run Code
