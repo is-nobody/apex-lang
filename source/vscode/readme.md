@@ -53,6 +53,7 @@ Execute your current Apex file directly from VS Code:
 - Improved hover documentation with a shared library description system.
 - Added syntax highlighting for new libraries in `library-call` pattern.
 - Replaced elif keyword with else if syntax across the entire extension.
+- Moved `and`, `or`, and `not` from control keywords to constant highlighting category.
 
 ### 26.07 (July 31, 2026)
 - Syntax highlighting for shebang (`#!`) at the beginning of scripts.
