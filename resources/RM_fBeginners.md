@@ -23,7 +23,7 @@ This manual is written with step-by-step learning in mind and strives to be mini
 
 ### 3. If Statements
 - [3.1 If Statement](#31-if-statement)
-- [3.2 Elif Statement](#32-elif-statement)
+- [3.2 Else-If Statement](#32-elseif-statement)
 - [3.3 Else Statement](#33-else-statement)
 - [3.4 Ternary Statement](#34-ternary-statement)
 
@@ -653,11 +653,11 @@ Full precedence order (highest to lowest):
 # 3. If Statements
 Every program makes decisions. Should this user get access? Is the score high enough? Does the file exist? If statements are how you tell Apex to make these decisions. Without if statements, your program runs the same way every time — like a train on a track. With if statements, it becomes a car that can turn left or right depending on what happens.
 
-| Statement | When It Runs |
-|-----------|--------------|
-| `if` | Condition is `true` |
-| `elif` | Previous conditions were `false` AND this condition is `true` |
-| `else` | All previous conditions were `false` |
+| Statement | When It Runs                                                  |
+|-----------|---------------------------------------------------------------|
+| `if`      | Condition is `true`                                           |
+| `else if` | Previous conditions were `false` AND this condition is `true` |
+| `else`    | All previous conditions were `false`                          |
 
 ### Code Blocks and Indentation
 An `if` statement decides *what* to do. The code that belongs to it is called a **block** — a group of one or more lines that run together.
@@ -731,8 +731,8 @@ if user == none
     os.output("No user found")
 ```
 
-## 3.2 Elif Statement
-Sometimes one condition isn't enough. What if you want to check multiple possibilities? Use `elif` — short for "else if".
+## 3.2 Else-If Statement
+Sometimes one condition isn't enough. What if you want to check multiple possibilities? Use `else if`.
 
 ```apex
 import os
@@ -741,11 +741,11 @@ score = 85
 
 if score >= 90
     os.output("Grade: A")
-elif score >= 80
+else if score >= 80
     os.output("Grade: B")
-elif score >= 70
+else if score >= 70
     os.output("Grade: C")
-elif score >= 60
+else if score >= 60
     os.output("Grade: D")
 ```
 
@@ -753,10 +753,10 @@ Apex checks conditions in order from top to bottom. As soon as one condition is 
 
 - Checks: is it >= 90? No — move on
 - Checks: is it >= 80? Yes — prints "Grade: B" and stops
-- The remaining elif blocks are never checked
+- The remaining else if blocks are never checked
 
 ## 3.3 Else Statement
-`else` catches everything that wasn't caught by `if` or `elif`. It runs when no other condition was `true`.
+`else` catches everything that wasn't caught by `if` or `else if`. It runs when no other condition was `true`.
 
 ```apex
 import os
@@ -792,7 +792,7 @@ What happens here:
 2. Since the condition is true, the variable `weather` gets the value on the left of `if` — the string `"hot"`.
 3. If the temperature were 15, the condition would be false, and `weather` would get the value on the right of `else` — `"cold"`.
 
-The ternary operator can only be used for short conditions. If the selection logic requires 2 or more checks, you must use regular `if-elif-else` blocks — 2 or more checks are not allowed in a ternary statement.
+The ternary operator can only be used for short conditions. If the selection logic requires 2 or more checks, you must use regular `if-else if-else` blocks — 2 or more checks are not allowed in a ternary statement.
 
 # 4. For Loops
 Sometimes you need to do the same thing many times. Print "Hello" ten times. Keep asking for input until the user types something valid. Apex gives you the `for` loop with three different syntaxes to handle all these situations.

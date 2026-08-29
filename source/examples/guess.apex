@@ -19,7 +19,7 @@ function guess_game()
         if guess == secret
             os.output("Correct! You guessed it in {attempts} attempt(s)!")
             break
-        elif guess < secret
+        else if guess < secret
             os.output("Higher!")
         else
             os.output("Lower!")

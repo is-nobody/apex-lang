@@ -97,7 +97,7 @@ struct Parser {
     int loop_depth;                 // nesting depth of loops (for break/continue validation)
     int function_depth;             // nesting depth of functions (for return validation)
     bool semantic_checks;           // whether to perform type checking and constant folding
-    bool expecting_indented_block;  // true if previous statement opened a block (if/for/fn/elif/else)
+    bool expecting_indented_block;  // true if previous statement opened a block (if/else if/else/for/function)
 
     int last_error_line;            // most recent error position for duplicate detection
     int last_error_column;          // most recent error column for duplicate detection

@@ -117,13 +117,13 @@ ASTNode* ast_create_function(const char* name, ASTNodeList* params, ASTNode* bod
     return node;                                                       // return function declaration node
 }
 
-// if statement with condition, then branch, optional elif chain, and optional else branch
+// if statement with condition, then branch, optional else if chain, and optional else branch
 ASTNode* ast_create_if(ASTNode* condition, ASTNode* then_branch,
                        ASTNode* elif_chain, ASTNode* else_branch) {
     ASTNode* node = ast_create_node(AST_IF_STMT, condition->line, condition->column);  // create if node with condition location
     node->if_stmt.condition = condition;                                               // store condition expression
     node->if_stmt.then_branch = then_branch;                                           // store then branch block
-    node->if_stmt.elif_chain = elif_chain;                                             // store elif chain (list of if nodes)
+    node->if_stmt.elif_chain = elif_chain;                                             // store else if chain (list of if nodes)
     node->if_stmt.else_branch = else_branch;                                           // store optional else branch
     return node;                                                                       // return if statement node
 }
@@ -283,7 +283,7 @@ void ast_free_node(ASTNode* node) {
         case AST_IF_STMT:                                                // if statement node
             ast_free_node(node->if_stmt.condition);                      // recursively free condition
             ast_free_node(node->if_stmt.then_branch);                    // recursively free then branch
-            ast_free_node(node->if_stmt.elif_chain);                     // recursively free elif chain
+            ast_free_node(node->if_stmt.elif_chain);                     // recursively free else if chain
             ast_free_node(node->if_stmt.else_branch);                    // recursively free else branch
             break;
         case AST_FOR_STMT:                                               // for loop node

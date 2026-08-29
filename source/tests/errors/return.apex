@@ -64,9 +64,5 @@ function return_with_else()
     return else  // Unexpected token after return
 
 // error: unexpected token after return
-function return_with_elif()
-    return elif  // Unexpected token after return
-
-// error: unexpected token after return
 function return_with_dot_number()
     return .5  // Unexpected token after return

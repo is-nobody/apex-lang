@@ -13,7 +13,7 @@ This extension adds support for the Apex language to VS Code.
 ### Syntax Highlighting
 Full syntax highlighting for:
 
-- **Keywords**: `function`, `if`, `elif`, `else`, `for`, `in`, `import`, `constant`, `and`, `or`, `not`, `break`, `continue`, `return`.
+- **Keywords**: `function`, `if`, `else`, `for`, `in`, `import`, `constant`, `and`, `or`, `not`, `break`, `continue`, `return`.
 - **Literals**: Numbers (including scientific notation), strings, booleans (`true`, `false`), `none`.
 - **Comments**: Line comments (`//`).
 - **Operators**: Arithmetic (`+`, `-`, `*`, `/`, `%`), Comparison (`==`, `!=`, `<`, `>`, `<=`, `>=`), Logical (`not`, `and`, `or`).
@@ -35,7 +35,7 @@ Execute your current Apex file directly from VS Code:
 
 ### Language Configuration
 - **Auto-closing**: Supports automatic closing of parentheses `()`, brackets `[]`, and quotes `""`.
-- **Indentation Rules**: Smart indentation for blocks following `function`, `if`, `elif`, `else`, and `for`.
+- **Indentation Rules**: Smart indentation for blocks following `function`, `if`, `else if`, `else`, and `for`.
 
 ## Installation
 1. Install the [Apex Interpreter](https://github.com/is-nobody/apex-lang/releases) on your system.
@@ -52,6 +52,7 @@ Execute your current Apex file directly from VS Code:
 - Updated standard library function names (e.g., `os.current_folder` instead of `os.get_current_folder`).
 - Improved hover documentation with a shared library description system.
 - Added syntax highlighting for new libraries in `library-call` pattern.
+- Replaced elif keyword with else if syntax across the entire extension.
 
 ### 26.07 (July 31, 2026)
 - Syntax highlighting for shebang (`#!`) at the beginning of scripts.

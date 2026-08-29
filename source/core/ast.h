@@ -121,19 +121,19 @@ struct ASTNode {
             ASTNode* body;            // block node containing function body
         } function_decl;
         
-        // if statement with condition, then branch, optional elif chain, and else branch
+        // if statement with condition, then branch, optional else if chain, and else branch
         struct {
             ASTNode* condition;       // condition expression
             ASTNode* then_branch;     // block executed when condition is true
-            ASTNode* elif_chain;      // linked list of elif branches
+            ASTNode* elif_chain;      // linked list of else if branches
             ASTNode* else_branch;     // block executed when all conditions are false
         } if_stmt;
         
-        // single elif branch linked into the elif chain of an if statement
+        // single else if branch linked into the else if chain of an if statement
         struct {
-            ASTNode* condition;       // elif condition expression
-            ASTNode* body;            // block executed when elif condition is true
-            ASTNode* next_elif;       // next elif node in the chain
+            ASTNode* condition;       // else if condition expression
+            ASTNode* body;            // block executed when else if condition is true
+            ASTNode* next_elif;       // next else if node in the chain
         } elif_branch;
         
         // for loop with optional variable, condition, range bounds, and step
@@ -239,7 +239,7 @@ ASTNode* ast_create_var_assign(const char* name, ASTNode* value, bool is_decl,
 ASTNode* ast_create_function(const char* name, ASTNodeList* params, ASTNode* body, 
                               int line, int column);
 
-// if statement with condition, then branch, optional elif chain, and optional else branch
+// if statement with condition, then branch, optional else if chain, and optional else branch
 ASTNode* ast_create_if(ASTNode* condition, ASTNode* then_branch, 
                        ASTNode* elif_chain, ASTNode* else_branch);
 

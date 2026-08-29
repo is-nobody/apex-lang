@@ -973,7 +973,7 @@ static void codegen_assign(CodeGenerator* cg, ASTNode* node) {
     free_register(cg, reg);                                                       // discard result
 }
 
-// emits if/elif/else chain with optimized condition evaluation
+// emits if/else if/else chain with optimized condition evaluation
 static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
     int jump_to_else = codegen_optimized_condition(cg, node->if_stmt.condition, node->line);  // optimize
     if (jump_to_else < 0) {                                                       // not optimized
@@ -993,14 +993,14 @@ static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
     int else_addr = bytecode_current_offset(cg->chunk);                           // else address
     bytecode_patch_jump(cg->chunk, jump_to_else, else_addr);                      // patch jump
     
-    ASTNode* elif = node->if_stmt.elif_chain;                                     // elif chain
-    while (elif) {                                                                // iterate elifs
+    ASTNode* elif = node->if_stmt.elif_chain;                                     // else if chain
+    while (elif) {                                                                // iterate else if
         int elif_cond_reg = codegen_expression(cg, elif->if_stmt.condition);      // evaluate condition
         int jump_to_next = bytecode_current_offset(cg->chunk);                    // jump to next
         emit(cg, INST(OP_JUMP_IF_FALSE, 0, elif_cond_reg, 0), elif->line);        // jump if false
         free_register(cg, elif_cond_reg);                                         // free condition
         
-        codegen_block(cg, elif->if_stmt.then_branch);                             // emit elif body
+        codegen_block(cg, elif->if_stmt.then_branch);                             // emit else if body
         
         end_jumps[end_jump_count++] = bytecode_current_offset(cg->chunk);         // save position
         emit(cg, INST(OP_JUMP, 0, 0, 0), elif->line);                             // jump to end
@@ -1008,12 +1008,12 @@ static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
         int next_addr = bytecode_current_offset(cg->chunk);                       // next address
         bytecode_patch_jump(cg->chunk, jump_to_next, next_addr);                  // patch jump
         
-        elif = elif->if_stmt.elif_chain;                                          // next elif
+        elif = elif->if_stmt.elif_chain;                                          // next else if
     }
     
     ASTNode* else_branch = node->if_stmt.else_branch;                             // else branch
-    if (!else_branch && node->if_stmt.elif_chain) {                               // no else but has elif
-        ASTNode* last = node->if_stmt.elif_chain;                                 // last elif
+    if (!else_branch && node->if_stmt.elif_chain) {                               // no else but has else if
+        ASTNode* last = node->if_stmt.elif_chain;                                 // last else if
         while (last->if_stmt.elif_chain) {                                        // find last
             last = last->if_stmt.elif_chain;                                      // advance
         }

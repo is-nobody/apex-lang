@@ -10,7 +10,7 @@
 - **Table iteration returns values,** not indices
 - **String, table and function equality** (`==`, `!=`), including nested/recursive tables
 - **Ternary expressions:** `value if condition else value`
-- **Control flow:** `if`/`elif`/`else`, `for` (range, table, condition-based), `break`/`continue`/`return`
+- **Control flow:** `if`/`else if`/`else`, `for` (range, table, condition-based), `break`/`continue`/`return`
 - **`none`** for absent values, missing keys, void returns
 - **String concatenation** via interpolation only
 

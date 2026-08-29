@@ -12,12 +12,12 @@ os.execute("apex source/tests/arithmetic/whole_with_decimal.apex")
 os.execute("apex source/tests/arithmetic/priority_without_parentheses.apex")
 os.execute("apex source/tests/arithmetic/priority_parentheses.apex")
 
-// conditionals - if-elif-else branches
-os.execute("apex source/tests/conditionals/if-elif-else/if_single.apex")
-os.execute("apex source/tests/conditionals/if-elif-else/if_ternary.apex")
-os.execute("apex source/tests/conditionals/if-elif-else/if_elif_else.apex")
-os.execute("apex source/tests/conditionals/if-elif-else/if_else.apex")
-os.execute("apex source/tests/conditionals/if-elif-else/nested_if.apex")
+// conditionals - if-elseif-else branches
+os.execute("apex source/tests/conditionals/if-elseif-else/if_single.apex")
+os.execute("apex source/tests/conditionals/if-elseif-else/if_ternary.apex")
+os.execute("apex source/tests/conditionals/if-elseif-else/if_elseif_else.apex")
+os.execute("apex source/tests/conditionals/if-elseif-else/if_else.apex")
+os.execute("apex source/tests/conditionals/if-elseif-else/nested_if.apex")
 
 // conditionals - comparison operators
 os.execute("apex source/tests/conditionals/comparisons/whole.apex")

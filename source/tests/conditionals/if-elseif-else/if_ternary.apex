@@ -1,4 +1,4 @@
-// source/tests/conditionals/if-elif-else/if_ternary.apex
+// source/tests/conditionals/if-elseif-else/if_ternary.apex
 // Implementation of Ternary Conditional Operator Tests for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
@@ -144,4 +144,4 @@ ternary_zero_comparison()
 ternary_boolean_not_equals_false()
 
 // report completion of ternary operator tests
-os.output("[PASS] conditionals/if-elif-else/if_ternary.apex")
+os.output("[PASS] conditionals/if-elseif-else/if_ternary.apex")

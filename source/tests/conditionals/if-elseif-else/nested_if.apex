@@ -1,4 +1,4 @@
-// source/tests/conditionals/if-elif-else/nested_if.apex
+// source/tests/conditionals/if-elseif-else/nested_if.apex
 // Implementation of Nested If Conditional Tests for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
@@ -269,4 +269,4 @@ nested_if_triple_boundary_equal()
 nested_if_triple_negative()
 
 // report completion of nested if tests
-os.output("[PASS] conditionals/if-elif-else/nested_if.apex")
+os.output("[PASS] conditionals/if-elseif-else/nested_if.apex")

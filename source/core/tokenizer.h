@@ -13,7 +13,6 @@
 typedef enum {
     TOKEN_FUNCTION,      // 'function' keyword for function declarations
     TOKEN_IF,            // 'if' keyword for conditionals
-    TOKEN_ELIF,          // 'elif' keyword for else-if chains
     TOKEN_ELSE,          // 'else' keyword for fallback branches
     TOKEN_FOR,           // 'for' keyword for loops
     TOKEN_BREAK,         // 'break' to exit a loop early

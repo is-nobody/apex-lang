@@ -937,7 +937,7 @@ result = table.has(user, "name")
 
 if result == none
     os.output("Invalid key type")
-elif result == true
+else if result == true
     os.output("Key exists")
 else
     os.output("Key does not exist")
@@ -1638,7 +1638,7 @@ result = regex.search("\\d+", "Order #12345")
 
 if result == none
     os.output("Search failed")
-elif table.size(result) > 0
+else if table.size(result) > 0
     os.output("Found: '{result['match']}' at position {result['start']}-{result['end']}")
 else
     os.output("No match found")

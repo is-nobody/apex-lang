@@ -128,13 +128,13 @@ function constant_in_if_else()
         constant msg_false = "Condition is false"
         assert_equal(msg_false, "Condition is false", "constant in else block")
 
-// test: constant in elif chain
-function constant_in_elif()
+// test: constant in else if chain
+function constant_in_elseif()
     value = 2
     if value == 1
         constant result_one = "one"
         assert_equal(result_one, "one", "constant result one")
-    elif value == 2
+    else if value == 2
         constant result_two = "two"
         assert_equal(result_two, "two", "constant result two")
     else
@@ -377,7 +377,7 @@ constant_in_function()
 constant_in_for_loop()
 constant_shadowing()
 constant_in_if_else()
-constant_in_elif()
+constant_in_elseif()
 constant_as_table_value()
 constant_from_function()
 constant_in_ternary()

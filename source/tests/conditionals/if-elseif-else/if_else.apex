@@ -1,5 +1,5 @@
-// source/tests/conditionals/if-elif-else/if_else.apex
-// Implementation of If-Else Conditional Branch Tests for Apex language
+// source/tests/conditionals/if-elseif-else/if_else.apex
+// Implementation of If/Else Conditional Branch Tests for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
 
@@ -79,4 +79,4 @@ if_else_negative_false()
 if_else_negative_boundary_equal()
 
 // report completion of if-else tests
-os.output("[PASS] conditionals/if-elif-else/if_else.apex")
+os.output("[PASS] conditionals/if-elseif-else/if_else.apex")

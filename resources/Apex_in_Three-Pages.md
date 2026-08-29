@@ -13,7 +13,7 @@ x = []          // table (universal container)
 Also, `constant` is a modifier that makes a variable read-only after declaration.
 
 - **Conversion:** `number("10")`, `string(10)`. Returns `none` on failure.
-- **Scope:** `function` and `for` create new scopes, top-level variables are optimized as locals, `if`/`elif`/`else` don't create scope.
+- **Scope:** `function` and `for` create new scopes, top-level variables are optimized as locals, `if`/`else` don't create scope.
 
 ## Operators & Precedence
 | Level |     Ops     |           Notes           |
@@ -51,15 +51,15 @@ data["new_key"] = 69  // add
 - **Utilities:** `table.size(t)`, `table.keys(t)`, `table.has(t, "k")`, `table.remove(t, index)`.
 
 ## Control Flow
-**Indentation:** Next line after `if`/`elif`/`else`, `for`, `function` require 4 spaces exactly.
+**Indentation:** Next line after `if`/`else`, `for`, `function` require 4 spaces exactly.
 
-**If/Elif/Else:**
+**If/Else-If/Else:**
 ```apex
 import os
 x = 15
 if x == 10
     os.output("Ten")
-elif x > 10
+else if x > 10
     os.output("More")
 else
     os.output("Less")
@@ -73,7 +73,7 @@ result = "Pass" if score >= 50 else "Fail"
 os.output(result)
 ```
 
-Single condition only. For 2+ checks, use `if-elif-else`.
+Single condition only. For 2+ checks, use `if-else if-else`.
 
 **For Loop Counter:**
 

@@ -1,4 +1,4 @@
-// source/tests/conditionals/if-elif-else/if_single.apex
+// source/tests/conditionals/if-elseif-else/if_single.apex
 // Implementation of Single If Conditional Tests for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
@@ -49,4 +49,4 @@ if_single_negative_true()
 if_single_negative_false()
 
 // report completion of single if tests
-os.output("[PASS] conditionals/if-elif-else/if_single.apex")
+os.output("[PASS] conditionals/if-elseif-else/if_single.apex")

@@ -56,8 +56,7 @@ function activate(context) {
             // documentation dictionary for keywords and language constructs
             const docs = {
                 'function': 'Declares a function.\n\n```apex\nfunction name(params)\n    // code\n    return value\n```',
-                'if': 'Conditional statement.\n\n```apex\nif condition\n    // code\nelif other_condition\n    // code\nelse\n    // code\n```',
-                'elif': 'Else-if branch in conditional statements.',
+                'if': 'Conditional statement.\n\n```apex\nif condition\n    // code\nelse if other_condition\n    // code\nelse\n    // code\n```',
                 'else': 'Default branch in conditional statements.',
                 'for': 'Numeric, table, and conditional loops.\n\n```apex\n// Numeric loop\nfor i = 1, 10\nfor i = 10, 1, -1\n\n// Table loop\nfor value in my_table\n\n// Conditional loop\nfor x < 10\n```',
                 'return': 'Returns a value from a function.',
@@ -94,7 +93,7 @@ function activate(context) {
     const completion = vscode.languages.registerCompletionItemProvider('apex', {
         provideCompletionItems() {         // called when user triggers autocomplete
             const keywords = [             // apex language keywords
-                'function', 'if', 'elif', 'else', 'for', 'in', 'break',
+                'function', 'if', 'else', 'for', 'in', 'break',
                 'continue', 'return', 'import', 'constant', 'and', 'or', 'not',
                 'true', 'false', 'none'
             ];

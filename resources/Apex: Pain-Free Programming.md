@@ -31,7 +31,7 @@
 
 ### If Statements
 - [If Statement](#section)
-- [Elif Statement](#section)
+- [Else-If Statement](#section)
 - [Else Statement](#section)
 - [Ternary Statement](#section)
 
