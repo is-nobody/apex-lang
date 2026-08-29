@@ -22,8 +22,13 @@
   - [Multiline Strings](#multiline-strings)
   - [String Interpolation](#string-interpolation)
   - [Curly Braces in Strings](#curly-braces-in-strings)
+- [Booleans](#booleans)
+  - [Why Booleans Exist](#why-booleans-exist)
+  - [Creating Booleans](#creating-booleans)
+  - [Naming Boolean Variables](#naming-boolean-variables)
+  - [Booleans Are Not Strings](#booleans-are-not-strings)
+  - [Booleans as Data](#booleans-as-data)
 - [None](#section)
-- [Booleans](#section)
 - [Tables](#section)
   - [Ordered Lists](#section)
   - [Key-Value Pairs](#section)
@@ -416,3 +421,93 @@ Strings are how your program talks to people. Every message you display, every n
 - To get literal curly braces in a string, escape them: `\{` and `\}`.
 
 Strings are one of the two data types you'll use more than any other — the other being numbers. In the next section, we'll explore the final data type: tables, which let you group multiple values together.
+
+## Booleans
+So far you've met two kinds of data: numbers for quantities and strings for text. Now we meet a new data type — one that's small in size but enormous in importance. It's called a **boolean**, and it can hold exactly one of two values: `true` or `false`.
+
+That's it. No numbers, no text, no shades of gray. A boolean is a switch that's either on or off. It's the answer to a yes-or-no question.
+
+### Why Booleans Exist
+Think about how many things in life come down to a simple yes or no:
+
+- Is the user logged in?
+- Is the cart empty?
+- Did the file save successfully?
+- Is this person over 18?
+
+These aren't questions with numeric answers. The answer isn't `0` or `"maybe"`. The answer is either yes or no, and that's exactly what a boolean captures.
+
+Programs make decisions constantly, and every decision starts with a boolean. "If the user is logged in, show their dashboard." "If the cart is not empty, allow checkout." The boolean is the signal that tells your program which path to take.
+
+### Creating Booleans
+The simplest way to get a boolean is to write it directly:
+
+```apex
+is_logged_in = true
+has_permission = false
+is_active = true
+is_deleted = false
+```
+
+Direct assignment is straightforward, but booleans become truly useful when they're *produced* by something. The most common source of boolean values is comparison — asking Apex to check whether something is the case.
+
+You do this with comparison symbols:
+
+```apex
+age = 25
+is_adult = age > 18
+```
+
+Here's what happens on that second line. The expression `age > 18` is a question: "Is the value of `age` greater than 18?" Apex checks, determines the answer is yes, and produces the boolean value `true`. That `true` is then stored in the variable `is_adult`. The same works for other kinds of comparisons:, Apex answers with `true` or `false`, and that answer gets stored in a variable. We'll explore all the comparison symbols in detail in the Operators section. For now, what matters is the core idea: comparisons create booleans.
+
+### Naming Boolean Variables
+Because booleans represent yes-or-no answers, their names should sound like questions or statements that can be true or false. A common convention is to start the name with `is_`, `has_`, `can_`, or `should_`:
+
+```apex
+is_logged_in = true
+has_access = false
+can_edit = true
+should_save = false
+```
+
+These names read naturally: "is logged in" — yes or no? "has access" — yes or no? When someone reads your code, they immediately understand that these variables hold booleans and what question they answer.
+
+Avoid names that are vague about their meaning:
+
+```apex
+status = true       // what does this mean?
+flag = false        // what kind of flag?
+enabled = true      // enabled what?
+```
+
+Better names describe exactly what's true or false:
+
+```apex
+is_online = true
+has_errors = false
+notifications_enabled = true
+```
+
+### Booleans Are Not Strings
+It's worth emphasizing one common pitfall. The string `"true"` and the boolean `true` are different things:
+
+```apex
+logged_in = true          // boolean
+logged_in = "true"        // string — completely different type
+```
+
+The first one is a boolean that answers "yes" to the question "is the user logged in?" The second is a piece of text that happens to spell out the word "true." Apex treats them differently because they are different. You can't do the same things with them, and comparing one to the other will give you `false`. Keep them separate in your mind. If it's in quotes, it's text. If it's bare `true` or `false`, it's a boolean.
+
+### Booleans as Data
+Let's end with a quick example that shows how booleans fit alongside the other data types you've learned:
+
+```apex
+name = "Alice"              // string
+age = 30                    // number
+is_active = true            // boolean
+has_subscription = false    // boolean
+```
+
+Here we have four variables, three different types. The strings and numbers describe Alice. The booleans answer questions about her: Is she active? Yes. Does she have a subscription? No.
+
+This is how real programs work. You'll often have a mix of types describing one thing — and the booleans among them capture the yes-or-no aspects.
