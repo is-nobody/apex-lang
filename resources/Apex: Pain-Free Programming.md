@@ -28,12 +28,18 @@
   - [Naming Boolean Variables](#naming-boolean-variables)
   - [Booleans Are Not Strings](#booleans-are-not-strings)
   - [Booleans as Data](#booleans-as-data)
+- [Tables](#tables)
+  - [Creating an Empty Table](#creating-an-empty-table)
+  - [Creating a Table with Values](#creating-a-table-with-values)
+  - [Ordered Lists](#ordered-lists)
+  - [Adding and Changing Items](#adding-and-changing-items)
+  - [Key-Value Pairs](#key-value-pairs)
+  - [Adding and Changing Key-Value Pairs](#adding-and-changing-key-value-pairs)
+  - [Accessing a Key That Doesn't Exist](#accessing-a-key-that-doesnt-exist)
+  - [Mixed Tables](#mixed-tables)
+  - [Tables Inside Tables](#tables-inside-tables)
+  - [A Quick Word on Positions vs. Keys](#a-quick-word-on-positions-vs-keys)
 - [None](#section)
-- [Tables](#section)
-  - [Ordered Lists](#section)
-  - [Key-Value Pairs](#section)
-  - [Mixed Tables](#section)
-  - [Tables Inside Tables](#section)
 - [Constant](#section)
 - [Built-in Functions](#section)
 
@@ -511,3 +517,233 @@ has_subscription = false    // boolean
 Here we have four variables, three different types. The strings and numbers describe Alice. The booleans answer questions about her: Is she active? Yes. Does she have a subscription? No.
 
 This is how real programs work. You'll often have a mix of types describing one thing — and the booleans among them capture the yes-or-no aspects.
+
+## Tables
+You've now met numbers, strings, and booleans. Each of these holds a single value — one number, one piece of text, one true-or-false answer. But real programs rarely deal with just one thing at a time. A shopping cart has many items. A user profile has a name, an email, an age, and a subscription status. A high-score list has dozens of entries.
+
+You need a way to group multiple values together, and that's exactly what a **table** is for.
+
+Think of a table as a container — a box that can hold many other boxes inside it. Unlike a variable that holds one value, a table can hold ten values, a hundred values, or even a thousand values, all organized so you can find each one when you need it.
+
+### Creating an Empty Table
+The simplest table is one with nothing in it. You create it with a pair of square brackets:
+
+```apex
+empty = []
+```
+
+This creates an empty container. It exists, but it holds nothing. It's like an empty backpack — ready to be filled with items later.
+
+### Creating a Table with Values
+To create a table that already contains values, list them inside the square brackets, separated by commas:
+
+```apex
+fruits = ["apple", "banana", "cherry"]
+numbers = [10, 20, 30, 40, 50]
+mixed = [42, "hello", true]
+```
+
+Each of these is a table. The first holds three strings. The second holds five numbers. The third holds a mix — a number, a string, and a boolean. Tables don't care what types they contain. You can put any combination of values inside.
+
+### Ordered Lists
+When you create a table by simply listing values — like `["apple", "banana", "cherry"]` — you're creating an **ordered list**. Each value has a position, and those positions are numbered starting from 1. This is a crucial detail, because many programming languages start counting from 0, but Apex follows the more natural human convention. The first item is at position 1, the second at position 2, and so on.
+
+```apex
+colors = ["red", "green", "blue"]
+```
+
+In this table:
+
+- Position 1 holds `"red"`
+- Position 2 holds `"green"`
+- Position 3 holds `"blue"`
+
+To access a value in a table, you write the table's name, followed by square brackets containing the position:
+
+```apex
+colors = ["red", "green", "blue"]
+first_color = colors[1]       // "red"
+second_color = colors[2]      // "green"
+third_color = colors[3]       // "blue"
+```
+
+The expression `colors[1]` means: "Look inside the table called `colors`, and give me the value at position 1." You can use this anywhere you'd use a regular value — assign it to a variable, display it, or do anything else.
+
+### Adding and Changing Items
+Once a table exists, you can add new values to it or change existing ones. This is done with the same square-bracket syntax, combined with the assignment operator `=`:
+
+```apex
+fruits = ["apple", "banana"]
+fruits[3] = "cherry"      // adds "cherry" at position 3
+```
+
+Now the table contains three items. You can also change an existing value:
+
+```apex
+fruits = ["apple", "banana", "cherry"]
+fruits[2] = "blueberry"   // replaces "banana" with "blueberry"
+```
+
+The position numbers don't have to be in order, though it's usually cleaner if they are. What matters is that each position gives you a way to store and retrieve a value.
+
+### Key-Value Pairs
+Ordered lists are useful when your data is naturally a sequence — the first thing, the second thing, the third thing. But often your data isn't sequential. Consider a user profile:
+
+- The name is "Alice"
+- The age is 30
+- The email is "alice@example.com"
+- The account is active
+
+There's no meaningful "first" or "second" here. You don't think of Alice's age as "position 2 of her profile." You think of it as "the value associated with the word 'age'."
+
+For this kind of data, tables support **key-value pairs**. A key is a label — a name you choose — and it's connected to its value with an equals sign:
+
+```apex
+user = [
+    "name" = "Alice",
+    "age" = 30,
+    "active" = true
+]
+```
+
+Here, the table has three entries, but they're not numbered 1, 2, 3. They're labeled with keys:
+
+- The key `"name"` is associated with the value `"Alice"`
+- The key `"age"` is associated with the value `30`
+- The key `"active"` is associated with the value `true`
+
+To access these values, you use the key inside square brackets:
+
+```apex
+user = [
+    "name" = "Alice",
+    "age" = 30,
+    "active" = true
+]
+
+user_name = user["name"]       // "Alice"
+user_age = user["age"]         // 30
+user_active = user["active"]   // true
+```
+
+The expression `user["name"]` means: "Look inside the table called `user`, and give me the value associated with the key `"name"`."
+
+Keys are always strings. In the examples above, `"name"`, `"age"`, and `"active"` are string keys. You cannot use numbers as keys because numbers are already used for positions in ordered lists.
+
+### Adding and Changing Key-Value Pairs
+Just like with ordered lists, you can add new key-value pairs or change existing ones after the table is created:
+
+```apex
+user = ["name" = "Alice"]
+
+user["age"] = 30            // adds a new key "age"
+user["city"] = "Dubai"      // adds a new key "city"
+user["name"] = "Alicia"     // changes the value under "name"
+```
+
+After these lines, the table has three keys: `"name"` (now `"Alicia"`), `"age"` (with value `30`), and `"city"` (with value `"Dubai"`).
+
+### Accessing a Key That Doesn't Exist
+What happens if you try to access a key that isn't in the table?
+
+```apex
+user = ["name" = "Alice"]
+email = user["email"]
+```
+
+There is no key called `"email"` in this table. So what value does `email` get?
+
+The answer: it gets `none`.
+
+`none` is a special value in Apex that means "there is nothing here." It's the absence of any value at all. We'll explore `none` in detail in the next section, but for now, know this: when you ask a table for a key that doesn't exist, you get back `none` instead of an error.
+
+This is actually very useful. It gives you a way to check whether a key exists. We'll learn how to check for this explicitly when we cover comparison operators and if statements.
+
+### Mixed Tables
+Here's a powerful feature of Apex tables: you can combine ordered lists and key-value pairs in the same table. Ordered items come first, then key-value pairs:
+
+```apex
+person = ["Alice", "Manager", "department" = "Engineering", "years" = 5]
+```
+
+This table contains both kinds of entries. The first two values — `"Alice"` and `"Manager"` — are ordered items at positions 1 and 2. The last two entries are key-value pairs.
+
+You access each kind the same way you would in a pure list or pure key-value table:
+
+```apex
+name = person[1]                 // "Alice" — by position
+role = person[2]                 // "Manager" — by position
+dept = person["department"]      // "Engineering" — by key
+experience = person["years"]     // 5 — by key
+```
+
+Mixed tables let you represent data that has both a natural ordering and labeled attributes. For example, a row from a spreadsheet might have positional values plus metadata about what those values mean.
+
+### Tables Inside Tables
+A table can hold any type of value — including other tables. This lets you build complex, nested structures that represent real-world data.
+
+Here's an example: a company with a name, a list of employees, and an address:
+
+```apex
+company = [
+    "name" = "Apex Corp",
+    "employees" = ["Alice", "Bob", "Charlie"],
+    "address" = [
+        "street" = "1 Main Street",
+        "city" = "Dubai",
+        "country" = "UAE"
+    ]
+]
+```
+
+Let's unpack this. The outer table is called `company`. It has three keys:
+
+- `"name"` — a string: `"Apex Corp"`
+- `"employees"` — a table: `["Alice", "Bob", "Charlie"]`
+- `"address"` — a table: another key-value table inside
+
+To access the inner values, you chain square brackets:
+
+```apex
+company_name = company["name"]                       // "Apex Corp"
+first_employee = company["employees"][1]             // "Alice"
+city = company["address"]["city"]                    // "Dubai"
+```
+
+Let's trace through `company["employees"][1]`:
+
+1. `company["employees"]` goes into the outer table and pulls out the employees table: `["Alice", "Bob", "Charlie"]`
+2. `[1]` then goes into that inner table and pulls out the value at position 1: `"Alice"`
+
+Similarly, `company["address"]["city"]` first extracts the address table, then extracts the value under the `"city"` key.
+
+You can nest as deeply as you need:
+
+```apex
+school = [
+    "name" = "Central High",
+    "classes" = [
+        [
+            "teacher" = "Mr. Smith",
+            "students" = ["Alice", "Bob"]
+        ],
+        [
+            "teacher" = "Ms. Jones",
+            "students" = ["Charlie", "Diana"]
+        ]
+    ]
+]
+
+first_teacher = school["classes"][1]["teacher"]       // "Mr. Smith"
+second_class_first_student = school["classes"][2]["students"][1]   // "Charlie"
+```
+
+Each level of square brackets digs one level deeper into the structure. It's like navigating a folder system: you open the outer folder, then the inner folder, then grab the file you want.
+
+### A Quick Word on Positions vs. Keys
+You might be wondering: what's the difference between `table[1]` and `table["key"]`?
+
+- `table[1]` uses a **position** — a number that tells Apex which item you want, based on its order.
+- `table["key"]` uses a **key** — a string label that tells Apex which value you want, based on its name.
+
+The syntax looks similar, but they work differently. Positions are for ordered data, keys are for labeled data. A table can use both systems at once — which is what makes mixed tables possible.
