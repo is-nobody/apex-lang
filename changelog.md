@@ -1,4 +1,4 @@
-# Apex 26.08 (31 August, 2026)
+# Apex 26.09 (30 September, 2026)
 **Initial public release of the Apex programming language.**
 
 ## Language

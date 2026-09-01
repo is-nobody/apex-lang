@@ -205,7 +205,7 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
     }
 
     if (strcmp(name, "sys.apex_version") == 0) {        // get interpreter version
-        *result = make_string_val(vm, "26.08");         // return version string
+        *result = make_string_val(vm, "26.09");         // return version string
         return true;                                    // builtin handled
     }
 

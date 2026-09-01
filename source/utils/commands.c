@@ -57,7 +57,7 @@ int handle_commands(int argc, char** argv) {
         char compiler_ver[64] = {0};                                            // buffer for clean version
         get_compiler_version(compiler_ver, sizeof(compiler_ver));               // extract major.minor.patch
         
-        printf("Apex 26.08 [%s %s] on %s\n", COMPILER_NAME, compiler_ver, platform_get_name());  // print version info
+        printf("Apex 26.09 [%s %s] on %s\n", COMPILER_NAME, compiler_ver, platform_get_name());  // print version info
         return 0;                                                               // success
     }
 
