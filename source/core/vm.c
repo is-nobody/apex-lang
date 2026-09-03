@@ -1263,7 +1263,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     OP_LOAD_BOOL_LABEL: {
         int dest = ip->operands[0];                    // dest register index
         Value old = regs[dest];                        // read current value in dest register
-        if ((old & QNAN) == QNAN) {                    // fast nan-boxing check: only nan-tagged values
+        if (unlikely((old & QNAN) == QNAN)) {          // heap objects are less common
             value_decref(old);                         // are heap objects needing refcount cleanup
         }                                              // unboxed numbers and other immediates skip this
         regs[dest] = MAKE_BOOL(ip->operands[1] != 0);  // store new bool value
@@ -1272,7 +1272,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     OP_LOAD_NONE_LABEL: {
         int dest = ip->operands[0];                    // dest register index
         Value old = regs[dest];                        // read current value in dest register
-        if ((old & QNAN) == QNAN) {                    // fast nan-boxing check: only nan-tagged values
+        if (unlikely((old & QNAN) == QNAN)) {          // heap objects are less common
             value_decref(old);                         // are heap objects needing refcount cleanup
         }                                              // unboxed numbers and other immediates skip this
         regs[dest] = MAKE_NONE();                      // store none value (no incref needed, immediate)
