@@ -2106,27 +2106,33 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     OP_RETURN_LABEL: {
         int value_reg = ip->operands[0];         // register holding return value
         Value ret_val = regs[value_reg];         // fetch return value
-        value_incref(ret_val);                   // bump refcount for the returned value
-        if (vm->call_depth > 0) {                // returning from a function call
+        if (unlikely((ret_val & QNAN) == QNAN)) {  // heap object (string/table) - less common
+            value_incref(ret_val);               // bump refcount for the returned value
+        }
+        if (likely(vm->call_depth > 0)) {        // returning from a function call (common)
             vm->call_depth--;                    // pop call frame
             vm->current_frame = vm->call_stack[vm->call_depth].frame_index;           // restore frame index
             vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // restore register frame
             regs = vm->registers;                // update local regs pointer
             vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
             int dest_reg = vm->call_stack[vm->call_depth].dest_reg;                   // dest register for return value
-            value_decref(regs[dest_reg]);        // release old value in dest
+            if (unlikely((regs[dest_reg] & QNAN) == QNAN)) {  // old value is heap object (rare)
+                value_decref(regs[dest_reg]);    // release old value in dest
+            }
             regs[dest_reg] = ret_val;            // store return value in caller's dest reg
             ip = &vm->code[vm->call_stack[vm->call_depth].return_address];   // jump to return address
             goto *dispatch_table[ip->opcode];    // dispatch next instruction
         }
-        vm->running = false;                     // top-level return, stop execution
-        value_decref(ret_val);                   // release return value
+        vm->running = false;                     // top-level return, stop execution (rare)
+        if (unlikely((ret_val & QNAN) == QNAN)) {  // heap object needs decref
+            value_decref(ret_val);               // release return value
+        }
         goto OP_HALT_LABEL;                      // jump to halt
     }
     OP_RETURN_NUM_LABEL: {
         int value_reg = ip->operands[0];         // register holding return value
         Value ret_val = regs[value_reg];         // fetch return value
-        if (vm->call_depth > 0) {                // returning from a function call
+        if (likely(vm->call_depth > 0)) {        // returning from a function call (common)
             vm->call_depth--;                    // pop call frame
             int return_addr = vm->call_stack[vm->call_depth].return_address;  // get return address
             int dest_reg = vm->call_stack[vm->call_depth].dest_reg;           // get dest register
@@ -2138,25 +2144,27 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             ip = &vm->code[return_addr];         // jump to return address
             goto *dispatch_table[ip->opcode];    // dispatch next instruction
         }
-        vm->running = false;                     // top-level return, stop execution
+        vm->running = false;                     // top-level return, stop execution (rare)
         goto OP_HALT_LABEL;                      // jump to halt
     }
     OP_RETURN_NONE_LABEL: {
-        if (vm->call_depth > 0) {                // returning from a function call
-            vm->call_depth--;                    // pop call frame
+        if (likely(vm->call_depth > 0)) {           // most returns are from function calls
+            vm->call_depth--;                       // pop call frame
             int return_addr = vm->call_stack[vm->call_depth].return_address;  // get return address
             int dest_reg = vm->call_stack[vm->call_depth].dest_reg;           // get dest register
             vm->current_frame = vm->call_stack[vm->call_depth].frame_index;   // restore frame index
             vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // restore register frame
-            regs = vm->registers;                // update local regs pointer
+            regs = vm->registers;                   // update local regs pointer
             vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
-            value_decref(regs[dest_reg]);        // release old value in dest
-            regs[dest_reg] = MAKE_NONE();        // store none in caller's dest reg (no incref needed)
-            ip = &vm->code[return_addr];         // jump to return address
-            goto *dispatch_table[ip->opcode];    // dispatch next instruction
+            if (unlikely((regs[dest_reg] & QNAN) == QNAN)) {  // old value is heap object (rare)
+                value_decref(regs[dest_reg]);       // release old value in dest
+            }
+            regs[dest_reg] = MAKE_NONE();           // store none in caller's dest reg (no incref needed)
+            ip = &vm->code[return_addr];            // jump to return address
+            goto *dispatch_table[ip->opcode];       // dispatch next instruction
         }
-        vm->running = false;                     // top-level return, stop execution
-        goto OP_HALT_LABEL;                      // jump to halt
+        vm->running = false;                        // top-level return, stop execution (rare)
+        goto OP_HALT_LABEL;                         // jump to halt
     }
 
     OP_LOAD_GLOBAL_LABEL: {
