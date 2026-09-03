@@ -2171,22 +2171,30 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int dest = ip->operands[0];              // dest register index
         int idx = ip->operands[1];               // global variable index
         Value gv = vm->globals[idx];             // fetch global value
-        value_decref(regs[dest]);                // release old value in dest before overwriting
-        if (IS_NUMBER(gv) || IS_BOOL(gv)) {      // unboxed immediate types, no refcount needed
-            regs[dest] = gv;                     // store directly without incref
-        } else {
+        
+        if (unlikely((gv & QNAN) == QNAN)) {     // heap object (string/table) - rare
+            value_decref(regs[dest]);            // release old value in dest
             regs[dest] = gv;                     // store heap-allocated value
             value_incref(regs[dest]);            // bump refcount for the new reference
+        } else {                                 // number/bool/none - common
+            regs[dest] = gv;                     // store directly without refcount
         }
+        
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_STORE_GLOBAL_LABEL: {
         int src = ip->operands[0];               // source register index
         int idx = ip->operands[1];               // global variable index
         Value sv = regs[src];                    // fetch source value
-        value_decref(vm->globals[idx]);          // release old global value
-        vm->globals[idx] = sv;                   // store new value into global
-        value_incref(vm->globals[idx]);          // bump refcount for stored value
+        
+        if (unlikely((sv & QNAN) == QNAN)) {     // heap object (string/table) - rare
+            value_decref(vm->globals[idx]);      // release old global value
+            vm->globals[idx] = sv;               // store new value into global
+            value_incref(vm->globals[idx]);      // bump refcount for stored value
+        } else {                                 // number/bool/none - common
+            vm->globals[idx] = sv;               // store directly without refcount
+        }
+        
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
 
