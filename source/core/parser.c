@@ -1972,7 +1972,14 @@ static ASTNode* parse_call(Parser* parser, ASTNode* callee) {
             
             skip_newlines(parser);
             if (!match(parser, TOKEN_COMMA)) break;  // no more args
+            
             skip_newlines(parser);
+            if (check(parser, TOKEN_RPAREN)) {       // check for trailing comma
+                Token* comma_token = &parser->tokens[parser->current - 1];  // the comma we just consumed
+                parser_error_at(parser, comma_token->line, comma_token->column, 1,
+                               "Extra comma at the end of the arguments");
+                break;
+            }
         }
     }
     skip_newlines(parser);
