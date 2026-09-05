@@ -39,7 +39,9 @@
   - [Mixed Tables](#mixed-tables)
   - [Tables Inside Tables](#tables-inside-tables)
   - [A Quick Word on Positions vs. Keys](#a-quick-word-on-positions-vs-keys)
-- [None](#section)
+- [None](#none)
+  - [Not an Empty String or Table](#not-an-empty-string-or-table)
+  - [The Role of None](#the-role-of-none)
 - [Constant](#section)
 - [Built-in Functions](#section)
 
@@ -747,3 +749,61 @@ You might be wondering: what's the difference between `table[1]` and `table["key
 - `table["key"]` uses a **key** — a string label that tells Apex which value you want, based on its name.
 
 The syntax looks similar, but they work differently. Positions are for ordered data, keys are for labeled data. A table can use both systems at once — which is what makes mixed tables possible.
+
+## None
+Every data type you've met so far represents something. Numbers represent quantities. Strings represent text. Booleans represent true or false. Tables represent collections of values. But sometimes you need to represent *nothing at all* — and for that, Apex has a special data type called `none`.
+
+Think back to the labeled box analogy for variables. A variable is a box with a label, and you put a value inside it. But what if you have a box that's intentionally empty? The box exists, it has a label, but there's nothing inside. That's what `none` is: a deliberate empty space where a value could be, but isn't.
+
+This is different from a box that was never created. A variable that doesn't exist is not the same as a variable that exists and holds `none`. The first is an error waiting to happen. The second is a valid state — the program is explicitly saying "there is no value here right now."
+
+### Not an Empty String or Table
+It's important to distinguish `none` from other values that might seem similar at first glance:
+
+```apex
+empty_number = 0
+empty_string = ""
+empty_table = []
+empty_value = none
+```
+
+Each of these is different:
+
+- `0` is a number. It's a real value — you can add it, subtract it, use it in calculations. It answers the question "how many?" with "zero."
+- `""` is a string. It's a piece of text with zero characters in it. It's still text — you can check its length, combine it with other strings, and so on.
+- `[]` is a table. It's a container with nothing inside. The container exists; it's just empty.
+- `none` is none of these. It's not a number, not a string, not a table, not a boolean. It's the complete absence of any value.
+
+Think of it this way: an empty glass isn't the same as no glass at all. `0`, `""`, and `[]` are empty glasses — they have a type and a structure, but no contents. `none` is no glass at all.
+
+### The Role of `none`
+If you worked through the previous section on tables, you've already encountered `none` in practice. Recall what happens when you try to access a key that doesn't exist in a table:
+
+```apex
+user = ["name" = "Alice"]
+email = user["email"]
+```
+
+The table `user` has only one key: `"name"`. There is no `"email"` key. When you ask for it, Apex can't give you a value because there isn't one. So it gives you `none` instead.
+
+This isn't an error. Apex doesn't stop and complain. It simply returns `none`, and your program continues. The variable `email` now holds `none`, which tells you: "There was nothing under that key."
+
+This is a common pattern. When you're not sure whether a key exists, you access it and check whether you got `none` back. If you did, the key wasn't there. If you got an actual value, it was.
+
+You might wonder why a language needs a special value for "nothing." Why not just not create the variable at all, or leave it undefined?
+
+The reason is that programs need to talk about absence explicitly. Sometimes a piece of code looks for something and doesn't find it — like searching for a user that doesn't exist. The code needs a way to say "I looked, and there was nothing there" without crashing your program or giving a misleading answer. `none` is that answer. You'll see this pattern constantly when we get to functions later in the book.
+
+A common use of `none` is to set up a variable before you know what should go in it:
+
+```apex
+selected_user = none
+```
+
+Later in your program, when someone actually selects a user, you'll replace the `none` with a real value:
+
+```apex
+selected_user = "Alice"
+```
+
+This pattern — starting with `none` and filling in later — is very common. It lets you create all your variables up front, even if you don't know their final values yet.
