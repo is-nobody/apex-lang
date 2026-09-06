@@ -55,7 +55,19 @@
   - [Built-ins Are Functions Like Any Other](#built-ins-are-functions-like-any-other)
 
 ### Operators
-- [Arithmetic Operators](#section)
+- [Arithmetic Operators](#arithmetic-operators)
+  - [What Is an Operator?](#what-is-an-operator)
+  - [The Five Arithmetic Operators](#the-five-arithmetic-operators)
+  - [Addition](#addition)
+  - [Subtraction](#subtraction)
+  - [Multiplication](#multiplication)
+  - [Division](#division)
+  - [Modulo](#modulo)
+  - [Operator Precedence](#operator-precedence)
+  - [Using Parentheses to Control Order](#using-parentheses-to-control-order)
+  - [Combining Operators with Variables](#combining-operators-with-variables)
+  - [Arithmetic Only Works with Numbers](#arithmetic-only-works-with-numbers)
+  - [Whole Numbers and Decimals Together](#whole-numbers-and-decimals-together)
 - [Comparison Operators](#section)
 - [Logical Operators](#section)
 
@@ -1013,3 +1025,293 @@ os.output("Hello")
 ```
 
 The `output` function from the `os` library is also a function — it takes a string as an argument and displays it on screen. The same pattern applies: function name, parentheses, argument inside. The difference is that `output` comes from the `os` library, while `type`, `number`, and `string` are available everywhere without any import.
+
+## Arithmetic Operators
+You've learned how to store values in variables. Now it's time to do something with those values. Operators are the tools that let you work with data — combining values, performing calculations, and asking questions about them. We'll start with the most familiar kind: arithmetic operators.
+
+### What Is an Operator?
+An operator is a symbol that tells Apex to perform a specific action on one or more values. You already know operators from everyday math: the plus sign `+` means "add these together," the minus sign `-` means "subtract this from that." Apex uses these same symbols, plus a few more.
+
+In programming, the values that an operator works on are called **operands**. In the expression `5 + 3`, the operands are `5` and `3`, and the operator is `+`. The whole expression evaluates to a result: `8`.
+
+You can use operators directly in your code:
+
+```apex
+result = 5 + 3
+```
+
+Here, Apex evaluates `5 + 3`, gets `8`, and stores that result in the variable `result`.
+
+### The Five Arithmetic Operators
+Apex provides five arithmetic operators:
+
+| Operator | Name               | Example  | Result |
+|----------|--------------------|----------|--------|
+| `+`      | Addition           | `5 + 3`  | `8`    |
+| `-`      | Subtraction        | `10 - 4` | `6`    |
+| `*`      | Multiplication     | `7 * 6`  | `42`   |
+| `/`      | Division           | `15 / 4` | `3.75` |
+| `%`      | Modulo (remainder) | `15 % 4` | `3`    |
+
+Each of these works with numbers. Let's explore each one.
+
+### Addition
+Addition uses the plus sign `+`. It adds two numbers together:
+
+```apex
+sum = 5 + 3      // 8
+total = 10 + 25  // 35
+```
+
+Addition also works with variables:
+
+```apex
+price = 25
+tax = 3.75
+total = price + tax  // 28.75
+```
+
+When you write `price + tax`, Apex looks up the values stored in those variables and adds them together. The result is a new number, which gets stored in `total`.
+
+### Subtraction
+Subtraction uses the minus sign `-`. It subtracts the right operand from the left operand:
+
+```apex
+difference = 10 - 4      // 6
+remaining = 100 - 30     // 70
+```
+
+With variables:
+
+```apex
+balance = 100
+withdrawal = 30
+remaining = balance - withdrawal    // 70
+```
+
+The order matters in subtraction. `10 - 4` gives `6`, but `4 - 10` gives `-6`. Apex always subtracts in the order you write: left side minus right side.
+
+### Multiplication
+Multiplication uses the asterisk `*`, not the letter `x` or the `×` symbol. On a keyboard, the asterisk is the multiplication sign:
+
+```apex
+product = 5 * 3          // 15
+area = 10 * 20           // 200
+```
+
+With variables:
+
+```apex
+width = 5
+height = 3
+area = width * height    // 15
+```
+
+Multiplication is commutative — the order doesn't matter. `5 * 3` and `3 * 5` both give `15`. But it's still good practice to write expressions in a logical order.
+
+### Division
+Division uses the forward slash `/`. It divides the left operand by the right operand:
+
+```apex
+quotient = 15 / 3        // 5
+half = 10 / 2            // 5
+```
+
+With variables:
+
+```apex
+total = 100
+people = 4
+share = total / people   // 25
+```
+
+**Division and decimals:**
+Here's something important about division in Apex: it always gives you the exact result, including decimal parts. It doesn't round or truncate:
+
+```apex
+7 / 2 = 3.5        // not 3 — Apex keeps the decimal
+1 / 3 = 0.333333   // keeps as much precision as possible
+```
+
+This is different from some other programming languages where dividing two whole numbers gives you a whole number result with the decimal part thrown away. Apex doesn't do that. If the division has a remainder, you get a decimal answer.
+
+**Division by zero:**
+In many programming languages, dividing by zero causes an error and crashes your program. Apex takes a different approach. Instead of stopping everything, it follows the IEEE 754 standard for floating-point arithmetic. Under this standard, division by zero produces special values instead of errors.
+
+Here's exactly why each result appears.
+
+**You get `inf` when:**
+A positive number is divided by positive zero. The dividend has a positive sign, the divisor has a positive sign. Signs match, result is positive, and the magnitude grows without bound:
+
+```apex
+result = 10 / 0    // inf
+result = -10 / -0  // inf — both negative, signs cancel
+```
+
+**You get `-inf` when:**
+The signs of the dividend and divisor don't match. One is positive, the other is negative:
+
+```apex
+result = -10 / 0  // -inf — negative divided by positive
+result = 10 / -0  // -inf — positive divided by negative
+```
+
+**You get `nan` when:**
+Zero is divided by zero. The mathematical answer doesn't exist — it's not infinity because there's no direction, it's not a number because nothing meaningful emerges:
+
+```apex
+result = 0 / 0    // nan
+result = -0 / -0  // nan — both negative, signs cancel, still undefined
+```
+
+**You get `-nan` when:**
+Zero is divided by zero, and the signs don't match. One zero is positive, the other is negative. The undefined result inherits the mismatched sign:
+
+```apex
+result = 0 / -0  // -nan — positive zero divided by negative zero
+result = -0 / 0  // -nan — negative zero divided by positive zero
+```
+
+**Why signs matter:**
+IEEE 754 tracks the sign of zero separately from its magnitude. Positive zero and negative zero are distinct values. When division produces infinity, the sign comes from combining the signs of the operands. When division produces NaN, the sign comes from whether those signs disagreed.
+
+Apex doesn't crash on any of these. It produces the special value and keeps running. But `nan` and `-nan` are not numbers you can use in normal calculations. Any arithmetic involving them spreads the `nan` further. If you see `nan` in your output, somewhere earlier a calculation produced something that isn't a number.
+
+### Modulo
+Modulo is the one operator that might be new to you. Written as the percent sign `%`, it gives you the **remainder** after division.
+
+Think back to elementary school division. When you divide 10 by 3, you get 3 with a remainder of 1. The modulo operator gives you just that remainder:
+
+```apex
+10 % 3 = 1  // 10 divided by 3 is 3 with remainder 1
+15 % 4 = 3  // 15 divided by 4 is 3 with remainder 3
+20 % 5 = 0  // 20 divided by 5 is 4 with remainder 0
+```
+
+When the division is exact — no remainder — modulo gives you `0`:
+
+```apex
+20 % 5 = 0
+100 % 10 = 0
+```
+
+When the left number is smaller than the right number, modulo gives you the left number back:
+
+```apex
+3 % 10 = 3  // 3 divided by 10 is 0 with remainder 3
+7 % 8 = 7   // 7 divided by 8 is 0 with remainder 7
+```
+
+**What is modulo used for?**
+The most common use is checking whether a number is even or odd. Any number that divides evenly by 2 is even; any number that doesn't is odd:
+
+```apex
+8 % 2 = 0  // even — no remainder
+9 % 2 = 1  // odd — remainder of 1
+```
+
+Another use: checking whether one number divides evenly into another:
+
+```apex
+15 % 5 = 0     // 15 is divisible by 5
+15 % 4 = 3     // 15 is not divisible by 4
+```
+
+Modulo is also useful for "wrapping around" — like when you want a counter to go 0, 1, 2, 0, 1, 2 and never exceed 2:
+
+```apex
+counter = 5
+wrapped = counter % 3    // 2 — because 5 divided by 3 has remainder 2
+```
+
+We'll see modulo used in practical ways later.
+
+### Operator Precedence
+When an expression contains multiple operators, Apex doesn't simply work left to right. It follows the same rules you learned in math class: multiplication and division happen before addition and subtraction.
+
+```apex
+result = 2 + 3 * 4
+```
+
+Here's what happens step by step:
+
+1. Apex sees the `*` operator. Multiplication has higher precedence than addition, so it evaluates `3 * 4` first: result is `12`.
+2. Then it evaluates `2 + 12`: result is `14`.
+
+So `result` becomes `14`, not `20`. If you expected `20`, you were evaluating left to right: `2 + 3 = 5`, then `5 * 4 = 20`. But Apex follows math precedence rules, not simple left-to-right order.
+
+The full precedence order for arithmetic operators is:
+
+1. `*`, `/`, `%` — multiplication, division, and modulo happen first
+2. `+`, `-` — addition and subtraction happen second
+
+When two operators have the same precedence — like `*` and `/` — Apex evaluates from left to right:
+
+```apex
+result = 10 / 5 * 2  // (10 / 5) * 2
+```
+
+### Using Parentheses to Control Order
+If you want to change the order of evaluation, use parentheses `()`. Anything inside parentheses is evaluated first:
+
+```apex
+result = (2 + 3) * 4
+```
+
+Now the steps are:
+
+1. Parentheses first: `2 + 3 = 5`
+2. Then multiplication: `5 * 4 = 20`
+
+The result is `20`. Parentheses override the normal precedence rules, just like in math class. When in doubt, use parentheses — they make your intention clear and prevent subtle bugs.
+
+```apex
+a = (10 + 5) * 2        // 30
+b = 10 + (5 * 2)        // 20
+c = (10 - 3) / (2 + 1)  // 7 / 3 = 2.333...
+```
+
+### Combining Operators with Variables
+You can build more complex expressions by combining multiple operators and variables:
+
+```apex
+price = 100
+discount = 20
+tax_rate = 0.07
+
+final_price = (price - discount) * (1 + tax_rate)
+```
+
+Each step evaluates according to the precedence rules, with parentheses taking priority.
+
+### Arithmetic Only Works with Numbers
+One crucial rule: arithmetic operators work with numbers, and only numbers. You can add two numbers, subtract them, multiply them, divide them, take the remainder. But you cannot add a number to a string, or multiply a boolean by a table:
+
+```apex
+value = 10 + 5       // 15 — fine, both are numbers
+value = "hello" + 5  // ERROR — can't add string to number
+value = true * 3     // ERROR — can't multiply boolean by number
+```
+
+Apex is strict about this. It won't try to guess what you meant. If you write an arithmetic expression with non-number operands, Apex stops and tells you there's a problem. This is a good thing — it catches bugs early, before they cause confusing behavior later.
+
+If you have a string like `"42"` and you want to do math with it, you need to convert it to a number first:
+
+```apex
+text = "42"
+value = number(text)  // now value is the number 42
+result = value + 8    // 50 — works because value is a number
+```
+
+We covered the `number()` function in the Built-in Functions section — this is exactly the kind of situation where it's essential.
+
+### Whole Numbers and Decimals Together
+When you combine a whole number and a decimal number in an arithmetic expression, the result is always a decimal:
+
+```apex
+5 + 3.5 = 8.5   // decimal result
+10 / 4 = 2.5    // decimal result
+7 * 2.0 = 14.0  // decimal result
+```
+
+Apex preserves the decimal part whenever it appears. You don't have to do anything special — it handles the conversion automatically.
