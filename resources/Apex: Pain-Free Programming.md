@@ -47,7 +47,12 @@
   - [What Constant Does](#what-constant-does)
   - [Constants and Data Types](#constants-and-data-types)
   - [A Note on Naming](#a-note-on-naming)
-- [Built-in Functions](#section)
+- [Built-in Functions](#built-in-functions)
+  - [Three Essential Built-ins](#three-essential-built-ins)
+  - [type(): Checking What Something Is](#type-checking-what-something-is)
+  - [number(): Converting to a Number](#number-converting-to-a-number)
+  - [string(): Converting to a String](#string-converting-to-a-string)
+  - [Built-ins Are Functions Like Any Other](#built-ins-are-functions-like-any-other)
 
 ### Operators
 - [Arithmetic Operators](#section)
@@ -871,3 +876,140 @@ You may have noticed that the constant examples use `ALL_CAPS` names like `HOURS
 The idea is simple: when you see a name in all capital letters, you immediately know "this is a constant — it doesn't change." It's a visual signal that helps you and anyone reading your code understand what's fixed and what's flexible.
 
 Apex doesn't require this. You could name a constant `hours_in_day` and it would work exactly the same. But using `ALL_CAPS` for constants and regular lowercase for changeable variables is a good habit that makes your code clearer.
+
+## Built-in Functions
+You've now met all five data types and learned how to create variables that hold them. But knowing how to store data is only half the picture. You also need tools to work with that data — to convert it, inspect it, and understand it. Apex provides a small set of **built-in functions** for exactly this purpose.
+
+Before we dive in, let's clarify what a function is. You'll learn to create your own functions in a later section, but for now, think of a function as a named tool that takes some input, does something with it, and gives back a result. You use a function by writing its name, followed by parentheses. Inside the parentheses, you put the input — the value you want the function to work on. The function then returns a result.
+
+```apex
+number("42")
+```
+
+Here, `number` is the function's name. The value inside the parentheses — `"42"` — is the input, called an **argument**. The function takes that argument, does its work, and gives back a result. In this case, the result is the number `42`.
+
+### Three Essential Built-ins
+Apex provides three built-in functions that you'll use constantly, especially as a beginner:
+
+| Function    | What It Does                                    |
+|-------------|-------------------------------------------------|
+| `type(x)`   | Tells you what type a value is                  |
+| `number(x)` | Tries to convert a value to a number            |
+| `string(x)` | Converts any value to its string representation |
+
+Each takes one argument — the value inside the parentheses — and returns something useful. Let's explore each in detail.
+
+### type(): Checking What Something Is
+The `type()` function answers a simple question: "What kind of value is this?" You give it any value, and it returns a string telling you the type.
+
+```apex
+type(42)          // "number"
+type("hello")     // "string"
+type(true)        // "boolean"
+type(none)        // "none"
+type([1, 2, 3])   // "table"
+```
+
+The result is always one of five strings: `"number"`, `"string"`, `"boolean"`, `"none"`, or `"table"`. Notice that these are strings — they're text, not the values themselves. When you see `"number"` in quotes, that's a string saying "this value is a number type."
+
+You can use `type()` with variables too:
+
+```apex
+name = "Alice"
+age = 30
+is_active = true
+
+type(name)       // "string"
+type(age)        // "number"
+type(is_active)  // "boolean"
+```
+
+When would you actually use this? Imagine you're working with a variable whose value came from somewhere else — user input, a table lookup, a function you didn't write. You're not sure what type it is. `type()` gives you certainty.
+
+### number(): Converting to a Number
+The `number()` function tries to take whatever value you give it and turn it into a number. It works in two cases: when the value is already a number, and when the value is a string that contains numeric text.
+
+**Converting strings to numbers:**
+The most common use is turning a string like `"42"` into the number `42`. This matters because strings and numbers are different types, and sometimes you receive data as text that you need to do math with.
+
+```apex
+number("42")    // 42
+number("3.14")  // 3.14
+number("-7")    // -7
+```
+
+In each case, the input is a string containing numeric characters, and the output is an actual number you can use in calculations.
+
+**Numbers stay numbers:**
+If you give `number()` a value that's already a number, you get that number back unchanged:
+
+```apex
+number(10)    // 10
+number(3.14)  // 3.14
+```
+
+**When conversion fails:**
+What happens if you give `number()` something that can't sensibly be turned into a number? Like a string of text, or a boolean, or a table?
+
+```apex
+number("hello")  // none
+number(true)     // none
+number(false)    // none
+number([])       // none
+```
+
+The answer: you get `none` back. This makes sense when you think about it. The string `"hello"` doesn't contain any numeric value. The boolean `true` isn't a quantity. A table isn't a number. There's no way to convert these to numbers, so `number()` returns `none` to say "I couldn't do it."
+
+This is a perfect example of `none` being useful. The function always returns *something*, but when conversion is impossible, it returns `none` instead of a number. Your program can then check whether the result is `none` to know whether the conversion succeeded.
+
+**A practical example:**
+User input is almost always text. Even if someone types `42` at a prompt, your program receives the string `"42"`, not the number `42`. If you want to do math with that input, you must convert it:
+
+```apex
+user_input = "25"         // imagine this came from keyboard input
+age = number(user_input)  // now age is the number 25
+next_year = age + 1       // 26 — math works because age is a number
+```
+
+Without the conversion, `age` would be the string `"25"`, and trying to add `1` to it wouldn't work.
+
+### string(): Converting to a String
+The `string()` function is the opposite of `number()`. It takes any value and turns it into its string representation — the text form of that value.
+
+**Numbers to strings:**
+```apex
+string(42)    // "42"
+string(3.14)  // "3.14"
+string(-7)    // "-7"
+```
+
+The number `42` becomes the string `"42"`. They look the same to human eyes, but now it's text. You can't do math with it anymore, but you can do text things with it — like embed it in a larger string.
+
+**Booleans to strings:**
+```apex
+string(true)   // "true"
+string(false)  // "false"
+```
+
+**none to string:**
+```apex
+string(none)  // "none"
+```
+
+**Tables to string:**
+```apex
+string([])  // "[]"
+```
+
+The table conversion produces a text representation of the table's contents.
+
+### Built-ins Are Functions Like Any Other
+These three functions — `type`, `number`, and `string` — are exactly the same kind of thing as the functions you'll learn to create later in this book. They take arguments, they return results, and they can be used anywhere a value is expected. The only difference is that Apex provides them automatically. You don't need to create them or import anything — they're just there, ready to use from the moment you start writing code.
+
+In fact, you've already used another built-in function without realizing it:
+
+```apex
+os.output("Hello")
+```
+
+The `output` function from the `os` library is also a function — it takes a string as an argument and displays it on screen. The same pattern applies: function name, parentheses, argument inside. The difference is that `output` comes from the `os` library, while `type`, `number`, and `string` are available everywhere without any import.
