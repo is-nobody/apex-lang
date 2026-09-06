@@ -42,7 +42,11 @@
 - [None](#none)
   - [Not an Empty String or Table](#not-an-empty-string-or-table)
   - [The Role of None](#the-role-of-none)
-- [Constant](#section)
+- [Constant](#constant)
+  - [The Problem Constants Solve](#the-problem-constants-solve)
+  - [What Constant Does](#what-constant-does)
+  - [Constants and Data Types](#constants-and-data-types)
+  - [A Note on Naming](#a-note-on-naming)
 - [Built-in Functions](#section)
 
 ### Operators
@@ -807,3 +811,63 @@ selected_user = "Alice"
 ```
 
 This pattern — starting with `none` and filling in later — is very common. It lets you create all your variables up front, even if you don't know their final values yet.
+
+## Constant
+Throughout this section, you've been creating variables and changing their values freely. You assign a value, then assign a new one, and Apex happily updates the variable. This flexibility is useful, but sometimes you want the opposite: a value that should never change after it's been set. That's what `constant` gives you.
+
+### The Problem Constants Solve
+Think about the number of hours in a day. It's 24. Always has been, always will be. If you store that value in a variable:
+
+```apex
+hours_in_day = 24
+```
+
+What happens if, later in your program, you accidentally write:
+
+```apex
+hours_in_day = 25
+```
+
+Apex won't complain. It will dutifully replace 24 with 25, and now your program thinks there are 25 hours in a day. Every calculation that uses `hours_in_day` will be wrong, and you might not notice until something breaks badly.
+
+The problem here isn't that changing a variable is bad — it's that some values shouldn't be changeable. They're facts about your program that should stay fixed forever. `constant` lets you tell Apex: "This value is locked. Nobody is allowed to change it."
+
+### What Constant Does
+`constant` is not a new data type. It's a modifier — a word you put before a variable name to change how that variable behaves. The variable still holds a number, string, boolean, table, or `none`. The only difference is that once you assign a value, you can't assign it again.
+
+Here's how you create a constant:
+
+```apex
+constant HOURS_IN_DAY = 24
+```
+
+The word `constant` comes first, followed by the variable name, followed by the assignment. It looks almost exactly like a regular variable declaration, with one extra word at the front.
+
+Now, if you try to change it:
+
+```apex
+constant HOURS_IN_DAY = 24
+HOURS_IN_DAY = 25
+```
+
+Apex will stop and report an error. It will not let the assignment go through. The variable `HOURS_IN_DAY` remains locked at 24.
+
+### Constants and Data Types
+A constant can hold any of the five data types. The `constant` modifier doesn't care what kind of value you're storing — it only prevents reassignment:
+
+```apex
+constant APP_NAME = "Apex"                       // constant string
+constant MAX_RETRIES = 3                         // constant number
+constant IS_DEBUG = false                        // constant boolean
+constant DEFAULT_SETTINGS = ["theme" = "light"]  // constant table
+constant NO_VALUE = none                         // constant none
+```
+
+Each of these variables holds a value that cannot be changed. The types are exactly the same as they would be for regular variables — only the mutability differs.
+
+### A Note on Naming
+You may have noticed that the constant examples use `ALL_CAPS` names like `HOURS_IN_DAY` and `MAX_RETRIES`. This is a common convention — a style rule, not a language requirement.
+
+The idea is simple: when you see a name in all capital letters, you immediately know "this is a constant — it doesn't change." It's a visual signal that helps you and anyone reading your code understand what's fixed and what's flexible.
+
+Apex doesn't require this. You could name a constant `hours_in_day` and it would work exactly the same. But using `ALL_CAPS` for constants and regular lowercase for changeable variables is a good habit that makes your code clearer.
