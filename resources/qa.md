@@ -9,16 +9,6 @@
 
 ---
 
-- **Q**: Will there be AOT compilation to machine code?  
-- **A**: No, because the primary function of Apex is to stitch fast C components together and provide a developer-friendly experience. Also, it's better to have a good interpretation than a bad compilation. The `apex build` command already bundles bytecode with the interpreter into a single, dependency-free binary
-
----
-
-- **Q**: Will Apex on mobile produce standalone APK/IPA?  
-- **A**: Yes! To do this, you will need to use a UI library. This feature will be available later, we have different tasks now, but we will try to do this as soon as possible.
-
----
-
 - **Q**: Why is the entire project independent, even the cryptography?  
 - **A**: Complete control over the code. If you know a bug has occurred, you will be certain it is in your code. Integrating OpenSSL would add 1.2 MB to the binary and necessitate the inclusion of an external license in the project.
 
@@ -55,7 +45,7 @@
 ---
 
 - **Q**: Why only interpolation for strings?  
-- **A**: Because using the `+` operator to combine `Hello ` and `World` looks unreadable at scale and bloats the code.
+- **A**: Because concatenation reflects the machine's model of strings as raw sequences of bytes — easy to implement in early compilers — and it became the default ergonomic choice before anyone seriously questioned whether it matched how programmers actually think about composing text.
 
 ---
 
@@ -70,4 +60,4 @@
 ---
 
 - **Q**: Are there plans for shorthand assignment operators?
-- **A**: No. "Assignment operators" are an unnecessary feature that encourages writing code like `x += y * z`, which obscures the order of operations and the assignment itself. 
+- **A**: No. Compound assignment is a keystroke-saver that hides the assignment and compresses the operator — explicit `x = x + y` leaves nothing to parse mentally, so we prefer it.
