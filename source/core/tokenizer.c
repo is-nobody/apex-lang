@@ -21,7 +21,7 @@
 // human-readable names for all token types, used in debug output
 static const char* token_type_names[] = {
     "FUNCTION", "IF", "ELSE", "FOR",
-    "BREAK", "CONTINUE", "RETURN", "IMPORT", "CONSTANT", "IN ",
+    "BREAK", "CONTINUE", "RETURN", "IMPORT", "AS", "CONSTANT", "IN ",
     "AND", "OR", "NOT",
     "NONE", "TRUE", "FALSE", "NUMBER", "STRING", "IDENTIFIER",
     "PLUS", "MINUS", "STAR", "SLASH", "PERCENT", "EQUAL",
@@ -46,6 +46,7 @@ static KeywordEntry keywords[] = {
     {"continue", TOKEN_CONTINUE},
     {"return", TOKEN_RETURN},
     {"import", TOKEN_IMPORT},
+    {"as", TOKEN_AS},
     {"constant", TOKEN_CONSTANT},
     {"in", TOKEN_IN},
     {"and", TOKEN_AND},

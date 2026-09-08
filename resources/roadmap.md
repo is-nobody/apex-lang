@@ -4,7 +4,6 @@
 - `network` library
 - `zip` library (pack/unpack)
 - `\x` escape sequence support
-- `as` keyword as alias for user imports
 - `match`/`case`/`default`
 - Package manager
 - Language server (LSP)

@@ -63,6 +63,7 @@ function activate(context) {
                 'break': 'Exits the current loop immediately.',
                 'continue': 'Skips the rest of the current loop iteration.',
                 'import': 'Imports a file or library.\n\n```apex\nimport os\nimport utils/math.apex\n```',
+                'as': 'Creates an alias for an imported file module.\n\n```apex\nimport utils/math.apex as math_utils\nmath_utils.power(2, 3)\n```\n\nCannot be used with built-in modules.',
                 'constant': 'Declares a constant variable that cannot be reassigned.\n\n```apex\nconstant name = "Apex"\n```',
                 'in': 'Keyword for table iteration in for loops.\n\n```apex\nfor value in table\n    os.output(value)\n```',
                 'and': 'Logical AND operator.',

@@ -2663,7 +2663,7 @@ static ASTNode* parse_for_statement(Parser* parser) {
     return result;
 }
 
-// parses an import statement with module file loading
+// parses an import statement with module file loading and optional alias
 static ASTNode* parse_import_statement(Parser* parser) {
     Token* import_kw = advance(parser);             // consume 'import'
     char* module_path = (char*)malloc(128);         // module path buffer
@@ -2753,6 +2753,49 @@ static ASTNode* parse_import_statement(Parser* parser) {
         }
     }
 
+    char* alias_name = NULL;
+    if (match(parser, TOKEN_AS)) {
+        if (is_builtin) {
+            Token* as_token = &parser->tokens[parser->current - 1];  // the 'as' token
+            parser_error_at(parser, as_token->line, as_token->column, 2,
+                          "Cannot use 'as' alias with built-in module '%s'", first->value);  // error
+            // skip the rest of the line
+            while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
+                advance(parser);
+            }
+            free(module_path);
+            return NULL;
+        }
+        
+        Token* alias_token = current_token(parser);
+        if (!is_valid_import_segment(alias_token->type)) {
+            int len = alias_token->value ? (int)utf8_char_len(alias_token->value) : 1;
+            if (alias_token->type == TOKEN_STRING) {
+                len += 2;
+            }
+            parser_error_at(parser, alias_token->line, alias_token->column, len,
+                           "Expected alias name after 'as'");  // error
+            free(module_path);
+            return NULL;
+        }
+        
+        if (alias_token->type == TOKEN_IDENTIFIER || 
+            (alias_token->type >= TOKEN_FUNCTION && alias_token->type <= TOKEN_FALSE)) {
+            alias_name = strdup(alias_token->value);
+            advance(parser);
+        } else {
+            int len = alias_token->value ? (int)utf8_char_len(alias_token->value) : 1;
+            if (alias_token->type == TOKEN_STRING) {
+                len += 2;
+            }
+            parser_error_at(parser, alias_token->line, alias_token->column, 
+                          len,
+                          "Invalid alias name");  // error
+            free(module_path);
+            return NULL;
+        }
+    }
+
     if (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) {
         Token* extra = current_token(parser);
         int len = extra->value ? (int)utf8_char_len(extra->value) : 1;
@@ -2762,13 +2805,20 @@ static ASTNode* parse_import_statement(Parser* parser) {
             advance(parser);
         }
         free(module_path);
+        if (alias_name) free(alias_name);
         return NULL;
     }
 
-    char* dot_name = (char*)malloc(strlen(module_path) + 1);
-    strcpy(dot_name, module_path);
-    if (!is_builtin) {
-        dot_name[strlen(dot_name) - 5] = '\0';      // remove '.apex'
+    char* dot_name;
+    if (alias_name) {
+        dot_name = strdup(alias_name);
+        free(alias_name);
+    } else {
+        dot_name = (char*)malloc(strlen(module_path) + 1);
+        strcpy(dot_name, module_path);
+        if (!is_builtin) {
+            dot_name[strlen(dot_name) - 5] = '\0';  // remove '.apex'
+        }
     }
     
     for (char* p = dot_name; *p; p++) {
@@ -2845,7 +2895,7 @@ static ASTNode* parse_import_statement(Parser* parser) {
         if (mod_parser->symbols.scope_levels[i] == 0) {
             char full_name[1024];
             snprintf(full_name, sizeof(full_name), "%s.%s", 
-                     dot_name, mod_parser->symbols.names[i]);  // prefix with module name
+                     dot_name, mod_parser->symbols.names[i]);  // prefix with alias/module name
             
             if (symbol_index_recursive(parser, full_name) < 0) {
                 parser_declare_symbol(parser, full_name, 

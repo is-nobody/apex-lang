@@ -6,7 +6,7 @@
 import os
 import math
 import lib.apex
-import lib/subfolder/math_utils.apex
+import lib/subfolder/math_utils.apex as math_utils
 import lib/string_utils.apex
 import lib/fib.apex
 
@@ -27,7 +27,7 @@ function module_variables()
 
 // test: submodule function accessible via nested path
 function submodule_function()
-    circle_result = lib.subfolder.math_utils.circle_area(2)
+    circle_result = math_utils.circle_area(2)
     assert_equal(circle_result, math.pi() * 4, "lib.subfolder.math_utils.circle_area(2)")
 
 // test: multiple nested module calls with string utilities
@@ -41,7 +41,7 @@ function nested_module_calls()
 // test: module variable used in arithmetic expression
 function module_var_in_expression()
     radius = 3
-    volume = (4.0 / 3.0) * lib.pi * lib.subfolder.math_utils.power(radius, 3)
+    volume = (4.0 / 3.0) * lib.pi * math_utils.power(radius, 3)
     expected_volume = (4.0 / 3.0) * math.pi() * (radius * radius * radius)
     assert_equal(volume, expected_volume, "sphere volume using lib.pi and lib.subfolder.math_utils.power")
 
@@ -50,7 +50,7 @@ function table_with_module_values()
     results = [
         "add" = lib.add(10, 20),
         "multiply" = lib.multiply(7, 8),
-        "circle" = lib.subfolder.math_utils.circle_area(5),
+        "circle" = math_utils.circle_area(5),
         "upper_name" = lib.string_utils.to_upper("apex"),
         "length" = lib.string_utils.get_length("hello world")
     ]
@@ -73,14 +73,14 @@ function conditional_module_call()
 
 // test: factorial function from submodule
 function factorial_module()
-    fact_result = lib.subfolder.math_utils.factorial(5)
+    fact_result = math_utils.factorial(5)
     assert_equal(fact_result, 120, "lib.subfolder.math_utils.factorial(5)")
 
 // test: complex nested calls across multiple modules
 function complex_nested_calls()
     x = lib.add(1, 2)
     y = lib.multiply(x, 3)
-    z = lib.subfolder.math_utils.power(y, 2)
+    z = math_utils.power(y, 2)
     final = lib.string_utils.get_length("test")
     assert_equal(z, 81, "complex nested: lib.subfolder.math_utils.power(lib.multiply(lib.add(1,2), 3), 2)")
     assert_equal(final, 4, "lib.string_utils.get_length('test')")
@@ -89,7 +89,7 @@ function complex_nested_calls()
 function chained_module_calls()
     num1 = lib.add(5, 5)
     num2 = lib.multiply(num1, 2)
-    num3 = lib.subfolder.math_utils.power(num2, 2)
+    num3 = math_utils.power(num2, 2)
     assert_equal(num3, 400, "chained module calls: power(multiply(add(5,5), 2), 2)")
 
 // test: ternary operator with module function calls
