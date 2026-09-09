@@ -34,6 +34,7 @@ set(SOURCES
     source/libraries/base_module.c
     source/libraries/regex_module.c
     source/libraries/crypto_module.c
+    source/libraries/zip_module.c
 
     source/utils/execute.c
     source/utils/error.c

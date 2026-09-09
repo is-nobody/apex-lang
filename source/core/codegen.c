@@ -9,16 +9,39 @@
 #include <stdlib.h>
 #include <string.h>
 
-// checks if a module name is a built-in system module
+// checks if a name is a known built-in module root using first-char switch
 static bool is_known_builtin_module(const char* name) {
-    return strcmp(name, "os") == 0 ||
-           strcmp(name, "sys") == 0 || strcmp(name, "math") == 0 ||
-           strcmp(name, "string") == 0 || strcmp(name, "table") == 0 ||
-           strcmp(name, "ffi") == 0 || strcmp(name, "random") == 0 ||
-           strcmp(name, "json") == 0 || strcmp(name, "xml") == 0 ||
-           strcmp(name, "csv") == 0 || strcmp(name, "hex") == 0 ||
-           strcmp(name, "base") == 0 || strcmp(name, "regex") == 0 ||
-           strcmp(name, "crypto") == 0;
+    switch (name[0]) {
+        case 'o':
+            return strcmp(name, "os") == 0;        // only os starts with 'o'
+        case 's':
+            return strcmp(name, "sys") == 0 ||     // sys module
+                   strcmp(name, "string") == 0;    // string module
+        case 'm':
+            return strcmp(name, "math") == 0;      // only math starts with 'm'
+        case 't':
+            return strcmp(name, "table") == 0;     // only table starts with 't'
+        case 'f':
+            return strcmp(name, "ffi") == 0;       // only ffi starts with 'f'
+        case 'r':
+            return strcmp(name, "random") == 0 ||  // random module
+                   strcmp(name, "regex") == 0;     // regex module
+        case 'c':
+            return strcmp(name, "csv") == 0 ||     // csv module
+                   strcmp(name, "crypto") == 0;    // crypto module
+        case 'j':
+            return strcmp(name, "json") == 0;      // json module
+        case 'x':
+            return strcmp(name, "xml") == 0;       // xml module
+        case 'h':
+            return strcmp(name, "hex") == 0;       // hex module
+        case 'b':
+            return strcmp(name, "base") == 0;      // base module
+        case 'z':
+            return strcmp(name, "zip") == 0;       // zip module
+        default:
+            return false;                          // no builtin module matches
+    }
 }
 
 // checks if a binary operator always produces a number result

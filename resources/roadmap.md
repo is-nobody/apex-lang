@@ -2,7 +2,6 @@
 - Build for Android/iOS
 - `ui` library (apex+html+css+system webview)
 - `network` library
-- `zip` library (pack/unpack)
 - `\x` escape sequence support
 - `match`/`case`/`default`
 - Package manager

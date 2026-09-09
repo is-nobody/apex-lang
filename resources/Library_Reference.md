@@ -2107,3 +2107,36 @@ if decrypted == none
 else
     os.output("Decrypted: {decrypted}")
 ```
+
+## ZIP Library (zip)
+The ZIP library provides functions for creating and extracting ZIP archives. Import it with `import zip`.
+
+### zip.pack(path)
+Creates a ZIP archive from a file or directory. If `path` is a file, creates a ZIP containing just that file. If `path` is a directory, recursively packs all files and subdirectories. Returns `true` on success, `none` on failure.
+
+```apex
+import os
+import zip
+
+result = zip.pack("file.txt")
+
+if result == none
+    os.output("Failed to pack file")
+else
+    os.output("Packed successfully")
+```
+
+### zip.unpack(path)
+Extracts all files and directories from a ZIP archive. Preserves original file permissions and modification times. Creates necessary subdirectories automatically. Returns `true` on success, `none` on failure.
+
+```apex
+import os
+import zip
+
+result = zip.unpack("file.zip")
+
+if result == none
+    os.output("Failed to unpack archive")
+else
+    os.output("Extracted successfully")
+```

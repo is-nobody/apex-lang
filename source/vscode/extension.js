@@ -20,7 +20,8 @@ const libDocs = {
     'hex': 'HEX encoding/decoding library.',
     'base': 'Base encoding/decoding library.',
     'regex': 'Regular expressions library.',
-    'crypto': 'Cryptography library.'
+    'crypto': 'Cryptography library.',
+    'zip': 'ZIP archive compression/decompression library.'
 };
 
 // extension activation entry point
@@ -202,6 +203,8 @@ function activate(context) {
                 'crypto.aes256_encrypt', 'crypto.aes256_decrypt',
                 'crypto.random_hex',     'crypto.compare_strings',
                 'crypto.random_integer', 'crypto.random_float',
+
+                'zip.pack',              'zip.unpack',
 
                 'number', 'string', 'type'
             ];

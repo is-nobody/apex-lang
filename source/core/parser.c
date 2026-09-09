@@ -300,6 +300,8 @@ static const BuiltinSig BUILTINS[] = {
     {"crypto.random_hex", 1, 1, TYPE_NUMBER},     {"crypto.compare_strings", 2, 2, TYPE_STRING},
     {"crypto.random_integer", 1, 1, TYPE_NUMBER}, {"crypto.random_float", 0, 0, TYPE_ANY},
 
+    {"zip.pack", 1, 1, TYPE_STRING}, {"zip.unpack", 1, 1, TYPE_STRING},
+
     {"number", 1, 1, TYPE_ANY}, {"string", 1, 1, TYPE_ANY}, {"type", 1, 1, TYPE_ANY}
 };
 
@@ -593,6 +595,8 @@ static bool is_known_builtin_module(const char* name) {
             return strcmp(name, "hex") == 0;       // hex module
         case 'b':
             return strcmp(name, "base") == 0;      // base module
+        case 'z':
+            return strcmp(name, "zip") == 0;       // zip module
         default:
             return false;                          // no builtin module matches
     }
