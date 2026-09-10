@@ -36,12 +36,6 @@ typedef struct {
 
     int label_counter;             // unique identifier generator for synthetic labels
 
-    struct {
-        int zero_reg;              // cached register holding the constant 0
-        int one_reg;               // cached register holding the constant 1
-        int empty_str;             // cached register holding the empty string ""
-    } cache;                       // commonly used constants kept in registers for efficiency
-
     char* current_module;          // name of the module currently being compiled
     char** imported_modules;       // list of imported module names for name resolution
     int module_count;              // number of imported modules

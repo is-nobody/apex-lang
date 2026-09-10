@@ -64,9 +64,14 @@ static void print_const_value(BytecodeChunk* chunk, int idx, FILE* out) {  // ch
     }
     Constant* c = &chunk->constants[idx];                         // fetch constant entry
     switch (c->type) {                                            // dispatch by type
-        case CONST_NUMBER:                                        // numeric literal
-            fprintf(out, C_MAGENTA "%g" C_RESET, c->number_value); // magenta number
+        case CONST_NUMBER: {
+            double v = c->number_value;
+            if (fabs(v) >= 1e6 || fabs(v - (long long)v) < 1e-9)
+                fprintf(out, C_MAGENTA "%.0f" C_RESET, v);       // large or whole numbers: no exponent
+            else
+                fprintf(out, C_MAGENTA "%.15g" C_RESET, v);      // general: keep precision
             break;
+        }
         case CONST_STRING:                                        // string literal
             print_escaped_string(c->string_value, out);           // delegate to string printer
             break;
@@ -81,7 +86,7 @@ static void print_const_value(BytecodeChunk* chunk, int idx, FILE* out) {  // ch
         case CONST_FUNCTION:                                      // function reference
             fputs(C_YELLOW, out);                                 // open yellow
             if (c->function_index >= 0 && c->function_index < chunk->func_count)  // valid index
-                fprintf(out, "<fn %s>", chunk->functions[c->function_index].name); // named function
+                fprintf(out, "%s", chunk->functions[c->function_index].name);     // bare name
             else
                 fprintf(out, "<fn#%d>", c->function_index);       // fallback index form
             fputs(C_RESET, out);                                  // reset color
@@ -422,12 +427,12 @@ int emit_command(int argc, char** argv) {                         // argc/argv: 
             Constant* cn = &chunk->constants[i];                  // fetch entry
             fprintf(stdout, "  " C_GRAY "[%2d]" C_RESET " ", i);  // index
             switch (cn->type) {                                   // type label
-                case CONST_NUMBER:   fputs(C_MAGENTA "NUMBER" C_RESET " ", stdout); break;  // number label
-                case CONST_STRING:   fputs(C_GREEN   "STRING" C_RESET " ", stdout); break;  // string label
-                case CONST_BOOL:     fputs(C_MAGENTA "BOOL"   C_RESET "   ", stdout); break;  // bool label
-                case CONST_NONE:     fputs(C_MAGENTA "NONE"   C_RESET "   ", stdout); break;  // none label
-                case CONST_FUNCTION: fputs(C_YELLOW  "FUNC"   C_RESET "   ", stdout); break;  // function label
-                default:             fputs(C_RED     "?"      C_RESET "      ", stdout); break;  // unknown label
+                case CONST_NUMBER:   fputs(C_MAGENTA "NUMBER"   C_RESET "  ", stdout); break;  // number label
+                case CONST_STRING:   fputs(C_GREEN   "STRING"   C_RESET "  ", stdout); break;  // string label
+                case CONST_BOOL:     fputs(C_MAGENTA "BOOL"     C_RESET "    ", stdout); break;  // bool label
+                case CONST_NONE:     fputs(C_MAGENTA "NONE"     C_RESET "    ", stdout); break;  // none label
+                case CONST_FUNCTION: fputs(C_YELLOW  "FUNCTION" C_RESET " ", stdout); break;  // function label
+                default:             fputs(C_RED     "?"        C_RESET "       ", stdout); break;  // unknown label
             }
             print_const_value(chunk, i, stdout);                  // print value
             fputc('\n', stdout);                                  // newline

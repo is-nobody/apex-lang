@@ -141,16 +141,6 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->module_globals_count = 0;                                          // zero module globals
     cg->module_globals_capacity = 0;                                       // no capacity
 
-    cg->cache.zero_reg = alloc_register(cg);                               // allocate zero register
-    emit(cg, INST(OP_LOAD_NUM_IMM, cg->cache.zero_reg, 0, 0), 0);          // load zero immediate
-    
-    cg->cache.one_reg = alloc_register(cg);                                // allocate one register
-    emit(cg, INST(OP_LOAD_NUM_IMM, cg->cache.one_reg, 1, 0), 0);           // load one immediate
-
-    cg->cache.empty_str = alloc_register(cg);                              // allocate empty string register
-    int empty_idx = bytecode_add_string_constant(chunk, "");               // add empty string constant
-    emit(cg, INST(OP_LOAD_CONST, cg->cache.empty_str, empty_idx, 0), 0);   // load empty string
-    
     return cg;                                                             // return generator
 }
 
