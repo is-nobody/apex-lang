@@ -150,6 +150,17 @@ static int add_local(CodeGenerator* cg, const char* name) {
     return reg;                                                            // return register
 }
 
+// returns next_register value with all locals preserved and no temps
+static int locals_high_water(CodeGenerator* cg) {
+    int highest = -1;                                          // no locals yet
+    for (int i = 0; i < cg->locals.count; i++) {               // scan local slots
+        if (cg->locals.registers[i] > highest) {               // track max
+            highest = cg->locals.registers[i];
+        }
+    }
+    return highest + 1;                                        // next free index
+}
+
 // emits an instruction with source line info for debugging
 static int emit(CodeGenerator* cg, Instruction inst, int line) {
     return bytecode_emit_line(cg->chunk, inst, line);                      // emit with line info
@@ -174,6 +185,7 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->module_globals = NULL;                                             // no module globals
     cg->module_globals_count = 0;                                          // zero module globals
     cg->module_globals_capacity = 0;                                       // no capacity
+    cg->register_floor = 0;                                                // no floor at top level
 
     return cg;                                                             // return generator
 }
@@ -608,7 +620,12 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             }
         }
 
+        int prev_floor = cg->register_floor;                                        // save floor
+        if (right_hoisted) {                                                        // right_reg must survive
+            cg->register_floor = right_reg + 1;                                     // pin it above body temps
+        }
         codegen_block(cg, node->for_stmt.body);                                     // emit body
+        cg->register_floor = prev_floor;                                            // restore floor
         emit(cg, INST(OP_JUMP, loop_start, 0, 0), node->line);                      // jump back
         
         int end_addr = bytecode_current_offset(cg->chunk);                          // end address
@@ -976,6 +993,8 @@ static void codegen_match_statement(CodeGenerator* cg, ASTNode* node) {
 
     int no_match_jump = emit(cg, INST(OP_JUMP, 0, 0, 0), line);          // jump when no case matched
 
+    int prev_floor = cg->register_floor;                                 // save floor
+    cg->register_floor = subject_reg + 1;                                // pin subject across cases
     for (int i = 0; i < case_count; i++) {                               // emit each case body
         ASTNode* case_node = cases->nodes[i];
         int body_start = bytecode_current_offset(cg->chunk);             // body start address
@@ -990,6 +1009,7 @@ static void codegen_match_statement(CodeGenerator* cg, ASTNode* node) {
         codegen_block(cg, default_case->case_stmt.body);                 // emit default body
         end_jumps[end_jump_count++] = emit(cg, INST(OP_JUMP, 0, 0, 0), line);  // jump to end
     }
+    cg->register_floor = prev_floor;                                     // restore floor after match
 
     int end_addr = bytecode_current_offset(cg->chunk);                   // match end address
     if (!default_case) {
@@ -1532,6 +1552,11 @@ static void codegen_block(CodeGenerator* cg, ASTNode* node) {
     for (int i = 0; i < node->block.statements->count; i++) {                     // iterate statements
         ASTNode* stmt = node->block.statements->nodes[i];                         // current statement
         codegen_statement(cg, stmt);                                              // emit statement
+        int reset_to = locals_high_water(cg);                                     // keep locals + pinned
+        if (reset_to < cg->register_floor) reset_to = cg->register_floor;         // respect floor
+        if (cg->next_register > reset_to) {                                       // drop temps only
+            cg->next_register = reset_to;                                         // reclaim for next stmt
+        }
     }
 }
 
@@ -1546,6 +1571,7 @@ bool codegen_generate(CodeGenerator* cg, ASTNode* ast) {
         codegen_block(cg, ast);                                // emit block
     } else {                                                   // single statement
         codegen_statement(cg, ast);                            // emit statement
+        cg->next_register = locals_high_water(cg);             // drop temps from the single stmt
     }
     
     cg->chunk->functions[0].max_registers = cg->max_registers; // store the max registers
