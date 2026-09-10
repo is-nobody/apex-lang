@@ -2576,6 +2576,21 @@ static ASTNode* parse_match_statement(Parser* parser) {
         return NULL;
     }
 
+    ValueType subject_type = TYPE_ANY;                              // inferred subject type
+    bool subject_type_ok = true;                                    // whether subject passed check
+    if (parser->semantic_checks) {
+        subject_type = infer_expression_type(parser, subject);      // infer subject type
+        if (subject_type == TYPE_TABLE || subject_type == TYPE_FUNCTION) {
+            parser_error_at(parser, subject->line, subject->column,
+                            get_node_len(subject),
+                            "Match subject must be a number, string, boolean, or none, got %s",
+                            type_name(subject_type));               // unsupported subject type
+            subject_type_ok = false;                                // suppress per-case checks
+        } else if (subject_type == TYPE_ERROR) {
+            subject_type_ok = false;                                // suppress per-case checks
+        }
+    }
+
     skip_newlines(parser);
     if (!match(parser, TOKEN_INDENT)) {
         parser_error_at(parser, match_kw->line, match_kw->column, 1,
@@ -2609,6 +2624,16 @@ static ASTNode* parse_match_statement(Parser* parser) {
             if (pattern && !is_valid_case_pattern(pattern)) {
                 parser_error_at(parser, pattern->line, pattern->column, get_node_len(pattern),
                                 "Match case pattern must be a number, string, boolean, or none constant");
+            } else if (pattern && subject_type_ok && parser->semantic_checks &&
+                       subject_type != TYPE_ANY && subject_type != TYPE_UNKNOWN) {
+                ValueType pat_type = infer_expression_type(parser, pattern);  // infer pattern type
+                if (pat_type != TYPE_ANY && pat_type != TYPE_UNKNOWN &&
+                    pat_type != TYPE_ERROR && pat_type != subject_type) {
+                    parser_error_at(parser, pattern->line, pattern->column,
+                                    get_node_len(pattern),
+                                    "Match case pattern type %s can never match subject type %s",
+                                    type_name(pat_type), type_name(subject_type));  // unreachable case
+                }
             }
         }
 
