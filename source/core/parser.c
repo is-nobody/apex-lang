@@ -2644,9 +2644,30 @@ static ASTNode* parse_match_statement(Parser* parser) {
         if (pattern == NULL) {                                      // default case
             if (default_case) {
                 parser_error_at(parser, case_kw->line, case_kw->column, 4,
-                                "Only one default 'case' allowed");
+                                "Only one default 'case' allowed");  // duplicate default
             } else {
-                default_case = case_node;
+                default_case = case_node;                           // store default case
+
+                skip_newlines(parser);                              // look past blank lines
+                if (check(parser, TOKEN_CASE)) {                    // another case follows default
+                    Token* next_case = current_token(parser);
+                    parser_error_at(parser, next_case->line, next_case->column, 4,
+                                    "Default 'case' must be the last case");  // default not last
+
+                    int depth = 0;                                  // indent nesting for recovery
+                    while (!check(parser, TOKEN_EOF)) {
+                        if (check(parser, TOKEN_INDENT)) {
+                            depth++;                                // enter nested block
+                        } else if (check(parser, TOKEN_DEDENT)) {
+                            if (depth == 0) break;                  // match-level DEDENT reached
+                            depth--;                                // exit nested block
+                        }
+                        advance(parser);                            // skip this token
+                    }
+                    ast_free_node(case_node);                       // discard orphaned default
+                    default_case = NULL;                            // reset, nothing stored
+                    break;                                          // exit match loop
+                }
             }
         } else {
             ast_list_add(cases, case_node);                         // add non-default case

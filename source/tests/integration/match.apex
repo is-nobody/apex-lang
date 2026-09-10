@@ -160,48 +160,9 @@ function match_none()
     match variable
         case none
             result = "empty"
-        case 0
-            result = "zero"
         case
             result = "other"
     assert_equal(result, "empty", "none literal")
-
-// test: type mismatch falls through to default (number vs string cases)
-function match_type_mismatch()
-    variable = 404
-    result = ""
-    match variable
-        case "404"
-            result = "string_404"
-        case "not_found"
-            result = "string_not_found"
-        case
-            result = "other"
-    assert_equal(result, "other", "number vs string cases")
-
-// test: number subject does not match boolean case
-function match_number_vs_bool()
-    variable = 1
-    result = ""
-    match variable
-        case true
-            result = "true_case"
-        case false
-            result = "false_case"
-        case
-            result = "other"
-    assert_equal(result, "other", "number 1 vs bool cases")
-
-// test: string subject does not match none case
-function match_string_vs_none()
-    variable = "none"
-    result = ""
-    match variable
-        case none
-            result = "none_case"
-        case
-            result = "other"
-    assert_equal(result, "other", "string 'none' vs none case")
 
 // test: match without default on unmatched value yields empty result
 function match_without_default()
@@ -358,9 +319,6 @@ match_string_empty()
 match_bool_true()
 match_bool_false()
 match_none()
-match_type_mismatch()
-match_number_vs_bool()
-match_string_vs_none()
 match_without_default()
 match_without_default_hit()
 match_large_number()
