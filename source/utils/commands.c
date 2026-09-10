@@ -8,6 +8,7 @@
 #include "platform.h"
 #include "build.h"
 #include "compile.h"
+#include "emit.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
@@ -67,6 +68,10 @@ int handle_commands(int argc, char** argv) {
 
     if (strcmp(argv[1], "compile") == 0) {  // compile command
         return compile_command(argc, argv); // delegate to compile handler
+    }
+
+    if (strcmp(argv[1], "emit") == 0) {     // emit (disassemble) command
+        return emit_command(argc, argv);    // delegate to emit handler
     }
 
     return -1;                              // unknown command

@@ -38,6 +38,7 @@ set(SOURCES
 
     source/utils/execute.c
     source/utils/error.c
+    source/utils/emit.c
     source/utils/platform.c
     source/utils/repl.c
     source/utils/commands.c
