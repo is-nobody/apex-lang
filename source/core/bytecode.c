@@ -47,6 +47,11 @@ static const char* opcode_names[] = {
     [OP_JUMP_IF_LTE]      = "JUMP_IF_LTE",
     [OP_JUMP_IF_GTE]      = "JUMP_IF_GTE",
 
+    [OP_JUMP_MATCH_NUM]   = "JUMP_MATCH_NUM",
+    [OP_JUMP_MATCH_STR]   = "JUMP_MATCH_STR",
+    [OP_JUMP_MATCH_BOOL]  = "JUMP_MATCH_BOOL",
+    [OP_JUMP_MATCH_NONE]  = "JUMP_MATCH_NONE",
+
     [OP_CMP_EQ]           = "CMP_EQ",
     [OP_CMP_NEQ]          = "CMP_NEQ",
     [OP_CMP_EQ_NUM]       = "CMP_EQ_NUM",

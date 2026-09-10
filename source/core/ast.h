@@ -19,6 +19,8 @@ typedef enum {
     AST_RETURN_STMT,       // return value — exits the current function
     AST_IF_STMT,           // if condition { ... } with optional elif/else chains
     AST_FOR_STMT,          // for var in iterable { body } — loop construct
+    AST_MATCH_STMT,        // match expr { case const ... case default ... }
+    AST_CASE,              // single case inside a match statement
     AST_BREAK_STMT,        // break — exits the nearest enclosing loop
     AST_CONTINUE_STMT,     // continue — jumps to the next loop iteration
     AST_EXPR_STMT,         // expression used as a statement, e.g. a function call on its own
@@ -184,6 +186,19 @@ struct ASTNode {
             ASTNode* false_expr;      // expression evaluated when condition is false
         } ternary;
 
+        // match statement with subject, non-default cases, and optional default case
+        struct {
+            ASTNode* subject;          // expression being matched
+            ASTNodeList* cases;        // list of AST_CASE nodes (non-default)
+            ASTNode* default_case;     // default case node or NULL
+        } match_stmt;
+
+        // case branch inside match, pattern is NULL for default
+        struct {
+            ASTNode* pattern;          // constant pattern expression (NULL for default)
+            ASTNode* body;             // block node for case body
+        } case_stmt;
+
         // expression statement wrapper to treat any expression as a statement
         struct {
             ASTNode* expression;      // expression being treated as a statement
@@ -258,6 +273,13 @@ ASTNode* ast_create_string_interp(ASTNodeList* parts);
 
 // ternary node: condition ? true_expr : false_expr
 ASTNode* ast_create_ternary(ASTNode* condition, ASTNode* true_expr, ASTNode* false_expr, int line, int column);
+
+// creates a match statement node
+ASTNode* ast_create_match(ASTNode* subject, ASTNodeList* cases,
+                          ASTNode* default_case, int line, int column);
+
+// creates a case branch node
+ASTNode* ast_create_case(ASTNode* pattern, ASTNode* body, int line, int column);
 
 // creates a type check node for parameter validation (reserved for future use)
 ASTNode* ast_create_type_check(const char* param_name, const char* type_name, 

@@ -173,6 +173,24 @@ ASTNode* ast_create_ternary(ASTNode* condition, ASTNode* true_expr, ASTNode* fal
     return node;                                           // return ternary node
 }
 
+// match statement holds subject, non-default cases, and optional default case
+ASTNode* ast_create_match(ASTNode* subject, ASTNodeList* cases,
+                          ASTNode* default_case, int line, int column) {
+    ASTNode* node = ast_create_node(AST_MATCH_STMT, line, column);  // create match node
+    node->match_stmt.subject = subject;                            // store subject expression
+    node->match_stmt.cases = cases ? cases : ast_list_create();    // store non-default cases
+    node->match_stmt.default_case = default_case;                  // store default case or NULL
+    return node;                                                   // return match node
+}
+
+// case branch stores a constant pattern and a body block
+ASTNode* ast_create_case(ASTNode* pattern, ASTNode* body, int line, int column) {
+    ASTNode* node = ast_create_node(AST_CASE, line, column);  // create case node
+    node->case_stmt.pattern = pattern;                        // store pattern (NULL for default)
+    node->case_stmt.body = body;                              // store case body block
+    return node;                                              // return case node
+}
+
 // block node groups a list of statements, using first statement's location as fallback
 ASTNode* ast_create_block(ASTNodeList* statements) {
     ASTNode* node = ast_create_node(AST_BLOCK, 
@@ -325,6 +343,17 @@ void ast_free_node(ASTNode* node) {
             ast_free_node(node->ternary.condition);                      // recursively free condition
             ast_free_node(node->ternary.true_expr);                      // recursively free true branch
             ast_free_node(node->ternary.false_expr);                     // recursively free false branch
+            break;
+        case AST_MATCH_STMT:                                               // match statement node
+            ast_free_node(node->match_stmt.subject);                       // free subject
+            for (int i = 0; i < node->match_stmt.cases->count; i++)        // free non-default cases
+                ast_free_node(node->match_stmt.cases->nodes[i]);
+            ast_list_free(node->match_stmt.cases);                         // free cases list container
+            ast_free_node(node->match_stmt.default_case);                  // free default case if present
+            break;
+        case AST_CASE:                                                     // case branch node
+            ast_free_node(node->case_stmt.pattern);                        // free pattern
+            ast_free_node(node->case_stmt.body);                           // free body block
             break;
         default:                   // unknown node type
             break;                 // nothing to free

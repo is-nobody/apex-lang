@@ -2,7 +2,7 @@
   "name": "apex-lang",
   "displayName": "apex-lang",
   "description": "Language support for the Apex programming language",
-  "version": "26.0.8",
+  "version": "26.0.9",
   "icon": "logo.png",
   "publisher": "is-nobody",
   "engines": {

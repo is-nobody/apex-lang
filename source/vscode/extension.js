@@ -60,6 +60,8 @@ function activate(context) {
                 'if': 'Conditional statement.\n\n```apex\nif condition\n    // code\nelse if other_condition\n    // code\nelse\n    // code\n```',
                 'else': 'Default branch in conditional statements.',
                 'for': 'Numeric, table, and conditional loops.\n\n```apex\n// Numeric loop\nfor i = 1, 10\nfor i = 10, 1, -1\n\n// Table loop\nfor value in my_table\n\n// Conditional loop\nfor x < 10\n```',
+                'match': 'Constant pattern matching statement.\n\n```apex\nmatch variable\n    case 404\n        // code\n    case "error"\n        // code\n    case true\n        // code\n    case none\n        // code\n    case\n        // default branch\n```',
+                'case': 'Pattern branch inside match statement.\n\n```apex\nmatch value\n    case 1\n        // matched 1\n    case "text"\n        // matched "text"\n    case\n        // default\n```',
                 'return': 'Returns a value from a function.',
                 'break': 'Exits the current loop immediately.',
                 'continue': 'Skips the rest of the current loop iteration.',
@@ -97,6 +99,7 @@ function activate(context) {
             const keywords = [             // apex language keywords
                 'function', 'if', 'else', 'for', 'in', 'break',
                 'continue', 'return', 'import', 'constant', 'and', 'or', 'not',
+                'match', 'case',
                 'true', 'false', 'none'
             ];
 

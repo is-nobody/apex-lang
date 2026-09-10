@@ -3,7 +3,6 @@
 - `ui` library (apex+html+css+system webview)
 - `network` library
 - `\x` escape sequence support
-- `match`/`case`/`default`
 - Package manager
 - Language server (LSP)
 - Documentation `Apex as Embedded language`

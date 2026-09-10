@@ -22,7 +22,7 @@
     "offSide": true
   },
   "indentationRules": {
-    "increaseIndentPattern": "^\\s*(function|if|else if|else|for)\\b.*$",
+    "increaseIndentPattern": "^\\s*(function|if|else if|else|for|match|case)\\b.*$",
     "decreaseIndentPattern": ""
   }
 }

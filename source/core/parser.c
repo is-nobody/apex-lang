@@ -35,10 +35,11 @@ static ASTNode* parse_expression(Parser* parser);                    // parse ex
 static ASTNode* parse_block(Parser* parser, bool require_indent, const char* after_keyword);  // parse indented block
 static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, int line, int column);  // parse interpolated expr
 static ValueType infer_expression_type(Parser* parser, ASTNode* node);  // type inference for expression
-static int symbol_index_recursive(Parser* parser, const char* name); // find symbol in any scope
-static const char* binary_op_name(ApexTokenType op);                // get string name for binary op
-static ASTNode* parse_call(Parser* parser, ASTNode* callee);        // parse function call
+static int symbol_index_recursive(Parser* parser, const char* name);    // find symbol in any scope
+static const char* binary_op_name(ApexTokenType op);                    // get string name for binary op
+static ASTNode* parse_call(Parser* parser, ASTNode* callee);            // parse function call
 static void parser_check_condition(Parser* parser, ASTNode* condition, const char* context);  // validate condition
+static ASTNode* parse_match_statement(Parser* parser);                   // parse match/case statement
 
 // djb2 hash function for fast string lookup in symbol hash table
 static unsigned int hash_string_parser(const char* str) {
@@ -2537,12 +2538,101 @@ static ASTNode* parse_if_statement(Parser* parser) {
     }
 }
 
+// checks if a node is a valid constant case pattern
+static bool is_valid_case_pattern(ASTNode* node) {
+    if (!node) return false;                                        // null is invalid
+    if (node->type == AST_LITERAL_NUMBER ||
+        node->type == AST_LITERAL_STRING ||
+        node->type == AST_LITERAL_BOOL ||
+        node->type == AST_LITERAL_NONE) return true;                // direct literal
+    if (node->type == AST_UNARY && node->unary.op == TOKEN_MINUS &&
+        node->unary.operand->type == AST_LITERAL_NUMBER) return true;  // negative number
+    return false;                                                   // tables/functions/etc are invalid
+}
+
 // checks if a token type is a valid import segment
 static bool is_valid_import_segment(ApexTokenType type) {
     if (type == TOKEN_IDENTIFIER) return true;
     if (type >= TOKEN_FUNCTION && type <= TOKEN_FALSE) return true;
     if (type == TOKEN_NUMBER || type == TOKEN_STRING) return true;
     return false;
+}
+
+// parses match variable with indented case branches
+static ASTNode* parse_match_statement(Parser* parser) {
+    Token* match_kw = advance(parser);                              // consume 'match'
+    if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF) ||
+        check(parser, TOKEN_INDENT)) {
+        parser_error_at(parser, match_kw->line, match_kw->column + 5, 1,
+                        "Expected expression after 'match'");       // missing subject
+        while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF)) advance(parser);
+        return NULL;
+    }
+
+    ASTNode* subject = parse_expression(parser);                    // parse subject expression
+    if (!subject) {
+        parser_error_at(parser, match_kw->line, match_kw->column + 5, 1,
+                        "Expected expression after 'match'");       // invalid subject
+        return NULL;
+    }
+
+    skip_newlines(parser);
+    if (!match(parser, TOKEN_INDENT)) {
+        parser_error_at(parser, match_kw->line, match_kw->column, 1,
+                        "Expected indented block after 'match'");   // missing match block
+        return NULL;
+    }
+
+    ASTNodeList* cases = ast_list_create();                         // non-default cases
+    ASTNode* default_case = NULL;                                   // optional default case
+
+    while (!check(parser, TOKEN_EOF) && !check(parser, TOKEN_DEDENT)) {
+        skip_newlines(parser);
+        if (check(parser, TOKEN_DEDENT) || check(parser, TOKEN_EOF)) break;
+
+        if (!check(parser, TOKEN_CASE)) {
+            Token* tok = current_token(parser);
+            parser_error_at(parser, tok->line, tok->column,
+                            tok->value ? (int)utf8_char_len(tok->value) : 1,
+                            "Expected 'case' in match block");      // not a case
+            while (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF) &&
+                   !check(parser, TOKEN_DEDENT)) advance(parser);
+            continue;
+        }
+
+        Token* case_kw = advance(parser);                           // consume 'case'
+        ASTNode* pattern = NULL;                                    // NULL means default
+
+        if (!check(parser, TOKEN_NEWLINE) && !check(parser, TOKEN_EOF) &&
+            !check(parser, TOKEN_INDENT)) {
+            pattern = parse_expression(parser);                     // parse constant pattern
+            if (pattern && !is_valid_case_pattern(pattern)) {
+                parser_error_at(parser, pattern->line, pattern->column, get_node_len(pattern),
+                                "Match case pattern must be a number, string, boolean, or none constant");
+            }
+        }
+
+        ASTNode* body = parse_block(parser, true, "case");          // parse indented case body
+        ASTNode* case_node = ast_create_case(pattern, body,
+                                             case_kw->line, case_kw->column);
+
+        if (pattern == NULL) {                                      // default case
+            if (default_case) {
+                parser_error_at(parser, case_kw->line, case_kw->column, 4,
+                                "Only one default 'case' allowed");
+            } else {
+                default_case = case_node;
+            }
+        } else {
+            ast_list_add(cases, case_node);                         // add non-default case
+        }
+
+        skip_newlines(parser);
+    }
+
+    match(parser, TOKEN_DEDENT);                                    // consume match block dedent
+    return ast_create_match(subject, cases, default_case,
+                            match_kw->line, match_kw->column);
 }
 
 // parses a for loop with range, table, or condition-based iteration
@@ -3089,6 +3179,9 @@ static ASTNode* parse_statement(Parser* parser) {
         case TOKEN_CONTINUE:
             return parse_continue_statement(parser);
             
+        case TOKEN_MATCH:
+            return parse_match_statement(parser);
+
         case TOKEN_IDENTIFIER: {
             if (peek(parser, 1)->type == TOKEN_EQUAL || peek(parser, 1)->type == TOKEN_COMMA) {
                 ASTNode* node = parse_var_decl_or_assign(parser);  // variable declaration or assignment

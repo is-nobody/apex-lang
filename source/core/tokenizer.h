@@ -15,6 +15,8 @@ typedef enum {
     TOKEN_IF,            // 'if' keyword for conditionals
     TOKEN_ELSE,          // 'else' keyword for fallback branches
     TOKEN_FOR,           // 'for' keyword for loops
+    TOKEN_MATCH,         // 'match' keyword for constant matching
+    TOKEN_CASE,          // 'case' keyword for match branches
     TOKEN_BREAK,         // 'break' to exit a loop early
     TOKEN_CONTINUE,      // 'continue' to skip to next loop iteration
     TOKEN_RETURN,        // 'return' to exit a function with an optional value

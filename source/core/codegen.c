@@ -882,6 +882,82 @@ static void add_module_global(CodeGenerator* cg, const char* full_name) {
     cg->module_globals[cg->module_globals_count++] = strdup(full_name);           // add name
 }
 
+// emits a fused match check that jumps to a target when the subject matches
+static int emit_match_check(CodeGenerator* cg, int subject_reg, ASTNode* pattern, int line) {
+    if (pattern->type == AST_LITERAL_NUMBER) {
+        int idx = bytecode_add_number_constant(cg->chunk,
+                                               pattern->literal_number.number_value);
+        return emit(cg, INST(OP_JUMP_MATCH_NUM, 0, subject_reg, idx), line);
+    }
+    if (pattern->type == AST_LITERAL_STRING) {
+        int idx = bytecode_add_string_constant(cg->chunk,
+                                               pattern->literal_string.string_value);
+        return emit(cg, INST(OP_JUMP_MATCH_STR, 0, subject_reg, idx), line);
+    }
+    if (pattern->type == AST_LITERAL_BOOL) {
+        return emit(cg, INST(OP_JUMP_MATCH_BOOL, 0, subject_reg,
+                             pattern->literal_bool.bool_value ? 1 : 0), line);
+    }
+    if (pattern->type == AST_LITERAL_NONE) {
+        return emit(cg, INST(OP_JUMP_MATCH_NONE, 0, subject_reg, 0), line);
+    }
+    if (pattern->type == AST_UNARY && pattern->unary.op == TOKEN_MINUS &&
+        pattern->unary.operand->type == AST_LITERAL_NUMBER) {
+        double val = -pattern->unary.operand->literal_number.number_value;
+        int idx = bytecode_add_number_constant(cg->chunk, val);
+        return emit(cg, INST(OP_JUMP_MATCH_NUM, 0, subject_reg, idx), line);
+    }
+    return -1;  // parser already reported invalid pattern
+}
+
+// emits a match statement as a chain of fused constant checks and jumps
+static void codegen_match_statement(CodeGenerator* cg, ASTNode* node) {
+    int subject_reg = codegen_expression(cg, node->match_stmt.subject);  // evaluate subject
+    ASTNodeList* cases = node->match_stmt.cases;                         // non-default cases
+    ASTNode* default_case = node->match_stmt.default_case;               // optional default
+    int case_count = cases->count;                                       // number of non-default cases
+    int line = node->line;                                               // source line for debug info
+
+    int* match_jumps = (int*)malloc(sizeof(int) * case_count);           // jump offsets for each case
+    int* end_jumps = (int*)malloc(sizeof(int) * (case_count + 2));       // jumps to match end
+    int end_jump_count = 0;                                              // number of end jumps emitted
+
+    for (int i = 0; i < case_count; i++) {                               // emit all case checks first
+        ASTNode* case_node = cases->nodes[i];
+        match_jumps[i] = emit_match_check(cg, subject_reg,
+                                          case_node->case_stmt.pattern, line);
+    }
+
+    int no_match_jump = emit(cg, INST(OP_JUMP, 0, 0, 0), line);          // jump when no case matched
+
+    for (int i = 0; i < case_count; i++) {                               // emit each case body
+        ASTNode* case_node = cases->nodes[i];
+        int body_start = bytecode_current_offset(cg->chunk);             // body start address
+        bytecode_patch_jump(cg->chunk, match_jumps[i], body_start);      // patch match jump
+        codegen_block(cg, case_node->case_stmt.body);                    // emit body block
+        end_jumps[end_jump_count++] = emit(cg, INST(OP_JUMP, 0, 0, 0), line);  // jump to end
+    }
+
+    if (default_case) {                                                  // emit default body
+        int default_start = bytecode_current_offset(cg->chunk);          // default body start
+        bytecode_patch_jump(cg->chunk, no_match_jump, default_start);    // patch no-match jump
+        codegen_block(cg, default_case->case_stmt.body);                 // emit default body
+        end_jumps[end_jump_count++] = emit(cg, INST(OP_JUMP, 0, 0, 0), line);  // jump to end
+    }
+
+    int end_addr = bytecode_current_offset(cg->chunk);                   // match end address
+    if (!default_case) {
+        bytecode_patch_jump(cg->chunk, no_match_jump, end_addr);         // no default: go to end
+    }
+    for (int i = 0; i < end_jump_count; i++) {                           // patch all end jumps
+        bytecode_patch_jump(cg->chunk, end_jumps[i], end_addr);
+    }
+
+    free(match_jumps);
+    free(end_jumps);
+    free_register(cg, subject_reg);                                      // release subject register
+}
+
 // emits a variable declaration, storing in locals for functions or globals at top level
 static void codegen_var_decl(CodeGenerator* cg, ASTNode* node) {
     int value_reg = codegen_expression(cg, node->var_assign.value);               // evaluate value
@@ -1347,6 +1423,7 @@ static void codegen_statement(CodeGenerator* cg, ASTNode* node) {
         case AST_RETURN_STMT:     codegen_return(cg, node); break;                             // return
         case AST_BREAK_STMT:      codegen_break(cg, node); break;                              // break
         case AST_CONTINUE_STMT:   codegen_continue(cg, node); break;                           // continue
+        case AST_MATCH_STMT:      codegen_match_statement(cg, node); break;  // match statement
         case AST_IMPORT_STMT:      break;                                                      // import (handled elsewhere)
         case AST_EXPR_STMT:       codegen_expr_statement(cg, node); break;                     // expr stmt
         case AST_BLOCK:           codegen_block(cg, node); break;                              // block

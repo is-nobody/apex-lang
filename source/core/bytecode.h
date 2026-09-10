@@ -38,6 +38,11 @@ typedef enum {
     OP_JUMP_IF_LTE,      // branch if r[op1] <= r[op2]
     OP_JUMP_IF_GTE,      // branch if r[op1] >= r[op2]
 
+    OP_JUMP_MATCH_NUM,   // jump if subject equals number constant
+    OP_JUMP_MATCH_STR,   // jump if subject equals string constant
+    OP_JUMP_MATCH_BOOL,  // jump if subject equals boolean constant
+    OP_JUMP_MATCH_NONE,  // jump if subject is none
+
     OP_CMP_EQ,           // equality comparison: rdst = (rleft == rright)
     OP_CMP_NEQ,          // inequality: rdst = (rleft != rright)
     OP_CMP_EQ_NUM,       // compare two numbers for equality (unboxed, no type checks)

@@ -1146,7 +1146,12 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_JUMP_IF_GT]       = &&OP_JUMP_IF_GT_LABEL,
         [OP_JUMP_IF_LTE]      = &&OP_JUMP_IF_LTE_LABEL,
         [OP_JUMP_IF_GTE]      = &&OP_JUMP_IF_GTE_LABEL,
-        
+
+        [OP_JUMP_MATCH_NUM]   = &&OP_JUMP_MATCH_NUM_LABEL,
+        [OP_JUMP_MATCH_STR]   = &&OP_JUMP_MATCH_STR_LABEL,
+        [OP_JUMP_MATCH_BOOL]  = &&OP_JUMP_MATCH_BOOL_LABEL,
+        [OP_JUMP_MATCH_NONE]  = &&OP_JUMP_MATCH_NONE_LABEL,
+
         [OP_CMP_EQ]           = &&OP_CMP_EQ_LABEL,
         [OP_CMP_NEQ]          = &&OP_CMP_NEQ_LABEL,
         [OP_CMP_EQ_NUM]       = &&OP_CMP_EQ_NUM_LABEL,
@@ -1538,6 +1543,62 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             goto *dispatch_table[ip->opcode];    // dispatch next instruction
         }
         ip++; goto *dispatch_table[ip->opcode];  // fall through
+    }
+
+    OP_JUMP_MATCH_NUM_LABEL: {
+        int target = ip->operands[0];              // jump target address
+        int subj_reg = ip->operands[1];            // register holding subject value
+        int const_idx = ip->operands[2];           // constant pool index for number
+        Value subj = regs[subj_reg];               // fetch subject value
+
+        if (IS_NUMBER(subj)) {                     // only numbers can match number cases
+            double case_val = chunk->constants[const_idx].number_value;
+            if (AS_NUMBER(subj) == case_val) {     // exact numeric equality
+                ip = &vm->code[target];            // jump to case body
+                goto *dispatch_table[ip->opcode];
+            }
+        }
+        ip++; goto *dispatch_table[ip->opcode];    // no match, continue to next check
+    }
+    OP_JUMP_MATCH_STR_LABEL: {
+        int target = ip->operands[0];              // jump target address
+        int subj_reg = ip->operands[1];            // register holding subject value
+        int const_idx = ip->operands[2];           // constant pool index for string
+        Value subj = regs[subj_reg];               // fetch subject value
+
+        if (IS_STRING(subj)) {                     // only strings can match string cases
+            const char* case_str = chunk->constants[const_idx].string_value;
+            int len = (int)strlen(case_str);
+            StringObject* case_obj = string_intern(&vm->intern_table, case_str, len);
+            if (string_equal(AS_STRING(subj), case_obj)) {  // compare interned string content
+                ip = &vm->code[target];            // jump to case body
+                goto *dispatch_table[ip->opcode];
+            }
+        }
+        ip++; goto *dispatch_table[ip->opcode];    // no match, continue to next check
+    }
+    OP_JUMP_MATCH_BOOL_LABEL: {
+        int target = ip->operands[0];              // jump target address
+        int subj_reg = ip->operands[1];            // register holding subject value
+        int bool_val = ip->operands[2];            // expected boolean value 0 or 1
+        Value subj = regs[subj_reg];               // fetch subject value
+
+        if (IS_BOOL(subj) && AS_BOOL(subj) == (bool_val != 0)) {
+            ip = &vm->code[target];                // jump to case body
+            goto *dispatch_table[ip->opcode];
+        }
+        ip++; goto *dispatch_table[ip->opcode];    // no match, continue to next check
+    }
+    OP_JUMP_MATCH_NONE_LABEL: {
+        int target = ip->operands[0];              // jump target address
+        int subj_reg = ip->operands[1];            // register holding subject value
+        Value subj = regs[subj_reg];               // fetch subject value
+
+        if (IS_NONE(subj)) {                       // subject is none
+            ip = &vm->code[target];                // jump to case body
+            goto *dispatch_table[ip->opcode];
+        }
+        ip++; goto *dispatch_table[ip->opcode];    // no match, continue to next check
     }
 
     OP_CMP_EQ_LABEL: {
