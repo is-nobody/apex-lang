@@ -1119,6 +1119,16 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     for (int i = 0; i < chunk->global_count; i++) {
         vm->globals[i] = MAKE_NONE();                     // initialise each global slot
     }
+    
+    for (int i = 0; i < chunk->const_count; i++) {               // pre-intern string constants for fast comparison
+        Constant* c = &chunk->constants[i];                      // current constant
+        if (c->type == CONST_STRING && c->cached_str == NULL) {  // string not yet interned
+            int len = (int)strlen(c->string_value);              // compute length once at load time
+            c->cached_str = string_intern(&vm->intern_table,     // intern into vm's table, immortal object
+                                          c->string_value, len);
+        }
+    }
+    
     static void* dispatch_table[] = {
         [OP_MOVE]             = &&OP_MOVE_LABEL,
         [OP_LOAD_CONST]       = &&OP_LOAD_CONST_LABEL,
@@ -1225,12 +1235,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
                 regs[dest] = MAKE_NUMBER(c->number_value);  // unboxed number, no refcount
                 break;
             case CONST_STRING: 
-                {
-                    int len = (int)strlen(c->string_value);  // compute string length
-                    StringObject* str = string_intern(&vm->intern_table, c->string_value, len);  // intern for dedup
-                    regs[dest] = MAKE_STRING(str);           // store tagged string pointer
-                    value_incref(regs[dest]);                // bump refcount, interned strings have INT_MAX but still
-                }
+                regs[dest] = MAKE_STRING((StringObject*)c->cached_str);  // use pre-interned string
                 break;
             case CONST_FUNCTION:
                 regs[dest] = MAKE_FUNCTION(c->function_index);  // store function index as tagged value
@@ -1567,10 +1572,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         Value subj = regs[subj_reg];               // fetch subject value
 
         if (IS_STRING(subj)) {                     // only strings can match string cases
-            const char* case_str = chunk->constants[const_idx].string_value;
-            int len = (int)strlen(case_str);
-            StringObject* case_obj = string_intern(&vm->intern_table, case_str, len);
-            if (string_equal(AS_STRING(subj), case_obj)) {  // compare interned string content
+            StringObject* case_obj = (StringObject*)chunk->constants[const_idx].cached_str;  // pre-interned case string
+            if (string_equal(AS_STRING(subj), case_obj)) {  // content compare, hash already cached
                 ip = &vm->code[target];            // jump to case body
                 goto *dispatch_table[ip->opcode];
             }
@@ -1822,14 +1825,14 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             vm->registers[dest] = MAKE_NONE();       // store none
             ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
         }
-        Table* table = AS_TABLE(table_val);      // unwrap table pointer
-        Value key = MAKE_STRING(string_intern(&vm->intern_table, chunk->constants[key_idx].string_value, strlen(chunk->constants[key_idx].string_value)));  // intern string key
+        Table* table = AS_TABLE(table_val);          // unwrap table pointer
+        Value key = MAKE_STRING((StringObject*)chunk->constants[key_idx].cached_str);  // use pre-interned key
         Value val;
-        val = MAKE_NONE();                       // default to none
-        table_get(table, key, &val);             // lookup key in table, writes to val
-        value_decref(vm->registers[dest]);       // release old dest value
-        vm->registers[dest] = val;               // store result (already incref'd by table_get)
-        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
+        val = MAKE_NONE();                           // default to none
+        table_get(table, key, &val);                 // lookup key in table, writes to val
+        value_decref(vm->registers[dest]);           // release old dest value
+        vm->registers[dest] = val;                   // store result (already incref'd by table_get)
+        ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
     OP_TABLE_GET_INT_LABEL: {
         int dest = ip->operands[0];                  // dest register index
@@ -1869,13 +1872,13 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_TABLE_SET_CONST_LABEL: {
-        int table_reg = ip->operands[0];         // register holding the table
-        int key_idx = ip->operands[1];           // constant pool index for the string key
-        int val_reg = ip->operands[2];           // register holding the value
+        int table_reg = ip->operands[0];             // register holding the table
+        int key_idx = ip->operands[1];               // constant pool index for the string key
+        int val_reg = ip->operands[2];               // register holding the value
         Table* table = AS_TABLE(vm->registers[table_reg]);  // unwrap table pointer
-        Value key = MAKE_STRING(string_intern(&vm->intern_table, chunk->constants[key_idx].string_value, strlen(chunk->constants[key_idx].string_value)));  // intern string key
+        Value key = MAKE_STRING((StringObject*)chunk->constants[key_idx].cached_str);  // use pre-interned key
         table_set(table, key, vm->registers[val_reg]);      // perform table set with refcount handling
-        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
+        ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
     OP_TABLE_SET_INT_LABEL: {
         int table_reg = ip->operands[0];             // register holding the table

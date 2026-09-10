@@ -121,6 +121,7 @@ typedef struct {
         bool bool_value;         // boolean constant (true/false)
         int function_index;      // function constant (index into functions table)
     };
+    void* cached_str;            // cached StringObject* for CONST_STRING, set at vm_execute
 } Constant;
 
 // global variable entry with a name and its index in the globals table
