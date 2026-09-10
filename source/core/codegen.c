@@ -546,8 +546,9 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
                 bytecode_patch_jump(cg->chunk, cg->loop_stack.break_jumps[i], exit_addr);
             }
         } else {                                                                    // numeric range loop
-            int start_reg = codegen_expression(cg, node->for_stmt.start);           // evaluate start
-            int end_reg = codegen_expression(cg, node->for_stmt.end);               // evaluate end
+            int var_reg = add_local(cg, node->for_stmt.var_name);                   // allocate loop variable first
+            codegen_expression_into(cg, node->for_stmt.start, var_reg);             // write start directly into var_reg
+            int end_reg = codegen_expression(cg, node->for_stmt.end);               // evaluate end (fresh temp)
             int step_reg;                                                           // step register
             
             if (node->for_stmt.step) {                                              // custom step
@@ -557,9 +558,7 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
                 emit(cg, INST(OP_LOAD_NUM_IMM, step_reg, 1, 0), node->line);        // load 1 immediate
             }
 
-            int var_reg = add_local(cg, node->for_stmt.var_name);                   // add loop variable
-            emit(cg, INST(OP_MOVE, var_reg, start_reg, 0), node->line);             // initialize
-            emit(cg, INST(OP_FOR_INIT, var_reg, end_reg, step_reg), node->line);    // init for
+            emit(cg, INST(OP_FOR_INIT, var_reg, end_reg, step_reg), node->line);    // init for (no MOVE needed)
             
             int loop_start = bytecode_current_offset(cg->chunk);                    // loop start
             cg->loop_stack.continue_addr = loop_start;                              // set continue
@@ -574,7 +573,6 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             int exit_addr = bytecode_current_offset(cg->chunk);                     // exit address
             cg->chunk->code[for_next_instr].operands[1] = exit_addr;                // patch exit
             
-            free_register(cg, start_reg);                                           // free start
             free_register(cg, end_reg);                                             // free end
             if (!node->for_stmt.step) free_register(cg, step_reg);                  // free step if default
         }
