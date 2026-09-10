@@ -1738,16 +1738,18 @@ static ASTNode* parse_table_literal(Parser* parser) {
 
                 ASTNode* key_node;
                 if (key_token->type == TOKEN_NUMBER) {
-                    key_node = ast_create_literal_string(
-                        key_token->value, key_token->line, key_token->column);
+                    key_node = ast_create_literal_number(
+                        atof(key_token->value),     // numeric key stays numeric
+                        key_token->line, key_token->column);
                 } else {
                     key_node = ast_create_literal_string(
-                        key_token->value, key_token->line, key_token->column);
+                        key_token->value,           // string key stays string
+                        key_token->line, key_token->column);
                 }
 
                 ASTNode* value = parse_expression(parser);
                 ASTNode* kv_node = ast_create_binary(TOKEN_EQUAL, key_node, value);
-                ast_list_add(key_values, kv_node);   // add key-value pair
+                ast_list_add(key_values, kv_node);  // add key-value pair
             } else {
                 if (check(parser, TOKEN_IDENTIFIER) && check_next(parser, TOKEN_EQUAL)) {
                     Token* id_token = advance(parser);

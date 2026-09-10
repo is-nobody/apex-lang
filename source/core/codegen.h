@@ -33,6 +33,7 @@ typedef struct {
     int max_registers;             // highest register index used so far (for frame sizing)
 
     int current_function;          // index of the function currently being compiled
+    bool current_function_has_nested;  // true if current function's body contains a nested function declaration
 
     int label_counter;             // unique identifier generator for synthetic labels
 

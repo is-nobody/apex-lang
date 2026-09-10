@@ -44,6 +44,40 @@ static bool is_known_builtin_module(const char* name) {
     }
 }
 
+// returns true if a subtree contains any function declaration
+static bool block_has_function_decl(ASTNode* node) {
+    if (!node) return false;                                      // null guard
+    if (node->type == AST_FUNCTION_DECL) return true;             // found a nested function
+    if (node->type == AST_BLOCK || node->type == AST_PROGRAM) {   // recurse into statement lists
+        for (int i = 0; i < node->block.statements->count; i++) {
+            if (block_has_function_decl(node->block.statements->nodes[i])) return true;
+        }
+        return false;
+    }
+    if (node->type == AST_IF_STMT) {                              // recurse into branches
+        if (block_has_function_decl(node->if_stmt.then_branch)) return true;
+        if (block_has_function_decl(node->if_stmt.elif_chain))  return true;
+        if (block_has_function_decl(node->if_stmt.else_branch)) return true;
+        return false;
+    }
+    if (node->type == AST_FOR_STMT) {                             // recurse into loop body
+        return block_has_function_decl(node->for_stmt.body);
+    }
+    if (node->type == AST_MATCH_STMT) {                           // recurse into match cases
+        if (block_has_function_decl(node->match_stmt.default_case)) return true;
+        if (node->match_stmt.cases) {
+            for (int i = 0; i < node->match_stmt.cases->count; i++) {
+                if (block_has_function_decl(node->match_stmt.cases->nodes[i])) return true;
+            }
+        }
+        return false;
+    }
+    if (node->type == AST_CASE) {                                 // recurse into case body
+        return block_has_function_decl(node->case_stmt.body);
+    }
+    return false;                                                 // other nodes: no nested function
+}
+
 // checks if a binary operator always produces a number result
 static bool is_arithmetic_op(ApexTokenType op) {
     return op == TOKEN_PLUS || op == TOKEN_MINUS || op == TOKEN_STAR ||
@@ -805,10 +839,32 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
 
             for (int i = 0; i < node->table_literal.key_values->count; i++) {        // key-value pairs
                 ASTNode* kv = node->table_literal.key_values->nodes[i];              // key-value node
-                const char* key_str = kv->binary.left->literal_string.string_value;  // key string
-                int key_idx = bytecode_add_string_constant(cg->chunk, key_str);      // add key constant
+                ASTNode* key = kv->binary.left;                                      // key expression
                 int value_reg = codegen_expression(cg, kv->binary.right);            // evaluate value
-                emit(cg, INST(OP_TABLE_SET_CONST, table_reg, key_idx, value_reg), node->line);  // set
+
+                if (key->type == AST_LITERAL_NUMBER) {                               // numeric key
+                    double key_val = key->literal_number.number_value;               // key value
+
+                    if (key_val == (int)key_val && key_val >= 1 && key_val <= 65535) {  // fits immediate
+                        emit(cg, INST(OP_TABLE_SET_INT, table_reg, (int)key_val,     // direct array set
+                                      value_reg), node->line);
+                    } else {                                                         // large or fractional
+                        int key_reg = codegen_expression(cg, key);                   // materialize key
+                        emit(cg, INST(OP_TABLE_SET, table_reg, key_reg,              // set by numeric key
+                                      value_reg), node->line);
+                        free_register(cg, key_reg);                                  // free key
+                    }
+                } else if (key->type == AST_LITERAL_STRING) {                        // string key
+                    const char* key_str = key->literal_string.string_value;          // key string
+                    int key_idx = bytecode_add_string_constant(cg->chunk, key_str);  // add key constant
+                    emit(cg, INST(OP_TABLE_SET_CONST, table_reg, key_idx,            // set by string key
+                                  value_reg), node->line);
+                } else {                                                             // dynamic key expression
+                    int key_reg = codegen_expression(cg, key);                       // evaluate key
+                    emit(cg, INST(OP_TABLE_SET, table_reg, key_reg,                  // set by dynamic key
+                                  value_reg), node->line);
+                    free_register(cg, key_reg);                                      // free key
+                }
                 free_register(cg, value_reg);                                        // free value
             }
             return table_reg;                                                        // return table
@@ -951,23 +1007,30 @@ static void codegen_match_statement(CodeGenerator* cg, ASTNode* node) {
 // emits a variable declaration, storing in locals for functions or globals at top level
 static void codegen_var_decl(CodeGenerator* cg, ASTNode* node) {
     int value_reg = codegen_expression(cg, node->var_assign.value);               // evaluate value
-    
-    const char* var_name = node->var_assign.name;                                 // variable name
-    char global_name[512];                                                        // qualified name
-    
-    if (cg->current_module) {                                                     // inside module
-        snprintf(global_name, sizeof(global_name), "%s.%s", cg->current_module, var_name);  // qualify
-        var_name = global_name;                                                   // use qualified
-        add_module_global(cg, global_name);                                       // register
+
+    bool need_global = (cg->current_module != NULL) ||                            // module scope: always global
+                       (cg->current_function == 0) ||                             // top-level: global for cross-fn access
+                       cg->current_function_has_nested;                           // function has nested fn: may be captured
+
+    if (need_global) {                                                            // register a global slot
+        const char* var_name = node->var_assign.name;                             // variable name
+        char global_name[512];                                                    // qualified buffer
+
+        if (cg->current_module) {                                                 // inside module
+            snprintf(global_name, sizeof(global_name), "%s.%s",                   // qualify with module prefix
+                     cg->current_module, var_name);
+            var_name = global_name;                                               // use qualified name
+            add_module_global(cg, global_name);                                   // register module-scoped name
+        }
+
+        int global_idx = bytecode_add_global(cg->chunk, var_name);                // add or reuse global
+        emit(cg, INST(OP_STORE_GLOBAL, value_reg, global_idx, 0), node->line);    // store into global
     }
-    
-    int global_idx = bytecode_add_global(cg->chunk, var_name);                   // add global
-    emit(cg, INST(OP_STORE_GLOBAL, value_reg, global_idx, 0), node->line);       // store global
-    
-    int local_reg = add_local(cg, node->var_assign.name);                        // add local
-    emit(cg, INST(OP_MOVE, local_reg, value_reg, 0), node->line);                // store local
-    
-    free_register(cg, value_reg);                                                // free value
+
+    int local_reg = add_local(cg, node->var_assign.name);                         // add local slot
+    emit(cg, INST(OP_MOVE, local_reg, value_reg, 0), node->line);                 // store into local
+
+    free_register(cg, value_reg);                                                 // free value
 }
 
 // emits assignment, optimizing numeric self-assignment patterns
@@ -1064,7 +1127,7 @@ static void codegen_assign(CodeGenerator* cg, ASTNode* node) {
 
 // emits if/else if/else chain with optimized condition evaluation
 static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
-    int jump_to_else = codegen_optimized_condition(cg, node->if_stmt.condition, node->line);  // optimize
+    int jump_to_else = codegen_optimized_condition(cg, node->if_stmt.condition, node->line);  // try to fuse cond+jump
     if (jump_to_else < 0) {                                                       // not optimized
         int cond_reg = codegen_expression(cg, node->if_stmt.condition);           // evaluate condition
         jump_to_else = bytecode_current_offset(cg->chunk);                        // jump address
@@ -1074,10 +1137,21 @@ static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
     
     codegen_block(cg, node->if_stmt.then_branch);                                 // emit then branch
     
+    ASTNode* else_branch = node->if_stmt.else_branch;                             // direct else branch
+    if (!else_branch && node->if_stmt.elif_chain) {                               // no direct else
+        ASTNode* last = node->if_stmt.elif_chain;                                 // walk elif chain
+        while (last->if_stmt.elif_chain) last = last->if_stmt.elif_chain;         // find last elif
+        else_branch = last->if_stmt.else_branch;                                  // its else is the one
+    }
+    
     int end_jumps[64];                                                            // end jump array
     int end_jump_count = 0;                                                       // end jump count
-    end_jumps[end_jump_count++] = bytecode_current_offset(cg->chunk);             // save position
-    emit(cg, INST(OP_JUMP, 0, 0, 0), node->line);                                 // jump to end
+    
+    bool then_is_last = (node->if_stmt.elif_chain == NULL) && (else_branch == NULL);
+    if (!then_is_last) {                                                          // not the trailing branch
+        end_jumps[end_jump_count++] = bytecode_current_offset(cg->chunk);         // save position
+        emit(cg, INST(OP_JUMP, 0, 0, 0), node->line);                             // jump to end
+    }
     
     int else_addr = bytecode_current_offset(cg->chunk);                           // else address
     bytecode_patch_jump(cg->chunk, jump_to_else, else_addr);                      // patch jump
@@ -1091,8 +1165,11 @@ static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
         
         codegen_block(cg, elif->if_stmt.then_branch);                             // emit else if body
         
-        end_jumps[end_jump_count++] = bytecode_current_offset(cg->chunk);         // save position
-        emit(cg, INST(OP_JUMP, 0, 0, 0), elif->line);                             // jump to end
+        bool elif_is_last = (elif->if_stmt.elif_chain == NULL) && (else_branch == NULL);
+        if (!elif_is_last) {                                                      // not the trailing branch
+            end_jumps[end_jump_count++] = bytecode_current_offset(cg->chunk);     // save position
+            emit(cg, INST(OP_JUMP, 0, 0, 0), elif->line);                         // jump to end
+        }
         
         int next_addr = bytecode_current_offset(cg->chunk);                       // next address
         bytecode_patch_jump(cg->chunk, jump_to_next, next_addr);                  // patch jump
@@ -1100,15 +1177,6 @@ static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
         elif = elif->if_stmt.elif_chain;                                          // next else if
     }
     
-    ASTNode* else_branch = node->if_stmt.else_branch;                             // else branch
-    if (!else_branch && node->if_stmt.elif_chain) {                               // no else but has else if
-        ASTNode* last = node->if_stmt.elif_chain;                                 // last else if
-        while (last->if_stmt.elif_chain) {                                        // find last
-            last = last->if_stmt.elif_chain;                                      // advance
-        }
-        else_branch = last->if_stmt.else_branch;                                  // get its else
-    }
-
     if (else_branch) {                                                            // has else
         codegen_block(cg, else_branch);                                           // emit else
     }
@@ -1121,33 +1189,55 @@ static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
 
 // tries to optimize comparison conditions into direct jump instructions
 static int codegen_optimized_condition(CodeGenerator* cg, ASTNode* condition, int line) {
-    if (condition->type == AST_BINARY) {                                          // binary condition
-        ApexTokenType op = condition->binary.op;                                      // operator
-        Opcode jump_op;                                                           // jump opcode
+    if (condition->type != AST_BINARY) return -1;                                 // not a binary condition
+    
+    ApexTokenType op = condition->binary.op;                                      // operator
+    ASTNode* left  = condition->binary.left;                                      // left operand
+    ASTNode* right = condition->binary.right;                                     // right operand
+    
+    if (op == TOKEN_EQUAL_EQUAL || op == TOKEN_NOT_EQUAL) {                       // only eq/neq are eligible
+        bool want_truthy = (op == TOKEN_EQUAL_EQUAL);                             // == true / != false test truthiness
+        ASTNode* value_node = NULL;                                               // operand to test for truthiness
         
-        bool both_numbers = is_number_expression(condition->binary.left) &&       // check if both operands are numbers
-                            is_number_expression(condition->binary.right);
-        
-        switch (op) {                                                             // map to jump
-            case TOKEN_LESS:          jump_op = OP_JUMP_IF_GTE; break;
-            case TOKEN_LESS_EQUAL:    jump_op = OP_JUMP_IF_GT;  break;
-            case TOKEN_GREATER:       jump_op = OP_JUMP_IF_LTE; break;
-            case TOKEN_GREATER_EQUAL: jump_op = OP_JUMP_IF_LT;  break;
-            case TOKEN_EQUAL_EQUAL:   jump_op = both_numbers ? OP_JUMP_IF_NEQ_NUM : OP_JUMP_IF_NEQ; break;  // specialized
-            case TOKEN_NOT_EQUAL:     jump_op = both_numbers ? OP_JUMP_IF_EQ_NUM : OP_JUMP_IF_EQ; break;    // specialized
-            default: return -1;                                                   // not optimizable
+        if (right->type == AST_LITERAL_BOOL &&                                    // right is bool literal
+            right->literal_bool.bool_value == want_truthy) {
+            value_node = left;                                                    // x == true / x != false
+        } else if (left->type == AST_LITERAL_BOOL &&                              // left is bool literal
+                   left->literal_bool.bool_value == want_truthy) {
+            value_node = right;                                                   // true == x / false != x
         }
         
-        int left_reg = codegen_expression(cg, condition->binary.left);            // evaluate left
-        int right_reg = codegen_expression(cg, condition->binary.right);          // evaluate right
-        
-        int jump_offset = emit(cg, INST(jump_op, 0, left_reg, right_reg), line);  // emit jump
-        
-        free_register(cg, right_reg);                                             // free right
-        free_register(cg, left_reg);                                              // free left
-        return jump_offset;                                                       // return jump offset
+        if (value_node) {                                                         // pattern matched
+            int reg = codegen_expression(cg, value_node);                         // evaluate tested operand
+            int jump_offset = emit(cg, INST(OP_JUMP_IF_FALSE, 0, reg, 0), line);  // jump when falsy
+            free_register(cg, reg);                                               // free operand
+            return jump_offset;                                                   // return jump offset
+        }
     }
-    return -1;                                                                    // not optimized
+    
+    Opcode jump_op;                                                               // jump opcode for general case
+    
+    bool both_numbers = is_number_expression(left) &&                             // check if both operands are numbers
+                        is_number_expression(right);
+    
+    switch (op) {                                                                 // map to jump
+        case TOKEN_LESS:          jump_op = OP_JUMP_IF_GTE; break;
+        case TOKEN_LESS_EQUAL:    jump_op = OP_JUMP_IF_GT;  break;
+        case TOKEN_GREATER:       jump_op = OP_JUMP_IF_LTE; break;
+        case TOKEN_GREATER_EQUAL: jump_op = OP_JUMP_IF_LT;  break;
+        case TOKEN_EQUAL_EQUAL:   jump_op = both_numbers ? OP_JUMP_IF_NEQ_NUM : OP_JUMP_IF_NEQ; break;  // specialized
+        case TOKEN_NOT_EQUAL:     jump_op = both_numbers ? OP_JUMP_IF_EQ_NUM : OP_JUMP_IF_EQ; break;    // specialized
+        default: return -1;                                                       // not optimizable
+    }
+    
+    int left_reg = codegen_expression(cg, left);                                  // evaluate left
+    int right_reg = codegen_expression(cg, right);                                // evaluate right
+    
+    int jump_offset = emit(cg, INST(jump_op, 0, left_reg, right_reg), line);      // emit jump
+    
+    free_register(cg, right_reg);                                                 // free right
+    free_register(cg, left_reg);                                                  // free left
+    return jump_offset;                                                           // return jump offset
 }
 
 // emits indexed assignment like table[index] = value with nested access support
@@ -1274,6 +1364,7 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     int prev_function = cg->current_function;                                 // save current function
     int prev_next_register = cg->next_register;                               // save next register
     int prev_max_registers = cg->max_registers;                               // save max registers
+    bool prev_has_nested = cg->current_function_has_nested;                   // save nested flag
     int saved_count = cg->locals.count;                                       // save local count
     char** saved_names = NULL;                                                // saved names
     int* saved_regs = NULL;                                                   // saved registers
@@ -1297,6 +1388,8 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     cg->next_register = 0;                                                    // reset next reg
     cg->max_registers = 0;                                                    // reset max regs for new function
     cg->current_function = func_idx;                                          // set current function
+    cg->current_function_has_nested =                                         // detect nested function decls
+        block_has_function_decl(node->function_decl.body);
 
     for (int i = 0; i < param_count; i++) {                                   // parameters
         ASTNode* param = node->function_decl.params->nodes[i];                // param node
@@ -1340,29 +1433,28 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     cg->next_register = prev_next_register;                                          // restore next reg
     cg->max_registers = prev_max_registers;                                          // restore max regs
     cg->current_function = prev_function;                                            // restore function
+    cg->current_function_has_nested = prev_has_nested;                               // restore nested flag
 
     bytecode_patch_jump(cg->chunk, jump_over, bytecode_current_offset(cg->chunk));   // patch jump
 
     int func_const_idx = bytecode_add_constant(cg->chunk,                            // add function constant
         (Constant){.type = CONST_FUNCTION, .function_index = func_idx});
     
-    int temp_reg = alloc_register(cg);                                               // allocate temp
-    emit(cg, INST(OP_LOAD_CONST, temp_reg, func_const_idx, 0), node->line);          // load function
-    
-    int local_reg = add_local(cg, node->function_decl.name);                         // add local with short name
-    emit(cg, INST(OP_MOVE, local_reg, temp_reg, 0), node->line);                     // store local
-    
+    const char* gname = node->function_decl.name;                                    // bare name by default
     if (cg->current_module) {                                                        // inside a module
-        snprintf(global_name, sizeof(global_name), "%s.%s",                          // build qualified name
+        snprintf(global_name, sizeof(global_name), "%s.%s",                          // qualify with module
                  cg->current_module, node->function_decl.name);
-        add_module_global(cg, global_name);                                          // register module-scoped global
-        
-        int global_idx = bytecode_get_global(cg->chunk, global_name);                  // lookup global slot
-        if (global_idx < 0) global_idx = bytecode_add_global(cg->chunk, global_name);  // create if not exists
-        emit(cg, INST(OP_STORE_GLOBAL, temp_reg, global_idx, 0), node->line);          // store function in global
+        gname = global_name;                                                         // use qualified name
+        add_module_global(cg, global_name);                                          // register module global
     }
-    
-    free_register(cg, temp_reg);                                                     // free temp
+
+    int global_idx = bytecode_get_global(cg->chunk, gname);                          // lookup global slot
+    if (global_idx < 0) global_idx = bytecode_add_global(cg->chunk, gname);          // create if missing
+
+    int temp_reg = alloc_register(cg);                                               // allocate temp
+    emit(cg, INST(OP_LOAD_CONST, temp_reg, func_const_idx, 0), node->line);          // load function value
+    emit(cg, INST(OP_STORE_GLOBAL, temp_reg, global_idx, 0), node->line);            // expose via global slot
+    free_register(cg, temp_reg);                                                     // free temp                                                  // free temp
 }
 
 // emits a return statement with optional value
