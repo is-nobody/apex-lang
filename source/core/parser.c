@@ -1476,20 +1476,25 @@ static const char* find_closing_brace(const char* str) {
     }
     return NULL;                                     // no matching brace found
 }
-
 // parses a string expression with interpolation support
 static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, int line, int column) {
     Tokenizer* temp_tokenizer = tokenizer_create(expr_str, "<interpolation>");  // create temp tokenizer
 
-    int temp_count;
+    int temp_count = 0;
     Token* temp_tokens = tokenizer_tokenize(temp_tokenizer, &temp_count);  // tokenize interpolated expr
-    
+
+    if (!temp_tokens || tokenizer_has_error(temp_tokenizer)) {
+        parser->error_count++;                     // signal outer parser to stop
+        tokenizer_destroy(temp_tokenizer);         // clean up temp tokenizer
+        return NULL;                               // abort interpolation parse
+    }
+
     int base_column = column;                      // base column offset
-    
+
     for (int i = 0; i < temp_count; i++) {
         int token_line = temp_tokens[i].line;
         int token_col = temp_tokens[i].column;
-        
+
         if (token_line == 1) {
             temp_tokens[i].line = line;            // same line as string start
             temp_tokens[i].column = base_column + token_col;  // adjust column
@@ -1500,19 +1505,19 @@ static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, in
 
     Parser* temp_parser = parser_create(temp_tokens, temp_count, "<interpolation>", parser->source);
     temp_parser->semantic_checks = false;          // disable type checking
-    
+
     free(temp_parser->source_dir);
     temp_parser->source_dir = strdup(parser->source_dir);  // inherit source dir
 
     for (int i = 0; i < parser->symbols.count; i++) {  // copy symbols from parent
         if (parser->symbols.scope_levels[i] <= parser->symbols.current_scope) {
-            parser_declare_symbol(temp_parser, 
-                                  parser->symbols.names[i], 
-                                  parser->symbols.kinds[i], 
-                                  parser->symbols.types[i], 
+            parser_declare_symbol(temp_parser,
+                                  parser->symbols.names[i],
+                                  parser->symbols.kinds[i],
+                                  parser->symbols.types[i],
                                   parser->symbols.param_counts[i],
                                   0, 0);
-            
+
             int new_idx = temp_parser->symbols.count - 1;
             temp_parser->symbols.const_known[new_idx] = parser->symbols.const_known[i];
             temp_parser->symbols.const_values[new_idx] = parser->symbols.const_values[i];
@@ -1522,7 +1527,15 @@ static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, in
     temp_parser->symbols.current_scope = parser->symbols.current_scope;  // match scope
 
     ASTNode* expr = parse_expression(temp_parser);  // parse the expression
-    
+
+    if (parser_had_errors(temp_parser)) {
+        parser->error_count += temp_parser->error_count;  // bubble up error count
+        if (expr) ast_free_node(expr);             // discard partial ast
+        parser_destroy(temp_parser);               // clean up temp parser
+        tokenizer_destroy(temp_tokenizer);         // clean up temp tokenizer
+        return NULL;                               // abort interpolation parse
+    }
+
     if (expr) {                                    // mark all nodes as in interpolation
         ASTNode* stack[256];
         int stack_top = 0;
