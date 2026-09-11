@@ -78,6 +78,57 @@ static bool block_has_function_decl(ASTNode* node) {
     return false;                                                 // other nodes: no nested function
 }
 
+// returns true if an AST subtree reads a local variable by name
+static bool ast_references_local(ASTNode* node, const char* name) {
+    if (!node || !name) return false;                                       // guard
+    switch (node->type) {
+        case AST_IDENTIFIER:
+            return strcmp(node->identifier.name, name) == 0;                // match by name
+        case AST_LITERAL_NUMBER:
+        case AST_LITERAL_STRING:
+        case AST_LITERAL_BOOL:
+        case AST_LITERAL_NONE:
+            return false;                                                   // literals have no refs
+        case AST_BINARY:
+            return ast_references_local(node->binary.left, name) ||
+                   ast_references_local(node->binary.right, name);          // either side
+        case AST_UNARY:
+            return ast_references_local(node->unary.operand, name);         // operand
+        case AST_CALL:
+            if (ast_references_local(node->call.callee, name)) return true; // callee
+            for (int i = 0; i < node->call.arguments->count; i++) {         // any arg
+                if (ast_references_local(node->call.arguments->nodes[i], name)) return true;
+            }
+            return false;
+        case AST_INDEX_ACCESS:
+            return ast_references_local(node->access.object, name) ||
+                   ast_references_local(node->access.member, name);         // object or index
+        case AST_TABLE_LITERAL:
+            for (int i = 0; i < node->table_literal.items->count; i++) {    // sequential items
+                if (ast_references_local(node->table_literal.items->nodes[i], name)) return true;
+            }
+            for (int i = 0; i < node->table_literal.key_values->count; i++) {  // key-value pairs
+                ASTNode* kv = node->table_literal.key_values->nodes[i];
+                if (ast_references_local(kv->binary.left, name)) return true;
+                if (ast_references_local(kv->binary.right, name)) return true;
+            }
+            return false;
+        case AST_STRING_INTERP:
+            for (int i = 0; i < node->string_interp.parts->count; i++) {    // any part
+                if (ast_references_local(node->string_interp.parts->nodes[i], name)) return true;
+            }
+            return false;
+        case AST_TERNARY:
+            return ast_references_local(node->ternary.condition, name) ||
+                   ast_references_local(node->ternary.true_expr, name) ||
+                   ast_references_local(node->ternary.false_expr, name);    // any branch
+        case AST_ASSIGN:
+            return ast_references_local(node->var_assign.value, name);      // nested assign RHS
+        default:
+            return true;                                                    // conservative
+    }
+}
+
 // checks if a binary operator always produces a number result
 static bool is_arithmetic_op(ApexTokenType op) {
     return op == TOKEN_PLUS || op == TOKEN_MINUS || op == TOKEN_STAR ||
@@ -1046,7 +1097,16 @@ static void codegen_match_statement(CodeGenerator* cg, ASTNode* node) {
 // emits a variable declaration, writing the value directly into the local slot
 static void codegen_var_decl(CodeGenerator* cg, ASTNode* node) {
     int local_reg = add_local(cg, node->var_assign.name);                    // allocate local first
-    codegen_expression_into(cg, node->var_assign.value, local_reg);          // write directly
+
+    int hint = local_reg;                                                    // default: write directly
+    if (ast_references_local(node->var_assign.value, node->var_assign.name)) {
+        hint = -1;                                                           // RHS reads this local: unsafe
+    }
+    int result = codegen_expression_into(cg, node->var_assign.value, hint);  // evaluate
+    if (result != local_reg) {                                               // arrived in a fresh temp
+        emit(cg, INST(OP_MOVE, local_reg, result, 0), node->line);           // copy into local slot
+        free_register(cg, result);                                           // release temp
+    }
 
     bool need_global = (cg->current_module != NULL) ||                       // module scope: global
                        (cg->current_function == 0) ||                        // top-level: global
@@ -1103,7 +1163,15 @@ static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node, int dest_hint) 
             }
         }
 
-        codegen_expression_into(cg, node->var_assign.value, local_reg);      // write directly
+        int hint = local_reg;                                                // default: write directly
+        if (ast_references_local(node->var_assign.value, node->var_assign.name)) {
+            hint = -1;                                                       // RHS reads this local: unsafe
+        }
+        int result = codegen_expression_into(cg, node->var_assign.value, hint);  // evaluate
+        if (result != local_reg) {                                           // arrived in a fresh temp
+            emit(cg, INST(OP_MOVE, local_reg, result, 0), node->line);       // copy into local slot
+            free_register(cg, result);                                       // release temp
+        }
         return local_reg;                                                    // return local
     }
 
