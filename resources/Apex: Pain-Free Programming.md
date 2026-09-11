@@ -69,6 +69,16 @@
   - [Arithmetic Only Works with Numbers](#arithmetic-only-works-with-numbers)
   - [Whole Numbers and Decimals Together](#whole-numbers-and-decimals-together)
 - [Comparison Operators](#section)
+  - [What Comparison Operators Do](#what-comparison-operators-do)
+  - [Equal To](#equal-to)
+  - [Not Equal To](#not-equal-to)
+  - [Less Than and Greater Than](#less-than-and-greater-than)
+  - [Less Than or Equal To and Greater Than or Equal To](#less-than-or-equal-to-and-greater-than-or-equal-to)
+  - [Comparison Results Are Booleans](#comparison-results-are-booleans)
+  - [Comparisons with Variables on Both Sides](#comparisons-with-variables-on-both-sides)
+  - [Comparison Only Works with Compatible Types](#comparison-only-works-with-compatible-types)
+  - [Operator Precedence](#operator-precedence)
+  - [Chaining Comparisons](#chaining-comparisons)
 - [Logical Operators](#section)
 
 ### If Statements
@@ -1315,3 +1325,223 @@ When you combine a whole number and a decimal number in an arithmetic expression
 ```
 
 Apex preserves the decimal part whenever it appears. You don't have to do anything special — it handles the conversion automatically.
+
+## Comparison Operators
+Arithmetic operators let you do math with numbers. But programs don't just calculate — they also *compare*. Is this price too high? Is this user old enough? Is this password correct? Comparison operators are the tools that answer these questions. They take two values, compare them, and give you a boolean result: either `true` or `false`.
+
+### What Comparison Operators Do
+A comparison operator looks at two values and asks a question about their relationship. The answer to that question is always a boolean — `true` if the comparison holds, `false` if it doesn't.
+
+Here's the full set of comparison operators in Apex:
+
+| Operator | Name                     | Example  |
+|----------|--------------------------|----------|
+| `==`     | Equal to                 | `5 == 5` |
+| `!=`     | Not equal to             | `5 != 3` |
+| `<`      | Less than                | `3 < 5`  |
+| `>`      | Greater than             | `5 > 3`  |
+| `<=`     | Less than or equal to    | `3 <= 3` |
+| `>=`     | Greater than or equal to | `5 >= 5` |
+
+Each of these produces a boolean value. You can store that result in a variable, use it in another expression, or — as you'll see in the next section — use it to make decisions.
+
+### Equal To
+The equal-to operator is written as two equals signs: `==`. It checks whether two values are exactly the same:
+
+```apex
+5 == 5   // true
+10 == 3  // false
+```
+
+Why two equals signs? Because a single `=` is already taken — it's the assignment operator, used to put values into variables:
+
+```apex
+x = 5   // assignment: put 5 into x
+x == 5  // comparison: is x equal to 5?
+```
+
+These look similar but do completely different things. The first *changes* a variable. The second *asks a question* about a variable. Mixing them up is a classic beginner mistake, so pay close attention to the difference.
+
+**Comparing strings:**
+The `==` operator works with strings too:
+
+```apex
+"hello" == "hello"  // true
+"hello" == "world"  // false
+```
+
+Two strings are equal only if they contain exactly the same characters in exactly the same order. Case matters:
+
+```apex
+"Hello" == "hello"  // false — uppercase H vs lowercase h
+```
+
+**Comparing different types:**
+When you compare values of different types with `==`, the answer is always `false`. A number and a string are never equal, even if they look similar:
+
+```apex
+5 == "5"        // false — number vs string
+true == "true"  // false — boolean vs string
+none == "none"  // false — none vs string
+```
+
+The type matters just as much as the value. A number `5` and a string `"5"` are fundamentally different things, so they're not equal.
+
+**Comparing booleans:**
+Booleans can be compared too:
+
+```apex
+true == true   // true
+true == false  // false
+```
+
+**Comparing tables:**
+Two tables are equal only if they're the *same* table — the same container, not just two containers with the same contents:
+
+```apex
+a = [1, 2, 3]
+b = [1, 2, 3]
+a == b  // false — two different tables
+```
+
+Even though `a` and `b` contain the same values, they're separate containers, so they're not equal. This distinction will matter more as you work with tables.
+
+### Not Equal To
+The not-equal-to operator is written as `!=`. It's the opposite of `==`: it gives `true` when the values are different, and `false` when they're the same:
+
+```apex
+5 != 3              // true
+10 != 10            // false
+"hello" != "world"  // true
+true != false       // true
+```
+
+You can think of `!=` as asking "Are these different?" If yes, you get `true`. If no, you get `false`.
+
+Different types are always not equal:
+
+```apex
+5 != "5"  // true — number vs string, always different
+```
+
+### Less Than and Greater Than
+The less-than operator `<` and greater-than operator `>` work with numbers:
+
+```apex
+3 < 5   // true — 3 is less than 5
+5 < 3   // false — 5 is not less than 3
+10 > 5  // true — 10 is greater than 5
+5 > 10  // false — 5 is not greater than 10
+```
+
+These comparisons are strict. `<` means strictly less than, and `>` means strictly greater than. The value itself is not included:
+
+```apex
+5 < 5  // false — 5 is not less than 5
+5 > 5  // false — 5 is not greater than 5
+```
+
+For "less than *or equal*" and "greater than *or equal*," we have separate operators — coming next.
+
+### Less Than or Equal To and Greater Than or Equal To
+The `<=` operator checks whether a value is less than or equal to another. The `>=` operator checks whether a value is greater than or equal to another:
+
+```apex
+5 <= 5  // true — 5 is equal to 5
+5 <= 6  // true — 5 is less than 6
+5 <= 4  // false — 5 is neither less than nor equal to 4
+
+5 >= 5  // true — 5 is equal to 5
+5 >= 4  // true — 5 is greater than 4
+5 >= 6  // false — 5 is neither greater than nor equal to 6
+```
+
+These are useful when you want to include the boundary value. For example, "you must be at least 18" means "age must be greater than or equal to 18":
+
+```apex
+age = 18
+is_allowed = age >= 18  // true — 18 is allowed
+```
+
+If you used `>` instead, 18 would not be allowed:
+
+```apex
+is_allowed = age > 18  // false — 18 is not greater than 18
+```
+
+So `>=` and `<=` make a meaningful difference when the boundary value matters.
+
+### Comparison Results Are Booleans
+Every comparison operator produces a boolean result. This means you can assign comparison results to variables:
+
+```apex
+age = 25
+is_adult = age >= 18       // true
+is_teenager = age < 20     // false
+is_exactly_25 = age == 25  // true
+```
+
+Each of these variables now holds a boolean — `true` or `false` — based on the comparison. This is incredibly useful. You can compute answers to questions once, store them, and use them later.
+
+You can even compare the results of arithmetic:
+
+```apex
+price = 100
+discount = 30
+is_under_budget = (price - discount) < 80  // 70 < 80 → true
+```
+
+Here, Apex first does the arithmetic (`price - discount` becomes `70`), then does the comparison (`70 < 80` becomes `true`).
+
+### Comparisons with Variables on Both Sides
+So far, most examples have compared a variable to a literal value — like `age >= 18` where `18` is written directly in the code. But you can compare two variables just as easily:
+
+```apex
+my_age = 25
+your_age = 30
+am_i_older = my_age > your_age        // false — 25 is not greater than 30
+are_we_same_age = my_age == your_age  // false
+```
+
+This works because Apex first looks up the values in both variables, then compares those values.
+
+### Comparison Only Works with Compatible Types
+You might have noticed that `<`, `>`, `<=`, and `>=` were only shown with numbers. That's because these four operators work exclusively with numbers. You cannot use them with strings, booleans, tables, or `none`:
+
+```apex
+"apple" < "banana"  // ERROR — can't compare strings with <
+true > false        // ERROR — can't compare booleans with >
+[] <= []            // ERROR — can't compare tables with <=
+```
+
+Apex won't try to guess what "less than" means for text or booleans. Those concepts only make sense for quantities, so Apex restricts these operators to numbers.
+
+The equality operators `==` and `!=` are more flexible — they work with any type, as we saw earlier. You can compare strings, booleans, and tables for equality or inequality. But ordering comparisons (`<`, `>`, `<=`, `>=`) are strictly numeric.
+
+### Operator Precedence
+Comparison operators have lower precedence than arithmetic operators. This means arithmetic happens first, then comparison:
+
+```apex
+2 + 3 > 4
+```
+
+Apex first evaluates `2 + 3`, getting `5`. Then it evaluates `5 > 4`, getting `true`. You don't need parentheses for this — it happens naturally because arithmetic binds more tightly than comparison.
+
+But if your expression is complex, parentheses make it clearer:
+
+```apex
+(2 + 3) > (4 * 1)  // 5 > 4 → true
+```
+
+This does the same thing but is easier to read.
+
+Among comparison operators, equality (`==`, `!=`) has slightly lower precedence than ordering (`<`, `>`, `<=`, `>=`). In practice, you'll rarely write expressions that mix multiple comparison operators without parentheses, so this distinction rarely matters.
+
+### Chaining Comparisons
+One thing to note: you cannot chain comparisons the way you might in math. In math, you might write `5 < x < 10` to mean "x is between 5 and 10." In Apex, this doesn't work the way you'd expect:
+
+```apex
+5 < x < 10  // this evaluates left to right: (5 < x) < 10
+```
+
+To express "between," you'll need to combine two comparisons with a logical operator — which we'll cover in the next section. For now, know that each comparison is a standalone operation that compares exactly two values.
