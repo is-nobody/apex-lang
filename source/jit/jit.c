@@ -258,6 +258,68 @@ static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
     return true;
 }
 
+// checks if slot s is read between pc_after and the first write to s (inclusive scan, stops at write)
+static bool slot_read_before_write(BytecodeChunk* chunk, int pc_after, int end, int s) {
+    for (int pc = pc_after; pc < end; pc++) {                    // scan forward
+        Instruction* inst = &chunk->code[pc];
+        int d = inst->operands[0];                               // destination register
+        int a = inst->operands[1];                               // first source register
+        int b = inst->operands[2];                               // second source register
+
+        bool reads = false;                                      // does this read s?
+        switch (inst->opcode) {
+            case OP_MOVE: case OP_NEG:                           // reads a
+                reads = (a == s);
+                break;
+            case OP_INC: case OP_DEC:                            // reads d
+                reads = (d == s);
+                break;
+            case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
+            case OP_CMP_EQ: case OP_CMP_NEQ:
+            case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
+            case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
+            case OP_JUMP_IF_EQ: case OP_JUMP_IF_NEQ:
+            case OP_JUMP_IF_EQ_NUM: case OP_JUMP_IF_NEQ_NUM:
+            case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:
+            case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:            // reads a, b
+                reads = (a == s || b == s);
+                break;
+            case OP_JUMP_IF_FALSE:                               // reads a
+                reads = (a == s);
+                break;
+            case OP_RETURN: case OP_RETURN_NUM:                  // reads d
+                reads = (d == s);
+                break;
+            case OP_CALL_1:                                      // arg in b
+                reads = (b == s);
+                break;
+            case OP_CALL_2:                                      // args in b, b+1
+                reads = (b == s || b + 1 == s);
+                break;
+            default:                                             // no register reads
+                break;
+        }
+        if (reads) return true;                                  // slot live — read before write
+
+        bool writes = false;                                     // does this write s?
+        switch (inst->opcode) {
+            case OP_MOVE: case OP_NEG: case OP_INC: case OP_DEC:
+            case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:
+            case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
+            case OP_CMP_EQ: case OP_CMP_NEQ:
+            case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
+            case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
+            case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:      // writes d
+                writes = (d == s);
+                break;
+            default:                                             // no register writes
+                break;
+        }
+        if (writes) return false;                                // overwritten before read — dead
+    }
+    return false;                                                // never read in range — dead
+}
+
 // checks if every return site in a function yields a boolean value
 #define JIT_MAX_REGS_SCAN 512
 
@@ -372,7 +434,7 @@ static bool emit_function(JITContext* ctx, CodeBuf* cb, int func_idx) {
     int range_size = end - start;                                // number of bytecodes
     if (range_size <= 0) return false;                           // empty body
 
-    if (cb->len + (size_t)range_size * 200 + 512 > cb->cap)      // conservative size check
+    if (cb->len + (size_t)range_size * 256 + 512 > cb->cap)      // conservative size check
         return false;
 
     bool* is_target = (bool*)calloc(range_size, sizeof(bool));   // jump-target marks
@@ -427,6 +489,15 @@ static bool emit_function(JITContext* ctx, CodeBuf* cb, int func_idx) {
         Opcode op = inst->opcode;                                // opcode shorthand
         bool did_flush = false;                                  // cache flushed this step
 
+        bool prefer_xmm0 = false;                                // next op returns this dest?
+        if (pc + 1 < end) {                                      // next instruction exists
+            Instruction* nx = &chunk->code[pc + 1];
+            if ((nx->opcode == OP_RETURN || nx->opcode == OP_RETURN_NUM) &&
+                nx->operands[0] == d) {                          // next returns our dest
+                prefer_xmm0 = true;                              // prefer xmm0 as result
+            }
+        }
+
         switch (op) {
             case OP_MOVE: {                                      // reg-to-reg copy
                 int xa = xmm_cache_load(&cache, cb, a);          // find xmm for source
@@ -469,8 +540,14 @@ static bool emit_function(JITContext* ctx, CodeBuf* cb, int func_idx) {
                     case OP_MUL: arith_op = 0x59; break;         // mulsd
                     default:     arith_op = 0x5E; break;         // divsd
                 }
-                emit_sse_arith_rr(cb, arith_op, xa, xb);         // xa op= xb
-                xmm_cache_put(&cache, xa, d);                    // relabel xa as dest
+                bool commutative = (op == OP_ADD || op == OP_MUL);  // swap-safe op?
+                if (prefer_xmm0 && commutative && xb == 0 && xa != 0) {
+                    emit_sse_arith_rr(cb, arith_op, 0, xa);      // xmm0 = xmm0 op xa
+                    xmm_cache_put(&cache, 0, d);                 // relabel xmm0 as dest
+                } else {
+                    emit_sse_arith_rr(cb, arith_op, xa, xb);     // xa op= xb
+                    xmm_cache_put(&cache, xa, d);                // relabel xa as dest
+                }
                 break;
             }
             case OP_MOD: {                                       // x - trunc(x/y)*y
@@ -737,22 +814,54 @@ static bool emit_function(JITContext* ctx, CodeBuf* cb, int func_idx) {
                 break;
             }
             case OP_CALL_0: {                                    // call with no args
-                xmm_cache_flush(&cache, cb);                     // spill before call
+                xmm_cache_flush(&cache, cb);                     // spill everything before call
                 emit_call_func(cb, ctx, a);                      // result in xmm0
                 xmm_cache_put(&cache, 0, d);                     // xmm0 = result
                 break;
             }
             case OP_CALL_1: {                                    // call with one arg
-                xmm_cache_flush(&cache, cb);                     // spill before call
-                emit_movsd_load(cb, 0, slot_disp(b));            // arg in xmm0
+                bool arg_live = slot_read_before_write(chunk, pc + 1, end, b);  // arg used after?
+                int arg_xmm = cache.slot_reg[b];                 // where arg lives now
+                for (int i = 0; i < XMM_CACHE_REGS; i++) {       // spill live dirty slots
+                    int s = cache.reg_slot[i];
+                    if (s < 0) continue;                         // empty slot, skip
+                    if (s == b && !arg_live) continue;           // dead arg — memory stays stale
+                    if (cache.slot_dirty[s]) emit_movsd_store(cb, i, slot_disp(s));
+                }
+                if (arg_xmm >= 0 && arg_xmm != 0) {              // arg in cache, not xmm0
+                    emit_sse66_rr(cb, 0x28, 0, arg_xmm);         // movapd xmm0, arg_xmm
+                } else if (arg_xmm < 0) {                        // arg not cached
+                    emit_movsd_load(cb, 0, slot_disp(b));        // reload from memory
+                }                                                // else arg already in xmm0
+                xmm_cache_clear(&cache);                         // xmm regs clobbered by callee
                 emit_call_func(cb, ctx, a);                      // result in xmm0
                 xmm_cache_put(&cache, 0, d);                     // xmm0 = result
                 break;
             }
             case OP_CALL_2: {                                    // call with two args
-                xmm_cache_flush(&cache, cb);                     // spill before call
-                emit_movsd_load(cb, 0, slot_disp(b));            // arg0 in xmm0
-                emit_movsd_load(cb, 1, slot_disp(b + 1));        // arg1 in xmm1
+                bool arg0_live = slot_read_before_write(chunk, pc + 1, end, b);      // arg0 used after?
+                bool arg1_live = slot_read_before_write(chunk, pc + 1, end, b + 1);  // arg1 used after?
+                int arg0_xmm = cache.slot_reg[b];                // where arg0 lives
+                int arg1_xmm = cache.slot_reg[b + 1];            // where arg1 lives
+                for (int i = 0; i < XMM_CACHE_REGS; i++) {       // spill live dirty slots
+                    int s = cache.reg_slot[i];
+                    if (s < 0) continue;                         // empty, skip
+                    if (s == b     && !arg0_live) continue;      // dead arg0 — memory stays stale
+                    if (s == b + 1 && !arg1_live) continue;      // dead arg1 — memory stays stale
+                    if (cache.slot_dirty[s]) emit_movsd_store(cb, i, slot_disp(s));
+                }
+                if (arg0_xmm >= 0) {                             // arg0 in cache
+                    emit_sse66_rr(cb, 0x28, XMM_SCRATCH, arg0_xmm);  // stash arg0 in scratch
+                } else {                                         // arg0 not cached
+                    emit_movsd_load(cb, XMM_SCRATCH, slot_disp(b));
+                }
+                if (arg1_xmm >= 0 && arg1_xmm != 1) {            // arg1 in cache, not xmm1
+                    emit_sse66_rr(cb, 0x28, 1, arg1_xmm);        // movapd xmm1, arg1_xmm
+                } else if (arg1_xmm < 0) {                       // arg1 not cached
+                    emit_movsd_load(cb, 1, slot_disp(b + 1));    // reload from memory
+                }                                                // else arg1 already in xmm1
+                emit_sse66_rr(cb, 0x28, 0, XMM_SCRATCH);         // arg0 from scratch to xmm0
+                xmm_cache_clear(&cache);                         // xmm regs clobbered
                 emit_call_func(cb, ctx, a);                      // result in xmm0
                 xmm_cache_put(&cache, 0, d);                     // xmm0 = result
                 break;
@@ -833,7 +942,7 @@ JITContext* jit_create(BytecodeChunk* chunk) {
     for (int i = 0; i < n; i++) if (ctx->pure[i]) pure_count++;  // tally pure fns
     if (pure_count == 0) { jit_destroy(ctx); return NULL; }      // nothing to emit
 
-    size_t cap = (size_t)chunk->code_count * 200 + 16384;        // generous RW buffer
+    size_t cap = (size_t)chunk->code_count * 256 + 16384;        // generous RW buffer
     ctx->code = (uint8_t*)mmap(NULL, cap, PROT_READ | PROT_WRITE,
                                MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);  // anonymous page
     if (ctx->code == MAP_FAILED) {                               // mmap failed
