@@ -74,7 +74,11 @@ set(SOURCES
 )
 
 if(APEX_JIT_AVAILABLE)
-    list(APPEND SOURCES source/jit/jit.c)
+    list(APPEND SOURCES
+        source/jit/jit.c
+        source/jit/jit_analysis.c
+        source/jit/backend_x86_64.c
+    )
 endif()
 
 add_executable(apex ${SOURCES})
