@@ -198,8 +198,12 @@ static bool string_equal(StringObject* a, StringObject* b) {
 // converts a value to a C string for concatenation
 static const char* value_to_cstr(Value v, char* buf, int buf_size) {
     if (IS_NUMBER(v)) {
-        snprintf(buf, buf_size, "%.15g", AS_NUMBER(v));  // format number to temp buffer
-        return buf;                                      // return temp buffer
+        double num = AS_NUMBER(v);
+        if (fabs(num) >= 1e6 || fabs(num - (long long)num) < 1e-9)
+            snprintf(buf, buf_size, "%.0f", num);           // large or integer, no decimals
+        else
+            snprintf(buf, buf_size, "%.15g", num);          // use general format with high precision
+        return buf;
     } else if (IS_STRING(v)) {
         return AS_STRING(v)->chars;                      // return string's internal chars
     } else if (IS_NONE(v)) {
