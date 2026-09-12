@@ -1,4 +1,4 @@
-// source/core/jit.h
+// source/jit/jit.h
 // Self-contained x86-64 JIT for Apex numeric-pure functions.
 // https://github.com/is-nobody/apex-lang
 // MIT license
@@ -9,10 +9,10 @@
 #include "bytecode.h"
 #include <stdbool.h>
 
-// opaque jit context holding all per-chunk jit state
+// opaque jit context holding all per-chunk JIT state
 typedef struct JITContext JITContext;
 
-// analyses the chunk and builds a jit context, or returns NULL
+// analyses the chunk and builds a jit context, or returns null
 JITContext* jit_create(BytecodeChunk* chunk);
 
 // frees the jit context and unloads its executable memory
@@ -33,7 +33,7 @@ double jit_call_1(JITContext* ctx, int func_idx, double a);
 // invokes a compiled function taking two double arguments
 double jit_call_2(JITContext* ctx, int func_idx, double a, double b);
 
-// returns the number of functions that were successfully jit-compiled
+// returns the number of functions that were successfully JIT-compiled
 int jit_compiled_count(JITContext* ctx);
 
 #endif

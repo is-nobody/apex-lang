@@ -1,6 +1,8 @@
-// source/core/jit.c
+// source/jit/jit.c
 // Self-contained x86-64 JIT for Apex numeric-pure functions.
 // Emits machine code directly into an mmap'd RWX buffer.
+// Uses a register cache: xmm0..xmm6 hold the hottest slots during a
+// basic block, avoiding load/store for every arithmetic operand.
 // https://github.com/is-nobody/apex-lang
 // MIT license
 
@@ -24,6 +26,20 @@ typedef struct {
     size_t patch_at;   // offset in code buffer of the 4-byte rel32 placeholder
     int    target_pc;  // bytecode pc that the jump should resolve to
 } JumpFixup;
+
+// xmm0..xmm6 used as slot cache, xmm7 reserved as scratch
+#define XMM_CACHE_REGS 7
+#define XMM_SCRATCH    7
+
+// upper bound on slots the register cache can track
+#define JIT_MAX_SLOTS 256
+
+// register cache state: which slot lives in which xmm, and which slots have been written since they were last flushed to memory
+typedef struct {
+    int  reg_slot[XMM_CACHE_REGS];  // xmm[i] holds slot reg_slot[i], or -1
+    int  slot_reg[JIT_MAX_SLOTS];   // slot -> xmm index, or -1
+    bool slot_dirty[JIT_MAX_SLOTS]; // slot written but not yet spilled
+} XmmCache;
 
 // per-chunk JIT state
 struct JITContext {
@@ -75,39 +91,102 @@ static inline void emit_movsd_store(CodeBuf* b, int xmm, int32_t disp) {
 // emits <op>sd xmm_dst, [rbp+disp32] — scalar-double op with memory source
 static inline void emit_sse_arith_mem(CodeBuf* b, uint8_t op,
                                        int xmm_dst, int32_t disp) {
-    emit_u8(b, 0xF2); emit_u8(b, 0x0F); emit_u8(b, op);  // scalar-double opcode
-    emit_u8(b, 0x85 | (xmm_dst << 3));                   // modrm with rbp base
-    emit_i32(b, disp);                                   // displacement
+    emit_u8(b, 0xF2); emit_u8(b, 0x0F); emit_u8(b, op);    // scalar-double opcode
+    emit_u8(b, 0x85 | (xmm_dst << 3));                     // modrm with rbp base
+    emit_i32(b, disp);                                     // displacement
 }
 
 // emits <op>sd xmm_dst, xmm_src — scalar-double op, register-register
 static inline void emit_sse_arith_rr(CodeBuf* b, uint8_t op, int dst, int src) {
-    emit_u8(b, 0xF2); emit_u8(b, 0x0F); emit_u8(b, op);  // scalar-double opcode
-    emit_u8(b, 0xC0 | (dst << 3) | src);                 // modrm, register-register
+    emit_u8(b, 0xF2); emit_u8(b, 0x0F); emit_u8(b, op);    // scalar-double opcode
+    emit_u8(b, 0xC0 | (dst << 3) | src);                   // modrm, register-register
 }
 
 // emits packed-double register-register op (movapd, xorpd, etc)
 static inline void emit_sse66_rr(CodeBuf* b, uint8_t op, int dst, int src) {
-    emit_u8(b, 0x66); emit_u8(b, 0x0F); emit_u8(b, op);  // packed-double opcode
-    emit_u8(b, 0xC0 | (dst << 3) | src);                 // modrm, register-register
+    emit_u8(b, 0x66); emit_u8(b, 0x0F); emit_u8(b, op);    // packed-double opcode
+    emit_u8(b, 0xC0 | (dst << 3) | src);                   // modrm, register-register
 }
 
 // emits movabs rax, imm64 — load 64-bit immediate into rax
 static inline void emit_movabs_rax(CodeBuf* b, uint64_t v) {
-    emit_u8(b, 0x48); emit_u8(b, 0xB8);  // rex.w + movabs opcode
-    emit_u64(b, v);                      // 64-bit immediate
+    emit_u8(b, 0x48); emit_u8(b, 0xB8);                    // rex.w + movabs opcode
+    emit_u64(b, v);                                        // 64-bit immediate
 }
 
-// emits mov rax, [rbp+disp32] — load slot into rax
-static inline void emit_mov_rax_slot(CodeBuf* b, int32_t disp) {
-    emit_u8(b, 0x48); emit_u8(b, 0x8B); emit_u8(b, 0x85);  // mov rax, [rbp+disp]
-    emit_i32(b, disp);                                     // displacement
+// emits movq xmm<N>, rax — move rax into sse register
+static inline void emit_movq_xmm_rax(CodeBuf* b, int xmm) {
+    emit_u8(b, 0x66); emit_u8(b, 0x48);                    // operand-size + rex.w
+    emit_u8(b, 0x0F); emit_u8(b, 0x6E);                    // movq xmm, r/m64
+    emit_u8(b, 0xC0 | (xmm << 3));                         // modrm, rm=rax
 }
 
-// emits mov [rbp+disp32], rax — store rax into slot
-static inline void emit_mov_slot_rax(CodeBuf* b, int32_t disp) {
-    emit_u8(b, 0x48); emit_u8(b, 0x89); emit_u8(b, 0x85);  // mov [rbp+disp], rax
-    emit_i32(b, disp);                                     // displacement
+// clears cache state without touching memory
+static void xmm_cache_clear(XmmCache* c) {
+    for (int i = 0; i < XMM_CACHE_REGS; i++) c->reg_slot[i] = -1;
+    for (int i = 0; i < JIT_MAX_SLOTS; i++) {
+        c->slot_reg[i] = -1;
+        c->slot_dirty[i] = false;
+    }
+}
+
+// finds or evicts an xmm register, avoiding two registers that are live
+static int xmm_cache_alloc_excl(XmmCache* c, CodeBuf* cb, int excl1, int excl2) {
+    for (int i = 0; i < XMM_CACHE_REGS; i++) {              // prefer free registers
+        if (i == excl1 || i == excl2) continue;
+        if (c->reg_slot[i] == -1) return i;
+    }
+    int victim = -1;                                        // otherwise evict
+    for (int i = 0; i < XMM_CACHE_REGS; i++) {
+        if (i == excl1 || i == excl2) continue;
+        if (victim < 0 || c->reg_slot[i] < c->reg_slot[victim]) victim = i;
+    }
+    if (victim < 0) return -1;                              // all excluded
+    int s = c->reg_slot[victim];
+    if (c->slot_dirty[s]) emit_movsd_store(cb, victim, slot_disp(s));
+    c->reg_slot[victim] = -1;
+    c->slot_reg[s] = -1;
+    c->slot_dirty[s] = false;
+    return victim;
+}
+
+// returns an xmm holding slot s, loading from memory if needed
+static int xmm_cache_load_excl(XmmCache* c, CodeBuf* cb, int s, int excl1, int excl2) {
+    if (s < 0 || s >= JIT_MAX_SLOTS) return -1;
+    if (c->slot_reg[s] >= 0) return c->slot_reg[s];         // cache hit
+    int x = xmm_cache_alloc_excl(c, cb, excl1, excl2);
+    if (x < 0) return -1;
+    emit_movsd_load(cb, x, slot_disp(s));                   // cache miss: load
+    c->reg_slot[x] = s;
+    c->slot_reg[s] = x;
+    c->slot_dirty[s] = false;
+    return x;
+}
+
+// convenience wrapper around xmm_cache_load_excl with no exclusions
+static int xmm_cache_load(XmmCache* c, CodeBuf* cb, int s) {
+    return xmm_cache_load_excl(c, cb, s, -1, -1);
+}
+
+// marks xmm x as holding slot s (dirty), invalidating prior mappings
+static void xmm_cache_put(XmmCache* c, int x, int s) {
+    if (s < 0 || s >= JIT_MAX_SLOTS) return;
+    int old = c->reg_slot[x];
+    if (old >= 0 && old != s) c->slot_reg[old] = -1;        // x no longer holds old slot
+    int prev = c->slot_reg[s];
+    if (prev >= 0 && prev != x) c->reg_slot[prev] = -1;     // that xmm no longer holds s
+    c->reg_slot[x] = s;
+    c->slot_reg[s] = x;
+    c->slot_dirty[s] = true;
+}
+
+// writes back all dirty slots to memory and clears the cache
+static void xmm_cache_flush(XmmCache* c, CodeBuf* cb) {
+    for (int i = 0; i < XMM_CACHE_REGS; i++) {
+        int s = c->reg_slot[i];
+        if (s >= 0 && c->slot_dirty[s]) emit_movsd_store(cb, i, slot_disp(s));
+    }
+    xmm_cache_clear(c);
 }
 
 // checks if a function contains only numeric ops and in-range jumps
@@ -263,13 +342,6 @@ static void analyze(JITContext* ctx) {
     }
 }
 
-// loads slot <reg> into xmm0, then executes leave/ret epilogue
-static void emit_return_slot(CodeBuf* cb, int reg) {
-    emit_movsd_load(cb, 0, slot_disp(reg));                      // xmm0 = slot value
-    emit_u8(cb, 0xC9);                                           // leave
-    emit_u8(cb, 0xC3);                                           // ret
-}
-
 // fallback epilogue: returns xmm0 = 0.0
 static void emit_return_zero(CodeBuf* cb) {
     emit_u8(cb, 0x66); emit_u8(cb, 0x0F);
@@ -286,23 +358,6 @@ static void emit_call_func(CodeBuf* cb, JITContext* ctx, int func_idx) {
     emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                        // call rax
 }
 
-// emits ucomisd + jcc and returns the offset of the rel32 placeholder
-static size_t emit_ucomisd_jcc(CodeBuf* cb, uint8_t jcc) {
-    emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E); emit_u8(cb, 0xC1);  // ucomisd
-    emit_u8(cb, 0x0F); emit_u8(cb, jcc);                         // conditional jump
-    size_t patch_at = cb->len;                                   // remember fixup offset
-    emit_i32(cb, 0);                                             // placeholder rel32
-    return patch_at;                                             // return fixup offset
-}
-
-// converts the last ucomisd flags into 0.0/1.0 and stores into slot <d>
-static void emit_setcc_to_slot(CodeBuf* cb, uint8_t setcc, int d) {
-    emit_u8(cb, 0x0F); emit_u8(cb, setcc); emit_u8(cb, 0xC0);    // setcc al
-    emit_u8(cb, 0x0F); emit_u8(cb, 0xB6); emit_u8(cb, 0xC0);     // movzbl eax, al
-    emit_u8(cb, 0xF2); emit_u8(cb, 0x0F); emit_u8(cb, 0x2A); emit_u8(cb, 0xC0);  // cvtsi2sd
-    emit_movsd_store(cb, 0, slot_disp(d));                       // store into slot
-}
-
 // emits native x86-64 code for a single numeric-pure function
 static bool emit_function(JITContext* ctx, CodeBuf* cb, int func_idx) {
     BytecodeChunk* chunk = ctx->chunk;
@@ -312,18 +367,39 @@ static bool emit_function(JITContext* ctx, CodeBuf* cb, int func_idx) {
     int nregs = chunk->functions[func_idx].max_registers;        // max register index + 1
     if (nregs < arity) nregs = arity;                            // params need slots too
     if (nregs < 1) nregs = 1;                                    // at least one slot
+    if (nregs > JIT_MAX_SLOTS) return false;                     // cache can't track this
 
     int range_size = end - start;                                // number of bytecodes
     if (range_size <= 0) return false;                           // empty body
 
-    if (cb->len + (size_t)range_size * 128 + 256 > cb->cap)      // conservative size check
-        return false;                                            // (128 bytes per bytecode)
+    if (cb->len + (size_t)range_size * 200 + 512 > cb->cap)      // conservative size check
+        return false;
+
+    bool* is_target = (bool*)calloc(range_size, sizeof(bool));   // jump-target marks
+    if (!is_target) return false;                                // allocation failed
+    for (int pc = start; pc < end; pc++) {                       // collect jump targets
+        Opcode op = chunk->code[pc].opcode;
+        if (op == OP_JUMP || op == OP_JUMP_IF_FALSE ||
+            op == OP_JUMP_IF_EQ || op == OP_JUMP_IF_NEQ ||
+            op == OP_JUMP_IF_EQ_NUM || op == OP_JUMP_IF_NEQ_NUM ||
+            op == OP_JUMP_IF_LT || op == OP_JUMP_IF_GT ||
+            op == OP_JUMP_IF_LTE || op == OP_JUMP_IF_GTE) {
+            int t = chunk->code[pc].operands[0];                 // jump target
+            if (t >= start && t < end) is_target[t - start] = true;  // mark as merge point
+        }
+    }
 
     int32_t* label_off = (int32_t*)malloc(sizeof(int32_t) * range_size);     // label offsets
     JumpFixup* fixups  = (JumpFixup*)malloc(sizeof(JumpFixup) * range_size); // pending jumps
-    if (!label_off || !fixups) { free(label_off); free(fixups); return false; }  // allocation failed
+    if (!label_off || !fixups) {                                 // allocation failed
+        free(is_target); free(label_off); free(fixups);
+        return false;
+    }
     for (int i = 0; i < range_size; i++) label_off[i] = -1;      // no label emitted yet
     int fixup_count = 0;                                         // pending jumps count
+
+    XmmCache cache;                                              // register cache state
+    xmm_cache_clear(&cache);                                     // start empty
 
     emit_u8(cb, 0x55);                                           // push rbp
     emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xE5);     // mov rbp, rsp
@@ -333,7 +409,11 @@ static bool emit_function(JITContext* ctx, CodeBuf* cb, int func_idx) {
     emit_u8(cb, 0x48); emit_u8(cb, 0x81); emit_u8(cb, 0xEC);     // sub rsp, imm32
     emit_i32(cb, frame_size);                                    // frame size immediate
 
-    for (int i = 0; i < arity; i++) {                            // spill incoming args
+    int cached_args = arity < XMM_CACHE_REGS ? arity : XMM_CACHE_REGS;  // args fit in cache
+    for (int i = 0; i < cached_args; i++) {                      // cache incoming args
+        xmm_cache_put(&cache, i, i);                             // xmm<i> = slot i, dirty
+    }
+    for (int i = cached_args; i < arity; i++) {                  // spill extras
         emit_movsd_store(cb, i, slot_disp(i));                   // xmm<i> -> slot i
     }
 
@@ -344,224 +424,358 @@ static bool emit_function(JITContext* ctx, CodeBuf* cb, int func_idx) {
         int d = inst->operands[0];                               // first operand
         int a = inst->operands[1];                               // second operand
         int b = inst->operands[2];                               // third operand
+        Opcode op = inst->opcode;                                // opcode shorthand
+        bool did_flush = false;                                  // cache flushed this step
 
-        switch (inst->opcode) {
+        switch (op) {
             case OP_MOVE: {                                      // reg-to-reg copy
-                emit_mov_rax_slot(cb, slot_disp(a));             // rax = slot[a]
-                emit_mov_slot_rax(cb, slot_disp(d));             // slot[d] = rax
+                int xa = xmm_cache_load(&cache, cb, a);          // find xmm for source
+                if (xa < 0) { emit_return_zero(cb); break; }     // no register available
+                xmm_cache_put(&cache, xa, d);                    // relabel xmm as dest
                 break;
             }
             case OP_LOAD_NUM_IMM: {                              // small int literal
+                int x = xmm_cache_alloc_excl(&cache, cb, -1, -1);  // pick a register
+                if (x < 0) { emit_return_zero(cb); break; }      // no register available
                 double v = (double)a;                            // operand as double
                 uint64_t bits; memcpy(&bits, &v, 8);             // reinterpret as u64
                 emit_movabs_rax(cb, bits);                       // rax = bit pattern
-                emit_mov_slot_rax(cb, slot_disp(d));             // slot[d] = rax
+                emit_movq_xmm_rax(cb, x);                        // xmmX = rax
+                xmm_cache_put(&cache, x, d);                     // cache dest
                 break;
             }
             case OP_LOAD_NUM: {                                  // full double constant
+                int x = xmm_cache_alloc_excl(&cache, cb, -1, -1);  // pick a register
+                if (x < 0) { emit_return_zero(cb); break; }      // no register available
                 double v = chunk->constants[a].number_value;     // fetch constant
                 uint64_t bits; memcpy(&bits, &v, 8);             // reinterpret as u64
                 emit_movabs_rax(cb, bits);                       // rax = bit pattern
-                emit_mov_slot_rax(cb, slot_disp(d));             // slot[d] = rax
+                emit_movq_xmm_rax(cb, x);                        // xmmX = rax
+                xmm_cache_put(&cache, x, d);                     // cache dest
                 break;
             }
             case OP_ADD:
             case OP_SUB:
             case OP_MUL:
             case OP_DIV: {                                       // binary arithmetic
-                uint8_t op;                                      // sse opcode
-                switch (inst->opcode) {
-                    case OP_ADD: op = 0x58; break;               // addsd
-                    case OP_SUB: op = 0x5C; break;               // subsd
-                    case OP_MUL: op = 0x59; break;               // mulsd
-                    default:     op = 0x5E; break;               // divsd
+                int xa = xmm_cache_load(&cache, cb, a);          // load left operand
+                if (xa < 0) { emit_return_zero(cb); break; }     // no register available
+                int xb = xmm_cache_load_excl(&cache, cb, b, xa, -1);  // load right, avoid xa
+                if (xb < 0) { emit_return_zero(cb); break; }     // no register available
+                uint8_t arith_op;                                // sse opcode
+                switch (op) {
+                    case OP_ADD: arith_op = 0x58; break;         // addsd
+                    case OP_SUB: arith_op = 0x5C; break;         // subsd
+                    case OP_MUL: arith_op = 0x59; break;         // mulsd
+                    default:     arith_op = 0x5E; break;         // divsd
                 }
-                emit_movsd_load(cb, 0, slot_disp(a));            // xmm0 = slot[a]
-                emit_sse_arith_mem(cb, op, 0, slot_disp(b));     // xmm0 op= slot[b]
-                emit_movsd_store(cb, 0, slot_disp(d));           // slot[d] = xmm0
+                emit_sse_arith_rr(cb, arith_op, xa, xb);         // xa op= xb
+                xmm_cache_put(&cache, xa, d);                    // relabel xa as dest
                 break;
             }
             case OP_MOD: {                                       // x - trunc(x/y)*y
-                emit_movsd_load(cb, 0, slot_disp(a));            // xmm0 = a
-                emit_movsd_load(cb, 1, slot_disp(b));            // xmm1 = b
-                emit_sse66_rr(cb, 0x28, 2, 0);                   // movapd xmm2, xmm0
-                emit_sse_arith_rr(cb, 0x5E, 2, 1);               // divsd  xmm2, xmm1
+                int xa = xmm_cache_load(&cache, cb, a);          // load a
+                if (xa < 0) { emit_return_zero(cb); break; }     // no register available
+                int xb = xmm_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
+                if (xb < 0) { emit_return_zero(cb); break; }     // no register available
+                emit_sse66_rr(cb, 0x28, XMM_SCRATCH, xa);        // movapd scratch, a
+                emit_sse_arith_rr(cb, 0x5E, XMM_SCRATCH, xb);    // divsd  scratch, b
                 emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x3A);
-                emit_u8(cb, 0x0B); emit_u8(cb, 0xDA); emit_u8(cb, 0x03);  // roundsd trunc
-                emit_sse_arith_rr(cb, 0x59, 2, 1);               // mulsd  xmm2, xmm1
-                emit_sse_arith_rr(cb, 0x5C, 0, 2);               // subsd  xmm0, xmm2
-                emit_movsd_store(cb, 0, slot_disp(d));           // slot[d] = xmm0
+                emit_u8(cb, 0x0B);                               // roundsd opcode
+                emit_u8(cb, 0xC0 | (XMM_SCRATCH << 3) | XMM_SCRATCH);  // modrm scratch, scratch
+                emit_u8(cb, 0x03);                               // round mode: truncate
+                emit_sse_arith_rr(cb, 0x59, XMM_SCRATCH, xb);    // mulsd  scratch, b
+                emit_sse_arith_rr(cb, 0x5C, xa, XMM_SCRATCH);    // subsd  a, scratch
+                xmm_cache_put(&cache, xa, d);                    // relabel xa as dest
                 break;
             }
             case OP_NEG: {                                       // unary minus
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F);
-                emit_u8(cb, 0x57); emit_u8(cb, 0xC0);            // xorpd xmm0, xmm0
-                emit_sse_arith_mem(cb, 0x5C, 0, slot_disp(a));   // subsd xmm0, [a]
-                emit_movsd_store(cb, 0, slot_disp(d));           // slot[d] = xmm0
+                int xa = xmm_cache_load(&cache, cb, a);          // load operand
+                if (xa < 0) { emit_return_zero(cb); break; }     // no register available
+                emit_sse66_rr(cb, 0x57, XMM_SCRATCH, XMM_SCRATCH);  // xorpd scratch, scratch
+                emit_sse_arith_rr(cb, 0x5C, XMM_SCRATCH, xa);    // subsd scratch, a
+                emit_sse66_rr(cb, 0x28, xa, XMM_SCRATCH);        // movapd a, scratch
+                xmm_cache_put(&cache, xa, d);                    // relabel xa as dest
                 break;
             }
             case OP_INC:
             case OP_DEC: {                                       // in-place +1 / -1
-                uint8_t op = (inst->opcode == OP_INC) ? 0x58 : 0x5C;  // addsd / subsd
-                emit_movsd_load(cb, 0, slot_disp(d));            // xmm0 = slot[d]
+                int xd = xmm_cache_load(&cache, cb, d);          // load dest
+                if (xd < 0) { emit_return_zero(cb); break; }     // no register available
                 emit_movabs_rax(cb, 0x3FF0000000000000ULL);      // rax = 1.0 bits
-                emit_u8(cb, 0x66); emit_u8(cb, 0x48);
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x6E); emit_u8(cb, 0xC8);  // movq xmm1, rax
-                emit_sse_arith_rr(cb, op, 0, 1);                 // addsd/subsd xmm0, xmm1
-                emit_movsd_store(cb, 0, slot_disp(d));           // slot[d] = xmm0
+                emit_movq_xmm_rax(cb, XMM_SCRATCH);              // scratch = 1.0
+                uint8_t arith_op = (op == OP_INC) ? 0x58 : 0x5C; // addsd / subsd
+                emit_sse_arith_rr(cb, arith_op, xd, XMM_SCRATCH);  // xd op= 1.0
+                xmm_cache_put(&cache, xd, d);                    // mark dirty
                 break;
             }
-
+            case OP_CMP_EQ:
+            case OP_CMP_EQ_NUM: {                                // d = (a == b)
+                int xa = xmm_cache_load(&cache, cb, a);          // load a
+                if (xa < 0) { emit_return_zero(cb); break; }     // no register available
+                int xb = xmm_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
+                if (xb < 0) { emit_return_zero(cb); break; }     // no register available
+                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
+                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x94); emit_u8(cb, 0xC0);  // sete al
+                emit_u8(cb, 0x0F); emit_u8(cb, 0xB6); emit_u8(cb, 0xC0);  // movzbl eax, al
+                emit_u8(cb, 0xF2); emit_u8(cb, 0x0F); emit_u8(cb, 0x2A);
+                emit_u8(cb, 0xC0 | (XMM_SCRATCH << 3));          // cvtsi2sd scratch, eax
+                int xd = xmm_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
+                if (xd < 0) { emit_return_zero(cb); break; }     // no register available
+                emit_sse66_rr(cb, 0x28, xd, XMM_SCRATCH);        // movapd d, scratch
+                xmm_cache_put(&cache, xd, d);                    // cache dest
+                break;
+            }
+            case OP_CMP_NEQ:
+            case OP_CMP_NEQ_NUM: {                               // d = (a != b)
+                int xa = xmm_cache_load(&cache, cb, a);          // load a
+                if (xa < 0) { emit_return_zero(cb); break; }     // no register available
+                int xb = xmm_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
+                if (xb < 0) { emit_return_zero(cb); break; }     // no register available
+                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
+                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x95); emit_u8(cb, 0xC0);  // setne al
+                emit_u8(cb, 0x0F); emit_u8(cb, 0xB6); emit_u8(cb, 0xC0);  // movzbl eax, al
+                emit_u8(cb, 0xF2); emit_u8(cb, 0x0F); emit_u8(cb, 0x2A);
+                emit_u8(cb, 0xC0 | (XMM_SCRATCH << 3));          // cvtsi2sd scratch, eax
+                int xd = xmm_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
+                if (xd < 0) { emit_return_zero(cb); break; }     // no register available
+                emit_sse66_rr(cb, 0x28, xd, XMM_SCRATCH);        // movapd d, scratch
+                xmm_cache_put(&cache, xd, d);                    // cache dest
+                break;
+            }
+            case OP_CMP_LT: {                                    // d = (a < b)
+                int xa = xmm_cache_load(&cache, cb, a);          // load a
+                if (xa < 0) { emit_return_zero(cb); break; }     // no register available
+                int xb = xmm_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
+                if (xb < 0) { emit_return_zero(cb); break; }     // no register available
+                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
+                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x92); emit_u8(cb, 0xC0);  // setb al
+                emit_u8(cb, 0x0F); emit_u8(cb, 0xB6); emit_u8(cb, 0xC0);  // movzbl eax, al
+                emit_u8(cb, 0xF2); emit_u8(cb, 0x0F); emit_u8(cb, 0x2A);
+                emit_u8(cb, 0xC0 | (XMM_SCRATCH << 3));          // cvtsi2sd scratch, eax
+                int xd = xmm_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
+                if (xd < 0) { emit_return_zero(cb); break; }     // no register available
+                emit_sse66_rr(cb, 0x28, xd, XMM_SCRATCH);        // movapd d, scratch
+                xmm_cache_put(&cache, xd, d);                    // cache dest
+                break;
+            }
+            case OP_CMP_GT: {                                    // d = (a > b)
+                int xa = xmm_cache_load(&cache, cb, a);          // load a
+                if (xa < 0) { emit_return_zero(cb); break; }     // no register available
+                int xb = xmm_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
+                if (xb < 0) { emit_return_zero(cb); break; }     // no register available
+                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
+                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x97); emit_u8(cb, 0xC0);  // seta al
+                emit_u8(cb, 0x0F); emit_u8(cb, 0xB6); emit_u8(cb, 0xC0);  // movzbl eax, al
+                emit_u8(cb, 0xF2); emit_u8(cb, 0x0F); emit_u8(cb, 0x2A);
+                emit_u8(cb, 0xC0 | (XMM_SCRATCH << 3));          // cvtsi2sd scratch, eax
+                int xd = xmm_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
+                if (xd < 0) { emit_return_zero(cb); break; }     // no register available
+                emit_sse66_rr(cb, 0x28, xd, XMM_SCRATCH);        // movapd d, scratch
+                xmm_cache_put(&cache, xd, d);                    // cache dest
+                break;
+            }
+            case OP_CMP_LTE: {                                   // d = (a <= b)
+                int xa = xmm_cache_load(&cache, cb, a);          // load a
+                if (xa < 0) { emit_return_zero(cb); break; }     // no register available
+                int xb = xmm_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
+                if (xb < 0) { emit_return_zero(cb); break; }     // no register available
+                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
+                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x96); emit_u8(cb, 0xC0);  // setbe al
+                emit_u8(cb, 0x0F); emit_u8(cb, 0xB6); emit_u8(cb, 0xC0);  // movzbl eax, al
+                emit_u8(cb, 0xF2); emit_u8(cb, 0x0F); emit_u8(cb, 0x2A);
+                emit_u8(cb, 0xC0 | (XMM_SCRATCH << 3));          // cvtsi2sd scratch, eax
+                int xd = xmm_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
+                if (xd < 0) { emit_return_zero(cb); break; }     // no register available
+                emit_sse66_rr(cb, 0x28, xd, XMM_SCRATCH);        // movapd d, scratch
+                xmm_cache_put(&cache, xd, d);                    // cache dest
+                break;
+            }
+            case OP_CMP_GTE: {                                   // d = (a >= b)
+                int xa = xmm_cache_load(&cache, cb, a);          // load a
+                if (xa < 0) { emit_return_zero(cb); break; }     // no register available
+                int xb = xmm_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
+                if (xb < 0) { emit_return_zero(cb); break; }     // no register available
+                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
+                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x93); emit_u8(cb, 0xC0);  // setae al
+                emit_u8(cb, 0x0F); emit_u8(cb, 0xB6); emit_u8(cb, 0xC0);  // movzbl eax, al
+                emit_u8(cb, 0xF2); emit_u8(cb, 0x0F); emit_u8(cb, 0x2A);
+                emit_u8(cb, 0xC0 | (XMM_SCRATCH << 3));          // cvtsi2sd scratch, eax
+                int xd = xmm_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
+                if (xd < 0) { emit_return_zero(cb); break; }     // no register available
+                emit_sse66_rr(cb, 0x28, xd, XMM_SCRATCH);        // movapd d, scratch
+                xmm_cache_put(&cache, xd, d);                    // cache dest
+                break;
+            }
             case OP_JUMP: {                                      // unconditional jump
+                xmm_cache_flush(&cache, cb);                     // flush before branch
                 emit_u8(cb, 0xE9);                               // jmp rel32 opcode
                 fixups[fixup_count].patch_at  = cb->len;         // record placeholder
                 fixups[fixup_count].target_pc = d;               // remember target pc
                 fixup_count++;                                   // one more pending fixup
                 emit_i32(cb, 0);                                 // placeholder
+                did_flush = true;                                // suppress merge flush
                 break;
             }
-
             case OP_JUMP_IF_FALSE: {                             // branch when cond == 0
-                emit_movsd_load(cb, 0, slot_disp(a));            // xmm0 = slot[a]
-                emit_sse66_rr(cb, 0x57, 1, 1);                   // xorpd xmm1, xmm1
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E); emit_u8(cb, 0xC1);
+                int xa = xmm_cache_load(&cache, cb, a);          // load condition
+                if (xa < 0) { emit_return_zero(cb); break; }     // no register available
+                emit_sse66_rr(cb, 0x57, XMM_SCRATCH, XMM_SCRATCH);  // xorpd scratch, scratch
+                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
+                emit_u8(cb, 0xC0 | (xa << 3) | XMM_SCRATCH);     // ucomisd a, 0
+                xmm_cache_flush(&cache, cb);                     // flush before branch
                 emit_u8(cb, 0x0F); emit_u8(cb, 0x84);            // je rel32
                 fixups[fixup_count].patch_at  = cb->len;         // record placeholder
                 fixups[fixup_count].target_pc = d;               // remember target pc
                 fixup_count++;                                   // one more pending fixup
                 emit_i32(cb, 0);                                 // placeholder
+                did_flush = true;                                // suppress merge flush
                 break;
             }
-
             case OP_JUMP_IF_EQ:
             case OP_JUMP_IF_EQ_NUM: {                            // branch if a == b
-                emit_movsd_load(cb, 0, slot_disp(a));            // xmm0 = a
-                emit_movsd_load(cb, 1, slot_disp(b));            // xmm1 = b
-                size_t pa = emit_ucomisd_jcc(cb, 0x84);          // je
-                fixups[fixup_count].patch_at  = pa;              // record placeholder
+                int xa = xmm_cache_load(&cache, cb, a);          // load a
+                if (xa < 0) { emit_return_zero(cb); break; }     // no register available
+                int xb = xmm_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
+                if (xb < 0) { emit_return_zero(cb); break; }     // no register available
+                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
+                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                xmm_cache_flush(&cache, cb);                     // flush before branch
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x84);            // je rel32
+                fixups[fixup_count].patch_at  = cb->len;         // record placeholder
                 fixups[fixup_count].target_pc = d;               // remember target pc
                 fixup_count++;                                   // one more pending fixup
+                emit_i32(cb, 0);                                 // placeholder
+                did_flush = true;                                // suppress merge flush
                 break;
             }
             case OP_JUMP_IF_NEQ:
             case OP_JUMP_IF_NEQ_NUM: {                           // branch if a != b
-                emit_movsd_load(cb, 0, slot_disp(a));            // xmm0 = a
-                emit_movsd_load(cb, 1, slot_disp(b));            // xmm1 = b
-                size_t pa = emit_ucomisd_jcc(cb, 0x85);          // jne
-                fixups[fixup_count].patch_at  = pa;              // record placeholder
+                int xa = xmm_cache_load(&cache, cb, a);          // load a
+                if (xa < 0) { emit_return_zero(cb); break; }     // no register available
+                int xb = xmm_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
+                if (xb < 0) { emit_return_zero(cb); break; }     // no register available
+                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
+                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                xmm_cache_flush(&cache, cb);                     // flush before branch
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x85);            // jne rel32
+                fixups[fixup_count].patch_at  = cb->len;         // record placeholder
                 fixups[fixup_count].target_pc = d;               // remember target pc
                 fixup_count++;                                   // one more pending fixup
+                emit_i32(cb, 0);                                 // placeholder
+                did_flush = true;                                // suppress merge flush
                 break;
             }
             case OP_JUMP_IF_LT: {                                // branch if a < b
-                emit_movsd_load(cb, 0, slot_disp(a));            // xmm0 = a
-                emit_movsd_load(cb, 1, slot_disp(b));            // xmm1 = b
-                size_t pa = emit_ucomisd_jcc(cb, 0x82);          // jb
-                fixups[fixup_count].patch_at  = pa;              // record placeholder
+                int xa = xmm_cache_load(&cache, cb, a);          // load a
+                if (xa < 0) { emit_return_zero(cb); break; }     // no register available
+                int xb = xmm_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
+                if (xb < 0) { emit_return_zero(cb); break; }     // no register available
+                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
+                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                xmm_cache_flush(&cache, cb);                     // flush before branch
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x82);            // jb rel32
+                fixups[fixup_count].patch_at  = cb->len;         // record placeholder
                 fixups[fixup_count].target_pc = d;               // remember target pc
                 fixup_count++;                                   // one more pending fixup
+                emit_i32(cb, 0);                                 // placeholder
+                did_flush = true;                                // suppress merge flush
                 break;
             }
             case OP_JUMP_IF_GT: {                                // branch if a > b
-                emit_movsd_load(cb, 0, slot_disp(a));            // xmm0 = a
-                emit_movsd_load(cb, 1, slot_disp(b));            // xmm1 = b
-                size_t pa = emit_ucomisd_jcc(cb, 0x87);          // ja
-                fixups[fixup_count].patch_at  = pa;              // record placeholder
+                int xa = xmm_cache_load(&cache, cb, a);          // load a
+                if (xa < 0) { emit_return_zero(cb); break; }     // no register available
+                int xb = xmm_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
+                if (xb < 0) { emit_return_zero(cb); break; }     // no register available
+                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
+                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                xmm_cache_flush(&cache, cb);                     // flush before branch
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x87);            // ja rel32
+                fixups[fixup_count].patch_at  = cb->len;         // record placeholder
                 fixups[fixup_count].target_pc = d;               // remember target pc
                 fixup_count++;                                   // one more pending fixup
+                emit_i32(cb, 0);                                 // placeholder
+                did_flush = true;                                // suppress merge flush
                 break;
             }
             case OP_JUMP_IF_LTE: {                               // branch if a <= b
-                emit_movsd_load(cb, 0, slot_disp(a));            // xmm0 = a
-                emit_movsd_load(cb, 1, slot_disp(b));            // xmm1 = b
-                size_t pa = emit_ucomisd_jcc(cb, 0x86);          // jbe
-                fixups[fixup_count].patch_at  = pa;              // record placeholder
+                int xa = xmm_cache_load(&cache, cb, a);          // load a
+                if (xa < 0) { emit_return_zero(cb); break; }     // no register available
+                int xb = xmm_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
+                if (xb < 0) { emit_return_zero(cb); break; }     // no register available
+                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
+                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                xmm_cache_flush(&cache, cb);                     // flush before branch
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x86);            // jbe rel32
+                fixups[fixup_count].patch_at  = cb->len;         // record placeholder
                 fixups[fixup_count].target_pc = d;               // remember target pc
                 fixup_count++;                                   // one more pending fixup
+                emit_i32(cb, 0);                                 // placeholder
+                did_flush = true;                                // suppress merge flush
                 break;
             }
             case OP_JUMP_IF_GTE: {                               // branch if a >= b
-                emit_movsd_load(cb, 0, slot_disp(a));            // xmm0 = a
-                emit_movsd_load(cb, 1, slot_disp(b));            // xmm1 = b
-                size_t pa = emit_ucomisd_jcc(cb, 0x83);          // jae
-                fixups[fixup_count].patch_at  = pa;              // record placeholder
+                int xa = xmm_cache_load(&cache, cb, a);          // load a
+                if (xa < 0) { emit_return_zero(cb); break; }     // no register available
+                int xb = xmm_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
+                if (xb < 0) { emit_return_zero(cb); break; }     // no register available
+                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
+                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                xmm_cache_flush(&cache, cb);                     // flush before branch
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x83);            // jae rel32
+                fixups[fixup_count].patch_at  = cb->len;         // record placeholder
                 fixups[fixup_count].target_pc = d;               // remember target pc
                 fixup_count++;                                   // one more pending fixup
+                emit_i32(cb, 0);                                 // placeholder
+                did_flush = true;                                // suppress merge flush
                 break;
             }
-
-            case OP_CMP_EQ:
-            case OP_CMP_EQ_NUM: {                                // d = (a == b)
-                emit_movsd_load(cb, 0, slot_disp(a));            // xmm0 = a
-                emit_movsd_load(cb, 1, slot_disp(b));            // xmm1 = b
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E); emit_u8(cb, 0xC1);
-                emit_setcc_to_slot(cb, 0x94, d);                 // sete
-                break;
-            }
-            case OP_CMP_NEQ:
-            case OP_CMP_NEQ_NUM: {                               // d = (a != b)
-                emit_movsd_load(cb, 0, slot_disp(a));            // xmm0 = a
-                emit_movsd_load(cb, 1, slot_disp(b));            // xmm1 = b
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E); emit_u8(cb, 0xC1);
-                emit_setcc_to_slot(cb, 0x95, d);                 // setne
-                break;
-            }
-            case OP_CMP_LT: {                                    // d = (a < b)
-                emit_movsd_load(cb, 0, slot_disp(a));            // xmm0 = a
-                emit_movsd_load(cb, 1, slot_disp(b));            // xmm1 = b
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E); emit_u8(cb, 0xC1);
-                emit_setcc_to_slot(cb, 0x92, d);                 // setb
-                break;
-            }
-            case OP_CMP_GT: {                                    // d = (a > b)
-                emit_movsd_load(cb, 0, slot_disp(a));            // xmm0 = a
-                emit_movsd_load(cb, 1, slot_disp(b));            // xmm1 = b
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E); emit_u8(cb, 0xC1);
-                emit_setcc_to_slot(cb, 0x97, d);                 // seta
-                break;
-            }
-            case OP_CMP_LTE: {                                   // d = (a <= b)
-                emit_movsd_load(cb, 0, slot_disp(a));            // xmm0 = a
-                emit_movsd_load(cb, 1, slot_disp(b));            // xmm1 = b
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E); emit_u8(cb, 0xC1);
-                emit_setcc_to_slot(cb, 0x96, d);                 // setbe
-                break;
-            }
-            case OP_CMP_GTE: {                                   // d = (a >= b)
-                emit_movsd_load(cb, 0, slot_disp(a));            // xmm0 = a
-                emit_movsd_load(cb, 1, slot_disp(b));            // xmm1 = b
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E); emit_u8(cb, 0xC1);
-                emit_setcc_to_slot(cb, 0x93, d);                 // setae
-                break;
-            }
-
             case OP_CALL_0: {                                    // call with no args
+                xmm_cache_flush(&cache, cb);                     // spill before call
                 emit_call_func(cb, ctx, a);                      // result in xmm0
-                emit_movsd_store(cb, 0, slot_disp(d));           // slot[d] = xmm0
+                xmm_cache_put(&cache, 0, d);                     // xmm0 = result
                 break;
             }
             case OP_CALL_1: {                                    // call with one arg
-                emit_movsd_load(cb, 0, slot_disp(b));            // xmm0 = slot[b]
+                xmm_cache_flush(&cache, cb);                     // spill before call
+                emit_movsd_load(cb, 0, slot_disp(b));            // arg in xmm0
                 emit_call_func(cb, ctx, a);                      // result in xmm0
-                emit_movsd_store(cb, 0, slot_disp(d));           // slot[d] = xmm0
+                xmm_cache_put(&cache, 0, d);                     // xmm0 = result
                 break;
             }
             case OP_CALL_2: {                                    // call with two args
-                emit_movsd_load(cb, 0, slot_disp(b));            // xmm0 = slot[b]
-                emit_movsd_load(cb, 1, slot_disp(b + 1));        // xmm1 = slot[b+1]
+                xmm_cache_flush(&cache, cb);                     // spill before call
+                emit_movsd_load(cb, 0, slot_disp(b));            // arg0 in xmm0
+                emit_movsd_load(cb, 1, slot_disp(b + 1));        // arg1 in xmm1
                 emit_call_func(cb, ctx, a);                      // result in xmm0
-                emit_movsd_store(cb, 0, slot_disp(d));           // slot[d] = xmm0
+                xmm_cache_put(&cache, 0, d);                     // xmm0 = result
                 break;
             }
-
             case OP_RETURN:                                      // return slot value
-            case OP_RETURN_NUM:
-                emit_return_slot(cb, d);                         // emit epilogue
+            case OP_RETURN_NUM: {
+                int xa = xmm_cache_load(&cache, cb, d);          // load return value
+                if (xa < 0) xa = 0;                              // fall back to xmm0
+                if (xa != 0) emit_sse66_rr(cb, 0x28, 0, xa);     // movapd xmm0, xa
+                emit_u8(cb, 0xC9);                               // leave
+                emit_u8(cb, 0xC3);                               // ret
+                xmm_cache_clear(&cache);                         // clear state on exit
+                did_flush = true;                                // suppress merge flush
                 break;
-
+            }
             default:                                             // unreachable in pure fn
                 emit_return_zero(cb);                            // safe fallback
                 break;
+        }
+
+        // flush if the next instruction is a jump target — the incoming cache state at a merge point must be consistent
+        if (!did_flush && pc + 1 < end && is_target[pc + 1 - start]) {
+            xmm_cache_flush(&cache, cb);
         }
     }
 
@@ -571,13 +785,14 @@ static bool emit_function(JITContext* ctx, CodeBuf* cb, int func_idx) {
         JumpFixup* fx = &fixups[i];
         int tidx = fx->target_pc - start;                        // index within range
         if (tidx < 0 || tidx >= range_size || label_off[tidx] < 0) {
-            free(label_off); free(fixups);                       // free analysis arrays
+            free(is_target); free(label_off); free(fixups);      // free analysis arrays
             return false;                                        // invalid target
         }
         int32_t rel = (int32_t)label_off[tidx] - (int32_t)(fx->patch_at + 4);  // rel32 distance
         memcpy(cb->buf + fx->patch_at, &rel, 4);                 // write rel32
     }
 
+    free(is_target);                                             // release target marks
     free(label_off);                                             // release label array
     free(fixups);                                                // release fixup array
     return true;                                                 // emission successful
@@ -618,7 +833,7 @@ JITContext* jit_create(BytecodeChunk* chunk) {
     for (int i = 0; i < n; i++) if (ctx->pure[i]) pure_count++;  // tally pure fns
     if (pure_count == 0) { jit_destroy(ctx); return NULL; }      // nothing to emit
 
-    size_t cap = (size_t)chunk->code_count * 128 + 16384;        // generous RW buffer
+    size_t cap = (size_t)chunk->code_count * 200 + 16384;        // generous RW buffer
     ctx->code = (uint8_t*)mmap(NULL, cap, PROT_READ | PROT_WRITE,
                                MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);  // anonymous page
     if (ctx->code == MAP_FAILED) {                               // mmap failed
