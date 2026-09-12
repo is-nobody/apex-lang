@@ -18,6 +18,7 @@
 #include "regex_module.h"
 #include "crypto_module.h"
 #include "zip_module.h"
+#include "network_module.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1039,6 +1040,7 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
     if (strncmp(name, "regex.", 6) == 0) return regex_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "crypto.", 7) == 0) return crypto_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "zip.", 4) == 0) return zip_call_builtin(vm, name, arg_count, args, result);
+    if (strncmp(name, "network.", 8) == 0) return network_call_builtin(vm, name, arg_count, args, result);
 
     if (strcmp(name, "number") == 0) {           // builtin: number(value) -> number
         if (arg_count >= 1) {

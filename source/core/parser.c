@@ -303,6 +303,8 @@ static const BuiltinSig BUILTINS[] = {
 
     {"zip.pack", 1, 1, TYPE_STRING}, {"zip.unpack", 1, 1, TYPE_STRING},
 
+    {"network.get", 1, 1, TYPE_STRING}, {"network.post", 1, 3, TYPE_STRING},
+
     {"number", 1, 1, TYPE_ANY}, {"string", 1, 1, TYPE_ANY}, {"type", 1, 1, TYPE_ANY}
 };
 
@@ -592,12 +594,12 @@ static bool is_known_builtin_module(const char* name) {
             return strcmp(name, "json") == 0;      // json module
         case 'x':
             return strcmp(name, "xml") == 0;       // xml module
-        case 'h':
-            return strcmp(name, "hex") == 0;       // hex module
         case 'b':
             return strcmp(name, "base") == 0;      // base module
         case 'z':
             return strcmp(name, "zip") == 0;       // zip module
+        case 'n':
+            return strcmp(name, "network") == 0;   // network module
         default:
             return false;                          // no builtin module matches
     }

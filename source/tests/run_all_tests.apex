@@ -62,3 +62,6 @@ os.execute("apex source/tests/libraries/table.apex")
 os.execute("apex source/tests/libraries/string.apex")
 os.execute("apex source/tests/libraries/regex.apex")
 os.execute("apex source/tests/libraries/crypto.apex")
+
+// network is optional (takes too long)
+// os.execute("apex source/tests/libraries/network.apex")

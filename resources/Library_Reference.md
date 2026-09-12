@@ -2140,3 +2140,49 @@ if result == none
 else
     os.output("Extracted successfully")
 ```
+
+# Network Library (network)
+The Network library provides HTTP client functions for making web requests. It supports HTTP GET and POST methods. Import it with `import network`.
+
+**Note:** This library only supports plain HTTP (not HTTPS). URLs must start with `http://`. Connections use TCP and responses are capped at 16 MB to prevent runaway memory allocation.
+
+### network.get(url)
+Performs an HTTP GET request to the specified URL. Returns a table with the response, or `none` on failure (invalid URL, DNS failure, connection failure, send/receive error, or oversized response).
+
+The returned table contains:
+- `status` — The HTTP status code as a number (e.g., 200, 404, 500)
+- `body` — The response body as a string
+
+```apex
+import os
+import network
+
+response = network.get("http://httpforever.com/")
+
+if response == none
+    os.output("Request failed")
+else
+    os.output("Status: {response['status']}")
+    os.output("Body: {response['body']}")
+```
+
+### network.post(url, body, content_type)
+Performs an HTTP POST request to the specified URL. The `body` and `content_type` arguments are optional. If `body` is provided without a `content_type`, the default is `"application/x-www-form-urlencoded"`. Returns a table with the response, or `none` on failure.
+
+The returned table contains the same keys as `http_get`:
+- `status` — The HTTP status code as a number
+- `body` — The response body as a string
+
+```apex
+import os
+import network
+
+data = '\{"name": "Alice", "age": 30\}'
+response = network.post("http://httpforever.com/", data, "application/json")
+
+if response == none
+    os.output("Request failed")
+else
+    os.output("Status: {response['status']}")
+    os.output("Response: {response['body']}")
+```

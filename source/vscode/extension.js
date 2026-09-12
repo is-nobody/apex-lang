@@ -17,11 +17,11 @@ const libDocs = {
     'json': 'JSON encoding/decoding library.',
     'xml': 'XML encoding/decoding library.',
     'csv': 'CSV encoding/decoding library.',
-    'hex': 'HEX encoding/decoding library.',
     'base': 'Base encoding/decoding library.',
     'regex': 'Regular expressions library.',
     'crypto': 'Cryptography library.',
-    'zip': 'ZIP archive compression/decompression library.'
+    'zip': 'ZIP archive compression/decompression library.',
+    'network': 'Network library.'
 };
 
 // extension activation entry point
@@ -208,6 +208,8 @@ function activate(context) {
                 'crypto.random_integer', 'crypto.random_float',
 
                 'zip.pack',              'zip.unpack',
+
+                'network.get',      'network.post',
 
                 'number', 'string', 'type'
             ];
