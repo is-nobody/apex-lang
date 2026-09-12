@@ -10,7 +10,6 @@
 
 **What's NOT on the roadmap**
 - GC due to uncontrolled pauses
-- JIT because the main CPU work is on the stdlib written in C
 - OOP because hidden state makes behavior unpredictable
 - Decorators because they add hidden behavior
 - Default parameters because functions must accept exactly the number of arguments they declare

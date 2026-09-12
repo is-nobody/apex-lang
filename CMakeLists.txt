@@ -11,7 +11,31 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
 
-# all source files grouped by module
+# enables the numeric-pure jit
+option(APEX_JIT_ENABLED "Enable the JIT compiler" ON)
+
+# detects host architecture in a portable way
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
+    set(APEX_HOST_ARCH "x86_64")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
+    set(APEX_HOST_ARCH "aarch64")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "i[3-6]86|x86")
+    set(APEX_HOST_ARCH "x86")
+else()
+    set(APEX_HOST_ARCH "${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+
+# checks if the jit backend is supported
+if(APEX_JIT_ENABLED)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND APEX_HOST_ARCH STREQUAL "x86_64")
+        set(APEX_JIT_AVAILABLE TRUE)
+    else()
+        set(APEX_JIT_AVAILABLE FALSE)
+    endif()
+else()
+    set(APEX_JIT_AVAILABLE FALSE)
+endif()
+
 set(SOURCES
     main.c
     source/core/tokenizer.c
@@ -49,6 +73,10 @@ set(SOURCES
     source/utils/apex_api.c
 )
 
+if(APEX_JIT_AVAILABLE)
+    list(APPEND SOURCES source/jit/jit.c)
+endif()
+
 add_executable(apex ${SOURCES})
 
 # header search paths for include from any directory
@@ -57,7 +85,13 @@ target_include_directories(apex PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/source/core
     ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries
     ${CMAKE_CURRENT_SOURCE_DIR}/source/utils
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/jit
 )
+
+# propagates the JIT toggle into C preprocessor
+if(APEX_JIT_AVAILABLE)
+    target_compile_definitions(apex PRIVATE APEX_JIT_ENABLED=1)
+endif()
 
 # baseline warnings and posix compatibility
 set(BASE_FLAGS 

@@ -170,6 +170,10 @@ typedef struct {
     int used;            // highest register index ever written
 } RegisterFrame;
 
+#if APEX_JIT_ENABLED
+struct JITContext;   // forward declaration, only when JIT is compiled in
+#endif
+
 // main virtual machine state with registers, call stack, and execution context
 typedef struct {
     Value* register_pool;            // single contiguous array for all frame registers
@@ -218,6 +222,10 @@ typedef struct {
     ObjectPool obj_pool;            // object recycling pool for performance
 
     const char* source;             // source code string for error reporting
+
+#if APEX_JIT_ENABLED
+    struct JITContext* jit;         // native JIT, NULL if unavailable / disabled
+#endif
 
     Value args_table;               // table of command line arguments (1-indexed)
 } VM;

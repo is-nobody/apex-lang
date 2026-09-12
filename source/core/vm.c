@@ -4,6 +4,9 @@
 // MIT license
 
 #include "vm.h"
+#if APEX_JIT_ENABLED
+#include "jit.h"
+#endif
 #include "os_module.h"
 #include "sys_module.h"
 #include "math_module.h"
@@ -1021,6 +1024,9 @@ void vm_destroy(VM* vm) {
     }
     
     string_intern_table_free(&vm->intern_table);  // free interned strings
+#if APEX_JIT_ENABLED
+    jit_destroy(vm->jit);                     // release JIT and its code page
+#endif
     free(vm);                                     // free vm struct
 }
 
@@ -1107,7 +1113,10 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     vm->running = true;                                   // mark vm as running
     vm->had_error = false;                                // reset error flag
     vm->global_count = chunk->global_count;               // number of globals to initialise
-    
+#if APEX_JIT_ENABLED
+    vm->jit = jit_create(chunk);                          // compile numeric-pure functions
+#endif
+
     int needed_regs = chunk->functions[0].max_registers;  // registers needed by main function
     if (needed_regs < REGISTER_INITIAL_SIZE) {
         needed_regs = REGISTER_INITIAL_SIZE;              // enforce minimum frame size
@@ -2073,6 +2082,16 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
         int func_idx = ip->operands[1];              // function index
         int dest_reg = ip->operands[0];              // dest register for return value
+#if APEX_JIT_ENABLED
+        if (vm->jit && jit_has_native(vm->jit, func_idx)) {
+            double r = jit_call_0(vm->jit, func_idx);
+            value_decref(regs[dest_reg]);
+            regs[dest_reg] = jit_returns_bool(vm->jit, func_idx)
+                        ? MAKE_BOOL(r != 0.0)
+                        : MAKE_NUMBER(r);
+            ip++; goto *dispatch_table[ip->opcode];
+        }
+#endif
         vm->call_stack[vm->call_depth].return_address = (int)((ip + 1) - vm->code);  // save return address
         vm->call_stack[vm->call_depth].dest_reg = dest_reg;                          // save dest register
         vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save current frame index
@@ -2107,6 +2126,19 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int func_idx = ip->operands[1];              // function index
         int dest_reg = ip->operands[0];              // dest register for return value
         int arg_reg = ip->operands[2];               // register holding the single argument
+#if APEX_JIT_ENABLED
+        if (vm->jit && jit_has_native(vm->jit, func_idx)) {
+            Value av = regs[arg_reg];
+            if (IS_NUMBER(av)) {
+                double r = jit_call_1(vm->jit, func_idx, AS_NUMBER(av));
+                value_decref(regs[dest_reg]);
+                regs[dest_reg] = jit_returns_bool(vm->jit, func_idx)
+                            ? MAKE_BOOL(r != 0.0)
+                            : MAKE_NUMBER(r);
+                ip++; goto *dispatch_table[ip->opcode];
+            }
+        }
+#endif
         vm->call_stack[vm->call_depth].return_address = (int)((ip + 1) - vm->code);  // save return address
         vm->call_stack[vm->call_depth].dest_reg = dest_reg;                          // save dest register
         vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save current frame index
@@ -2145,6 +2177,20 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int dest_reg = ip->operands[0];              // dest register for return value
         int arg1_reg = ip->operands[2];              // register holding first argument
         int arg2_reg = arg1_reg + 1;                 // second argument is in the next register
+#if APEX_JIT_ENABLED
+        if (vm->jit && jit_has_native(vm->jit, func_idx)) {
+            Value a1 = regs[arg1_reg], a2 = regs[arg2_reg];
+            if (IS_NUMBER(a1) && IS_NUMBER(a2)) {
+                double r = jit_call_2(vm->jit, func_idx,
+                                    AS_NUMBER(a1), AS_NUMBER(a2));
+                value_decref(regs[dest_reg]);
+                regs[dest_reg] = jit_returns_bool(vm->jit, func_idx)
+                            ? MAKE_BOOL(r != 0.0)
+                            : MAKE_NUMBER(r);
+                ip++; goto *dispatch_table[ip->opcode];
+            }
+        }
+#endif
         vm->call_stack[vm->call_depth].return_address = (int)((ip + 1) - vm->code);  // save return address
         vm->call_stack[vm->call_depth].dest_reg = dest_reg;                          // save dest register
         vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save current frame index
