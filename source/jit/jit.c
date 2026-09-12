@@ -1,12 +1,10 @@
 // source/jit/jit.c
-// Self-contained x86-64 JIT for Apex numeric-pure functions.
-// Emits machine code directly into an mmap'd RWX buffer.
-// Uses a register cache: xmm0..xmm6 hold the hottest slots during a
-// basic block, avoiding load/store for every arithmetic operand.
+// Self-contained x86-64 JIT for Apex numeric-pure functions
 // https://github.com/is-nobody/apex-lang
 // MIT license
 
 #include "jit.h"
+#include "vm.h"
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
@@ -41,6 +39,22 @@ typedef struct {
     bool slot_dirty[JIT_MAX_SLOTS]; // slot written but not yet spilled
 } XmmCache;
 
+// one numeric loop detected inside a function
+typedef struct {
+    int  entry_pc;      // first bytecode of the loop body
+    int  back_edge_pc;  // JUMP returning to entry_pc
+    int  exit_pc;       // bytecode reached when the loop exits
+    bool is_for_next;   // true if the entry opcode is FOR_NEXT
+    int  for_end_reg;   // FOR_NEXT: register holding the end bound
+    int  for_step_reg;  // FOR_NEXT: register holding the step
+    int  nregs;         // function frame size (max_registers)
+
+    uint64_t live_in;   // bitmask of slots read inside the loop
+    uint64_t live_out;  // bitmask of slots written inside the loop
+
+    void (*native_fn)(uint64_t*);  // compiled entry, NULL if emit failed
+} JitLoopInfo;
+
 // per-chunk JIT state
 struct JITContext {
     BytecodeChunk* chunk;  // bytecode being compiled
@@ -57,6 +71,11 @@ struct JITContext {
     size_t   code_size;    // size of that buffer
 
     int compiled_count;    // number of functions successfully emitted
+
+    JitLoopInfo* loops;        // dynamic array of native loops
+    int          loop_count;   // number of live entries
+    int          loop_capacity;// allocated capacity
+    int*         pc_to_loop;   // code_count entries: -1 or index into loops[]
 };
 
 // appends one byte to the code buffer
@@ -85,6 +104,20 @@ static inline void emit_movsd_load(CodeBuf* b, int xmm, int32_t disp) {
 static inline void emit_movsd_store(CodeBuf* b, int xmm, int32_t disp) {
     emit_u8(b, 0xF2); emit_u8(b, 0x0F); emit_u8(b, 0x11);  // movsd store opcode
     emit_u8(b, 0x85 | (xmm << 3));                         // modrm with rbp base
+    emit_i32(b, disp);                                     // displacement
+}
+
+// emits movsd xmm<N>, [rdi+disp32] — load from the VM register frame
+static inline void emit_movsd_load_rdi(CodeBuf* b, int xmm, int32_t disp) {
+    emit_u8(b, 0xF2); emit_u8(b, 0x0F); emit_u8(b, 0x10);  // movsd opcode
+    emit_u8(b, 0x87 | (xmm << 3));                         // modrm with rdi base
+    emit_i32(b, disp);                                     // displacement
+}
+
+// emits movsd [rdi+disp32], xmm<N> — store into the VM register frame
+static inline void emit_movsd_store_rdi(CodeBuf* b, int xmm, int32_t disp) {
+    emit_u8(b, 0xF2); emit_u8(b, 0x0F); emit_u8(b, 0x11);  // movsd store opcode
+    emit_u8(b, 0x87 | (xmm << 3));                         // modrm with rdi base
     emit_i32(b, disp);                                     // displacement
 }
 
@@ -128,6 +161,18 @@ static void xmm_cache_clear(XmmCache* c) {
         c->slot_reg[i] = -1;
         c->slot_dirty[i] = false;
     }
+}
+
+// checks two cache states for structural equality
+static bool xmm_cache_eq(const XmmCache* a, const XmmCache* b) {
+    for (int i = 0; i < XMM_CACHE_REGS; i++) {
+        if (a->reg_slot[i] != b->reg_slot[i]) return false;
+    }
+    for (int i = 0; i < JIT_MAX_SLOTS; i++) {
+        if (a->slot_reg[i] != b->slot_reg[i]) return false;
+        if (a->slot_dirty[i] != b->slot_dirty[i]) return false;
+    }
+    return true;
 }
 
 // finds or evicts an xmm register, avoiding two registers that are live
@@ -208,6 +253,34 @@ static void compute_function_range(BytecodeChunk* chunk, int func_idx,
         *end = chunk->functions[func_idx + 1].address;
     else
         *end = chunk->code_count;                                // last fn: to end of code
+}
+
+// checks whether an instruction is allowed inside a native loop body
+static bool is_pure_loop_instr(BytecodeChunk* chunk, int pc) {
+    Instruction* inst = &chunk->code[pc];
+    switch (inst->opcode) {
+        case OP_MOVE:
+        case OP_LOAD_NUM_IMM:
+        case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
+        case OP_NEG: case OP_INC: case OP_DEC:
+        case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
+        case OP_CMP_EQ:     case OP_CMP_NEQ:
+        case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
+        case OP_JUMP:
+        case OP_JUMP_IF_EQ:     case OP_JUMP_IF_NEQ:
+        case OP_JUMP_IF_EQ_NUM: case OP_JUMP_IF_NEQ_NUM:
+        case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:
+        case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:
+        case OP_FOR_NEXT:
+            return true;
+        case OP_LOAD_NUM: {
+            int idx = inst->operands[1];
+            return idx >= 0 && idx < chunk->const_count &&
+                   chunk->constants[idx].type == CONST_NUMBER;
+        }
+        default:
+            return false;
+    }
 }
 
 // checks if a function contains only numeric ops and in-range jumps
@@ -371,6 +444,160 @@ static bool infer_returns_bool(BytecodeChunk* chunk, int start, int end) {
     return any_bool && !any_num;                                 // all returns are bool
 }
 
+// checks if an opcode can start a native loop
+static bool is_loop_entry_op(Opcode op) {
+    return op == OP_FOR_NEXT ||
+           (op >= OP_JUMP_IF_EQ && op <= OP_JUMP_IF_GTE);
+}
+
+// returns the jcc opcode that exits the loop when the entry condition is met
+static uint8_t jcc_for_entry_op(Opcode op) {
+    switch (op) {
+        case OP_JUMP_IF_EQ:     case OP_JUMP_IF_EQ_NUM:  return 0x84;  // je
+        case OP_JUMP_IF_NEQ:    case OP_JUMP_IF_NEQ_NUM: return 0x85;  // jne
+        case OP_JUMP_IF_LT:  return 0x82;  // jb
+        case OP_JUMP_IF_GT:  return 0x87;  // ja
+        case OP_JUMP_IF_LTE: return 0x86;  // jbe
+        case OP_JUMP_IF_GTE: return 0x83;  // jae
+        default:             return 0x84;
+    }
+}
+
+// walks the loop body, marks read and written slots
+static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
+    BytecodeChunk* chunk = ctx->chunk;
+    uint64_t reads = 0, writes = 0;
+    for (int pc = info->entry_pc; pc <= info->back_edge_pc; pc++) {
+        Instruction* inst = &chunk->code[pc];
+        int d = inst->operands[0];
+        int a = inst->operands[1];
+        int b = inst->operands[2];
+        switch (inst->opcode) {
+            case OP_MOVE: case OP_NEG:
+                if (a >= 0 && a < 64) reads  |= 1ULL << a;
+                if (d >= 0 && d < 64) writes |= 1ULL << d;
+                break;
+            case OP_INC: case OP_DEC:
+                if (d >= 0 && d < 64) reads |= writes |= 1ULL << d;
+                break;
+            case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
+            case OP_CMP_EQ: case OP_CMP_NEQ:
+            case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
+            case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
+                if (a >= 0 && a < 64) reads  |= 1ULL << a;
+                if (b >= 0 && b < 64) reads  |= 1ULL << b;
+                if (d >= 0 && d < 64) writes |= 1ULL << d;
+                break;
+            case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:
+                if (d >= 0 && d < 64) writes |= 1ULL << d;
+                break;
+            case OP_JUMP_IF_EQ: case OP_JUMP_IF_NEQ:
+            case OP_JUMP_IF_EQ_NUM: case OP_JUMP_IF_NEQ_NUM:
+            case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:
+            case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:
+                if (a >= 0 && a < 64) reads |= 1ULL << a;
+                if (b >= 0 && b < 64) reads |= 1ULL << b;
+                break;
+            case OP_FOR_NEXT:
+                if (d >= 0 && d < 64) reads |= writes |= 1ULL << d;
+                if (info->for_end_reg  >= 0 && info->for_end_reg  < 64) reads |= 1ULL << info->for_end_reg;
+                if (info->for_step_reg >= 0 && info->for_step_reg < 64) reads |= 1ULL << info->for_step_reg;
+                break;
+            case OP_JUMP:
+                break;
+            default: break;
+        }
+    }
+    info->live_in  = reads;
+    info->live_out = writes;
+}
+
+// registers a loop, running the slot analysis
+static void add_loop(JITContext* ctx, int entry, int back_edge, int exit_pc,
+                     bool is_for_next, int for_end_reg, int for_step_reg,
+                     int nregs) {
+    if (ctx->loop_count >= ctx->loop_capacity) {
+        int new_cap = ctx->loop_capacity == 0 ? 8 : ctx->loop_capacity * 2;
+        JitLoopInfo* new_arr = (JitLoopInfo*)realloc(ctx->loops, sizeof(JitLoopInfo) * new_cap);
+        if (!new_arr) return;
+        ctx->loops = new_arr;
+        ctx->loop_capacity = new_cap;
+    }
+    JitLoopInfo* info = &ctx->loops[ctx->loop_count++];
+    memset(info, 0, sizeof(*info));
+    info->entry_pc = entry;
+    info->back_edge_pc = back_edge;
+    info->exit_pc = exit_pc;
+    info->is_for_next = is_for_next;
+    info->for_end_reg = for_end_reg;
+    info->for_step_reg = for_step_reg;
+    info->nregs = nregs;
+    analyze_loop_regs(ctx, info);
+}
+
+// scans one function for numeric loops
+static void detect_loops_in_function(JITContext* ctx, int func_idx) {
+    BytecodeChunk* chunk = ctx->chunk;
+    int start = ctx->range_start[func_idx];
+    int end   = ctx->range_end[func_idx];
+    int nregs = chunk->functions[func_idx].max_registers;
+    if (nregs < 1) nregs = 1;
+    if (nregs > JIT_MAX_SLOTS - 2) return;
+
+    for (int pc = start; pc < end; pc++) {                       // scan for back edges
+        if (chunk->code[pc].opcode != OP_JUMP) continue;         // only plain JUMP
+        int entry = chunk->code[pc].operands[0];                 // target pc
+        if (entry >= pc || entry < start) continue;              // must be backward and in-range
+        if (!is_loop_entry_op(chunk->code[entry].opcode)) continue;  // valid entry opcode
+
+        Opcode entry_op = chunk->code[entry].opcode;
+        int exit_pc;
+        int for_end_reg = -1, for_step_reg = -1;
+        if (entry_op == OP_FOR_NEXT) {
+            if (chunk->code[entry].operands[2] != 0) continue;   // non-numeric for — reject
+            exit_pc = chunk->code[entry].operands[1];
+        } else {
+            exit_pc = chunk->code[entry].operands[0];
+        }
+        if (exit_pc != pc + 1) continue;                         // exit must be right after back edge
+
+        bool ok = true;
+        for (int i = entry + 1; i < pc && ok; i++) {             // no other jumps in body
+            Opcode op = chunk->code[i].opcode;
+            if (op == OP_JUMP || op == OP_FOR_NEXT ||
+                (op >= OP_JUMP_IF_EQ && op <= OP_JUMP_IF_GTE)) {
+                ok = false;                                      // nested loop or internal branch
+            }
+        }
+        if (!ok) continue;
+
+        for (int i = entry; i <= pc && ok; i++) {                // every body instruction must be loop-pure
+            if (!is_pure_loop_instr(chunk, i)) ok = false;
+        }
+        if (!ok) continue;
+
+        if (entry_op == OP_FOR_NEXT) {                           // extra checks for FOR_NEXT
+            int fi = entry - 1;
+            if (fi < start) continue;
+            if (chunk->code[fi].opcode != OP_FOR_INIT) continue;
+            int var_reg  = chunk->code[fi].operands[0];
+            int end_reg  = chunk->code[fi].operands[1];
+            int step_reg = chunk->code[fi].operands[2];
+            if (chunk->code[entry].operands[0] != var_reg) continue;
+            int p = fi - 1;                                      // step must be provably positive
+            if (p < start) continue;
+            if (chunk->code[p].opcode != OP_LOAD_NUM_IMM) continue;
+            if (chunk->code[p].operands[0] != step_reg) continue;
+            if (chunk->code[p].operands[1] <= 0) continue;
+            for_end_reg = end_reg;
+            for_step_reg = step_reg;
+        }
+
+        add_loop(ctx, entry, pc, exit_pc,
+                 entry_op == OP_FOR_NEXT, for_end_reg, for_step_reg, nregs);
+    }
+}
+
 // runs the full analysis: ranges, purity fixpoint, bool-return detection
 static void analyze(JITContext* ctx) {
     BytecodeChunk* chunk = ctx->chunk;
@@ -401,6 +628,11 @@ static void analyze(JITContext* ctx) {
                 }
             }
         }
+    }
+
+    for (int i = 1; i < n; i++) {                                // loop detection for non-pure fns
+        if (ctx->pure[i]) continue;                              // pure fns are fully compiled
+        detect_loops_in_function(ctx, i);
     }
 }
 
@@ -907,6 +1139,312 @@ static bool emit_function(JITContext* ctx, CodeBuf* cb, int func_idx) {
     return true;                                                 // emission successful
 }
 
+// emits a single non-jump body instruction inside a native loop using the register cache
+static void emit_loop_body_instr(JITContext* ctx, CodeBuf* cb, XmmCache* cache,
+                                  int pc, int const_slot) {
+    BytecodeChunk* chunk = ctx->chunk;
+    Instruction* inst = &chunk->code[pc];
+    int d = inst->operands[0];
+    int a = inst->operands[1];
+    int b = inst->operands[2];
+
+    switch (inst->opcode) {
+        case OP_MOVE: {
+            int xa = xmm_cache_load(cache, cb, a);
+            if (xa < 0) return;
+            xmm_cache_put(cache, xa, d);
+            break;
+        }
+        case OP_LOAD_NUM_IMM: {
+            int x = xmm_cache_alloc_excl(cache, cb, -1, -1);
+            if (x < 0) return;
+            double v = (double)a;
+            uint64_t bits; memcpy(&bits, &v, 8);
+            emit_movabs_rax(cb, bits);
+            emit_movq_xmm_rax(cb, x);
+            xmm_cache_put(cache, x, d);
+            break;
+        }
+        case OP_LOAD_NUM: {
+            int x = xmm_cache_alloc_excl(cache, cb, -1, -1);
+            if (x < 0) return;
+            double v = chunk->constants[a].number_value;
+            uint64_t bits; memcpy(&bits, &v, 8);
+            emit_movabs_rax(cb, bits);
+            emit_movq_xmm_rax(cb, x);
+            xmm_cache_put(cache, x, d);
+            break;
+        }
+        case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: {
+            int xa = xmm_cache_load(cache, cb, a);
+            if (xa < 0) return;
+            int xb = xmm_cache_load_excl(cache, cb, b, xa, -1);
+            if (xb < 0) return;
+            uint8_t arith_op;
+            switch (inst->opcode) {
+                case OP_ADD: arith_op = 0x58; break;
+                case OP_SUB: arith_op = 0x5C; break;
+                case OP_MUL: arith_op = 0x59; break;
+                default:     arith_op = 0x5E; break;
+            }
+            emit_sse_arith_rr(cb, arith_op, xa, xb);
+            xmm_cache_put(cache, xa, d);
+            break;
+        }
+        case OP_MOD: {
+            int xa = xmm_cache_load(cache, cb, a);
+            if (xa < 0) return;
+            int xb = xmm_cache_load_excl(cache, cb, b, xa, -1);
+            if (xb < 0) return;
+            emit_sse66_rr(cb, 0x28, XMM_SCRATCH, xa);
+            emit_sse_arith_rr(cb, 0x5E, XMM_SCRATCH, xb);
+            emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x3A);
+            emit_u8(cb, 0x0B);
+            emit_u8(cb, 0xC0 | (XMM_SCRATCH << 3) | XMM_SCRATCH);
+            emit_u8(cb, 0x03);
+            emit_sse_arith_rr(cb, 0x59, XMM_SCRATCH, xb);
+            emit_sse_arith_rr(cb, 0x5C, xa, XMM_SCRATCH);
+            xmm_cache_put(cache, xa, d);
+            break;
+        }
+        case OP_NEG: {
+            int xa = xmm_cache_load(cache, cb, a);
+            if (xa < 0) return;
+            emit_sse66_rr(cb, 0x57, XMM_SCRATCH, XMM_SCRATCH);
+            emit_sse_arith_rr(cb, 0x5C, XMM_SCRATCH, xa);
+            emit_sse66_rr(cb, 0x28, xa, XMM_SCRATCH);
+            xmm_cache_put(cache, xa, d);
+            break;
+        }
+        case OP_INC: case OP_DEC: {
+            int xd = xmm_cache_load(cache, cb, d);
+            if (xd < 0) return;
+            uint8_t arith_op = (inst->opcode == OP_INC) ? 0x58 : 0x5C;
+            emit_sse_arith_mem(cb, arith_op, xd, slot_disp(const_slot));  // addsd/subsd xd, [1.0]
+            xmm_cache_put(cache, xd, d);
+            break;
+        }
+        case OP_CMP_EQ: case OP_CMP_EQ_NUM:
+        case OP_CMP_NEQ: case OP_CMP_NEQ_NUM:
+        case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE: {
+            int xa = xmm_cache_load(cache, cb, a);
+            if (xa < 0) return;
+            int xb = xmm_cache_load_excl(cache, cb, b, xa, -1);
+            if (xb < 0) return;
+            emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
+            emit_u8(cb, 0xC0 | (xa << 3) | xb);
+            uint8_t setcc;
+            switch (inst->opcode) {
+                case OP_CMP_EQ:  case OP_CMP_EQ_NUM:  setcc = 0x94; break;
+                case OP_CMP_NEQ: case OP_CMP_NEQ_NUM: setcc = 0x95; break;
+                case OP_CMP_LT:  setcc = 0x92; break;
+                case OP_CMP_GT:  setcc = 0x97; break;
+                case OP_CMP_LTE: setcc = 0x96; break;
+                default:         setcc = 0x93; break;
+            }
+            emit_u8(cb, 0x0F); emit_u8(cb, setcc); emit_u8(cb, 0xC0);
+            emit_u8(cb, 0x0F); emit_u8(cb, 0xB6); emit_u8(cb, 0xC0);
+            emit_u8(cb, 0xF2); emit_u8(cb, 0x0F); emit_u8(cb, 0x2A);
+            emit_u8(cb, 0xC0 | (XMM_SCRATCH << 3));
+            int xd = xmm_cache_alloc_excl(cache, cb, xa, xb);
+            if (xd < 0) return;
+            emit_sse66_rr(cb, 0x28, xd, XMM_SCRATCH);
+            xmm_cache_put(cache, xd, d);
+            break;
+        }
+        default:
+            break;
+    }
+}
+
+// emits one iteration (entry test + body) and returns the fixup offset for the exit jump
+static size_t emit_loop_iteration(JITContext* ctx, CodeBuf* cb, XmmCache* cache,
+                                   JitLoopInfo* info, int const_slot,
+                                   bool iter_in_xmm) {
+    BytecodeChunk* chunk = ctx->chunk;
+    int entry = info->entry_pc;
+    int back_edge = info->back_edge_pc;
+
+    size_t exit_patch;
+    if (info->is_for_next) {
+        int var_reg = chunk->code[entry].operands[0];
+        int end_reg = info->for_end_reg;
+        int step_reg = info->for_step_reg;
+
+        int xa = xmm_cache_load(cache, cb, end_reg);
+        if (xa < 0) return (size_t)-1;
+        int xb = xmm_cache_load_excl(cache, cb, step_reg, xa, -1);
+        if (xb < 0) return (size_t)-1;
+        int xc = xmm_cache_load_excl(cache, cb, var_reg, xa, xb);
+        if (xc < 0) return (size_t)-1;
+
+        if (!iter_in_xmm) {
+            emit_movsd_load(cb, 7, slot_disp(info->nregs));       // xmm7 = iterator
+        }
+        emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
+        emit_u8(cb, 0xC0 | (7 << 3) | xa);                   // ucomisd xmm7, xa
+        emit_u8(cb, 0x0F); emit_u8(cb, 0x87);                // ja exit
+        exit_patch = cb->len;
+        emit_i32(cb, 0);
+
+        emit_sse66_rr(cb, 0x28, xc, 7);                      // movapd xc, xmm7 (R[var] = c)
+        xmm_cache_put(cache, xc, var_reg);                   // var became dirty
+
+        emit_sse_arith_rr(cb, 0x58, 7, xb);                  // addsd xmm7, xb (step)
+        if (!iter_in_xmm) {
+            emit_movsd_store(cb, 7, slot_disp(info->nregs)); // store iterator
+        }
+    } else {
+        Instruction* entry_inst = &chunk->code[entry];
+        int a = entry_inst->operands[1];
+        int b = entry_inst->operands[2];
+        int xa = xmm_cache_load(cache, cb, a);
+        if (xa < 0) return (size_t)-1;
+        int xb = xmm_cache_load_excl(cache, cb, b, xa, -1);
+        if (xb < 0) return (size_t)-1;
+
+        emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
+        emit_u8(cb, 0xC0 | (xa << 3) | xb);                  // ucomisd xa, xb
+
+        uint8_t jcc = jcc_for_entry_op(entry_inst->opcode);
+        emit_u8(cb, 0x0F); emit_u8(cb, jcc);                 // conditional exit
+        exit_patch = cb->len;
+        emit_i32(cb, 0);
+    }
+
+    for (int pc = entry + 1; pc < back_edge; pc++) {         // body
+        emit_loop_body_instr(ctx, cb, cache, pc, const_slot);
+    }
+    return exit_patch;
+}
+
+// emits native x86-64 code for a single numeric loop
+static bool emit_loop(JITContext* ctx, CodeBuf* cb, JitLoopInfo* info) {
+    int entry = info->entry_pc;
+    int back_edge = info->back_edge_pc;
+    int nregs = info->nregs;
+    int extra_slots = info->is_for_next ? 1 : 0;             // iterator temp slot
+    int const_slot = nregs + extra_slots;                    // reserved slot for constant 1.0
+    int frame_slots = const_slot + 1;
+
+    int range_size = back_edge - entry + 1;
+    if (range_size <= 0) return false;
+
+    if (cb->len + (size_t)range_size * 256 + 1024 > cb->cap) return false;
+
+    // scan body to see if xmm7 (iterator cache) stays intact across the loop
+    bool iter_in_xmm = false;
+    if (info->is_for_next) {
+        bool clobbers = false;
+        for (int pc = entry + 1; pc < back_edge; pc++) {
+            Opcode op = ctx->chunk->code[pc].opcode;
+            if (op == OP_MOD || op == OP_NEG ||
+                op == OP_CMP_EQ || op == OP_CMP_NEQ ||
+                op == OP_CMP_EQ_NUM || op == OP_CMP_NEQ_NUM ||
+                op == OP_CMP_LT || op == OP_CMP_GT ||
+                op == OP_CMP_LTE || op == OP_CMP_GTE) {
+                clobbers = true;
+                break;
+            }
+        }
+        iter_in_xmm = !clobbers;
+    }
+
+    // fixpoint pass in a scratch buffer to compute the steady-state cache
+    size_t scratch_size = (size_t)range_size * 256 + 1024;
+    uint8_t* scratch_buf = (uint8_t*)malloc(scratch_size);
+    if (!scratch_buf) return false;
+    CodeBuf scratch = { scratch_buf, 0, scratch_size };
+
+    XmmCache cache_start;
+    xmm_cache_clear(&cache_start);
+    bool converged = false;
+    for (int iter = 0; iter < 8; iter++) {
+        XmmCache cache = cache_start;
+        scratch.len = 0;
+        size_t patch = emit_loop_iteration(ctx, &scratch, &cache, info, const_slot, iter_in_xmm);
+        if (patch == (size_t)-1) { free(scratch_buf); return false; }
+        if (xmm_cache_eq(&cache, &cache_start)) { converged = true; break; }
+        cache_start = cache;
+    }
+    free(scratch_buf);
+    if (!converged) return false;
+
+    // real emit
+    size_t mark = cb->len;
+
+    emit_u8(cb, 0x55);                                       // push rbp
+    emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xE5); // mov rbp, rsp
+
+    int frame_size = 8 * frame_slots;
+    if (frame_size % 16) frame_size = (frame_size + 15) & ~15;
+    emit_u8(cb, 0x48); emit_u8(cb, 0x81); emit_u8(cb, 0xEC); // sub rsp, imm32
+    emit_i32(cb, frame_size);
+
+    emit_movabs_rax(cb, 0x3FF0000000000000ULL);              // rax = bits of 1.0
+    emit_movq_xmm_rax(cb, XMM_SCRATCH);                      // xmm7 = 1.0
+    emit_movsd_store(cb, XMM_SCRATCH, slot_disp(const_slot));// store 1.0 to reserved slot
+
+    // copy live-in slots from regs[rdi] to stack
+    uint64_t m = info->live_in;
+    while (m) {
+        int s = __builtin_ctzll(m);
+        m &= m - 1;
+        if (s >= 64) break;
+        emit_movsd_load_rdi(cb, 0, s * 8);                   // xmm0 = regs[s]
+        emit_movsd_store(cb, 0, slot_disp(s));               // stack[s] = xmm0
+    }
+
+    if (info->is_for_next && !iter_in_xmm) {                 // seed iterator in memory
+        int var_reg = ctx->chunk->code[entry].operands[0];
+        emit_movsd_load(cb, 0, slot_disp(var_reg));
+        emit_movsd_store(cb, 0, slot_disp(nregs));
+    }
+
+    // preload the fixpoint cache state
+    for (int i = 0; i < XMM_CACHE_REGS; i++) {
+        int s = cache_start.reg_slot[i];
+        if (s >= 0) emit_movsd_load(cb, i, slot_disp(s));
+    }
+
+    if (info->is_for_next && iter_in_xmm) {                  // load iterator directly to xmm7
+        int var_reg = ctx->chunk->code[entry].operands[0];
+        emit_movsd_load(cb, 7, slot_disp(var_reg));
+    }
+
+    int loop_top = (int)cb->len;
+    XmmCache cache = cache_start;
+    size_t entry_patch = emit_loop_iteration(ctx, cb, &cache, info, const_slot, iter_in_xmm);
+    if (entry_patch == (size_t)-1) { cb->len = mark; return false; }
+
+    emit_u8(cb, 0xE9);                                       // jmp loop_top
+    size_t back_patch = cb->len;
+    emit_i32(cb, 0);
+    int32_t back_rel = loop_top - (int32_t)(back_patch + 4);
+    memcpy(cb->buf + back_patch, &back_rel, 4);
+
+    int exit_label = (int)cb->len;
+    int32_t exit_rel = exit_label - (int32_t)(entry_patch + 4);
+    memcpy(cb->buf + entry_patch, &exit_rel, 4);
+
+    xmm_cache_flush(&cache, cb);                             // spill dirty slots to stack
+
+    m = info->live_out;                                      // copy modified slots back
+    while (m) {
+        int s = __builtin_ctzll(m);
+        m &= m - 1;
+        if (s >= 64) break;
+        emit_movsd_load(cb, 0, slot_disp(s));
+        emit_movsd_store_rdi(cb, 0, s * 8);
+    }
+
+    emit_u8(cb, 0xC9);                                       // leave
+    emit_u8(cb, 0xC3);                                       // ret
+
+    info->native_fn = (void (*)(uint64_t*))(cb->buf + mark);
+    return true;
+}
+
 // compiles all numeric-pure functions and returns a jit context (or null)
 JITContext* jit_create(BytecodeChunk* chunk) {
     if (!chunk || chunk->func_count <= 1) return NULL;           // nothing to compile
@@ -938,9 +1476,12 @@ JITContext* jit_create(BytecodeChunk* chunk) {
             chunk, ctx->range_start[i], ctx->range_end[i]);      // scan this function
     }
 
-    int pure_count = 0;                                          // count candidates
-    for (int i = 0; i < n; i++) if (ctx->pure[i]) pure_count++;  // tally pure fns
-    if (pure_count == 0) { jit_destroy(ctx); return NULL; }      // nothing to emit
+    int candidate_count = 0;
+    for (int i = 0; i < n; i++) if (ctx->pure[i]) candidate_count++;
+    if (candidate_count == 0 && ctx->loop_count == 0) {
+        jit_destroy(ctx);
+        return NULL;
+    }
 
     size_t cap = (size_t)chunk->code_count * 256 + 16384;        // generous RW buffer
     ctx->code = (uint8_t*)mmap(NULL, cap, PROT_READ | PROT_WRITE,
@@ -966,13 +1507,48 @@ JITContext* jit_create(BytecodeChunk* chunk) {
         ctx->compiled_count++;                                   // count successful
     }
 
+    for (int i = 0; i < ctx->loop_count; i++) {                  // emit each loop
+        size_t mark = cb.len;
+        if (!emit_loop(ctx, &cb, &ctx->loops[i])) {
+            cb.len = mark;
+            ctx->loops[i].native_fn = NULL;
+            continue;
+        }
+        ctx->compiled_count++;
+    }
+
     if (ctx->compiled_count == 0) { jit_destroy(ctx); return NULL; }  // nothing usable
+
+    // build the pc → loop lookup table for loops that compiled successfully
+    if (ctx->loop_count > 0) {
+        ctx->pc_to_loop = (int*)malloc(sizeof(int) * chunk->code_count);
+        if (ctx->pc_to_loop) {
+            for (int i = 0; i < chunk->code_count; i++) ctx->pc_to_loop[i] = -1;
+            for (int i = 0; i < ctx->loop_count; i++) {
+                if (!ctx->loops[i].native_fn) continue;
+                ctx->pc_to_loop[ctx->loops[i].entry_pc] = i;
+            }
+        }
+    }
 
     if (mprotect(ctx->code, ctx->code_size, PROT_READ | PROT_EXEC) != 0) {
         jit_destroy(ctx);                                        // flip RW -> RX failed
         return NULL;
     }
     __builtin___clear_cache((char*)ctx->code, (char*)ctx->code + cb.len);  // icache flush
+
+    if (getenv("APEX_JIT_DEBUG")) {
+        fprintf(stderr, "[jit] functions: %d, loops: %d (native: %d)\n",
+                n, ctx->loop_count, ctx->compiled_count);
+        for (int i = 0; i < ctx->loop_count; i++) {
+            fprintf(stderr, "  loop entry=%d back=%d exit=%d for_next=%d native=%p\n",
+                    ctx->loops[i].entry_pc,
+                    ctx->loops[i].back_edge_pc,
+                    ctx->loops[i].exit_pc,
+                    ctx->loops[i].is_for_next,
+                    (void*)ctx->loops[i].native_fn);
+        }
+    }
 
     return ctx;                                                  // success
 }
@@ -987,6 +1563,8 @@ void jit_destroy(JITContext* ctx) {
     free(ctx->range_end);                                        // free range ends
     free(ctx->func_table);                                       // free runtime slots
     free(ctx->returns_bool);                                     // free bool flags
+    free(ctx->loops);                                            // free loop info array
+    free(ctx->pc_to_loop);                                       // free pc->loop lookup
     free(ctx);                                                   // free context itself
 }
 
@@ -1035,4 +1613,27 @@ double jit_call_2(JITContext* ctx, int func_idx, double a, double b) {
 // returns the number of functions that were successfully JIT-compiled
 int jit_compiled_count(JITContext* ctx) {
     return ctx ? ctx->compiled_count : 0;                        // number of JITted functions
+}
+
+// if the current bytecode pc is a native loop entry and all live-in slots are numeric, runs the loop natively and writes the exit pc to *exit_pc
+JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* exit_pc) {
+    if (!ctx || !ctx->pc_to_loop) return JIT_LOOP_NOT_APPLICABLE;
+    if (pc < 0 || pc >= ctx->chunk->code_count) return JIT_LOOP_NOT_APPLICABLE;
+    int li = ctx->pc_to_loop[pc];
+    if (li < 0) return JIT_LOOP_NOT_APPLICABLE;
+    JitLoopInfo* info = &ctx->loops[li];
+    if (!info->native_fn) return JIT_LOOP_NOT_APPLICABLE;
+
+    uint64_t m = info->live_in;                              // type-check live-in slots
+    while (m) {
+        int s = __builtin_ctzll(m);
+        m &= m - 1;
+        if (s >= 64) return JIT_LOOP_NOT_APPLICABLE;
+        if (IS_NUMBER(regs[s])) continue;
+        return JIT_LOOP_NOT_APPLICABLE;                      // not a number — fall back
+    }
+
+    info->native_fn(regs);                                   // run the native loop
+    *exit_pc = info->exit_pc;
+    return info->is_for_next ? JIT_LOOP_RAN_FOR_NEXT : JIT_LOOP_RAN_NORMAL;
 }

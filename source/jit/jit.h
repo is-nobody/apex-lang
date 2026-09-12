@@ -8,14 +8,22 @@
 
 #include "bytecode.h"
 #include <stdbool.h>
+#include <stdint.h>
 
-// opaque jit context holding all per-chunk JIT state
+// opaque JIT context holding all per-chunk JIT state
 typedef struct JITContext JITContext;
 
-// analyses the chunk and builds a jit context, or returns null
+// result of attempting to run a native loop at the current pc
+typedef enum {
+    JIT_LOOP_NOT_APPLICABLE = 0,  // not a native loop — interpreter should proceed
+    JIT_LOOP_RAN_NORMAL,          // ran natively — continue at exit_pc
+    JIT_LOOP_RAN_FOR_NEXT,        // ran natively — also pop iterator frame
+} JitLoopResult;
+
+// analyses the chunk and builds a JIT context, or returns NULL
 JITContext* jit_create(BytecodeChunk* chunk);
 
-// frees the jit context and unloads its executable memory
+// frees the JIT context and unloads its executable memory
 void jit_destroy(JITContext* ctx);
 
 // returns true if function `func_idx` has a native implementation
@@ -35,5 +43,8 @@ double jit_call_2(JITContext* ctx, int func_idx, double a, double b);
 
 // returns the number of functions that were successfully JIT-compiled
 int jit_compiled_count(JITContext* ctx);
+
+// runs a compiled loop natively when pc matches an entry and live-in slots are numbers
+JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* exit_pc);
 
 #endif

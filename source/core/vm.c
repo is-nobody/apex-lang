@@ -1218,6 +1218,27 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         
         [OP_HALT]             = &&OP_HALT_LABEL,
     };
+#if APEX_JIT_ENABLED
+    #define APEX_TRY_JIT_LOOP() \
+        do { \
+            if (unlikely(vm->jit != NULL)) { \
+                int _cur = (int)(ip - vm->code); \
+                int _exit; \
+                JitLoopResult _r = jit_try_native_loop(vm->jit, _cur, (uint64_t*)regs, &_exit); \
+                if (_r == JIT_LOOP_RAN_NORMAL) { \
+                    ip = &vm->code[_exit]; \
+                    goto *dispatch_table[ip->opcode]; \
+                } \
+                if (_r == JIT_LOOP_RAN_FOR_NEXT) { \
+                    vm->iterator_depth--; \
+                    ip = &vm->code[_exit]; \
+                    goto *dispatch_table[ip->opcode]; \
+                } \
+            } \
+        } while (0)
+#else
+    #define APEX_TRY_JIT_LOOP() ((void)0)
+#endif
     register Instruction* ip = vm->code;   // instruction pointer in a register for speed
     register Value* regs = vm->registers;  // current frame registers in a register for speed
     __builtin_prefetch(ip + 1, 0, 1);      // hint cpu to prefetch next instruction
@@ -1453,6 +1474,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];   // fall through to next instruction
     }
     OP_JUMP_IF_EQ_LABEL: {
+        APEX_TRY_JIT_LOOP();
         int target = ip->operands[0];         // jump target address
         Value left = regs[ip->operands[1]];   // left operand
         Value right = regs[ip->operands[2]];  // right operand
@@ -1477,6 +1499,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];  // fall through
     }
     OP_JUMP_IF_NEQ_LABEL: {
+        APEX_TRY_JIT_LOOP();
         int target = ip->operands[0];         // jump target address
         Value left = regs[ip->operands[1]];   // left operand
         Value right = regs[ip->operands[2]];  // right operand
@@ -1501,6 +1524,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];  // fall through
     }
     OP_JUMP_IF_EQ_NUM_LABEL: {
+        APEX_TRY_JIT_LOOP();
         int target = ip->operands[0];            // jump target address
         du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
         du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double via union
@@ -1511,6 +1535,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];  // fall through to next instruction
     }
     OP_JUMP_IF_NEQ_NUM_LABEL: {
+        APEX_TRY_JIT_LOOP();
         int target = ip->operands[0];            // jump target address
         du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
         du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double via union
@@ -1521,6 +1546,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];  // fall through to next instruction
     }
     OP_JUMP_IF_LT_LABEL: {
+        APEX_TRY_JIT_LOOP();
         int target = ip->operands[0];            // jump target address
         du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
         du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double via union
@@ -1531,6 +1557,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];  // fall through
     }
     OP_JUMP_IF_LTE_LABEL: {
+        APEX_TRY_JIT_LOOP();
         int target = ip->operands[0];            // jump target address
         du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
         du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double via union
@@ -1541,6 +1568,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];  // fall through
     }
     OP_JUMP_IF_GT_LABEL: {
+        APEX_TRY_JIT_LOOP();
         int target = ip->operands[0];            // jump target address
         du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
         du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double via union
@@ -1551,6 +1579,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];  // fall through
     }
     OP_JUMP_IF_GTE_LABEL: {
+        APEX_TRY_JIT_LOOP();
         int target = ip->operands[0];            // jump target address
         du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
         du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double via union
@@ -1721,6 +1750,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_FOR_NEXT_LABEL: {
+        APEX_TRY_JIT_LOOP();
         int var_reg = ip->operands[0];          // loop variable register
         int end_or_size_reg = ip->operands[1];  // exit address when flag_or_exit == 0
         int flag_or_exit = ip->operands[2];     // 0 for numeric for, other for generic for
