@@ -289,7 +289,7 @@ user = [
 ]
 ```
 
-Keys are written without quotes. Apex recognizes them as names, not strings. Now you can access values by their key:
+Keys are written with quotes. Apex recognizes them as names, not strings. Now you can access values by their key:
 
 ```apex
 user_name = user["name"]         // "Alice"

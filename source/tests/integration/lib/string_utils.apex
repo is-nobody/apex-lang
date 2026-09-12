@@ -1,4 +1,4 @@
-// source/tests/integration/lib/string_utils.apex.apex
+// source/tests/integration/lib/string_utils.apex
 // Implementation of String Utility Functions for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license

@@ -131,13 +131,6 @@ struct ASTNode {
             ASTNode* else_branch;     // block executed when all conditions are false
         } if_stmt;
         
-        // single else if branch linked into the else if chain of an if statement
-        struct {
-            ASTNode* condition;       // else if condition expression
-            ASTNode* body;            // block executed when else if condition is true
-            ASTNode* next_elif;       // next else if node in the chain
-        } elif_branch;
-        
         // for loop with optional variable, condition, range bounds, and step
         struct {
             char* var_name;           // loop variable name (NULL for conditional loops)
@@ -280,10 +273,6 @@ ASTNode* ast_create_match(ASTNode* subject, ASTNodeList* cases,
 
 // creates a case branch node
 ASTNode* ast_create_case(ASTNode* pattern, ASTNode* body, int line, int column);
-
-// creates a type check node for parameter validation (reserved for future use)
-ASTNode* ast_create_type_check(const char* param_name, const char* type_name, 
-                                int line, int column);
 
 // block node groups a list of statements, using first statement's location as fallback
 ASTNode* ast_create_block(ASTNodeList* statements);
