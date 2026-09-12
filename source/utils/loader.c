@@ -68,7 +68,7 @@ static char* read_string(FILE* f) {
 
 // reads a single instruction from file
 static Instruction read_instruction(FILE* f) {
-    Instruction inst;
+    Instruction inst = {0};                   // zero-init padding and any future fields
     inst.opcode = (Opcode)read_u32(f);        // read opcode
     inst.operands[0] = (int32_t)read_u32(f);  // read operand 1
     inst.operands[1] = (int32_t)read_u32(f);  // read operand 2
@@ -79,6 +79,7 @@ static Instruction read_instruction(FILE* f) {
 // reads a constant pool entry from file
 static Constant read_constant(FILE* f) {
     Constant c;
+    memset(&c, 0, sizeof(c));                     // clear all fields including cached_str
     c.type = (ConstantType)read_u32(f);           // read type discriminator
     switch (c.type) {
         case CONST_NUMBER: {
@@ -107,7 +108,7 @@ static Constant read_constant(FILE* f) {
             break;
         }
     }
-    return c;
+    return c;                                     // cached_str is guaranteed NULL
 }
 
 // loads a bytecode chunk from a .apexc file, restoring all sections
