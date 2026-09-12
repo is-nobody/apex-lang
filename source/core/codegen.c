@@ -78,7 +78,7 @@ static bool block_has_function_decl(ASTNode* node) {
     return false;                                                 // other nodes: no nested function
 }
 
-// returns true if an AST subtree reads a local variable by name
+// returns true if an ast subtree reads a local variable by name
 static bool ast_references_local(ASTNode* node, const char* name) {
     if (!node || !name) return false;                                       // guard
     switch (node->type) {
@@ -125,7 +125,35 @@ static bool ast_references_local(ASTNode* node, const char* name) {
         case AST_ASSIGN:
             return ast_references_local(node->var_assign.value, name);      // nested assign RHS
         default:
-            return true;                                                    // conservative
+            return false;                                                    // conservative
+    }
+}
+
+// true if writing `node`'s result into local `name` could expose a partial value
+static bool ast_unsafe_direct_assign(ASTNode* node, const char* name) {
+    if (!node || !name) return false;                                              // null guard
+    switch (node->type) {
+        case AST_STRING_INTERP:                                                    // check later parts only
+            for (int i = 1; i < node->string_interp.parts->count; i++) {
+                if (ast_references_local(node->string_interp.parts->nodes[i], name))
+                    return true;                                               // later part reads name
+            }
+            return false;                                                          // safe to write directly
+
+        case AST_TABLE_LITERAL:                                                    // check items and key-values
+            for (int i = 0; i < node->table_literal.items->count; i++) {
+                if (ast_references_local(node->table_literal.items->nodes[i], name))
+                    return true;                                               // sequential item reads name
+            }
+            for (int i = 0; i < node->table_literal.key_values->count; i++) {
+                ASTNode* kv = node->table_literal.key_values->nodes[i];
+                if (ast_references_local(kv->binary.left,  name)) return true;     // key reads name
+                if (ast_references_local(kv->binary.right, name)) return true;     // value reads name
+            }
+            return false;                                                          // safe to write directly
+
+        default:
+            return false;                                                          // dest written only at end
     }
 }
 
@@ -1104,8 +1132,8 @@ static void codegen_var_decl(CodeGenerator* cg, ASTNode* node) {
     int local_reg = add_local(cg, node->var_assign.name);                    // allocate local first
 
     int hint = local_reg;                                                    // default: write directly
-    if (ast_references_local(node->var_assign.value, node->var_assign.name)) {
-        hint = -1;                                                           // RHS reads this local: unsafe
+    if (ast_unsafe_direct_assign(node->var_assign.value, node->var_assign.name)) {
+        hint = -1;                                                           // RHS observes partial write: unsafe
     }
     int result = codegen_expression_into(cg, node->var_assign.value, hint);  // evaluate
     if (result != local_reg) {                                               // arrived in a fresh temp
@@ -1169,8 +1197,8 @@ static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node, int dest_hint) 
         }
 
         int hint = local_reg;                                                // default: write directly
-        if (ast_references_local(node->var_assign.value, node->var_assign.name)) {
-            hint = -1;                                                       // RHS reads this local: unsafe
+        if (ast_unsafe_direct_assign(node->var_assign.value, node->var_assign.name)) {
+            hint = -1;                                                       // rhs observes partial write: unsafe
         }
         int result = codegen_expression_into(cg, node->var_assign.value, hint);  // evaluate
         if (result != local_reg) {                                           // arrived in a fresh temp
