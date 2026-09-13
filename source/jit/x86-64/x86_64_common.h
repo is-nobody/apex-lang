@@ -17,10 +17,21 @@
 #define X86_RBP 5
 #define X86_RSI 6
 #define X86_RDI 7
+#define X86_R8  8
+#define X86_R9  9
+#define X86_R10 10
+#define X86_R11 11
+#define X86_R12 12
+#define X86_R13 13
+#define X86_R14 14
+#define X86_R15 15
 
 // xmm0..xmm6 used as slot cache, xmm7 reserved as scratch
 #define XMM_CACHE_REGS 7
 #define XMM_SCRATCH    7
+
+// nan-boxed NONE bit pattern (QNAN | TAG_NONE<<48)
+#define X86_NONE_BITS  0x7FF8000000000000ULL
 
 // register cache state: which slot lives in which xmm, and which slots have been written since they were last flushed to memory
 typedef struct {
@@ -46,14 +57,14 @@ static inline void x86_emit_movsd_store(CodeBuf* b, int xmm, int32_t disp) {
     emit_i32(b, disp);                                     // displacement
 }
 
-// emits movsd xmm<N>, [base+disp32] — load from arbitrary base register (rdi/rcx)
+// emits movsd xmm<N>, [base+disp32] — load from arbitrary base register (rdi/rcx/rbx)
 static inline void x86_emit_movsd_load_base(CodeBuf* b, int base, int xmm, int32_t disp) {
     emit_u8(b, 0xF2); emit_u8(b, 0x0F); emit_u8(b, 0x10);  // movsd opcode
     emit_u8(b, 0x80 | (xmm << 3) | (base & 7));            // modrm with base register
     emit_i32(b, disp);                                     // displacement
 }
 
-// emits movsd [base+disp32], xmm<N> — store to arbitrary base register (rdi/rcx)
+// emits movsd [base+disp32], xmm<N> — store to arbitrary base register
 static inline void x86_emit_movsd_store_base(CodeBuf* b, int base, int xmm, int32_t disp) {
     emit_u8(b, 0xF2); emit_u8(b, 0x0F); emit_u8(b, 0x11);  // movsd store opcode
     emit_u8(b, 0x80 | (xmm << 3) | (base & 7));            // modrm with base register
@@ -86,11 +97,92 @@ static inline void x86_emit_movabs_rax(CodeBuf* b, uint64_t v) {
     emit_u64(b, v);                                        // 64-bit immediate
 }
 
+// emits movabs r8, imm64 — load 64-bit immediate into r8
+static inline void x86_emit_movabs_r8(CodeBuf* b, uint64_t v) {
+    emit_u8(b, 0x49); emit_u8(b, 0xB8);                    // rex.wb + movabs r8
+    emit_u64(b, v);
+}
+
 // emits movq xmm<N>, rax — move rax into sse register
 static inline void x86_emit_movq_xmm_rax(CodeBuf* b, int xmm) {
     emit_u8(b, 0x66); emit_u8(b, 0x48);                    // operand-size + rex.w
     emit_u8(b, 0x0F); emit_u8(b, 0x6E);                    // movq xmm, r/m64
     emit_u8(b, 0xC0 | (xmm << 3));                         // modrm, rm=rax
+}
+
+// emits mov [rbp+disp32], r64 — store callee-saved gpr into stack slot
+static inline void x86_emit_store_r64_rbp(CodeBuf* b, int reg, int32_t disp) {
+    uint8_t rex = 0x48 | ((reg >= 8) ? 0x04 : 0);          // rex.w + rex.r
+    emit_u8(b, rex); emit_u8(b, 0x89);                     // mov r/m64, r64
+    emit_u8(b, 0x80 | ((reg & 7) << 3) | 5);               // modrm: mod=10, rm=rbp
+    emit_i32(b, disp);
+}
+
+// emits mov r64, [rbp+disp32] — load callee-saved gpr from stack slot
+static inline void x86_emit_load_r64_rbp(CodeBuf* b, int reg, int32_t disp) {
+    uint8_t rex = 0x48 | ((reg >= 8) ? 0x04 : 0);
+    emit_u8(b, rex); emit_u8(b, 0x8B);                     // mov r64, r/m64
+    emit_u8(b, 0x80 | ((reg & 7) << 3) | 5);
+    emit_i32(b, disp);
+}
+
+// emits mov r64, [base+disp32] — load 64-bit gpr from arbitrary base
+static inline void x86_emit_load_r64_base(CodeBuf* b, int dst, int base, int32_t disp) {
+    uint8_t rex = 0x48 | ((dst  >= 8) ? 0x04 : 0) | ((base >= 8) ? 0x01 : 0);
+    emit_u8(b, rex); emit_u8(b, 0x8B);
+    emit_u8(b, 0x80 | ((dst & 7) << 3) | (base & 7));
+    emit_i32(b, disp);
+}
+
+// emits cvttsd2si eax, xmm — double to int32 truncation (upper 32 bits of rax zeroed)
+static inline void x86_emit_cvttsd2si_eax(CodeBuf* b, int xmm) {
+    emit_u8(b, 0xF2); emit_u8(b, 0x0F); emit_u8(b, 0x2C);  // cvttsd2si r32, xmm
+    emit_u8(b, 0xC0 | (xmm & 7));                          // modrm: reg=eax(000), rm=xmm
+}
+
+// emits sub eax, imm8 — eax -= small immediate
+static inline void x86_emit_sub_eax_imm8(CodeBuf* b, int8_t imm) {
+    emit_u8(b, 0x83); emit_u8(b, 0xE8); emit_u8(b, (uint8_t)imm);
+}
+
+// emits dec eax — eax -= 1
+static inline void x86_emit_dec_eax(CodeBuf* b) {
+    emit_u8(b, 0xFF); emit_u8(b, 0xC8);
+}
+
+// emits shl rax, 16; shr rax, 16 — clear high 16 bits (nan-box pointer unpack)
+static inline void x86_emit_clear_high16_rax(CodeBuf* b) {
+    emit_u8(b, 0x48); emit_u8(b, 0xC1); emit_u8(b, 0xE0); emit_u8(b, 16);
+    emit_u8(b, 0x48); emit_u8(b, 0xC1); emit_u8(b, 0xE8); emit_u8(b, 16);
+}
+
+// emits movsd xmm, [base + index*8] — SIB addressing with scale=8
+static inline void x86_emit_movsd_load_idx8(CodeBuf* b, int xmm, int base, int index) {
+    emit_u8(b, 0xF2); emit_u8(b, 0x0F); emit_u8(b, 0x10);
+    emit_u8(b, ((xmm & 7) << 3) | 0x04);                   // modrm: mod=00, rm=SIB
+    emit_u8(b, (3 << 6) | ((index & 7) << 3) | (base & 7));// sib: scale=8
+}
+
+// emits mov rax, [base + index*8] — 64-bit load via SIB scale=8
+static inline void x86_emit_load_rax_idx8(CodeBuf* b, int base, int index) {
+    emit_u8(b, 0x48); emit_u8(b, 0x8B);                    // mov rax, r/m64
+    emit_u8(b, 0x04);                                       // modrm: reg=rax, rm=SIB
+    emit_u8(b, (3 << 6) | ((index & 7) << 3) | (base & 7));
+}
+
+// emits cmp rax, r8
+static inline void x86_emit_cmp_rax_r8(CodeBuf* b) {
+    emit_u8(b, 0x4C); emit_u8(b, 0x39); emit_u8(b, 0xC0);
+}
+
+// emits cmp rax, rdx
+static inline void x86_emit_cmp_rax_rdx(CodeBuf* b) {
+    emit_u8(b, 0x48); emit_u8(b, 0x39); emit_u8(b, 0xD0);
+}
+
+// emits cmp rdx, r12 (r12 in reg field, rdx in r/m field)
+static inline void x86_emit_cmp_rdx_r12d(CodeBuf* b) {
+    emit_u8(b, 0x4C); emit_u8(b, 0x39); emit_u8(b, 0xE2);
 }
 
 // clears cache state without touching memory

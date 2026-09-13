@@ -26,22 +26,22 @@ static const JitBackend* jit_get_backend(void) {
 JITContext* jit_create(BytecodeChunk* chunk) {
     if (!chunk || chunk->func_count <= 1) return NULL;           // nothing to compile
 
-    const JitBackend* be = jit_get_backend();                    // pick backend
-    if (!be) return NULL;                                        // no backend for this arch
+    const JitBackend* be = jit_get_backend();                    // pick backend for this arch
+    if (!be) return NULL;                                        // no backend, no jit
 
     JITContext* ctx = (JITContext*)calloc(1, sizeof(JITContext));  // zero-initialised state
     if (!ctx) return NULL;                                         // allocation failed
     ctx->chunk = chunk;                                            // remember bytecode
     ctx->func_count = chunk->func_count;                           // number of functions
-    ctx->backend = be;                                             // remember backend for cleanup
+    ctx->backend = be;                                             // backend owns the code page
 
     int n = ctx->func_count;                                     // shorthand
     ctx->pure         = (bool*)calloc(n, sizeof(bool));          // per-fn purity
-    ctx->has_native   = (bool*)calloc(n, sizeof(bool));          // per-fn code ptr
-    ctx->range_start  = (int*) calloc(n, sizeof(int));           // per-fn pc start
-    ctx->range_end    = (int*) calloc(n, sizeof(int));           // per-fn pc end
-    ctx->func_table   = (void**)calloc(n, sizeof(void*));        // per-fn runtime slot
-    ctx->return_type = (JitReturnType*)calloc(n, sizeof(JitReturnType));  // per-fn bool flag
+    ctx->has_native   = (bool*)calloc(n, sizeof(bool));          // per-fn: code emitted?
+    ctx->range_start  = (int*) calloc(n, sizeof(int));           // per-fn first pc
+    ctx->range_end    = (int*) calloc(n, sizeof(int));           // per-fn one past last pc
+    ctx->func_table   = (void**)calloc(n, sizeof(void*));        // per-fn runtime entry slot
+    ctx->return_type  = (JitReturnType*)calloc(n, sizeof(JitReturnType));  // per-fn return kind
 
     if (!ctx->pure || !ctx->has_native || !ctx->range_start ||   // verify allocations
         !ctx->range_end || !ctx->func_table || !ctx->return_type) {
@@ -51,8 +51,7 @@ JITContext* jit_create(BytecodeChunk* chunk) {
 
     if (!jit_analyze(ctx)) { jit_destroy(ctx); return NULL; }    // purity + loops
 
-    // allocate executable memory via the backend: mmap on Linux/SysV,
-    // VirtualAlloc on Windows, etc. The returned page is RW until make_exec.
+    // allocate executable memory via the backend (mmap / virtualalloc)
     size_t cap = (size_t)chunk->code_count * be->bytes_per_instruction + 16384;
     ctx->code = (uint8_t*)be->alloc_exec(cap);
     if (!ctx->code) {                                            // allocation failed
@@ -61,16 +60,14 @@ JITContext* jit_create(BytecodeChunk* chunk) {
     }
     ctx->code_size = cap;                                        // remember for free_exec
 
-    // reusable scratch buffers, sized once for the entire chunk — a function
-    // range and a loop range can never exceed chunk->code_count, so these are
-    // guaranteed to be large enough for every emit_function / emit_loop call
+    // reusable scratch buffers, sized once for the whole chunk
     int code_count = chunk->code_count;
     ctx->scratch_is_target = (bool*)calloc(code_count, sizeof(bool));
     ctx->scratch_label_off = (int32_t*)malloc(sizeof(int32_t) * code_count);
     ctx->scratch_fixups    = (JumpFixup*)malloc(sizeof(JumpFixup) * code_count);
     ctx->scratch_code_buf_cap = (size_t)code_count * be->bytes_per_instruction + 1024;
     ctx->scratch_code_buf  = (uint8_t*)malloc(ctx->scratch_code_buf_cap);
-    if (!ctx->scratch_is_target || !ctx->scratch_label_off ||
+    if (!ctx->scratch_is_target || !ctx->scratch_label_off ||    // verify scratch allocations
         !ctx->scratch_fixups || !ctx->scratch_code_buf) {
         jit_destroy(ctx);                                        // cleanup on failure
         return NULL;
@@ -78,57 +75,44 @@ JITContext* jit_create(BytecodeChunk* chunk) {
 
     CodeBuf cb = { ctx->code, 0, cap };                          // code emission state
 
-    for (int i = 0; i < n; i++) {                                // emit each pure fn
+    for (int i = 0; i < n; i++) {                                // emit each pure function
         if (!ctx->pure[i]) continue;                             // skip non-pure
         if (!be->emit_function(ctx, &cb, i, &ctx->func_table[i])) {
             ctx->func_table[i] = NULL;                           // clear partial slot
-            continue;
+            continue;                                            // emit failed, move on
         }
         ctx->has_native[i] = true;                               // mark as compiled
         ctx->compiled_count++;                                   // count successful
     }
 
-    for (int i = 0; i < ctx->loop_count; i++) {                  // emit each loop
+    for (int i = 0; i < ctx->loop_count; i++) {                  // emit each loop body
         if (!be->emit_loop(ctx, &cb, &ctx->loops[i])) {
-            ctx->loops[i].native_fn = NULL;
+            ctx->loops[i].native_fn = NULL;                      // emit failed, mark unusable
             continue;
         }
-        ctx->compiled_count++;
+        ctx->compiled_count++;                                   // count successful
     }
 
     if (ctx->compiled_count == 0) { jit_destroy(ctx); return NULL; }  // nothing usable
 
-    // build the pc → loop lookup table for loops that compiled successfully
+    // build the pc -> loop lookup used by jit_try_native_loop on each entry pc
     if (ctx->loop_count > 0) {
         ctx->pc_to_loop = (int*)malloc(sizeof(int) * chunk->code_count);
         if (ctx->pc_to_loop) {
-            for (int i = 0; i < chunk->code_count; i++) ctx->pc_to_loop[i] = -1;
+            for (int i = 0; i < chunk->code_count; i++) ctx->pc_to_loop[i] = -1;  // default: not a loop
             for (int i = 0; i < ctx->loop_count; i++) {
-                if (!ctx->loops[i].native_fn) continue;
-                ctx->pc_to_loop[ctx->loops[i].entry_pc] = i;
+                if (!ctx->loops[i].native_fn) continue;          // skip failed emits
+                ctx->pc_to_loop[ctx->loops[i].entry_pc] = i;     // entry pc -> loop index
             }
         }
     }
 
-    // flip RW -> RX via the backend (mprotect on Linux, VirtualProtect on Windows)
+    // flip rw -> rx through the backend (mprotect on linux, virtualprotect on windows)
     if (!be->make_exec(ctx->code, ctx->code_size)) {
         jit_destroy(ctx);                                        // flip failed
         return NULL;
     }
     __builtin___clear_cache((char*)ctx->code, (char*)ctx->code + cb.len);  // icache flush
-
-    if (getenv("APEX_JIT_DEBUG")) {
-        fprintf(stderr, "[jit/%s] functions: %d, loops: %d (native: %d)\n",
-                be->name, n, ctx->loop_count, ctx->compiled_count);
-        for (int i = 0; i < ctx->loop_count; i++) {
-            fprintf(stderr, "  loop entry=%d back=%d exit=%d for_next=%d native=%p\n",
-                    ctx->loops[i].entry_pc,
-                    ctx->loops[i].back_edge_pc,
-                    ctx->loops[i].exit_pc,
-                    ctx->loops[i].is_for_next,
-                    (void*)ctx->loops[i].native_fn);
-        }
-    }
 
     return ctx;                                                  // success
 }
@@ -202,25 +186,89 @@ int jit_compiled_count(JITContext* ctx) {
     return ctx ? ctx->compiled_count : 0;                        // number of JITted functions
 }
 
-// if the current bytecode pc is a native loop entry and all live-in slots are numeric, runs the loop natively and writes the exit pc to *exit_pc
-JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* exit_pc) {
-    if (!ctx || !ctx->pc_to_loop) return JIT_LOOP_NOT_APPLICABLE;
-    if (pc < 0 || pc >= ctx->chunk->code_count) return JIT_LOOP_NOT_APPLICABLE;
-    int li = ctx->pc_to_loop[pc];
-    if (li < 0) return JIT_LOOP_NOT_APPLICABLE;
-    JitLoopInfo* info = &ctx->loops[li];
-    if (!info->native_fn) return JIT_LOOP_NOT_APPLICABLE;
+// back-pointer for numeric-for reseed; ctx dies before vm so no dangling risk
+void jit_set_vm(JITContext* ctx, void* vm) { if (ctx) ctx->vm = vm; }
 
-    uint64_t m = info->live_in;                              // type-check live-in slots
-    while (m) {
+// checks a single live-in slot against the loop's expected kind
+static bool live_in_slot_ok(Value v, JitSlotKind kind, JitTableUse* use) {
+    if (kind == JIT_SLOT_NUM) {
+        return IS_NUMBER(v);                               // numeric slot: any unboxed double
+    }
+    if (!IS_TABLE(v)) return false;                        // table slot: must be a table
+    Table* t = AS_TABLE(v);
+    if (t->array_part == NULL) return false;               // empty table, nothing to read
+    if (t->hash_count != 0) return false;                  // only array-only tables
+    if (t->array_count < use->min_count) return false;     // static index out of bounds
+    if (use->written && t->array_capacity < use->max_idx) return false;  // set would grow the array
+    return true;
+}
+
+// runs a compiled loop natively if its entry pc matches and all guards pass
+JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* exit_pc) {
+    if (!ctx || !ctx->pc_to_loop) return JIT_LOOP_NOT_APPLICABLE;   // no jit, no loops
+    if (pc < 0 || pc >= ctx->chunk->code_count) return JIT_LOOP_NOT_APPLICABLE;  // pc out of range
+    int li = ctx->pc_to_loop[pc];
+    if (li < 0) return JIT_LOOP_NOT_APPLICABLE;                     // pc is not a loop entry
+    JitLoopInfo* info = &ctx->loops[li];
+    if (!info->native_fn) return JIT_LOOP_NOT_APPLICABLE;           // emit failed, no native code
+
+    uint64_t m = info->live_in;
+    while (m) {                                                     // validate every live-in slot
         int s = __builtin_ctzll(m);
         m &= m - 1;
-        if (s >= 64) return JIT_LOOP_NOT_APPLICABLE;
-        if (IS_NUMBER(regs[s])) continue;
-        return JIT_LOOP_NOT_APPLICABLE;                      // not a number — fall back
+        if (s >= 64) return JIT_LOOP_NOT_APPLICABLE;                // slot beyond tracking range
+        if (!live_in_slot_ok(regs[s], info->live_in_kind[s], &info->table)) {
+            return JIT_LOOP_NOT_APPLICABLE;                         // wrong type or table shape
+        }
     }
 
-    info->native_fn(regs);                                   // run the native loop
+    if (info->kind == JIT_LOOP_NUMERIC_FOR && info->table.indexed_by_counter) {
+        Value vv = regs[info->for_var_reg];
+        Value ve = regs[info->for_end_reg];
+        Value vs = regs[info->for_step_reg];
+        if (!IS_NUMBER(vv) || !IS_NUMBER(ve) || !IS_NUMBER(vs)) return JIT_LOOP_NOT_APPLICABLE;  // counter/end/step must be numeric
+        double start = AS_NUMBER(vv);
+        double end   = AS_NUMBER(ve);
+        double step  = AS_NUMBER(vs);
+        if (start != (double)(long long)start) return JIT_LOOP_NOT_APPLICABLE;  // start must be integer
+        if (step  != (double)(long long)step)  return JIT_LOOP_NOT_APPLICABLE;  // step must be integer
+        if (end   != (double)(long long)end)   return JIT_LOOP_NOT_APPLICABLE;  // end must be integer
+        if (start < 1) return JIT_LOOP_NOT_APPLICABLE;                          // keys are 1-based
+        Table* t = AS_TABLE(regs[info->table.slot]);
+        if (end > (double)t->array_count) return JIT_LOOP_NOT_APPLICABLE;       // counter would index past array
+    }
+
+    if (info->kind == JIT_LOOP_TABLE_ITER) {
+        Table* t = AS_TABLE(regs[info->table.slot]);
+        if (t->array_count <= 0) return JIT_LOOP_NOT_APPLICABLE;    // nothing to iterate
+    }
+
+    if (getenv("APEX_JIT_TRACE")) {                                 // debug dump of live-in slots
+        fprintf(stderr, "[loop pc=%d kind=%d live_in=%llx]\n",
+                pc, info->kind, (unsigned long long)info->live_in);
+        for (int s = 0; s < 32; s++) {
+            if (info->live_in & (1ULL << s)) {
+                fprintf(stderr, "  slot %d = 0x%016llx type=%d table_p=%p count=%d\n",
+                        s, (unsigned long long)regs[s], (int)GET_TYPE(regs[s]),
+                        IS_TABLE(regs[s]) ? (void*)AS_TABLE(regs[s]) : NULL,
+                        IS_TABLE(regs[s]) ? AS_TABLE(regs[s])->array_count : -1);
+            }
+        }
+    }
+
+    if (info->kind == JIT_LOOP_NUMERIC_FOR && ctx->vm) {            // reseed counter from interpreter
+        VM* v = (VM*)ctx->vm;
+        if (v->iterator_depth >= 0 && info->for_var_reg >= 0) {
+            double idx = v->iterator_stack[v->iterator_depth].index;
+            regs[info->for_var_reg] = MAKE_NUMBER(idx);             // interpreter is source of truth
+        }
+    }
+
+    info->native_fn(regs);                                          // run the compiled loop
     *exit_pc = info->exit_pc;
-    return info->is_for_next ? JIT_LOOP_RAN_FOR_NEXT : JIT_LOOP_RAN_NORMAL;
+    switch (info->kind) {
+        case JIT_LOOP_NUMERIC_FOR: return JIT_LOOP_RAN_FOR_NEXT;    // vm pops iterator frame
+        case JIT_LOOP_TABLE_ITER:  return JIT_LOOP_RAN_TABLE_ITER;  // vm pops table iterator frame
+        default:                    return JIT_LOOP_RAN_NORMAL;     // plain conditional loop
+    }
 }

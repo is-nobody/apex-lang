@@ -18,6 +18,7 @@ typedef enum {
     JIT_LOOP_NOT_APPLICABLE = 0,  // not a native loop — interpreter should proceed
     JIT_LOOP_RAN_NORMAL,          // ran natively — continue at exit_pc
     JIT_LOOP_RAN_FOR_NEXT,        // ran natively — also pop iterator frame
+    JIT_LOOP_RAN_TABLE_ITER,      // ran natively — also pop table iterator frame
 } JitLoopResult;
 
 // how a compiled function returns its value, so the VM can re-tag the raw double
@@ -53,5 +54,8 @@ int jit_compiled_count(JITContext* ctx);
 
 // runs a compiled loop natively when pc matches an entry and live-in slots are numbers
 JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* exit_pc);
+
+// sets a back-pointer to the owning VM; used for numeric-for reseed
+void jit_set_vm(JITContext* ctx, void* vm);
 
 #endif

@@ -28,18 +28,49 @@ typedef struct {
     int    target_pc;  // bytecode pc that the jump should resolve to
 } JumpFixup;
 
+// loop kind: distinguishes the entry opcode family
+typedef enum {
+    JIT_LOOP_NUMERIC_FOR = 0,  // OP_FOR_NEXT entry
+    JIT_LOOP_CONDITION   = 1,  // OP_JUMP_IF_* entry
+    JIT_LOOP_TABLE_ITER  = 2,  // OP_TABLE_ITER_NEXT entry
+} JitLoopKind;
+
+// how a live-in slot is validated before the native loop runs
+typedef enum {
+    JIT_SLOT_NUM = 0,  // must satisfy IS_NUMBER
+    JIT_SLOT_TABLE,    // must be a table with usable array part
+} JitSlotKind;
+
+// table usage detected inside a numeric loop body (baseline: at most one table per loop)
+typedef struct {
+    bool used;               // any table op seen?
+    int  slot;               // register holding the table
+    int  min_count;          // required array_count (max static index accessed)
+    int  max_idx;            // for SET_INT: required array_capacity
+    bool written;            // has OP_TABLE_SET_INT
+    bool indexed_by_counter; // has OP_TABLE_GET with key == for_var_reg
+} JitTableUse;
+
 // one numeric loop detected inside a function
 typedef struct {
     int  entry_pc;      // first bytecode of the loop body
     int  back_edge_pc;  // JUMP returning to entry_pc
     int  exit_pc;       // bytecode reached when the loop exits
-    bool is_for_next;   // true if the entry opcode is FOR_NEXT
-    int  for_end_reg;   // FOR_NEXT: register holding the end bound
-    int  for_step_reg;  // FOR_NEXT: register holding the step
-    int  nregs;         // function frame size (max_registers)
+    JitLoopKind kind;   // which family of entry opcodes
+
+    int  for_var_reg;   // FOR_NEXT: counter slot; -1 otherwise
+    int  for_end_reg;   // FOR_NEXT: end bound slot; -1 otherwise
+    int  for_step_reg;  // FOR_NEXT: step slot; -1 otherwise
 
     uint64_t live_in;   // bitmask of slots read inside the loop
     uint64_t live_out;  // bitmask of slots written inside the loop
+
+    JitSlotKind live_in_kind[JIT_MAX_SLOTS];  // per-slot validation kind
+    bool        touches_tables;               // any table op seen -> NaN checks on arithmetic
+
+    JitTableUse table;  // baseline: at most one table per loop
+
+    int  nregs;         // function frame size (max_registers)
 
     void (*native_fn)(uint64_t*);  // compiled entry, NULL if emit failed
 } JitLoopInfo;
@@ -50,7 +81,7 @@ typedef struct JitBackend {
     size_t bytes_per_instruction; // upper bound used for buffer sizing
 
     bool (*emit_function)(JITContext* ctx, CodeBuf* cb, int func_idx, void** out_fn);  // emits native code for a pure function
-    bool (*emit_loop)(JITContext* ctx, CodeBuf* cb, JitLoopInfo* info);                // emits native code for a numeric loop
+    bool (*emit_loop)(JITContext* ctx, CodeBuf* cb, JitLoopInfo* info);                // emits native code for a numeric or table loop
 
     void* (*alloc_exec)(size_t size);          // os executable-memory allocation (mmap / VirtualAlloc)
     void  (*free_exec)(void* p, size_t size);  // release a region returned by alloc_exec
@@ -80,6 +111,8 @@ struct JITContext {
     int          loop_count;          // number of live entries
     int          loop_capacity;       // allocated capacity
     int*         pc_to_loop;          // code_count entries: -1 or index into loops[]
+
+    void* vm;                         // opaque VM pointer for numeric-for seeding (set via jit_set_vm)
 
     bool*      scratch_is_target;     // reusable: jump-target marks, one per bytecode pc
     int32_t*   scratch_label_off;     // reusable: emitted label offset per bytecode pc

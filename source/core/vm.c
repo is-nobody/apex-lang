@@ -1130,6 +1130,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     vm->global_count = chunk->global_count;               // number of globals to initialise
 #if APEX_JIT_ENABLED
     vm->jit = jit_create(chunk);                          // compile numeric-pure functions
+    if (vm->jit) jit_set_vm(vm->jit, vm);                 // back-pointer for numeric-for reseed
 #endif
 
     int needed_regs = chunk->functions[0].max_registers;  // registers needed by main function
@@ -1246,6 +1247,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
                 } \
                 if (_r == JIT_LOOP_RAN_FOR_NEXT) { \
                     vm->iterator_depth--; \
+                    ip = &vm->code[_exit]; \
+                    goto *dispatch_table[ip->opcode]; \
+                } \
+                if (_r == JIT_LOOP_RAN_TABLE_ITER) { \
+                    vm->table_iter_depth--; \
                     ip = &vm->code[_exit]; \
                     goto *dispatch_table[ip->opcode]; \
                 } \
@@ -1806,6 +1812,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         goto *dispatch_table[ip->opcode];        // dispatch next instruction
     }
     OP_TABLE_ITER_NEXT_LABEL: {
+        APEX_TRY_JIT_LOOP();
         int var_reg = ip->operands[0];           // register to store the key
         int exit_addr = ip->operands[2];         // address to jump when iteration ends
         TableIterState* iter = &vm->table_iters[vm->table_iter_depth];  // get current iterator state

@@ -25,6 +25,7 @@ os.execute("apex source/tests/benchmark/table_nested_access.apex")
 os.execute("apex source/tests/benchmark/temp_tables.apex")
 os.execute("apex source/tests/benchmark/nested_3d_loops.apex")
 os.execute("apex source/tests/benchmark/table_int_index.apex")
+os.execute("apex source/tests/benchmark/table_dynamic_read.apex")
 
 // matrix & arithmetic
 os.execute("apex source/tests/benchmark/matrix_multiplication.apex")
