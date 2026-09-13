@@ -48,55 +48,54 @@ typedef struct {
     void (*native_fn)(uint64_t*);  // compiled entry, NULL if emit failed
 } JitLoopInfo;
 
-// per-chunk JIT state
-struct JITContext {
-    BytecodeChunk* chunk;  // bytecode being compiled
-    int  func_count;       // number of functions in the chunk
-
-    bool*  pure;           // per-function: numeric-pure?
-    bool*  has_native;     // per-function: has native code emitted?
-    JitReturnType* return_type;  // per-function: JIT_RET_NUMBER / BOOL / NONE
-    int*   range_start;    // per-function: first bytecode pc
-    int*   range_end;      // per-function: one past last bytecode pc
-
-    void**   func_table;   // runtime slots for each compiled function
-    uint8_t* code;         // executable code buffer
-    size_t   code_size;    // size of that buffer
-
-    int compiled_count;    // number of functions successfully emitted
-
-    JitLoopInfo* loops;        // dynamic array of native loops
-    int          loop_count;   // number of live entries
-    int          loop_capacity;// allocated capacity
-    int*         pc_to_loop;   // code_count entries: -1 or index into loops[]
-
-    // reusable scratch buffers, sized once for the entire chunk,
-    // to avoid per-function calloc/malloc during emission
-    bool*      scratch_is_target;    // jump-target marks, one per bytecode pc
-    int32_t*   scratch_label_off;    // emitted label offset per bytecode pc
-    JumpFixup* scratch_fixups;       // pending jump fixups, one per bytecode pc
-    uint8_t*   scratch_code_buf;     // scratch emitter buffer for the loop fixpoint pass
-    size_t     scratch_code_buf_cap; // capacity of scratch_code_buf in bytes
-};
-
-// backend interface: one implementation per target architecture
+// backend interface, declared before JITContext so the context can hold a pointer back to it
 typedef struct JitBackend {
     const char* name;             // human-readable identifier ("x86-64")
     size_t bytes_per_instruction; // upper bound used for buffer sizing
 
-    // emit native code for a pure function; writes entry pointer into *out_fn
-    bool (*emit_function)(JITContext* ctx, CodeBuf* cb, int func_idx, void** out_fn);
+    bool (*emit_function)(JITContext* ctx, CodeBuf* cb, int func_idx, void** out_fn);  // emits native code for a pure function
+    bool (*emit_loop)(JITContext* ctx, CodeBuf* cb, JitLoopInfo* info);                // emits native code for a numeric loop
 
-    // emit native code for a numeric loop; writes entry pointer into info->native_fn
-    bool (*emit_loop)(JITContext* ctx, CodeBuf* cb, JitLoopInfo* info);
+    void* (*alloc_exec)(size_t size);          // os executable-memory allocation (mmap / VirtualAlloc)
+    void  (*free_exec)(void* p, size_t size);  // release a region returned by alloc_exec
+    bool  (*make_exec)(void* p, size_t size);  // flip rw -> rx on a region from alloc_exec
 } JitBackend;
 
-// x86-64 backend (defined in backend_x86_64.c)
+// per-chunk jit state
+struct JITContext {
+    BytecodeChunk* chunk;             // bytecode being compiled
+    int  func_count;                  // number of functions in the chunk
+
+    const JitBackend* backend;        // owning backend, used to free the code page
+
+    bool*  pure;                      // per-function: numeric-pure?
+    bool*  has_native;                // per-function: has native code emitted?
+    JitReturnType* return_type;       // per-function: JIT_RET_NUMBER / BOOL / NONE
+    int*   range_start;               // per-function: first bytecode pc
+    int*   range_end;                 // per-function: one past last bytecode pc
+
+    void**   func_table;              // runtime slots for each compiled function
+    uint8_t* code;                    // executable code buffer
+    size_t   code_size;               // size of that buffer
+
+    int compiled_count;               // number of functions successfully emitted
+
+    JitLoopInfo* loops;               // dynamic array of native loops
+    int          loop_count;          // number of live entries
+    int          loop_capacity;       // allocated capacity
+    int*         pc_to_loop;          // code_count entries: -1 or index into loops[]
+
+    bool*      scratch_is_target;     // reusable: jump-target marks, one per bytecode pc
+    int32_t*   scratch_label_off;     // reusable: emitted label offset per bytecode pc
+    JumpFixup* scratch_fixups;        // reusable: pending jump fixups, one per bytecode pc
+    uint8_t*   scratch_code_buf;      // reusable: scratch emitter buffer for the loop fixpoint pass
+    size_t     scratch_code_buf_cap;  // capacity of scratch_code_buf in bytes
+};
+
+// x86-64 backend (defined in source/jit/x86-64/x86_64.c)
 extern const JitBackend jit_backend_x86_64;
 
-// runs the full analysis pipeline on the chunk:
-// computes function ranges, purity fixpoint, bool-return flags, loop candidates.
-// returns false if there are no candidates at all.
+// runs the full analysis pipeline on the chunk: function ranges, purity fixpoint, return kinds, loop candidates
 bool jit_analyze(JITContext* ctx);
 
 // appends one byte to the code buffer

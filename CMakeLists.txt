@@ -27,7 +27,8 @@ endif()
 
 # checks if the jit backend is supported
 if(APEX_JIT_ENABLED)
-    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND APEX_HOST_ARCH STREQUAL "x86_64")
+    if(APEX_HOST_ARCH STREQUAL "x86_64" AND
+       (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR WIN32))
         set(APEX_JIT_AVAILABLE TRUE)
     else()
         set(APEX_JIT_AVAILABLE FALSE)
@@ -77,19 +78,29 @@ if(APEX_JIT_AVAILABLE)
     list(APPEND SOURCES
         source/jit/jit.c
         source/jit/jit_analysis.c
-        source/jit/backend_x86_64.c
+        source/jit/x86-64/x86_64_common.c
+        source/jit/x86-64/x86_64_emit.c
+        source/jit/x86-64/x86_64.c
     )
+
+    # exactly one ABI/OS glue file — never both
+    if(WIN32)
+        list(APPEND SOURCES source/jit/x86-64/x86_64_windows.c)
+    else()
+        list(APPEND SOURCES source/jit/x86-64/x86_64_linux.c)
+    endif()
 endif()
 
 add_executable(apex ${SOURCES})
 
 # header search paths for include from any directory
-target_include_directories(apex PRIVATE 
+target_include_directories(apex PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/source/core
     ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries
     ${CMAKE_CURRENT_SOURCE_DIR}/source/utils
     ${CMAKE_CURRENT_SOURCE_DIR}/source/jit
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/jit/x86-64
 )
 
 # propagates the JIT toggle into C preprocessor
@@ -140,7 +151,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # os-specific library linking
 if(WIN32)
-    target_link_libraries(apex PRIVATE shlwapi)
+    target_link_libraries(apex PRIVATE shlwapi ws2_32)
 elseif(APPLE)
     target_link_libraries(apex PRIVATE m z dl)
 else()

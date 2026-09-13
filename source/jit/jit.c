@@ -1,6 +1,7 @@
 // source/jit/jit.c
 // JIT core — context lifecycle, backend selection, dispatch.
-// Architecture-independent; delegates code emission to a JitBackend.
+// Architecture-independent; delegates code emission and OS memory
+// management to a JitBackend.
 // https://github.com/is-nobody/apex-lang
 // MIT license
 
@@ -11,7 +12,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <sys/mman.h>
 
 // returns the backend for the compile-target architecture, or NULL
 static const JitBackend* jit_get_backend(void) {
@@ -35,6 +35,7 @@ JITContext* jit_create(BytecodeChunk* chunk) {
     if (!ctx) return NULL;                                         // allocation failed
     ctx->chunk = chunk;                                            // remember bytecode
     ctx->func_count = chunk->func_count;                           // number of functions
+    ctx->backend = be;                                             // remember backend for cleanup
 
     int n = ctx->func_count;                                     // shorthand
     ctx->pure         = (bool*)calloc(n, sizeof(bool));          // per-fn purity
@@ -52,15 +53,15 @@ JITContext* jit_create(BytecodeChunk* chunk) {
 
     if (!jit_analyze(ctx)) { jit_destroy(ctx); return NULL; }    // purity + loops
 
+    // allocate executable memory via the backend: mmap on Linux/SysV,
+    // VirtualAlloc on Windows, etc. The returned page is RW until make_exec.
     size_t cap = (size_t)chunk->code_count * be->bytes_per_instruction + 16384;
-    ctx->code = (uint8_t*)mmap(NULL, cap, PROT_READ | PROT_WRITE,
-                               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);  // anonymous page
-    if (ctx->code == MAP_FAILED) {                               // mmap failed
-        ctx->code = NULL;                                        // clear pointer
+    ctx->code = (uint8_t*)be->alloc_exec(cap);
+    if (!ctx->code) {                                            // allocation failed
         jit_destroy(ctx);                                        // cleanup
         return NULL;
     }
-    ctx->code_size = cap;                                        // remember for munmap
+    ctx->code_size = cap;                                        // remember for free_exec
 
     // reusable scratch buffers, sized once for the entire chunk — a function
     // range and a loop range can never exceed chunk->code_count, so these are
@@ -111,8 +112,9 @@ JITContext* jit_create(BytecodeChunk* chunk) {
         }
     }
 
-    if (mprotect(ctx->code, ctx->code_size, PROT_READ | PROT_EXEC) != 0) {
-        jit_destroy(ctx);                                        // flip RW -> RX failed
+    // flip RW -> RX via the backend (mprotect on Linux, VirtualProtect on Windows)
+    if (!be->make_exec(ctx->code, ctx->code_size)) {
+        jit_destroy(ctx);                                        // flip failed
         return NULL;
     }
     __builtin___clear_cache((char*)ctx->code, (char*)ctx->code + cb.len);  // icache flush
@@ -136,7 +138,10 @@ JITContext* jit_create(BytecodeChunk* chunk) {
 // releases all resources held by the JIT context, including the code page
 void jit_destroy(JITContext* ctx) {
     if (!ctx) return;                                            // null guard
-    if (ctx->code) munmap(ctx->code, ctx->code_size);            // release executable page
+    // release the executable page through the backend that allocated it
+    if (ctx->code && ctx->backend) {
+        ctx->backend->free_exec(ctx->code, ctx->code_size);
+    }
     free(ctx->pure);                                             // free purity flags
     free(ctx->has_native);                                       // free native flags
     free(ctx->range_start);                                      // free range starts
