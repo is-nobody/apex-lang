@@ -19,7 +19,7 @@ This is the official repository for [Apex](https://github.com/is-nobody/apex-lan
 
 - **Built-in Power:** Comes with a comprehensive standard library (`os`, `sys`, `math`, `string`, `table`, `ffi`, `random`, `json`, `xml`, `csv`, `base`, `regex`, `crypto`, `zip`, `network`) out of the box.
 
-- **Performance:** Written in C with a register-based virtual machine, nan-boxing for efficient value representation, and optimized bytecode execution.
+- **Performance:** Written in C with a register-based virtual machine, NaN-boxing, optimized bytecode execution, and an x86-64 JIT compiler.
 
 - **Bundle Binaries:** Use `apex build` to compile your source to bytecode and embed it with the interpreter for instant startup.
 

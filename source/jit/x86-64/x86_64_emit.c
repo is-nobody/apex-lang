@@ -983,7 +983,7 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
     return true;                                             // emission successful
 }
 
-// emits native code for a table iteration loop (`for v = t`)
+// emits native code for a table iteration loop (for v in t)
 static bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
                                          CodeBuf* cb, JitLoopInfo* info) {
     BytecodeChunk* chunk = ctx->chunk;
