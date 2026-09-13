@@ -269,6 +269,7 @@ static void get_dos_time(const char* filename, uint16_t* dos_date, uint16_t* dos
 
 // get file permissions
 static uint32_t get_file_attrs(const char* filename) {
+    (void)filename;                                     // attrs are not read from the path on windows
 #ifdef _WIN32
     return 0;                                           // no unix perms on windows
 #else

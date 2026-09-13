@@ -8,13 +8,37 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <netdb.h>
+
+#if defined(_WIN32) || defined(_WIN64)
+  #include <winsock2.h>
+  #include <ws2tcpip.h>
+  typedef int socklen_t;                 // winsock uses int for socklen_t
+  #define CLOSE_SOCK(s) closesocket(s)   // posix name -> winsock name
+#else
+  #include <unistd.h>
+  #include <sys/socket.h>
+  #include <netinet/in.h>
+  #include <arpa/inet.h>
+  #include <netdb.h>
+  #define CLOSE_SOCK(s) close(s)
+#endif
 
 #define HTTP_MAX_RESPONSE (16 * 1024 * 1024)  // hard cap on response size to avoid runaway allocation
+
+#if defined(_WIN32) || defined(_WIN64)
+static bool winsock_ready = false;             // winsock startup guard
+
+// initializes winsock once before the first socket call
+static void ensure_winsock(void) {
+    if (winsock_ready) return;
+    WSADATA wsa;
+    WSAStartup(MAKEWORD(2, 2), &wsa);
+    winsock_ready = true;
+}
+#else
+// no-op on posix platforms
+static inline void ensure_winsock(void) {}
+#endif
 
 // growable byte buffer for building requests and holding responses
 typedef struct {
@@ -90,7 +114,7 @@ static int net_connect(const char* host, int port) {
     struct hostent* he = gethostbyname(host);                     // resolve hostname to ipv4
     if (!he) return -1;                                           // dns failure
 
-    int sock = socket(AF_INET, SOCK_STREAM, 0);                   // create tcp socket
+    int sock = (int)socket(AF_INET, SOCK_STREAM, 0);              // create tcp socket
     if (sock < 0) return -1;                                      // socket creation failed
 
     struct sockaddr_in addr;                                      // destination address
@@ -100,7 +124,7 @@ static int net_connect(const char* host, int port) {
     memcpy(&addr.sin_addr, he->h_addr_list[0], he->h_length);     // copy first resolved ip
 
     if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) != 0) {  // attempt connection
-        close(sock);                                              // close on failure
+        CLOSE_SOCK(sock);                                         // close on failure
         return -1;
     }
     return sock;                                                  // return connected socket
@@ -110,7 +134,7 @@ static int net_connect(const char* host, int port) {
 static bool net_send_all(int sock, const char* data, int len) {
     int sent = 0;                                                 // bytes successfully sent
     while (sent < len) {                                          // loop until fully sent
-        int n = (int)send(sock, data + sent, len - sent, 0);      // send remaining bytes
+        int n = send(sock, data + sent, len - sent, 0);           // send remaining bytes
         if (n <= 0) return false;                                 // error or connection closed
         sent += n;                                                // advance progress
     }
@@ -121,7 +145,7 @@ static bool net_send_all(int sock, const char* data, int len) {
 static bool net_recv_all(int sock, NetBuffer* nb) {
     char chunk[8192];                                             // receive scratch buffer
     int n;                                                        // bytes received per call
-    while ((n = (int)recv(sock, chunk, sizeof(chunk), 0)) > 0) {  // loop until peer closes
+    while ((n = recv(sock, chunk, sizeof(chunk), 0)) > 0) {       // loop until peer closes
         if (nb->length + n > HTTP_MAX_RESPONSE) return false;     // refuse oversized response
         nb_append(nb, chunk, n);                                  // append received bytes
     }
@@ -185,7 +209,7 @@ static Value http_request(VM* vm, const char* url, const char* method,
 
     if (!net_send_all(sock, req.buffer, req.length)) {            // send full request
         nb_free(&req);                                            // free request buffer
-        close(sock);                                              // close socket
+        CLOSE_SOCK(sock);                                         // close socket
         return MAKE_NONE();                                       // send failed
     }
     nb_free(&req);                                                // free request buffer
@@ -194,10 +218,10 @@ static Value http_request(VM* vm, const char* url, const char* method,
     nb_init(&resp, 4096);                                         // start with 4k
     if (!net_recv_all(sock, &resp)) {                             // read full response
         nb_free(&resp);                                           // free response buffer
-        close(sock);                                              // close socket
+        CLOSE_SOCK(sock);                                         // close socket
         return MAKE_NONE();                                       // receive failed
     }
-    close(sock);                                                  // done with socket
+    CLOSE_SOCK(sock);                                             // done with socket
 
     int status = parse_status(resp.buffer);                       // extract status code
     int body_len = 0;                                             // response body length
@@ -223,6 +247,8 @@ static Value http_request(VM* vm, const char* url, const char* method,
 
 // dispatch network builtin calls by name
 bool network_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
+    ensure_winsock();                                         // init winsock once on windows
+
     if (strcmp(name, "network.get") == 0) {                  // http get
         if (arg_count < 1 || !IS_STRING(args[0])) {               // require url string
             *result = MAKE_NONE();                                // invalid args, return none
