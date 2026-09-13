@@ -272,8 +272,12 @@ static bool emit_function(JITContext* ctx, CodeBuf* cb, int func_idx, void** out
     if (cb->len + (size_t)range_size * 256 + 512 > cb->cap)      // conservative size check
         return false;
 
-    bool* is_target = (bool*)calloc(range_size, sizeof(bool));   // jump-target marks
-    if (!is_target) return false;                                // allocation failed
+    bool* is_target = ctx->scratch_is_target;                    // shared jump-target marks
+    int32_t* label_off = ctx->scratch_label_off;                 // shared label offset array
+    JumpFixup* fixups  = ctx->scratch_fixups;                    // shared jump fixup array
+    if (!is_target || !label_off || !fixups) return false;       // scratch not available
+
+    memset(is_target, 0, range_size * sizeof(bool));             // clear jump-target marks
     for (int pc = start; pc < end; pc++) {                       // collect jump targets
         Opcode op = chunk->code[pc].opcode;
         if (op == OP_JUMP || op == OP_JUMP_IF_FALSE ||
@@ -286,12 +290,6 @@ static bool emit_function(JITContext* ctx, CodeBuf* cb, int func_idx, void** out
         }
     }
 
-    int32_t* label_off = (int32_t*)malloc(sizeof(int32_t) * range_size);     // label offsets
-    JumpFixup* fixups  = (JumpFixup*)malloc(sizeof(JumpFixup) * range_size); // pending jumps
-    if (!label_off || !fixups) {                                 // allocation failed
-        free(is_target); free(label_off); free(fixups);
-        return false;
-    }
     for (int i = 0; i < range_size; i++) label_off[i] = -1;      // no label emitted yet
     int fixup_count = 0;                                         // pending jumps count
 
@@ -740,7 +738,6 @@ static bool emit_function(JITContext* ctx, CodeBuf* cb, int func_idx, void** out
         JumpFixup* fx = &fixups[i];
         int tidx = fx->target_pc - start;                        // index within range
         if (tidx < 0 || tidx >= range_size || label_off[tidx] < 0) {
-            free(is_target); free(label_off); free(fixups);      // free analysis arrays
             cb->len = mark;                                      // rollback partial emission
             return false;                                        // invalid target
         }
@@ -748,9 +745,6 @@ static bool emit_function(JITContext* ctx, CodeBuf* cb, int func_idx, void** out
         memcpy(cb->buf + fx->patch_at, &rel, 4);                 // write rel32
     }
 
-    free(is_target);                                             // release target marks
-    free(label_off);                                             // release label array
-    free(fixups);                                                // release fixup array
     *out_fn = (void*)(cb->buf + mark);                           // publish entry pointer
     return true;                                                 // emission successful
 }
@@ -967,9 +961,9 @@ static bool emit_loop(JITContext* ctx, CodeBuf* cb, JitLoopInfo* info) {
     }
 
     // fixpoint pass in a scratch buffer to compute the steady-state cache
-    size_t scratch_size = (size_t)range_size * 256 + 1024;
-    uint8_t* scratch_buf = (uint8_t*)malloc(scratch_size);
-    if (!scratch_buf) return false;
+    uint8_t* scratch_buf = ctx->scratch_code_buf;                // shared scratch buffer
+    size_t scratch_size  = ctx->scratch_code_buf_cap;
+    if (!scratch_buf || scratch_size < (size_t)range_size * 256 + 1024) return false;
     CodeBuf scratch = { scratch_buf, 0, scratch_size };
 
     XmmCache cache_start;
@@ -979,11 +973,10 @@ static bool emit_loop(JITContext* ctx, CodeBuf* cb, JitLoopInfo* info) {
         XmmCache cache = cache_start;
         scratch.len = 0;
         size_t patch = emit_loop_iteration(ctx, &scratch, &cache, info, const_slot, iter_in_xmm);
-        if (patch == (size_t)-1) { free(scratch_buf); return false; }
+        if (patch == (size_t)-1) return false;
         if (xmm_cache_eq(&cache, &cache_start)) { converged = true; break; }
         cache_start = cache;
     }
-    free(scratch_buf);
     if (!converged) return false;
 
     // real emit

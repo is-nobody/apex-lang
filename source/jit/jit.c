@@ -62,6 +62,21 @@ JITContext* jit_create(BytecodeChunk* chunk) {
     }
     ctx->code_size = cap;                                        // remember for munmap
 
+    // reusable scratch buffers, sized once for the entire chunk — a function
+    // range and a loop range can never exceed chunk->code_count, so these are
+    // guaranteed to be large enough for every emit_function / emit_loop call
+    int code_count = chunk->code_count;
+    ctx->scratch_is_target = (bool*)calloc(code_count, sizeof(bool));
+    ctx->scratch_label_off = (int32_t*)malloc(sizeof(int32_t) * code_count);
+    ctx->scratch_fixups    = (JumpFixup*)malloc(sizeof(JumpFixup) * code_count);
+    ctx->scratch_code_buf_cap = (size_t)code_count * be->bytes_per_instruction + 1024;
+    ctx->scratch_code_buf  = (uint8_t*)malloc(ctx->scratch_code_buf_cap);
+    if (!ctx->scratch_is_target || !ctx->scratch_label_off ||
+        !ctx->scratch_fixups || !ctx->scratch_code_buf) {
+        jit_destroy(ctx);                                        // cleanup on failure
+        return NULL;
+    }
+
     CodeBuf cb = { ctx->code, 0, cap };                          // code emission state
 
     for (int i = 0; i < n; i++) {                                // emit each pure fn
@@ -130,6 +145,10 @@ void jit_destroy(JITContext* ctx) {
     free(ctx->return_type);                                      // free return-kind table
     free(ctx->loops);                                            // free loop info array
     free(ctx->pc_to_loop);                                       // free pc->loop lookup
+    free(ctx->scratch_is_target);                                // free shared jump-target marks
+    free(ctx->scratch_label_off);                                // free shared label offsets
+    free(ctx->scratch_fixups);                                   // free shared jump fixups
+    free(ctx->scratch_code_buf);                                 // free shared scratch emitter
     free(ctx);                                                   // free context itself
 }
 

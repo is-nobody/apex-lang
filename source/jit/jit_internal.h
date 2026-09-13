@@ -69,6 +69,14 @@ struct JITContext {
     int          loop_count;   // number of live entries
     int          loop_capacity;// allocated capacity
     int*         pc_to_loop;   // code_count entries: -1 or index into loops[]
+
+    // reusable scratch buffers, sized once for the entire chunk,
+    // to avoid per-function calloc/malloc during emission
+    bool*      scratch_is_target;    // jump-target marks, one per bytecode pc
+    int32_t*   scratch_label_off;    // emitted label offset per bytecode pc
+    JumpFixup* scratch_fixups;       // pending jump fixups, one per bytecode pc
+    uint8_t*   scratch_code_buf;     // scratch emitter buffer for the loop fixpoint pass
+    size_t     scratch_code_buf_cap; // capacity of scratch_code_buf in bytes
 };
 
 // backend interface: one implementation per target architecture
