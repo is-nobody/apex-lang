@@ -75,6 +75,7 @@ static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
             case OP_CMP_EQ:     case OP_CMP_NEQ:                 // generic compares
             case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
             case OP_RETURN: case OP_RETURN_NUM:                  // returns
+            case OP_RETURN_NONE:                                 // incl. implicit none
                 break;                                           // always allowed
 
             case OP_LOAD_NUM: {                                  // only numeric constants
@@ -105,15 +106,17 @@ static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
     return true;
 }
 
-// checks if every return site in a function yields a boolean value
+// infers how a function returns its value; returns false on mixed kinds
 #define JIT_MAX_REGS_SCAN 512
 
-static bool infer_returns_bool(BytecodeChunk* chunk, int start, int end) {
+static bool infer_return_type(BytecodeChunk* chunk, int start, int end,
+                              JitReturnType* out) {
     bool is_bool[JIT_MAX_REGS_SCAN];                             // bool-flag per register
     memset(is_bool, 0, sizeof(is_bool));                         // no regs are bool initially
 
-    bool any_bool = false;                                       // saw at least one bool return
-    bool any_num  = false;                                       // saw at least one num return
+    bool any_bool = false;                                       // saw a bool RETURN
+    bool any_num  = false;                                       // saw a numeric RETURN
+    bool any_none = false;                                       // saw a RETURN_NONE
 
     for (int pc = start; pc < end; pc++) {                       // walk the function body
         Instruction* inst = &chunk->code[pc];
@@ -140,20 +143,30 @@ static bool infer_returns_bool(BytecodeChunk* chunk, int start, int end) {
                 if (d < JIT_MAX_REGS_SCAN) is_bool[d] = false;   // dest is not bool
                 break;
 
-            case OP_RETURN:                                      // record return site's kind
-                if (d < JIT_MAX_REGS_SCAN && is_bool[d]) any_bool = true;    // bool return
-                else                                     any_num  = true;    // numeric return
+            case OP_RETURN:                                      // return kind depends on reg
+                if (d < JIT_MAX_REGS_SCAN && is_bool[d]) any_bool = true;
+                else                                     any_num  = true;
                 break;
 
             case OP_RETURN_NUM:                                  // explicitly numeric
-                any_num = true;                                  // mark as numeric
+                any_num = true;
+                break;
+
+            case OP_RETURN_NONE:                                 // explicitly none
+                any_none = true;
                 break;
 
             default: break;                                      // other ops don't matter
         }
     }
 
-    return any_bool && !any_num;                                 // all returns are bool
+    int kinds = (any_bool ? 1 : 0) + (any_num ? 1 : 0) + (any_none ? 1 : 0);
+    if (kinds != 1) return false;                                // mixed or no return -> reject
+
+    *out = any_none ? JIT_RET_NONE
+         : any_bool ? JIT_RET_BOOL
+                    : JIT_RET_NUMBER;
+    return true;
 }
 
 // checks if an opcode can start a native loop
@@ -329,10 +342,12 @@ bool jit_analyze(JITContext* ctx) {
         }
     }
 
-    for (int i = 1; i < n; i++) {                                // bool-return detection
+    for (int i = 1; i < n; i++) {                                // return-type detection
         if (!ctx->pure[i]) continue;                             // skip non-pure
-        ctx->returns_bool[i] = infer_returns_bool(
-            chunk, ctx->range_start[i], ctx->range_end[i]);      // scan this function
+        if (!infer_return_type(chunk, ctx->range_start[i], ctx->range_end[i],
+                               &ctx->return_type[i])) {
+            ctx->pure[i] = false;                                // mixed return -> reject
+        }
     }
 
     for (int i = 1; i < n; i++) {                                // loop detection for non-pure fns

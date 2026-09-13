@@ -55,7 +55,7 @@ struct JITContext {
 
     bool*  pure;           // per-function: numeric-pure?
     bool*  has_native;     // per-function: has native code emitted?
-    bool*  returns_bool;   // per-function: return type is bool?
+    JitReturnType* return_type;  // per-function: JIT_RET_NUMBER / BOOL / NONE
     int*   range_start;    // per-function: first bytecode pc
     int*   range_end;      // per-function: one past last bytecode pc
 

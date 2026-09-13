@@ -20,6 +20,13 @@ typedef enum {
     JIT_LOOP_RAN_FOR_NEXT,        // ran natively — also pop iterator frame
 } JitLoopResult;
 
+// how a compiled function returns its value, so the VM can re-tag the raw double
+typedef enum {
+    JIT_RET_NUMBER = 0,  // plain number — MAKE_NUMBER(r)
+    JIT_RET_BOOL,        // boolean — MAKE_BOOL(r != 0.0)
+    JIT_RET_NONE,        // none — MAKE_NONE(), r is ignored
+} JitReturnType;
+
 // analyses the chunk and builds a JIT context, or returns NULL
 JITContext* jit_create(BytecodeChunk* chunk);
 
@@ -29,8 +36,8 @@ void jit_destroy(JITContext* ctx);
 // returns true if function `func_idx` has a native implementation
 bool jit_has_native(JITContext* ctx, int func_idx);
 
-// returns true if function `func_idx` was inferred to return a bool
-bool jit_returns_bool(JITContext* ctx, int func_idx);
+// returns how function `func_idx` returns its value (number, bool, or none)
+JitReturnType jit_return_type(JITContext* ctx, int func_idx);
 
 // invokes a compiled function taking no arguments
 double jit_call_0(JITContext* ctx, int func_idx);

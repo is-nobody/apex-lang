@@ -714,6 +714,15 @@ static bool emit_function(JITContext* ctx, CodeBuf* cb, int func_idx, void** out
                 did_flush = true;                                // suppress merge flush
                 break;
             }
+            case OP_RETURN_NONE: {                               // return none, no value
+                emit_u8(cb, 0x66); emit_u8(cb, 0x0F);
+                emit_u8(cb, 0x57); emit_u8(cb, 0xC0);            // xorpd xmm0, xmm0
+                emit_u8(cb, 0xC9);                               // leave
+                emit_u8(cb, 0xC3);                               // ret
+                xmm_cache_clear(&cache);                         // clear state on exit
+                did_flush = true;                                // suppress merge flush
+                break;
+            }
             default:                                             // unreachable in pure fn
                 emit_return_zero(cb);                            // safe fallback
                 break;

@@ -1108,6 +1108,17 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
     return false;                                // not a recognized builtin
 }
 
+#if APEX_JIT_ENABLED
+// wraps a raw jit return value into a tagged vm value based on the function's return kind
+static inline Value jit_box_return(JITContext* jit, int func_idx, double r) {
+    switch (jit_return_type(jit, func_idx)) {
+        case JIT_RET_BOOL: return MAKE_BOOL(r != 0.0);           // bool tag
+        case JIT_RET_NONE: return MAKE_NONE();                   // none tag, r ignored
+        default:           return MAKE_NUMBER(r);                // plain number
+    }
+}
+#endif
+
 // main execution loop with direct threaded dispatch for performance
 bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     if (!vm || !chunk) return false;                      // validate arguments
@@ -2120,9 +2131,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         if (vm->jit && jit_has_native(vm->jit, func_idx)) {
             double r = jit_call_0(vm->jit, func_idx);
             value_decref(regs[dest_reg]);
-            regs[dest_reg] = jit_returns_bool(vm->jit, func_idx)
-                        ? MAKE_BOOL(r != 0.0)
-                        : MAKE_NUMBER(r);
+            regs[dest_reg] = jit_box_return(vm->jit, func_idx, r);
             ip++; goto *dispatch_table[ip->opcode];
         }
 #endif
@@ -2166,9 +2175,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             if (IS_NUMBER(av)) {
                 double r = jit_call_1(vm->jit, func_idx, AS_NUMBER(av));
                 value_decref(regs[dest_reg]);
-                regs[dest_reg] = jit_returns_bool(vm->jit, func_idx)
-                            ? MAKE_BOOL(r != 0.0)
-                            : MAKE_NUMBER(r);
+                regs[dest_reg] = jit_box_return(vm->jit, func_idx, r);
                 ip++; goto *dispatch_table[ip->opcode];
             }
         }
@@ -2218,9 +2225,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
                 double r = jit_call_2(vm->jit, func_idx,
                                     AS_NUMBER(a1), AS_NUMBER(a2));
                 value_decref(regs[dest_reg]);
-                regs[dest_reg] = jit_returns_bool(vm->jit, func_idx)
-                            ? MAKE_BOOL(r != 0.0)
-                            : MAKE_NUMBER(r);
+                regs[dest_reg] = jit_box_return(vm->jit, func_idx, r);
                 ip++; goto *dispatch_table[ip->opcode];
             }
         }

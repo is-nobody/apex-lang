@@ -42,10 +42,10 @@ JITContext* jit_create(BytecodeChunk* chunk) {
     ctx->range_start  = (int*) calloc(n, sizeof(int));           // per-fn pc start
     ctx->range_end    = (int*) calloc(n, sizeof(int));           // per-fn pc end
     ctx->func_table   = (void**)calloc(n, sizeof(void*));        // per-fn runtime slot
-    ctx->returns_bool = (bool*)calloc(n, sizeof(bool));          // per-fn bool flag
+    ctx->return_type = (JitReturnType*)calloc(n, sizeof(JitReturnType));  // per-fn bool flag
 
     if (!ctx->pure || !ctx->has_native || !ctx->range_start ||   // verify allocations
-        !ctx->range_end || !ctx->func_table || !ctx->returns_bool) {
+        !ctx->range_end || !ctx->func_table || !ctx->return_type) {
         jit_destroy(ctx);                                        // cleanup on failure
         return NULL;
     }
@@ -127,7 +127,7 @@ void jit_destroy(JITContext* ctx) {
     free(ctx->range_start);                                      // free range starts
     free(ctx->range_end);                                        // free range ends
     free(ctx->func_table);                                       // free runtime slots
-    free(ctx->returns_bool);                                     // free bool flags
+    free(ctx->return_type);                                      // free return-kind table
     free(ctx->loops);                                            // free loop info array
     free(ctx->pc_to_loop);                                       // free pc->loop lookup
     free(ctx);                                                   // free context itself
@@ -139,10 +139,10 @@ bool jit_has_native(JITContext* ctx, int func_idx) {
     return ctx->has_native[func_idx];                            // true if code was emitted
 }
 
-// returns true if function `func_idx` was inferred to return a bool
-bool jit_returns_bool(JITContext* ctx, int func_idx) {
-    if (!ctx || func_idx < 0 || func_idx >= ctx->func_count) return false;  // validate args
-    return ctx->returns_bool[func_idx];                          // true if returns bool
+// returns how function `func_idx` returns its value (number, bool, or none)
+JitReturnType jit_return_type(JITContext* ctx, int func_idx) {
+    if (!ctx || func_idx < 0 || func_idx >= ctx->func_count) return JIT_RET_NUMBER;  // fallback
+    return ctx->return_type[func_idx];                           // declared return kind
 }
 
 // invokes a compiled function taking no arguments
