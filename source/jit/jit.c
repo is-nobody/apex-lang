@@ -1,7 +1,5 @@
 // source/jit/jit.c
-// JIT core — context lifecycle, backend selection, dispatch.
-// Architecture-independent; delegates code emission and OS memory
-// management to a JitBackend.
+// Implementation of JIT core for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
 

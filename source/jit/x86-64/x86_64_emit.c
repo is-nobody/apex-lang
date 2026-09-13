@@ -1,5 +1,5 @@
 // source/jit/x86-64/x86_64_emit.c
-// x86-64 function and loop emitters, parameterised by an abi descriptor.
+// Implementation of x86-64 function and loop emitters for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
 

@@ -1,5 +1,5 @@
 // source/jit/x86-64/x86_64_common.h
-// shared x86-64 sse emitters and XmmCache. no abi/os assumptions here.
+// Implementation of shared x86-64 SSE emitters and XmmCache for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
 

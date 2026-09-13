@@ -1,7 +1,5 @@
 // source/jit/x86-64/x86_64_windows.c
-// microsoft x64 (win64) abi. uses VirtualAlloc/VirtualProtect.
-// differs from sysv: first pointer arg arrives in rcx (not rdi), 32 bytes
-// of shadow space are reserved before every call, xmm6/xmm7 are non-volatile.
+// Implementation of Microsoft x64 (Win64) ABI backend for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
 

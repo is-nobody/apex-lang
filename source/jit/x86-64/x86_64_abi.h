@@ -1,6 +1,5 @@
 // source/jit/x86-64/x86_64_abi.h
-// abi descriptor: everything the emitters need that differs between
-// sysv (linux/bsd) and microsoft x64 calling conventions.
+// Implementation of ABI descriptor for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
 
@@ -11,8 +10,8 @@
 
 typedef struct X86_64Abi {
     const char* name;                             // human-readable identifier ("x86-64 sysv")
-    int frame_reg;                                // modrm base register holding the Value* / uint64_t* frame (sysv: X86_RDI, win64: X86_RCX)
-    int frame_extra;                              // bytes reserved beneath the register slots (sysv: 0, win64: 48 = 16 saved xmm6/xmm7 + 32 shadow space)
+    int frame_reg;                                // modrm base register holding the Value* / uint64_t* frame (sysv/macos: X86_RDI, win64: X86_RCX)
+    int frame_extra;                              // bytes reserved beneath the register slots (sysv/macos: 0, win64: 48 = 16 saved xmm6/xmm7 + 32 shadow space)
     void (*emit_prologue_saves)(CodeBuf* cb, int base_frame);     // non-volatile register saves; base_frame is aligned offset from rbp
     void (*emit_epilogue_restores)(CodeBuf* cb, int base_frame);  // non-volatile register restores, emitted before leave; ret
     void* (*os_alloc_exec)(size_t size);          // os executable-memory allocation (mmap / VirtualAlloc)
@@ -21,6 +20,7 @@ typedef struct X86_64Abi {
 } X86_64Abi;
 
 extern const X86_64Abi x86_64_abi_sysv;
+extern const X86_64Abi x86_64_abi_macos;
 extern const X86_64Abi x86_64_abi_win64;
 
 // returns the abi instance matching the current compilation target

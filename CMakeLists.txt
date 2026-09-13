@@ -14,25 +14,24 @@ set(CMAKE_C_EXTENSIONS ON)
 # enables the numeric-pure jit
 option(APEX_JIT_ENABLED "Enable the JIT compiler" ON)
 
-# detects host architecture in a portable way
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
+# normalizes the target cpu name into a short arch tag
+string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" APEX_PROC_LOWER)
+if(APEX_PROC_LOWER MATCHES "^(x86_64|amd64)")
     set(APEX_HOST_ARCH "x86_64")
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
+elseif(APEX_PROC_LOWER MATCHES "^(aarch64|arm64)")
     set(APEX_HOST_ARCH "aarch64")
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "i[3-6]86|x86")
+elseif(APEX_PROC_LOWER MATCHES "^(i[3-6]86|x86)")
     set(APEX_HOST_ARCH "x86")
 else()
-    set(APEX_HOST_ARCH "${CMAKE_SYSTEM_PROCESSOR}")
+    set(APEX_HOST_ARCH "${APEX_PROC_LOWER}")
 endif()
 
-# checks if the jit backend is supported
-if(APEX_JIT_ENABLED)
-    if(APEX_HOST_ARCH STREQUAL "x86_64" AND
-       (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR WIN32))
-        set(APEX_JIT_AVAILABLE TRUE)
-    else()
-        set(APEX_JIT_AVAILABLE FALSE)
-    endif()
+# checks if the jit backend is supported on this target
+if(APEX_JIT_ENABLED AND APEX_HOST_ARCH STREQUAL "x86_64" AND
+   (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
+    CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR
+    WIN32))
+    set(APEX_JIT_AVAILABLE TRUE)
 else()
     set(APEX_JIT_AVAILABLE FALSE)
 endif()
@@ -83,9 +82,10 @@ if(APEX_JIT_AVAILABLE)
         source/jit/x86-64/x86_64.c
     )
 
-    # exactly one ABI/OS glue file — never both
     if(WIN32)
         list(APPEND SOURCES source/jit/x86-64/x86_64_windows.c)
+    elseif(APPLE)
+        list(APPEND SOURCES source/jit/x86-64/x86_64_macos.c)
     else()
         list(APPEND SOURCES source/jit/x86-64/x86_64_linux.c)
     endif()

@@ -1,6 +1,5 @@
 // source/jit/jit_analysis.c
-// Purity, function ranges, loop detection, bool-return inference.
-// Works purely on the bytecode — no architecture assumptions here.
+// Implementation of JIT analysis pass for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
 

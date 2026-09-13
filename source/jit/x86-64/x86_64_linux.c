@@ -1,5 +1,5 @@
 // source/jit/x86-64/x86_64_linux.c
-// sysv x86-64 abi (linux/bsd). uses mmap/mprotect for executable memory.
+// Implementation of SysV x86-64 ABI backend for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
 

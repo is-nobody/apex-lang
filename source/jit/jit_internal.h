@@ -1,9 +1,5 @@
 // source/jit/jit_internal.h
-// Shared types between the JIT core, the analysis pass, and arch backends.
-// To add a new architecture:
-//   1. implement jit_backend_<arch> in backend_<arch>.c
-//   2. select it in jit_get_backend() inside jit.c
-//   3. add the source file to CMakeLists.txt
+// Implementation of shared JIT internal types for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
 

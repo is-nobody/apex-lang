@@ -1,7 +1,5 @@
 // source/jit/x86-64/x86_64.c
-// x86-64 jit backend glue: picks the abi for the target os at compile time.
-// only one of x86_64_linux.c / x86_64_windows.c is linked in by cmake,
-// so the #if below must match the file cmake selected.
+// Implementation of x86-64 JIT backend glue for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
 
@@ -10,7 +8,10 @@
 #if defined(_WIN32) || defined(_WIN64)
   extern const X86_64Abi x86_64_abi_win64;
   #define APEX_X86_64_ABI (&x86_64_abi_win64)
-#elif defined(__linux__) || defined(__unix__) || defined(__APPLE__)
+#elif defined(__APPLE__)
+  extern const X86_64Abi x86_64_abi_macos;
+  #define APEX_X86_64_ABI (&x86_64_abi_macos)
+#elif defined(__linux__) || defined(__unix__)
   extern const X86_64Abi x86_64_abi_sysv;
   #define APEX_X86_64_ABI (&x86_64_abi_sysv)
 #else

@@ -1,5 +1,5 @@
 // source/jit/x86-64/x86_64_common.c
-// XmmCache state machine. shared across all x86-64 os/abi variants.
+// Implementation of XmmCache state machine for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
 

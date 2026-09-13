@@ -1,5 +1,5 @@
 // source/jit/jit.h
-// Self-contained x86-64 JIT for Apex numeric-pure functions.
+// Implementation of JIT public API for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
 
