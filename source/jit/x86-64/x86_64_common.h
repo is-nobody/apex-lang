@@ -71,6 +71,12 @@ static inline void x86_emit_movsd_store_base(CodeBuf* b, int base, int xmm, int3
     emit_i32(b, disp);                                     // displacement
 }
 
+static inline void x86_emit_movsd_store_idx8(CodeBuf* b, int base, int index, int xmm) {
+    emit_u8(b, 0xF2); emit_u8(b, 0x0F); emit_u8(b, 0x11);
+    emit_u8(b, ((xmm & 7) << 3) | 0x04);                    // modrm: mod=00, rm=SIB
+    emit_u8(b, (3 << 6) | ((index & 7) << 3) | (base & 7)); // sib: scale=8
+}
+
 // emits <op>sd xmm_dst, [rbp+disp32] — scalar-double op with memory source
 static inline void x86_emit_sse_arith_mem(CodeBuf* b, uint8_t op,
                                            int xmm_dst, int32_t disp) {

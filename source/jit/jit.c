@@ -202,6 +202,17 @@ static bool live_in_slot_ok(Value v, JitSlotKind kind, JitTableUse* use) {
     if (use->written && t->array_capacity < use->max_idx) return false;  // set would grow the array
     return true;
 }
+// ensures t->array_part has capacity for `end` slots and array_count >= end;
+// uses table_set_int on the last slot so existing entries are preserved (the
+// slot at end-1 is only touched when it is already NONE / freshly grown)
+static bool counter_write_prepare(Table* t, int end) {
+    if (!t || end < 1) return false;
+    if (end > t->array_count) {
+        table_set_int(t, end - 1, MAKE_NONE());
+        if (t->array_count < end) return false;   // allocation failed
+    }
+    return true;
+}
 
 // runs a compiled loop natively if its entry pc matches and all guards pass
 JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* exit_pc) {
@@ -212,11 +223,19 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* 
     JitLoopInfo* info = &ctx->loops[li];
     if (!info->native_fn) return JIT_LOOP_NOT_APPLICABLE;           // emit failed, no native code
 
+    // counter-indexed writes grow the array themselves; the table slot's
+    // live_in check would otherwise reject fresh / undersized arrays
+    bool counter_write =
+        info->kind == JIT_LOOP_NUMERIC_FOR &&
+        info->table.written && info->table.indexed_by_counter;
+    int table_slot = info->table.used ? info->table.slot : -1;
+
     uint64_t m = info->live_in;
     while (m) {                                                     // validate every live-in slot
         int s = __builtin_ctzll(m);
         m &= m - 1;
         if (s >= 64) return JIT_LOOP_NOT_APPLICABLE;                // slot beyond tracking range
+        if (counter_write && s == table_slot) continue;             // handled explicitly below
         if (!live_in_slot_ok(regs[s], info->live_in_kind[s], &info->table)) {
             return JIT_LOOP_NOT_APPLICABLE;                         // wrong type or table shape
         }
@@ -234,18 +253,34 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* 
         if (step  != (double)(long long)step)  return JIT_LOOP_NOT_APPLICABLE;  // step must be integer
         if (end   != (double)(long long)end)   return JIT_LOOP_NOT_APPLICABLE;  // end must be integer
         if (start < 1) return JIT_LOOP_NOT_APPLICABLE;                          // keys are 1-based
-        Table* t = AS_TABLE(regs[info->table.slot]);
-        if (end > (double)t->array_count) return JIT_LOOP_NOT_APPLICABLE;       // counter would index past array
+        if (start > end) return JIT_LOOP_NOT_APPLICABLE;                        // zero-iteration loop
+        if (end > 2147483647.0) return JIT_LOOP_NOT_APPLICABLE;                 // array index range
+
+        Value tv = regs[info->table.slot];
+        if (!IS_TABLE(tv)) return JIT_LOOP_NOT_APPLICABLE;
+        Table* t = AS_TABLE(tv);
+
+        if (info->table.written) {
+            // grow + bump count up-front so the native loop can write directly
+            // into array_part without realloc and later reads see the entries
+            if (!counter_write_prepare(t, (int)end)) return JIT_LOOP_NOT_APPLICABLE;
+        } else {
+            // counter-indexed read: every read must land on a populated slot
+            if (t->array_part == NULL) return JIT_LOOP_NOT_APPLICABLE;
+            if (end > (double)t->array_count) return JIT_LOOP_NOT_APPLICABLE;
+        }
     }
 
     if (info->kind == JIT_LOOP_TABLE_ITER) {
-        Table* t = AS_TABLE(regs[info->table.slot]);
+        Value tv = regs[info->table.slot];
+        if (!IS_TABLE(tv)) return JIT_LOOP_NOT_APPLICABLE;
+        Table* t = AS_TABLE(tv);
         if (t->array_count <= 0) return JIT_LOOP_NOT_APPLICABLE;    // nothing to iterate
     }
 
     if (getenv("APEX_JIT_TRACE")) {                                 // debug dump of live-in slots
-        fprintf(stderr, "[loop pc=%d kind=%d live_in=%llx]\n",
-                pc, info->kind, (unsigned long long)info->live_in);
+        fprintf(stderr, "[loop pc=%d kind=%d live_in=%llx counter_write=%d]\n",
+                pc, info->kind, (unsigned long long)info->live_in, counter_write);
         for (int s = 0; s < 32; s++) {
             if (info->live_in & (1ULL << s)) {
                 fprintf(stderr, "  slot %d = 0x%016llx type=%d table_p=%p count=%d\n",
@@ -266,6 +301,20 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* 
 
     info->native_fn(regs);                                          // run the compiled loop
     *exit_pc = info->exit_pc;
+
+    // the native loop wrote directly into array_part and never touched
+    // array_count; sync it so later interpreter / JIT reads see the entries
+    if (counter_write && table_slot >= 0) {
+        Value tv = regs[table_slot];
+        if (IS_TABLE(tv)) {
+            Table* t = AS_TABLE(tv);
+            if (t->array_part) {
+                int last = (int)AS_NUMBER(regs[info->for_var_reg]);
+                if (last > t->array_count) t->array_count = last;
+            }
+        }
+    }
+
     switch (info->kind) {
         case JIT_LOOP_NUMERIC_FOR: return JIT_LOOP_RAN_FOR_NEXT;    // vm pops iterator frame
         case JIT_LOOP_TABLE_ITER:  return JIT_LOOP_RAN_TABLE_ITER;  // vm pops table iterator frame

@@ -48,7 +48,9 @@ static bool is_pure_loop_instr(BytecodeChunk* chunk, int pc) {
         case OP_FOR_NEXT:                                    // numeric-for entry
         case OP_TABLE_GET:                                   // validated by analyze_loop_regs
         case OP_TABLE_GET_INT:                               // fixed index into array part
-        case OP_TABLE_SET_INT:                               // fixed index, no grow when guard passes
+        case OP_TABLE_SET:                                   // dynamic key, validated later by analyze_loop_regs
+        case OP_TABLE_SET_INT:
+            return true;
         case OP_TABLE_ITER_NEXT:                             // loop entry for table iteration
             return true;
         case OP_LOAD_NUM: {                                  // only numeric constants
@@ -261,6 +263,16 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
                 if (info->table.slot < 0) info->table.slot = a;  // first table slot seen
                 if (b > info->table.min_count) info->table.min_count = b;  // track max index
                 break;
+            case OP_TABLE_SET:
+                if (d >= 0 && d < 64) reads  |= 1ULL << d;    // table
+                if (a >= 0 && a < 64) reads  |= 1ULL << a;    // key
+                if (b >= 0 && b < 64) reads  |= 1ULL << b;    // value
+                info->table.used     = true;
+                info->touches_tables = true;
+                info->table.written  = true;
+                if (info->table.slot < 0) info->table.slot = d;
+                if (a == info->for_var_reg) info->table.indexed_by_counter = true;
+                break;
             case OP_TABLE_SET_INT:
                 // d = table reg, a = immediate index (1-based), b = value reg
                 if (d >= 0 && d < 64) reads |= 1ULL << d;        // table slot read
@@ -324,20 +336,27 @@ static bool table_iter_body_is_clean(BytecodeChunk* chunk, int entry, int back_e
 }
 
 // checks whether a numeric-for body rejects dynamic (non-counter) table access
-static bool body_only_uses_counter_index(BytecodeChunk* chunk, int entry, int back_edge, int for_var_reg) {
+static bool body_only_uses_counter_index(BytecodeChunk* chunk, int entry,
+                                         int back_edge, int for_var_reg) {
     for (int pc = entry + 1; pc < back_edge; pc++) {
         Instruction* inst = &chunk->code[pc];
-        if (inst->opcode == OP_TABLE_GET) {
-            int key = inst->operands[2];
-            if (key != for_var_reg) return false;   // dynamic key would fall into hash part
-        } else if (inst->opcode == OP_TABLE_GET_CONST) {
-            return false;                            // string key -> hash part
-        } else if (inst->opcode == OP_TABLE_GET || inst->opcode == OP_TABLE_SET) {
-            return false;                            // generic table access with non-constant key
-        } else if (inst->opcode == OP_TABLE_SET_CONST) {
-            return false;                            // string key set
-        } else if (inst->opcode == OP_TABLE_SET) {
-            return false;                            // non-immediate set
+        switch (inst->opcode) {
+            case OP_TABLE_GET:
+                // d = dest, a = table, b = key — counter-key only
+                if (inst->operands[2] != for_var_reg) return false;
+                break;
+            case OP_TABLE_SET:
+                // d = table, a = key, b = value — counter-key only
+                if (inst->operands[1] != for_var_reg) return false;
+                break;
+            case OP_TABLE_GET_CONST:
+            case OP_TABLE_SET_CONST:
+                return false;      // string keys land in the hash part
+            case OP_TABLE_GET_INT:
+            case OP_TABLE_SET_INT:
+                break;             // fixed array indices are already safe
+            default:
+                break;             // other opcodes don't touch tables
         }
     }
     return true;

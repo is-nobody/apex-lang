@@ -767,6 +767,21 @@ static void emit_loop_body_instr(JITContext* ctx, CodeBuf* cb, XmmCache* cache,
             x86_cache_put(cache, xd, d);                         // cache dest
             break;
         }
+        case OP_TABLE_SET: {
+            // d = table, a = key, b = value — only the counter-key fast path is safe
+            if (a != info->for_var_reg) return;
+            int xk = cache->slot_reg[a];
+            if (xk < 0) {
+                xk = x86_cache_load(cache, cb, a);
+                if (xk < 0) return;
+            }
+            x86_emit_cvttsd2si_eax(cb, xk);              // eax = (int)counter
+            x86_emit_dec_eax(cb);                        // 1-based -> 0-based
+            int xv = x86_cache_load_excl(cache, cb, b, xk, -1);   // was: x86_cache_load(cache, cb, b)
+            if (xv < 0) return;
+            x86_emit_movsd_store_idx8(cb, X86_RBX, X86_RAX, xv);
+            break;
+        }
         case OP_TABLE_SET_INT: {
             int xv = x86_cache_load(cache, cb, b);               // load value to store
             if (xv < 0) return;                                  // register cache full
@@ -815,6 +830,8 @@ static size_t emit_loop_iteration(JITContext* ctx, CodeBuf* cb, XmmCache* cache,
 
         x86_emit_sse66_rr(cb, 0x28, xc, 7);                  // movapd xc, xmm7 (R[var] = c)
         x86_cache_put(cache, xc, var_reg);                   // var became dirty
+        x86_emit_movsd_store(cb, xc, x86_slot_disp(var_reg)); // frame[var] = i  ← NEW
+        cache->slot_dirty[var_reg] = false;                  // memory is in sync ← NEW
 
         x86_emit_sse_arith_rr(cb, 0x58, 7, xb);              // addsd xmm7, xb (step)
         if (!iter_in_xmm) {
