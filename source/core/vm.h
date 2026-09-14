@@ -11,6 +11,11 @@
 #include <stdint.h>
 #include <math.h>
 
+// global runtime toggle for the JIT; false means "never call jit"
+#if APEX_JIT_ENABLED
+extern bool apex_jit_runtime_enabled;
+#endif
+
 // branch prediction hints for compiler optimization
 #if defined(__GNUC__) || defined(__clang__)
     #define likely(x)   __builtin_expect(!!(x), 1)

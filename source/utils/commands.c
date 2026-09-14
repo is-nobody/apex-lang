@@ -9,6 +9,7 @@
 #include "build.h"
 #include "compile.h"
 #include "emit.h"
+#include "vm.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
@@ -73,6 +74,51 @@ int handle_commands(int argc, char** argv) {
     if (strcmp(argv[1], "emit") == 0) {     // emit (disassemble) command
         return emit_command(argc, argv);    // delegate to emit handler
     }
+#if APEX_JIT_ENABLED
+    if (strcmp(argv[1], "jit") == 0) {                                          // jit command handler
+        if (argc < 4) {                                                         // need <on|off> <filename>
+            fprintf(stderr,
+                "\033[31mError: Missing arguments.\n"
+                "Usage: apex jit <on|off> <filename>\033[0m\n");
+            return 1;                                                           // missing args error
+        }
+
+        bool want_on;                                                           // parsed jit mode
+        if (strcmp(argv[2], "off") == 0) {                                      // "off" -> disable jit
+            want_on = false;
+        } else if (strcmp(argv[2], "on") == 0) {                                // "on" -> enable jit
+            want_on = true;
+        } else {                                                                // unknown mode string
+            fprintf(stderr,
+                "\033[31mError: Invalid jit mode '%s'. Use 'on' or 'off'.\033[0m\n",
+                argv[2]);
+            return 1;                                                           // invalid mode error
+        }
+
+        apex_jit_runtime_enabled = want_on;                                     // set global jit toggle
+
+        const char* filename = argv[3];                                         // script to run
+
+        FILE* f_check = fopen(filename, "rb");                                  // verify file exists
+        if (!f_check) {                                                         // open failed
+            fprintf(stderr,
+                "\033[31mError: Source file '%s' does not exist.\033[0m\n",
+                filename);
+            return 1;                                                           // missing file error
+        }
+        fclose(f_check);                                                        // close check handle
+
+        bool ok = execute_source(filename, filename, argc - 3, argv + 3, true); // run with user args
+        return ok ? 0 : 1;                                                      // propagate exit code
+    }
+#else
+    if (strcmp(argv[1], "jit") == 0) {
+        fprintf(stderr,
+            "\033[31mError: This build of Apex was compiled without JIT support.\n"
+            "       The 'apex jit' command is unavailable.\033[0m\n");
+        return 1;
+    }
+#endif
 
     return -1;                              // unknown command
 }

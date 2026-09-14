@@ -31,6 +31,11 @@
 // union for reinterpret double bits as uint64
 typedef union { uint64_t u; double d; } du64;
 
+// global runtime toggle for the JIT; false means "never call jit"
+#if APEX_JIT_ENABLED
+bool apex_jit_runtime_enabled = true;
+#endif
+
 // dynamic string builder for efficient concatenation
 typedef struct {
     char* buffer;  // dynamically allocated char buffer
@@ -1124,8 +1129,12 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     vm->had_error = false;                                // reset error flag
     vm->global_count = chunk->global_count;               // number of globals to initialise
 #if APEX_JIT_ENABLED
-    vm->jit = jit_create(chunk);                          // compile numeric-pure functions
-    if (vm->jit) jit_set_vm(vm->jit, vm);                 // back-pointer for numeric-for reseed
+    if (apex_jit_runtime_enabled) {
+        vm->jit = jit_create(chunk);                          // compile numeric-pure functions
+        if (vm->jit) jit_set_vm(vm->jit, vm);                 // back-pointer for numeric-for reseed
+    } else {
+        vm->jit = NULL;                                       // no JIT context at all
+    }
 #endif
 
     int needed_regs = chunk->functions[0].max_registers;  // registers needed by main function
@@ -1233,7 +1242,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
 #if APEX_JIT_ENABLED
     #define APEX_TRY_JIT_LOOP() \
         do { \
-            if (unlikely(vm->jit != NULL)) { \
+            if (unlikely(apex_jit_runtime_enabled && vm->jit != NULL)) { \
                 int _cur = (int)(ip - vm->code); \
                 int _exit; \
                 JitLoopResult _r = jit_try_native_loop(vm->jit, _cur, (uint64_t*)regs, &_exit); \
