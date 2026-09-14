@@ -320,11 +320,6 @@ static void sb_append(StringBuilder* sb, const char* str, int len) {
     sb->buffer[sb->length] = '\0';                  // null terminate
 }
 
-// convert string builder to a new string object
-static StringObject* sb_to_string(StringBuilder* sb) {
-    return string_create(sb->buffer, sb->length);  // allocate string from builder content
-}
-
 // free string builder internal buffer
 static void sb_free(StringBuilder* sb) {
     free(sb->buffer);                              // release buffer memory
@@ -1995,36 +1990,132 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         vm->registers[dest] = MAKE_TABLE(table_create(8));  // create new table with default capacity
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
-
     OP_CONCAT_LABEL: {
-        int dest = ip->operands[0];                // dest register index
-        Value left  = vm->registers[ip->operands[1]];  // left operand
-        Value right = vm->registers[ip->operands[2]];  // right operand
-        char lbuf[4096], rbuf[4096];                   // temp buffers for string conversion
-        const char* ls = value_to_cstr(left, lbuf, sizeof(lbuf));   // convert left to c string
-        const char* rs = value_to_cstr(right, rbuf, sizeof(rbuf));  // convert right to c string
-        int llen = IS_STRING(left) ? AS_STRING(left)->length : (int)strlen(ls);    // left length
-        int rlen = IS_STRING(right) ? AS_STRING(right)->length : (int)strlen(rs);  // right length
-        int total_len = llen + rlen;               // combined length
-        if (total_len >= 16 && total_len <= 64) {  // small string, try interning
-            char combined[65];                     // stack buffer for combined string
-            memcpy(combined, ls, llen);            // copy left part
-            memcpy(combined + llen, rs, rlen);     // copy right part
-            combined[total_len] = '\0';            // null terminate
-            StringObject* interned = string_intern(&vm->intern_table, combined, total_len);  // intern for dedup
-            value_decref(vm->registers[dest]);     // release old dest value
-            vm->registers[dest] = MAKE_STRING(interned);  // store interned string
-            value_incref(vm->registers[dest]);     // bump refcount
-        } else {
-            StringBuilder sb;                      // use string builder for larger strings
-            sb_init(&sb, total_len + 1);           // init with exact capacity
-            sb_append(&sb, ls, llen);              // append left part
-            sb_append(&sb, rs, rlen);              // append right part
-            value_decref(vm->registers[dest]);     // release old dest value
-            vm->registers[dest] = MAKE_STRING(sb_to_string(&sb));  // convert builder to string object
-            sb_free(&sb);                          // free builder buffer
+        int dest = ip->operands[0];                 // dest register index
+        int left_reg  = ip->operands[1];            // left operand register
+        int right_reg = ip->operands[2];            // right operand register
+        Value left  = regs[left_reg];               // fetch left operand
+        Value right = regs[right_reg];              // fetch right operand
+
+        if (IS_STRING(left) && IS_STRING(right) && dest == left_reg) {  // accumulator pattern: dest == left
+            StringObject* a = AS_STRING(left);      // unwrap left string
+            if (a->header.ref_count == 1) {         // uniquely owned, safe to realloc in place
+                StringObject* b = AS_STRING(right); // unwrap right string
+                int old_len = a->length;            // old string length
+                int new_len = old_len + b->length;  // combined new length
+                StringObject* out = (StringObject*)realloc(     // grow in place, keeps header
+                        a, sizeof(StringObject) + new_len + 1);
+                if (out) {                          // realloc succeeded
+                    memcpy(out->chars + old_len, b->chars, b->length);  // append right part
+                    out->length = new_len;          // update length
+                    out->chars[new_len] = '\0';     // null terminate
+                    out->hash_computed = false;     // invalidate cached hash
+                    regs[dest] = MAKE_STRING(out);  // store (possibly moved) pointer
+                    ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
+                }
+                // realloc failed: fall through to fresh allocation below
+            }
         }
-        ip++; goto *dispatch_table[ip->opcode];    // advance to next instruction
+
+        if (IS_STRING(left) && IS_STRING(right)) {  // direct string + string
+            StringObject* a = AS_STRING(left);      // unwrap left string
+            StringObject* b = AS_STRING(right);     // unwrap right string
+            int total = a->length + b->length;      // combined length
+
+            StringObject* out = (StringObject*)malloc(  // exact single allocation
+                    sizeof(StringObject) + total + 1);
+            out->header.ref_count = 1;              // fresh object refcount
+            out->header.type      = VAL_STRING;     // mark type as string
+            out->length           = total;          // store length
+            out->hash_computed    = false;          // hash not yet computed
+            out->hash             = 0;              // clear hash field
+            memcpy(out->chars, a->chars, a->length);            // copy left part
+            memcpy(out->chars + a->length, b->chars, b->length);  // copy right part
+            out->chars[total] = '\0';               // null terminate
+
+            value_decref(regs[dest]);               // release old dest value
+            regs[dest] = MAKE_STRING(out);          // store new string
+            ip++; goto *dispatch_table[ip->opcode]; // advance to next instruction
+        }
+
+        if (IS_STRING(left) && IS_NUMBER(right)) {  // direct string + number
+            StringObject* a = AS_STRING(left);      // unwrap left string
+            char numbuf[64];                        // temp buffer for number
+            double num = AS_NUMBER(right);          // unwrap right number
+            int numlen;                             // formatted number length
+            if (fabs(num) >= 1e6 || fabs(num - (long long)num) < 1e-9)
+                numlen = snprintf(numbuf, sizeof(numbuf), "%.0f", num);   // large or integer, no decimals
+            else
+                numlen = snprintf(numbuf, sizeof(numbuf), "%.15g", num);  // use general format with high precision
+
+            int total = a->length + numlen;         // combined length
+            StringObject* out = (StringObject*)malloc(  // exact single allocation
+                    sizeof(StringObject) + total + 1);
+            out->header.ref_count = 1;              // fresh object refcount
+            out->header.type      = VAL_STRING;     // mark type as string
+            out->length           = total;          // store length
+            out->hash_computed    = false;          // hash not yet computed
+            out->hash             = 0;              // clear hash field
+            memcpy(out->chars, a->chars, a->length);            // copy left part
+            memcpy(out->chars + a->length, numbuf, numlen);     // copy formatted number
+            out->chars[total] = '\0';               // null terminate
+
+            value_decref(regs[dest]);               // release old dest value
+            regs[dest] = MAKE_STRING(out);          // store new string
+            ip++; goto *dispatch_table[ip->opcode]; // advance to next instruction
+        }
+
+        if (IS_NUMBER(left) && IS_STRING(right)) {  // direct number + string
+            StringObject* b = AS_STRING(right);     // unwrap right string
+            char numbuf[64];                        // temp buffer for number
+            double num = AS_NUMBER(left);           // unwrap left number
+            int numlen;                             // formatted number length
+            if (fabs(num) >= 1e6 || fabs(num - (long long)num) < 1e-9)
+                numlen = snprintf(numbuf, sizeof(numbuf), "%.0f", num);   // large or integer, no decimals
+            else
+                numlen = snprintf(numbuf, sizeof(numbuf), "%.15g", num);  // use general format with high precision
+
+            int total = numlen + b->length;         // combined length
+            StringObject* out = (StringObject*)malloc(  // exact single allocation
+                    sizeof(StringObject) + total + 1);
+            out->header.ref_count = 1;              // fresh object refcount
+            out->header.type      = VAL_STRING;     // mark type as string
+            out->length           = total;          // store length
+            out->hash_computed    = false;          // hash not yet computed
+            out->hash             = 0;              // clear hash field
+            memcpy(out->chars, numbuf, numlen);                 // copy formatted number
+            memcpy(out->chars + numlen, b->chars, b->length);   // copy right part
+            out->chars[total] = '\0';               // null terminate
+
+            value_decref(regs[dest]);               // release old dest value
+            regs[dest] = MAKE_STRING(out);          // store new string
+            ip++; goto *dispatch_table[ip->opcode]; // advance to next instruction
+        }
+
+        {                                           // generic fallback for other type combos
+            char lbuf[4096], rbuf[4096];            // temp buffers for string conversion
+            const char* ls = value_to_cstr(left,  lbuf, sizeof(lbuf));   // convert left to c string
+            const char* rs = value_to_cstr(right, rbuf, sizeof(rbuf));   // convert right to c string
+            int llen = IS_STRING(left)  ? AS_STRING(left)->length  : (int)strlen(ls);   // left length
+            int rlen = IS_STRING(right) ? AS_STRING(right)->length : (int)strlen(rs);   // right length
+            int total_len = llen + rlen;            // combined length
+
+            StringObject* out = (StringObject*)malloc(  // exact single allocation
+                    sizeof(StringObject) + total_len + 1);
+            out->header.ref_count = 1;              // fresh object refcount
+            out->header.type      = VAL_STRING;     // mark type as string
+            out->length           = total_len;      // store length
+            out->hash_computed    = false;          // hash not yet computed
+            out->hash             = 0;              // clear hash field
+            memcpy(out->chars, ls, llen);           // copy left part
+            memcpy(out->chars + llen, rs, rlen);    // copy right part
+            out->chars[total_len] = '\0';           // null terminate
+
+            value_decref(regs[dest]);               // release old dest value
+            regs[dest] = MAKE_STRING(out);          // store new string
+        }
+
+        ip++; goto *dispatch_table[ip->opcode];     // advance to next instruction
     }
 
     OP_AND_LABEL: {

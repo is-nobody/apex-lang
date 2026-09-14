@@ -6,10 +6,10 @@
 import os
 import sys
 
-// benchmark: 100x100 matrix multiplication (1 million operations)
+// benchmark: 250x250 matrix multiplication (~15.6 million operations)
 function matrix_multiplication()
     start = sys.time()
-    n = 100
+    n = 250
     a = []
     b = []
     c = []
@@ -32,9 +32,9 @@ function matrix_multiplication()
                 sum = sum + a[i][k] * b[k][j]
             c[i][j] = sum
     
-    v50 = c[50][50]
+    v50 = c[250][250]
     elapsed = sys.time() - start
-    os.output("Matrix multiplication: C[50][50]={v50}, elapsed {elapsed}")
+    os.output("Matrix multiplication: C[250][250]={v50}, elapsed {elapsed}")
 
 // execute benchmark
 matrix_multiplication()
