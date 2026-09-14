@@ -11,6 +11,44 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#if defined(APEX_JIT_TRACE_BUILD) && APEX_JIT_TRACE_BUILD
+// lazy-cached env lookup: getenv is called once per process, not per loop entry
+static int jit_trace_env = -1;
+
+// returns true if APEX_JIT_TRACE is set; result is cached after first call
+static bool jit_trace_enabled(void) {
+    if (jit_trace_env < 0)
+        jit_trace_env = getenv("APEX_JIT_TRACE") ? 1 : 0;
+    return jit_trace_env != 0;
+}
+
+// dumps live-in slots on the first successful entry into a given loop
+static void jit_trace_first_entry(JitLoopInfo* info, int pc, uint64_t* regs,
+                                  bool counter_write) {
+    if (!jit_trace_enabled() || info->trace_entered) return;
+    info->trace_entered = true;                              // never print again for this loop
+
+    fprintf(stderr, "[loop pc=%d kind=%d live_in=%llx counter_write=%d]\n",
+            pc, info->kind, (unsigned long long)info->live_in, counter_write);
+    for (int s = 0; s < 32; s++) {
+        if (info->live_in & (1ULL << s)) {
+            fprintf(stderr, "  slot %d = 0x%016llx type=%d table_p=%p count=%d\n",
+                    s, (unsigned long long)regs[s], (int)GET_TYPE(regs[s]),
+                    IS_TABLE(regs[s]) ? (void*)AS_TABLE(regs[s]) : NULL,
+                    IS_TABLE(regs[s]) ? AS_TABLE(regs[s])->array_count : -1);
+        }
+    }
+}
+#else
+// release build: everything collapses to nothing
+static inline bool jit_trace_enabled(void) { return false; }
+
+static inline void jit_trace_first_entry(JitLoopInfo* info, int pc, uint64_t* regs,
+                                         bool counter_write) {
+    (void)info; (void)pc; (void)regs; (void)counter_write;
+}
+#endif
+
 // returns the backend for the compile-target architecture, or NULL
 static const JitBackend* jit_get_backend(void) {
 #if defined(__x86_64__) || defined(_M_X64)
@@ -278,18 +316,7 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* 
         if (t->array_count <= 0) return JIT_LOOP_NOT_APPLICABLE;    // nothing to iterate
     }
 
-    if (getenv("APEX_JIT_TRACE")) {                                 // debug dump of live-in slots
-        fprintf(stderr, "[loop pc=%d kind=%d live_in=%llx counter_write=%d]\n",
-                pc, info->kind, (unsigned long long)info->live_in, counter_write);
-        for (int s = 0; s < 32; s++) {
-            if (info->live_in & (1ULL << s)) {
-                fprintf(stderr, "  slot %d = 0x%016llx type=%d table_p=%p count=%d\n",
-                        s, (unsigned long long)regs[s], (int)GET_TYPE(regs[s]),
-                        IS_TABLE(regs[s]) ? (void*)AS_TABLE(regs[s]) : NULL,
-                        IS_TABLE(regs[s]) ? AS_TABLE(regs[s])->array_count : -1);
-            }
-        }
-    }
+    jit_trace_first_entry(info, pc, regs, counter_write);           // one line per loop per run
 
     if (info->kind == JIT_LOOP_NUMERIC_FOR && ctx->vm) {            // reseed counter from interpreter
         VM* v = (VM*)ctx->vm;

@@ -14,6 +14,9 @@ set(CMAKE_C_EXTENSIONS ON)
 # enables the numeric-pure jit
 option(APEX_JIT_ENABLED "Enable the JIT compiler" ON)
 
+# enables debug tracing of the jit
+option(APEX_JIT_TRACE "Enable JIT debug tracing" OFF)
+
 # normalizes the target cpu name into a short arch tag
 string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" APEX_PROC_LOWER)
 if(APEX_PROC_LOWER MATCHES "^(x86_64|amd64)")
@@ -103,9 +106,12 @@ target_include_directories(apex PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/source/jit/x86-64
 )
 
-# propagates the JIT toggle into C preprocessor
+# propagates the jit toggle into c preprocessor
 if(APEX_JIT_AVAILABLE)
     target_compile_definitions(apex PRIVATE APEX_JIT_ENABLED=1)
+    if(APEX_JIT_TRACE)
+        target_compile_definitions(apex PRIVATE APEX_JIT_TRACE_BUILD=1)
+    endif()
 endif()
 
 # baseline warnings and posix compatibility

@@ -73,6 +73,8 @@ typedef struct {
 
     int  nregs;         // function frame size (max_registers)
 
+    bool trace_entered;  // APEX_JIT_TRACE_BUILD: first-entry dump already printed?
+
     void (*native_fn)(uint64_t*);  // compiled entry, NULL if emit failed
 } JitLoopInfo;
 
