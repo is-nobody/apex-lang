@@ -16,8 +16,11 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <direct.h>
+#include <io.h>                         // _access on windows
 #define mkdir(path, mode) _mkdir(path)  // windows mkdir wrapper
+#ifndef F_OK
 #define F_OK 0                          // file existence flag for access()
+#endif
 #define access _access                  // windows access wrapper
 #else
 #include <unistd.h>
