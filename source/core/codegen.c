@@ -1525,7 +1525,7 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     if (cg->chunk->code_count > 0) {                                         // has code
         Instruction* last = &cg->chunk->code[cg->chunk->code_count - 1];     // last instruction
         if (last->opcode == OP_RETURN || last->opcode == OP_RETURN_NONE ||   // return type
-            last->opcode == OP_RETURN_NUM) {
+            last->opcode == OP_RETURN_NUM || last->opcode == OP_RETURN_BOOL) {
             ends_with_return = true;                                         // has return
         }
     }
@@ -1587,20 +1587,30 @@ static void codegen_return(CodeGenerator* cg, ASTNode* node) {
         
         ASTNode* val = node->return_stmt.value;                              // value node
         bool is_number = false;                                              // guaranteed number flag
+        bool is_bool = false;                                                // guaranteed boolean flag
         
         if (val->type == AST_LITERAL_NUMBER) {                               // number literal
             is_number = true;
+        } else if (val->type == AST_LITERAL_BOOL) {                          // boolean literal
+            is_bool = true;
         } else if (val->type == AST_BINARY) {                                // binary op
             ApexTokenType op = val->binary.op;                               // operator
-            if (op == TOKEN_PLUS || op == TOKEN_MINUS || op == TOKEN_STAR || // arithmetic
+            if (op == TOKEN_PLUS || op == TOKEN_MINUS || op == TOKEN_STAR || // arithmetic → number
                 op == TOKEN_SLASH || op == TOKEN_PERCENT) {
                 is_number = true;
+            } else if (op == TOKEN_EQUAL_EQUAL || op == TOKEN_NOT_EQUAL ||   // comparisons → bool
+                       op == TOKEN_LESS || op == TOKEN_GREATER ||
+                       op == TOKEN_LESS_EQUAL || op == TOKEN_GREATER_EQUAL) {
+                is_bool = true;
             }
-        } else if (val->type == AST_UNARY && val->unary.op == TOKEN_MINUS) { // unary minus
-            is_number = true;
+        } else if (val->type == AST_UNARY) {                                 // unary op
+            if (val->unary.op == TOKEN_MINUS) is_number = true;              // unary minus → number
+            else if (val->unary.op == TOKEN_NOT) is_bool = true;             // not → bool
         }
         
-        if (is_number) {                                                     // guaranteed number
+        if (is_bool) {                                                       // guaranteed boolean
+            emit(cg, INST(OP_RETURN_BOOL, value_reg, 0, 0), node->line);
+        } else if (is_number) {                                              // guaranteed number
             emit(cg, INST(OP_RETURN_NUM, value_reg, 0, 0), node->line);
         } else {                                                             // may be any type
             emit(cg, INST(OP_RETURN, value_reg, 0, 0), node->line);

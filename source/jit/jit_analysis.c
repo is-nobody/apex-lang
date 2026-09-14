@@ -79,6 +79,7 @@ static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
             case OP_CMP_EQ:     case OP_CMP_NEQ:                 // generic compares
             case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
             case OP_RETURN: case OP_RETURN_NUM:                  // returns
+            case OP_RETURN_BOOL:                                 // incl. boolean
             case OP_RETURN_NONE:                                 // incl. implicit none
                 break;                                           // always allowed
 
@@ -154,6 +155,10 @@ static bool infer_return_type(BytecodeChunk* chunk, int start, int end,
 
             case OP_RETURN_NUM:                                  // explicitly numeric
                 any_num = true;
+                break;
+
+            case OP_RETURN_BOOL:                                 // explicitly boolean
+                any_bool = true;
                 break;
 
             case OP_RETURN_NONE:                                 // explicitly none

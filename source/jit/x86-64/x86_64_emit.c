@@ -88,6 +88,7 @@ static bool slot_read_before_write(BytecodeChunk* chunk, int pc_after, int end, 
                 reads = (a == s);
                 break;
             case OP_RETURN: case OP_RETURN_NUM:                  // reads d
+            case OP_RETURN_BOOL:                                 // incl. boolean
                 reads = (d == s);
                 break;
             case OP_CALL_1:                                      // arg in b
@@ -203,7 +204,8 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         bool prefer_xmm0 = false;                                // next op returns this dest?
         if (pc + 1 < end) {                                      // next instruction exists
             Instruction* nx = &chunk->code[pc + 1];
-            if ((nx->opcode == OP_RETURN || nx->opcode == OP_RETURN_NUM) &&
+            if ((nx->opcode == OP_RETURN || nx->opcode == OP_RETURN_NUM ||
+                 nx->opcode == OP_RETURN_BOOL) &&
                 nx->operands[0] == d) {                          // next returns our dest
                 prefer_xmm0 = true;                              // prefer xmm0 as result
             }
@@ -578,7 +580,8 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 break;
             }
             case OP_RETURN:                                      // return slot value
-            case OP_RETURN_NUM: {
+            case OP_RETURN_NUM:
+            case OP_RETURN_BOOL: {
                 int xa = x86_cache_load(&cache, cb, d);          // load return value
                 if (xa < 0) xa = 0;                              // fall back to xmm0
                 if (xa != 0) x86_emit_sse66_rr(cb, 0x28, 0, xa); // movapd xmm0, xa

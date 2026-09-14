@@ -314,6 +314,9 @@ static void emit_instruction(BytecodeChunk* chunk, int offset, FILE* out) {  // 
         case OP_RETURN_NUM:                                       // return number
             REG(a); fputs(" " C_GRAY "[num]" C_RESET, out);       // register with num hint
             break;
+        case OP_RETURN_BOOL:                                      // return boolean
+            REG(a); fputs(" " C_GRAY "[bool]" C_RESET, out);      // register with bool hint
+            break;
         case OP_RETURN_NONE:                                      // bare return
             break;
 
