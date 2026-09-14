@@ -115,7 +115,17 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     if (strcmp(name, "os.output") == 0) {                             // print to stdout
         if (arg_count >= 1) {
             vm_print_value(args[0]);                                  // print value
-            printf("\n");                                             // newline
+
+            bool needs_newline = true;                                // append newline by default
+            if (IS_STRING(args[0])) {                                 // string payload may end with '\n'
+                StringObject* s = AS_STRING(args[0]);                 // unwrap string object
+                if (s->length > 0 && s->chars[s->length - 1] == '\n') {
+                    needs_newline = false;                            // already ends with line break
+                }
+            }
+            if (needs_newline) {
+                printf("\n");                                         // newline
+            }
             fflush(stdout);                                           // flush output
         }
         *result = MAKE_NONE();                                        // return none
