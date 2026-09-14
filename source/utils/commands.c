@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <ctype.h>
+#include <time.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -51,16 +52,54 @@ static void get_compiler_version(char* buffer, size_t size) {
     buffer[i] = '\0';                               // null terminate the string
 }
 
+// returns the target architecture as a short lowercase string
+static const char* get_arch_string(void) {
+#if defined(__x86_64__) || defined(_M_X64)
+    return "x86-64";
+#elif defined(__aarch64__) || defined(_M_ARM64)
+    return "arm64";
+#elif defined(__i386__) || defined(_M_IX86)
+    return "x86";
+#elif defined(__arm__) || defined(_M_ARM)
+    return "arm";
+#else
+    return "unknown";
+#endif
+}
+
+// returns current UTC time as e.g. "2026-09-14 12:34:56 UTC"
+static void get_utc_time(char* buffer, size_t size) {
+    time_t now = time(NULL);
+    struct tm tm_utc;
+#if defined(_WIN32)
+    gmtime_s(&tm_utc, &now);
+#else
+    gmtime_r(&now, &tm_utc);
+#endif
+    strftime(buffer, size, "%Y-%m-%d %H:%M:%S UTC", &tm_utc);
+}
+
 // dispatches cli commands like 'version', 'build', and 'compile'
 int handle_commands(int argc, char** argv) {
     if (argc < 2) return -1;                                                    // need at least one argument
 
-    if (strcmp(argv[1], "version") == 0) {                                      // version command
-        char compiler_ver[64] = {0};                                            // buffer for clean version
-        get_compiler_version(compiler_ver, sizeof(compiler_ver));               // extract major.minor.patch
-        
-        printf("Apex 26.09 [%s %s] on %s\n", COMPILER_NAME, compiler_ver, platform_get_name());  // print version info
-        return 0;                                                               // success
+    if (strcmp(argv[1], "version") == 0) {
+        char compiler_ver[64] = {0};
+        get_compiler_version(compiler_ver, sizeof(compiler_ver));
+
+        char utc[64];
+        get_utc_time(utc, sizeof(utc));
+
+#if APEX_JIT_ENABLED
+        printf("Apex 26.09 JIT [%s %s] on %s %s (%s)\n",
+            COMPILER_NAME, compiler_ver,
+            platform_get_name(), get_arch_string(), utc);
+#else
+        printf("Apex 26.09 [%s %s] on %s %s (%s)\n",
+            COMPILER_NAME, compiler_ver,
+            platform_get_name(), get_arch_string(), utc);
+#endif
+        return 0;
     }
 
     if (strcmp(argv[1], "build") == 0) {   // build command
@@ -74,6 +113,7 @@ int handle_commands(int argc, char** argv) {
     if (strcmp(argv[1], "emit") == 0) {     // emit (disassemble) command
         return emit_command(argc, argv);    // delegate to emit handler
     }
+
 #if APEX_JIT_ENABLED
     if (strcmp(argv[1], "jit") == 0) {                                          // jit command handler
         if (argc < 4) {                                                         // need <on|off> <filename>
