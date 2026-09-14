@@ -11,13 +11,15 @@ function table_dynamic_read()
     n = 10000000
     t = []
 
-    // build phase — uses OP_TABLE_SET (dynamic), interpreted by design
+    start = sys.time()
+
+    // build phase
     for i = 1, n
         t[i] = i * 2
 
-    start = sys.time()
     sum = 0
-    // read phase — OP_TABLE_GET with key == loop counter → native JIT
+
+    // read phase
     for i = 1, n
         sum = sum + t[i]
     elapsed = sys.time() - start

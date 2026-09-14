@@ -71,8 +71,9 @@ static inline void x86_emit_movsd_store_base(CodeBuf* b, int base, int xmm, int3
     emit_i32(b, disp);                                     // displacement
 }
 
+// emits movsd [base + index*8], xmm — SIB addressing with scale=8
 static inline void x86_emit_movsd_store_idx8(CodeBuf* b, int base, int index, int xmm) {
-    emit_u8(b, 0xF2); emit_u8(b, 0x0F); emit_u8(b, 0x11);
+    emit_u8(b, 0xF2); emit_u8(b, 0x0F); emit_u8(b, 0x11);   // movsd store opcode
     emit_u8(b, ((xmm & 7) << 3) | 0x04);                    // modrm: mod=00, rm=SIB
     emit_u8(b, (3 << 6) | ((index & 7) << 3) | (base & 7)); // sib: scale=8
 }
@@ -116,6 +117,13 @@ static inline void x86_emit_movq_xmm_rax(CodeBuf* b, int xmm) {
     emit_u8(b, 0xC0 | (xmm << 3));                         // modrm, rm=rax
 }
 
+// emits movq rax, xmm<N> — move sse register into rax (bit-exact)
+static inline void x86_emit_movq_rax_xmm(CodeBuf* b, int xmm) {
+    emit_u8(b, 0x66); emit_u8(b, 0x48);                    // operand-size + rex.w
+    emit_u8(b, 0x0F); emit_u8(b, 0x7E);                    // movq r/m64, xmm
+    emit_u8(b, 0xC0 | ((xmm & 7) << 3));                   // modrm, reg=xmm, rm=rax
+}
+
 // emits mov [rbp+disp32], r64 — store callee-saved gpr into stack slot
 static inline void x86_emit_store_r64_rbp(CodeBuf* b, int reg, int32_t disp) {
     uint8_t rex = 0x48 | ((reg >= 8) ? 0x04 : 0);          // rex.w + rex.r
@@ -144,6 +152,17 @@ static inline void x86_emit_load_r64_base(CodeBuf* b, int dst, int base, int32_t
 static inline void x86_emit_cvttsd2si_eax(CodeBuf* b, int xmm) {
     emit_u8(b, 0xF2); emit_u8(b, 0x0F); emit_u8(b, 0x2C);  // cvttsd2si r32, xmm
     emit_u8(b, 0xC0 | (xmm & 7));                          // modrm: reg=eax(000), rm=xmm
+}
+
+// emits cvttsd2si edx, xmm — double to int32 truncation into edx
+static inline void x86_emit_cvttsd2si_edx(CodeBuf* b, int xmm) {
+    emit_u8(b, 0xF2); emit_u8(b, 0x0F); emit_u8(b, 0x2C);   // cvttsd2si r32, xmm
+    emit_u8(b, 0xC0 | (2 << 3) | (xmm & 7));                // modrm: reg=edx(010), rm=xmm
+}
+
+// emits dec edx — edx -= 1
+static inline void x86_emit_dec_edx(CodeBuf* b) {
+    emit_u8(b, 0xFF); emit_u8(b, 0xCA);                     // dec edx
 }
 
 // emits sub eax, imm8 — eax -= small immediate

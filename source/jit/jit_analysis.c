@@ -190,111 +190,125 @@ static bool is_loop_entry_op(Opcode op) {
 // walks the loop body, marks read and written slots, and collects table uses
 static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
     BytecodeChunk* chunk = ctx->chunk;
-    uint64_t reads = 0, writes = 0;                              // bitmasks of touched slots
+    uint64_t live_in_mask = 0, written_mask = 0;                 // accumulated per-slot bitmasks
 
     info->table.used               = false;                      // no table op seen yet
     info->table.slot               = -1;                         // table register (unknown yet)
-    info->table.min_count          = 0;                          // max static index accessed
-    info->table.max_idx            = 0;                          // max static index written
+    info->table.min_count          = 0;                          // required array_count
+    info->table.max_idx            = 0;                          // required array_capacity
     info->table.written            = false;                      // has OP_TABLE_SET_INT
     info->table.indexed_by_counter = false;                      // t[i] with i == loop counter
+    info->ref_writes               = 0;                          // slots whose value is refcounted
     info->touches_tables           = false;                      // any table op at all
     memset(info->live_in_kind, 0, sizeof(info->live_in_kind));   // all slots default to NUM
 
     for (int pc = info->entry_pc; pc <= info->back_edge_pc; pc++) {
         Instruction* inst = &chunk->code[pc];
-        int d = inst->operands[0];
-        int a = inst->operands[1];
-        int b = inst->operands[2];
+        int d = inst->operands[0];                               // destination register
+        int a = inst->operands[1];                               // first source register
+        int b = inst->operands[2];                               // second source register
+        uint64_t pc_reads = 0, pc_writes = 0;                    // this instruction's masks
         switch (inst->opcode) {
-            case OP_MOVE: case OP_NEG:
-                if (a >= 0 && a < 64) reads  |= 1ULL << a;       // source slot
-                if (d >= 0 && d < 64) writes |= 1ULL << d;       // dest slot
+            case OP_MOVE: case OP_NEG:                           // reads a, writes d
+                if (a >= 0 && a < 64) pc_reads  |= 1ULL << a;
+                if (d >= 0 && d < 64) pc_writes |= 1ULL << d;
                 break;
-            case OP_INC: case OP_DEC:
-                if (d >= 0 && d < 64) reads |= writes |= 1ULL << d;  // read-modify-write
+            case OP_INC: case OP_DEC:                            // read-modify-write d
+                if (d >= 0 && d < 64) pc_reads |= pc_writes |= 1ULL << d;
                 break;
             case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
             case OP_CMP_EQ: case OP_CMP_NEQ:
             case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
             case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
-                if (a >= 0 && a < 64) reads  |= 1ULL << a;       // left operand
-                if (b >= 0 && b < 64) reads  |= 1ULL << b;       // right operand
-                if (d >= 0 && d < 64) writes |= 1ULL << d;       // result
+                if (a >= 0 && a < 64) pc_reads  |= 1ULL << a;    // left operand
+                if (b >= 0 && b < 64) pc_reads  |= 1ULL << b;    // right operand
+                if (d >= 0 && d < 64) pc_writes |= 1ULL << d;    // result
                 break;
-            case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:
-                if (d >= 0 && d < 64) writes |= 1ULL << d;       // dest slot only
+            case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:              // writes d only
+                if (d >= 0 && d < 64) pc_writes |= 1ULL << d;
                 break;
             case OP_JUMP_IF_EQ: case OP_JUMP_IF_NEQ:
             case OP_JUMP_IF_EQ_NUM: case OP_JUMP_IF_NEQ_NUM:
             case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:
             case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:
-                if (a >= 0 && a < 64) reads |= 1ULL << a;        // left operand
-                if (b >= 0 && b < 64) reads |= 1ULL << b;        // right operand
+                if (a >= 0 && a < 64) pc_reads |= 1ULL << a;     // left operand
+                if (b >= 0 && b < 64) pc_reads |= 1ULL << b;     // right operand
                 break;
-            case OP_FOR_NEXT:
-                if (d >= 0 && d < 64) reads |= writes |= 1ULL << d;  // loop var updated
-                if (info->for_end_reg  >= 0 && info->for_end_reg  < 64) reads |= 1ULL << info->for_end_reg;
-                if (info->for_step_reg >= 0 && info->for_step_reg < 64) reads |= 1ULL << info->for_step_reg;
+            case OP_FOR_NEXT:                                    // counter and bounds updated by vm
+                if (d >= 0 && d < 64) pc_reads |= pc_writes |= 1ULL << d;
+                if (info->for_end_reg  >= 0 && info->for_end_reg  < 64) pc_reads |= 1ULL << info->for_end_reg;
+                if (info->for_step_reg >= 0 && info->for_step_reg < 64) pc_reads |= 1ULL << info->for_step_reg;
                 break;
-            case OP_TABLE_ITER_NEXT:
-                // d is the loop variable, written on every iteration (element value).
-                // it is NOT read before being written, so it is not live-in.
-                if (d >= 0 && d < 64) writes |= 1ULL << d;
+            case OP_TABLE_ITER_NEXT:                             // element written each iteration
+                if (d >= 0 && d < 64) {
+                    pc_writes |= 1ULL << d;
+                    info->ref_writes |= 1ULL << d;               // element may be heap-allocated
+                }
                 info->table.used     = true;                     // marks loop as table-touching
                 info->touches_tables = true;
                 break;
             case OP_TABLE_GET:
                 // d = dest, a = table reg, b = key reg
-                if (d >= 0 && d < 64) writes |= 1ULL << d;       // result slot
-                if (a >= 0 && a < 64) reads  |= 1ULL << a;       // table slot read
-                if (b >= 0 && b < 64) reads  |= 1ULL << b;       // key slot read
+                if (d >= 0 && d < 64) {
+                    pc_writes |= 1ULL << d;
+                    info->ref_writes |= 1ULL << d;               // value may be heap-allocated
+                }
+                if (a >= 0 && a < 64) pc_reads  |= 1ULL << a;    // table slot read
+                if (b >= 0 && b < 64) pc_reads  |= 1ULL << b;    // key slot read
                 info->table.used = true;
                 info->touches_tables = true;
+                if (a >= 0 && a < JIT_MAX_SLOTS) info->live_in_kind[a] = JIT_SLOT_TABLE;
                 if (info->table.slot < 0) info->table.slot = a;  // first table slot seen
-                if (b == info->for_var_reg) info->table.indexed_by_counter = true;  // t[i] with i == counter
+                if (info->table.min_count < 1) info->table.min_count = 1;  // array_part must be non-null
+                if (b == info->for_var_reg) info->table.indexed_by_counter = true;
                 break;
             case OP_TABLE_GET_INT:
-                // d = dest, a = table reg, b = immediate index (1-based)
-                if (d >= 0 && d < 64) writes |= 1ULL << d;       // result slot
-                if (a >= 0 && a < 64) reads  |= 1ULL << a;       // table slot read
+                if (d >= 0 && d < 64) {
+                    pc_writes |= 1ULL << d;
+                    info->ref_writes |= 1ULL << d;               // value may be heap-allocated
+                }
+                if (a >= 0 && a < 64) pc_reads  |= 1ULL << a;    // table slot read
                 info->table.used = true;
                 info->touches_tables = true;
+                if (a >= 0 && a < JIT_MAX_SLOTS) info->live_in_kind[a] = JIT_SLOT_TABLE;
                 if (info->table.slot < 0) info->table.slot = a;  // first table slot seen
+                if (info->table.min_count < 1) info->table.min_count = 1;
                 if (b > info->table.min_count) info->table.min_count = b;  // track max index
                 break;
             case OP_TABLE_SET:
-                if (d >= 0 && d < 64) reads  |= 1ULL << d;    // table
-                if (a >= 0 && a < 64) reads  |= 1ULL << a;    // key
-                if (b >= 0 && b < 64) reads  |= 1ULL << b;    // value
+                // d = table, a = key, b = value
+                if (d >= 0 && d < 64) pc_reads |= 1ULL << d;     // table slot read
+                if (a >= 0 && a < 64) pc_reads |= 1ULL << a;     // key slot read
+                if (b >= 0 && b < 64) pc_reads |= 1ULL << b;     // value slot read
                 info->table.used     = true;
                 info->touches_tables = true;
                 info->table.written  = true;
-                if (info->table.slot < 0) info->table.slot = d;
+                if (d >= 0 && d < JIT_MAX_SLOTS) info->live_in_kind[d] = JIT_SLOT_TABLE;
+                if (info->table.slot < 0) info->table.slot = d;  // first table slot seen
+                if (info->table.min_count < 1) info->table.min_count = 1;
                 if (a == info->for_var_reg) info->table.indexed_by_counter = true;
                 break;
             case OP_TABLE_SET_INT:
-                // d = table reg, a = immediate index (1-based), b = value reg
-                if (d >= 0 && d < 64) reads |= 1ULL << d;        // table slot read
-                if (b >= 0 && b < 64) reads |= 1ULL << b;        // value slot read
+                if (d >= 0 && d < 64) pc_reads |= 1ULL << d;     // table slot read
+                if (b >= 0 && b < 64) pc_reads |= 1ULL << b;     // value slot read
                 info->table.used = true;
                 info->touches_tables = true;
                 info->table.written = true;                      // guard must check array_capacity
+                if (d >= 0 && d < JIT_MAX_SLOTS) info->live_in_kind[d] = JIT_SLOT_TABLE;
                 if (info->table.slot < 0) info->table.slot = d;  // first table slot seen
+                if (info->table.min_count < 1) info->table.min_count = 1;
                 if (a > info->table.max_idx) info->table.max_idx = a;  // track max index
                 break;
             case OP_JUMP:
                 break;                                           // no slots touched
-            default: break;
+            default:
+                break;
         }
+        live_in_mask |= pc_reads & ~written_mask;                // read before first write → live-in
+        written_mask |= pc_writes;                               // slot has been produced
     }
-    info->live_in  = reads;                                      // slots read before first write
-    info->live_out = writes;                                     // slots written (may need writeback)
-
-    // populate slot kinds: table slots are marked TABLE, everything else stays NUMBER
-    if (info->table.used && info->table.slot >= 0 && info->table.slot < JIT_MAX_SLOTS) {
-        info->live_in_kind[info->table.slot] = JIT_SLOT_TABLE;
-    }
+    info->live_in  = live_in_mask;                               // slots read before first write
+    info->live_out = written_mask;                               // slots produced inside the loop
 }
 
 // registers a loop and runs the slot analysis on its body
@@ -335,31 +349,21 @@ static bool table_iter_body_is_clean(BytecodeChunk* chunk, int entry, int back_e
     return true;                                                   // only the entry touches the table
 }
 
-// checks whether a numeric-for body rejects dynamic (non-counter) table access
+// checks whether a numeric-for body uses only numeric table access (no string keys)
 static bool body_only_uses_counter_index(BytecodeChunk* chunk, int entry,
                                          int back_edge, int for_var_reg) {
-    for (int pc = entry + 1; pc < back_edge; pc++) {
+    (void)for_var_reg;                                       // kept for call-site parity, unused
+    for (int pc = entry + 1; pc < back_edge; pc++) {         // scan every body instruction
         Instruction* inst = &chunk->code[pc];
         switch (inst->opcode) {
-            case OP_TABLE_GET:
-                // d = dest, a = table, b = key — counter-key only
-                if (inst->operands[2] != for_var_reg) return false;
-                break;
-            case OP_TABLE_SET:
-                // d = table, a = key, b = value — counter-key only
-                if (inst->operands[1] != for_var_reg) return false;
-                break;
             case OP_TABLE_GET_CONST:
             case OP_TABLE_SET_CONST:
-                return false;      // string keys land in the hash part
-            case OP_TABLE_GET_INT:
-            case OP_TABLE_SET_INT:
-                break;             // fixed array indices are already safe
+                return false;                                // string keys land in the hash part
             default:
-                break;             // other opcodes don't touch tables
+                break;                                       // other ops don't touch tables
         }
     }
-    return true;
+    return true;                                             // only numeric table access seen
 }
 
 // scans one function for numeric loops and table loops

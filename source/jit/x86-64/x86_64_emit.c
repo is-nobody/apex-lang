@@ -627,8 +627,9 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
 }
 
 // emits one non-jump loop-body instruction using the xmm register cache
-static void emit_loop_body_instr(JITContext* ctx, CodeBuf* cb, XmmCache* cache,
-                                  int pc, int const_slot, JitLoopInfo* info) {
+static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
+                                  XmmCache* cache, int pc, int const_slot, JitLoopInfo* info) {
+    (void)abi;                                                   // reserved for ABI-specific opcodes
     BytecodeChunk* chunk = ctx->chunk;
     Instruction* inst = &chunk->code[pc];
     int d = inst->operands[0];
@@ -746,18 +747,47 @@ static void emit_loop_body_instr(JITContext* ctx, CodeBuf* cb, XmmCache* cache,
             break;
         }
         case OP_TABLE_GET: {
-            if (b != info->for_var_reg) return;                  // only counter-key fast path
-            int xk = cache->slot_reg[b];                         // counter slot in cache?
-            if (xk < 0) {
-                xk = x86_cache_load(cache, cb, b);               // load counter
-                if (xk < 0) return;                              // register cache full
+            int table_reg = a;                               // table register
+            int key_reg   = b;                               // key register
+
+            // fast path: counter key + this loop's primary table (rbx already holds its array_part)
+            if (key_reg == info->for_var_reg && table_reg == info->table.slot) {
+                int xk = cache->slot_reg[key_reg];           // key already in cache?
+                if (xk < 0) {
+                    xk = x86_cache_load(cache, cb, key_reg); // load key from frame
+                    if (xk < 0) return;                      // register cache full
+                }
+                x86_emit_cvttsd2si_eax(cb, xk);              // eax = (int)key
+                x86_emit_dec_eax(cb);                        // 1-based -> 0-based
+                int xd = x86_cache_alloc_excl(cache, cb, xk, -1);  // pick dest, keep key
+                if (xd < 0) return;                          // register cache full
+                x86_emit_movsd_load_idx8(cb, xd, X86_RBX, X86_RAX);  // xd = array_part[rax]
+                x86_cache_put(cache, xd, d);                 // cache dest
+                break;
             }
-            x86_emit_cvttsd2si_eax(cb, xk);                      // eax = (int)counter
-            x86_emit_dec_eax(cb);                                // 1-based -> 0-based
-            int xd = x86_cache_alloc_excl(cache, cb, xk, -1);    // pick dest, keep counter
-            if (xd < 0) return;                                  // register cache full
-            x86_emit_movsd_load_idx8(cb, xd, X86_RBX, X86_RAX);  // xd = array_part[rax]
-            x86_cache_put(cache, xd, d);                         // cache dest
+
+            // general path: fetch the table pointer, convert the key, index array_part
+            int xk = cache->slot_reg[key_reg];
+            if (xk < 0) {
+                xk = x86_cache_load(cache, cb, key_reg);
+                if (xk < 0) return;                          // register cache full
+            }
+
+            int xt = cache->slot_reg[table_reg];             // table still in an xmm?
+            if (xt >= 0) {
+                x86_emit_movq_rax_xmm(cb, xt);               // rax = table bits
+            } else {
+                x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(table_reg));  // rax = frame[table_reg]
+            }
+            x86_emit_clear_high16_rax(cb);                   // strip nan-box tag
+            x86_emit_load_r64_base(cb, X86_RAX, X86_RAX,
+                                (int32_t)offsetof(Table, array_part));  // rax = array_part
+            x86_emit_cvttsd2si_edx(cb, xk);                  // edx = (int)key
+            x86_emit_dec_edx(cb);                            // 1-based -> 0-based
+            int xd = x86_cache_alloc_excl(cache, cb, xk, -1);  // pick dest, keep key
+            if (xd < 0) return;                              // register cache full
+            x86_emit_movsd_load_idx8(cb, xd, X86_RAX, X86_RDX);  // xd = array_part[rdx]
+            x86_cache_put(cache, xd, d);                     // cache dest
             break;
         }
         case OP_TABLE_GET_INT: {
@@ -768,18 +798,50 @@ static void emit_loop_body_instr(JITContext* ctx, CodeBuf* cb, XmmCache* cache,
             break;
         }
         case OP_TABLE_SET: {
-            // d = table, a = key, b = value — only the counter-key fast path is safe
-            if (a != info->for_var_reg) return;
-            int xk = cache->slot_reg[a];
-            if (xk < 0) {
-                xk = x86_cache_load(cache, cb, a);
-                if (xk < 0) return;
+            // d = table, a = key, b = value
+            int table_reg = d;                               // table register
+            int key_reg   = a;                               // key register
+            int val_reg   = b;                               // value register
+
+            // fast path: counter key + this loop's primary table
+            if (key_reg == info->for_var_reg && table_reg == info->table.slot) {
+                int xk = cache->slot_reg[key_reg];
+                if (xk < 0) {
+                    xk = x86_cache_load(cache, cb, key_reg);
+                    if (xk < 0) return;                      // register cache full
+                }
+                x86_emit_cvttsd2si_eax(cb, xk);              // eax = (int)key
+                x86_emit_dec_eax(cb);                        // 1-based -> 0-based
+                int xv = x86_cache_load_excl(cache, cb, val_reg, xk, -1);  // load value, keep key
+                if (xv < 0) return;                          // register cache full
+                x86_emit_movsd_store_idx8(cb, X86_RBX, X86_RAX, xv);  // array_part[rax] = xv
+                break;
             }
-            x86_emit_cvttsd2si_eax(cb, xk);              // eax = (int)counter
-            x86_emit_dec_eax(cb);                        // 1-based -> 0-based
-            int xv = x86_cache_load_excl(cache, cb, b, xk, -1);   // was: x86_cache_load(cache, cb, b)
-            if (xv < 0) return;
-            x86_emit_movsd_store_idx8(cb, X86_RBX, X86_RAX, xv);
+
+            // general path
+            int xk = cache->slot_reg[key_reg];
+            if (xk < 0) {
+                xk = x86_cache_load(cache, cb, key_reg);
+                if (xk < 0) return;                          // register cache full
+            }
+            int xv = cache->slot_reg[val_reg];
+            if (xv < 0) {
+                xv = x86_cache_load(cache, cb, val_reg);
+                if (xv < 0) return;                          // register cache full
+            }
+
+            int xt = cache->slot_reg[table_reg];             // table still in an xmm?
+            if (xt >= 0) {
+                x86_emit_movq_rax_xmm(cb, xt);               // rax = table bits
+            } else {
+                x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(table_reg));  // rax = frame[table_reg]
+            }
+            x86_emit_clear_high16_rax(cb);                   // strip nan-box tag
+            x86_emit_load_r64_base(cb, X86_RAX, X86_RAX,
+                                (int32_t)offsetof(Table, array_part));  // rax = array_part
+            x86_emit_cvttsd2si_edx(cb, xk);                  // edx = (int)key
+            x86_emit_dec_edx(cb);                            // 1-based -> 0-based
+            x86_emit_movsd_store_idx8(cb, X86_RAX, X86_RDX, xv);  // array_part[rdx] = xv
             break;
         }
         case OP_TABLE_SET_INT: {
@@ -792,32 +854,32 @@ static void emit_loop_body_instr(JITContext* ctx, CodeBuf* cb, XmmCache* cache,
             break;                                               // unreachable in native loops
     }
 
-    if (touched_nan_check && info->touches_tables) {
-        int xd = cache->slot_reg[d];
-        if (xd >= 0) emit_nan_check(cb, xd);
+    if (touched_nan_check && info->touches_tables) {         // NaN propagation matches interpreter
+        int xd = cache->slot_reg[d];                         // dest slot still in cache?
+        if (xd >= 0) emit_nan_check(cb, xd);                 // rewrite NaN to NONE bits
     }
 }
 
 // emits one iteration (entry test + body) and returns the fixup offset for the exit jump
-static size_t emit_loop_iteration(JITContext* ctx, CodeBuf* cb, XmmCache* cache,
-                                   JitLoopInfo* info, int const_slot,
+static size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
+                                   XmmCache* cache, JitLoopInfo* info, int const_slot,
                                    bool iter_in_xmm) {
     BytecodeChunk* chunk = ctx->chunk;
-    int entry = info->entry_pc;
-    int back_edge = info->back_edge_pc;
+    int entry = info->entry_pc;                              // first body pc
+    int back_edge = info->back_edge_pc;                      // jump back to entry
 
-    size_t exit_patch;
-    if (info->kind == JIT_LOOP_NUMERIC_FOR) {
-        int var_reg = chunk->code[entry].operands[0];
-        int end_reg = info->for_end_reg;
-        int step_reg = info->for_step_reg;
+    size_t exit_patch;                                       // offset of the exit jump placeholder
+    if (info->kind == JIT_LOOP_NUMERIC_FOR) {                // counter-based for loop
+        int var_reg = chunk->code[entry].operands[0];        // loop counter slot
+        int end_reg = info->for_end_reg;                     // end bound slot
+        int step_reg = info->for_step_reg;                   // step slot
 
-        int xa = x86_cache_load(cache, cb, end_reg);
-        if (xa < 0) return (size_t)-1;
-        int xb = x86_cache_load_excl(cache, cb, step_reg, xa, -1);
-        if (xb < 0) return (size_t)-1;
-        int xc = x86_cache_load_excl(cache, cb, var_reg, xa, xb);
-        if (xc < 0) return (size_t)-1;
+        int xa = x86_cache_load(cache, cb, end_reg);         // load end bound
+        if (xa < 0) return (size_t)-1;                       // register cache full
+        int xb = x86_cache_load_excl(cache, cb, step_reg, xa, -1);  // load step, avoid xa
+        if (xb < 0) return (size_t)-1;                       // register cache full
+        int xc = x86_cache_load_excl(cache, cb, var_reg, xa, xb);   // load counter, avoid xa/xb
+        if (xc < 0) return (size_t)-1;                       // register cache full
 
         if (!iter_in_xmm) {
             x86_emit_movsd_load(cb, 7, x86_slot_disp(info->nregs));  // xmm7 = iterator
@@ -825,45 +887,92 @@ static size_t emit_loop_iteration(JITContext* ctx, CodeBuf* cb, XmmCache* cache,
         emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
         emit_u8(cb, 0xC0 | (7 << 3) | xa);                   // ucomisd xmm7, xa
         emit_u8(cb, 0x0F); emit_u8(cb, 0x87);                // ja exit
-        exit_patch = cb->len;
-        emit_i32(cb, 0);
+        exit_patch = cb->len;                                // record placeholder offset
+        emit_i32(cb, 0);                                     // placeholder for rel32
 
         x86_emit_sse66_rr(cb, 0x28, xc, 7);                  // movapd xc, xmm7 (R[var] = c)
         x86_cache_put(cache, xc, var_reg);                   // var became dirty
-        x86_emit_movsd_store(cb, xc, x86_slot_disp(var_reg)); // frame[var] = i  ← NEW
-        cache->slot_dirty[var_reg] = false;                  // memory is in sync ← NEW
+        x86_emit_movsd_store(cb, xc, x86_slot_disp(var_reg)); // frame[var] = i
+        cache->slot_dirty[var_reg] = false;                  // memory is in sync
 
         x86_emit_sse_arith_rr(cb, 0x58, 7, xb);              // addsd xmm7, xb (step)
         if (!iter_in_xmm) {
             x86_emit_movsd_store(cb, 7, x86_slot_disp(info->nregs));  // store iterator
         }
-    } else {
+    } else {                                                 // condition-based loop
         Instruction* entry_inst = &chunk->code[entry];
-        int a = entry_inst->operands[1];
-        int b = entry_inst->operands[2];
-        int xa = x86_cache_load(cache, cb, a);
-        if (xa < 0) return (size_t)-1;
-        int xb = x86_cache_load_excl(cache, cb, b, xa, -1);
-        if (xb < 0) return (size_t)-1;
+        int a = entry_inst->operands[1];                     // left operand slot
+        int b = entry_inst->operands[2];                     // right operand slot
+        int xa = x86_cache_load(cache, cb, a);               // load left operand
+        if (xa < 0) return (size_t)-1;                       // register cache full
+        int xb = x86_cache_load_excl(cache, cb, b, xa, -1);  // load right, avoid xa
+        if (xb < 0) return (size_t)-1;                       // register cache full
 
         emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
         emit_u8(cb, 0xC0 | (xa << 3) | xb);                  // ucomisd xa, xb
 
-        uint8_t jcc = jcc_for_entry_op(entry_inst->opcode);
+        uint8_t jcc = jcc_for_entry_op(entry_inst->opcode);  // exit condition opcode
         emit_u8(cb, 0x0F); emit_u8(cb, jcc);                 // conditional exit
-        exit_patch = cb->len;
-        emit_i32(cb, 0);
+        exit_patch = cb->len;                                // record placeholder offset
+        emit_i32(cb, 0);                                     // placeholder for rel32
     }
 
     for (int pc = entry + 1; pc < back_edge; pc++) {         // body
-        emit_loop_body_instr(ctx, cb, cache, pc, const_slot, info);
+        emit_loop_body_instr(abi, ctx, cb, cache, pc, const_slot, info);
     }
 
-    if (info->touches_tables) {
+    if (info->touches_tables) {                              // table ops need the frame in sync
         x86_cache_flush(cache, cb);
     }
 
-    return exit_patch;
+    return exit_patch;                                       // caller patches the exit jump
+}
+
+// checks whether an opcode writes to its operands[0] destination
+static bool op_writes_dest(Opcode op) {
+    switch (op) {
+        case OP_MOVE: case OP_NEG: case OP_INC: case OP_DEC:
+        case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:
+        case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
+        case OP_CMP_EQ: case OP_CMP_NEQ:
+        case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
+        case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
+        case OP_TABLE_GET: case OP_TABLE_GET_INT:
+        case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:
+            return true;                                     // d is written by these ops
+        default:
+            return false;                                    // d is untouched
+    }
+}
+
+// rejects loops that would need runtime checks the emitter does not produce
+static bool loop_is_safe_to_emit(BytecodeChunk* chunk, JitLoopInfo* info) {
+    int entry     = info->entry_pc;                          // first body pc
+    int back_edge = info->back_edge_pc;                      // jump back to entry
+
+    if (info->kind == JIT_LOOP_NUMERIC_FOR) {
+        for (int pc = entry + 1; pc < back_edge; pc++) {     // scan body for writes
+            Instruction* inst = &chunk->code[pc];
+            if (!op_writes_dest(inst->opcode)) continue;     // op does not produce a dest
+            int d = inst->operands[0];                       // destination slot
+            if (d == info->for_end_reg || d == info->for_step_reg) return false;
+        }
+    }
+
+    for (int pc = entry + 1; pc < back_edge; pc++) {
+        Instruction* inst = &chunk->code[pc];
+        if (inst->opcode == OP_TABLE_SET) {                  // d = table, a = key, b = value
+            int table_reg = inst->operands[0];
+            int key_reg   = inst->operands[1];
+            if (key_reg != info->for_var_reg || table_reg != info->table.slot)
+                return false;                                // needs general-path table write
+        } else if (inst->opcode == OP_TABLE_SET_INT) {       // rbx holds only info->table.slot's array_part
+            if (inst->operands[0] != info->table.slot) return false;
+        } else if (inst->opcode == OP_TABLE_GET_INT) {       // same rbx issue as SET_INT
+            if (inst->operands[1] != info->table.slot) return false;
+        }
+    }
+    return true;                                             // only safe operations seen
 }
 
 // emits native code for a numeric loop (with optional table access)
@@ -881,6 +990,8 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
     if (range_size <= 0) return false;                       // empty range, nothing to emit
 
     if (cb->len + (size_t)range_size * 256 + 1024 > cb->cap) return false;  // buffer too small
+
+    if (!loop_is_safe_to_emit(ctx->chunk, info)) return false;   // needs runtime checks the emitter lacks
 
     // scan body to decide if the iterator can stay in xmm7 across iterations
     bool iter_in_xmm = false;
@@ -912,7 +1023,7 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
     for (int iter = 0; iter < 8; iter++) {                   // fixpoint loop
         XmmCache cache = cache_start;
         scratch.len = 0;
-        size_t patch = emit_loop_iteration(ctx, &scratch, &cache, info, const_slot, iter_in_xmm);
+        size_t patch = emit_loop_iteration(abi, ctx, &scratch, &cache, info, const_slot, iter_in_xmm);
         if (patch == (size_t)-1) return false;               // emit failed
         if (x86_cache_eq(&cache, &cache_start)) { converged = true; break; }  // stable state reached
         cache_start = cache;                                 // try again with new state
@@ -969,7 +1080,7 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
 
     int loop_top = (int)cb->len;                             // loop start address
     XmmCache cache = cache_start;
-    size_t entry_patch = emit_loop_iteration(ctx, cb, &cache, info, const_slot, iter_in_xmm);
+    size_t entry_patch = emit_loop_iteration(abi, ctx, cb, &cache, info, const_slot, iter_in_xmm);
     if (entry_patch == (size_t)-1) { cb->len = mark; return false; }  // emit failed, rollback
 
     emit_u8(cb, 0xE9);                                       // jmp loop_top
@@ -986,9 +1097,10 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
 
     m = info->live_out;                                      // copy written slots back to vm
     while (m) {
-        int s = __builtin_ctzll(m);
+        int s = __builtin_ctzll(m);                          // next written slot
         m &= m - 1;
-        if (s >= 64) break;
+        if (s >= 64) break;                                  // beyond tracked range
+        if (info->ref_writes & (1ULL << s)) continue;        // refcounted value — keep vm's copy
         x86_emit_movsd_load(cb, 0, x86_slot_disp(s));        // xmm0 = frame[s]
         x86_emit_movsd_store_base(cb, abi->frame_reg, 0, s * 8);  // regs[s] = xmm0
     }
@@ -1000,7 +1112,7 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
     emit_leave_ret(cb, abi, base_frame);
 
     info->native_fn = (void (*)(uint64_t*))(cb->buf + mark);  // publish entry pointer
-    return true;                                             // emission successful
+    return true;                                              // emission successful
 }
 
 // emits native code for a table iteration loop (for v in t)
@@ -1085,7 +1197,7 @@ static bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
     x86_cache_put(&cache, xv, var_reg);                      // cache var_reg in xv
 
     for (int pc = entry + 1; pc < back_edge; pc++) {         // emit body
-        emit_loop_body_instr(ctx, cb, &cache, pc, const_slot, info);
+        emit_loop_body_instr(abi, ctx, cb, &cache, pc, const_slot, info);
     }
 
     x86_cache_flush(&cache, cb);                             // spill dirty slots to frame
@@ -1107,10 +1219,11 @@ static bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
 
     m = info->live_out;                                      // copy written slots back to vm
     while (m) {
-        int s = __builtin_ctzll(m);
+        int s = __builtin_ctzll(m);                          // next written slot
         m &= m - 1;
-        if (s >= 64) break;
+        if (s >= 64) break;                                  // beyond tracked range
         if (s == var_reg) continue;                          // already written by the loop body
+        if (info->ref_writes & (1ULL << s)) continue;        // refcounted value — keep vm's copy
         x86_emit_movsd_load(cb, 0, x86_slot_disp(s));        // xmm0 = frame[s]
         x86_emit_movsd_store_base(cb, abi->frame_reg, 0, s * 8);  // regs[s] = xmm0
     }
@@ -1122,7 +1235,7 @@ static bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
     emit_leave_ret(cb, abi, base_frame);
 
     info->native_fn = (void (*)(uint64_t*))(cb->buf + mark);  // publish entry pointer
-    return true;                                             // emission successful
+    return true;                                              // emission successful
 }
 
 // emits native code for a single native loop, dispatching by kind

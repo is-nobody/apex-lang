@@ -64,6 +64,7 @@ typedef struct {
 
     uint64_t live_in;   // bitmask of slots read inside the loop
     uint64_t live_out;  // bitmask of slots written inside the loop
+    uint64_t ref_writes;  // slots whose last in-loop write came from TABLE_GET/_INT
 
     JitSlotKind live_in_kind[JIT_MAX_SLOTS];  // per-slot validation kind
     bool        touches_tables;               // any table op seen -> NaN checks on arithmetic
