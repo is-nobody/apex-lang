@@ -11,12 +11,14 @@
 #include <stdint.h>
 #include <sys/stat.h>
 #include <time.h>
-#include <dirent.h>
 #include <errno.h>
 
 #ifdef _WIN32
+#include <windows.h>
 #include <sys/utime.h>
+#include <direct.h>
 #else
+#include <dirent.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <utime.h>
@@ -297,10 +299,10 @@ static bool is_directory(const char* path) {
     return false;                                       // not a directory
 }
 
-// create directory recursively
+// create directory
 static bool create_directory(const char* path) {
 #ifdef _WIN32
-    return mkdir(path) == 0 || errno == EEXIST;         // create or exists
+    return _mkdir(path) == 0 || errno == EEXIST;        // create or exists
 #else
     return mkdir(path, 0755) == 0 || errno == EEXIST;   // create with perms
 #endif
@@ -328,85 +330,153 @@ static bool create_parent_dirs(const char* path) {
     return true;                                        // success
 }
 
-// recursively collect all files in a directory
+// build full and archive paths for a directory entry
+static void build_paths(const char* base_path, const char* archive_base, const char* name,
+                        char* full_path, size_t full_size,
+                        char* archive_path, size_t archive_size) {
+    snprintf(full_path, full_size, "%s/%s", base_path, name);  // build system path
+
+    if (strlen(archive_base) > 0) {                            // has archive base
+        snprintf(archive_path, archive_size, "%s/%s", archive_base, name);
+    } else {                                                    // no archive base
+        strncpy(archive_path, name, archive_size - 1);          // copy name
+        archive_path[archive_size - 1] = '\0';                  // null terminate
+    }
+}
+
+// append a directory entry to the list
+static bool add_dir_entry(const char* full_path, const char* archive_path, ZipEntry** head) {
+    ZipEntry* dir_entry = (ZipEntry*)calloc(1, sizeof(ZipEntry));  // allocate entry
+    if (!dir_entry) return false;                                  // allocation failed
+
+    dir_entry->filename = strdup(full_path);                            // copy filename
+    dir_entry->archive_name = (char*)malloc(strlen(archive_path) + 2);  // allocate
+    if (!dir_entry->archive_name) {                                     // allocation failed
+        free(dir_entry->filename);                                      // free filename
+        free(dir_entry);                                                // free entry
+        return false;
+    }
+    sprintf(dir_entry->archive_name, "%s/", archive_path);              // add trailing slash
+    dir_entry->external_attr = get_file_attrs(full_path);               // get attributes
+    dir_entry->crc32 = 0;                        // no crc for directory
+    dir_entry->file_size = 0;                    // no size for directory
+    get_dos_time(full_path, &dir_entry->dos_date, &dir_entry->dos_time);  // get time
+    dir_entry->local_header_offset = 0;          // no local header
+    dir_entry->next = *head;                     // add to list
+    *head = dir_entry;                           // update head
+    return true;                                 // success
+}
+
+// append a file entry to the list
+static bool add_file_entry(const char* full_path, const char* archive_path, ZipEntry** head) {
+    long file_size;                                              // file size
+    uint8_t* file_data = read_file(full_path, &file_size);       // read file
+    if (!file_data) return false;                                // read failed
+
+    ZipEntry* file_entry = (ZipEntry*)calloc(1, sizeof(ZipEntry));  // allocate
+    if (!file_entry) {                          // allocation failed
+        free(file_data);                        // free data
+        return false;
+    }
+    file_entry->filename = strdup(full_path);                 // copy filename
+    file_entry->archive_name = strdup(archive_path);          // copy archive name
+    file_entry->external_attr = get_file_attrs(full_path);    // get attributes
+    file_entry->crc32 = crc32_compute(file_data, file_size);  // compute crc
+    file_entry->file_size = file_size;          // store size
+    get_dos_time(full_path, &file_entry->dos_date, &file_entry->dos_time);  // get time
+    file_entry->local_header_offset = 0;        // will be set later
+    file_entry->next = *head;                   // add to list
+    *head = file_entry;                         // update head
+
+    free(file_data);                            // free file data
+    return true;                                // success
+}
+
+#ifdef _WIN32
+// recursively collect all files in a directory using winapi
+static bool collect_files(const char* base_path, const char* archive_base, ZipEntry** head) {
+    char search_path[ZIP_MAX_PATH];                     // search pattern
+    snprintf(search_path, sizeof(search_path), "%s/*", base_path);  // build pattern
+
+    WIN32_FIND_DATAA fd;                                // find data
+    HANDLE hfind = FindFirstFileA(search_path, &fd);    // start search
+    if (hfind == INVALID_HANDLE_VALUE) return false;    // open failed
+
+    bool ok = true;                                     // result flag
+    do {
+        if (strcmp(fd.cFileName, ".") == 0 ||           // skip current dir
+            strcmp(fd.cFileName, "..") == 0) {          // skip parent dir
+            continue;
+        }
+
+        char full_path[ZIP_MAX_PATH];                   // full system path
+        char archive_path[ZIP_MAX_PATH];                // path in archive
+        build_paths(base_path, archive_base, fd.cFileName,  // build paths
+                    full_path, sizeof(full_path),
+                    archive_path, sizeof(archive_path));
+
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {  // is directory
+            if (!add_dir_entry(full_path, archive_path, head)) {  // add entry
+                ok = false;                             // failed
+                break;                                  // stop
+            }
+            if (!collect_files(full_path, archive_path, head)) {  // recurse
+                ok = false;                             // failed
+                break;                                  // stop
+            }
+        } else {                                        // is file
+            if (!add_file_entry(full_path, archive_path, head)) {  // add entry
+                ok = false;                             // failed
+                break;                                  // stop
+            }
+        }
+    } while (FindNextFileA(hfind, &fd));                // next entry
+
+    FindClose(hfind);                                   // close search
+    return ok;                                          // return result
+}
+#else
+// recursively collect all files in a directory using posix
 static bool collect_files(const char* base_path, const char* archive_base, ZipEntry** head) {
     DIR* dir = opendir(base_path);                      // open directory
     if (!dir) return false;                             // open failed
-    
+
     struct dirent* entry;                               // directory entry
-    char full_path[ZIP_MAX_PATH];                       // full system path
-    char archive_path[ZIP_MAX_PATH];                    // path in archive
-    
+    bool ok = true;                                     // result flag
+
     while ((entry = readdir(dir)) != NULL) {            // iterate entries
         if (strcmp(entry->d_name, ".") == 0 ||          // skip current dir
             strcmp(entry->d_name, "..") == 0) {         // skip parent dir
             continue;
         }
-        
-        snprintf(full_path, sizeof(full_path), "%s/%s", base_path, entry->d_name);  // build path
-        
-        if (strlen(archive_base) > 0) {                 // has archive base
-            snprintf(archive_path, sizeof(archive_path), "%s/%s", archive_base, entry->d_name);
-        } else {                                         // no archive base
-            strncpy(archive_path, entry->d_name, sizeof(archive_path) - 1);
-            archive_path[sizeof(archive_path) - 1] = '\0';
-        }
-        
+
+        char full_path[ZIP_MAX_PATH];                   // full system path
+        char archive_path[ZIP_MAX_PATH];                // path in archive
+        build_paths(base_path, archive_base, entry->d_name,  // build paths
+                    full_path, sizeof(full_path),
+                    archive_path, sizeof(archive_path));
+
         if (is_directory(full_path)) {                  // is directory
-            // Add directory entry
-            ZipEntry* dir_entry = (ZipEntry*)calloc(1, sizeof(ZipEntry));  // allocate entry
-            if (!dir_entry) {                           // allocation failed
-                closedir(dir);                          // close directory
-                return false;
+            if (!add_dir_entry(full_path, archive_path, head)) {  // add entry
+                ok = false;                             // failed
+                break;                                  // stop
             }
-            dir_entry->filename = strdup(full_path);                            // copy filename
-            dir_entry->archive_name = (char*)malloc(strlen(archive_path) + 2);  // allocate
-            sprintf(dir_entry->archive_name, "%s/", archive_path);              // add trailing slash
-            dir_entry->external_attr = get_file_attrs(full_path);               // get attributes
-            dir_entry->crc32 = 0;                        // no crc for directory
-            dir_entry->file_size = 0;                    // no size for directory
-            get_dos_time(full_path, &dir_entry->dos_date, &dir_entry->dos_time);  // get time
-            dir_entry->local_header_offset = 0;          // no local header
-            dir_entry->next = *head;                     // add to list
-            *head = dir_entry;                           // update head
-            
-            // Recursively process subdirectory
             if (!collect_files(full_path, archive_path, head)) {  // recurse
-                closedir(dir);                          // close directory
-                return false;
+                ok = false;                             // failed
+                break;                                  // stop
             }
         } else {                                        // is file
-            // Add file entry
-            long file_size;                             // file size
-            uint8_t* file_data = read_file(full_path, &file_size);  // read file
-            if (!file_data) {                           // read failed
-                closedir(dir);                          // close directory
-                return false;
+            if (!add_file_entry(full_path, archive_path, head)) {  // add entry
+                ok = false;                             // failed
+                break;                                  // stop
             }
-            
-            ZipEntry* file_entry = (ZipEntry*)calloc(1, sizeof(ZipEntry));  // allocate
-            if (!file_entry) {                          // allocation failed
-                free(file_data);                        // free data
-                closedir(dir);                          // close directory
-                return false;
-            }
-            file_entry->filename = strdup(full_path);                 // copy filename
-            file_entry->archive_name = strdup(archive_path);          // copy archive name
-            file_entry->external_attr = get_file_attrs(full_path);    // get attributes
-            file_entry->crc32 = crc32_compute(file_data, file_size);  // compute crc
-            file_entry->file_size = file_size;          // store size
-            get_dos_time(full_path, &file_entry->dos_date, &file_entry->dos_time);  // get time
-            file_entry->local_header_offset = 0;        // will be set later
-            file_entry->next = *head;                   // add to list
-            *head = file_entry;                         // update head
-            
-            free(file_data);                            // free file data
         }
     }
-    
+
     closedir(dir);                                      // close directory
-    return true;                                        // success
+    return ok;                                          // return result
 }
+#endif
 
 // pack a single file into a zip archive
 static bool pack_single_file(const char* input_filename) {
@@ -573,6 +643,111 @@ static bool pack_single_file(const char* input_filename) {
     return true;                                        // success
 }
 
+// write local header + data for one entry
+static bool write_local_entry(FILE* zip_file, ZipEntry* entry, const uint8_t* file_data, long file_size) {
+    entry->local_header_offset = ftell(zip_file);       // store offset
+
+    ZipLocalFileHeader local_header;                             // local header struct
+    memset(&local_header, 0, sizeof(local_header));              // zero it
+    local_header.signature = ZIP_LOCAL_FILE_HEADER_SIG;          // signature
+    local_header.version_needed = ZIP_VERSION_NEEDED;            // version needed
+    local_header.general_purpose_bit = ZIP_GENERAL_PURPOSE_BIT;  // purpose bits
+    local_header.compression_method = ZIP_COMPRESSION_METHOD;    // no compression
+    local_header.last_mod_time = entry->dos_time;                // time
+    local_header.last_mod_date = entry->dos_date;                // date
+    local_header.crc32 = entry->crc32;                           // crc32
+    local_header.compressed_size = file_size;                    // compressed size
+    local_header.uncompressed_size = file_size;                  // uncompressed size
+    local_header.filename_length = strlen(entry->archive_name);  // filename length
+    local_header.extra_field_length = 0;                         // no extra field
+
+    uint8_t header_buffer[30];                                        // header buffer
+    write_le32(header_buffer + 0, local_header.signature);            // signature
+    write_le16(header_buffer + 4, local_header.version_needed);       // version needed
+    write_le16(header_buffer + 6, local_header.general_purpose_bit);  // purpose bits
+    write_le16(header_buffer + 8, local_header.compression_method);   // compression
+    write_le16(header_buffer + 10, local_header.last_mod_time);       // time
+    write_le16(header_buffer + 12, local_header.last_mod_date);       // date
+    write_le32(header_buffer + 14, local_header.crc32);               // crc32
+    write_le32(header_buffer + 18, local_header.compressed_size);     // compressed
+    write_le32(header_buffer + 22, local_header.uncompressed_size);   // uncompressed
+    write_le16(header_buffer + 26, local_header.filename_length);     // filename length
+    write_le16(header_buffer + 28, local_header.extra_field_length);  // extra length
+
+    if (fwrite(header_buffer, 1, 30, zip_file) != 30) return false;  // write header
+
+    if (fwrite(entry->archive_name, 1, local_header.filename_length, zip_file) != local_header.filename_length) {
+        return false;                                                // write name
+    }
+
+    if (fwrite(file_data, 1, file_size, zip_file) != (size_t)file_size) {
+        return false;                                                // write data
+    }
+
+    return true;                                                     // success
+}
+
+// write central directory header for one entry
+static bool write_central_entry(FILE* zip_file, ZipEntry* entry) {
+    ZipCentralFileHeader central_header;                           // central header struct
+    memset(&central_header, 0, sizeof(central_header));            // zero it
+    central_header.signature = ZIP_CENTRAL_FILE_HEADER_SIG;        // signature
+    central_header.version_made_by = ZIP_VERSION_MADE_BY;          // version made by
+    central_header.version_needed = ZIP_VERSION_NEEDED;            // version needed
+    central_header.general_purpose_bit = ZIP_GENERAL_PURPOSE_BIT;  // purpose bits
+    central_header.compression_method = ZIP_COMPRESSION_METHOD;    // no compression
+    central_header.last_mod_time = entry->dos_time;                // time
+    central_header.last_mod_date = entry->dos_date;                // date
+    central_header.crc32 = entry->crc32;                           // crc32
+    central_header.compressed_size = entry->file_size;             // compressed size
+    central_header.uncompressed_size = entry->file_size;           // uncompressed size
+    central_header.filename_length = strlen(entry->archive_name);  // filename length
+    central_header.extra_field_length = 0;                         // no extra field
+    central_header.file_comment_length = 0;                        // no comment
+    central_header.disk_number_start = 0;                          // disk number
+    central_header.internal_file_attr = ZIP_INTERNAL_ATTR;         // internal attributes
+    central_header.external_file_attr = entry->external_attr;      // external attributes
+    central_header.relative_offset_local_header = entry->local_header_offset;  // offset
+
+    uint8_t cd_buffer[46];                                           // central header buffer
+    write_le32(cd_buffer + 0, central_header.signature);             // signature
+    write_le16(cd_buffer + 4, central_header.version_made_by);       // version made by
+    write_le16(cd_buffer + 6, central_header.version_needed);        // version needed
+    write_le16(cd_buffer + 8, central_header.general_purpose_bit);   // purpose bits
+    write_le16(cd_buffer + 10, central_header.compression_method);   // compression
+    write_le16(cd_buffer + 12, central_header.last_mod_time);        // time
+    write_le16(cd_buffer + 14, central_header.last_mod_date);        // date
+    write_le32(cd_buffer + 16, central_header.crc32);                // crc32
+    write_le32(cd_buffer + 20, central_header.compressed_size);      // compressed
+    write_le32(cd_buffer + 24, central_header.uncompressed_size);    // uncompressed
+    write_le16(cd_buffer + 28, central_header.filename_length);      // filename length
+    write_le16(cd_buffer + 30, central_header.extra_field_length);   // extra length
+    write_le16(cd_buffer + 32, central_header.file_comment_length);  // comment length
+    write_le16(cd_buffer + 34, central_header.disk_number_start);    // disk number
+    write_le16(cd_buffer + 36, central_header.internal_file_attr);   // internal attr
+    write_le32(cd_buffer + 38, central_header.external_file_attr);   // external attr
+    write_le32(cd_buffer + 42, central_header.relative_offset_local_header);  // offset
+
+    if (fwrite(cd_buffer, 1, 46, zip_file) != 46) return false;      // write central header
+
+    if (fwrite(entry->archive_name, 1, central_header.filename_length, zip_file) != central_header.filename_length) {
+        return false;                                                // write name
+    }
+
+    return true;                                                     // success
+}
+
+// free the entry list
+static void free_entries(ZipEntry* entries) {
+    while (entries) {                                   // iterate entries
+        ZipEntry* next = entries->next;                 // get next
+        free(entries->filename);                        // free filename
+        free(entries->archive_name);                    // free archive name
+        free(entries);                                  // free entry
+        entries = next;                                 // move to next
+    }
+}
+
 // pack a directory recursively into a zip archive
 static bool pack_directory(const char* input_path) {
     char* zip_filename = get_zip_filename(input_path);  // build zip name
@@ -581,6 +756,7 @@ static bool pack_directory(const char* input_path) {
     ZipEntry* entries = NULL;                           // entry list head
     if (!collect_files(input_path, "", &entries)) {     // collect files
         free(zip_filename);                             // free zip name
+        free_entries(entries);                          // free entries
         return false;
     }
     
@@ -592,13 +768,7 @@ static bool pack_directory(const char* input_path) {
     FILE* zip_file = fopen(zip_filename, "wb");         // open zip file
     if (!zip_file) {                                    // open failed
         free(zip_filename);                             // free zip name
-        while (entries) {                               // free entry list
-            ZipEntry* next = entries->next;             // get next
-            free(entries->filename);                    // free filename
-            free(entries->archive_name);                // free archive name
-            free(entries);                              // free entry
-            entries = next;                             // move to next
-        }
+        free_entries(entries);                          // free entries
         return false;
     }
     
@@ -610,58 +780,15 @@ static bool pack_directory(const char* input_path) {
             if (!file_data) {                           // read failed
                 fclose(zip_file);                       // close file
                 free(zip_filename);                     // free zip name
+                free_entries(entries);                  // free entries
                 return false;
             }
             
-            entry->local_header_offset = ftell(zip_file);  // store offset
-            
-            ZipLocalFileHeader local_header;                             // local header struct
-            memset(&local_header, 0, sizeof(local_header));              // zero it
-            local_header.signature = ZIP_LOCAL_FILE_HEADER_SIG;          // signature
-            local_header.version_needed = ZIP_VERSION_NEEDED;            // version needed
-            local_header.general_purpose_bit = ZIP_GENERAL_PURPOSE_BIT;  // purpose bits
-            local_header.compression_method = ZIP_COMPRESSION_METHOD;    // no compression
-            local_header.last_mod_time = entry->dos_time;                // time
-            local_header.last_mod_date = entry->dos_date;                // date
-            local_header.crc32 = entry->crc32;                           // crc32
-            local_header.compressed_size = file_size;                    // compressed size
-            local_header.uncompressed_size = file_size;                  // uncompressed size
-            local_header.filename_length = strlen(entry->archive_name);  // filename length
-            local_header.extra_field_length = 0;                         // no extra field
-            
-            uint8_t header_buffer[30];                                        // header buffer
-            write_le32(header_buffer + 0, local_header.signature);            // signature
-            write_le16(header_buffer + 4, local_header.version_needed);       // version needed
-            write_le16(header_buffer + 6, local_header.general_purpose_bit);  // purpose bits
-            write_le16(header_buffer + 8, local_header.compression_method);   // compression
-            write_le16(header_buffer + 10, local_header.last_mod_time);       // time
-            write_le16(header_buffer + 12, local_header.last_mod_date);       // date
-            write_le32(header_buffer + 14, local_header.crc32);               // crc32
-            write_le32(header_buffer + 18, local_header.compressed_size);     // compressed
-            write_le32(header_buffer + 22, local_header.uncompressed_size);   // uncompressed
-            write_le16(header_buffer + 26, local_header.filename_length);     // filename length
-            write_le16(header_buffer + 28, local_header.extra_field_length);  // extra length
-            
-            if (fwrite(header_buffer, 1, 30, zip_file) != 30) {  // write header
+            if (!write_local_entry(zip_file, entry, file_data, file_size)) {  // write entry
                 free(file_data);                        // free data
                 fclose(zip_file);                       // close file
                 free(zip_filename);                     // free zip name
-                return false;
-            }
-            
-            // Write filename
-            if (fwrite(entry->archive_name, 1, local_header.filename_length, zip_file) != local_header.filename_length) {  // write name
-                free(file_data);                        // free data
-                fclose(zip_file);                       // close file
-                free(zip_filename);                     // free zip name
-                return false;
-            }
-            
-            // Write file data
-            if (fwrite(file_data, 1, file_size, zip_file) != (size_t)file_size) {  // write data
-                free(file_data);                        // free data
-                fclose(zip_file);                       // close file
-                free(zip_filename);                     // free zip name
+                free_entries(entries);                  // free entries
                 return false;
             }
             
@@ -670,60 +797,15 @@ static bool pack_directory(const char* input_path) {
         entry = entry->next;                            // next entry
     }
     
-    long cd_offset = ftell(zip_file);                                  // central dir offset
-    entry = entries;                                                   // start at head
-    while (entry) {                                                    // iterate entries
-        ZipCentralFileHeader central_header;                           // central header struct
-        memset(&central_header, 0, sizeof(central_header));            // zero it
-        central_header.signature = ZIP_CENTRAL_FILE_HEADER_SIG;        // signature
-        central_header.version_made_by = ZIP_VERSION_MADE_BY;          // version made by
-        central_header.version_needed = ZIP_VERSION_NEEDED;            // version needed
-        central_header.general_purpose_bit = ZIP_GENERAL_PURPOSE_BIT;  // purpose bits
-        central_header.compression_method = ZIP_COMPRESSION_METHOD;    // no compression
-        central_header.last_mod_time = entry->dos_time;                // time
-        central_header.last_mod_date = entry->dos_date;                // date
-        central_header.crc32 = entry->crc32;                           // crc32
-        central_header.compressed_size = entry->file_size;             // compressed size
-        central_header.uncompressed_size = entry->file_size;           // uncompressed size
-        central_header.filename_length = strlen(entry->archive_name);  // filename length
-        central_header.extra_field_length = 0;                         // no extra field
-        central_header.file_comment_length = 0;                        // no comment
-        central_header.disk_number_start = 0;                          // disk number
-        central_header.internal_file_attr = ZIP_INTERNAL_ATTR;         // internal attributes
-        central_header.external_file_attr = entry->external_attr;      // external attributes
-        central_header.relative_offset_local_header = entry->local_header_offset;  // offset
-        
-        uint8_t cd_buffer[46];                                           // central header buffer
-        write_le32(cd_buffer + 0, central_header.signature);             // signature
-        write_le16(cd_buffer + 4, central_header.version_made_by);       // version made by
-        write_le16(cd_buffer + 6, central_header.version_needed);        // version needed
-        write_le16(cd_buffer + 8, central_header.general_purpose_bit);   // purpose bits
-        write_le16(cd_buffer + 10, central_header.compression_method);   // compression
-        write_le16(cd_buffer + 12, central_header.last_mod_time);        // time
-        write_le16(cd_buffer + 14, central_header.last_mod_date);        // date
-        write_le32(cd_buffer + 16, central_header.crc32);                // crc32
-        write_le32(cd_buffer + 20, central_header.compressed_size);      // compressed
-        write_le32(cd_buffer + 24, central_header.uncompressed_size);    // uncompressed
-        write_le16(cd_buffer + 28, central_header.filename_length);      // filename length
-        write_le16(cd_buffer + 30, central_header.extra_field_length);   // extra length
-        write_le16(cd_buffer + 32, central_header.file_comment_length);  // comment length
-        write_le16(cd_buffer + 34, central_header.disk_number_start);    // disk number
-        write_le16(cd_buffer + 36, central_header.internal_file_attr);   // internal attr
-        write_le32(cd_buffer + 38, central_header.external_file_attr);   // external attr
-        write_le32(cd_buffer + 42, central_header.relative_offset_local_header);  // offset
-        
-        if (fwrite(cd_buffer, 1, 46, zip_file) != 46) {  // write central header
-            fclose(zip_file);                            // close file
-            free(zip_filename);                          // free zip name
-            return false;
-        }
-        
-        if (fwrite(entry->archive_name, 1, central_header.filename_length, zip_file) != central_header.filename_length) {  // write name
+    long cd_offset = ftell(zip_file);                   // central dir offset
+    entry = entries;                                    // start at head
+    while (entry) {                                     // iterate entries
+        if (!write_central_entry(zip_file, entry)) {    // write central header
             fclose(zip_file);                           // close file
             free(zip_filename);                         // free zip name
+            free_entries(entries);                      // free entries
             return false;
         }
-        
         entry = entry->next;                            // next entry
     }
     
@@ -759,19 +841,13 @@ static bool pack_directory(const char* input_path) {
     if (fwrite(eocd_buffer, 1, 22, zip_file) != 22) {   // write end central
         fclose(zip_file);                               // close file
         free(zip_filename);                             // free zip name
+        free_entries(entries);                          // free entries
         return false;
     }
     
     fclose(zip_file);                                   // close file
     free(zip_filename);                                 // free zip name
-    
-    while (entries) {                                   // free entry list
-        ZipEntry* next = entries->next;                 // get next
-        free(entries->filename);                        // free filename
-        free(entries->archive_name);                    // free archive name
-        free(entries);                                  // free entry
-        entries = next;                                 // move to next
-    }
+    free_entries(entries);                              // free entries
     
     return true;                                        // success
 }

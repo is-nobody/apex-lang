@@ -787,13 +787,19 @@ static bool hash_string(VM* vm, Value* args, Value* result,
                         void* context, int context_size,
                         hash_init_fn init, hash_update_fn update, hash_final_fn final,
                         int digest_size) {
+    (void)context_size;                            // unused, digest is heap allocated now
+
     if (!IS_STRING(args[0])) {
         *result = MAKE_NONE();                     // invalid argument
         return true;                               // builtin handled
     }
 
     StringObject* input_str = AS_STRING(args[0]);  // get input string
-    unsigned char* digest = (unsigned char*)alloca(digest_size);  // hash output
+    unsigned char* digest = (unsigned char*)malloc(digest_size);  // hash output
+    if (!digest) {                                 // allocation failed
+        *result = MAKE_NONE();                     // return none
+        return true;                               // builtin handled
+    }
 
     init(context);                                                // initialize
     update(context, (unsigned char*)input_str->chars,             // update with data
@@ -801,6 +807,8 @@ static bool hash_string(VM* vm, Value* args, Value* result,
     final(digest, context);                                       // finalize
 
     char* hex_str = digest_to_hex(digest, digest_size);           // convert to hex
+    memset(digest, 0, digest_size);                               // clear sensitive data
+    free(digest);                                                 // free digest buffer
     if (!hex_str) {                                               // allocation failed
         memset(context, 0, context_size);                         // clear sensitive data
         *result = MAKE_NONE();                                    // return none
@@ -830,7 +838,11 @@ static bool hmac_hash(VM* vm, Value* args, Value* result,
 
     StringObject* key_str = AS_STRING(args[0]);        // get key string
     StringObject* msg_str = AS_STRING(args[1]);        // get message string
-    unsigned char* digest = (unsigned char*)alloca(digest_size);  // hmac output
+    unsigned char* digest = (unsigned char*)malloc(digest_size);  // hmac output
+    if (!digest) {                                     // allocation failed
+        *result = MAKE_NONE();                         // return none
+        return true;                                   // builtin handled
+    }
     unsigned char key_block[128];                      // max block size (sha512 = 128)
     unsigned char inner_digest[64];                    // max digest size (sha512 = 64)
 
@@ -864,6 +876,8 @@ static bool hmac_hash(VM* vm, Value* args, Value* result,
     memset(context, 0, context_size);                   // clear hash context
 
     char* hex_str = digest_to_hex(digest, digest_size); // convert to hex
+    memset(digest, 0, digest_size);                     // clear digest
+    free(digest);                                       // free digest buffer
     if (!hex_str) {                                     // allocation failed
         *result = MAKE_NONE();                          // return none
         return true;                                    // builtin handled
@@ -1005,6 +1019,7 @@ static bool pbkdf2_hash(VM* vm, Value* args, Value* result,
     memset(block_result, 0, sizeof(block_result));   // clear accumulator
 
     char* hex_str = digest_to_hex(output, key_len);  // convert to hex string
+    memset(output, 0, key_len);                      // clear output buffer
     free(output);                                    // free output buffer
     if (!hex_str) {                                  // allocation failed
         *result = MAKE_NONE();                       // return none
@@ -1440,7 +1455,8 @@ static bool aes_cbc_encrypt_generic(VM* vm, Value* args, Value* result,
     
     unsigned char* round_keys = (unsigned char*)malloc(expanded_key_size);  // expanded key schedule
     if (!round_keys) {                                  // allocation failed
-        free(padded);                                   // free padded buffer        *result = MAKE_NONE();                          // return none
+        free(padded);                                   // free padded buffer
+        *result = MAKE_NONE();                          // return none
         return true;                                    // builtin handled
     }
     key_expansion(key, round_keys);                     // expand key
