@@ -75,8 +75,7 @@ static bool base_generic_decode(const char* str, unsigned char* out, int* out_le
     int bits_left = 0;                                                       // bits remaining
     *out_len = 0;                                                            // output length
     int padding = 0;                                                         // padding count
-    int non_padding_len = 0;                                                 // length without padding
-    
+
     for (int i = 0; i < len; i++) {                                          // iterate over input
         if (str[i] == '=') {                                                 // padding
             padding++;                                                       // count padding
@@ -94,7 +93,6 @@ static bool base_generic_decode(const char* str, unsigned char* out, int* out_le
             out[(*out_len)++] = (unsigned char)(buffer >> (bits_left - 8)); // extract byte
             bits_left -= 8;                                                  // remove processed bits
         }
-        non_padding_len++;                                                   // count non-padding chars
     }
     
     // validate padding
