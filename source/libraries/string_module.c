@@ -222,18 +222,34 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             *result = MAKE_NONE();                         // invalid, return none
             return true;                                   // builtin handled
         }
-        int start_char = (int)AS_NUMBER(args[1]) - 1;      // start position (1-based)
-        size_t end_char = (size_t)AS_NUMBER(args[2]);      // end position
+        double start_d = AS_NUMBER(args[1]);               // start position (1-based, raw)
+        double end_d   = AS_NUMBER(args[2]);               // end position (raw)
         const char* str = AS_STRING(args[0])->chars;       // source string
         size_t char_count = utf8_strlen(str);              // total character count
-        
-        if (start_char < 0) start_char = 0;                               // clamp start
-        if (end_char > char_count) end_char = char_count;                 // clamp end
-        if ((size_t)start_char >= end_char) {                             // empty range
-            *result = make_string_val(vm, "");                            // return empty string
+
+        int start_char;                                    // resolved start (0-based)
+        if (start_d < 1.0) {
+            start_char = 0;                                // below range → clamp to 0
+        } else if (start_d > (double)char_count) {
+            start_char = (int)char_count;                  // above range → clamp to end
         } else {
-            size_t start_byte = utf8_byte_offset(str, start_char);  // byte offset of start
-            size_t end_byte = utf8_byte_offset(str, end_char);      // byte offset of end
+            start_char = (int)start_d - 1;                 // in range → 0-based
+        }
+
+        int end_char;                                      // resolved end
+        if (end_d < 0.0) {
+            end_char = (int)char_count;                    // negative → end of string
+        } else if (end_d > (double)char_count) {
+            end_char = (int)char_count;                    // above range → clamp to end
+        } else {
+            end_char = (int)end_d;                         // in range
+        }
+
+        if (start_char >= end_char) {                      // empty range
+            *result = make_string_val(vm, "");             // return empty string
+        } else {
+            size_t start_byte = utf8_byte_offset(str, (size_t)start_char);  // byte offset of start
+            size_t end_byte = utf8_byte_offset(str, (size_t)end_char);      // byte offset of end
             size_t sub_len = end_byte - start_byte;                 // length in bytes
             
             char* sub = (char*)malloc(sub_len + 1);           // allocate substring
