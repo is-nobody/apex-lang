@@ -857,7 +857,6 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
             x86_emit_cvttsd2si_edx(cb, xk);               // edx = (int)key
             x86_emit_dec_edx(cb);                         // 1-based -> 0-based
             // rdx = index (upper 32 already zeroed)
-            int xt = cache->slot_reg[table_reg];          // cache already flushed
             x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(table_reg));  // rax = frame[table_reg]
             x86_emit_clear_high16_rax(cb);                // strip nan-box tag
             emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC1);       // mov rcx, rax
@@ -867,7 +866,6 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
             x86_emit_cvttsd2si_edx(cb, xk);               // edx = (int)key
             x86_emit_dec_edx(cb);                         // 1-based -> 0-based
             emit_u8(cb, 0x89); emit_u8(cb, 0xD6);         // mov esi, edx
-            int xt = cache->slot_reg[table_reg];          // cache already flushed
             x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(table_reg));  // rax = frame[table_reg]
             x86_emit_clear_high16_rax(cb);                // strip nan-box tag
             emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC7);       // mov rdi, rax

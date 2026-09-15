@@ -12,7 +12,6 @@
 #include "math_module.h"
 #include "string_module.h"
 #include "table_module.h"
-#include "ffi_module.h"
 #include "random_module.h"
 #include "json_module.h"
 #include "xml_module.h"
@@ -1041,7 +1040,6 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
     if (strncmp(name, "math.", 5) == 0) return math_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "string.", 7) == 0) return string_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "table.", 6) == 0) return table_call_builtin(vm, name, arg_count, args, result);
-    if (strncmp(name, "ffi.", 4) == 0) return ffi_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "random.", 7) == 0) return random_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "json.", 5) == 0) return json_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "xml.", 4) == 0) return xml_call_builtin(vm, name, arg_count, args, result);

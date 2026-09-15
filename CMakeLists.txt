@@ -53,7 +53,6 @@ set(SOURCES
     source/libraries/math_module.c
     source/libraries/string_module.c
     source/libraries/table_module.c
-    source/libraries/ffi_module.c
     source/libraries/random_module.c
     source/libraries/json_module.c
     source/libraries/xml_module.c

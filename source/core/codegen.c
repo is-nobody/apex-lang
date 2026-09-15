@@ -21,8 +21,6 @@ static bool is_known_builtin_module(const char* name) {
             return strcmp(name, "math") == 0;      // only math starts with 'm'
         case 't':
             return strcmp(name, "table") == 0;     // only table starts with 't'
-        case 'f':
-            return strcmp(name, "ffi") == 0;       // only ffi starts with 'f'
         case 'r':
             return strcmp(name, "random") == 0 ||  // random module
                    strcmp(name, "regex") == 0;     // regex module
@@ -475,7 +473,6 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node, int dest_hint) {
              strncmp(func_name, "math.", 5) == 0 ||
              strncmp(func_name, "string.", 7) == 0 ||
              strncmp(func_name, "table.", 6) == 0 ||
-             strncmp(func_name, "ffi.", 4) == 0 ||
              strncmp(func_name, "random.", 7) == 0 ||
              strncmp(func_name, "json.", 5) == 0 ||
              strncmp(func_name, "xml.", 4) == 0 ||

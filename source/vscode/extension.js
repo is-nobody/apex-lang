@@ -12,7 +12,6 @@ const libDocs = {
     'math': 'Mathematics library.',
     'string': 'String library.',
     'table': 'Table library.',
-    'ffi': 'Foreign Function Interface library.',
     'random': 'Random generation.',
     'json': 'JSON encoding/decoding library.',
     'xml': 'XML encoding/decoding library.',
@@ -164,10 +163,6 @@ function activate(context) {
                 'table.size',   'table.keys',
                 'table.values', 'table.clear',
                 'table.copy',   'table.merge',
-
-                'ffi.open',   'ffi.call',
-                'ffi.errno',  'ffi.strerror',
-                'ffi.malloc', 'ffi.free',
 
                 'random.float',      'random.integer',
                 'random.choice',      'random.shuffle',
