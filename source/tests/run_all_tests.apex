@@ -12,13 +12,6 @@ os.execute("apex source/tests/arithmetic/whole_with_decimal.apex")
 os.execute("apex source/tests/arithmetic/priority_without_parentheses.apex")
 os.execute("apex source/tests/arithmetic/priority_parentheses.apex")
 
-// conditionals - if-elseif-else branches
-os.execute("apex source/tests/conditionals/if-elseif-else/if_single.apex")
-os.execute("apex source/tests/conditionals/if-elseif-else/if_ternary.apex")
-os.execute("apex source/tests/conditionals/if-elseif-else/if_elseif_else.apex")
-os.execute("apex source/tests/conditionals/if-elseif-else/if_else.apex")
-os.execute("apex source/tests/conditionals/if-elseif-else/nested_if.apex")
-
 // conditionals - comparison operators
 os.execute("apex source/tests/conditionals/comparisons/whole.apex")
 os.execute("apex source/tests/conditionals/comparisons/decimal.apex")
@@ -42,6 +35,8 @@ os.execute("apex source/tests/type_conversion/number.apex")
 os.execute("apex source/tests/type_conversion/string.apex")
 
 // integration tests
+os.execute("apex source/tests/integration/if_else.apex")
+os.execute("apex source/tests/integration/if_ternary.apex")
 os.execute("apex source/tests/integration/function.apex")
 os.execute("apex source/tests/integration/table.apex")
 os.execute("apex source/tests/integration/import.apex")
