@@ -67,18 +67,6 @@ static const char* get_arch_string(void) {
 #endif
 }
 
-// returns current UTC time as e.g. "2026-09-14 12:34:56 UTC"
-static void get_utc_time(char* buffer, size_t size) {
-    time_t now = time(NULL);
-    struct tm tm_utc;
-#if defined(_WIN32)
-    gmtime_s(&tm_utc, &now);
-#else
-    gmtime_r(&now, &tm_utc);
-#endif
-    strftime(buffer, size, "%Y-%m-%d %H:%M:%S UTC", &tm_utc);
-}
-
 // dispatches cli commands like 'version', 'build', and 'compile'
 int handle_commands(int argc, char** argv) {
     if (argc < 2) return -1;                                                    // need at least one argument
@@ -87,17 +75,14 @@ int handle_commands(int argc, char** argv) {
         char compiler_ver[64] = {0};
         get_compiler_version(compiler_ver, sizeof(compiler_ver));
 
-        char utc[64];
-        get_utc_time(utc, sizeof(utc));
-
 #if APEX_JIT_ENABLED
-        printf("Apex 26.09 JIT [%s %s] on %s %s (%s)\n",
+        printf("Apex 26.09 JIT [%s %s] on %s %s\n",
             COMPILER_NAME, compiler_ver,
-            platform_get_name(), get_arch_string(), utc);
+            platform_get_name(), get_arch_string());
 #else
-        printf("Apex 26.09 [%s %s] on %s %s (%s)\n",
+        printf("Apex 26.09 [%s %s] on %s %s\n",
             COMPILER_NAME, compiler_ver,
-            platform_get_name(), get_arch_string(), utc);
+            platform_get_name(), get_arch_string());
 #endif
         return 0;
     }
