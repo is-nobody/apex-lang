@@ -628,7 +628,8 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
 
 // emits one non-jump loop-body instruction using the xmm register cache
 static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
-                                  XmmCache* cache, int pc, int const_slot, JitLoopInfo* info) {
+                                  XmmCache* cache, int pc, int const_slot, int save_slot,
+                                  JitLoopInfo* info) {
     (void)abi;                                                   // reserved for ABI-specific opcodes
     BytecodeChunk* chunk = ctx->chunk;
     Instruction* inst = &chunk->code[pc];
@@ -818,30 +819,48 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
                 break;
             }
 
-            // general path
+            // general path: call the runtime helper so array_part is grown safely
+            if (save_slot < 0) return;                    // no save slot reserved, bail
             int xk = cache->slot_reg[key_reg];
             if (xk < 0) {
                 xk = x86_cache_load(cache, cb, key_reg);
-                if (xk < 0) return;                          // register cache full
+                if (xk < 0) return;                       // register cache full
             }
             int xv = cache->slot_reg[val_reg];
             if (xv < 0) {
                 xv = x86_cache_load(cache, cb, val_reg);
-                if (xv < 0) return;                          // register cache full
+                if (xv < 0) return;                       // register cache full
             }
 
-            int xt = cache->slot_reg[table_reg];             // table still in an xmm?
-            if (xt >= 0) {
-                x86_emit_movq_rax_xmm(cb, xt);               // rax = table bits
-            } else {
-                x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(table_reg));  // rax = frame[table_reg]
-            }
-            x86_emit_clear_high16_rax(cb);                   // strip nan-box tag
-            x86_emit_load_r64_base(cb, X86_RAX, X86_RAX,
-                                (int32_t)offsetof(Table, array_part));  // rax = array_part
-            x86_emit_cvttsd2si_edx(cb, xk);                  // edx = (int)key
-            x86_emit_dec_edx(cb);                            // 1-based -> 0-based
-            x86_emit_movsd_store_idx8(cb, X86_RAX, X86_RDX, xv);  // array_part[rdx] = xv
+            x86_cache_flush(cache, cb);                   // spill dirty slots before the call
+            x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // save frame_reg
+
+#if defined(_WIN32) || defined(_WIN64)
+            x86_emit_cvttsd2si_edx(cb, xk);               // edx = (int)key
+            x86_emit_dec_edx(cb);                         // 1-based -> 0-based
+            // rdx = index (upper 32 already zeroed)
+            int xt = cache->slot_reg[table_reg];          // cache already flushed
+            x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(table_reg));  // rax = frame[table_reg]
+            x86_emit_clear_high16_rax(cb);                // strip nan-box tag
+            emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC1);       // mov rcx, rax
+            x86_emit_movq_rax_xmm(cb, xv);                // rax = value bits
+            emit_u8(cb, 0x49); emit_u8(cb, 0x89); emit_u8(cb, 0xC0);       // mov r8, rax
+#else
+            x86_emit_cvttsd2si_edx(cb, xk);               // edx = (int)key
+            x86_emit_dec_edx(cb);                         // 1-based -> 0-based
+            emit_u8(cb, 0x89); emit_u8(cb, 0xD6);         // mov esi, edx
+            int xt = cache->slot_reg[table_reg];          // cache already flushed
+            x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(table_reg));  // rax = frame[table_reg]
+            x86_emit_clear_high16_rax(cb);                // strip nan-box tag
+            emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC7);       // mov rdi, rax
+            x86_emit_movq_rax_xmm(cb, xv);                // rax = value bits
+            emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC2);       // mov rdx, rax
+#endif
+            uint64_t addr = (uint64_t)(uintptr_t)&table_set_int;  // helper that grows array_part
+            x86_emit_movabs_rax(cb, addr);                // rax = helper
+            emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);         // call rax
+            x86_emit_load_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // restore frame_reg
+            x86_cache_clear(cache);                       // the call clobbers all xmm
             break;
         }
         case OP_TABLE_SET_INT: {
@@ -863,7 +882,7 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
 // emits one iteration (entry test + body) and returns the fixup offset for the exit jump
 static size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                                    XmmCache* cache, JitLoopInfo* info, int const_slot,
-                                   bool iter_in_xmm, int step_sign) {
+                                   int save_slot, bool iter_in_xmm, int step_sign) {
     BytecodeChunk* chunk = ctx->chunk;
     int entry = info->entry_pc;                              // first body pc
     int back_edge = info->back_edge_pc;                      // jump back to entry
@@ -919,7 +938,7 @@ static size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf
     }
 
     for (int pc = entry + 1; pc < back_edge; pc++) {         // body
-        emit_loop_body_instr(abi, ctx, cb, cache, pc, const_slot, info);
+        emit_loop_body_instr(abi, ctx, cb, cache, pc, const_slot, save_slot, info);
     }
 
     if (info->touches_tables) {                              // table ops need the frame in sync
@@ -962,16 +981,12 @@ static bool loop_is_safe_to_emit(BytecodeChunk* chunk, JitLoopInfo* info) {
 
     for (int pc = entry + 1; pc < back_edge; pc++) {
         Instruction* inst = &chunk->code[pc];
-        if (inst->opcode == OP_TABLE_SET) {                  // d = table, a = key, b = value
-            int table_reg = inst->operands[0];
-            int key_reg   = inst->operands[1];
-            if (key_reg != info->for_var_reg || table_reg != info->table.slot)
-                return false;                                // needs general-path table write
-        } else if (inst->opcode == OP_TABLE_SET_INT) {       // rbx holds only info->table.slot's array_part
+        if (inst->opcode == OP_TABLE_SET_INT) {       // rbx holds only info->table.slot's array_part
             if (inst->operands[0] != info->table.slot) return false;
         } else if (inst->opcode == OP_TABLE_GET_INT) {       // same rbx issue as SET_INT
             if (inst->operands[1] != info->table.slot) return false;
         }
+        // OP_TABLE_SET now always uses the general helper path, no rbx assumption
     }
     return true;                                             // only safe operations seen
 }
@@ -984,8 +999,27 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
     int nregs = info->nregs;                                 // function frame size
     int extra_slots = (info->kind == JIT_LOOP_NUMERIC_FOR) ? 1 : 0;  // iterator temp slot
     int const_slot = nregs + extra_slots;                    // reserved slot for constant 1.0
-    int table_saves_bytes = info->table.used ? 8 : 0;        // rbx save if table access
+
+    bool needs_helper = false;                               // does the body call table_set_int?
+    for (int pc = entry + 1; pc < back_edge; pc++) {
+        Instruction* inst = &ctx->chunk->code[pc];
+        if (inst->opcode == OP_TABLE_SET) {
+            if (inst->operands[1] != info->for_var_reg ||    // key is not the loop counter
+                inst->operands[0] != info->table.slot) {     // table is not the primary table
+                needs_helper = true;                         // general path needed
+                break;
+            }
+        }
+    }
+
+    int save_slot = -1;                                      // stack slot to stash frame_reg across helper call
     int frame_slots = const_slot + 1;                        // incl. constant slot
+    if (needs_helper) {
+        save_slot = frame_slots;                             // reserve one more slot
+        frame_slots++;
+    }
+
+    int table_saves_bytes = info->table.used ? 8 : 0;        // rbx save if table access
 
     int range_size = back_edge - entry + 1;
     if (range_size <= 0) return false;                       // empty range, nothing to emit
@@ -1024,7 +1058,7 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
     for (int iter = 0; iter < 8; iter++) {                   // fixpoint loop
         XmmCache cache = cache_start;
         scratch.len = 0;
-        size_t patch = emit_loop_iteration(abi, ctx, &scratch, &cache, info, const_slot, iter_in_xmm, step_sign);
+        size_t patch = emit_loop_iteration(abi, ctx, &scratch, &cache, info, const_slot, save_slot, iter_in_xmm, step_sign);
         if (patch == (size_t)-1) return false;               // emit failed
         if (x86_cache_eq(&cache, &cache_start)) { converged = true; break; }  // stable state reached
         cache_start = cache;                                 // try again with new state
@@ -1081,7 +1115,7 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
 
     int loop_top = (int)cb->len;                             // loop start address
     XmmCache cache = cache_start;
-    size_t entry_patch = emit_loop_iteration(abi, ctx, cb, &cache, info, const_slot, iter_in_xmm, step_sign);
+    size_t entry_patch = emit_loop_iteration(abi, ctx, cb, &cache, info, const_slot, save_slot, iter_in_xmm, step_sign);
     if (entry_patch == (size_t)-1) { cb->len = mark; return false; }  // emit failed, rollback
 
     emit_u8(cb, 0xE9);                                       // jmp loop_top
@@ -1198,7 +1232,7 @@ static bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
     x86_cache_put(&cache, xv, var_reg);                      // cache var_reg in xv
 
     for (int pc = entry + 1; pc < back_edge; pc++) {         // emit body
-        emit_loop_body_instr(abi, ctx, cb, &cache, pc, const_slot, info);
+        emit_loop_body_instr(abi, ctx, cb, &cache, pc, const_slot, -1, info);
     }
 
     x86_cache_flush(&cache, cb);                             // spill dirty slots to frame
