@@ -47,40 +47,6 @@ static void string_destroy(StringObject* str);
 static char* table_to_string(Table* table);
 static void table_to_string_builder(Table* table, StringBuilder* sb, int indent_level);
 
-// returns the type of a nan-boxed value
-ValueType_VM value_get_type(Value v) {
-    return (ValueType_VM)GET_TYPE(v);        // extract type tag from nan-boxed value
-}
-
-// creates a table from the pool if available, otherwise allocates new
-Table* table_create_pooled(ObjectPool* pool, int capacity) {
-    if (pool->table_pool_count > 0) {                 // reuse pooled table if available
-        Table* table = pool->table_pool[--pool->table_pool_count];      // pop from pool
-        table->header.ref_count = 1;                  // reset refcount
-        table->capacity = capacity > 0 ? capacity : TABLE_ARRAY_INIT;   // set capacity or default
-        table->hash_count = 0;                        // reset hash entry count
-        return table;                                 // return recycled table
-    }
-    return table_create(capacity);                    // pool empty, allocate new table
-}
-
-// returns a table to the pool for reuse after clearing it
-void table_destroy_pooled(ObjectPool* pool, Table* table) {
-    if (!table) return;                                      // guard against null
-    if (pool->table_pool_count < POOL_MAX_ITEMS / 4) {       // pool not full, recycle table
-        table_clear(table);                                  // clear all entries and free internal arrays
-        table->capacity = 8;                                 // reset to default capacity
-        table->entries = NULL;                               // clear entries pointer (freed by table_clear)
-        table->array_part = NULL;                            // clear array part pointer (freed by table_clear)
-        table->array_capacity = 0;                           // reset array capacity
-        table->array_count = 0;                              // reset array element count
-        table->hash_count = 0;                               // reset hash entry count
-        pool->table_pool[pool->table_pool_count++] = table;  // push onto pool
-    } else {
-        table_destroy(table);                                // pool full, just free the table
-    }
-}
-
 // djb2 hash function for string interning
 static unsigned int intern_hash(const char* chars, int length) {
     unsigned int hash = 5381;                    // djb2 initial seed
@@ -259,33 +225,6 @@ void value_decref(Value v) {
             table_destroy(table);                      // destroy table and all entries
         }
     }
-}
-
-// constructs a numeric value (unboxed double, nan-boxed if nan)
-Value vm_make_number(double value) {
-    return MAKE_NUMBER(value);       // box double as unboxed nan-tagged number
-}
-
-// constructs a string value (pointer stored in nan box)
-Value vm_make_string(const char* value) {
-    StringObject* str = string_create(value, (int)strlen(value));  // allocate new string object
-    return MAKE_STRING(str);                                       // box string pointer as tagged value
-}
-
-// constructs a none/null value (special nan tag)
-Value vm_make_none(void) {
-    return MAKE_NONE();              // return special nan tag for none
-}
-
-// constructs a boolean value (special nan tag with boolean payload)
-Value vm_make_bool(bool value) {
-    return MAKE_BOOL(value);         // return special nan tag with bool payload
-}
-
-// constructs a new empty table value (pointer in nan box)
-Value vm_make_table(void) {
-    Table* table = table_create(8);  // allocate new table with default capacity
-    return MAKE_TABLE(table);        // box table pointer as tagged value
 }
 
 // copies a value with proper reference counting
@@ -562,22 +501,6 @@ bool table_set_int(Table* table, int index, Value value) {
     return true;                                 // success
 }
 
-// gets a value by integer index from the array part
-bool table_get_int(Table* table, int index, Value* out_value) {
-    if (!table || index < 0 || table->array_part == NULL || index >= table->array_count) 
-        return false;                                 // out of bounds or no array part
-    if (out_value) {
-        *out_value = table->array_part[index];        // copy value to output
-        value_incref(*out_value);                     // bump refcount for caller
-    }
-    return true;                                      // found
-}
-
-// appends a value to the end of the array part
-void table_append(Table* table, Value value) {
-    table_set_int(table, table->array_count, value);  // set at current array count, auto-grows
-}
-
 // sets a value in the table by key, with auto-resizing and duplicate detection
 bool table_set(Table* table, Value key, Value value) {
     if (IS_NUMBER(key)) {                             // try array part for integer keys
@@ -789,27 +712,6 @@ void table_clear(Table* table) {
         table->array_capacity = 0;                      // reset capacity
         table->array_count = 0;                         // reset count
     }
-}
-
-// creates a shallow copy of the table
-Table* table_copy(Table* table) {
-    if (!table) return NULL;                            // guard against null
-    Table* copy = table_create(table->capacity);        // create new table with same capacity
-    if (table->entries) {
-        for (int i = 0; i < table->capacity; i++) {
-            TableEntry* entry = table->entries[i];          // iterate over hash buckets
-            while (entry) {
-                table_set(copy, entry->key, entry->value);  // copy each hash entry
-                entry = entry->next;                        // advance to next in chain
-            }
-        }
-    }
-    for (int i = 0; i < table->array_count; i++) {
-        if (!IS_NONE(table->array_part[i])) {                           // slot is occupied
-            table_set(copy, MAKE_NUMBER(i + 1), table->array_part[i]);  // copy array element with 1-based key
-        }
-    }
-    return copy;                                        // return shallow copy
 }
 
 // recursively compares two tables for deep equality

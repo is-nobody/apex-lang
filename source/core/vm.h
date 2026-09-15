@@ -98,7 +98,10 @@ extern bool apex_jit_runtime_enabled;
 #define IS_TABLE(v)          (((v) & (QNAN | (TAG_MASK << TAG_SHIFT))) == MAKE_QNAN(TAG_TABLE))
 #define IS_FUNCTION(v)       (((v) & (QNAN | (TAG_MASK << TAG_SHIFT))) == MAKE_QNAN(TAG_FUNCTION))
 
-// value type enum kept for compatibility
+// value is a single 64-bit integer using nan boxing
+typedef uint64_t Value;
+
+// value type enum
 typedef enum {
     VAL_NUMBER,          // double-precision floating point (unboxed)
     VAL_STRING,          // interned string object (pointer tagged in NaN)
@@ -122,9 +125,6 @@ typedef struct StringObject {
     int length;              // string length in characters
     char chars[];            // flexible array member for the actual string data
 } StringObject;
-
-// value is now a single 64-bit integer using NaN boxing
-typedef uint64_t Value;
 
 // hash table entry with chaining for collisions
 typedef struct TableEntry {
@@ -167,13 +167,6 @@ typedef struct {
     int bucket_index;          // current bucket in hash entries
     TableEntry* current_entry; // current node in bucket chain
 } TableIterState;
-
-// dynamic register frame that grows on demand
-typedef struct {
-    Value* registers;    // dynamically allocated array of nan-boxed values
-    int capacity;        // total allocated slots
-    int used;            // highest register index ever written
-} RegisterFrame;
 
 #if APEX_JIT_ENABLED
 struct JITContext;   // forward declaration, only when JIT is compiled in
@@ -235,21 +228,6 @@ typedef struct {
     Value args_table;               // table of command line arguments (1-indexed)
 } VM;
 
-// creates a value from a double number (stored unboxed if not NaN)
-Value vm_make_number(double value);
-
-// creates a value from a string (interns it, stores pointer in NaN box)
-Value vm_make_string(const char* value);
-
-// creates a none/null value (special NaN tag)
-Value vm_make_none(void);
-
-// creates a boolean value (special NaN tag with boolean payload)
-Value vm_make_bool(bool value);
-
-// creates a new empty table value (pointer in NaN box)
-Value vm_make_table(void);
-
 // copies a value with proper reference counting
 Value vm_copy_value(Value value);
 
@@ -286,17 +264,8 @@ Value* table_keys(Table* table, int* out_count);
 // removes all entries from the table
 void table_clear(Table* table);
 
-// creates a shallow copy of the table
-Table* table_copy(Table* table);
-
 // sets a value by integer index (uses array part if possible)
 bool table_set_int(Table* table, int index, Value value);
-
-// gets a value by integer index (checks array part first)
-bool table_get_int(Table* table, int index, Value* out_value);
-
-// appends a value to the array part of the table
-void table_append(Table* table, Value value);
 
 // interns a string, returns a canonical StringObject pointer
 StringObject* string_intern(StringInternTable* it, const char* chars, int length);
@@ -306,15 +275,6 @@ void string_intern_table_init(StringInternTable* it);
 
 // frees the string intern table
 void string_intern_table_free(StringInternTable* it);
-
-// creates a pooled string object (reuses from pool if available)
-StringObject* string_create_pooled(ObjectPool* pool, const char* chars, int length);
-
-// creates a pooled table (reuses from pool if available)
-Table* table_create_pooled(ObjectPool* pool, int capacity);
-
-// returns a table to the pool for reuse
-void table_destroy_pooled(ObjectPool* pool, Table* table);
 
 // populates vm->args_table with user command line arguments (1-indexed)
 void vm_set_args(VM* vm, int argc, char** argv, bool skip_script_name);
@@ -333,9 +293,6 @@ void value_incref(Value v);
 
 // decrements the reference count of a value (only for heap-allocated types)
 void value_decref(Value v);
-
-// returns the type of a NaN-boxed value
-ValueType_VM value_get_type(Value v);
 
 // creates a new string object (not interned, caller owns the reference)
 StringObject* string_create(const char* chars, int length);
