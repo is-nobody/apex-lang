@@ -36,6 +36,16 @@
 
 #define MARKER "__APEX_BIN_PAYLOAD__"  // magic marker identifying embedded payload in binary
 
+// switches windows console to utf-8 and disables \n -> \r\n translation on stdout/stderr
+static void setup_utf8_console(void) {
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);                    // tell console to decode output as utf-8
+    SetConsoleCP(CP_UTF8);                          // tell console to encode input as utf-8
+    _setmode(_fileno(stdout), _O_BINARY);           // disable \n -> \r\n on stdout
+    _setmode(_fileno(stderr), _O_BINARY);           // disable \n -> \r\n on stderr
+#endif
+}
+
 // reads a uint32_t in little-endian order
 static uint32_t read_u32_from_file(FILE* f) {
     uint8_t buf[4];                          // byte buffer
@@ -240,6 +250,8 @@ static bool has_extension(const char* filename, const char* ext) {
 
 // main entry point: optimized for fast startup
 int main(int argc, char** argv) {
+    setup_utf8_console();                          // windows: switch console to utf-8, disable newline translation
+
     int embedded_result = execute_embedded_bytecode(argc, argv);  // try to run as embedded binary first
     if (embedded_result >= 0) {
         return embedded_result;                    // embedded payload found and executed

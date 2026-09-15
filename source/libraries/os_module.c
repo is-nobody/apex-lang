@@ -124,7 +124,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
                 }
             }
             if (needs_newline) {
-                printf("\n");                                         // newline
+                fputc('\n', stdout);                                  // newline
             }
             fflush(stdout);                                           // flush output
         }
