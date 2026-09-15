@@ -24,6 +24,8 @@ typedef enum {
     TOKEN_AS,            // 'as' keyword for module aliasing in imports
     TOKEN_CONSTANT,      // 'constant' for declaring immutable variables
     TOKEN_IN,            // 'in' keyword for table iteration
+    TOKEN_ASYNC,         // 'async' keyword for asynchronous functions
+    TOKEN_AWAIT,         // 'await' keyword for awaiting future values
     TOKEN_AND,           // logical 'and' operator
     TOKEN_OR,            // logical 'or' operator
     TOKEN_NOT,           // logical 'not' operator

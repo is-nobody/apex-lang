@@ -68,6 +68,8 @@ function activate(context) {
                 'as': 'Creates an alias for an imported file module.\n\n```apex\nimport utils/math.apex as math_utils\nmath_utils.power(2, 3)\n```\n\nCannot be used with built-in modules.',
                 'constant': 'Declares a constant variable that cannot be reassigned.\n\n```apex\nconstant name = "Apex"\n```',
                 'in': 'Keyword for table iteration in for loops.\n\n```apex\nfor value in table\n    os.output(value)\n```',
+                'async': 'Marks a function as asynchronous. Calling it does not run the body — the call returns a future.\n\n```apex\nasync function add(a, b)\n    return a + b\n```',
+                'await': 'Runs an async function body (if not started yet) and gives the result. Works inside `async function` or at top level.\n\n```apex\nresult = await add(2, 3)  // 5\nvalue = await 42          // 42\n```',
                 'and': 'Logical AND operator.',
                 'or': 'Logical OR operator.',
                 'not': 'Logical NOT operator.',

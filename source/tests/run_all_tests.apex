@@ -42,6 +42,7 @@ os.execute("apex source/tests/integration/table.apex")
 os.execute("apex source/tests/integration/import.apex")
 os.execute("apex source/tests/integration/constant.apex")
 os.execute("apex source/tests/integration/match.apex")
+os.execute("apex source/tests/integration/async_await.apex")
 
 // standard library tests
 os.execute("apex source/tests/libraries/os.apex first second")

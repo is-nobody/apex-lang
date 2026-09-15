@@ -84,6 +84,9 @@ typedef enum {
     OP_RETURN_BOOL,      // return a boolean (without refcounting)
     OP_RETURN_NONE,      // return none value
 
+    OP_AWAIT,            // resumes a pending future or unwraps a resolved one
+    OP_ASYNC_CALL,       // captures args into a pending future, does not run the body
+
     OP_LOAD_GLOBAL,      // loads a global variable into a register
     OP_STORE_GLOBAL,     // stores a register value into a global variable
 
@@ -146,6 +149,7 @@ typedef struct {
     int local_count;             // number of local variables in the function
     int max_registers;           // max registers used
     char** local_names;          // local variable names for debugging (debug info)
+    bool is_async;               // true when declared with 'async function'
 } FunctionInfo;
 
 // hash table entry for fast string interning lookup

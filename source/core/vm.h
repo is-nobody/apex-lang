@@ -58,6 +58,7 @@ extern bool apex_jit_runtime_enabled;
 #define TAG_TABLE       ((uint64_t)4)
 #define TAG_FUNCTION    ((uint64_t)5)
 #define TAG_NAN         ((uint64_t)6)
+#define TAG_FUTURE      ((uint64_t)7)
 
 // mask for extracting type tag (bits 48-50)
 #define TAG_MASK        ((uint64_t)0x7)
@@ -68,6 +69,7 @@ extern bool apex_jit_runtime_enabled;
 #define MAKE_STRING(p)       (MAKE_QNAN(TAG_STRING) | ((uint64_t)(uintptr_t)(p) & ((uint64_t)0x0000FFFFFFFFFFFFULL)))
 #define MAKE_TABLE(p)        (MAKE_QNAN(TAG_TABLE)  | ((uint64_t)(uintptr_t)(p) & ((uint64_t)0x0000FFFFFFFFFFFFULL)))
 #define MAKE_FUNCTION(idx)   (MAKE_QNAN(TAG_FUNCTION) | ((uint64_t)(idx) & ((uint64_t)0x00000000FFFFFFFFULL)))
+#define MAKE_FUTURE(p)       (MAKE_QNAN(TAG_FUTURE)   | ((uint64_t)(uintptr_t)(p) & ((uint64_t)0x0000FFFFFFFFFFFFULL)))
 #define MAKE_NONE()          (MAKE_QNAN(TAG_NONE))
 #define MAKE_BOOL(b)         (MAKE_QNAN(TAG_BOOL) | ((b) ? ((uint64_t)1) : ((uint64_t)0)))
 #define MAKE_NUMBER(n) ({ \
@@ -87,6 +89,7 @@ extern bool apex_jit_runtime_enabled;
 #define AS_STRING(v)         ((StringObject*)(uintptr_t)((v) & ((uint64_t)0x0000FFFFFFFFFFFFULL)))
 #define AS_TABLE(v)          ((Table*)(uintptr_t)((v) & ((uint64_t)0x0000FFFFFFFFFFFFULL)))
 #define AS_FUNCTION(v)       ((int)((v) & ((uint64_t)0x00000000FFFFFFFFULL)))
+#define AS_FUTURE(v)         ((FutureObject*)(uintptr_t)((v) & ((uint64_t)0x0000FFFFFFFFFFFFULL)))
 #define AS_BOOL(v)           (((v) & 1) != 0)
 
 // type check macros
@@ -97,6 +100,7 @@ extern bool apex_jit_runtime_enabled;
 #define IS_STRING(v)         (((v) & (QNAN | (TAG_MASK << TAG_SHIFT))) == MAKE_QNAN(TAG_STRING))
 #define IS_TABLE(v)          (((v) & (QNAN | (TAG_MASK << TAG_SHIFT))) == MAKE_QNAN(TAG_TABLE))
 #define IS_FUNCTION(v)       (((v) & (QNAN | (TAG_MASK << TAG_SHIFT))) == MAKE_QNAN(TAG_FUNCTION))
+#define IS_FUTURE(v)         (((v) & (QNAN | (TAG_MASK << TAG_SHIFT))) == MAKE_QNAN(TAG_FUTURE))
 
 // value is a single 64-bit integer using nan boxing
 typedef uint64_t Value;
@@ -109,6 +113,7 @@ typedef enum {
     VAL_BOOL,            // boolean true or false (tagged NaN)
     VAL_TABLE,           // table/array (pointer tagged in NaN)
     VAL_FUNCTION,        // compiled function reference (tagged NaN)
+    VAL_FUTURE,          // resolved future object (pointer tagged in NaN)
 } ValueType_VM;
 
 // reference counting header for garbage-collected objects
@@ -125,6 +130,16 @@ typedef struct StringObject {
     int length;              // string length in characters
     char chars[];            // flexible array member for the actual string data
 } StringObject;
+
+// future produced by an async call; holds args until awaited, result after
+typedef struct FutureObject {
+    RefCountedObject header; // reference counting header for memory management
+    Value result;            // the async body's return value, once resolved
+    int state;               // 0 = pending, 1 = resolved
+    int func_idx;            // function table index of the async body
+    int arg_count;           // number of captured arguments
+    Value* args;             // heap array of captured argument values
+} FutureObject;
 
 // hash table entry with chaining for collisions
 typedef struct TableEntry {
@@ -220,6 +235,8 @@ typedef struct {
     ObjectPool obj_pool;            // object recycling pool for performance
 
     const char* source;             // source code string for error reporting
+
+    Value frame_futures[VM_MAX_FRAMES];  // in struct VM, before args_table
 
 #if APEX_JIT_ENABLED
     struct JITContext* jit;         // native JIT, NULL if unavailable / disabled

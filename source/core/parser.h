@@ -96,6 +96,9 @@ struct Parser {
     int error_count;                // total number of errors encountered during parsing
     int loop_depth;                 // nesting depth of loops (for break/continue validation)
     int function_depth;             // nesting depth of functions (for return validation)
+    int async_depth;                // nesting depth of async functions (for await validation)
+    int top_level_depth;            // 1 while parsing top-level statements, 0 inside any function
+    bool pending_async;             // true while parsing the body of an async function
     bool semantic_checks;           // whether to perform type checking and constant folding
     bool expecting_indented_block;  // true if previous statement opened a block (if/else if/else/for/function)
 

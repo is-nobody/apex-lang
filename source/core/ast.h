@@ -27,6 +27,7 @@ typedef enum {
     
     AST_BINARY,            // a + b, a == b, etc. — combines two expressions with an operator
     AST_UNARY,             // -a, not a — applies a unary operator to a single expression
+    AST_AWAIT,             // await expr — unwraps a future into its resolved value
     AST_LITERAL_NUMBER,    // 42, 3.14 — numeric constant
     AST_LITERAL_STRING,    // "hello" — string constant
     AST_LITERAL_NONE,      // none literal — represents null/nil value
@@ -121,6 +122,7 @@ struct ASTNode {
             char* name;               // function name (NULL for anonymous functions)
             ASTNodeList* params;      // list of parameter nodes
             ASTNode* body;            // block node containing function body
+            bool is_async;            // true when declared with 'async function'
         } function_decl;
         
         // if statement with condition, then branch, optional else if chain, and else branch
@@ -191,6 +193,11 @@ struct ASTNode {
             ASTNode* pattern;          // constant pattern expression (NULL for default)
             ASTNode* body;             // block node for case body
         } case_stmt;
+
+        // await expression that resolves a future to its underlying value
+        struct {
+            ASTNode* expression;      // expression producing a future
+        } await_expr;
 
         // expression statement wrapper to treat any expression as a statement
         struct {
@@ -273,6 +280,9 @@ ASTNode* ast_create_match(ASTNode* subject, ASTNodeList* cases,
 
 // creates a case branch node
 ASTNode* ast_create_case(ASTNode* pattern, ASTNode* body, int line, int column);
+
+// creates an await expression wrapping a future-producing subexpression
+ASTNode* ast_create_await(ASTNode* expression);
 
 // block node groups a list of statements, using first statement's location as fallback
 ASTNode* ast_create_block(ASTNodeList* statements);

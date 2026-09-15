@@ -114,6 +114,7 @@ ASTNode* ast_create_function(const char* name, ASTNodeList* params, ASTNode* bod
     node->function_decl.name = name ? strdup(name) : NULL;             // duplicate function name if provided
     node->function_decl.params = params ? params : ast_list_create();  // store params list, create if null
     node->function_decl.body = body;                                   // store function body block
+    node->function_decl.is_async = false;                              // sync by default, parser flips for async
     return node;                                                       // return function declaration node
 }
 
@@ -191,6 +192,14 @@ ASTNode* ast_create_case(ASTNode* pattern, ASTNode* body, int line, int column) 
     return node;                                              // return case node
 }
 
+// await expression: unwraps a future into its underlying value at runtime
+ASTNode* ast_create_await(ASTNode* expression) {
+    ASTNode* node = ast_create_node(AST_AWAIT,
+        expression->line, expression->column);   // inherit location from operand
+    node->await_expr.expression = expression;    // store the awaited expression
+    return node;                                 // return await node
+}
+
 // block node groups a list of statements, using first statement's location as fallback
 ASTNode* ast_create_block(ASTNodeList* statements) {
     ASTNode* node = ast_create_node(AST_BLOCK, 
@@ -264,6 +273,9 @@ void ast_free_node(ASTNode* node) {
             break;
         case AST_UNARY:                                                  // unary operation node
             ast_free_node(node->unary.operand);                          // recursively free operand
+            break;
+        case AST_AWAIT:                                                  // await expression node
+            ast_free_node(node->await_expr.expression);                  // recursively free awaited expression
             break;
         case AST_CALL:                                                   // function call node
             ast_free_node(node->call.callee);                            // recursively free callee

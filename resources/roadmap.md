@@ -6,7 +6,6 @@
 - Language server (LSP)
 - Documentation `Apex as Embedded language`
 - Resolve Cyclic Reference problem
-- Concurrency model
 
 **What's NOT on the roadmap**
 - GC due to uncontrolled pauses

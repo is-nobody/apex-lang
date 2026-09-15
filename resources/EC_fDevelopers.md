@@ -46,11 +46,15 @@ This manual is minimalistic. Each section builds on the previous ones. For the b
 - [6.3 Return Value](#63-return-value)
 - [6.4 Call](#64-call)
 
-### 7. Imports
-- [7.1 Importing an Entire File](#71-importing-an-entire-file)
-- [7.2 Importing from Sub-folders](#72-importing-from-sub-folders)
-- [7.3 Importing from One Sub-folder into Another](#73-importing-from-one-sub-folder-into-another)
-- [7.4 Aliasing](#74-aliasing)
+### 7. Async / Await
+- [7.1 Async Function](#71-async-function)
+- [7.2 Await](#72-await)
+
+### 8. Imports
+- [8.1 Importing an Entire File](#81-importing-an-entire-file)
+- [8.2 Importing from Sub-folders](#82-importing-from-sub-folders)
+- [8.3 Importing from One Sub-folder into Another](#83-importing-from-one-sub-folder-into-another)
+- [8.4 Aliasing](#84-aliasing)
 
 ### Conclusion
 - [What's Next?](#whats-next)
@@ -973,10 +977,83 @@ greet("Alice")
 total = add(10, 5)
 ```
 
-# 7. Imports
+# 7. Async / Await
+Apex has `async` and `await` for deferring work until you actually need the result.
+
+| What                 | When it runs                                                                             |
+|----------------------|------------------------------------------------------------------------------------------|
+| `async function f()` | Body does **not** run at call time. Calling `f()` creates a *future* — a promise object. |
+| `await fut`          | Runs the body (if not yet started) and returns the result.                               |
+| `await value`        | If `value` is not a future, returns it as-is.                                            |
+
+## 7.1 Async Function
+Add `async` before `function`. The body of an async function is **not executed when you call it** — instead, the call returns a future.
+
+```apex
+import os
+
+async function add(a, b)
+    return a + b
+
+async function main()
+    fut = add(2, 3)          // future created, add body not started yet
+    result = await fut       // body runs here, result is 5
+    os.output(result)
+
+await main()
+```
+
+The future behaves like a normal value: you can store it in a variable, put it in a table, or pass it around.
+
+## 7.2 Await
+`await` can be used only inside an `async function` or at the top level of the program.
+
+```apex
+import os
+
+async function greet(name)
+    return "Hello, {name}!"
+
+async function main()
+    message = await greet("Apex")
+    os.output(message)       // Hello, Apex!
+
+await main()
+```
+
+`await` on a value that is not a future simply returns that value:
+
+```apex
+import os
+
+async function main()
+    x = await 42
+    os.output(x)  // 42
+
+await main()
+```
+
+An awaited call runs the body at the point of `await` — not at the point of the call.
+
+```apex
+import os
+
+async function step(name)
+    os.output(name)
+
+async function main()
+    fut = step("body")   // nothing printed yet
+    os.output("before")  // printed first
+    await fut            // now "body" is printed
+    os.output("after")   // printed last
+
+await main()
+```
+
+# 8. Imports
 Imports give you the ability to use code from other files. Every import path is relative to the main file — the file you run with `apex file.apex`.
 
-## 7.1 Importing an Entire File
+## 8.1 Importing an Entire File
 To import everything from a file in the same folder:
 
 ```apex
@@ -990,7 +1067,7 @@ os.output(database["APP_NAME"])
 
 For user files, you must add `.apex` at the end.
 
-## 7.2 Importing from Sub-folders
+## 8.2 Importing from Sub-folders
 Use dots (`/`) to navigate into folders:
 
 ```
@@ -1005,7 +1082,7 @@ my_project/
 import utils/math.apex
 ```
 
-## 7.3 Importing from One Sub-folder into Another
+## 8.3 Importing from One Sub-folder into Another
 You have this structure:
 
 ```
@@ -1025,7 +1102,7 @@ When you import a file, you get all globals from it:
 - All functions
 - All variables
 
-## 7.4 Aliasing
+## 8.4 Aliasing
 When a module has a long or awkward name, you can give it a short alias with the `as` keyword. After that, use the alias instead of the full module name.
 
 ```apex

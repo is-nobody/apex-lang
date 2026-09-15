@@ -22,6 +22,7 @@
 static const char* token_type_names[] = {
     "FUNCTION", "IF", "ELSE", "FOR", "MATCH", "CASE",
     "BREAK", "CONTINUE", "RETURN", "IMPORT", "AS", "CONSTANT", "IN ",
+    "ASYNC", "AWAIT",
     "AND", "OR", "NOT",
     "NONE", "TRUE", "FALSE", "NUMBER", "STRING", "IDENTIFIER",
     "PLUS", "MINUS", "STAR", "SLASH", "PERCENT", "EQUAL",
@@ -51,6 +52,8 @@ static KeywordEntry keywords[] = {
     {"as", TOKEN_AS},
     {"constant", TOKEN_CONSTANT},
     {"in", TOKEN_IN},
+    {"async", TOKEN_ASYNC},
+    {"await", TOKEN_AWAIT},
     {"and", TOKEN_AND},
     {"or", TOKEN_OR},
     {"not", TOKEN_NOT},

@@ -92,6 +92,8 @@ static bool ast_references_local(ASTNode* node, const char* name) {
                    ast_references_local(node->binary.right, name);          // either side
         case AST_UNARY:
             return ast_references_local(node->unary.operand, name);         // operand
+        case AST_AWAIT:
+            return ast_references_local(node->await_expr.expression, name); // awaited expression
         case AST_CALL:
             if (ast_references_local(node->call.callee, name)) return true; // callee
             for (int i = 0; i < node->call.arguments->count; i++) {         // any arg
@@ -523,6 +525,18 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node, int dest_hint) {
                     }
                 }
             }
+        }
+
+        if (func_idx >= 0 && cg->chunk->functions[func_idx].is_async) {   // async call: defer body
+            for (int i = 0; i < arg_count; i++) {                         // push captured args
+                emit(cg, INST(OP_PUSH_ARG, arg_regs[i], 0, 0), node->line);
+            }
+            emit(cg, INST(OP_ASYNC_CALL, result_reg, func_idx, arg_count), node->line);  // return pending future
+            if (arg_regs) {                                               // free arg registers
+                for (int i = 0; i < arg_count; i++) free_register(cg, arg_regs[i]);
+                free(arg_regs);                                           // free arg array
+            }
+            return result_reg;                                            // caller gets a future
         }
         
         if (func_idx >= 0) {                                                   // function found
@@ -1002,6 +1016,14 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
             return dest_reg;                                                      // return result
         }
 
+        case AST_AWAIT: {                                                          // await expression
+            int inner_reg = codegen_expression(cg, node->await_expr.expression);   // evaluate inner
+            int result_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);      // result destination
+            emit(cg, INST(OP_AWAIT, result_reg, inner_reg, 0), node->line);        // unwrap future
+            free_register(cg, inner_reg);                                          // free inner temp
+            return result_reg;                                                     // return result
+        }
+
         default: {                                                                // unknown node
             int reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);            // use hint or fresh
             emit(cg, INST(OP_LOAD_BOOL, reg, 0, 0), node->line);                  // load false
@@ -1451,6 +1473,7 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
 
     int param_count = node->function_decl.params->count;                     // parameter count
     int func_idx = bytecode_add_function(cg->chunk, chunk_func_name, param_count);  // add function
+    cg->chunk->functions[func_idx].is_async = node->function_decl.is_async;         // propagate async flag
 
     int jump_over = bytecode_current_offset(cg->chunk);                      // jump over function body
     emit(cg, INST(OP_JUMP, 0, 0, 0), node->line);                            // emit jump
@@ -1505,7 +1528,7 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     }
 
     if (!ends_with_return) {
-        emit(cg, INST(OP_RETURN_NONE, 0, 0, 0), node->line);                 // implicit return none
+        emit(cg, INST(OP_RETURN_NONE, 0, 0, 0), node->line);                // implicit return none
     }
 
     cg->chunk->functions[func_idx].local_count = cg->locals.count;           // store local count

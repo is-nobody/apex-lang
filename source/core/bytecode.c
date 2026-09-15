@@ -93,6 +93,9 @@ static const char* opcode_names[] = {
     [OP_RETURN_BOOL]      = "RETURN_BOOL",
     [OP_RETURN_NONE]      = "RETURN_NONE",
 
+    [OP_AWAIT]            = "AWAIT",
+    [OP_ASYNC_CALL]       = "ASYNC_CALL",
+
     [OP_LOAD_GLOBAL]      = "LOAD_GLOBAL",
     [OP_STORE_GLOBAL]     = "STORE_GLOBAL",
 
@@ -399,6 +402,7 @@ int bytecode_add_function(BytecodeChunk* chunk, const char* name, int arity) {
     chunk->functions[chunk->func_count].arity = arity;                // store function parameter count
     chunk->functions[chunk->func_count].local_count = 0;              // no local variables yet
     chunk->functions[chunk->func_count].local_names = NULL;           // local names array not allocated yet
+    chunk->functions[chunk->func_count].is_async = false;             // sync by default
     chunk->func_count++;                                              // increment function count
     
     return index;                                                     // return index of new function

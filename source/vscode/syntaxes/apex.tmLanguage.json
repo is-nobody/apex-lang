@@ -71,7 +71,7 @@
       "patterns": [
         {
           "name": "keyword.control.apex",
-          "match": "\\b(if|else|for|in|break|continue|return|import|as|match|case)\\b"
+          "match": "\\b(if|else|for|in|break|continue|return|import|as|match|case|await)\\b"
         }
       ]
     },
@@ -79,7 +79,7 @@
       "patterns": [
         {
           "name": "constant.language.apex",
-          "match": "\\b(function|true|false|none|constant|and|or|not)\\b"
+          "match": "\\b(function|async|true|false|none|constant|and|or|not)\\b"
         }
       ]
     },

@@ -170,6 +170,8 @@ static int get_node_len(ASTNode* node) {
         }
         case AST_UNARY:
             return get_node_len(node->unary.operand) + (node->unary.op == TOKEN_NOT ? 4 : 1);  // op + operand
+        case AST_AWAIT:
+            return get_node_len(node->await_expr.expression) + 6;  // "await " + operand
         case AST_CALL:
             return get_node_len(node->call.callee);  // function name length
         case AST_INDEX_ACCESS: {
@@ -537,6 +539,9 @@ static bool expr_has_side_effect(ASTNode* node) {
                    expr_has_side_effect(node->binary.right);  // check both sides
         case AST_UNARY:
             return expr_has_side_effect(node->unary.operand);  // check operand
+        case AST_AWAIT:
+            return node->await_expr.expression &&
+                   node->await_expr.expression->type == AST_CALL;
         case AST_INDEX_ACCESS:
             return expr_has_side_effect(node->access.object);  // check object
         case AST_STRING_INTERP: {
@@ -767,6 +772,9 @@ Parser* parser_create(Token* tokens, int count, const char* filename, const char
     parser->error_count = 0;                       // no errors yet
     parser->loop_depth = 0;                        // not in any loop
     parser->function_depth = 0;                    // not in any function
+    parser->async_depth = 0;                       // not in any async function
+    parser->top_level_depth = 1;                   // top-level starts as async context
+    parser->pending_async = false;                 // no pending async marker
     parser->semantic_checks = true;                // perform semantic checks by default
     parser->expecting_indented_block = false;      // not expecting indent
     parser->source = source;                       // store source pointer
@@ -1318,6 +1326,9 @@ static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
             }
             return TYPE_UNKNOWN;                     // different types
         }
+        case AST_AWAIT:
+            infer_expression_type(parser, node->await_expr.expression); // type-check inner expression
+            return TYPE_ANY;                                             // await result type is opaque
         case AST_FUNCTION_DECL: return TYPE_FUNCTION;  // function declaration
         default:
             return TYPE_ERROR;                       // unknown node type
@@ -1955,6 +1966,21 @@ static ASTNode* parse_prefix(Parser* parser) {
             }
             return ast_create_unary(TOKEN_NOT, operand);
         }
+        case TOKEN_AWAIT: {
+            Token* await_kw = advance(parser);                          // consume 'await'
+            if (parser->semantic_checks && parser->async_depth == 0 &&
+                parser->top_level_depth == 0) {
+                parser_error_at(parser, await_kw->line, await_kw->column, 5,
+                    "'await' outside of async function");               // error
+            }
+            ASTNode* operand = parse_precedence(parser, PREC_UNARY);    // parse the awaited expression
+            if (!operand) {
+                parser_error_at(parser, await_kw->line, await_kw->column + 5, 1,
+                    "Expected expression after 'await'");               // error
+                return NULL;
+            }
+            return ast_create_await(operand);                           // wrap in await node
+        }
         case TOKEN_EOF:
         case TOKEN_NEWLINE:
             return NULL;                             // no expression
@@ -2159,7 +2185,8 @@ static bool is_valid_expr_start(ApexTokenType type) {
            type == TOKEN_LPAREN ||
            type == TOKEN_LBRACKET ||
            type == TOKEN_MINUS ||
-           type == TOKEN_NOT;
+           type == TOKEN_NOT ||
+           type == TOKEN_AWAIT;
 }
 
 static ASTNode* parse_constant_declaration(Parser* parser) {
@@ -2415,6 +2442,8 @@ static ASTNode* parse_function(Parser* parser) {
                           TYPE_FUNCTION, params->count, name->line, name->column);  // declare function
 
     parser->function_depth++;                       // enter function
+    parser->top_level_depth--;                      // no longer top-level
+    if (parser->pending_async) parser->async_depth++;  // enter async context
     parser->symbols.current_scope++;                // new scope for params
 
     for (int i = 0; i < params->count; i++) {
@@ -2427,6 +2456,8 @@ static ASTNode* parse_function(Parser* parser) {
     ASTNode* body = parse_block(parser, true, "function");  // parse function body
 
     parser_exit_scope(parser);                     // exit parameter scope
+    if (parser->pending_async) parser->async_depth--;  // exit async context
+    parser->top_level_depth++;                      // back to top-level
     parser->function_depth--;                       // exit function
 
     return ast_create_function(name->value, params, body, name->line, name->column);
@@ -3204,6 +3235,20 @@ static ASTNode* parse_statement(Parser* parser) {
         case TOKEN_FUNCTION:
             return parse_function(parser);
             
+        case TOKEN_ASYNC: {
+            Token* async_kw = advance(parser);         // consume 'async'
+            if (!check(parser, TOKEN_FUNCTION)) {
+                parser_error_at(parser, async_kw->line, async_kw->column, 5,
+                    "Expected 'function' after 'async'");  // error
+                return NULL;
+            }
+            parser->pending_async = true;              // mark next function as async
+            ASTNode* fn = parse_function(parser);      // parse the function normally
+            parser->pending_async = false;             // clear flag
+            if (fn) fn->function_decl.is_async = true; // mark it async
+            return fn;                                 // return async function node
+        }
+
         case TOKEN_IF:
             return parse_if_statement(parser);
             

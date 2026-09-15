@@ -199,6 +199,9 @@ void value_incref(Value v) {
     } else if (IS_TABLE(v)) {
         Table* table = AS_TABLE(v);                     // unwrap table pointer
         if (table) table->header.ref_count++;           // bump refcount
+    } else if (IS_FUTURE(v)) {
+        FutureObject* fut = AS_FUTURE(v);               // unwrap future pointer
+        if (fut) fut->header.ref_count++;               // bump refcount
     }
 }
 
@@ -217,6 +220,14 @@ void value_decref(Value v) {
         if (--table->header.ref_count == 0) {          // decrement and check if dead
             table_destroy(table);                      // destroy table and all entries
         }
+    } else if (IS_FUTURE(v)) {
+        FutureObject* fut = AS_FUTURE(v);              // unwrap future pointer
+        if (--fut->header.ref_count == 0) {            // decrement and check if dead
+            for (int i = 0; i < fut->arg_count; i++) value_decref(fut->args[i]);  // release captured args
+            free(fut->args);                           // free args array
+            value_decref(fut->result);                 // release result value
+            free(fut);                                 // free future struct
+        }
     }
 }
 
@@ -228,6 +239,7 @@ const char* vm_value_type_name(Value value) {
     if (IS_BOOL(value)) return "boolean";                    // special bool tag
     if (IS_TABLE(value)) return "table";                     // table object pointer
     if (IS_FUNCTION(value)) return "function";               // function index tag
+    if (IS_FUTURE(value)) return "future";                   // future object pointer
     return "unknown";                                        // fallback for unhandled types
 }
 
@@ -833,6 +845,7 @@ VM* vm_create(const char* source) {
     vm->had_error = false;                        // no errors yet
     vm->args_top = 0;                             // empty args stack
     vm->args_table = MAKE_NONE();                 // default to none until set
+    for (int i = 0; i < VM_MAX_FRAMES; i++) vm->frame_futures[i] = MAKE_NONE();  // no frame owns a future yet
     vm->source = source;                          // store source pointer
     
     string_intern_table_init(&vm->intern_table);  // init string intern table
@@ -1088,6 +1101,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_RETURN_BOOL]      = &&OP_RETURN_BOOL_LABEL,
         [OP_RETURN_NONE]      = &&OP_RETURN_NONE_LABEL,
 
+        [OP_AWAIT]            = &&OP_AWAIT_LABEL,
+        [OP_ASYNC_CALL]       = &&OP_ASYNC_CALL_LABEL,
+
         [OP_LOAD_GLOBAL]      = &&OP_LOAD_GLOBAL_LABEL,
         [OP_STORE_GLOBAL]     = &&OP_STORE_GLOBAL_LABEL,
         
@@ -1123,6 +1139,19 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     register Value* regs = vm->registers;  // current frame registers in a register for speed
     __builtin_prefetch(ip + 1, 0, 1);      // hint cpu to prefetch next instruction
     goto *dispatch_table[ip->opcode];      // jump to first opcode handler
+
+#define RESOLVE_FRAME_FUTURE(rv) do { \
+    Value _fv = vm->frame_futures[vm->current_frame]; \
+    if (_fv != MAKE_NONE()) { \
+        FutureObject* _f = AS_FUTURE(_fv); \
+        value_decref(_f->result); \
+        _f->result = (rv); \
+        if (((rv) & QNAN) == QNAN) value_incref(rv); \
+        _f->state = 1; \
+        value_decref(_fv); \
+        vm->frame_futures[vm->current_frame] = MAKE_NONE(); \
+    } \
+} while (0)
 
     OP_MOVE_LABEL: {
         int dest = ip->operands[0];              // dest register index
@@ -2222,6 +2251,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     OP_RETURN_LABEL: {
         int value_reg = ip->operands[0];         // register holding return value
         Value ret_val = regs[value_reg];         // fetch return value
+        RESOLVE_FRAME_FUTURE(ret_val);
         if (unlikely((ret_val & QNAN) == QNAN)) {  // heap object (string/table) - less common
             value_incref(ret_val);               // bump refcount for the returned value
         }
@@ -2248,6 +2278,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     OP_RETURN_NUM_LABEL: {
         int value_reg = ip->operands[0];         // register holding return value
         Value ret_val = regs[value_reg];         // fetch return value
+        RESOLVE_FRAME_FUTURE(ret_val);
         if (likely(vm->call_depth > 0)) {        // returning from a function call (common)
             vm->call_depth--;                    // pop call frame
             int return_addr = vm->call_stack[vm->call_depth].return_address;  // get return address
@@ -2266,6 +2297,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     OP_RETURN_BOOL_LABEL: {
         int value_reg = ip->operands[0];         // register holding return value
         Value ret_val = regs[value_reg];         // fetch return value
+        RESOLVE_FRAME_FUTURE(ret_val);
         if (likely(vm->call_depth > 0)) {        // returning from a function call (common)
             vm->call_depth--;                    // pop call frame
             int return_addr = vm->call_stack[vm->call_depth].return_address;  // get return address
@@ -2282,6 +2314,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         goto OP_HALT_LABEL;                      // jump to halt
     }
     OP_RETURN_NONE_LABEL: {
+        RESOLVE_FRAME_FUTURE(MAKE_NONE());
         if (likely(vm->call_depth > 0)) {           // most returns are from function calls
             vm->call_depth--;                       // pop call frame
             int return_addr = vm->call_stack[vm->call_depth].return_address;  // get return address
@@ -2299,6 +2332,80 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
         vm->running = false;                        // top-level return, stop execution (rare)
         goto OP_HALT_LABEL;                         // jump to halt
+    }
+
+    OP_ASYNC_CALL_LABEL: {
+        int dest_reg = ip->operands[0];              // dest register for the pending future
+        int func_idx = ip->operands[1];              // function table index of the async body
+        int arg_count = ip->operands[2];             // number of arguments on the args stack
+
+        FutureObject* fut = (FutureObject*)malloc(sizeof(FutureObject));  // allocate pending future
+        fut->header.ref_count = 1;                   // fresh object refcount
+        fut->header.type = VAL_FUTURE;               // mark type as future
+        fut->result = MAKE_NONE();                   // filled in when awaited
+        fut->state = 0;                              // pending
+        fut->func_idx = func_idx;                    // body to run on await
+        fut->arg_count = arg_count;                  // captured argument count
+        fut->args = arg_count > 0 ? (Value*)malloc(sizeof(Value) * arg_count) : NULL;  // capture buffer
+        for (int i = 0; i < arg_count; i++) {        // capture args from args stack
+            Value a = vm->args_stack[vm->args_top - arg_count + i];
+            if ((a & QNAN) == QNAN) value_incref(a); // keep a reference in the future
+            fut->args[i] = a;                        // store captured value
+        }
+        vm->args_top -= arg_count;                   // pop args stack
+        if ((regs[dest_reg] & QNAN) == QNAN) value_decref(regs[dest_reg]);  // release old dest
+        regs[dest_reg] = MAKE_FUTURE(fut);           // return pending future
+        ip++; goto *dispatch_table[ip->opcode];      // no execution, caller continues
+    }
+    OP_AWAIT_LABEL: {
+        int dest = ip->operands[0];                  // dest register index
+        int src = ip->operands[1];                   // source register index
+        Value v = regs[src];                         // value being awaited
+
+        if (IS_FUTURE(v) && AS_FUTURE(v)->state == 0) {   // pending: run the body now
+            FutureObject* fut = AS_FUTURE(v);
+            if (vm->call_depth >= VM_MAX_CALL_FRAMES) {   // no room for the body call
+                fprintf(stderr, "\033[31mStack overflow while resuming async body\n\033[0m");
+                vm->had_error = true; vm->running = false; goto OP_HALT_LABEL;
+            }
+            vm->call_stack[vm->call_depth].return_address = (int)((ip + 1) - vm->code);  // resume after AWAIT
+            vm->call_stack[vm->call_depth].dest_reg = dest;                              // body result goes to dest
+            vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save caller frame
+            vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;     // save iterator depth
+            vm->call_depth++;                            // push call record
+            vm->current_frame++;                         // switch to a fresh frame for the body
+
+            int needed = chunk->functions[fut->func_idx].max_registers;   // frame size from metadata
+            if (needed < REGISTER_INITIAL_SIZE) needed = REGISTER_INITIAL_SIZE;
+            if (needed < fut->arg_count) needed = fut->arg_count;
+            if (!ensure_register_capacity(vm, vm->current_frame, needed - 1)) {
+                vm->had_error = true; vm->running = false; goto OP_HALT_LABEL;
+            }
+            vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];
+            regs = vm->registers;                        // update cached regs pointer
+            for (int i = 0; i < fut->arg_count; i++) {   // copy captured args into body regs
+                regs[i] = fut->args[i];
+                if ((regs[i] & QNAN) == QNAN) value_incref(regs[i]);
+            }
+            for (int i = fut->arg_count; i < needed; i++) regs[i] = MAKE_NONE();  // clear rest
+            vm->frame_futures[vm->current_frame] = v;    // bind future to this frame
+            value_incref(v);                             // frame holds a reference to its own future
+            ip = &vm->code[chunk->functions[fut->func_idx].address];  // jump to body
+            goto *dispatch_table[ip->opcode];            // dispatch body's first instruction
+        }
+        if (IS_FUTURE(v)) {                              // already resolved: read result
+            Value result = AS_FUTURE(v)->result;
+            if ((result & QNAN) == QNAN) value_incref(result);
+            if ((regs[dest] & QNAN) == QNAN) value_decref(regs[dest]);
+            regs[dest] = result;
+            ip++; goto *dispatch_table[ip->opcode];
+        }
+        if (dest != src) {                               // non-future passthrough: copy
+            if ((regs[dest] & QNAN) == QNAN) value_decref(regs[dest]);
+            if ((v & QNAN) == QNAN) value_incref(v);
+            regs[dest] = v;
+        }
+        ip++; goto *dispatch_table[ip->opcode];          // advance to next instruction
     }
 
     OP_LOAD_GLOBAL_LABEL: {
