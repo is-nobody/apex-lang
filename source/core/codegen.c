@@ -769,56 +769,33 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
 
         case AST_BINARY: {                                                           // binary operation
             if (node->binary.op == TOKEN_AND || node->binary.op == TOKEN_OR) {       // logical and/or
-                if (node->binary.op == TOKEN_AND) {                                  // AND
-                    int left_reg = codegen_expression(cg, node->binary.left);        // evaluate left
-                    int result_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);  // result dest
-                    
-                    if (result_reg != left_reg) {                                    // need to seed dest
-                        emit(cg, INST(OP_MOVE, result_reg, left_reg, -1), node->line);
-                    }
-                    
-                    int jump_idx = emit(cg, INST(OP_JUMP_IF_FALSE, 0, result_reg, -1), node->line);  // if false skip
-                    
-                    int right_reg = codegen_expression(cg, node->binary.right);      // evaluate right
-                    if (result_reg != right_reg) {                                   // need to copy right
-                        emit(cg, INST(OP_MOVE, result_reg, right_reg, -1), node->line);
-                    }
-                    free_register(cg, right_reg);                                    // free right
-                    
-                    bytecode_patch_jump(cg->chunk, jump_idx, bytecode_current_offset(cg->chunk));  // patch skip
-                    
-                    free_register(cg, left_reg);                                     // free left
-                    return result_reg;                                               // return result
-                } else {                                                             // OR
-                    int left_reg = codegen_expression(cg, node->binary.left);        // evaluate left
-                    int result_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);  // result dest
-                    
-                    if (result_reg != left_reg) {                                    // need to seed dest
-                        emit(cg, INST(OP_MOVE, result_reg, left_reg, -1), node->line);
-                    }
-                    
-                    int false_reg = alloc_register(cg);                              // false register
-                    emit(cg, INST2(OP_LOAD_BOOL, false_reg, 0), node->line);         // load false
-                    
-                    int cmp_reg = alloc_register(cg);                                // compare register
-                    emit(cg, INST(OP_CMP_EQ, cmp_reg, result_reg, false_reg), node->line);  // compare
-                    
-                    int jump_idx = emit(cg, INST(OP_JUMP_IF_FALSE, 0, cmp_reg, -1), node->line);  // if false skip
-                    
-                    free_register(cg, false_reg);                                    // free false
-                    free_register(cg, cmp_reg);                                      // free compare
-                    
-                    int right_reg = codegen_expression(cg, node->binary.right);      // evaluate right
-                    if (result_reg != right_reg) {                                   // need to copy right
-                        emit(cg, INST(OP_MOVE, result_reg, right_reg, -1), node->line);
-                    }
-                    free_register(cg, right_reg);                                    // free right
-                    
-                    bytecode_patch_jump(cg->chunk, jump_idx, bytecode_current_offset(cg->chunk));  // patch skip
-                    
-                    free_register(cg, left_reg);                                     // free left
-                    return result_reg;                                               // return result
+                int result_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);    // result dest
+
+                int left_reg = codegen_expression_into(cg, node->binary.left, result_reg);  // evaluate left into dest
+                if (left_reg != result_reg) {                                        // left ignored hint
+                    emit(cg, INST(OP_MOVE, result_reg, left_reg, -1), node->line);
+                    free_register(cg, left_reg);                                     // free left temp
                 }
+
+                int jump_idx;                                                        // jump to skip right
+                if (node->binary.op == TOKEN_AND) {                                  // AND
+                    jump_idx = emit(cg, INST(OP_JUMP_IF_FALSE, 0, result_reg, -1), node->line);  // if false skip
+                } else {                                                             // OR
+                    int not_reg = alloc_register(cg);                                // inverted left register
+                    emit(cg, INST(OP_NOT, not_reg, result_reg, 0), node->line);      // not left
+                    jump_idx = emit(cg, INST(OP_JUMP_IF_FALSE, 0, not_reg, -1), node->line);  // if truthy skip
+                    free_register(cg, not_reg);                                      // free inverted
+                }
+
+                int right_reg = codegen_expression_into(cg, node->binary.right, result_reg);  // evaluate right into dest
+                if (right_reg != result_reg) {                                       // right ignored hint
+                    emit(cg, INST(OP_MOVE, result_reg, right_reg, -1), node->line);
+                    free_register(cg, right_reg);                                    // free right temp
+                }
+
+                bytecode_patch_jump(cg->chunk, jump_idx, bytecode_current_offset(cg->chunk));  // patch skip
+
+                return result_reg;                                                   // return result
             }
             
             int left_reg = codegen_expression(cg, node->binary.left);               // evaluate left
