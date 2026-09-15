@@ -228,14 +228,29 @@ typedef struct {
     Value args_table;               // table of command line arguments (1-indexed)
 } VM;
 
-// copies a value with proper reference counting
-Value vm_copy_value(Value value);
-
 // returns a human-readable type name for a value
 const char* vm_value_type_name(Value value);
 
 // prints a value to stdout for debugging
 void vm_print_value(Value value);
+
+// increments the reference count of a value (only for heap-allocated types)
+void value_incref(Value v);
+
+// decrements the reference count of a value (only for heap-allocated types)
+void value_decref(Value v);
+
+// creates a new string object (not interned, caller owns the reference)
+StringObject* string_create(const char* chars, int length);
+
+// interns a string, returns a canonical StringObject pointer
+StringObject* string_intern(StringInternTable* it, const char* chars, int length);
+
+// initializes the string intern table
+void string_intern_table_init(StringInternTable* it);
+
+// frees the string intern table
+void string_intern_table_free(StringInternTable* it);
 
 // creates a new table with the given initial hash capacity
 Table* table_create(int capacity);
@@ -249,9 +264,6 @@ bool table_set(Table* table, Value key, Value value);
 // gets a string-keyed value from the table, returns true if found
 bool table_get(Table* table, Value key, Value* out_value);
 
-// checks if a string key exists in the table
-bool table_has(Table* table, Value key);
-
 // removes a string-keyed entry from the table
 void table_remove(Table* table, Value key);
 
@@ -261,23 +273,8 @@ int table_size(Table* table);
 // returns an array of all string keys in the table
 Value* table_keys(Table* table, int* out_count);
 
-// removes all entries from the table
-void table_clear(Table* table);
-
 // sets a value by integer index (uses array part if possible)
 bool table_set_int(Table* table, int index, Value value);
-
-// interns a string, returns a canonical StringObject pointer
-StringObject* string_intern(StringInternTable* it, const char* chars, int length);
-
-// initializes the string intern table
-void string_intern_table_init(StringInternTable* it);
-
-// frees the string intern table
-void string_intern_table_free(StringInternTable* it);
-
-// populates vm->args_table with user command line arguments (1-indexed)
-void vm_set_args(VM* vm, int argc, char** argv, bool skip_script_name);
 
 // creates a new vm instance with the given source code
 VM* vm_create(const char* source);
@@ -288,13 +285,7 @@ void vm_destroy(VM* vm);
 // executes the given bytecode chunk in the vm
 bool vm_execute(VM* vm, BytecodeChunk* chunk);
 
-// increments the reference count of a value (only for heap-allocated types)
-void value_incref(Value v);
-
-// decrements the reference count of a value (only for heap-allocated types)
-void value_decref(Value v);
-
-// creates a new string object (not interned, caller owns the reference)
-StringObject* string_create(const char* chars, int length);
+// populates vm->args_table with user command line arguments (1-indexed)
+void vm_set_args(VM* vm, int argc, char** argv, bool skip_script_name);
 
 #endif // VM_H

@@ -649,11 +649,6 @@ static int symbol_index_recursive(Parser* parser, const char* name) {
     return -1;                                     // not found in any scope
 }
 
-// enters a new lexical scope
-void parser_enter_scope(Parser* parser) {
-    parser->symbols.current_scope++;               // increment scope depth
-}
-
 // exits the current lexical scope, removing all symbols declared there
 void parser_exit_scope(Parser* parser) {
     int scope = parser->symbols.current_scope;     // capture scope being exited
@@ -1327,12 +1322,6 @@ static ValueType infer_expression_type(Parser* parser, ASTNode* node) {
         default:
             return TYPE_ERROR;                       // unknown node type
     }
-}
-
-// public API for type checking an expression
-ValueType parser_check_expression(Parser* parser, ASTNode* node) {
-    if (!parser->semantic_checks) return TYPE_UNKNOWN;  // no checks
-    return infer_expression_type(parser, node);    // delegate to inference
 }
 
 // validates that a condition expression is boolean and explicit
@@ -2259,8 +2248,8 @@ static ASTNode* parse_expression(Parser* parser) {
         return NULL;                                // no expression
     }
     ASTNode* expr = parse_precedence(parser, PREC_NONE);  // parse with lowest precedence
-    if (expr) {
-        parser_check_expression(parser, expr);      // type-check expression
+    if (expr && parser->semantic_checks) {
+        infer_expression_type(parser, expr);       // type-check expression
     }
     return expr;
 }
@@ -2426,7 +2415,7 @@ static ASTNode* parse_function(Parser* parser) {
                           TYPE_FUNCTION, params->count, name->line, name->column);  // declare function
 
     parser->function_depth++;                       // enter function
-    parser_enter_scope(parser);                    // new scope for params
+    parser->symbols.current_scope++;                // new scope for params
 
     for (int i = 0; i < params->count; i++) {
         ASTNode* param = params->nodes[i];
@@ -2799,7 +2788,7 @@ static ASTNode* parse_for_statement(Parser* parser) {
 
     parser->loop_depth++;                           // enter loop
 
-    parser_enter_scope(parser);                    // new scope for loop variable
+    parser->symbols.current_scope++;                // new scope for loop variable
     if (var_name) {
         ValueType vtype = is_table_iter ? TYPE_ANY : TYPE_NUMBER;
         parser_declare_symbol(parser, var_name, PARSER_SYM_VARIABLE, vtype, 0, var_line, var_col);  // declare variable

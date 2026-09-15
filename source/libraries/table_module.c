@@ -45,7 +45,7 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
             return true;                                              // builtin handled
         }
         
-        *result = MAKE_BOOL(table_has(table, args[1]));               // check key existence
+        *result = MAKE_BOOL(table_get(table, args[1], NULL));         // check key existence
         return true;                                                  // builtin handled
     }
     
@@ -55,7 +55,7 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
             return true;                                              // builtin handled
         }
         
-        bool existed = table_has(table, args[1]);                     // check if key existed
+        bool existed = table_get(table, args[1], NULL);               // check if key existed
         table_remove(table, args[1]);                                 // remove key-value pair
         *result = MAKE_BOOL(existed);                                 // return whether key existed
         return true;                                                  // builtin handled
@@ -70,7 +70,8 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
             qsort(keys, count, sizeof(Value), compare_keys);               // sort keys
             for (int i = 0; i < count; i++) {                              // iterate over sorted keys
                 Value idx_key = MAKE_NUMBER((double)(i + 1));              // create numeric index key
-                table_set(result_table, idx_key, vm_copy_value(keys[i]));  // store key at index
+                value_incref(keys[i]);                                     // bump refcount for the copy
+                table_set(result_table, idx_key, keys[i]);                 // store key at index
                 value_decref(keys[i]);                                     // release key reference
                 value_decref(idx_key);                                     // release index key
             }
@@ -101,7 +102,33 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
     }
     
     if (strcmp(name, "table.clear") == 0) {                        // clear all entries
-        table_clear(table);                                        // remove all key-value pairs
+        if (table) {                                               // guard against null
+            if (table->entries) {                                  // hash part allocated
+                for (int i = 0; i < table->capacity; i++) {        // iterate over buckets
+                    TableEntry* entry = table->entries[i];         // get head of bucket chain
+                    while (entry) {                                // traverse chain
+                        TableEntry* next = entry->next;            // save next pointer before freeing
+                        value_decref(entry->key);                  // release key
+                        value_decref(entry->value);                // release value
+                        free(entry);                               // free entry struct
+                        entry = next;                              // advance to next entry
+                    }
+                    table->entries[i] = NULL;                      // clear bucket pointer
+                }
+                free(table->entries);                              // free bucket array
+                table->entries = NULL;                             // mark as not allocated (lazy init)
+            }
+            table->hash_count = 0;                                 // reset hash entry count
+            if (table->array_part) {                               // array part allocated
+                for (int i = 0; i < table->array_count; i++) {     // iterate over array elements
+                    value_decref(table->array_part[i]);            // release each array element
+                }
+                free(table->array_part);                           // free array part memory
+                table->array_part = NULL;                          // clear pointer
+                table->array_capacity = 0;                         // reset capacity
+                table->array_count = 0;                            // reset count
+            }
+        }
         *result = MAKE_BOOL(true);                                 // return true
         return true;                                               // builtin handled
     }
@@ -172,7 +199,7 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
             for (int i = 0; i < src1->capacity; i++) {             // iterate over buckets
                 TableEntry* entry = src1->entries[i];              // get bucket head
                 while (entry) {                                    // traverse chain
-                    if (!table_has(dst, entry->key)) {             // check if key already exists
+                    if (!table_get(dst, entry->key, NULL)) {       // check if key already exists
                         table_set(dst, entry->key, entry->value);  // copy entry
                     }
                     entry = entry->next;                           // advance to next

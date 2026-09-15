@@ -126,9 +126,6 @@ void parser_error(Parser* parser, const char* message);
 void parser_error_at(Parser* parser, int line, int column, int len,
                      const char* format, ...);
 
-// enters a new scope for symbol tracking (e.g., function or block)
-void parser_enter_scope(Parser* parser);
-
 // exits the current scope, discarding symbols declared inside it
 void parser_exit_scope(Parser* parser);
 
@@ -138,8 +135,5 @@ bool parser_declare_symbol(Parser* parser, const char* name, ParserSymbolKind ki
 
 // checks whether a symbol is declared in any accessible scope
 bool parser_is_declared(Parser* parser, const char* name);
-
-// performs type checking on an expression node, returns its inferred type
-ValueType parser_check_expression(Parser* parser, ASTNode* node);
 
 #endif // PARSER_H

@@ -24,7 +24,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
 #include <limits.h>
 
 // union for reinterpret double bits as uint64
@@ -43,7 +42,6 @@ typedef struct {
 } StringBuilder;
 
 // forward declarations
-static void string_destroy(StringObject* str);
 static char* table_to_string(Table* table);
 static void table_to_string_builder(Table* table, StringBuilder* sb, int indent_level);
 
@@ -151,11 +149,6 @@ static uint32_t string_get_hash(StringObject* str) {
     return str->hash;                            // return cached or newly computed hash
 }
 
-// frees a string object
-static void string_destroy(StringObject* str) {
-    if (str) free(str);                          // free string memory if not null
-}
-
 // compares two strings by length, hash, and content
 static bool string_equal(StringObject* a, StringObject* b) {
     if (a == b) return true;                     // same pointer, definitely equal
@@ -217,7 +210,7 @@ void value_decref(Value v) {
         StringObject* str = AS_STRING(v);              // unwrap string pointer
         if (str->header.ref_count == INT_MAX) return;  // interned string, never freed
         if (--str->header.ref_count == 0) {            // decrement and check if dead
-            string_destroy(str);                       // free string memory
+            if (str) free(str);                        // free string memory
         }
     } else if (IS_TABLE(v)) {
         Table* table = AS_TABLE(v);                    // unwrap table pointer
@@ -225,12 +218,6 @@ void value_decref(Value v) {
             table_destroy(table);                      // destroy table and all entries
         }
     }
-}
-
-// copies a value with proper reference counting
-Value vm_copy_value(Value value) {
-    value_incref(value);             // bump refcount for the copy
-    return value;                    // return the same tagged value
 }
 
 // returns a type name string for a value
@@ -598,11 +585,6 @@ bool table_get(Table* table, Value key, Value* out_value) {
     return false;                                  // key not found
 }
 
-// checks if a key exists in the table
-bool table_has(Table* table, Value key) {
-    return table_get(table, key, NULL);                // delegate to table_get, discard value
-}
-
 // removes a key-value pair from the table
 void table_remove(Table* table, Value key) {
     if (!table) return;                                  // guard against null
@@ -684,34 +666,6 @@ Value* table_keys(Table* table, int* out_count) {
     }
     *out_count = idx;                                     // store total key count
     return keys;                                          // return caller-owned keys array
-}
-
-// clears all entries from the table
-void table_clear(Table* table) {
-    if (!table) return;                                 // guard against null
-    if (table->entries) {
-        for (int i = 0; i < table->capacity; i++) {
-            TableEntry* entry = table->entries[i];          // get head of bucket chain
-            while (entry) {
-                TableEntry* next = entry->next;             // save next pointer before freeing
-                value_decref(entry->key);                   // release key
-                value_decref(entry->value);                 // release value
-                free(entry);                                // free entry struct
-                entry = next;                               // advance to next entry
-            }
-            table->entries[i] = NULL;                       // clear bucket pointer
-        }
-        free(table->entries);                               // free bucket array
-        table->entries = NULL;                              // mark as not allocated (lazy init)
-    }
-    table->hash_count = 0;                              // reset hash entry count
-    if (table->array_part) {
-        for (int i = 0; i < table->array_count; i++) value_decref(table->array_part[i]);  // release each array element
-        free(table->array_part);                        // free array part memory
-        table->array_part = NULL;                       // clear pointer
-        table->array_capacity = 0;                      // reset capacity
-        table->array_count = 0;                         // reset count
-    }
 }
 
 // recursively compares two tables for deep equality

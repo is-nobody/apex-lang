@@ -171,18 +171,6 @@ static void skip_comment(Tokenizer* tokenizer) {
     }
 }
 
-// consumes a shebang line starting with '#!' until the end of the line
-static void skip_shebang(Tokenizer* tokenizer) {
-    advance(tokenizer);                                   // skip '#'
-    advance(tokenizer);                                   // skip '!'
-    
-    char c = peek(tokenizer, 0);                          // look at current character
-    while (c != '\0' && c != '\n' && c != '\r') {
-        advance(tokenizer);                               // consume shebang characters until end of line
-        c = peek(tokenizer, 0);                           // check next character
-    }
-}
-
 // reads a quoted string literal with escape sequence handling and interpolation awareness
 static char* read_string(Tokenizer* tokenizer) {
     char quote_char = peek(tokenizer, 0);                // get the opening quote character (' or ")
@@ -451,8 +439,15 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
         // ignore shebang only on the first line, otherwise throw an error
         if (c == '#' && peek(tokenizer, 1) == '!') {
             if (tokenizer->line == 1 && tokenizer->pos == 0) {
-                skip_shebang(tokenizer);  // shebang allowed only at start of file
-                continue;                 // move to next iteration
+                advance(tokenizer);                               // skip '#'
+                advance(tokenizer);                               // skip '!'
+                
+                char sc = peek(tokenizer, 0);                     // look at current character
+                while (sc != '\0' && sc != '\n' && sc != '\r') {  // consume shebang chars until end of line
+                    advance(tokenizer);                           // consume character
+                    sc = peek(tokenizer, 0);                      // check next character
+                }
+                continue;                                         // move to next iteration
             } else {
                 tokenizer_error(tokenizer, 2, "Shebang (#!) is only allowed on the first line");  // error for misplaced shebang
             }
