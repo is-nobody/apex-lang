@@ -314,7 +314,7 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
 // registers a loop and runs the slot analysis on its body
 static void add_loop(JITContext* ctx, int entry, int back_edge, int exit_pc,
                      JitLoopKind kind, int for_var_reg, int for_end_reg, int for_step_reg,
-                     int nregs) {
+                     int step_sign, int nregs) {
     if (ctx->loop_count >= ctx->loop_capacity) {                 // grow loop array if needed
         int new_cap = ctx->loop_capacity == 0 ? 8 : ctx->loop_capacity * 2;
         JitLoopInfo* new_arr = (JitLoopInfo*)realloc(ctx->loops, sizeof(JitLoopInfo) * new_cap);
@@ -331,6 +331,7 @@ static void add_loop(JITContext* ctx, int entry, int back_edge, int exit_pc,
     info->for_var_reg  = for_var_reg;                            // loop counter slot (-1 for non-for)
     info->for_end_reg  = for_end_reg;                            // end bound slot (-1 for non-for)
     info->for_step_reg = for_step_reg;                           // step slot (-1 for non-for)
+    info->step_sign    = step_sign;                              // static step sign, 0 if unknown
     info->nregs        = nregs;                                  // function frame size
     info->table.slot   = -1;                                     // no table seen yet
     analyze_loop_regs(ctx, info);                                // fill live_in/out and table use
@@ -383,7 +384,7 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
 
         Opcode entry_op = chunk->code[entry].opcode;
         int exit_pc = -1;
-        int for_var_reg = -1, for_end_reg = -1, for_step_reg = -1;
+        int for_var_reg = -1, for_end_reg = -1, for_step_reg = -1, step_sign = 0;
         JitLoopKind kind = JIT_LOOP_CONDITION;                   // default: conditional loop
 
         if (entry_op == OP_FOR_NEXT) {                           // numeric-for loop
@@ -422,11 +423,17 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
             for_end_reg  = chunk->code[fi].operands[1];          // end bound slot
             for_step_reg = chunk->code[fi].operands[2];          // step slot
             if (chunk->code[entry].operands[0] != for_var_reg) continue;  // FOR_NEXT must use same var
-            int p = fi - 1;                                      // step must be provably positive
-            if (p < start) continue;                             // no room for the step literal
-            if (chunk->code[p].opcode != OP_LOAD_NUM_IMM) continue;  // step must be an imm
-            if (chunk->code[p].operands[0] != for_step_reg) continue;  // and write to step slot
-            if (chunk->code[p].operands[1] <= 0) continue;       // step must be positive
+
+            // try to infer step sign from an immediately preceding LOAD_NUM_IMM;
+            // not required — unknown sign falls back to dual emission at emit time
+            int p = fi - 1;
+            if (p >= start &&
+                chunk->code[p].opcode == OP_LOAD_NUM_IMM &&
+                chunk->code[p].operands[0] == for_step_reg) {
+                int lit = chunk->code[p].operands[1];
+                if (lit > 0) step_sign = +1;
+                else if (lit < 0) step_sign = -1;
+            }
 
             // reject dynamic table access that isn't the loop counter
             if (!body_only_uses_counter_index(chunk, entry, pc, for_var_reg)) continue;
@@ -439,7 +446,7 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
         }
 
         add_loop(ctx, entry, pc, exit_pc, kind,                  // register the loop
-                 for_var_reg, for_end_reg, for_step_reg, nregs);
+                 for_var_reg, for_end_reg, for_step_reg, step_sign, nregs);
     }
 }
 

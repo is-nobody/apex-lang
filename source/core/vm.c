@@ -1999,6 +1999,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         vm->registers[dest] = MAKE_TABLE(table_create(8));  // create new table with default capacity
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
+
     OP_CONCAT_LABEL: {
         int dest = ip->operands[0];                 // dest register index
         int left_reg  = ip->operands[1];            // left operand register

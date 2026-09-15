@@ -30,6 +30,6 @@ const X86_64Abi* x86_64_get_abi(void);
 bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                           int func_idx, void** out_fn);
 bool x86_64_emit_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
-                      JitLoopInfo* info);
+                      JitLoopInfo* info, int step_sign, void** out_fn);
 
 #endif // APEX_JIT_X86_64_ABI_H

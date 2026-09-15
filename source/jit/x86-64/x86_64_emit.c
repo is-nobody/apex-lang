@@ -863,7 +863,7 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
 // emits one iteration (entry test + body) and returns the fixup offset for the exit jump
 static size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                                    XmmCache* cache, JitLoopInfo* info, int const_slot,
-                                   bool iter_in_xmm) {
+                                   bool iter_in_xmm, int step_sign) {
     BytecodeChunk* chunk = ctx->chunk;
     int entry = info->entry_pc;                              // first body pc
     int back_edge = info->back_edge_pc;                      // jump back to entry
@@ -886,7 +886,8 @@ static size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf
         }
         emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
         emit_u8(cb, 0xC0 | (7 << 3) | xa);                   // ucomisd xmm7, xa
-        emit_u8(cb, 0x0F); emit_u8(cb, 0x87);                // ja exit
+        emit_u8(cb, 0x0F);
+        emit_u8(cb, (step_sign > 0) ? 0x87 : 0x82);          // ja exit / jb exit
         exit_patch = cb->len;                                // record placeholder offset
         emit_i32(cb, 0);                                     // placeholder for rel32
 
@@ -977,7 +978,7 @@ static bool loop_is_safe_to_emit(BytecodeChunk* chunk, JitLoopInfo* info) {
 
 // emits native code for a numeric loop (with optional table access)
 static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
-                                      JitLoopInfo* info) {
+                                      JitLoopInfo* info, int step_sign, void** out_fn) {
     int entry = info->entry_pc;                              // first body pc
     int back_edge = info->back_edge_pc;                      // jump back to entry
     int nregs = info->nregs;                                 // function frame size
@@ -1023,7 +1024,7 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
     for (int iter = 0; iter < 8; iter++) {                   // fixpoint loop
         XmmCache cache = cache_start;
         scratch.len = 0;
-        size_t patch = emit_loop_iteration(abi, ctx, &scratch, &cache, info, const_slot, iter_in_xmm);
+        size_t patch = emit_loop_iteration(abi, ctx, &scratch, &cache, info, const_slot, iter_in_xmm, step_sign);
         if (patch == (size_t)-1) return false;               // emit failed
         if (x86_cache_eq(&cache, &cache_start)) { converged = true; break; }  // stable state reached
         cache_start = cache;                                 // try again with new state
@@ -1080,7 +1081,7 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
 
     int loop_top = (int)cb->len;                             // loop start address
     XmmCache cache = cache_start;
-    size_t entry_patch = emit_loop_iteration(abi, ctx, cb, &cache, info, const_slot, iter_in_xmm);
+    size_t entry_patch = emit_loop_iteration(abi, ctx, cb, &cache, info, const_slot, iter_in_xmm, step_sign);
     if (entry_patch == (size_t)-1) { cb->len = mark; return false; }  // emit failed, rollback
 
     emit_u8(cb, 0xE9);                                       // jmp loop_top
@@ -1111,13 +1112,13 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
 
     emit_leave_ret(cb, abi, base_frame);
 
-    info->native_fn = (void (*)(uint64_t*))(cb->buf + mark);  // publish entry pointer
-    return true;                                              // emission successful
+    *out_fn = (void*)(cb->buf + mark);                       // publish entry pointer
+    return true;                                             // emission successful
 }
 
 // emits native code for a table iteration loop (for v in t)
 static bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
-                                         CodeBuf* cb, JitLoopInfo* info) {
+                                         CodeBuf* cb, JitLoopInfo* info, void** out_fn) {
     BytecodeChunk* chunk = ctx->chunk;
     int entry = info->entry_pc;                              // first body pc
     int back_edge = info->back_edge_pc;                      // jump back to entry
@@ -1234,15 +1235,15 @@ static bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
 
     emit_leave_ret(cb, abi, base_frame);
 
-    info->native_fn = (void (*)(uint64_t*))(cb->buf + mark);  // publish entry pointer
-    return true;                                              // emission successful
+    *out_fn = (void*)(cb->buf + mark);                       // publish entry pointer
+    return true;                                             // emission successful
 }
 
 // emits native code for a single native loop, dispatching by kind
 bool x86_64_emit_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
-                      JitLoopInfo* info) {
+                      JitLoopInfo* info, int step_sign, void** out_fn) {
     if (info->kind == JIT_LOOP_TABLE_ITER) {                 // table iteration loop
-        return x86_64_emit_table_iter_loop(abi, ctx, cb, info);
+        return x86_64_emit_table_iter_loop(abi, ctx, cb, info, out_fn);
     }
-    return x86_64_emit_numeric_loop(abi, ctx, cb, info);     // numeric or condition loop
+    return x86_64_emit_numeric_loop(abi, ctx, cb, info, step_sign, out_fn);  // numeric or condition loop
 }

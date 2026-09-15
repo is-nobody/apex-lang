@@ -28,8 +28,9 @@ static bool backend_emit_function(JITContext* ctx, CodeBuf* cb,
 }
 
 // adapter: forwards to the abi-parameterised loop emitter
-static bool backend_emit_loop(JITContext* ctx, CodeBuf* cb, JitLoopInfo* info) {
-    return x86_64_emit_loop(APEX_X86_64_ABI, ctx, cb, info);
+static bool backend_emit_loop(JITContext* ctx, CodeBuf* cb, JitLoopInfo* info,
+                              int step_sign, void** out_fn) {
+    return x86_64_emit_loop(APEX_X86_64_ABI, ctx, cb, info, step_sign, out_fn);
 }
 
 // adapter: allocates executable memory through the active abi

@@ -61,6 +61,7 @@ typedef struct {
     int  for_var_reg;   // FOR_NEXT: counter slot; -1 otherwise
     int  for_end_reg;   // FOR_NEXT: end bound slot; -1 otherwise
     int  for_step_reg;  // FOR_NEXT: step slot; -1 otherwise
+    int  step_sign;     // FOR_NEXT: statically known step sign (-1/0/+1)
 
     uint64_t live_in;   // bitmask of slots read inside the loop
     uint64_t live_out;  // bitmask of slots written inside the loop
@@ -75,7 +76,8 @@ typedef struct {
 
     bool trace_entered;  // APEX_JIT_TRACE_BUILD: first-entry dump already printed?
 
-    void (*native_fn)(uint64_t*);  // compiled entry, NULL if emit failed
+    void (*native_fn)(uint64_t*);      // compiled entry for positive (or unknown) step
+    void (*native_fn_neg)(uint64_t*);  // compiled entry for negative step, NULL if not emitted
 } JitLoopInfo;
 
 // backend interface, declared before JITContext so the context can hold a pointer back to it
@@ -84,7 +86,8 @@ typedef struct JitBackend {
     size_t bytes_per_instruction; // upper bound used for buffer sizing
 
     bool (*emit_function)(JITContext* ctx, CodeBuf* cb, int func_idx, void** out_fn);  // emits native code for a pure function
-    bool (*emit_loop)(JITContext* ctx, CodeBuf* cb, JitLoopInfo* info);                // emits native code for a numeric or table loop
+    bool (*emit_loop)(JITContext* ctx, CodeBuf* cb, JitLoopInfo* info,
+                      int step_sign, void** out_fn);                                    // emits native code for a numeric or table loop
 
     void* (*alloc_exec)(size_t size);          // os executable-memory allocation (mmap / VirtualAlloc)
     void  (*free_exec)(void* p, size_t size);  // release a region returned by alloc_exec

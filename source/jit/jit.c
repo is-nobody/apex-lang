@@ -124,10 +124,35 @@ JITContext* jit_create(BytecodeChunk* chunk) {
     }
 
     for (int i = 0; i < ctx->loop_count; i++) {                  // emit each loop body
-        if (!be->emit_loop(ctx, &cb, &ctx->loops[i])) {
-            ctx->loops[i].native_fn = NULL;                      // emit failed, mark unusable
-            continue;
+        JitLoopInfo* info = &ctx->loops[i];
+        info->native_fn     = NULL;                              // clear before attempting
+        info->native_fn_neg = NULL;                              // clear before attempting
+
+        bool any = false;                                        // did any variant succeed?
+
+        if (info->kind == JIT_LOOP_NUMERIC_FOR) {
+            bool want_pos = (info->step_sign >= 0);              // 0 or +1
+            bool want_neg = (info->step_sign <= 0);              // 0 or -1
+            void* fn_pos = NULL;
+            void* fn_neg = NULL;
+
+            if (want_pos && be->emit_loop(ctx, &cb, info, +1, &fn_pos)) {
+                info->native_fn = (void (*)(uint64_t*))fn_pos;   // positive-step entry
+                any = true;
+            }
+            if (want_neg && be->emit_loop(ctx, &cb, info, -1, &fn_neg)) {
+                info->native_fn_neg = (void (*)(uint64_t*))fn_neg;  // negative-step entry
+                any = true;
+            }
+        } else {
+            void* fn = NULL;
+            if (be->emit_loop(ctx, &cb, info, 0, &fn)) {
+                info->native_fn = (void (*)(uint64_t*))fn;       // single variant
+                any = true;
+            }
         }
+
+        if (!any) continue;                                      // emit failed, mark unusable
         ctx->compiled_count++;                                   // count successful
     }
 
@@ -139,7 +164,7 @@ JITContext* jit_create(BytecodeChunk* chunk) {
         if (ctx->pc_to_loop) {
             for (int i = 0; i < chunk->code_count; i++) ctx->pc_to_loop[i] = -1;  // default: not a loop
             for (int i = 0; i < ctx->loop_count; i++) {
-                if (!ctx->loops[i].native_fn) continue;          // skip failed emits
+                if (!ctx->loops[i].native_fn && !ctx->loops[i].native_fn_neg) continue;  // skip failed emits
                 ctx->pc_to_loop[ctx->loops[i].entry_pc] = i;     // entry pc -> loop index
             }
         }
@@ -259,7 +284,7 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* 
     int li = ctx->pc_to_loop[pc];
     if (li < 0) return JIT_LOOP_NOT_APPLICABLE;                     // pc is not a loop entry
     JitLoopInfo* info = &ctx->loops[li];
-    if (!info->native_fn) return JIT_LOOP_NOT_APPLICABLE;           // emit failed, no native code
+    if (!info->native_fn && !info->native_fn_neg) return JIT_LOOP_NOT_APPLICABLE;  // emit failed, no native code
 
     // counter-indexed writes grow the array themselves; the table slot's
     // live_in check would otherwise reject fresh / undersized arrays
@@ -279,33 +304,45 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* 
         }
     }
 
-    if (info->kind == JIT_LOOP_NUMERIC_FOR && info->table.indexed_by_counter) {
+    // resolve which native entry to call: numeric-for picks by runtime step sign
+    void (*chosen_fn)(uint64_t*) = info->native_fn;
+
+    if (info->kind == JIT_LOOP_NUMERIC_FOR) {
         Value vv = regs[info->for_var_reg];
         Value ve = regs[info->for_end_reg];
         Value vs = regs[info->for_step_reg];
-        if (!IS_NUMBER(vv) || !IS_NUMBER(ve) || !IS_NUMBER(vs)) return JIT_LOOP_NOT_APPLICABLE;  // counter/end/step must be numeric
-        double start = AS_NUMBER(vv);
-        double end   = AS_NUMBER(ve);
-        double step  = AS_NUMBER(vs);
-        if (start != (double)(long long)start) return JIT_LOOP_NOT_APPLICABLE;  // start must be integer
-        if (step  != (double)(long long)step)  return JIT_LOOP_NOT_APPLICABLE;  // step must be integer
-        if (end   != (double)(long long)end)   return JIT_LOOP_NOT_APPLICABLE;  // end must be integer
-        if (start < 1) return JIT_LOOP_NOT_APPLICABLE;                          // keys are 1-based
-        if (start > end) return JIT_LOOP_NOT_APPLICABLE;                        // zero-iteration loop
-        if (end > 2147483647.0) return JIT_LOOP_NOT_APPLICABLE;                 // array index range
+        if (!IS_NUMBER(vv) || !IS_NUMBER(ve) || !IS_NUMBER(vs))
+            return JIT_LOOP_NOT_APPLICABLE;                         // counter/end/step must be numeric
+        double step = AS_NUMBER(vs);
+        if (step == 0.0) return JIT_LOOP_NOT_APPLICABLE;            // interpreter exits immediately
 
-        Value tv = regs[info->table.slot];
-        if (!IS_TABLE(tv)) return JIT_LOOP_NOT_APPLICABLE;
-        Table* t = AS_TABLE(tv);
+        if (step > 0) chosen_fn = info->native_fn;                  // positive step entry
+        else          chosen_fn = info->native_fn_neg;              // negative step entry
+        if (!chosen_fn) return JIT_LOOP_NOT_APPLICABLE;             // variant not emitted
 
-        if (info->table.written) {
-            // grow + bump count up-front so the native loop can write directly
-            // into array_part without realloc and later reads see the entries
-            if (!counter_write_prepare(t, (int)end)) return JIT_LOOP_NOT_APPLICABLE;
-        } else {
-            // counter-indexed read: every read must land on a populated slot
-            if (t->array_part == NULL) return JIT_LOOP_NOT_APPLICABLE;
-            if (end > (double)t->array_count) return JIT_LOOP_NOT_APPLICABLE;
+        if (info->table.indexed_by_counter) {
+            if (step <= 0) return JIT_LOOP_NOT_APPLICABLE;          // array keys grow upward only
+            double start = AS_NUMBER(vv);
+            double end   = AS_NUMBER(ve);
+            if (start != (double)(long long)start) return JIT_LOOP_NOT_APPLICABLE;  // start must be integer
+            if (end   != (double)(long long)end)   return JIT_LOOP_NOT_APPLICABLE;  // end must be integer
+            if (start < 1) return JIT_LOOP_NOT_APPLICABLE;                          // keys are 1-based
+            if (start > end) return JIT_LOOP_NOT_APPLICABLE;                        // zero-iteration loop
+            if (end > 2147483647.0) return JIT_LOOP_NOT_APPLICABLE;                 // array index range
+
+            Value tv = regs[info->table.slot];
+            if (!IS_TABLE(tv)) return JIT_LOOP_NOT_APPLICABLE;
+            Table* t = AS_TABLE(tv);
+
+            if (info->table.written) {
+                // grow + bump count up-front so the native loop can write directly
+                // into array_part without realloc and later reads see the entries
+                if (!counter_write_prepare(t, (int)end)) return JIT_LOOP_NOT_APPLICABLE;
+            } else {
+                // counter-indexed read: every read must land on a populated slot
+                if (t->array_part == NULL) return JIT_LOOP_NOT_APPLICABLE;
+                if (end > (double)t->array_count) return JIT_LOOP_NOT_APPLICABLE;
+            }
         }
     }
 
@@ -326,7 +363,7 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* 
         }
     }
 
-    info->native_fn(regs);                                          // run the compiled loop
+    chosen_fn(regs);                                                // run the compiled loop
     *exit_pc = info->exit_pc;
 
     // the native loop wrote directly into array_part and never touched
