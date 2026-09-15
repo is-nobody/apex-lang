@@ -210,7 +210,7 @@ Once approved, your changes will be merged
 1. Check the `resources/` folder
 2. Search existing issues and discussions
 3. Look at similar code in the project
-4. Read the [Apex Reference Manual for Developers](resources/RM_fDevelopers.md)
+4. Read the [Apex Express Course for Developers](resources/EC_fDevelopers.md)
 5. Check the [Roadmap](resources/roadmap.md)
 
 ### When You Need Help

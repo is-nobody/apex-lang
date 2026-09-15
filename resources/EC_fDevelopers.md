@@ -1,10 +1,11 @@
-# Apex Reference Manual for Developers (26.09)
+# Apex Express Course for Developers (26.09)
 This manual is minimalistic. Each section builds on the previous ones. For the best experience, follow the order.
 
 ## Table of Contents
 ### Introduction
 - [About the Project](#about-the-project)
 - [Setting up workspace](#setting-up-workspace)
+- [CLI Commands](#cli-commands)
 
 ### 1. Data Types
 - [1.1 None](#11-none)
@@ -24,25 +25,32 @@ This manual is minimalistic. Each section builds on the previous ones. For the b
 - [3.1 If Statement](#31-if-statement)
 - [3.2 Else-If Statement](#32-elseif-statement)
 - [3.3 Else Statement](#33-else-statement)
-- [3.4 Ternary Statement](#34-ternary-statement)
+- [3.4 Ternary Operator](#34-ternary-operator)
 
-### 4. For Loops
-- [4.1 For Counter](#41-for-counter)
-- [4.2 For Table Iteration](#42-for-table-iteration)
-- [4.3 For Condition](#43-for-condition)
-- [4.4 Break](#44-break)
-- [4.5 Continue](#45-continue)
+### 4. Match
+- [4.1 Match Statement](#41-match-statement)
+- [4.2 Case Patterns](#42-case-patterns)
+- [4.3 Default Case](#43-default-case)
+- [4.4 Rules and Restrictions](#44-rules-and-restrictions)
 
-### 5. Functions
-- [5.1 Function Statement](#51-function-statement)
-- [5.2 Parameters](#52-parameters)
-- [5.3 Return Value](#53-return-value)
-- [5.4 Call](#54-call)
+### 5. For Loops
+- [5.1 For Counter](#51-for-counter)
+- [5.2 For Table Iteration](#52-for-table-iteration)
+- [5.3 For Condition](#53-for-condition)
+- [5.4 Break](#54-break)
+- [5.5 Continue](#55-continue)
 
-### 6. Imports
-- [6.1 Importing an Entire File](#61-importing-an-entire-file)
-- [6.2 Importing from Sub-folders](#62-importing-from-sub-folders)
-- [6.3 Importing from One Sub-folder into Another](#63-importing-from-one-sub-folder-into-another)
+### 6. Functions
+- [6.1 Function Statement](#61-function-statement)
+- [6.2 Parameters](#62-parameters)
+- [6.3 Return Value](#63-return-value)
+- [6.4 Call](#64-call)
+
+### 7. Imports
+- [7.1 Importing an Entire File](#71-importing-an-entire-file)
+- [7.2 Importing from Sub-folders](#72-importing-from-sub-folders)
+- [7.3 Importing from One Sub-folder into Another](#73-importing-from-one-sub-folder-into-another)
+- [7.4 Aliasing](#74-aliasing)
 
 ### Conclusion
 - [What's Next?](#whats-next)
@@ -56,8 +64,6 @@ Apex is a programming language built for speed, power, simplicity, clarity, read
 1. Download the interpreter from [GitHub releases](https://github.com/is-nobody/apex-lang/releases)
 2. Run the interpreter for your OS.
 
-*Alternatively, if you don't want to install anything, you can try language on the [website](https://is-nobody.github.io/apex-lang.html).*
-
 ### Testing the interpreter
 Run interpreter and paste this code into REPL:
 
@@ -65,6 +71,138 @@ Run interpreter and paste this code into REPL:
 import os
 os.output("Hello, World!")
 ```
+
+# CLI Commands
+The `apex` executable is more than just a script runner. It ships with a set of commands for building, compiling, disassembling, and tuning execution. This section is a quick reference — you'll use most of these as you grow with the language.
+
+| Command                              | What it does                           |
+|--------------------------------------|----------------------------------------|
+| `apex <file.apex>`                   | Run a source file directly             |
+| `apex version`                       | Show version, compiler, platform, time |
+| `apex build <file.apex>`             | Bundle into a standalone executable    |
+| `apex build <os> <arch> <file.apex>` | Cross-build for another platform       |
+| `apex compile <file.apex>`           | Compile to `.apexc` bytecode           |
+| `apex emit <file.apex>`              | Disassemble bytecode to the terminal   |
+| `apex jit on <file.apex>`            | Run with the JIT enabled               |
+| `apex jit off <file.apex>`           | Run with the JIT disabled              |
+
+## Running a File
+The most common use — just point Apex at a source file:
+
+```
+apex hello.apex
+```
+
+Everything after the filename is passed to your script and is available through `os.args` (see the module reference).
+
+## `apex version`
+Prints the interpreter version together with build details. Useful when reporting bugs or checking which compiler built your binary.
+
+```
+apex version
+```
+
+Example output:
+
+```
+Apex 26.09 [GCC 15.2.0] on Linux x86-64
+```
+
+If the build includes the JIT, the word `JIT` appears after the version:
+
+```
+Apex 26.09 JIT [GCC 15.2.0] on Linux x86-64
+```
+
+The line shows, in order:
+
+1. Apex version (`26.09`)
+2. Whether the JIT is compiled in (`JIT`)
+3. The C compiler and its version
+4. The platform and architecture
+
+## `apex build`
+Compiles your source, then wraps it into a **standalone executable** that runs without the `apex` binary. This is the command you use to ship your program.
+
+```
+apex build hello.apex
+```
+
+This produces a file named after your script and the current platform, for example:
+
+```
+hello_x86-64_linux
+```
+
+### Cross-building
+You can build for another platform by naming the target OS and architecture:
+
+```
+apex build windows x86-64 hello.apex
+apex build linux  arm64  hello.apex
+apex build macos  arm64  hello.apex
+```
+
+Supported values:
+
+| Option       | Values                      |
+|--------------|-----------------------------|
+| OS           | `windows`, `linux`, `macos` |
+| Architecture | `x86-64`, `arm64`           |
+
+Cross-building requires the matching **stub** binary (`apex_26.09_<arch>_<os>[.exe]`) to sit next to your `apex` executable. The stub is the apex binary itself.
+
+## `apex compile`
+Compiles a source file to Apex bytecode and saves it as `.apexc`. This is the intermediate format used by `apex build`, and you can keep it around if you want to ship bytecode instead of source.
+
+```
+apex compile hello.apex
+```
+
+The `.apexc` file contains the full compiled chunk: instructions, constants, globals, function metadata, and the interned string pool. It can be run directly by the loader without re-parsing the source.
+
+## `apex emit`
+Disassembles a source file and prints the generated bytecode to the terminal. This is a **learning and debugging** tool — you get to see exactly what the compiler produces for your code.
+
+```
+apex emit hello.apex
+```
+
+The output has several parts:
+
+1. A header line with the file name and summary counts.
+2. The instruction stream, with each function's start marked.
+3. A `constants` section.
+4. A `globals` section.
+5. A `functions` section with addresses, arities, and register counts.
+
+Each instruction is printed with its offset, opcode, and a human-readable form of its operands. Registers are shown as `R0`, `R1`, etc., string constants are quoted, and jump targets are shown as addresses.
+
+Example fragment:
+
+```
+   0  LOAD_NUM_IMM       R0 <- 10
+   1  LOAD_NUM_IMM       R1 <- 20
+   2  ADD                R2 <- R0 + R1
+   3  STORE_GLOBAL       R2 -> sum
+```
+
+`apex emit` is the fastest way to understand how expressions, loops, and function calls turn into bytecode.
+
+## `apex jit on` / `apex jit off`
+Controls the **JIT** (just-in-time compiler) at runtime. The JIT compiles numeric-heavy functions to native machine code, which can make tight loops significantly faster.
+
+```
+apex jit on benchmark.apex
+apex jit off benchmark.apex
+```
+
+- `on` — enable the JIT for this run.
+- `off` — disable the JIT for this run.
+
+Both forms accept the script name last, and everything after it is passed to your script as command-line arguments, just like the plain `apex <file.apex>` form.
+
+If your build of Apex was compiled without JIT support, `apex jit` prints an error and exits.
 
 # 1. Data Types
 Apex determines the type automatically. Main data types in language:
@@ -111,8 +249,19 @@ weight = 71.5
 height = 1.8
 ```
 
+### Scientific Notation
+For very large or very small numbers, use scientific notation with `e` or `E`. The part after `e` is the power of 10.
+
+```apex
+distance = 1.5e8     // 150000000 — 1.5 × 10^8
+mass = 9.1e-31       // 0.00000000000000000000000000000091 — 9.1 × 10^-31
+count = 2E+5         // 200000 — 2 × 10^5
+```
+
+The exponent can be positive or negative, and you can use `+` or `-` sign. Both lowercase `e` and uppercase `E` work the same way.
+
 ### Declaring with Arithmetic
-You can declare variables and do math with them at the same time. Once a variable holds a number, you can use it in calculations just like a regular number.
+You can declare variables and do math with them at the same time.
 
 ```apex
 x = 10
@@ -151,19 +300,19 @@ empty = ""
 ### Escape Sequences
 Apex has **escape sequences**.
 
-#### Quotes inside Quotes
-If you need double quotes inside a string, you can't just drop them in raw.
-
-Here's what **doesn't** work:
-
-```apex
-inside = "He say: "I hate donuts!"" // NOPE
-```
-
-Here's how it actually works:
+#### Double Quote — `\"`
+If you need double quotes inside a string, use backslash before quota.
 
 ```apex
 inside = "He say: \"I hate donuts!\""
+```
+
+#### Single Quote — `\'`
+If you use single quotes for a string, you can escape a single quote inside it the same way. You can also escape a single quote inside a double-quoted string.
+
+```apex
+single = 'It\'s a nice day'
+double = "It\'s a nice day"
 ```
 
 #### Line break — `\n`
@@ -171,13 +320,6 @@ The `n` stands for *newline*.
 
 ```apex
 message = "First line\nSecond line"
-```
-
-Output:
-
-```bash
-First line
-Second line
 ```
 
 #### Tab — `\t`
@@ -188,11 +330,20 @@ header = "Name\tAge\tCity"
 row = "Alice\t30\tLondon"
 ```
 
-Output:
+#### Carriage Return — `\r`
+The `r` stands for *carriage return*. It moves the cursor back to the start of the line without moving to the next one.
 
-```bash
-Name    Age    City
-Alice   30     London
+```apex
+progress = "Loading...\rDone!     "
+```
+
+#### Octal Escape — `\NNN`
+You can write any character by its octal code using up to three octal digits (0–7) after a backslash.
+
+```apex
+bell = "\007"      // bell character
+esc  = "\033"      // escape character
+null = "\0"        // null character
 ```
 
 #### Escaping the Backslash Itself
@@ -202,10 +353,11 @@ Backslash itself is a special character, so if you actually want a backslash in 
 filePath = "C:\\Users\\John\\Documents\\resume.pdf"
 ```
 
-Each `\\` is Apex reading: "Okay, the first `\` means something special is coming... oh, the next character is also `\`? Got it, you want an actual backslash printed." Without doubling them, Apex would try to interpret `\U`, `\J`, `\D` as some special characters and everything breaks. Output with double slashes in code:
+#### Unknown Escapes Are Errors
+If you use a backslash followed by a character that is not a known escape, Apex reports an error instead of silently ignoring it.
 
-```bash
-C:\Users\John\Documents\resume.pdf
+```apex
+bad = "\q"  // ERROR: Unsupported symbol for escape sequence: '\q'
 ```
 
 ### String Interpolation
@@ -214,8 +366,7 @@ The way you combine text with variables in Apex is string interpolation — you 
 ```apex
 name = "Alice"
 age = 30
-greeting = "Hello, {name}"                    // "Hello, Alice"
-message = "{name} is {age} years old"         // "Alice is 30 years old"
+message = "{name} is {age} years old"  // "Alice is 30 years old"
 ```
 
 Apex automatically converts numbers and other values to strings when you put them inside `{}`. 
@@ -289,7 +440,7 @@ user = [
 ]
 ```
 
-Keys are written with quotes. Apex recognizes them as names, not strings. Now you can access values by their key:
+Keys are written with quotes. Now you can access values by their key:
 
 ```apex
 user_name = user["name"]         // "Alice"
@@ -305,8 +456,7 @@ user = ["name" = "Alice"]
 // add a new keys
 user["age"] = 30
 user["city"] = "Dubai"
-user["active"] = true
-// now user has four keys
+// now user has three keys
 ```
 
 Updating a value works the same way — just assign a new value to an existing key or position. If you access a non-existent key, you will get an `none`. To remove an item from a table, use the `table.remove()` function from the table library (see [Library Reference](Library_Reference.md)).
@@ -317,11 +467,11 @@ Tables can combine ordered items and key-value pairs in the same table. Ordered 
 ```apex
 person = ["Alice", "Manager", "department" = "Engineering", "years" = 5]
 // access ordered items by position
-name = person[1]                 // "Alice"
-role = person[2]                 // "Manager"
+name = person[1]              // "Alice"
+role = person[2]              // "Manager"
 // access key-value pairs by key
-dept = person["department"]      // "Engineering"
-experience = person["years"]     // 5
+dept = person["department"]   // "Engineering"
+experience = person["years"]  // 5
 ```
 
 ### Tables Inside Tables
@@ -353,11 +503,11 @@ APP_NAME = none  // ERROR: Cannot reassign constant 'APP_NAME'
 ## 1.7 Type Functions
 Apex provides two built-in functions for explicit type conversion:
 
-| Function | What it does | Example |
-|----------|--------------|---------|
-| `number(x)` | Converts to number | `number("42")` → `42` |
-| `string(x)` | Converts to string | `string(42)` → `"42"` |
-| `type(x)` | Returns the type name as a string | `type(42)` → `"number"` |
+| Function    | What it does                      | Example                 |
+|-------------|-----------------------------------|-------------------------|
+| `number(x)` | Converts to number                | `number("42")` → `42`   |
+| `string(x)` | Converts to string                | `string(42)` → `"42"`   |
+| `type(x)`   | Returns the type name as a string | `type(42)` → `"number"` |
 
 ### number()
 Converts a value to number. You will get an `none` value if conversion fails.
@@ -374,13 +524,13 @@ number([])         // none (conversion fails)
 ### string()
 Converts any value to its string representation.
 
-| Input | Output |
-|-------|--------|
-| `42` | `"42"` |
-| `3.14` | `"3.14"` |
-| `none` | `"none"` |
+| Input            | Output               |
+|------------------|----------------------|
+| `42`             | `"42"`               |
+| `3.14`           | `"3.14"`             |
+| `none`           | `"none"`             |
 | `true` / `false` | `"true"` / `"false"` |
-| `[]` | `"[]"` |
+| `[]`             | `"[]"`               |
 
 ```apex
 string(42)      // "42"
@@ -406,27 +556,27 @@ type([1, 2])    // "table"
 ## 2.1 Arithmetic Operators
 Arithmetic operators work with numbers. They do exactly what you learned in math class.
 
-| Operator | Name | Example | Result |
-|----------|------|---------|--------|
-| `+` | Addition | `5 + 3` | `8` |
-| `-` | Subtraction | `10 - 4` | `6` |
-| `*` | Multiplication | `7 * 6` | `42` |
-| `/` | Division | `15 / 4` | `3.75` |
-| `%` | Modulo (remainder) | `15 % 4` | `3` |
+| Operator | Name               | Example  |
+|----------|--------------------|----------|
+| `+`      | Addition           | `5 + 3`  |
+| `-`      | Subtraction        | `10 - 4` |
+| `*`      | Multiplication     | `7 * 6`  |
+| `/`      | Division           | `15 / 4` |
+| `%`      | Modulo (remainder) | `15 % 4` |
 
 Arithmetic only works with the numbers data type, you cannot add number with string, string with boolean, etc. When you perform an arithmetic operation between a whole and a decimal, the result also becomes a decimal.
 
 ## 2.2 Comparison Operators
 Comparison operators compare two values and give you a boolean result: either `true` or `false`. They can return only a Boolean value.
 
-| Operator | Name | Example | Result |
-|----------|------|---------|--------|
-| `==` | Equal to | `5 == 5` | `true` |
-| `!=` | Not equal to | `5 != 3` | `true` |
-| `<` | Less than | `3 < 5` | `true` |
-| `>` | Greater than | `5 > 3` | `true` |
-| `<=` | Less than or equal | `3 <= 3` | `true` |
-| `>=` | Greater than or equal | `5 >= 5` | `true` |
+| Operator | Name                  | Example  |
+|----------|-----------------------|----------|
+| `==`     | Equal to              | `5 == 5` |
+| `!=`     | Not equal to          | `5 != 3` |
+| `<`      | Less than             | `3 < 5`  |
+| `>`      | Greater than          | `5 > 3`  |
+| `<=`     | Less than or equal    | `3 <= 3` |
+| `>=`     | Greater than or equal | `5 >= 5` |
 
 Comparison operators `<`, `>`, `<=`, `>=` work only with numbers. Using them with strings, booleans, tables, or none will result in a parse-time error. To check equality or inequality of any type, use `==` and `!=`.
 
@@ -439,7 +589,7 @@ Logical operators combine boolean values (`true` or `false`) to create more comp
 | `or`     | At least one side must be true | `(2 > 1) or (2 < 1)`   |
 | `not`    | Reverses the value             | `not true`             |
 
-> Logical operators `and` & `or` requires explicit condition
+> Logical operators `and` & `or` requires explicit boolean condition. `not` also requires boolean variable.
 
 ### Operator Precedence
 Logical operators have their own order. `not` happens first, then `and`, then `or`.
@@ -465,7 +615,7 @@ If statements are how you tell Apex to make decisions.
 | `else`    | All previous conditions were `false`                          |
 
 ### Blocks and Indentation
-The body of an `if`/`else` is a **block** — code that executes conditionally. Blocks are defined by **4-space indentation**. No braces, no `end` keyword — just indentation.
+The body of an `if`/`else` is a **block** — code that executes conditionally. Blocks are defined by **4-space indentation**.
 
 ```apex
 import os
@@ -486,7 +636,9 @@ In Apex, conditions must be **explicitly boolean**. You cannot use variables dir
 **This does NOT work:**
 ```apex
 import os
+
 x = 10
+
 if x      // ERROR: If requires a comparison, got number
     os.output("Hello")
 ```
@@ -494,7 +646,9 @@ if x      // ERROR: If requires a comparison, got number
 **You MUST write:**
 ```apex
 import os
+
 x = 10
+
 if x > 5  // correct because comparison returns boolean
     os.output("Hello")
 ```
@@ -504,7 +658,9 @@ Always use comparison operators (`==`, `!=`, `<`, `>`, etc.) to create boolean v
 ## 3.1 If Statement
 ```apex
 import os
+
 user = none
+
 if user == none
     os.output("No user found")
 ```
@@ -512,7 +668,9 @@ if user == none
 ## 3.2 Else-If Statement
 ```apex
 import os
+
 score = 85
+
 if score >= 90
     os.output("Grade: A")
 else if score >= 80
@@ -536,18 +694,112 @@ else
 ```
 
 ### 3.4 Ternary Operator
-The ternary operator is a shorthand form for simple conditional expressions. It lets you choose one of two values depending on a condition. It's not a replacement for `if-else`, but a handy tool for cases when you need to assign a value to a variable based on a simple check.
+The ternary operator is a shorthand form for simple conditional expressions. It's not a replacement for `if-else`, but a handy tool for cases when you need to assign a value to a variable based on a simple check.
 
 ```apex
 import os
+
 temperature = 25
+
 weather = "hot" if temperature > 20 else "cold"
-os.output(weather)   // Output: hot
+
+os.output(weather)  // hot
 ```
 
 The ternary operator can only be used for short conditions. If the selection logic requires 2 or more checks, you must use regular `if-else if-else` blocks — 2 or more checks are not allowed in a ternary statement.
 
-# 4. For Loops
+# 4. Match
+
+`match` is how you compare one value against a list of fixed options. It's cleaner than a long chain of `if`/`else if` when every branch checks the **same value** against a **constant**.
+
+| Statement | When It Runs |
+|-----------|--------------|
+| `case <constant>` | The subject equals that constant |
+| `case` (no value) | No other case matched — the default |
+
+Think of it as a specialized `if` that only answers one question: *"does this value equal one of these constants?"*
+
+- **Subject** must be `number`, `string`, `boolean`, or `none`.
+- **Patterns** must be constants of the same kind: number literal, string literal, `true`/`false`, `none`, or a negative number.
+- Tables and functions **cannot** be used as subjects or patterns.
+- The **default** case has no value and must be last.
+- Only **one** default case is allowed.
+- Cases are checked **top to bottom**; the first match wins.
+- `match` does **not** create a new scope.
+- If nothing matches and there is no default, execution continues after the `match`.
+
+## 4.1 Match Statement
+The `match` keyword is followed by the value you want to check — the **subject**. Then an indented block of `case` branches.
+
+```apex
+import os
+
+status = 404
+
+match status
+    case 200
+        os.output("OK")
+    case 404
+        os.output("Not Found")
+    case 500
+        os.output("Server Error")
+```
+
+Apex checks the cases from top to bottom. As soon as one matches, it runs that branch and skips the rest — exactly like `if`/`else if`.
+
+Blocks use the same **4-space indentation** rule as `if` and `for`. No new scope is created, so variables declared inside a case stay visible after the `match`.
+
+```apex
+import os
+
+code = 200
+
+match code
+    case 200
+        message = "OK"
+
+os.output(message)  // "OK" — visible outside
+```
+
+## 4.2 Case Patterns
+A case pattern must be a **constant**: a number, a string, a boolean, or `none`. Negative numbers are allowed.
+
+```apex
+import os
+
+grade = "B"
+
+match grade
+    case "A"
+        os.output("Excellent")
+    case "B"
+        os.output("Good")
+    case "C"
+        os.output("Average")
+```
+
+The subject must be a `number`, `string`, `boolean`, or `none` — not a table or function. Apex also warns you when a pattern can never match the subject.
+
+## 4.3 Default Case
+A `case` with no value is the **default**. It runs when no other case matched.
+
+```apex
+import os
+
+command = "quit"
+
+match command
+    case "start"
+        os.output("Starting...")
+    case "stop"
+        os.output("Stopping...")
+    case
+        os.output("Unknown command")
+```
+
+The default case must be the **last** one. Putting anything after it is an error.
+
+# 5. For Loops
 Apex gives you the `for` loop with three different syntaxes to handle all these situations.
 
 | Syntax                | When to Use                    | Example          |
@@ -570,13 +822,14 @@ os.output(temp)      // ERROR — not defined
 os.output(i)         // ERROR — not defined
 ```
 
-## 4.1 For Counter
+## 5.1 For Counter
 The counter creates a numeric loop. You specify a variable, a starting number, and an ending number. The loop runs once for each number in that range, including the end value.
 
 Syntax: `for variable = start, end [, step]`, where step is optional. By default step is 1.
 
 ```apex
 import os
+
 for i = 1, 5
     os.output(i)
 ```
@@ -586,6 +839,7 @@ You can control how much the loop variable increases or decreases by adding a th
 
 ```apex
 import os
+
 for i = 0, 10, 2
     os.output(i)
 ```
@@ -594,13 +848,14 @@ For counting down use a negative step to count backward:
 
 ```apex
 import os
+
 for i = 5, 1, -1
     os.output(i)
 ```
 
 This prints 5, 4, 3, 2, 1. The loop stops when the variable goes below the `end` value.
 
-## 4.2 For Table Iteration
+## 5.2 For Table Iteration
 You can iterate over any table using `for value in table`:
 
 ```apex
@@ -612,7 +867,7 @@ for fruit in fruits
     os.output(fruit)
 ```
 
-## 4.3 For Condition
+## 5.3 For Condition
 When you don't know how many times you need to repeat, use a condition loop. As long as the condition is `true`, the loop keeps running.
 
 ```apex
@@ -625,7 +880,7 @@ for counter <= 5
     counter = counter + 1
 ```
 
-## 4.4 Break
+## 5.4 Break
 `break` exits the loop immediately — same as in `while`.
 
 ```apex
@@ -637,7 +892,7 @@ for i = 1, 10
     os.output(i)
 ```
 
-## 4.5 Continue
+## 5.5 Continue
 `continue` skips the rest of the current iteration and moves to the next number.
 
 ```apex
@@ -649,7 +904,7 @@ for i = 1, 5
     os.output(i)
 ```
 
-# 5. Functions
+# 6. Functions
 ### Blocks and Scope
 Function bodies are defined by **4-space indentation**. Functions create a new **scope**: variables declared inside, including parameters, are local. The function can read outer variables but cannot be written to from the outside.
 
@@ -667,7 +922,7 @@ test()
 os.output(y)      // ERROR — y is not defined here
 ```
 
-## 5.1 Function Statement
+## 6.1 Function Statement
 To create a function, use the `function` keyword, then the function name, then parentheses `( )`, then the code block.
 
 ```apex
@@ -677,7 +932,7 @@ function say_hello()
     os.output("Hello!")
 ```
 
-## 5.2 Parameters
+## 6.2 Parameters
 Sometimes a function needs information to do its job. You put them inside the parentheses.
 
 ```apex
@@ -691,7 +946,7 @@ greet("Friend")
 
 You can have multiple parameters, separated by commas. Order matters. The first value goes to the first parameter, the second value to the second parameter, and so on.
 
-## 5.3 Return Value
+## 6.3 Return Value
 Return value is what the function sends back after it finishes. You use the `return` keyword.
 
 ```apex
@@ -701,80 +956,41 @@ function add(a, b)
     return a + b
 
 result = add(5, 3)
-os.output(result)    // Prints: 8
+os.output(result)  // Prints: 8
 ```
 
 Functions without `return` return `none` automatically. Once `return` happens, the function exits. Nothing after it runs.
 
-### 5.4 Call
+### 6.4 Call
 Using a function is called calling it. You write the function name followed by parentheses.
+
 ```apex
-// Call a function with no parameters
+// call a function with no parameters
 say_hello()
-// Call with parameters
+// call with parameters
 greet("Alice")
-// Store the return value
+// store the return value
 total = add(10, 5)
 ```
 
-Direct call:
-
-```apex
-import os
-
-function show_message()
-    os.output("Function called!")
-show_message()    // Prints: Function called!
-```
-
-Call in expressions:
-
-```apex
-function triple(x)
-    return x * 3
-result = triple(4) + 10    // 12 + 10 = 22
-```
-
-Nested calls (call a function inside another call):
-
-```apex
-function add(a, b)
-    return a + b
-function multiply(a, b)
-    return a * b
-// Nested — multiply happens first, then add
-result = add(5, multiply(2, 3))        // add(5, 6) = 11
-```
-
-Calling a function that calls another function:
-
-```apex
-function get_discount(price)
-    return price * 0.9
-function calculate_total(price, quantity)
-    total = price * quantity
-    return get_discount(total)   // Calls another function
-final_price = calculate_total(100, 3)   // 100 * 3 = 300, then 300 * 0.9 = 270
-```
-
-# 6. Imports
+# 7. Imports
 Imports give you the ability to use code from other files. Every import path is relative to the main file — the file you run with `apex file.apex`.
 
-## 6.1 Importing an Entire File
+## 7.1 Importing an Entire File
 To import everything from a file in the same folder:
 
 ```apex
 import os
-import database
+import database.apex
 
 // use items with the filename as a prefix
 database.connect()
 os.output(database["APP_NAME"])
 ```
 
-When you import a file, you must use the filename as a prefix to access its contents.
+For user files, you must add `.apex` at the end.
 
-## 6.2 Importing from Sub-folders
+## 7.2 Importing from Sub-folders
 Use dots (`/`) to navigate into folders:
 
 ```
@@ -789,7 +1005,7 @@ my_project/
 import utils/math.apex
 ```
 
-## 6.3 Importing from One Sub-folder into Another
+## 7.3 Importing from One Sub-folder into Another
 You have this structure:
 
 ```
@@ -804,14 +1020,28 @@ my_project/
 You want to use `math.apex` inside `calculator.apex`. Always write the path as if you were importing from `main.apex`. Apex always starts looking from the main file's folder. This keeps your imports consistent — no matter how deep your folder structure gets, you always know exactly how to import any file.
 
 ### What Gets Imported
-When you import a file, you get everything from it:
+When you import a file, you get all globals from it:
 
 - All functions
 - All variables
 
+## 7.4 Aliasing
+When a module has a long or awkward name, you can give it a short alias with the `as` keyword. After that, use the alias instead of the full module name.
+
+```apex
+import utils/calculator.apex as calc
+
+result = calc.add(2, 3)
+calc.print_result(result)
+```
+
+- The alias must come after the file path.
+- The alias must be a valid name (letters, digits, underscore; cannot start with a digit).
+- An alias is **only** for user modules. Built-in modules (`os`, `sys`, `math`, etc.) cannot be aliased.
+
 # Conclusion
 ## What's Next?
-Now you know the basics of Apex! The best next step is to explore the built-in libraries—check out the **Library Reference**. Start with the must-haves: `os`, `string`, `table`.
+Now you know the basics of Apex! The best next step is to explore the built-in libraries—check out the **Library Reference**.
 
 **Remember:**
 

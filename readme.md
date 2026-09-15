@@ -59,7 +59,7 @@ cmake --build build/ --parallel
 Each of the documents explains variables, data types, operators, control flow, functions, imports, and built-in libraries.
 
 - **[Apex Reference Manual for Beginners](resources/RM_fBeginners.md)** — Excellent for beginners in programming, with a detailed explanation of each topic.
-- **[Apex Reference Manual for Developers](resources/RM_fDevelopers.md)** — Excellent for developers, offering minimal and clear coverage of each topic.
+- **[Apex Express Course for Developers](resources/EC_fDevelopers.md)** — Excellent for developers, offering minimal and clear coverage of each topic.
 
 ## Getting Help
 See [Issues](https://github.com/is-nobody/apex-lang/issues) for bug reports and feature requests.
