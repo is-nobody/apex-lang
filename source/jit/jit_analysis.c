@@ -12,7 +12,10 @@
 static void compute_function_range(BytecodeChunk* chunk, int func_idx,
                                    int* start, int* end) {
     *start = chunk->functions[func_idx].address;                 // entry point
-    if (func_idx == 0) { *end = *start; return; }                // entry fn never JITted
+    if (func_idx == 0) {                                         // entry fn: loop detection still needs a full range
+        *end = chunk->code_count;                                // cover all code so loops after inner fns are seen
+        return;
+    }
 
     int prev = *start - 1;                                       // instruction before entry
     if (prev >= 0 && prev < chunk->code_count &&
@@ -30,7 +33,8 @@ static void compute_function_range(BytecodeChunk* chunk, int func_idx,
 }
 
 // checks whether an instruction is allowed inside a native loop body
-static bool is_pure_loop_instr(BytecodeChunk* chunk, int pc) {
+static bool is_pure_loop_instr(JITContext* ctx, int pc) {
+    BytecodeChunk* chunk = ctx->chunk;
     Instruction* inst = &chunk->code[pc];
     switch (inst->opcode) {
         case OP_MOVE:                                        // reg-to-reg copy
@@ -53,6 +57,10 @@ static bool is_pure_loop_instr(BytecodeChunk* chunk, int pc) {
             return true;
         case OP_TABLE_ITER_NEXT:                             // loop entry for table iteration
             return true;
+        case OP_CALL_0: case OP_CALL_1: case OP_CALL_2: {    // calls allowed only to pure fns
+            int target = inst->operands[1];                  // callee function index
+            return target >= 0 && target < ctx->func_count && ctx->pure[target];
+        }
         case OP_LOAD_NUM: {                                  // only numeric constants
             int idx = inst->operands[1];
             return idx >= 0 && idx < chunk->const_count &&
@@ -239,6 +247,18 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
                 if (info->for_end_reg  >= 0 && info->for_end_reg  < 64) pc_reads |= 1ULL << info->for_end_reg;
                 if (info->for_step_reg >= 0 && info->for_step_reg < 64) pc_reads |= 1ULL << info->for_step_reg;
                 break;
+            case OP_CALL_0:                                      // no args, writes d
+                if (d >= 0 && d < 64) pc_writes |= 1ULL << d;
+                break;
+            case OP_CALL_1:                                      // arg in b, writes d
+                if (b >= 0 && b < 64) pc_reads  |= 1ULL << b;
+                if (d >= 0 && d < 64) pc_writes |= 1ULL << d;
+                break;
+            case OP_CALL_2:                                      // args in b, b+1, writes d
+                if (b >= 0 && b < 64)         pc_reads |= 1ULL << b;
+                if (b + 1 >= 0 && b + 1 < 64) pc_reads |= 1ULL << (b + 1);
+                if (d >= 0 && d < 64)         pc_writes |= 1ULL << d;
+                break;
             case OP_TABLE_ITER_NEXT:                             // element written each iteration
                 if (d >= 0 && d < 64) {
                     pc_writes |= 1ULL << d;
@@ -346,6 +366,9 @@ static bool table_iter_body_is_clean(BytecodeChunk* chunk, int entry, int back_e
             op == OP_TABLE_ITER_INIT) {                            // nested table iteration
             return false;                                          // body touches table directly
         }
+        if (op == OP_CALL_0 || op == OP_CALL_1 || op == OP_CALL_2) {  // calls need extra state preserved
+            return false;                                          // not supported by table-iter emitter yet
+        }
     }
     return true;                                                   // only the entry touches the table
 }
@@ -411,7 +434,7 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
         if (!ok) continue;
 
         for (int i = entry; i <= pc && ok; i++) {                // every body instruction must be loop-pure
-            if (!is_pure_loop_instr(chunk, i)) ok = false;
+            if (!is_pure_loop_instr(ctx, i)) ok = false;
         }
         if (!ok) continue;
 
@@ -490,7 +513,7 @@ bool jit_analyze(JITContext* ctx) {
         }
     }
 
-    for (int i = 1; i < n; i++) {                                // loop detection for non-pure fns
+    for (int i = 0; i < n; i++) {                                // loop detection, incl. entry fn
         if (ctx->pure[i]) continue;                              // pure fns are fully compiled
         detect_loops_in_function(ctx, i);
     }

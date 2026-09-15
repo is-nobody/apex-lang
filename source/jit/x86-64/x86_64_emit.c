@@ -747,6 +747,24 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
             x86_cache_put(cache, xd, d);                         // cache dest
             break;
         }
+        case OP_CALL_0:                                      // call with no args
+        case OP_CALL_1:                                      // call with one arg
+        case OP_CALL_2: {                                    // call with two args
+            if (save_slot < 0) return;                       // no save slot reserved, bail
+            x86_cache_flush(cache, cb);                      // spill dirty slots to frame
+            if (inst->opcode == OP_CALL_1 || inst->opcode == OP_CALL_2) {
+                x86_emit_movsd_load(cb, 0, x86_slot_disp(b));  // xmm0 = arg0
+            }
+            if (inst->opcode == OP_CALL_2) {
+                x86_emit_movsd_load(cb, 1, x86_slot_disp(b + 1));  // xmm1 = arg1
+            }
+            x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // save frame_reg
+            emit_call_func(cb, ctx, a);                      // indirect call through func_table
+            x86_emit_load_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));   // restore frame_reg
+            x86_cache_clear(cache);                          // callee clobbered all xmm regs
+            x86_cache_put(cache, 0, d);                      // xmm0 holds the result
+            break;
+        }
         case OP_TABLE_GET: {
             int table_reg = a;                               // table register
             int key_reg   = b;                               // key register
@@ -966,7 +984,8 @@ static bool op_writes_dest(Opcode op) {
 }
 
 // rejects loops that would need runtime checks the emitter does not produce
-static bool loop_is_safe_to_emit(BytecodeChunk* chunk, JitLoopInfo* info) {
+static bool loop_is_safe_to_emit(JITContext* ctx, JitLoopInfo* info) {
+    BytecodeChunk* chunk = ctx->chunk;
     int entry     = info->entry_pc;                          // first body pc
     int back_edge = info->back_edge_pc;                      // jump back to entry
 
@@ -985,6 +1004,12 @@ static bool loop_is_safe_to_emit(BytecodeChunk* chunk, JitLoopInfo* info) {
             if (inst->operands[0] != info->table.slot) return false;
         } else if (inst->opcode == OP_TABLE_GET_INT) {       // same rbx issue as SET_INT
             if (inst->operands[1] != info->table.slot) return false;
+        } else if (inst->opcode == OP_CALL_0 ||              // call targets must be JIT-compiled
+                   inst->opcode == OP_CALL_1 ||
+                   inst->opcode == OP_CALL_2) {
+            int target = inst->operands[1];                  // callee function index
+            if (target < 0 || target >= ctx->func_count) return false;
+            if (!ctx->func_table[target]) return false;      // callee has no native code
         }
         // OP_TABLE_SET now always uses the general helper path, no rbx assumption
     }
@@ -1000,7 +1025,7 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
     int extra_slots = (info->kind == JIT_LOOP_NUMERIC_FOR) ? 1 : 0;  // iterator temp slot
     int const_slot = nregs + extra_slots;                    // reserved slot for constant 1.0
 
-    bool needs_helper = false;                               // does the body call table_set_int?
+    bool needs_helper = false;                               // does the body call table_set_int / a function?
     for (int pc = entry + 1; pc < back_edge; pc++) {
         Instruction* inst = &ctx->chunk->code[pc];
         if (inst->opcode == OP_TABLE_SET) {
@@ -1009,6 +1034,12 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
                 needs_helper = true;                         // general path needed
                 break;
             }
+        }
+        if (inst->opcode == OP_CALL_0 ||                     // any call clobbers frame_reg
+            inst->opcode == OP_CALL_1 ||
+            inst->opcode == OP_CALL_2) {
+            needs_helper = true;                             // reserve a save slot
+            break;
         }
     }
 
@@ -1026,7 +1057,7 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
 
     if (cb->len + (size_t)range_size * 256 + 1024 > cb->cap) return false;  // buffer too small
 
-    if (!loop_is_safe_to_emit(ctx->chunk, info)) return false;   // needs runtime checks the emitter lacks
+    if (!loop_is_safe_to_emit(ctx, info)) return false;      // needs runtime checks the emitter lacks
 
     // scan body to decide if the iterator can stay in xmm7 across iterations
     bool iter_in_xmm = false;
@@ -1035,6 +1066,8 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
         for (int pc = entry + 1; pc < back_edge; pc++) {
             Opcode op = ctx->chunk->code[pc].opcode;
             if (op == OP_MOD || op == OP_NEG ||              // use XMM_SCRATCH
+                op == OP_CALL_0 || op == OP_CALL_1 ||        // calls clobber all xmm regs
+                op == OP_CALL_2 ||
                 op == OP_CMP_EQ || op == OP_CMP_NEQ ||       // also use XMM_SCRATCH
                 op == OP_CMP_EQ_NUM || op == OP_CMP_NEQ_NUM ||
                 op == OP_CMP_LT || op == OP_CMP_GT ||
