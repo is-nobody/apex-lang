@@ -11,11 +11,11 @@ Prints a value to the terminal followed by a newline. Always returns `none`.
 
 ```apex
 import os
-os.output("Hello, Friend!")     // Hello, Friend!
+os.output("Hello, Friend!")  // Hello, Friend!
 ```
 
 ### os.input(prompt)
-Waits for the user to type something and press Enter. Returns what they typed as a string, or an empty string. You can provide an optional prompt message.
+Prints `prompt`, then waits for the user to type something and press Enter. Returns what they typed as a string, or an empty string on EOF.
 
 ```apex
 import os

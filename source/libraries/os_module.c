@@ -112,31 +112,29 @@ static Value make_string_val(VM* vm, const char* str) {
 
 // dispatcher for operating system built-in functions
 bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
-    if (strcmp(name, "os.output") == 0) {                             // print to stdout
-        if (arg_count >= 1) {
-            vm_print_value(args[0]);                                  // print value
+    if (strcmp(name, "os.output") == 0) {                         // print to stdout
+        vm_print_value(args[0]);                                  // print value
 
-            bool needs_newline = true;                                // append newline by default
-            if (IS_STRING(args[0])) {                                 // string payload may end with '\n'
-                StringObject* s = AS_STRING(args[0]);                 // unwrap string object
-                if (s->length > 0 && s->chars[s->length - 1] == '\n') {
-                    needs_newline = false;                            // already ends with line break
-                }
+        bool needs_newline = true;                                // append newline by default
+        if (IS_STRING(args[0])) {                                 // string payload may end with '\n'
+            StringObject* s = AS_STRING(args[0]);                 // unwrap string object
+            if (s->length > 0 && s->chars[s->length - 1] == '\n') {
+                needs_newline = false;                            // already ends with line break
             }
-            if (needs_newline) {
-                fputc('\n', stdout);                                  // newline
-            }
-            fflush(stdout);                                           // flush output
         }
+        if (needs_newline) {
+            fputc('\n', stdout);                                  // newline
+        }
+        fflush(stdout);                                           // flush output
+
         *result = MAKE_NONE();                                        // return none
         return true;                                                  // builtin handled
     }
     
     if (strcmp(name, "os.input") == 0) {                              // read from stdin
-        if (arg_count >= 1 && IS_STRING(args[0])) {                   // optional prompt
-            printf("%s", AS_STRING(args[0])->chars);                  // print prompt
-            fflush(stdout);                                           // flush output
-        }
+        printf("%s", AS_STRING(args[0])->chars);                      // print prompt
+        fflush(stdout);                                               // flush output
+
         char buffer[4096];                                            // input buffer
         if (fgets(buffer, sizeof(buffer), stdin)) {                   // read line
             buffer[strcspn(buffer, "\r\n")] = 0;                      // strip newline
