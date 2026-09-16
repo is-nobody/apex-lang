@@ -1558,6 +1558,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
 #endif
     register Instruction* ip = top_level ? vm->code : &vm->code[vm->current_task->saved_ip];  // resume point or entry
     register Value* regs = vm->registers;  // current frame registers in a register for speed
+    register int* frame_cap = vm->frame_capacity;  // cached frame capacity array (stable per context)
+    register int* frame_off = vm->frame_offset;    // cached frame offset array (may be rebuilt on growth)
     __builtin_prefetch(ip + 1, 0, 1);      // hint cpu to prefetch next instruction
     goto *dispatch_table[ip->opcode];      // jump to first opcode handler
 
@@ -2484,23 +2486,24 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         vm->current_frame++;                      // advance to next register frame
         
         int needed = chunk->functions[func_idx].max_registers;  // get max_registers from function metadata
-        if (needed < REGISTER_INITIAL_SIZE) needed = REGISTER_INITIAL_SIZE;
         if (arg_count > needed) needed = arg_count;
         
-        if (vm->frame_capacity[vm->current_frame] <= needed) {
+        if (frame_cap[vm->current_frame] <= needed) {
             if (!ensure_register_capacity(vm, vm->current_frame, needed)) {
+                frame_cap = vm->frame_capacity;  // refresh cached pointers after growth
+                frame_off = vm->frame_offset;
                 vm->had_error = true;             // failed to allocate frame
                 vm->running = false;              // stop execution
                 return false;                     // bail out
             }
         }
-        vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // switch to new frame
+        vm->registers = &vm->register_pool[frame_off[vm->current_frame]];  // switch to new frame
         regs = vm->registers;                     // update local regs pointer
         for (int i = 0; i < arg_count; i++) {
             Value _arg = vm->args_stack[vm->args_top - arg_count + i];  // fetch source value
             Value _old = regs[i];                                       // old slot value
-            if ((_old & QNAN) == QNAN) value_decref(_old);              // release old slot value
             regs[i] = _arg;                                             // take ownership (transfer from args stack)
+            if ((_old & QNAN) == QNAN) value_decref(_old);              // release old slot value (no-op for none)
         }
         vm->args_top -= arg_count;                // pop args from args stack (refs now held by callee)
         ip = &vm->code[chunk->functions[func_idx].address];  // jump to function body
@@ -2559,16 +2562,17 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         vm->current_frame++;                         // advance to next register frame
         
         int needed = chunk->functions[func_idx].max_registers;  // get max_registers from function metadata
-        if (needed < REGISTER_INITIAL_SIZE) needed = REGISTER_INITIAL_SIZE;
         
-        if (vm->frame_capacity[vm->current_frame] <= needed) {
+        if (frame_cap[vm->current_frame] <= needed) {
             if (!ensure_register_capacity(vm, vm->current_frame, needed)) {
+                frame_cap = vm->frame_capacity;  // refresh cached pointers after growth
+                frame_off = vm->frame_offset;
                 vm->had_error = true;                // failed to allocate frame
                 vm->running = false;                 // stop execution
                 goto OP_HALT_LABEL;                  // jump to halt
             }
         }
-        vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // switch to new frame
+        vm->registers = &vm->register_pool[frame_off[vm->current_frame]];  // switch to new frame
         regs = vm->registers;                        // update local regs pointer
         ip = &vm->code[chunk->functions[func_idx].address];  // jump to function body
         goto *dispatch_table[ip->opcode];            // dispatch first instruction of function
@@ -2600,28 +2604,28 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         vm->call_stack[vm->call_depth].dest_reg = dest_reg;                          // save dest register
         vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save current frame index
         vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;     // save iterator depth
+        Value _arg = regs[arg_reg];                  // read arg from caller frame while regs still points there
+
         vm->call_depth++;                            // push call frame
         vm->current_frame++;                         // advance to next register frame
         
         int needed = chunk->functions[func_idx].max_registers;  // get max_registers from function metadata
-        if (needed < REGISTER_INITIAL_SIZE) needed = REGISTER_INITIAL_SIZE;
-        if (1 > needed) needed = 1;                             // ensure at least 1 register for the argument
         
-        if (vm->frame_capacity[vm->current_frame] <= needed) {
+        if (frame_cap[vm->current_frame] <= needed) {
             if (!ensure_register_capacity(vm, vm->current_frame, needed)) {
+                frame_cap = vm->frame_capacity;  // refresh cached pointers after growth
+                frame_off = vm->frame_offset;
                 vm->had_error = true;  // failed to allocate frame
                 vm->running = false;   // stop execution
                 goto OP_HALT_LABEL;    // jump to halt
             }
         }
-        vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // switch to new frame
+        vm->registers = &vm->register_pool[frame_off[vm->current_frame]];  // switch to new frame
         regs = vm->registers;                                       // update local regs pointer
-        int prev_offset = vm->frame_offset[vm->current_frame - 1];  // caller's frame offset
-        Value _arg = vm->register_pool[prev_offset + arg_reg];      // fetch source value
         Value _old = regs[0];                                       // old slot value
-        if ((_old & QNAN) == QNAN) value_decref(_old);              // release old slot value
-        regs[0] = _arg;                                             // take ownership of new value
+        regs[0] = _arg;                                             // store arg into callee slot
         if ((_arg & QNAN) == QNAN) value_incref(_arg);              // bump refcount for callee
+        if ((_old & QNAN) == QNAN) value_decref(_old);              // release old slot value (no-op for none)
         ip = &vm->code[chunk->functions[func_idx].address];         // jump to function body
         goto *dispatch_table[ip->opcode];                           // dispatch first instruction of function
     }
@@ -2654,33 +2658,33 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         vm->call_stack[vm->call_depth].dest_reg = dest_reg;                          // save dest register
         vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save current frame index
         vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;     // save iterator depth
+        Value _a1 = regs[arg1_reg];                  // read first arg from caller frame before switching
+        Value _a2 = regs[arg2_reg];                  // read second arg from caller frame before switching
+
         vm->call_depth++;                            // push call frame
         vm->current_frame++;                         // advance to next register frame
         
         int needed = chunk->functions[func_idx].max_registers;  // get max_registers from function metadata
-        if (needed < REGISTER_INITIAL_SIZE) needed = REGISTER_INITIAL_SIZE;
-        if (2 > needed) needed = 2;                             // ensure at least 2 registers for the arguments
         
-        if (vm->frame_capacity[vm->current_frame] <= needed) {
+        if (frame_cap[vm->current_frame] <= needed) {
             if (!ensure_register_capacity(vm, vm->current_frame, needed)) {
+                frame_cap = vm->frame_capacity;  // refresh cached pointers after growth
+                frame_off = vm->frame_offset;
                 vm->had_error = true;                // failed to allocate frame
                 vm->running = false;                 // stop execution
                 goto OP_HALT_LABEL;                  // jump to halt
             }
         }
-        vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // switch to new frame
+        vm->registers = &vm->register_pool[frame_off[vm->current_frame]];  // switch to new frame
         regs = vm->registers;                                       // update local regs pointer
-        int prev_offset = vm->frame_offset[vm->current_frame - 1];  // caller's frame offset
-        Value _a1 = vm->register_pool[prev_offset + arg1_reg];      // fetch first arg value
-        Value _a2 = vm->register_pool[prev_offset + arg2_reg];      // fetch second arg value
         Value _o0 = regs[0];                                        // old slot 0 value
         Value _o1 = regs[1];                                        // old slot 1 value
-        if ((_o0 & QNAN) == QNAN) value_decref(_o0);                // release old slot 0
-        if ((_o1 & QNAN) == QNAN) value_decref(_o1);                // release old slot 1
-        regs[0] = _a1;                                              // take ownership of first arg
-        regs[1] = _a2;                                              // take ownership of second arg
+        regs[0] = _a1;                                              // store first arg into callee slot
+        regs[1] = _a2;                                              // store second arg into callee slot
         if ((_a1 & QNAN) == QNAN) value_incref(_a1);                // bump refcount for callee
         if ((_a2 & QNAN) == QNAN) value_incref(_a2);                // bump refcount for callee
+        if ((_o0 & QNAN) == QNAN) value_decref(_o0);                // release old slot 0 (no-op for none)
+        if ((_o1 & QNAN) == QNAN) value_decref(_o1);                // release old slot 1 (no-op for none)
         ip = &vm->code[chunk->functions[func_idx].address];         // jump to function body
         goto *dispatch_table[ip->opcode];                           // dispatch first instruction of function
     }
@@ -2701,7 +2705,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         if (likely(vm->call_depth > 0)) {        // returning from a function call (common)
             vm->call_depth--;                    // pop call frame
             vm->current_frame = vm->call_stack[vm->call_depth].frame_index;           // restore frame index
-            vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // restore register frame
+            vm->registers = &vm->register_pool[frame_off[vm->current_frame]];  // restore register frame
             regs = vm->registers;                // update local regs pointer
             vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
             int dest_reg = vm->call_stack[vm->call_depth].dest_reg;                   // dest register for return value
@@ -2734,7 +2738,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             int return_addr = vm->call_stack[vm->call_depth].return_address;  // get return address
             int dest_reg = vm->call_stack[vm->call_depth].dest_reg;           // get dest register
             vm->current_frame = vm->call_stack[vm->call_depth].frame_index;   // restore frame index
-            vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // restore register frame
+            vm->registers = &vm->register_pool[frame_off[vm->current_frame]];  // restore register frame
             regs = vm->registers;                // update local regs pointer
             vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
             regs[dest_reg] = ret_val;            // store return value in caller's dest reg (no incref, unboxed number)
@@ -2760,7 +2764,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             int return_addr = vm->call_stack[vm->call_depth].return_address;  // get return address
             int dest_reg = vm->call_stack[vm->call_depth].dest_reg;           // get dest register
             vm->current_frame = vm->call_stack[vm->call_depth].frame_index;   // restore frame index
-            vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // restore register frame
+            vm->registers = &vm->register_pool[frame_off[vm->current_frame]];  // restore register frame
             regs = vm->registers;                // update local regs pointer
             vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
             regs[dest_reg] = ret_val;            // store return value in caller's dest reg (unboxed bool, no incref)
@@ -2784,7 +2788,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             int return_addr = vm->call_stack[vm->call_depth].return_address;  // get return address
             int dest_reg = vm->call_stack[vm->call_depth].dest_reg;           // get dest register
             vm->current_frame = vm->call_stack[vm->call_depth].frame_index;   // restore frame index
-            vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // restore register frame
+            vm->registers = &vm->register_pool[frame_off[vm->current_frame]];  // restore register frame
             regs = vm->registers;                   // update local regs pointer
             vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
             if (unlikely((regs[dest_reg] & QNAN) == QNAN)) {  // old value is heap object (rare)
@@ -2880,6 +2884,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             Value result;
             vm_drive_until(vm, v, &result);
             regs = vm->registers;                    // reload regs in case pool was reallocated
+            frame_cap = vm->frame_capacity;          // refresh cached pointers after context switch
+            frame_off = vm->frame_offset;
             if ((regs[dest] & QNAN) == QNAN) value_decref(regs[dest]);
             regs[dest] = result;
             ip++; goto *dispatch_table[ip->opcode];
@@ -2973,6 +2979,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             }
 
             vm_context_restore(vm, &saved_ctx);             // restore top-level pool
+            frame_cap = vm->frame_capacity;                 // refresh cached pointers
+            frame_off = vm->frame_offset;
             vm->iterator_depth = saved_iter_depth;
             for (int i = 0; i < saved_iter_count; i++) vm->iterator_stack[i] = saved_iters[i];
             vm->table_iter_depth = saved_titer;

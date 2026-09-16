@@ -1533,7 +1533,9 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     }
 
     cg->chunk->functions[func_idx].local_count = cg->locals.count;           // store local count
-    cg->chunk->functions[func_idx].max_registers = cg->max_registers;        // store max regs
+    int fn_max = cg->max_registers;                                          // computed max regs
+    if (fn_max < REGISTER_INITIAL_SIZE) fn_max = REGISTER_INITIAL_SIZE;      // enforce pool minimum
+    cg->chunk->functions[func_idx].max_registers = fn_max;                   // store padded max regs
     if (cg->locals.count > 0) {                                              // has locals
         cg->chunk->functions[func_idx].local_names = (char**)malloc(sizeof(char*) * cg->locals.count);  // allocate
         for (int i = 0; i < cg->locals.count; i++) {                         // copy names
@@ -1687,7 +1689,9 @@ bool codegen_generate(CodeGenerator* cg, ASTNode* ast) {
         cg->next_register = locals_high_water(cg);                           // drop temps
     }
     
-    cg->chunk->functions[0].max_registers = cg->max_registers;               // store the max registers
+    int entry_max = cg->max_registers;                                       // computed entry max regs
+    if (entry_max < REGISTER_INITIAL_SIZE) entry_max = REGISTER_INITIAL_SIZE; // enforce pool minimum
+    cg->chunk->functions[0].max_registers = entry_max;                       // store padded entry max regs
     
     emit(cg, INST(OP_HALT, 0, 0, 0), 0);                                     // halt instruction
     return true;                                                             // success
