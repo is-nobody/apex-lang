@@ -293,6 +293,11 @@ static void emit_instruction(BytecodeChunk* chunk, int offset, FILE* out) {  // 
             print_const_value(chunk, b, out);                     // builtin name
             fprintf(out, "(" C_MAGENTA "%d" C_RESET " args)", c); // (n args)
             break;
+        case OP_CALL_BUILTIN_ASYNC:                               // async builtin call
+            REG(a); fputs(" <- " C_MAGENTA "builtin_async" C_RESET " ", out);  // dst <- builtin_async
+            print_const_value(chunk, b, out);                     // builtin name
+            fprintf(out, "(" C_MAGENTA "%d" C_RESET " args)", c); // (n args)
+            break;
         case OP_CALL_0:                                           // zero-arg fast call
             REG(a); fputs(" <- ", out);                           // dst <-
             print_function_name(chunk, b, out);                   // function name
@@ -318,6 +323,16 @@ static void emit_instruction(BytecodeChunk* chunk, int offset, FILE* out) {  // 
             REG(a); fputs(" " C_GRAY "[bool]" C_RESET, out);      // register with bool hint
             break;
         case OP_RETURN_NONE:                                      // bare return
+            fputs(" " C_GRAY "[none]" C_RESET, out);              // none hint
+            break;
+
+        case OP_ASYNC_CALL:                                       // create pending future
+            REG(a); fputs(" <- " C_MAGENTA "async" C_RESET " ", out);  // dst <- async
+            print_function_name(chunk, b, out);                   // callee name
+            fprintf(out, "(" C_MAGENTA "%d" C_RESET " args)", c); // (n args)
+            break;
+        case OP_AWAIT:                                            // unwrap a future
+            REG(a); fputs(" <- " C_MAGENTA "await" C_RESET " ", out); REG(b);  // dst <- await src
             break;
 
         case OP_LOAD_GLOBAL:                                      // load global variable

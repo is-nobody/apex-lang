@@ -54,7 +54,7 @@ typedef enum {
 
     OP_FOR_INIT,         // initializes a numeric for-loop state
     OP_FOR_NEXT,         // advances loop and branches if the end is reached
-    OP_TABLE_ITER_INIT,  // initialize table iterator for "for key = table" loops
+    OP_TABLE_ITER_INIT,  // initialize table iterator for "for value in table" loops
     OP_TABLE_ITER_NEXT,  // advance table iterator, yield next key into register
     OP_POP_ITER,         // cleans up iterator state when leaving a loop
 

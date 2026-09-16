@@ -181,7 +181,7 @@ typedef struct Table {
     int array_count;         // number of valid entries in array part
 } Table;
 
-// state for "for key = table" iteration, walks array_part then hash buckets
+// state for "for value in table" iteration, walks array_part then hash buckets
 typedef struct {
     Table* table;              // table being iterated
     int array_index;           // current position in array_part
@@ -301,7 +301,7 @@ typedef struct {
     int iterator_depth;            // nesting depth of active numeric for-loops
     ForIter top_level_iter_storage[VM_MAX_CALL_FRAMES];  // backing storage for top-level numeric loops
 
-    TableIterState* table_iters;   // state for table iteration (for key = table loops)
+    TableIterState* table_iters;   // state for table iteration (for value in table loops)
     int table_iter_depth;          // nesting depth of active table iterators
     TableIterState top_level_table_iter_storage[16];  // backing storage for top-level table iterators
 
