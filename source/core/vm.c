@@ -301,6 +301,23 @@ double apex_now_seconds(void) {
     return (double)tv.tv_sec + (double)tv.tv_usec / 1000000.0;  // combine into seconds
 }
 
+// waits on a condition variable with a millisecond timeout, cross-platform
+static void apex_cond_timedwait_ms(ApexCond* c, ApexMutex* m, int ms) {
+#ifdef _WIN32
+    SleepConditionVariableCS(c, m, (DWORD)ms);           // windows uses relative ms
+#else
+    struct timespec ts;                                  // posix needs absolute time
+    clock_gettime(CLOCK_REALTIME, &ts);                  // read current wall clock
+    ts.tv_sec  += ms / 1000;                             // add whole seconds
+    ts.tv_nsec += (long)(ms % 1000) * 1000000L;          // add sub-second nanoseconds
+    if (ts.tv_nsec >= 1000000000L) {                     // carry into seconds on overflow
+        ts.tv_sec  += 1;
+        ts.tv_nsec -= 1000000000L;
+    }
+    pthread_cond_timedwait(c, m, &ts);                   // wait until deadline
+#endif
+}
+
 // init string builder with given capacity, min 16 bytes
 static void sb_init(StringBuilder* sb, int initial_capacity) {
     sb->capacity = initial_capacity > 16 ? initial_capacity : 16;  // ensure minimum capacity
@@ -873,6 +890,7 @@ void vm_push_completion(VM* vm, FutureObject* fut, Value result) {
     APEX_MUTEX_LOCK(&vm->completion_mutex);                   // lock queue
     c->next = vm->completions;                                // prepend to list
     vm->completions = c;                                      // publish
+    APEX_COND_SIGNAL(&vm->completion_cond);                   // wake scheduler parked on completion_cond
     APEX_MUTEX_UNLOCK(&vm->completion_mutex);                 // unlock
 }
 
@@ -1133,28 +1151,45 @@ static bool poll_timers(VM* vm) {
 
 // sleeps the thread until the earliest pending timer is due
 static void wait_for_next_timer(VM* vm) {
-    if (!vm->timers) {                              // nothing to wait on
-        if (vm->pending_workers > 0) {              // but workers are running
-#ifdef _WIN32
-            Sleep(1);                               // short poll to check completions
-#else
-            usleep(1000);                           // short poll to check completions
-#endif
+    // no timers, only workers: block on condvar until a completion arrives
+    if (!vm->timers) {
+        if (vm->pending_workers > 0) {
+            APEX_MUTEX_LOCK(&vm->completion_mutex);              // lock queue
+            while (vm->completions == NULL && vm->pending_workers > 0) {
+                APEX_COND_WAIT(&vm->completion_cond, &vm->completion_mutex);  // sleep until signalled
+            }
+            APEX_MUTEX_UNLOCK(&vm->completion_mutex);            // unlock queue
         }
+        return;                                                  // nothing to wait on
+    }
+
+    // find the earliest deadline among pending timers
+    double earliest = vm->timers->deadline;                      // start with list head
+    for (SleepTimer* t = vm->timers->next; t; t = t->next) {
+        if (t->deadline < earliest) earliest = t->deadline;      // track minimum
+    }
+    double wait = earliest - apex_now_seconds();                 // seconds until earliest fires
+    if (wait <= 0) return;                                       // already due, caller will poll
+
+    int ms = (int)(wait * 1000.0);                               // convert to milliseconds
+    if (ms < 1) ms = 1;                                          // avoid zero-timeout busy spin
+
+    // no workers to wake us: sleep the full duration in one shot
+    if (vm->pending_workers == 0) {
+#ifdef _WIN32
+        Sleep((DWORD)ms);                                        // windows sleep
+#else
+        usleep((useconds_t)ms * 1000);                           // posix sleep
+#endif
         return;
     }
-    double earliest = vm->timers->deadline;         // scan for earliest deadline
-    for (SleepTimer* t = vm->timers->next; t; t = t->next) {
-        if (t->deadline < earliest) earliest = t->deadline;
+
+    // timers and workers both pending: wake on completion or timer deadline
+    APEX_MUTEX_LOCK(&vm->completion_mutex);                      // lock queue
+    if (vm->completions == NULL && vm->pending_workers > 0) {
+        apex_cond_timedwait_ms(&vm->completion_cond, &vm->completion_mutex, ms);  // sleep with deadline
     }
-    double wait = earliest - apex_now_seconds();    // compute delay
-    if (wait <= 0) return;                          // already due
-    if (wait > 0.01) wait = 0.01;                   // cap so completions stay responsive
-#ifdef _WIN32
-    Sleep((DWORD)(wait * 1000));                    // windows sleep
-#else
-    usleep((useconds_t)(wait * 1000000));           // posix sleep
-#endif
+    APEX_MUTEX_UNLOCK(&vm->completion_mutex);                    // unlock queue
 }
 
 // drives the scheduler until the target future resolves
@@ -1264,6 +1299,7 @@ VM* vm_create(const char* source) {
     vm->timers = NULL;                            // no pending timers
 
     APEX_MUTEX_INIT(&vm->completion_mutex);       // init completion lock
+    APEX_COND_INIT(&vm->completion_cond);         // init completion condvar
     vm->completions = NULL;                       // no pending completions
     vm->pending_workers = 0;                      // no live workers
 
@@ -1352,6 +1388,7 @@ void vm_destroy(VM* vm) {
     }
 
     APEX_MUTEX_DESTROY(&vm->completion_mutex);    // destroy lock
+    APEX_COND_DESTROY(&vm->completion_cond);      // destroy condvar
     string_intern_table_free(&vm->intern_table);  // free interned strings
 #if APEX_JIT_ENABLED
     jit_destroy(vm->jit);                         // release JIT and its code page

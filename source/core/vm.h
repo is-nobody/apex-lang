@@ -20,17 +20,31 @@ extern bool apex_jit_runtime_enabled;
 #ifdef _WIN32
     #include <windows.h>
     typedef CRITICAL_SECTION ApexMutex;          // windows critical section
-    #define APEX_MUTEX_INIT(m)    InitializeCriticalSection(m)
-    #define APEX_MUTEX_LOCK(m)    EnterCriticalSection(m)
-    #define APEX_MUTEX_UNLOCK(m)  LeaveCriticalSection(m)
-    #define APEX_MUTEX_DESTROY(m) DeleteCriticalSection(m)
+    typedef CONDITION_VARIABLE ApexCond;         // windows condition variable
+    #define APEX_MUTEX_INIT(m)     InitializeCriticalSection(m)
+    #define APEX_MUTEX_LOCK(m)     EnterCriticalSection(m)
+    #define APEX_MUTEX_UNLOCK(m)   LeaveCriticalSection(m)
+    #define APEX_MUTEX_DESTROY(m)  DeleteCriticalSection(m)
+
+    #define APEX_COND_INIT(c)      InitializeConditionVariable(c)
+    #define APEX_COND_WAIT(c, m)   SleepConditionVariableCS((c), (m), INFINITE)
+    #define APEX_COND_SIGNAL(c)    WakeConditionVariable(c)
+    #define APEX_COND_BROADCAST(c) WakeAllConditionVariable(c)
+    #define APEX_COND_DESTROY(c)   ((void)0)      // windows condvars need no teardown
 #else
     #include <pthread.h>
     typedef pthread_mutex_t ApexMutex;           // posix mutex
-    #define APEX_MUTEX_INIT(m)    pthread_mutex_init(m, NULL)
-    #define APEX_MUTEX_LOCK(m)    pthread_mutex_lock(m)
-    #define APEX_MUTEX_UNLOCK(m)  pthread_mutex_unlock(m)
-    #define APEX_MUTEX_DESTROY(m) pthread_mutex_destroy(m)
+    typedef pthread_cond_t  ApexCond;            // posix condition variable
+    #define APEX_MUTEX_INIT(m)     pthread_mutex_init(m, NULL)
+    #define APEX_MUTEX_LOCK(m)     pthread_mutex_lock(m)
+    #define APEX_MUTEX_UNLOCK(m)   pthread_mutex_unlock(m)
+    #define APEX_MUTEX_DESTROY(m)  pthread_mutex_destroy(m)
+
+    #define APEX_COND_INIT(c)      pthread_cond_init(c, NULL)
+    #define APEX_COND_WAIT(c, m)   pthread_cond_wait(c, m)
+    #define APEX_COND_SIGNAL(c)    pthread_cond_signal(c)
+    #define APEX_COND_BROADCAST(c) pthread_cond_broadcast(c)
+    #define APEX_COND_DESTROY(c)   pthread_cond_destroy(c)
 #endif
 
 // branch prediction hints for compiler optimization
@@ -308,6 +322,7 @@ typedef struct {
     FutureObject* current_task;     // coroutine currently executing, NULL at top level
     SleepTimer* timers;             // pending sleep timers
     ApexMutex completion_mutex;     // protects completions and pending_workers
+    ApexCond  completion_cond;      // signalled when a worker pushes a completion
     Completion* completions;        // queue of finished background tasks
     volatile int pending_workers;   // number of live worker threads
 } VM;
