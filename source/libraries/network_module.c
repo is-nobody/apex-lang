@@ -8,6 +8,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <pthread.h>
+#endif
 
 #if defined(_WIN32) || defined(_WIN64)
   #include <winsock2.h>
@@ -26,14 +31,19 @@
 #define HTTP_MAX_RESPONSE (16 * 1024 * 1024)  // hard cap on response size to avoid runaway allocation
 
 #if defined(_WIN32) || defined(_WIN64)
-static bool winsock_ready = false;             // winsock startup guard
+static INIT_ONCE winsock_once = INIT_ONCE_STATIC_INIT;  // windows one-time init token
+
+// performs winsock startup exactly once across all threads
+static BOOL CALLBACK winsock_once_init(PINIT_ONCE o, PVOID p, PVOID* c) {
+    (void)o; (void)p; (void)c;                        // unused parameters
+    WSADATA wsa;                                      // winsock data
+    WSAStartup(MAKEWORD(2, 2), &wsa);                 // initialise winsock 2.2
+    return TRUE;                                      // success
+}
 
 // initializes winsock once before the first socket call
 static void ensure_winsock(void) {
-    if (winsock_ready) return;
-    WSADATA wsa;
-    WSAStartup(MAKEWORD(2, 2), &wsa);
-    winsock_ready = true;
+    InitOnceExecuteOnce(&winsock_once, winsock_once_init, NULL, NULL);  // run init exactly once
 }
 #else
 // no-op on posix platforms
@@ -169,8 +179,9 @@ static const char* parse_body(const char* response, int response_len, int* body_
     return p;                                                     // return body pointer
 }
 
-// perform a full http request, returning a table with status and body
-static Value http_request(VM* vm, const char* url, const char* method,
+// perform a full http request, returning a table with status and body;
+// VM-agnostic so it can run on a worker thread
+static Value http_request(const char* url, const char* method,
                           const char* body, const char* content_type) {
     char host[256];                                               // hostname buffer
     char path[2048];                                              // request path buffer
@@ -228,21 +239,171 @@ static Value http_request(VM* vm, const char* url, const char* method,
     const char* body_ptr = parse_body(resp.buffer, resp.length, &body_len);  // locate body
 
     Table* t = table_create(8);                                   // result table
-    Value k_status = MAKE_STRING(string_intern(&vm->intern_table, "status", 6));  // intern "status"
+    Value k_status = MAKE_STRING(string_create("status", 6));     // fresh key string
     Value v_status = MAKE_NUMBER(status);                         // box status as number
     table_set(t, k_status, v_status);                             // store status
     value_decref(k_status);                                       // release local reference
     value_decref(v_status);                                       // release local reference
 
-    Value k_body = MAKE_STRING(string_intern(&vm->intern_table, "body", 4));      // intern "body"
-    Value v_body = MAKE_STRING(string_intern(&vm->intern_table,
-        body_ptr ? body_ptr : "", body_ptr ? body_len : 0));      // intern response body
+    Value k_body = MAKE_STRING(string_create("body", 4));         // fresh key string
+    Value v_body = MAKE_STRING(string_create(body_ptr ? body_ptr : "",
+                                             body_ptr ? body_len : 0));  // fresh body string
     table_set(t, k_body, v_body);                                 // store body
     value_decref(k_body);                                         // release local reference
     value_decref(v_body);                                         // release local reference
 
     nb_free(&resp);                                               // free response buffer
     return MAKE_TABLE(t);                                         // return result table
+}
+
+// operation codes carried in NetworkArgs
+enum {
+    NET_OP_GET  = 0,   // network.get
+    NET_OP_POST = 1,   // network.post
+};
+
+// packed arguments for the network worker
+typedef struct {
+    char* url;               // owned copy of the target url
+    char* body;              // owned copy of the request body (post only)
+    char* content_type;      // owned copy of the content type (post only)
+    int op;                  // NET_OP_* selector
+} NetworkArgs;
+
+// create a leaf future ready to be resolved by a background worker
+static FutureObject* network_make_leaf_future(void) {
+    FutureObject* fut = (FutureObject*)calloc(1, sizeof(FutureObject));  // zero-init for safe teardown
+    fut->header.ref_count = 1;                   // caller holds one reference
+    fut->header.type = VAL_FUTURE;               // mark type as future
+    fut->result = MAKE_NONE();                   // filled in when resolved
+    fut->state = 0;                              // pending
+    fut->func_idx = -1;                          // leaf: no coroutine body
+    fut->awaiting = MAKE_NONE();                 // not awaiting
+    fut->saved_dest_reg = -1;                    // unused for leaf
+    fut->saved_iter_depth = -1;                  // no active loops
+    fut->saved_table_iter_depth = -1;            // no table iterators
+    return fut;                                  // return fresh future
+}
+
+// task descriptor handed to a background worker
+typedef struct {
+    VM* vm;                  // vm pointer for completion push
+    FutureObject* fut;       // future to resolve with the task result
+    Value (*fn)(void*);      // kernel executed on the worker
+    void (*free_fn)(void*);  // releases the packed argument struct
+    void* arg;               // packed argument struct
+} NetworkAsyncTask;
+
+// release a NetworkArgs and its owned strings
+static void network_args_free(void* p) {
+    NetworkArgs* a = (NetworkArgs*)p;        // unpack argument struct
+    free(a->url);                            // release url copy
+    free(a->body);                           // release body copy (may be NULL)
+    free(a->content_type);                   // release content type copy (may be NULL)
+    free(a);                                 // release struct itself
+}
+
+// release a NetworkAsyncTask and its packed argument struct
+static void network_task_destroy(void* p) {
+    NetworkAsyncTask* t = (NetworkAsyncTask*)p;  // unpack task descriptor
+    if (t->free_fn) t->free_fn(t->arg);      // release argument struct
+    free(t);                                 // free descriptor itself
+}
+
+// worker thread entry: runs the kernel and posts the result
+static void* network_thread(void* p) {
+    NetworkAsyncTask* t = (NetworkAsyncTask*)p;  // unpack task descriptor
+    Value result = t->fn(t->arg);            // run the kernel off the event loop
+    vm_push_completion(t->vm, t->fut, result);  // hand off to scheduler
+    network_task_destroy(t);                 // release descriptor and args
+    return NULL;                             // thread exit
+}
+
+// spawn a detached worker thread running the given task
+static void network_spawn_worker(VM* vm, FutureObject* fut, void* (*fn)(void*),
+                                 void* arg, void (*arg_free)(void*)) {
+    APEX_MUTEX_LOCK(&vm->completion_mutex);  // reserve a worker slot
+    vm->pending_workers++;                   // count pending worker
+    APEX_MUTEX_UNLOCK(&vm->completion_mutex);// release lock
+
+    bool ok = false;                         // spawn success flag
+#ifdef _WIN32
+    uintptr_t h = _beginthreadex(NULL, 0,               // windows thread
+                                 (unsigned __stdcall (*)(void*))fn,
+                                 arg, 0, NULL);
+    if (h) { CloseHandle((HANDLE)h); ok = true; }       // detach handle
+#else
+    pthread_t tid;                           // posix thread handle
+    if (pthread_create(&tid, NULL, fn, arg) == 0) {     // start thread
+        pthread_detach(tid);                 // detach
+        ok = true;                           // mark success
+    }
+#endif
+
+    if (!ok) {                               // spawn failed
+        vm_push_completion(vm, fut, MAKE_NONE());  // complete future with none
+        if (arg_free) arg_free(arg);         // release unused argument
+    }
+}
+
+// run fn asynchronously inside a coroutine, synchronously otherwise
+static bool network_run_async_or_sync(VM* vm, Value (*fn)(void*),
+                                      void (*free_fn)(void*), void* arg,
+                                      Value* result) {
+    if (vm->current_task != NULL) {          // inside a coroutine: never block the loop
+        FutureObject* fut = network_make_leaf_future();  // fresh pending future
+        value_incref(MAKE_FUTURE(fut));      // worker holds one reference
+
+        NetworkAsyncTask* t = (NetworkAsyncTask*)malloc(sizeof(NetworkAsyncTask));  // pack task descriptor
+        if (!t) {                            // allocation failed
+            value_decref(MAKE_FUTURE(fut));  // release the future
+            if (free_fn) free_fn(arg);       // release argument
+            *result = MAKE_NONE();           // return none
+            return true;                     // builtin handled
+        }
+        t->vm = vm;                          // store vm pointer
+        t->fut = fut;                        // store future
+        t->fn = fn;                          // store kernel
+        t->free_fn = free_fn;                // store cleanup function
+        t->arg = arg;                        // store argument struct
+
+        network_spawn_worker(vm, fut, network_thread, t, network_task_destroy);  // offload
+        *result = MAKE_FUTURE(fut);          // return pending future
+    } else {                                 // top level: nothing else is runnable
+        *result = fn(arg);                   // run the kernel inline
+        if (free_fn) free_fn(arg);           // release argument struct
+    }
+    return true;                             // builtin handled
+}
+
+// worker kernel for network.get
+static Value network_get_kernel(void* p) {
+    NetworkArgs* a = (NetworkArgs*)p;        // unpack argument struct
+    return http_request(a->url, "GET", NULL, NULL);  // perform GET
+}
+
+// worker kernel for network.post
+static Value network_post_kernel(void* p) {
+    NetworkArgs* a = (NetworkArgs*)p;        // unpack argument struct
+    return http_request(a->url, "POST", a->body, a->content_type);  // perform POST
+}
+
+// build and dispatch a NetworkArgs for the given operation
+static bool network_dispatch(VM* vm, int op, const char* url,
+                             const char* body, const char* content_type,
+                             Value (*kernel)(void*), Value* result) {
+    NetworkArgs* a = (NetworkArgs*)malloc(sizeof(NetworkArgs));  // pack argument struct
+    if (!a) { *result = MAKE_NONE(); return true; }              // allocation failed
+    a->url = strdup(url);                                        // copy url
+    a->body = body ? strdup(body) : NULL;                        // copy body if present
+    a->content_type = content_type ? strdup(content_type) : NULL;  // copy content type if present
+    a->op = op;                                                  // store op code
+    if (!a->url || (body && !a->body) || (content_type && !a->content_type)) {  // strdup failed
+        network_args_free(a);                                    // release partial pack
+        *result = MAKE_NONE();                                   // return none
+        return true;                                             // builtin handled
+    }
+    return network_run_async_or_sync(vm, kernel, network_args_free, a, result);
 }
 
 // dispatch network builtin calls by name
@@ -254,8 +415,9 @@ bool network_call_builtin(VM* vm, const char* name, int arg_count, Value* args, 
             *result = MAKE_NONE();                                // invalid args, return none
             return true;
         }
-        *result = http_request(vm, AS_STRING(args[0])->chars, "GET", NULL, NULL);  // perform get
-        return true;
+        const char* url = AS_STRING(args[0])->chars;              // extract url
+        return network_dispatch(vm, NET_OP_GET, url, NULL, NULL,
+                                network_get_kernel, result);
     }
 
     if (strcmp(name, "network.post") == 0) {                 // http post
@@ -268,8 +430,8 @@ bool network_call_builtin(VM* vm, const char* name, int arg_count, Value* args, 
         const char* ctype = NULL;                                 // optional content type
         if (arg_count >= 2 && IS_STRING(args[1])) body = AS_STRING(args[1])->chars;   // body arg
         if (arg_count >= 3 && IS_STRING(args[2])) ctype = AS_STRING(args[2])->chars;  // content type arg
-        *result = http_request(vm, url, "POST", body, ctype);     // perform post
-        return true;
+        return network_dispatch(vm, NET_OP_POST, url, body, ctype,
+                                network_post_kernel, result);
     }
 
     return false;                                                 // unknown builtin
