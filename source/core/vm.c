@@ -1254,7 +1254,6 @@ VM* vm_create(const char* source) {
     vm->had_error = false;                        // no errors yet
     vm->args_top = 0;                             // empty args stack
     vm->args_table = MAKE_NONE();                 // default to none until set
-    for (int i = 0; i < VM_MAX_FRAMES; i++) vm->frame_futures[i] = MAKE_NONE();  // no frame owns a future yet
     vm->source = source;                          // store source pointer
 
     vm->ready = NULL;                             // no ready queue yet
@@ -1602,19 +1601,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     register int* frame_off = vm->frame_offset;    // cached frame offset array (may be rebuilt on growth)
     __builtin_prefetch(ip + 1, 0, 1);      // hint cpu to prefetch next instruction
     goto *dispatch_table[ip->opcode];      // jump to first opcode handler
-
-#define RESOLVE_FRAME_FUTURE(rv) do { \
-    Value _fv = vm->frame_futures[vm->current_frame]; \
-    if (_fv != MAKE_NONE()) { \
-        FutureObject* _f = AS_FUTURE(_fv); \
-        value_decref(_f->result); \
-        _f->result = (rv); \
-        if (((rv) & QNAN) == QNAN) value_incref(rv); \
-        _f->state = 1; \
-        value_decref(_fv); \
-        vm->frame_futures[vm->current_frame] = MAKE_NONE(); \
-    } \
-} while (0)
 
     OP_MOVE_LABEL: {
         int dest = ip->operands[0];              // dest register index
@@ -2738,7 +2724,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             future_resolve(vm, cur, ret_val);                   // resolve its future, wake waiters
             return true;                                        // back to scheduler
         }
-        RESOLVE_FRAME_FUTURE(ret_val);
         if (unlikely((ret_val & QNAN) == QNAN)) {  // heap object (string/table) - less common
             value_incref(ret_val);               // bump refcount for the returned value
         }
@@ -2772,7 +2757,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             future_resolve(vm, cur, ret_val);                   // resolve its future, wake waiters
             return true;                                        // back to scheduler
         }
-        RESOLVE_FRAME_FUTURE(ret_val);
         if (likely(vm->call_depth > 0)) {        // returning from a function call (common)
             vm->call_depth--;                    // pop call frame
             int return_addr = vm->call_stack[vm->call_depth].return_address;  // get return address
@@ -2798,7 +2782,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             future_resolve(vm, cur, ret_val);                   // resolve its future, wake waiters
             return true;                                        // back to scheduler
         }
-        RESOLVE_FRAME_FUTURE(ret_val);
         if (likely(vm->call_depth > 0)) {        // returning from a function call (common)
             vm->call_depth--;                    // pop call frame
             int return_addr = vm->call_stack[vm->call_depth].return_address;  // get return address
@@ -2822,7 +2805,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             future_resolve(vm, cur, MAKE_NONE());               // resolve its future with none
             return true;                                        // back to scheduler
         }
-        RESOLVE_FRAME_FUTURE(MAKE_NONE());
         if (likely(vm->call_depth > 0)) {           // most returns are from function calls
             vm->call_depth--;                       // pop call frame
             int return_addr = vm->call_stack[vm->call_depth].return_address;  // get return address

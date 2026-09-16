@@ -301,7 +301,6 @@ typedef struct {
 
     Value args_table;               // table of command line arguments (1-indexed)
 
-    Value frame_futures[VM_MAX_FRAMES];  // futures for each call frame
     FutureObject** ready;           // ready coroutine queue
     int ready_count;                // number of ready coroutines
     int ready_capacity;             // allocated capacity of ready queue
