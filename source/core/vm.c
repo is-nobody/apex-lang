@@ -34,6 +34,9 @@
 #include <unistd.h>
 #endif
 
+// initial per-coroutine frame bookkeeping capacity; grown lazily on demand
+#define FUTURE_FRAME_INITIAL 4
+
 // union for reinterpret double bits as uint64
 typedef union { uint64_t u; double d; } du64;
 
@@ -228,6 +231,7 @@ static void future_free_pool(FutureObject* fut) {
     fut->frame_offset = NULL;
     fut->frame_capacity = NULL;
     fut->frame_used = NULL;
+    fut->frame_arrays_size = FUTURE_FRAME_INITIAL;
     fut->pool_capacity = 0;
     fut->current_frame = 0;
     fut->owns_frame = false;
@@ -900,8 +904,43 @@ int vm_drain_completions(VM* vm) {
     return count;                                             // return drained count
 }
 
+// grows a future's frame bookkeeping arrays to hold at least min_size entries
+static bool future_grow_frame_arrays(FutureObject* fut, int min_size) {
+    if (fut->frame_arrays_size >= min_size) return true;   // already large enough
+    int new_size = fut->frame_arrays_size > 0 ? fut->frame_arrays_size : FUTURE_FRAME_INITIAL;
+    while (new_size < min_size) new_size *= 2;             // double until requested index fits
+    if (new_size > VM_MAX_FRAMES) new_size = VM_MAX_FRAMES;  // never exceed hard cap
+
+    int* new_offset = (int*)realloc(fut->frame_offset, new_size * sizeof(int));
+    if (!new_offset) return false;                         // allocation failed
+    fut->frame_offset = new_offset;
+    int* new_capacity = (int*)realloc(fut->frame_capacity, new_size * sizeof(int));
+    if (!new_capacity) return false;                       // allocation failed
+    fut->frame_capacity = new_capacity;
+    int* new_used = (int*)realloc(fut->frame_used, new_size * sizeof(int));
+    if (!new_used) return false;                           // allocation failed
+    fut->frame_used = new_used;
+
+    for (int i = fut->frame_arrays_size; i < new_size; i++) {
+        fut->frame_offset[i] = 0;                          // clear new tail offset
+        fut->frame_capacity[i] = 0;                        // clear new tail capacity
+        fut->frame_used[i] = 0;                            // clear new tail usage
+    }
+    fut->frame_arrays_size = new_size;                     // publish new size
+    return true;                                           // growth succeeded
+}
+
 // ensures a register frame has enough capacity for the given register index
 static bool ensure_register_capacity(VM* vm, int frame_idx, int needed_reg) {
+    int arrays_size = vm->current_task ? vm->current_task->frame_arrays_size : VM_MAX_FRAMES;
+    if (frame_idx >= arrays_size) {                      // frame beyond currently allocated arrays
+        if (vm->current_task == NULL) return false;      // top-level arrays are always VM_MAX_FRAMES
+        if (!future_grow_frame_arrays(vm->current_task, frame_idx + 1)) return false;
+        vm->frame_offset   = vm->current_task->frame_offset;   // refresh slices after realloc
+        vm->frame_capacity = vm->current_task->frame_capacity;
+        vm->frame_used     = vm->current_task->frame_used;
+        arrays_size        = vm->current_task->frame_arrays_size;
+    }
     if (needed_reg < vm->frame_capacity[frame_idx]) {
         if (needed_reg >= vm->frame_used[frame_idx]) {
             vm->frame_used[frame_idx] = needed_reg + 1;  // track highest register used
@@ -927,7 +966,7 @@ static bool ensure_register_capacity(VM* vm, int frame_idx, int needed_reg) {
     }
     
     int total_needed = 0;                                // accumulator for all frames
-    for (int f = 0; f < VM_MAX_FRAMES; f++) {
+    for (int f = 0; f < arrays_size; f++) {
         int cap = (f == frame_idx) ? new_cap : vm->frame_capacity[f];  // use new cap for this frame
         if (cap > 0) total_needed += cap;                // sum all allocated frame capacities
     }
@@ -954,7 +993,7 @@ static bool ensure_register_capacity(VM* vm, int frame_idx, int needed_reg) {
     vm->frame_used[frame_idx] = needed_reg + 1;          // mark registers up to needed_reg as used
     
     int offset = 0;                                      // running offset in the pool
-    for (int f = 0; f < VM_MAX_FRAMES; f++) {
+    for (int f = 0; f < arrays_size; f++) {
         vm->frame_offset[f] = offset;                    // frame f starts at this pool offset
         if (vm->frame_capacity[f] > 0) offset += vm->frame_capacity[f];  // advance past this frame
     }
@@ -1031,9 +1070,9 @@ void future_start(VM* vm, FutureObject* fut) {
     if (needed < fut->arg_count) needed = fut->arg_count;
 
     fut->register_pool  = (Value*)malloc(sizeof(Value) * needed);   // private register pool
-    fut->frame_offset   = (int*)calloc(VM_MAX_FRAMES, sizeof(int)); // private frame offsets
-    fut->frame_capacity = (int*)calloc(VM_MAX_FRAMES, sizeof(int)); // private frame capacities
-    fut->frame_used     = (int*)calloc(VM_MAX_FRAMES, sizeof(int)); // private usage counters
+    fut->frame_offset   = (int*)calloc(FUTURE_FRAME_INITIAL, sizeof(int)); // private frame offsets
+    fut->frame_capacity = (int*)calloc(FUTURE_FRAME_INITIAL, sizeof(int)); // private frame capacities
+    fut->frame_used     = (int*)calloc(FUTURE_FRAME_INITIAL, sizeof(int)); // private usage counters
     if (!fut->register_pool || !fut->frame_offset ||
         !fut->frame_capacity || !fut->frame_used) {                 // allocation failed
         free(fut->register_pool);  fut->register_pool  = NULL;
@@ -1042,6 +1081,7 @@ void future_start(VM* vm, FutureObject* fut) {
         free(fut->frame_used);     fut->frame_used     = NULL;
         return;                                                     // give up quietly
     }
+    fut->frame_arrays_size = FUTURE_FRAME_INITIAL;      // size of the frame bookkeeping arrays
     fut->pool_capacity  = needed;                       // total capacity for this pool
     fut->current_frame  = 0;                            // body frame is index 0
     fut->frame_offset[0]   = 0;                         // body frame starts at pool offset 0
@@ -2490,12 +2530,12 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         
         if (frame_cap[vm->current_frame] <= needed) {
             if (!ensure_register_capacity(vm, vm->current_frame, needed)) {
-                frame_cap = vm->frame_capacity;  // refresh cached pointers after growth
-                frame_off = vm->frame_offset;
                 vm->had_error = true;             // failed to allocate frame
                 vm->running = false;              // stop execution
                 return false;                     // bail out
             }
+            frame_cap = vm->frame_capacity;  // refresh cached pointers after growth
+            frame_off = vm->frame_offset;
         }
         vm->registers = &vm->register_pool[frame_off[vm->current_frame]];  // switch to new frame
         regs = vm->registers;                     // update local regs pointer
@@ -2565,12 +2605,12 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         
         if (frame_cap[vm->current_frame] <= needed) {
             if (!ensure_register_capacity(vm, vm->current_frame, needed)) {
-                frame_cap = vm->frame_capacity;  // refresh cached pointers after growth
-                frame_off = vm->frame_offset;
                 vm->had_error = true;                // failed to allocate frame
                 vm->running = false;                 // stop execution
                 goto OP_HALT_LABEL;                  // jump to halt
             }
+            frame_cap = vm->frame_capacity;  // refresh cached pointers after growth
+            frame_off = vm->frame_offset;
         }
         vm->registers = &vm->register_pool[frame_off[vm->current_frame]];  // switch to new frame
         regs = vm->registers;                        // update local regs pointer
@@ -2613,12 +2653,12 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         
         if (frame_cap[vm->current_frame] <= needed) {
             if (!ensure_register_capacity(vm, vm->current_frame, needed)) {
-                frame_cap = vm->frame_capacity;  // refresh cached pointers after growth
-                frame_off = vm->frame_offset;
                 vm->had_error = true;  // failed to allocate frame
                 vm->running = false;   // stop execution
                 goto OP_HALT_LABEL;    // jump to halt
             }
+            frame_cap = vm->frame_capacity;  // refresh cached pointers after growth
+            frame_off = vm->frame_offset;
         }
         vm->registers = &vm->register_pool[frame_off[vm->current_frame]];  // switch to new frame
         regs = vm->registers;                                       // update local regs pointer
@@ -2668,12 +2708,12 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         
         if (frame_cap[vm->current_frame] <= needed) {
             if (!ensure_register_capacity(vm, vm->current_frame, needed)) {
-                frame_cap = vm->frame_capacity;  // refresh cached pointers after growth
-                frame_off = vm->frame_offset;
                 vm->had_error = true;                // failed to allocate frame
                 vm->running = false;                 // stop execution
                 goto OP_HALT_LABEL;                  // jump to halt
             }
+            frame_cap = vm->frame_capacity;  // refresh cached pointers after growth
+            frame_off = vm->frame_offset;
         }
         vm->registers = &vm->register_pool[frame_off[vm->current_frame]];  // switch to new frame
         regs = vm->registers;                                       // update local regs pointer
@@ -2820,6 +2860,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         fut->frame_used = NULL;
         fut->pool_capacity = 0;
         fut->current_frame = 0;
+        fut->frame_arrays_size = 0;                  // arrays allocated lazily in future_start
         fut->owns_frame = false;
         fut->frame_idx = -1;                         // legacy field, unused
         fut->saved_ip = 0;                           // no resume point yet

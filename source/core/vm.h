@@ -199,6 +199,7 @@ typedef struct FutureObject {
     int* frame_used;           // highest register used per frame
     int pool_capacity;         // total pool capacity in registers
     int current_frame;         // active frame index within this pool
+    int frame_arrays_size;     // number of entries allocated in each frame bookkeeping array
     bool owns_frame;           // true once pool was allocated, freed on completion
 
     int frame_idx;             // legacy: superseded by register_pool, kept for source compat
