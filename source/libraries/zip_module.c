@@ -17,11 +17,13 @@
 #include <windows.h>
 #include <sys/utime.h>
 #include <direct.h>
+#include <process.h>
 #else
 #include <dirent.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <utime.h>
+#include <pthread.h>
 #endif
 
 // zip file structure constants
@@ -40,11 +42,11 @@
 // crc32 table
 static uint32_t crc32_table[256];                      // crc32 lookup table
 
-// initialize crc32 table
-static void init_crc32_table(void) {
-    static int initialized = 0;                        // initialization flag
-    if (initialized) return;                           // already initialized
-    
+// one-time init token for the crc32 table, so workers cannot race the fill
+#ifdef _WIN32
+static INIT_ONCE crc32_once = INIT_ONCE_STATIC_INIT;   // windows one-time token
+static BOOL CALLBACK crc32_once_init(PINIT_ONCE o, PVOID p, PVOID* c) {
+    (void)o; (void)p; (void)c;                         // unused parameters
     for (uint32_t i = 0; i < 256; i++) {               // generate table entries
         uint32_t crc = i;                              // current crc value
         for (int j = 0; j < 8; j++) {                  // process 8 bits
@@ -56,8 +58,30 @@ static void init_crc32_table(void) {
         }
         crc32_table[i] = crc;                          // store in table
     }
-    initialized = 1;                                   // mark as initialized
+    return TRUE;                                       // success
 }
+static void init_crc32_table(void) {
+    InitOnceExecuteOnce(&crc32_once, crc32_once_init, NULL, NULL);  // run init exactly once
+}
+#else
+static pthread_once_t crc32_once = PTHREAD_ONCE_INIT;  // posix one-time token
+static void crc32_once_init(void) {
+    for (uint32_t i = 0; i < 256; i++) {               // generate table entries
+        uint32_t crc = i;                              // current crc value
+        for (int j = 0; j < 8; j++) {                  // process 8 bits
+            if (crc & 1) {                             // if lsb is set
+                crc = (crc >> 1) ^ 0xEDB88320;         // xor with polynomial
+            } else {                                   // lsb not set
+                crc >>= 1;                             // shift right
+            }
+        }
+        crc32_table[i] = crc;                          // store in table
+    }
+}
+static void init_crc32_table(void) {
+    pthread_once(&crc32_once, crc32_once_init);        // run init exactly once
+}
+#endif
 
 // calculate crc32
 static uint32_t crc32_compute(const uint8_t* data, size_t length) {
@@ -1031,9 +1055,154 @@ static bool unpack_file(const char* zip_filename) {
     return true;                                        // success
 }
 
+// operation codes carried in ZipArgs
+enum {
+    ZIP_OP_PACK   = 0,   // zip.pack
+    ZIP_OP_UNPACK = 1,   // zip.unpack
+};
+
+// packed arguments for the zip worker
+typedef struct {
+    char* path;              // owned copy of the input path
+    int op;                  // ZIP_OP_* selector
+} ZipArgs;
+
+// create a leaf future ready to be resolved by a background worker
+static FutureObject* zip_make_leaf_future(void) {
+    FutureObject* fut = (FutureObject*)calloc(1, sizeof(FutureObject));  // zero-init for safe teardown
+    fut->header.ref_count = 1;                   // caller holds one reference
+    fut->header.type = VAL_FUTURE;               // mark type as future
+    fut->result = MAKE_NONE();                   // filled in when resolved
+    fut->state = 0;                              // pending
+    fut->func_idx = -1;                          // leaf: no coroutine body
+    fut->awaiting = MAKE_NONE();                 // not awaiting
+    fut->saved_dest_reg = -1;                    // unused for leaf
+    fut->saved_iter_depth = -1;                  // no active loops
+    fut->saved_table_iter_depth = -1;            // no table iterators
+    return fut;                                  // return fresh future
+}
+
+// task descriptor handed to a background worker
+typedef struct {
+    VM* vm;                  // vm pointer for completion push
+    FutureObject* fut;       // future to resolve with the task result
+    Value (*fn)(void*);      // kernel executed on the worker
+    void (*free_fn)(void*);  // releases the packed argument struct
+    void* arg;               // packed argument struct
+} ZipAsyncTask;
+
+// release a ZipArgs and its owned path
+static void zip_args_free(void* p) {
+    ZipArgs* a = (ZipArgs*)p;                // unpack argument struct
+    free(a->path);                           // release path copy
+    free(a);                                 // release struct itself
+}
+
+// release a ZipAsyncTask and its packed argument struct
+static void zip_task_destroy(void* p) {
+    ZipAsyncTask* t = (ZipAsyncTask*)p;      // unpack task descriptor
+    if (t->free_fn) t->free_fn(t->arg);      // release argument struct
+    free(t);                                 // free descriptor itself
+}
+
+// worker thread entry: runs the kernel and posts the result
+static void* zip_thread(void* p) {
+    ZipAsyncTask* t = (ZipAsyncTask*)p;      // unpack task descriptor
+    Value result = t->fn(t->arg);            // run the kernel off the event loop
+    vm_push_completion(t->vm, t->fut, result);  // hand off to scheduler
+    zip_task_destroy(t);                     // release descriptor and args
+    return NULL;                             // thread exit
+}
+
+// spawn a detached worker thread running the given task
+static void zip_spawn_worker(VM* vm, FutureObject* fut, void* (*fn)(void*),
+                             void* arg, void (*arg_free)(void*)) {
+    APEX_MUTEX_LOCK(&vm->completion_mutex);  // reserve a worker slot
+    vm->pending_workers++;                   // count pending worker
+    APEX_MUTEX_UNLOCK(&vm->completion_mutex);// release lock
+
+    bool ok = false;                         // spawn success flag
+#ifdef _WIN32
+    uintptr_t h = _beginthreadex(NULL, 0,               // windows thread
+                                 (unsigned __stdcall (*)(void*))fn,
+                                 arg, 0, NULL);
+    if (h) { CloseHandle((HANDLE)h); ok = true; }       // detach handle
+#else
+    pthread_t tid;                           // posix thread handle
+    if (pthread_create(&tid, NULL, fn, arg) == 0) {     // start thread
+        pthread_detach(tid);                 // detach
+        ok = true;                           // mark success
+    }
+#endif
+
+    if (!ok) {                               // spawn failed
+        vm_push_completion(vm, fut, MAKE_NONE());  // complete future with none
+        if (arg_free) arg_free(arg);         // release unused argument
+    }
+}
+
+// run fn asynchronously inside a coroutine, synchronously otherwise
+static bool zip_run_async_or_sync(VM* vm, Value (*fn)(void*),
+                                  void (*free_fn)(void*), void* arg,
+                                  Value* result) {
+    if (vm->current_task != NULL) {          // inside a coroutine: never block the loop
+        FutureObject* fut = zip_make_leaf_future();  // fresh pending future
+        value_incref(MAKE_FUTURE(fut));      // worker holds one reference
+
+        ZipAsyncTask* t = (ZipAsyncTask*)malloc(sizeof(ZipAsyncTask));  // pack task descriptor
+        if (!t) {                            // allocation failed
+            value_decref(MAKE_FUTURE(fut));  // release the future
+            if (free_fn) free_fn(arg);       // release argument
+            *result = MAKE_NONE();           // return none
+            return true;                     // builtin handled
+        }
+        t->vm = vm;                          // store vm pointer
+        t->fut = fut;                        // store future
+        t->fn = fn;                          // store kernel
+        t->free_fn = free_fn;                // store cleanup function
+        t->arg = arg;                        // store argument struct
+
+        zip_spawn_worker(vm, fut, zip_thread, t, zip_task_destroy);  // offload
+        *result = MAKE_FUTURE(fut);          // return pending future
+    } else {                                 // top level: nothing else is runnable
+        *result = fn(arg);                   // run the kernel inline
+        if (free_fn) free_fn(arg);           // release argument struct
+    }
+    return true;                             // builtin handled
+}
+
+// worker kernel for zip.pack
+static Value zip_pack_kernel(void* p) {
+    ZipArgs* a = (ZipArgs*)p;                // unpack argument struct
+    bool ok = pack_file_or_dir(a->path);     // pack file or directory
+    return ok ? MAKE_BOOL(true) : MAKE_NONE();
+}
+
+// worker kernel for zip.unpack
+static Value zip_unpack_kernel(void* p) {
+    ZipArgs* a = (ZipArgs*)p;                // unpack argument struct
+    bool ok = unpack_file(a->path);          // extract the archive
+    return ok ? MAKE_BOOL(true) : MAKE_NONE();
+}
+
+// build and dispatch a ZipArgs for the given operation
+static bool zip_dispatch(VM* vm, int op, const char* path,
+                         Value (*kernel)(void*), Value* result) {
+    ZipArgs* a = (ZipArgs*)malloc(sizeof(ZipArgs));  // pack argument struct
+    if (!a) { *result = MAKE_NONE(); return true; }  // allocation failed
+    a->path = strdup(path);                          // copy path
+    a->op = op;                                      // store op code
+    if (!a->path) {                                  // strdup failed
+        free(a);                                     // release struct
+        *result = MAKE_NONE();                       // return none
+        return true;                                 // builtin handled
+    }
+    return zip_run_async_or_sync(vm, kernel, zip_args_free, a, result);
+}
+
 // main dispatcher for zip module built-in functions
 bool zip_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
-    (void)vm;                                           // suppress unused warning
+    init_crc32_table();                                 // ensure crc32 table is filled before any worker can use it
 
     if (strcmp(name, "zip.pack") == 0) {                // pack function
         if (arg_count != 1 || !IS_STRING(args[0])) {    // validate args
@@ -1042,10 +1211,7 @@ bool zip_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         }
         
         const char* path = AS_STRING(args[0])->chars;   // get path
-        bool success = pack_file_or_dir(path);          // pack file or dir
-        
-        *result = success ? MAKE_BOOL(true) : MAKE_NONE();  // return result
-        return true;                                        // builtin handled
+        return zip_dispatch(vm, ZIP_OP_PACK, path, zip_pack_kernel, result);
     }
     
     if (strcmp(name, "zip.unpack") == 0) {              // unpack function
@@ -1055,10 +1221,7 @@ bool zip_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         }
         
         const char* filename = AS_STRING(args[0])->chars;  // get filename
-        bool success = unpack_file(filename);              // unpack file
-        
-        *result = success ? MAKE_BOOL(true) : MAKE_NONE();  // return result
-        return true;                                        // builtin handled
+        return zip_dispatch(vm, ZIP_OP_UNPACK, filename, zip_unpack_kernel, result);
     }
     
     return false;                                           // not a recognized builtin
