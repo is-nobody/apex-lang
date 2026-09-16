@@ -71,9 +71,6 @@ extern bool apex_jit_runtime_enabled;
 #define INTERN_INITIAL_SIZE 4096
 #define INTERN_MAX_LOAD 0.75
 
-// object pool configuration
-#define POOL_MAX_ITEMS 1024
-
 // helper macro for total table entry count
 #define TABLE_TOTAL_COUNT(t) ((t)->array_count + (t)->hash_count)
 
@@ -250,14 +247,6 @@ typedef struct {
     int count;               // number of interned strings stored
 } StringInternTable;
 
-// object pool for reusing frequently allocated objects
-typedef struct {
-    StringObject* string_pool[POOL_MAX_ITEMS]; // pool of reusable string objects
-    int string_pool_count;                     // number of strings currently in pool
-    Table* table_pool[POOL_MAX_ITEMS / 4];     // pool of reusable table objects
-    int table_pool_count;                      // number of tables currently in pool
-} ObjectPool;
-
 #if APEX_JIT_ENABLED
 struct JITContext;   // forward declaration, only when JIT is compiled in
 #endif
@@ -283,7 +272,6 @@ typedef struct {
         int base_iterator_depth;   // saved loop iterator depth for nested loops
         int frame_index;           // frame index for restoring registers
         int dest_reg;              // destination register for the return value
-        Value* saved_registers;    // cached pointer to caller's registers
     } call_stack[VM_MAX_CALL_FRAMES];
     
     int call_depth;                // current call stack depth
@@ -291,7 +279,6 @@ typedef struct {
     BytecodeChunk* chunk;          // currently executing bytecode chunk
     Instruction* code;             // pointer to chunk's code array for fast instruction dispatch
     int code_count;                // total number of instructions in the chunk
-    int pc;                        // program counter (index of next instruction to execute)
 
     bool running;                  // whether the VM is actively executing
     bool had_error;                // whether an error occurred during execution
@@ -306,7 +293,6 @@ typedef struct {
     TableIterState top_level_table_iter_storage[16];  // backing storage for top-level table iterators
 
     StringInternTable intern_table; // global string interning table for deduplication
-    ObjectPool obj_pool;            // object recycling pool for performance
 
     const char* source;             // source code string for error reporting
 
