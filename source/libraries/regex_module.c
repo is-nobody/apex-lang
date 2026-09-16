@@ -9,6 +9,10 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <ctype.h>
+#include <limits.h>
+#ifdef _WIN32
+#include <process.h>
+#endif
 
 // group capture result structure
 typedef struct {
@@ -31,9 +35,10 @@ static MatchResult match_pattern(const char* text, int text_len, int text_pos,
                                   const char* pattern, int pattern_len, int pattern_pos,
                                   bool case_insensitive, bool dot_matches_newline);
 
-static Value make_string_val(VM* vm, const char* str) {
+// builds a fresh refcounted string value; VM-agnostic so it can run on a worker
+static Value make_string_val(const char* str) {
     int len = (int)strlen(str);                                              // compute string length
-    return MAKE_STRING(string_intern(&vm->intern_table, str, len));          // intern and box as value
+    return MAKE_STRING(string_create(str, len));                             // fresh refcounted string
 }
 
 static bool match_char(char c, char pc, bool ci) {
@@ -703,8 +708,8 @@ static MatchResult match_pattern(const char* text, int text_len, int text_pos,
                        pattern_pos + 1, case_insensitive, dot_matches_newline);  // continue
 }
 
-// find all matches in text
-static Table* find_all_matches(const char* text, const char* pattern, bool ci, bool dotnl, VM* vm) {
+// find all matches in text; VM-agnostic so it can run on a worker
+static Table* find_all_matches(const char* text, const char* pattern, bool ci, bool dotnl) {
     if (!text || !pattern) return NULL;                                      // validate inputs
     
     Table* result = table_create(8);                                         // create result table
@@ -730,7 +735,7 @@ static Table* find_all_matches(const char* text, const char* pattern, bool ci, b
             match_str[match_len] = '\0';                                     // null terminate
             
             Value key = MAKE_NUMBER((double)(match_count + 1));              // index key
-            Value val = make_string_val(vm, match_str);                      // string value
+            Value val = make_string_val(match_str);                          // string value
             table_set(result, key, val);                                     // store in table
             value_decref(key);                                               // release key
             value_decref(val);                                               // release value
@@ -802,8 +807,8 @@ static char* substitute_pattern(const char* text, const char* pattern, const cha
     return result;                                                           // return substituted string
 }
 
-// split text by pattern
-static Table* split_by_pattern(const char* text, const char* pattern, bool ci, bool dotnl, VM* vm) {
+// split text by pattern; VM-agnostic so it can run on a worker
+static Table* split_by_pattern(const char* text, const char* pattern, bool ci, bool dotnl) {
     if (!text || !pattern) return NULL;                                      // validate inputs
     
     Table* result = table_create(8);                                         // create result table
@@ -815,7 +820,7 @@ static Table* split_by_pattern(const char* text, const char* pattern, bool ci, b
     if (text_len == 0 || pattern_len == 0) {                                 // empty input
         if (text_len > 0) {                                                  // text but no pattern
             Value key = MAKE_NUMBER(1.0);                                    // key for first element
-            Value val = make_string_val(vm, text);                           // string value
+            Value val = make_string_val(text);                               // string value
             table_set(result, key, val);                                     // store in table
             value_decref(key);                                               // release key
             value_decref(val);                                               // release value
@@ -847,7 +852,7 @@ static Table* split_by_pattern(const char* text, const char* pattern, bool ci, b
                 }
                 
                 Value key = MAKE_NUMBER((double)(split_count + 1));          // index key
-                Value val = make_string_val(vm, seg_str);                    // string value
+                Value val = make_string_val(seg_str);                        // string value
                 table_set(result, key, val);                                 // store in table
                 value_decref(key);                                           // release key
                 value_decref(val);                                           // release value
@@ -880,7 +885,7 @@ static Table* split_by_pattern(const char* text, const char* pattern, bool ci, b
         }
         
         Value key = MAKE_NUMBER((double)(split_count + 1));                  // index key
-        Value val = make_string_val(vm, seg_str);                            // string value
+        Value val = make_string_val(seg_str);                                // string value
         table_set(result, key, val);                                         // store in table
         value_decref(key);                                                   // release key
         value_decref(val);                                                   // release value
@@ -890,7 +895,90 @@ static Table* split_by_pattern(const char* text, const char* pattern, bool ci, b
     return result;                                                           // return result table
 }
 
-// get options from table
+// search for the first match and build a result table; VM-agnostic so it can run on a worker
+static Value regex_search_impl(const char* pattern, const char* text, bool ci, bool dotnl) {
+    int text_len = (int)strlen(text);                                        // text length
+    int pattern_len = (int)strlen(pattern);                                  // pattern length
+
+    Table* search_result = table_create(4);                                  // create result table
+    if (!search_result) return MAKE_NONE();                                  // allocation failed
+
+    if (text_len == 0 || pattern_len == 0) {                                 // empty input
+        return MAKE_TABLE(search_result);                                    // return empty table
+    }
+
+    for (int start = 0; start <= text_len; start++) {                        // search all positions
+        MatchResult match = match_pattern(text, text_len, start, pattern, pattern_len, 0, ci, dotnl);
+        if (match.end_pos >= start && pattern_len > 0) {                     // found match (including empty)
+            int match_len = match.end_pos - start;                           // match length
+            char* match_str = (char*)malloc(match_len + 1);                  // allocate match string
+            if (!match_str) {                                                // allocation failed
+                table_destroy(search_result);
+                return MAKE_NONE();
+            }
+            memcpy(match_str, text + start, match_len);                      // copy match
+            match_str[match_len] = '\0';                                     // null terminate
+
+            Value ks = make_string_val("start");                             // start key
+            Value vs = MAKE_NUMBER((double)(start + 1));                     // start value (1-based)
+            table_set(search_result, ks, vs);                                // store start
+            value_decref(ks);                                                // release key
+            value_decref(vs);                                                // release value
+
+            Value ke = make_string_val("end");                               // end key
+            Value ve = MAKE_NUMBER((double)match.end_pos);                   // end value
+            table_set(search_result, ke, ve);                                // store end
+            value_decref(ke);                                                // release key
+            value_decref(ve);                                                // release value
+
+            Value km = make_string_val("match");                             // match key
+            Value vm_val = make_string_val(match_str);                       // match value
+            table_set(search_result, km, vm_val);                            // store match
+            value_decref(km);                                                // release key
+            value_decref(vm_val);                                            // release value
+
+            free(match_str);                                                 // free temporary
+
+            if (match.group_count > 0) {                                     // store capture groups if any
+                Table* groups_table = table_create(match.group_count);       // create groups table
+                if (groups_table) {
+                    for (int g = 0; g < match.group_count && g < MAX_GROUPS; g++) {
+                        if (match.groups[g].matched) {                       // group matched
+                            int g_start = match.groups[g].start;             // group start
+                            int g_end = match.groups[g].end;                 // group end
+                            int g_len = g_end - g_start;                     // group length
+
+                            char* g_str = (char*)malloc(g_len + 1);          // allocate group string
+                            if (g_str) {
+                                memcpy(g_str, text + g_start, g_len);        // copy group
+                                g_str[g_len] = '\0';                         // null terminate
+
+                                Value gk = MAKE_NUMBER((double)(g + 1));     // group key
+                                Value gv = make_string_val(g_str);           // group value
+                                table_set(groups_table, gk, gv);             // store group
+                                value_decref(gk);                            // release key
+                                value_decref(gv);                            // release value
+                                free(g_str);                                 // free temporary
+                            }
+                        }
+                    }
+
+                    Value kg = make_string_val("groups");                    // groups key
+                    Value vg = MAKE_TABLE(groups_table);                     // groups value
+                    table_set(search_result, kg, vg);                        // store groups
+                    value_decref(kg);                                        // release key
+                    value_decref(vg);                                        // release value
+                }
+            }
+
+            break;                                                           // stop after first match
+        }
+    }
+
+    return MAKE_TABLE(search_result);                                        // return result table
+}
+
+// get options from table; runs on the main thread because it interns keys
 static bool get_opts(VM* vm, Value opts_val, bool* ci, bool* dotnl) {
     *ci = false;                                                             // default case sensitive
     *dotnl = false;                                                          // default dot doesn't match newline
@@ -921,6 +1009,182 @@ static bool get_opts(VM* vm, Value opts_val, bool* ci, bool* dotnl) {
     return true;                                                             // options processed
 }
 
+// operation codes carried in RegexArgs
+enum {
+    REGEX_OP_FIND_ALL = 0,   // regex.find_all
+    REGEX_OP_REPLACE  = 1,   // regex.replace
+    REGEX_OP_SPLIT    = 2,   // regex.split
+    REGEX_OP_SEARCH   = 3,   // regex.search
+};
+
+// packed arguments for the regex worker
+typedef struct {
+    char* pattern;           // owned copy of the pattern
+    char* text;              // owned copy of the input text
+    char* replacement;       // owned copy of the replacement (replace only)
+    bool ci;                 // case-insensitive flag
+    bool dotnl;              // dot matches newline flag
+    int op;                  // REGEX_OP_* selector
+} RegexArgs;
+
+// create a leaf future ready to be resolved by a background worker
+static FutureObject* regex_make_leaf_future(void) {
+    FutureObject* fut = (FutureObject*)calloc(1, sizeof(FutureObject));  // zero-init for safe teardown
+    fut->header.ref_count = 1;                   // caller holds one reference
+    fut->header.type = VAL_FUTURE;               // mark type as future
+    fut->result = MAKE_NONE();                   // filled in when resolved
+    fut->state = 0;                              // pending
+    fut->func_idx = -1;                          // leaf: no coroutine body
+    fut->awaiting = MAKE_NONE();                 // not awaiting
+    fut->saved_dest_reg = -1;                    // unused for leaf
+    fut->saved_iter_depth = -1;                  // no active loops
+    fut->saved_table_iter_depth = -1;            // no table iterators
+    return fut;                                  // return fresh future
+}
+
+// task descriptor handed to a background worker
+typedef struct {
+    VM* vm;                  // vm pointer for completion push
+    FutureObject* fut;       // future to resolve with the task result
+    Value (*fn)(void*);      // kernel executed on the worker
+    void (*free_fn)(void*);  // releases the packed argument struct
+    void* arg;               // packed argument struct
+} RegexAsyncTask;
+
+// release a RegexArgs and its owned strings
+static void regex_args_free(void* p) {
+    RegexArgs* a = (RegexArgs*)p;            // unpack argument struct
+    free(a->pattern);                        // release pattern copy
+    free(a->text);                           // release text copy
+    free(a->replacement);                    // release replacement copy (may be NULL)
+    free(a);                                 // release struct itself
+}
+
+// release a RegexAsyncTask and its packed argument struct
+static void regex_task_destroy(void* p) {
+    RegexAsyncTask* t = (RegexAsyncTask*)p;  // unpack task descriptor
+    if (t->free_fn) t->free_fn(t->arg);      // release argument struct
+    free(t);                                 // free descriptor itself
+}
+
+// worker thread entry: runs the kernel and posts the result
+static void* regex_thread(void* p) {
+    RegexAsyncTask* t = (RegexAsyncTask*)p;  // unpack task descriptor
+    Value result = t->fn(t->arg);            // run the kernel off the event loop
+    vm_push_completion(t->vm, t->fut, result);  // hand off to scheduler
+    regex_task_destroy(t);                   // release descriptor and args
+    return NULL;                             // thread exit
+}
+
+// spawn a detached worker thread running the given task
+static void regex_spawn_worker(VM* vm, FutureObject* fut, void* (*fn)(void*),
+                               void* arg, void (*arg_free)(void*)) {
+    APEX_MUTEX_LOCK(&vm->completion_mutex);  // reserve a worker slot
+    vm->pending_workers++;                   // count pending worker
+    APEX_MUTEX_UNLOCK(&vm->completion_mutex);// release lock
+
+    bool ok = false;                         // spawn success flag
+#ifdef _WIN32
+    uintptr_t h = _beginthreadex(NULL, 0,               // windows thread
+                                 (unsigned __stdcall (*)(void*))fn,
+                                 arg, 0, NULL);
+    if (h) { CloseHandle((HANDLE)h); ok = true; }       // detach handle
+#else
+    pthread_t tid;                           // posix thread handle
+    if (pthread_create(&tid, NULL, fn, arg) == 0) {     // start thread
+        pthread_detach(tid);                 // detach
+        ok = true;                           // mark success
+    }
+#endif
+
+    if (!ok) {                               // spawn failed
+        vm_push_completion(vm, fut, MAKE_NONE());  // complete future with none
+        if (arg_free) arg_free(arg);         // release unused argument
+    }
+}
+
+// run fn asynchronously inside a coroutine, synchronously otherwise
+static bool regex_run_async_or_sync(VM* vm, Value (*fn)(void*),
+                                    void (*free_fn)(void*), void* arg,
+                                    Value* result) {
+    if (vm->current_task != NULL) {          // inside a coroutine: never block the loop
+        FutureObject* fut = regex_make_leaf_future();  // fresh pending future
+        value_incref(MAKE_FUTURE(fut));      // worker holds one reference
+
+        RegexAsyncTask* t = (RegexAsyncTask*)malloc(sizeof(RegexAsyncTask));  // pack task descriptor
+        if (!t) {                            // allocation failed
+            value_decref(MAKE_FUTURE(fut));  // release the future
+            if (free_fn) free_fn(arg);       // release argument
+            *result = MAKE_NONE();           // return none
+            return true;                     // builtin handled
+        }
+        t->vm = vm;                          // store vm pointer
+        t->fut = fut;                        // store future
+        t->fn = fn;                          // store kernel
+        t->free_fn = free_fn;                // store cleanup function
+        t->arg = arg;                        // store argument struct
+
+        regex_spawn_worker(vm, fut, regex_thread, t, regex_task_destroy);  // offload
+        *result = MAKE_FUTURE(fut);          // return pending future
+    } else {                                 // top level: nothing else is runnable
+        *result = fn(arg);                   // run the kernel inline
+        if (free_fn) free_fn(arg);           // release argument struct
+    }
+    return true;                             // builtin handled
+}
+
+// worker kernel for regex.find_all
+static Value regex_find_all_kernel(void* p) {
+    RegexArgs* a = (RegexArgs*)p;                                   // unpack argument struct
+    Table* t = find_all_matches(a->text, a->pattern, a->ci, a->dotnl);  // run matcher
+    if (!t) return MAKE_NONE();                                     // allocation failure
+    return MAKE_TABLE(t);                                           // return result table
+}
+
+// worker kernel for regex.replace
+static Value regex_replace_kernel(void* p) {
+    RegexArgs* a = (RegexArgs*)p;                                   // unpack argument struct
+    char* s = substitute_pattern(a->text, a->pattern, a->replacement, a->ci, a->dotnl);  // substitute
+    if (!s) return MAKE_NONE();                                     // allocation failure
+    Value v = make_string_val(s);                                   // fresh refcounted string
+    free(s);                                                        // release temporary
+    return v;                                                       // return substituted string
+}
+
+// worker kernel for regex.split
+static Value regex_split_kernel(void* p) {
+    RegexArgs* a = (RegexArgs*)p;                                   // unpack argument struct
+    Table* t = split_by_pattern(a->text, a->pattern, a->ci, a->dotnl);  // split
+    if (!t) return MAKE_NONE();                                     // allocation failure
+    return MAKE_TABLE(t);                                           // return result table
+}
+
+// worker kernel for regex.search
+static Value regex_search_kernel(void* p) {
+    RegexArgs* a = (RegexArgs*)p;                                   // unpack argument struct
+    return regex_search_impl(a->pattern, a->text, a->ci, a->dotnl); // search and build result
+}
+
+// build and dispatch a RegexArgs for the given operation
+static bool regex_dispatch(VM* vm, int op, const char* pattern, const char* text,
+                           const char* replacement, bool ci, bool dotnl,
+                           Value (*kernel)(void*), Value* result) {
+    RegexArgs* a = (RegexArgs*)malloc(sizeof(RegexArgs));  // pack argument struct
+    if (!a) { *result = MAKE_NONE(); return true; }        // allocation failed
+    a->pattern = strdup(pattern);                          // copy pattern
+    a->text = strdup(text);                                // copy text
+    a->replacement = replacement ? strdup(replacement) : NULL;  // copy replacement if present
+    a->ci = ci;                                            // store case-insensitive flag
+    a->dotnl = dotnl;                                      // store dotall flag
+    a->op = op;                                            // store op code
+    if (!a->pattern || !a->text || (replacement && !a->replacement)) {  // strdup failed
+        regex_args_free(a);                                // release partial pack
+        *result = MAKE_NONE();                             // return none
+        return true;                                       // builtin handled
+    }
+    return regex_run_async_or_sync(vm, kernel, regex_args_free, a, result);
+}
+
 // dispatcher for regex built-in functions
 bool regex_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     if (strcmp(name, "regex.find_all") == 0) {                               // find all pattern matches
@@ -945,14 +1209,8 @@ bool regex_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
             }
         }
         
-        Table* matches = find_all_matches(text, pattern, ci, dotnl, vm);    // find matches
-        if (!matches) {                                                     // error occurred
-            *result = MAKE_NONE();
-            return true;
-        }
-        
-        *result = MAKE_TABLE(matches);                                      // return result table
-        return true;
+        return regex_dispatch(vm, REGEX_OP_FIND_ALL, pattern, text, NULL, ci, dotnl,
+                              regex_find_all_kernel, result);
     }
     
     if (strcmp(name, "regex.replace") == 0) {                               // substitute pattern matches
@@ -978,15 +1236,8 @@ bool regex_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
             }
         }
         
-        char* substituted = substitute_pattern(text, pattern, replacement, ci, dotnl);  // perform substitution
-        if (!substituted) {                                                 // error occurred
-            *result = MAKE_NONE();
-            return true;
-        }
-        
-        *result = make_string_val(vm, substituted);                         // return result string
-        free(substituted);                                                  // free temporary
-        return true;
+        return regex_dispatch(vm, REGEX_OP_REPLACE, pattern, text, replacement, ci, dotnl,
+                              regex_replace_kernel, result);
     }
     
     if (strcmp(name, "regex.split") == 0) {                                 // split by pattern
@@ -1011,14 +1262,8 @@ bool regex_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
             }
         }
         
-        Table* splits = split_by_pattern(text, pattern, ci, dotnl, vm);     // split text
-        if (!splits) {                                                      // error occurred
-            *result = MAKE_NONE();
-            return true;
-        }
-        
-        *result = MAKE_TABLE(splits);                                       // return result table
-        return true;
+        return regex_dispatch(vm, REGEX_OP_SPLIT, pattern, text, NULL, ci, dotnl,
+                              regex_split_kernel, result);
     }
     
     if (strcmp(name, "regex.search") == 0) {                                // search for first match
@@ -1043,91 +1288,8 @@ bool regex_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
             }
         }
         
-        int text_len = (int)strlen(text);                                   // text length
-        int pattern_len = (int)strlen(pattern);                             // pattern length
-        
-        Table* search_result = table_create(4);                             // create result table
-        if (!search_result) {                                               // allocation failed
-            *result = MAKE_NONE();
-            return true;
-        }
-        
-        if (text_len == 0 || pattern_len == 0) {                            // empty input
-            *result = MAKE_TABLE(search_result);                            // return empty table
-            return true;
-        }
-        
-        for (int start = 0; start <= text_len; start++) {                   // search all positions
-            MatchResult match = match_pattern(text, text_len, start, pattern, pattern_len, 0, ci, dotnl);
-            if (match.end_pos >= start && pattern_len > 0) {                // found match (including empty)
-                int match_len = match.end_pos - start;                      // match length
-                char* match_str = (char*)malloc(match_len + 1);             // allocate match string
-                if (!match_str) {                                           // allocation failed
-                    table_destroy(search_result);
-                    *result = MAKE_NONE();
-                    return true;
-                }
-                memcpy(match_str, text + start, match_len);                 // copy match
-                match_str[match_len] = '\0';                                // null terminate
-                
-                Value ks = MAKE_STRING(string_intern(&vm->intern_table, "start", 5));  // start key
-                Value vs = MAKE_NUMBER((double)(start + 1));                // start value (1-based)
-                table_set(search_result, ks, vs);                           // store start
-                value_decref(ks);                                           // release key
-                value_decref(vs);                                           // release value
-                
-                Value ke = MAKE_STRING(string_intern(&vm->intern_table, "end", 3));  // end key
-                Value ve = MAKE_NUMBER((double)match.end_pos);              // end value
-                table_set(search_result, ke, ve);                           // store end
-                value_decref(ke);                                           // release key
-                value_decref(ve);                                           // release value
-                
-                Value km = MAKE_STRING(string_intern(&vm->intern_table, "match", 5));  // match key
-                Value vm_val = make_string_val(vm, match_str);              // match value
-                table_set(search_result, km, vm_val);                       // store match
-                value_decref(km);                                           // release key
-                value_decref(vm_val);                                       // release value
-                
-                free(match_str);                                            // free temporary
-                
-                if (match.group_count > 0) {                                // store capture groups if any
-                    Table* groups_table = table_create(match.group_count);  // create groups table
-                    if (groups_table) {
-                        for (int g = 0; g < match.group_count && g < MAX_GROUPS; g++) {
-                            if (match.groups[g].matched) {                  // group matched
-                                int g_start = match.groups[g].start;        // group start
-                                int g_end = match.groups[g].end;            // group end
-                                int g_len = g_end - g_start;                // group length
-                                
-                                char* g_str = (char*)malloc(g_len + 1);     // allocate group string
-                                if (g_str) {
-                                    memcpy(g_str, text + g_start, g_len);   // copy group
-                                    g_str[g_len] = '\0';                    // null terminate
-                                    
-                                    Value gk = MAKE_NUMBER((double)(g + 1));  // group key
-                                    Value gv = make_string_val(vm, g_str);  // group value
-                                    table_set(groups_table, gk, gv);        // store group
-                                    value_decref(gk);                       // release key
-                                    value_decref(gv);                       // release value
-                                    free(g_str);                            // free temporary
-                                }
-                            }
-                        }
-                        
-                        Value kg = MAKE_STRING(string_intern(&vm->intern_table, "groups", 6));  // groups key
-                        Value vg = MAKE_TABLE(groups_table);                // groups value
-                        table_set(search_result, kg, vg);                   // store groups
-                        value_decref(kg);                                   // release key
-                        value_decref(vg);                                   // release value
-                    }
-                }
-                
-                break;                                                      // stop after first match
-            }
-        }
-        
-        *result = MAKE_TABLE(search_result);                                // return result table
-        return true;
+        return regex_dispatch(vm, REGEX_OP_SEARCH, pattern, text, NULL, ci, dotnl,
+                              regex_search_kernel, result);
     }
     
     return false;                                                           // not a recognized builtin
