@@ -76,6 +76,7 @@ typedef enum {
     OP_PUSH_ARG,         // pushes an argument onto the call stack
     OP_CALL,             // calls a function at address, result goes to rdst
     OP_CALL_BUILTIN,     // calls a built-in by index, result to rdst
+    OP_CALL_BUILTIN_ASYNC, // calls a built-in asynchronously (returns a future)
     OP_CALL_0,           // calling a function with 0 arguments (fast way)
     OP_CALL_1,           // calling a function with 1 arguments (fast way)
     OP_CALL_2,           // calling a function with 2 arguments (fast way)

@@ -85,6 +85,7 @@ static const char* opcode_names[] = {
     [OP_PUSH_ARG]         = "PUSH_ARG",
     [OP_CALL]             = "CALL",
     [OP_CALL_BUILTIN]     = "CALL_BUILTIN",
+    [OP_CALL_BUILTIN_ASYNC] = "CALL_BUILTIN_ASYNC",
     [OP_CALL_0]           = "CALL_0",
     [OP_CALL_1]           = "CALL_1",
     [OP_CALL_2]           = "CALL_2",

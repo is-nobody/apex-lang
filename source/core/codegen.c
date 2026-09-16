@@ -259,7 +259,8 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->max_registers = 0;                                                 // no registers yet
     cg->current_function = -1;                                             // no active function
     cg->label_counter = 0;                                                 // label counter
-    
+    cg->current_call_is_awaited = false;                                   // no awaited call in flight
+
     cg->loop_stack.break_capacity = 16;                                    // initial break capacity
     cg->loop_stack.break_jumps = (int*)malloc(sizeof(int) * cg->loop_stack.break_capacity);  // allocate breaks
     
@@ -491,8 +492,9 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node, int dest_hint) {
         for (int i = 0; i < arg_count; i++) {                                 // push args
             emit(cg, INST(OP_PUSH_ARG, arg_regs[i], 0, 0), node->line);
         }
-        int name_idx = bytecode_add_string_constant(cg->chunk, func_name);             // add name constant
-        emit(cg, INST(OP_CALL_BUILTIN, result_reg, name_idx, arg_count), node->line);  // call builtin
+        int name_idx = bytecode_add_string_constant(cg->chunk, func_name);    // add name constant
+        int op = cg->current_call_is_awaited ? OP_CALL_BUILTIN_ASYNC : OP_CALL_BUILTIN;
+        emit(cg, INST(op, result_reg, name_idx, arg_count), node->line);      // call builtin
     } else {                                                                           // user function
         int func_idx = -1;                                                             // function index
         
@@ -1018,7 +1020,11 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
         }
 
         case AST_AWAIT: {                                                          // await expression
+            bool saved_flag = cg->current_call_is_awaited;
+            cg->current_call_is_awaited = true;
             int inner_reg = codegen_expression(cg, node->await_expr.expression);   // evaluate inner
+            cg->current_call_is_awaited = saved_flag;
+
             int result_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);      // result destination
             emit(cg, INST(OP_AWAIT, result_reg, inner_reg, 0), node->line);        // unwrap future
             free_register(cg, inner_reg);                                          // free inner temp

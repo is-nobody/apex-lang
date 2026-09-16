@@ -296,6 +296,7 @@ typedef struct {
     bool running;                  // whether the VM is actively executing
     bool had_error;                // whether an error occurred during execution
 
+    bool builtin_async;            // true when the current CALL_BUILTIN_ASYNC is executing
     ForIter* iterator_stack;       // active numeric for-loops
     int iterator_depth;            // nesting depth of active numeric for-loops
     ForIter top_level_iter_storage[VM_MAX_CALL_FRAMES];  // backing storage for top-level numeric loops

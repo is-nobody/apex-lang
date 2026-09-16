@@ -1287,6 +1287,7 @@ VM* vm_create(const char* source) {
     vm->table_iter_depth = -1;                    // no active table iterators
     vm->running = false;                          // not running yet
     vm->had_error = false;                        // no errors yet
+    vm->builtin_async = false;
     vm->args_top = 0;                             // empty args stack
     vm->args_table = MAKE_NONE();                 // default to none until set
     vm->source = source;                          // store source pointer
@@ -1590,6 +1591,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_PUSH_ARG]         = &&OP_PUSH_ARG_LABEL,
         [OP_CALL]             = &&OP_CALL_LABEL,
         [OP_CALL_BUILTIN]     = &&OP_CALL_BUILTIN_LABEL,
+        [OP_CALL_BUILTIN_ASYNC] = &&OP_CALL_BUILTIN_ASYNC_LABEL,
         [OP_CALL_0]           = &&OP_CALL_0_LABEL,
         [OP_CALL_1]           = &&OP_CALL_1_LABEL,
         [OP_CALL_2]           = &&OP_CALL_2_LABEL,
@@ -2595,6 +2597,36 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
         if (dest_reg >= vm->frame_used[vm->current_frame]) {
             vm->frame_used[vm->current_frame] = dest_reg + 1;  // track max register used for vm_destroy cleanup
+        }
+        ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
+    }
+    OP_CALL_BUILTIN_ASYNC_LABEL: {
+        int dest_reg = ip->operands[0];              // dest register for return value
+        int name_idx = ip->operands[1];              // constant pool index for builtin name
+        int arg_count = ip->operands[2];             // number of arguments
+        Value args[VM_MAX_ARGS_STACK];               // local args array
+        for (int i = 0; i < arg_count && i < 16; i++) {
+            args[i] = vm->args_stack[vm->args_top - arg_count + i];  // copy args from stack
+        }
+        Value result;                                // placeholder for return value
+
+        vm->builtin_async = true;                    // signal libraries to offload
+        bool ok = vm_call_builtin(vm, chunk->constants[name_idx].string_value, arg_count, args, &result);
+        vm->builtin_async = false;                   // clear the signal
+
+        for (int i = 0; i < arg_count; i++) {
+            value_decref(vm->args_stack[vm->args_top - arg_count + i]);  // release args from stack
+        }
+        vm->args_top -= arg_count;                   // pop args from args stack
+        if (ok) {
+            value_decref(vm->registers[dest_reg]);   // release old dest value
+            vm->registers[dest_reg] = result;        // store result from builtin
+        } else {
+            value_decref(vm->registers[dest_reg]);   // release old dest value
+            vm->registers[dest_reg] = MAKE_NONE();   // builtin failed, store none
+        }
+        if (dest_reg >= vm->frame_used[vm->current_frame]) {
+            vm->frame_used[vm->current_frame] = dest_reg + 1;  // track max register used
         }
         ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }

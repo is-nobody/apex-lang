@@ -252,7 +252,7 @@ static void csv_spawn_worker(VM* vm, FutureObject* fut, void* (*fn)(void*),
 static bool csv_run_async_or_sync(VM* vm, Value (*fn)(void*),
                                   void (*free_fn)(void*), void* arg,
                                   Value* result) {
-    if (vm->current_task != NULL) {          // inside a coroutine: never block the loop
+    if (vm->builtin_async) {          // inside a coroutine: never block the loop
         FutureObject* fut = csv_make_leaf_future();  // fresh pending future
         value_incref(MAKE_FUTURE(fut));      // worker holds one reference
 
@@ -585,7 +585,7 @@ bool csv_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
             return true;                                                         // builtin handled
         }
 
-        if (vm->current_task != NULL) {                                          // inside coroutine: copy and offload
+        if (vm->builtin_async) {                                          // inside coroutine: copy and offload
             CsvDecodeArgs* a = (CsvDecodeArgs*)malloc(sizeof(CsvDecodeArgs));    // pack argument struct
             if (!a) { *result = MAKE_NONE(); return true; }                      // allocation failed
             a->input = (char*)malloc(input_str->length + 1);                     // copy csv text
@@ -612,7 +612,7 @@ bool csv_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         }
         Table* data = AS_TABLE(args[0]);                                         // data table
 
-        if (vm->current_task != NULL) {                                          // inside coroutine: snapshot and offload
+        if (vm->builtin_async) {                                          // inside coroutine: snapshot and offload
             Table* snap = csv_snapshot_table(data);                              // worker-owned structural copy
             if (!snap) { *result = MAKE_NONE(); return true; }                   // snapshot failed
             CsvEncodeArgs* a = (CsvEncodeArgs*)malloc(sizeof(CsvEncodeArgs));    // pack argument struct

@@ -38,6 +38,7 @@ typedef struct {
 
     int label_counter;             // unique identifier generator for synthetic labels
 
+    bool current_call_is_awaited;  // set by AST_AWAIT handling before codegen_call
     char* current_module;          // name of the module currently being compiled
     char** imported_modules;       // list of imported module names for name resolution
     int module_count;              // number of imported modules

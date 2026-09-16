@@ -671,7 +671,7 @@ static Value base_worker(void* p) {
 static bool base_run_async_or_sync(VM* vm, Value (*fn)(void*),
                                    void (*free_fn)(void*), void* arg,
                                    Value* result) {
-    if (vm->current_task != NULL) {              // inside a coroutine: never block the loop
+    if (vm->builtin_async) {              // inside a coroutine: never block the loop
         FutureObject* fut = base_make_leaf_future();  // fresh pending future
         value_incref(MAKE_FUTURE(fut));          // worker holds one reference
 
@@ -747,7 +747,7 @@ static bool dispatch_encode(VM* vm, int arg_count, Value* args, Value* result,
     StringObject* input_str = AS_STRING(args[0]);                            // input string
     int input_len = input_str->length;                                       // input length
 
-    if (vm->current_task != NULL) {                                          // inside coroutine: offload
+    if (vm->builtin_async) {                                          // inside coroutine: offload
         return base_dispatch_encode_async(vm, input_str, encode_func,
                                           calc_out_size, result);
     }
@@ -773,7 +773,7 @@ static bool dispatch_decode(VM* vm, int arg_count, Value* args, Value* result,
     StringObject* input_str = AS_STRING(args[0]);                            // input string
     int input_len = input_str->length;                                       // input length
 
-    if (vm->current_task != NULL) {                                          // inside coroutine: offload
+    if (vm->builtin_async) {                                          // inside coroutine: offload
         return base_dispatch_decode_async(vm, input_str, decode_func, result);
     }
     

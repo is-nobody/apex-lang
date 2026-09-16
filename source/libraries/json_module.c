@@ -507,7 +507,7 @@ static void json_spawn_worker(VM* vm, FutureObject* fut, void* (*fn)(void*),
 static bool json_run_async_or_sync(VM* vm, Value (*fn)(void*),
                                    void (*free_fn)(void*), void* arg,
                                    Value* result) {
-    if (vm->current_task != NULL) {          // inside a coroutine: never block the loop
+    if (vm->builtin_async) {          // inside a coroutine: never block the loop
         FutureObject* fut = json_make_leaf_future();  // fresh pending future
         value_incref(MAKE_FUTURE(fut));      // worker holds one reference
 
@@ -554,7 +554,7 @@ bool json_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
         }
         StringObject* input_str = AS_STRING(args[0]);                             // input string
 
-        if (vm->current_task != NULL) {                                           // inside coroutine: copy and offload
+        if (vm->builtin_async) {                                           // inside coroutine: copy and offload
             JsonDecodeArgs* a = (JsonDecodeArgs*)malloc(sizeof(JsonDecodeArgs));  // pack argument struct
             if (!a) { *result = MAKE_NONE(); return true; }                       // allocation failed
             a->input = (char*)malloc(input_str->length + 1);                      // copy json text
@@ -580,7 +580,7 @@ bool json_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             return true;                                                          // builtin handled
         }
 
-        if (vm->current_task != NULL) {                                           // inside coroutine: snapshot and offload
+        if (vm->builtin_async) {                                           // inside coroutine: snapshot and offload
             JsonEncodeArgs* a = (JsonEncodeArgs*)malloc(sizeof(JsonEncodeArgs));  // pack argument struct
             if (!a) { *result = MAKE_NONE(); return true; }                       // allocation failed
             a->snapshot = json_snapshot_value(args[0]);                           // worker-owned structural copy

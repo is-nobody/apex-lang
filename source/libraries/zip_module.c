@@ -1145,7 +1145,7 @@ static void zip_spawn_worker(VM* vm, FutureObject* fut, void* (*fn)(void*),
 static bool zip_run_async_or_sync(VM* vm, Value (*fn)(void*),
                                   void (*free_fn)(void*), void* arg,
                                   Value* result) {
-    if (vm->current_task != NULL) {          // inside a coroutine: never block the loop
+    if (vm->builtin_async) {          // inside a coroutine: never block the loop
         FutureObject* fut = zip_make_leaf_future();  // fresh pending future
         value_incref(MAKE_FUTURE(fut));      // worker holds one reference
 

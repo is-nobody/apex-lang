@@ -241,7 +241,7 @@ static void os_args_free(void* p) {
 static bool os_run_async_or_sync(VM* vm, Value (*fn)(void*),
                                  void (*free_fn)(void*), void* arg,
                                  Value* result) {
-    if (vm->current_task != NULL) {                   // inside a coroutine: never block the loop
+    if (vm->builtin_async) {                          // caller used `await` on this builtin
         FutureObject* fut = os_make_leaf_future();    // fresh pending future
         value_incref(MAKE_FUTURE(fut));               // worker holds one reference
 
@@ -573,7 +573,12 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         a->content = strdup(arg_count >= 1 && IS_STRING(args[0])
                             ? AS_STRING(args[0])->chars
                             : "");                                // copy prompt text
-        return os_run_async_or_sync(vm, os_input_sync, os_args_free, a, result);
+
+        // stdin is inherently blocking and shared with the main thread:
+        // never offload to a worker, always read synchronously
+        *result = os_input_sync(a);                               // synchronous read
+        os_args_free(a);                                          // release argument struct
+        return true;                                              // builtin handled
     }
 
     if (strcmp(name, "os.wait") == 0) {                               // sleep for seconds
@@ -581,7 +586,7 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             double seconds = AS_NUMBER(args[0]);                      // extract seconds
             if (seconds < 0) seconds = 0;                             // clamp negative
 
-            if (vm->current_task != NULL) {                           // inside coroutine: never block
+            if (vm->builtin_async) {                                  // await os.wait(...)
                 FutureObject* fut = os_make_leaf_future();            // fresh pending future
                 vm_schedule_timer(vm, seconds, fut);                  // timer resolves it later
                 *result = MAKE_FUTURE(fut);                           // hand back pending future
