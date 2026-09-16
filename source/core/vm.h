@@ -281,11 +281,13 @@ typedef struct {
     bool running;                  // whether the VM is actively executing
     bool had_error;                // whether an error occurred during execution
 
-    ForIter iterator_stack[VM_MAX_CALL_FRAMES];  // active numeric for-loops
+    ForIter* iterator_stack;       // active numeric for-loops
     int iterator_depth;            // nesting depth of active numeric for-loops
+    ForIter top_level_iter_storage[VM_MAX_CALL_FRAMES];  // backing storage for top-level numeric loops
 
-    TableIterState table_iters[16]; // state for table iteration (for key = table loops)
-    int table_iter_depth;           // nesting depth of active table iterators
+    TableIterState* table_iters;   // state for table iteration (for key = table loops)
+    int table_iter_depth;          // nesting depth of active table iterators
+    TableIterState top_level_table_iter_storage[16];  // backing storage for top-level table iterators
 
     StringInternTable intern_table; // global string interning table for deduplication
     ObjectPool obj_pool;            // object recycling pool for performance

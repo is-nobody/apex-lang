@@ -57,6 +57,8 @@ typedef struct {
     int* frame_used;        // highest register used per frame
     int pool_capacity;      // total pool capacity
     int current_frame;      // active frame index
+    ForIter* iterator_stack;// active numeric for-loop storage
+    TableIterState* table_iters;// active table iterator storage
 } SavedVMContext;
 
 // forward declarations
@@ -964,6 +966,8 @@ static void vm_context_save(VM* vm, SavedVMContext* s) {
     s->frame_used     = vm->frame_used;
     s->pool_capacity  = vm->pool_capacity;
     s->current_frame  = vm->current_frame;
+    s->iterator_stack = vm->iterator_stack;
+    s->table_iters    = vm->table_iters;
 }
 
 // restores a previously saved pool context into the vm's active slot
@@ -974,6 +978,8 @@ static void vm_context_restore(VM* vm, SavedVMContext* s) {
     vm->frame_used     = s->frame_used;
     vm->pool_capacity  = s->pool_capacity;
     vm->current_frame  = s->current_frame;
+    vm->iterator_stack = s->iterator_stack;
+    vm->table_iters    = s->table_iters;
     vm->registers      = &vm->register_pool[vm->frame_offset[vm->current_frame]];
 }
 
@@ -989,12 +995,10 @@ static void vm_context_enter(VM* vm, FutureObject* task) {
 
     vm->current_task   = task;                         // enter coroutine mode
     vm->call_depth     = 0;                            // coroutine body starts at depth 0
-    vm->iterator_depth = task->saved_iter_depth;       // restore numeric loop stack
-    for (int i = 0; i <= task->saved_iter_depth && i < 16; i++)
-        vm->iterator_stack[i] = task->saved_iters[i];
-    vm->table_iter_depth = task->saved_table_iter_depth;  // restore table iterator stack
-    for (int i = 0; i <= task->saved_table_iter_depth && i < 4; i++)
-        vm->table_iters[i] = task->saved_table_iters[i];
+    vm->iterator_stack = task->saved_iters;            // point at coroutine's numeric loop storage
+    vm->iterator_depth = task->saved_iter_depth;       // restore numeric loop depth
+    vm->table_iters    = task->saved_table_iters;      // point at coroutine's table iterator storage
+    vm->table_iter_depth = task->saved_table_iter_depth;  // restore table iterator depth
 }
 
 // captures the vm's active pool state back into a coroutine after a slice
@@ -1005,12 +1009,10 @@ static void vm_context_capture(VM* vm, FutureObject* task) {
     task->frame_used     = vm->frame_used;
     task->pool_capacity  = vm->pool_capacity;
     task->current_frame  = vm->current_frame;
-    task->saved_iter_depth = vm->iterator_depth;       // save numeric loop stack
-    for (int i = 0; i <= vm->iterator_depth && i < 16; i++)
-        task->saved_iters[i] = vm->iterator_stack[i];
-    task->saved_table_iter_depth = vm->table_iter_depth;  // save table iterator stack
-    for (int i = 0; i <= vm->table_iter_depth && i < 4; i++)
-        task->saved_table_iters[i] = vm->table_iters[i];
+    task->saved_iter_depth = vm->iterator_depth;       // save numeric loop depth
+    task->saved_table_iter_depth = vm->table_iter_depth;  // save table iterator depth
+    vm->iterator_stack = vm->top_level_iter_storage;   // restore top-level numeric loop storage
+    vm->table_iters    = vm->top_level_table_iter_storage;  // restore top-level table iterator storage
     vm->current_task = NULL;                           // leave coroutine mode
 }
 
@@ -1121,17 +1123,8 @@ bool vm_drive_until(VM* vm, Value target, Value* out_result) {
     SavedVMContext saved_ctx;                           // snapshot of caller's pool
     vm_context_save(vm, &saved_ctx);
 
-    int saved_iter_depth = vm->iterator_depth;          // save caller loop iterators
-    ForIter saved_iters[16];
-    int saved_iter_count = saved_iter_depth + 1;
-    if (saved_iter_count > 16) saved_iter_count = 16;
-    for (int i = 0; i < saved_iter_count; i++) saved_iters[i] = vm->iterator_stack[i];
-
-    TableIterState saved_tt[4];                         // save caller table iterators
-    int saved_titer = vm->table_iter_depth;
-    int saved_tt_count = saved_titer + 1;
-    if (saved_tt_count > 4) saved_tt_count = 4;
-    for (int i = 0; i < saved_tt_count; i++) saved_tt[i] = vm->table_iters[i];
+    int saved_iter_depth = vm->iterator_depth;          // save caller numeric loop depth
+    int saved_titer = vm->table_iter_depth;             // save caller table iterator depth
 
     FutureObject* saved_task = vm->current_task;        // save caller's task mode
 
@@ -1167,9 +1160,7 @@ bool vm_drive_until(VM* vm, Value target, Value* out_result) {
     vm_context_restore(vm, &saved_ctx);                 // restore caller's pool
     vm->current_task = saved_task;                      // restore caller's task mode
     vm->iterator_depth = saved_iter_depth;
-    for (int i = 0; i < saved_iter_count; i++) vm->iterator_stack[i] = saved_iters[i];
     vm->table_iter_depth = saved_titer;
-    for (int i = 0; i < saved_tt_count; i++) vm->table_iters[i] = saved_tt[i];
 
     if (fut->state == 1) {                              // resolved
         *out_result = fut->result;
@@ -1209,7 +1200,9 @@ VM* vm_create(const char* source) {
     vm->current_frame = 0;                        // start at frame 0
     vm->global_count = 0;                         // no globals set yet
     vm->call_depth = 0;                           // no active calls
+    vm->iterator_stack = vm->top_level_iter_storage;  // point at top-level numeric loop storage
     vm->iterator_depth = -1;                      // no active iterators
+    vm->table_iters = vm->top_level_table_iter_storage;  // point at top-level table iterator storage
     vm->table_iter_depth = -1;                    // no active table iterators
     vm->running = false;                          // not running yet
     vm->had_error = false;                        // no errors yet
@@ -2868,11 +2861,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
                 cur->awaiting = v;                   // remember what we wait on
                 value_incref(v);                     // keep reference
                 cur->saved_iter_depth = vm->iterator_depth;               // save loop depth
-                for (int i = 0; i <= vm->iterator_depth && i < 16; i++)   // save loop iterators
-                    cur->saved_iters[i] = vm->iterator_stack[i];
                 cur->saved_table_iter_depth = vm->table_iter_depth;       // save table iterator depth
-                for (int i = 0; i <= vm->table_iter_depth && i < 4; i++)  // save table iterators
-                    cur->saved_table_iters[i] = vm->table_iters[i];
                 future_add_waiter(fut, cur);         // register as waiter
                 if (fut->register_pool == NULL) future_start(vm, fut);  // launch awaited body if pending
                 vm->current_task = NULL;             // leave coroutine mode
@@ -2939,17 +2928,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             SavedVMContext saved_ctx;                   // snapshot of top-level pool
             vm_context_save(vm, &saved_ctx);
 
-            int saved_iter_depth = vm->iterator_depth;  // snapshot of top-level iterators
-            ForIter saved_iters[16];
-            int saved_iter_count = saved_iter_depth + 1;
-            if (saved_iter_count > 16) saved_iter_count = 16;
-            for (int i = 0; i < saved_iter_count; i++) saved_iters[i] = vm->iterator_stack[i];
-
-            TableIterState saved_tt[4];                 // snapshot of top-level table iterators
-            int saved_titer = vm->table_iter_depth;
-            int saved_tt_count = saved_titer + 1;
-            if (saved_tt_count > 4) saved_tt_count = 4;
-            for (int i = 0; i < saved_tt_count; i++) saved_tt[i] = vm->table_iters[i];
+            int saved_iter_depth = vm->iterator_depth;  // snapshot of top-level numeric loop depth
+            int saved_titer = vm->table_iter_depth;     // snapshot of top-level table iterator depth
 
             while (!vm->had_error && (vm->ready_count > 0 || vm->timers != NULL
                                       || vm->pending_workers > 0)) {
@@ -2982,9 +2962,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             frame_cap = vm->frame_capacity;                 // refresh cached pointers
             frame_off = vm->frame_offset;
             vm->iterator_depth = saved_iter_depth;
-            for (int i = 0; i < saved_iter_count; i++) vm->iterator_stack[i] = saved_iters[i];
             vm->table_iter_depth = saved_titer;
-            for (int i = 0; i < saved_tt_count; i++) vm->table_iters[i] = saved_tt[i];
         }
 
         return !vm->had_error;
