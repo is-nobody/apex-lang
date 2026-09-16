@@ -559,6 +559,182 @@ static bool base85_decode(const char* str, unsigned char* out, int* out_len) {
     return true;                                                 // success
 }
 
+// packed arguments for the base encode/decode worker
+typedef struct {
+    unsigned char* input;    // copied input bytes (may contain NUL for encode)
+    int input_len;           // input length in bytes
+    bool is_encode;          // true for encode, false for decode
+    void (*encode_fn)(const unsigned char*, int, char*);   // encoder (encode mode only)
+    bool (*decode_fn)(const char*, unsigned char*, int*);  // decoder (decode mode only)
+    int (*calc_size)(int);   // output size estimator (encode mode only)
+} BaseArgs;
+
+// task descriptor handed to a background worker
+typedef struct {
+    VM* vm;                  // vm pointer for completion push
+    FutureObject* fut;       // future to resolve with the task result
+    Value (*fn)(void*);      // encode/decode kernel executed on the worker
+    void (*free_fn)(void*);  // releases the packed argument struct
+    void* arg;               // packed argument struct
+} BaseAsyncTask;
+
+// create a leaf future ready to be resolved by a background worker
+static FutureObject* base_make_leaf_future(void) {
+    FutureObject* fut = (FutureObject*)calloc(1, sizeof(FutureObject));  // zero-init for safe teardown
+    fut->header.ref_count = 1;                   // caller holds one reference
+    fut->header.type = VAL_FUTURE;               // mark type as future
+    fut->result = MAKE_NONE();                   // filled in when resolved
+    fut->state = 0;                              // pending
+    fut->func_idx = -1;                          // leaf: no coroutine body
+    fut->awaiting = MAKE_NONE();                 // not awaiting
+    fut->saved_dest_reg = -1;                    // unused for leaf
+    fut->saved_iter_depth = -1;                  // no active loops
+    fut->saved_table_iter_depth = -1;            // no table iterators
+    return fut;                                  // return fresh future
+}
+
+// release a BaseArgs and the copied input buffer
+static void base_args_free(void* p) {
+    BaseArgs* a = (BaseArgs*)p;                  // unpack argument struct
+    free(a->input);                              // release copied bytes
+    free(a);                                     // release struct itself
+}
+
+// release a BaseAsyncTask and its packed argument struct
+static void base_task_destroy(void* p) {
+    BaseAsyncTask* t = (BaseAsyncTask*)p;        // unpack task descriptor
+    if (t->free_fn) t->free_fn(t->arg);          // release argument struct
+    free(t);                                     // free descriptor itself
+}
+
+// worker thread entry: runs the encode/decode kernel and posts the result
+static void* base_thread(void* p) {
+    BaseAsyncTask* t = (BaseAsyncTask*)p;        // unpack task descriptor
+    Value result = t->fn(t->arg);                // run encode/decode off the event loop
+    vm_push_completion(t->vm, t->fut, result);   // hand off to scheduler
+    base_task_destroy(t);                        // release descriptor and args
+    return NULL;                                 // thread exit
+}
+
+// spawn a detached worker thread running the given task
+static void base_spawn_worker(VM* vm, FutureObject* fut, void* (*fn)(void*),
+                              void* arg, void (*arg_free)(void*)) {
+    APEX_MUTEX_LOCK(&vm->completion_mutex);      // reserve a worker slot
+    vm->pending_workers++;                       // count pending worker
+    APEX_MUTEX_UNLOCK(&vm->completion_mutex);    // release lock
+
+    bool ok = false;                             // spawn success flag
+#ifdef _WIN32
+    uintptr_t h = _beginthreadex(NULL, 0,               // windows thread
+                                 (unsigned __stdcall (*)(void*))fn,
+                                 arg, 0, NULL);
+    if (h) { CloseHandle((HANDLE)h); ok = true; }       // detach handle
+#else
+    pthread_t tid;                               // posix thread handle
+    if (pthread_create(&tid, NULL, fn, arg) == 0) {     // start thread
+        pthread_detach(tid);                     // detach
+        ok = true;                               // mark success
+    }
+#endif
+
+    if (!ok) {                                   // spawn failed
+        vm_push_completion(vm, fut, MAKE_NONE()); // complete future with none
+        if (arg_free) arg_free(arg);             // release unused argument
+    }
+}
+
+// encode/decode kernel executed on the worker thread
+static Value base_worker(void* p) {
+    BaseArgs* a = (BaseArgs*)p;                  // unpack argument struct
+    if (a->is_encode) {                          // encode path
+        int out_size = a->calc_size(a->input_len);  // estimate output size
+        char* out = (char*)malloc(out_size);     // allocate output buffer
+        if (!out) return MAKE_NONE();            // allocation failed
+        a->encode_fn(a->input, a->input_len, out);  // run encoder
+        StringObject* s = string_create(out, (int)strlen(out));  // fresh refcounted string
+        free(out);                               // release temp buffer
+        return MAKE_STRING(s);                   // return boxed string
+    }
+    unsigned char* out = (unsigned char*)malloc(a->input_len * 2 + 1);  // decode output buffer
+    if (!out) return MAKE_NONE();                // allocation failed
+    int out_len = 0;                             // decoded length
+    if (!a->decode_fn((const char*)a->input, out, &out_len)) {  // run decoder
+        free(out);                               // release buffer on failure
+        return MAKE_NONE();                      // return none
+    }
+    StringObject* s = string_create((char*)out, out_len);  // fresh refcounted string
+    free(out);                                   // release temp buffer
+    return MAKE_STRING(s);                       // return boxed string
+}
+
+// run fn asynchronously inside a coroutine, synchronously otherwise
+static bool base_run_async_or_sync(VM* vm, Value (*fn)(void*),
+                                   void (*free_fn)(void*), void* arg,
+                                   Value* result) {
+    if (vm->current_task != NULL) {              // inside a coroutine: never block the loop
+        FutureObject* fut = base_make_leaf_future();  // fresh pending future
+        value_incref(MAKE_FUTURE(fut));          // worker holds one reference
+
+        BaseAsyncTask* t = (BaseAsyncTask*)malloc(sizeof(BaseAsyncTask));  // pack task descriptor
+        t->vm = vm;                              // store vm pointer
+        t->fut = fut;                            // store future
+        t->fn = fn;                              // store kernel
+        t->free_fn = free_fn;                    // store cleanup function
+        t->arg = arg;                            // store argument struct
+
+        base_spawn_worker(vm, fut, base_thread, t, base_task_destroy);  // offload
+        *result = MAKE_FUTURE(fut);              // return pending future
+    } else {                                     // top level: nothing else is runnable
+        *result = fn(arg);                       // run kernel inline
+        if (free_fn) free_fn(arg);               // release argument struct
+    }
+    return true;                                 // builtin handled
+}
+
+// pack an encode request and dispatch it off the VM thread
+static bool base_dispatch_encode_async(VM* vm, StringObject* input_str,
+                                       void (*encode_func)(const unsigned char*, int, char*),
+                                       int (*calc_out_size)(int),
+                                       Value* result) {
+    BaseArgs* a = (BaseArgs*)malloc(sizeof(BaseArgs));  // pack argument struct
+    if (!a) { *result = MAKE_NONE(); return true; }     // allocation failed
+    a->input = (unsigned char*)malloc(input_str->length);  // copy raw input bytes
+    if (!a->input) {                                     // allocation failed
+        free(a);                                         // release struct
+        *result = MAKE_NONE();                           // return none
+        return true;                                     // builtin handled
+    }
+    memcpy(a->input, input_str->chars, input_str->length);  // capture input (NUL-safe)
+    a->input_len = input_str->length;                    // store length
+    a->is_encode = true;                                 // mark encode mode
+    a->encode_fn = encode_func;                          // store encoder
+    a->decode_fn = NULL;                                 // unused
+    a->calc_size = calc_out_size;                        // store size estimator
+    return base_run_async_or_sync(vm, base_worker, base_args_free, a, result);
+}
+
+// pack a decode request and dispatch it off the VM thread
+static bool base_dispatch_decode_async(VM* vm, StringObject* input_str,
+                                       bool (*decode_func)(const char*, unsigned char*, int*),
+                                       Value* result) {
+    BaseArgs* a = (BaseArgs*)malloc(sizeof(BaseArgs));  // pack argument struct
+    if (!a) { *result = MAKE_NONE(); return true; }     // allocation failed
+    a->input = (unsigned char*)malloc(input_str->length + 1);  // copy input + NUL terminator
+    if (!a->input) {                                     // allocation failed
+        free(a);                                         // release struct
+        *result = MAKE_NONE();                           // return none
+        return true;                                     // builtin handled
+    }
+    memcpy(a->input, input_str->chars, input_str->length);  // capture input
+    a->input[input_str->length] = '\0';                  // NUL terminate for strlen-based decoders
+    a->input_len = input_str->length;                    // store length
+    a->is_encode = false;                                // mark decode mode
+    a->encode_fn = NULL;                                 // unused
+    a->decode_fn = decode_func;                          // store decoder
+    a->calc_size = NULL;                                 // unused
+    return base_run_async_or_sync(vm, base_worker, base_args_free, a, result);
+}
+
 // generic dispatch helper for encode functions
 static bool dispatch_encode(VM* vm, int arg_count, Value* args, Value* result,
                             void (*encode_func)(const unsigned char*, int, char*),
@@ -570,12 +746,18 @@ static bool dispatch_encode(VM* vm, int arg_count, Value* args, Value* result,
     
     StringObject* input_str = AS_STRING(args[0]);                            // input string
     int input_len = input_str->length;                                       // input length
+
+    if (vm->current_task != NULL) {                                          // inside coroutine: offload
+        return base_dispatch_encode_async(vm, input_str, encode_func,
+                                          calc_out_size, result);
+    }
+    
     int out_size = calc_out_size(input_len);                                 // calculate output size
     char* out = (char*)malloc(out_size);                                     // allocate output
     if (!out) { *result = MAKE_NONE(); return true; }                        // allocation failed
     
     encode_func((const unsigned char*)input_str->chars, input_len, out);    // encode
-    *result = MAKE_STRING(string_intern(&vm->intern_table, out, strlen(out))); // intern result
+    *result = MAKE_STRING(string_create(out, (int)strlen(out)));             // fresh refcounted string
     free(out);                                                               // free output
     return true;                                                             // builtin handled
 }
@@ -590,13 +772,17 @@ static bool dispatch_decode(VM* vm, int arg_count, Value* args, Value* result,
     
     StringObject* input_str = AS_STRING(args[0]);                            // input string
     int input_len = input_str->length;                                       // input length
-    unsigned char* out = (unsigned char*)malloc(input_len * 2 + 1);        // allocate output
+
+    if (vm->current_task != NULL) {                                          // inside coroutine: offload
+        return base_dispatch_decode_async(vm, input_str, decode_func, result);
+    }
+    
+    unsigned char* out = (unsigned char*)malloc(input_len * 2 + 1);         // allocate output
     if (!out) { *result = MAKE_NONE(); return true; }                       // allocation failed
     
     int out_len = 0;                                                         // output length
     if (decode_func(input_str->chars, out, &out_len)) {                     // decode
-        out[out_len] = '\0';                                                 // null terminate
-        *result = MAKE_STRING(string_intern(&vm->intern_table, (char*)out, out_len)); // intern result
+        *result = MAKE_STRING(string_create((char*)out, out_len));           // fresh refcounted string
     } else {
         *result = MAKE_NONE();                                               // decode failed
     }
