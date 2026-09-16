@@ -801,21 +801,27 @@ static bool table_equal(Table* a, Table* b, int depth) {
 // appends a future to the ready queue, taking a reference
 static void scheduler_push(VM* vm, FutureObject* fut) {
     if (vm->ready_count >= vm->ready_capacity) {        // need more space
-        vm->ready_capacity = vm->ready_capacity == 0 ? 8 : vm->ready_capacity * 2;  // double capacity
-        vm->ready = (FutureObject**)realloc(vm->ready,   // resize ready queue
-                                            sizeof(FutureObject*) * vm->ready_capacity);
+        int new_capacity = vm->ready_capacity == 0 ? 8 : vm->ready_capacity * 2;  // double capacity
+        FutureObject** new_ready = (FutureObject**)malloc(  // allocate fresh buffer
+                sizeof(FutureObject*) * new_capacity);
+        for (int i = 0; i < vm->ready_count; i++) {     // linearize ring into fresh buffer
+            new_ready[i] = vm->ready[(vm->ready_head + i) % vm->ready_capacity];
+        }
+        free(vm->ready);                                // free old ring buffer
+        vm->ready = new_ready;                          // install fresh buffer
+        vm->ready_capacity = new_capacity;              // update capacity
+        vm->ready_head = 0;                             // reset head after linearization
     }
-    vm->ready[vm->ready_count++] = fut;                 // append to tail
+    vm->ready[(vm->ready_head + vm->ready_count) % vm->ready_capacity] = fut;  // append to tail
+    vm->ready_count++;                                  // increment count
     value_incref(MAKE_FUTURE(fut));                     // queue holds a reference
 }
 
 // pops the next ready future, transfers queue reference to caller
 static FutureObject* scheduler_pop(VM* vm) {
     if (vm->ready_count == 0) return NULL;              // nothing to pop
-    FutureObject* fut = vm->ready[0];                   // take head
-    for (int i = 1; i < vm->ready_count; i++) {         // shift remaining entries down
-        vm->ready[i - 1] = vm->ready[i];
-    }
+    FutureObject* fut = vm->ready[vm->ready_head];      // take head
+    vm->ready_head = (vm->ready_head + 1) % vm->ready_capacity;  // advance head circularly
     vm->ready_count--;                                  // decrement count
     return fut;                                         // caller now owns the reference
 }
@@ -1214,6 +1220,7 @@ VM* vm_create(const char* source) {
     vm->ready = NULL;                             // no ready queue yet
     vm->ready_count = 0;                          // empty queue
     vm->ready_capacity = 0;                       // no capacity
+    vm->ready_head = 0;                           // head at start of empty ring
     vm->current_task = NULL;                      // no active coroutine
     vm->timers = NULL;                            // no pending timers
 
@@ -1266,7 +1273,7 @@ void vm_destroy(VM* vm) {
 
     // drain ready queue before touching top-level pool
     for (int i = 0; i < vm->ready_count; i++) {
-        value_decref(MAKE_FUTURE(vm->ready[i]));  // release each queued future
+        value_decref(MAKE_FUTURE(vm->ready[(vm->ready_head + i) % vm->ready_capacity]));  // release each queued future
     }
     free(vm->ready);                              // free ready queue array
     vm->ready = NULL;

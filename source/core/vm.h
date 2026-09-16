@@ -304,6 +304,7 @@ typedef struct {
     FutureObject** ready;           // ready coroutine queue
     int ready_count;                // number of ready coroutines
     int ready_capacity;             // allocated capacity of ready queue
+    int ready_head;                 // index of the head of the ring buffer
     FutureObject* current_task;     // coroutine currently executing, NULL at top level
     SleepTimer* timers;             // pending sleep timers
     ApexMutex completion_mutex;     // protects completions and pending_workers
