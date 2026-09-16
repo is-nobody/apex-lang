@@ -18,6 +18,7 @@
 #include <sys/timeb.h>
 #include <tlhelp32.h>
 #include <io.h>
+#include <process.h>
 #define chdir _chdir    // windows chdir wrapper
 #define getcwd _getcwd  // windows getcwd wrapper
 #define rmdir _rmdir    // windows rmdir wrapper
@@ -110,6 +111,123 @@ static Value make_string_val(VM* vm, const char* str) {
     return MAKE_STRING(string_intern(&vm->intern_table, str, len));                // intern and box as value
 }
 
+// create a leaf future ready to be resolved by a background worker
+static FutureObject* os_make_leaf_future(void) {
+    FutureObject* fut = (FutureObject*)malloc(sizeof(FutureObject));  // allocate struct
+    fut->header.ref_count = 1;                   // caller holds one reference
+    fut->header.type = VAL_FUTURE;               // mark type as future
+    fut->result = MAKE_NONE();                   // filled in when resolved
+    fut->state = 0;                              // pending
+    fut->func_idx = -1;                          // leaf: no coroutine body
+    fut->arg_count = 0;                          // no captured args
+    fut->args = NULL;                            // no args array
+    fut->frame_idx = -1;                         // not started
+    fut->owns_frame = false;                     // no frame owned
+    fut->saved_ip = 0;                           // unused for leaf
+    fut->saved_dest_reg = -1;                    // unused for leaf
+    fut->awaiting = MAKE_NONE();                 // not awaiting
+    fut->waiters = NULL;                         // no waiters yet
+    fut->waiter_count = 0;                       // empty
+    fut->waiter_capacity = 0;                    // no capacity
+    fut->saved_iter_depth = -1;                  // no active loops
+    fut->saved_table_iter_depth = -1;            // no table iterators
+    return fut;                                  // return fresh future
+}
+
+// spawn a detached worker thread that runs the blocking task off the main loop
+static void os_spawn_worker(VM* vm, FutureObject* fut, void* (*fn)(void*), void* arg) {
+    APEX_MUTEX_LOCK(&vm->completion_mutex);           // reserve a worker slot
+    vm->pending_workers++;                            // count pending worker
+    APEX_MUTEX_UNLOCK(&vm->completion_mutex);         // release lock
+
+    bool ok = false;                                  // spawn success flag
+#ifdef _WIN32
+    uintptr_t h = _beginthreadex(NULL, 0,               // windows thread
+                                 (unsigned __stdcall (*)(void*))fn,
+                                 arg, 0, NULL);
+    if (h) { CloseHandle((HANDLE)h); ok = true; }     // detach handle
+#else
+    pthread_t tid;                                    // posix thread handle
+    if (pthread_create(&tid, NULL, fn, arg) == 0) {   // start thread
+        pthread_detach(tid);                          // detach
+        ok = true;                                    // mark success
+    }
+#endif
+
+    if (!ok) {                                        // spawn failed
+        vm_push_completion(vm, fut, MAKE_NONE());     // complete future with none
+    }
+}
+
+typedef struct {
+    VM* vm;                  // vm pointer for completion push
+    FutureObject* fut;       // future to resolve
+    char* path;              // copied path argument
+} OsReadWorker;
+
+static void* os_read_thread(void* p) {
+    OsReadWorker* w = (OsReadWorker*)p;               // unpack worker args
+    Value result = MAKE_NONE();                       // default result
+    FILE* f = fopen(w->path, "rb");                   // open file binary
+    if (f) {                                          // opened
+        fseek(f, 0, SEEK_END);                        // seek end
+        long size = ftell(f);                         // get size
+        fseek(f, 0, SEEK_SET);                        // seek start
+        char* buffer = (char*)malloc(size + 1);       // allocate buffer
+        if (buffer) {                                 // alloc ok
+            size_t n = fread(buffer, 1, size, f);     // read content
+            buffer[n] = '\0';                         // null terminate
+            StringObject* str = string_create(buffer, (int)n);  // fresh non-interned string
+            result = MAKE_STRING(str);                // box as value
+            free(buffer);                             // free temp buffer
+        }
+        fclose(f);                                    // close file
+    }
+    vm_push_completion(w->vm, w->fut, result);        // hand off to scheduler
+    free(w->path);                                    // free copied path
+    free(w);                                          // free worker args
+    return NULL;                                      // thread exit
+}
+
+typedef struct {
+    VM* vm;                  // vm pointer for completion push
+    FutureObject* fut;       // future to resolve
+    char* path;              // copied path argument
+    char* content;           // copied content argument
+    const char* mode;        // "wb" for write, "ab" for append
+} OsWriteWorker;
+
+static void* os_write_thread(void* p) {
+    OsWriteWorker* w = (OsWriteWorker*)p;             // unpack worker args
+    Value result = MAKE_BOOL(false);                  // default failure
+    FILE* f = fopen(w->path, w->mode);                // open file
+    if (f) {                                          // opened
+        fputs(w->content, f);                         // write or append content
+        fclose(f);                                    // close file
+        result = MAKE_BOOL(true);                     // mark success
+    }
+    vm_push_completion(w->vm, w->fut, result);        // hand off to scheduler
+    free(w->path);                                    // free copied path
+    free(w->content);                                 // free copied content
+    free(w);                                          // free worker args
+    return NULL;                                      // thread exit
+}
+
+typedef struct {
+    VM* vm;                  // vm pointer for completion push
+    FutureObject* fut;       // future to resolve
+    char* command;           // copied shell command
+} OsExecWorker;
+
+static void* os_exec_thread(void* p) {
+    OsExecWorker* w = (OsExecWorker*)p;               // unpack worker args
+    int code = system(w->command);                    // run command (blocks this thread)
+    vm_push_completion(w->vm, w->fut, MAKE_NUMBER((double)code));  // hand off exit code
+    free(w->command);                                 // free copied command
+    free(w);                                          // free worker args
+    return NULL;                                      // thread exit
+}
+
 // dispatcher for operating system built-in functions
 bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     if (strcmp(name, "os.output") == 0) {                         // print to stdout
@@ -149,6 +267,14 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         if (arg_count >= 1 && IS_NUMBER(args[0])) {                   // validate time
             double seconds = AS_NUMBER(args[0]);                      // extract seconds
             if (seconds < 0) seconds = 0;                             // clamp negative
+
+            if (vm->current_task != NULL) {                           // inside coroutine: never block
+                FutureObject* fut = os_make_leaf_future();            // fresh pending future
+                vm_schedule_timer(vm, seconds, fut);                  // timer resolves it later
+                *result = MAKE_FUTURE(fut);                           // hand back pending future
+                return true;                                          // builtin handled
+            }
+
 #ifdef _WIN32
             Sleep((DWORD)(seconds * 1000));                           // windows sleep in ms
 #else
@@ -210,6 +336,21 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     
     if (strcmp(name, "os.execute") == 0) {                      // execute shell command
         if (arg_count >= 1 && IS_STRING(args[0])) {             // validate command
+
+            if (vm->current_task != NULL) {                     // inside coroutine: never block
+                FutureObject* fut = os_make_leaf_future();      // fresh pending future
+                value_incref(MAKE_FUTURE(fut));                 // worker holds one reference
+
+                OsExecWorker* w = (OsExecWorker*)malloc(sizeof(OsExecWorker));  // pack args
+                w->vm = vm;                                     // store vm pointer
+                w->fut = fut;                                   // store future
+                w->command = strdup(AS_STRING(args[0])->chars); // copy command
+
+                os_spawn_worker(vm, fut, os_exec_thread, w);    // offload to background
+                *result = MAKE_FUTURE(fut);                     // return pending future
+                return true;                                    // builtin handled
+            }
+
             int exit_code = system(AS_STRING(args[0])->chars);  // execute command
             *result = MAKE_NUMBER(exit_code);                   // return exit code
         } else {
@@ -220,6 +361,21 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
 
     if (strcmp(name, "os.read") == 0) {                         // read file content
         if (arg_count >= 1 && IS_STRING(args[0])) {             // validate path
+
+            if (vm->current_task != NULL) {                     // inside coroutine: never block
+                FutureObject* fut = os_make_leaf_future();      // fresh pending future
+                value_incref(MAKE_FUTURE(fut));                 // worker holds one reference
+
+                OsReadWorker* w = (OsReadWorker*)malloc(sizeof(OsReadWorker));  // pack args
+                w->vm = vm;                                     // store vm pointer
+                w->fut = fut;                                   // store future
+                w->path = strdup(AS_STRING(args[0])->chars);    // copy path
+
+                os_spawn_worker(vm, fut, os_read_thread, w);    // offload to background
+                *result = MAKE_FUTURE(fut);                     // return pending future
+                return true;                                    // builtin handled
+            }
+
             char path[4096];                                    // normalized path buffer
             snprintf(path, sizeof(path), "%s", AS_STRING(args[0])->chars);  // copy path
             normalize_path(path);                               // normalize separators
@@ -246,6 +402,23 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     
     if (strcmp(name, "os.write") == 0) {                                   // write file content
         if (arg_count >= 2 && IS_STRING(args[0]) && IS_STRING(args[1])) {  // validate path and content
+
+            if (vm->current_task != NULL) {                                // inside coroutine: never block
+                FutureObject* fut = os_make_leaf_future();                 // fresh pending future
+                value_incref(MAKE_FUTURE(fut));                            // worker holds one reference
+
+                OsWriteWorker* w = (OsWriteWorker*)malloc(sizeof(OsWriteWorker));  // pack args
+                w->vm = vm;                                                // store vm pointer
+                w->fut = fut;                                              // store future
+                w->path = strdup(AS_STRING(args[0])->chars);               // copy path
+                w->content = strdup(AS_STRING(args[1])->chars);            // copy content
+                w->mode = "wb";                                            // write mode
+
+                os_spawn_worker(vm, fut, os_write_thread, w);              // offload to background
+                *result = MAKE_FUTURE(fut);                                // return pending future
+                return true;                                               // builtin handled
+            }
+
             char path[4096];                                               // normalized path buffer
             snprintf(path, sizeof(path), "%s", AS_STRING(args[0])->chars); // copy path
             normalize_path(path);                                          // normalize separators

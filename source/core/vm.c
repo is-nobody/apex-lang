@@ -25,6 +25,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <time.h>
+#ifdef _WIN32
+#include <sys/timeb.h>
+#include <process.h>
+#else
+#include <sys/time.h>
+#include <unistd.h>
+#endif
 
 // union for reinterpret double bits as uint64
 typedef union { uint64_t u; double d; } du64;
@@ -40,6 +48,16 @@ typedef struct {
     int length;    // current string length
     int capacity;  // total buffer capacity
 } StringBuilder;
+
+// snapshot of the vm's currently active pool pointers
+typedef struct {
+    Value* register_pool;   // active register pool
+    int* frame_offset;      // frame start offsets
+    int* frame_capacity;    // frame capacities
+    int* frame_used;        // highest register used per frame
+    int pool_capacity;      // total pool capacity
+    int current_frame;      // active frame index
+} SavedVMContext;
 
 // forward declarations
 static char* table_to_string(Table* table);
@@ -189,6 +207,30 @@ static const char* value_to_cstr(Value v, char* buf, int buf_size) {
     }
 }
 
+// frees a coroutine's private register pool and frame arrays
+static void future_free_pool(FutureObject* fut) {
+    if (!fut || !fut->owns_frame) return;                // nothing to free
+    if (fut->register_pool) {                            // release live registers
+        for (int i = 0; i < fut->pool_capacity; i++) {
+            if ((fut->register_pool[i] & QNAN) == QNAN) {
+                value_decref(fut->register_pool[i]);     // release heap-tagged slot
+            }
+            fut->register_pool[i] = MAKE_NONE();         // clear slot
+        }
+        free(fut->register_pool);                        // free pool buffer
+        fut->register_pool = NULL;
+    }
+    free(fut->frame_offset);                             // free frame offsets
+    free(fut->frame_capacity);                           // free frame capacities
+    free(fut->frame_used);                               // free frame usage counters
+    fut->frame_offset = NULL;
+    fut->frame_capacity = NULL;
+    fut->frame_used = NULL;
+    fut->pool_capacity = 0;
+    fut->current_frame = 0;
+    fut->owns_frame = false;
+}
+
 // increments the reference count of a reference-counted value
 void value_incref(Value v) {
     if (IS_STRING(v)) {
@@ -226,6 +268,9 @@ void value_decref(Value v) {
             for (int i = 0; i < fut->arg_count; i++) value_decref(fut->args[i]);  // release captured args
             free(fut->args);                           // free args array
             value_decref(fut->result);                 // release result value
+            value_decref(fut->awaiting);               // release awaited future
+            free(fut->waiters);                        // free waiter list
+            future_free_pool(fut);                     // free private register pool
             free(fut);                                 // free future struct
         }
     }
@@ -241,6 +286,13 @@ const char* vm_value_type_name(Value value) {
     if (IS_FUNCTION(value)) return "function";               // function index tag
     if (IS_FUTURE(value)) return "future";                   // future object pointer
     return "unknown";                                        // fallback for unhandled types
+}
+
+// returns current wall-clock time in seconds
+double apex_now_seconds(void) {
+    struct timeval tv;                                  // timeval buffer
+    gettimeofday(&tv, NULL);                            // read wall clock
+    return (double)tv.tv_sec + (double)tv.tv_usec / 1000000.0;  // combine into seconds
 }
 
 // init string builder with given capacity, min 16 bytes
@@ -744,6 +796,102 @@ static bool table_equal(Table* a, Table* b, int depth) {
     return result;              // return comparison result
 }
 
+// appends a future to the ready queue, taking a reference
+static void scheduler_push(VM* vm, FutureObject* fut) {
+    if (vm->ready_count >= vm->ready_capacity) {        // need more space
+        vm->ready_capacity = vm->ready_capacity == 0 ? 8 : vm->ready_capacity * 2;  // double capacity
+        vm->ready = (FutureObject**)realloc(vm->ready,   // resize ready queue
+                                            sizeof(FutureObject*) * vm->ready_capacity);
+    }
+    vm->ready[vm->ready_count++] = fut;                 // append to tail
+    value_incref(MAKE_FUTURE(fut));                     // queue holds a reference
+}
+
+// pops the next ready future, transfers queue reference to caller
+static FutureObject* scheduler_pop(VM* vm) {
+    if (vm->ready_count == 0) return NULL;              // nothing to pop
+    FutureObject* fut = vm->ready[0];                   // take head
+    for (int i = 1; i < vm->ready_count; i++) {         // shift remaining entries down
+        vm->ready[i - 1] = vm->ready[i];
+    }
+    vm->ready_count--;                                  // decrement count
+    return fut;                                         // caller now owns the reference
+}
+
+// registers a waiter on a pending future
+static void future_add_waiter(FutureObject* fut, FutureObject* waiter) {
+    if (fut->waiter_count >= fut->waiter_capacity) {    // need more space
+        fut->waiter_capacity = fut->waiter_capacity == 0 ? 4 : fut->waiter_capacity * 2;
+        fut->waiters = (FutureObject**)realloc(fut->waiters,   // grow waiter array
+                                               sizeof(FutureObject*) * fut->waiter_capacity);
+    }
+    fut->waiters[fut->waiter_count++] = waiter;         // append waiter
+    value_incref(MAKE_FUTURE(waiter));                  // waiter array holds a reference
+}
+
+// resolves a pending future and queues every waiter as ready
+void future_resolve(VM* vm, FutureObject* fut, Value value) {
+    if (!fut || fut->state != 0) return;                // already resolved or invalid
+    fut->result = value;                                // store result
+    if ((value & QNAN) == QNAN) value_incref(value);    // keep reference
+    fut->state = 1;                                     // mark resolved
+    for (int i = 0; i < fut->waiter_count; i++) {       // wake each waiter
+        FutureObject* w = fut->waiters[i];
+        if (w->saved_dest_reg >= 0 && w->register_pool != NULL) {  // write awaited value into waiter's own pool
+            Value* wregs = &w->register_pool[w->frame_offset[w->current_frame]];
+            Value old = wregs[w->saved_dest_reg];
+            if ((old & QNAN) == QNAN) value_decref(old);
+            wregs[w->saved_dest_reg] = value;
+            if ((value & QNAN) == QNAN) value_incref(value);
+            w->saved_dest_reg = -1;                     // consumed, no pending await
+        }
+        value_decref(w->awaiting);                      // release awaited reference
+        w->awaiting = MAKE_NONE();                      // no longer waiting
+        scheduler_push(vm, w);                          // make runnable
+        value_decref(MAKE_FUTURE(w));                   // release waiter-array reference
+    }
+    fut->waiter_count = 0;                              // clear waiter list
+}
+
+// pushes a completed background task for the scheduler to resolve
+void vm_push_completion(VM* vm, FutureObject* fut, Value result) {
+    Completion* c = (Completion*)malloc(sizeof(Completion));  // allocate node
+    c->fut = fut;                                             // transfer future reference
+    c->result = result;                                       // transfer result reference
+    APEX_MUTEX_LOCK(&vm->completion_mutex);                   // lock queue
+    c->next = vm->completions;                                // prepend to list
+    vm->completions = c;                                      // publish
+    APEX_MUTEX_UNLOCK(&vm->completion_mutex);                 // unlock
+}
+
+// drains the completion queue, resolving each future (scheduler thread only)
+int vm_drain_completions(VM* vm) {
+    APEX_MUTEX_LOCK(&vm->completion_mutex);                   // take entire list
+    Completion* list = vm->completions;                       // snapshot head
+    vm->completions = NULL;                                   // reset queue
+    APEX_MUTEX_UNLOCK(&vm->completion_mutex);                 // unlock
+
+    int count = 0;                                            // number of entries
+    while (list) {
+        Completion* next = list->next;                        // save next
+        future_resolve(vm, list->fut, list->result);          // wake waiters, store result
+        value_decref(MAKE_FUTURE(list->fut));                 // release worker's future ref
+        if ((list->result & QNAN) == QNAN) {                  // heap-tagged result
+            value_decref(list->result);                       // release node's result ref
+        }
+        free(list);                                           // free node
+        list = next;                                          // advance
+        count++;
+    }
+    if (count > 0) {                                          // update pending counter
+        APEX_MUTEX_LOCK(&vm->completion_mutex);               // lock
+        vm->pending_workers -= count;                         // release worker slots
+        if (vm->pending_workers < 0) vm->pending_workers = 0; // clamp to zero
+        APEX_MUTEX_UNLOCK(&vm->completion_mutex);             // unlock
+    }
+    return count;                                             // return drained count
+}
+
 // ensures a register frame has enough capacity for the given register index
 static bool ensure_register_capacity(VM* vm, int frame_idx, int needed_reg) {
     if (needed_reg < vm->frame_capacity[frame_idx]) {
@@ -803,11 +951,233 @@ static bool ensure_register_capacity(VM* vm, int frame_idx, int needed_reg) {
         if (vm->frame_capacity[f] > 0) offset += vm->frame_capacity[f];  // advance past this frame
     }
     
-    if (frame_idx == vm->current_frame) {
-        vm->registers = &vm->register_pool[vm->frame_offset[frame_idx]];  // point to new frame location
-    }
+    vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // refresh current frame pointer
     
     return true;                                         // frame ready
+}
+
+// saves the vm's currently active pool context into a stack-local snapshot
+static void vm_context_save(VM* vm, SavedVMContext* s) {
+    s->register_pool  = vm->register_pool;
+    s->frame_offset   = vm->frame_offset;
+    s->frame_capacity = vm->frame_capacity;
+    s->frame_used     = vm->frame_used;
+    s->pool_capacity  = vm->pool_capacity;
+    s->current_frame  = vm->current_frame;
+}
+
+// restores a previously saved pool context into the vm's active slot
+static void vm_context_restore(VM* vm, SavedVMContext* s) {
+    vm->register_pool  = s->register_pool;
+    vm->frame_offset   = s->frame_offset;
+    vm->frame_capacity = s->frame_capacity;
+    vm->frame_used     = s->frame_used;
+    vm->pool_capacity  = s->pool_capacity;
+    vm->current_frame  = s->current_frame;
+    vm->registers      = &vm->register_pool[vm->frame_offset[vm->current_frame]];
+}
+
+// installs a coroutine's private pool as the vm's active execution context
+static void vm_context_enter(VM* vm, FutureObject* task) {
+    vm->register_pool  = task->register_pool;
+    vm->frame_offset   = task->frame_offset;
+    vm->frame_capacity = task->frame_capacity;
+    vm->frame_used     = task->frame_used;
+    vm->pool_capacity  = task->pool_capacity;
+    vm->current_frame  = task->current_frame;
+    vm->registers      = &vm->register_pool[vm->frame_offset[vm->current_frame]];
+
+    vm->current_task   = task;                         // enter coroutine mode
+    vm->call_depth     = 0;                            // coroutine body starts at depth 0
+    vm->iterator_depth = task->saved_iter_depth;       // restore numeric loop stack
+    for (int i = 0; i <= task->saved_iter_depth && i < 16; i++)
+        vm->iterator_stack[i] = task->saved_iters[i];
+    vm->table_iter_depth = task->saved_table_iter_depth;  // restore table iterator stack
+    for (int i = 0; i <= task->saved_table_iter_depth && i < 4; i++)
+        vm->table_iters[i] = task->saved_table_iters[i];
+}
+
+// captures the vm's active pool state back into a coroutine after a slice
+static void vm_context_capture(VM* vm, FutureObject* task) {
+    task->register_pool  = vm->register_pool;          // save (possibly reallocated) pool
+    task->frame_offset   = vm->frame_offset;
+    task->frame_capacity = vm->frame_capacity;
+    task->frame_used     = vm->frame_used;
+    task->pool_capacity  = vm->pool_capacity;
+    task->current_frame  = vm->current_frame;
+    task->saved_iter_depth = vm->iterator_depth;       // save numeric loop stack
+    for (int i = 0; i <= vm->iterator_depth && i < 16; i++)
+        task->saved_iters[i] = vm->iterator_stack[i];
+    task->saved_table_iter_depth = vm->table_iter_depth;  // save table iterator stack
+    for (int i = 0; i <= vm->table_iter_depth && i < 4; i++)
+        task->saved_table_iters[i] = vm->table_iters[i];
+    vm->current_task = NULL;                           // leave coroutine mode
+}
+
+// starts a pending future as a coroutine and queues it for execution
+void future_start(VM* vm, FutureObject* fut) {
+    if (fut->register_pool != NULL) return;             // already started
+    if (fut->func_idx < 0) return;                      // leaf future, no body to run
+    int needed = vm->chunk->functions[fut->func_idx].max_registers;
+    if (needed < REGISTER_INITIAL_SIZE) needed = REGISTER_INITIAL_SIZE;
+    if (needed < fut->arg_count) needed = fut->arg_count;
+
+    fut->register_pool  = (Value*)malloc(sizeof(Value) * needed);   // private register pool
+    fut->frame_offset   = (int*)calloc(VM_MAX_FRAMES, sizeof(int)); // private frame offsets
+    fut->frame_capacity = (int*)calloc(VM_MAX_FRAMES, sizeof(int)); // private frame capacities
+    fut->frame_used     = (int*)calloc(VM_MAX_FRAMES, sizeof(int)); // private usage counters
+    if (!fut->register_pool || !fut->frame_offset ||
+        !fut->frame_capacity || !fut->frame_used) {                 // allocation failed
+        free(fut->register_pool);  fut->register_pool  = NULL;
+        free(fut->frame_offset);   fut->frame_offset   = NULL;
+        free(fut->frame_capacity); fut->frame_capacity = NULL;
+        free(fut->frame_used);     fut->frame_used     = NULL;
+        return;                                                     // give up quietly
+    }
+    fut->pool_capacity  = needed;                       // total capacity for this pool
+    fut->current_frame  = 0;                            // body frame is index 0
+    fut->frame_offset[0]   = 0;                         // body frame starts at pool offset 0
+    fut->frame_capacity[0] = needed;                    // body frame capacity
+    fut->frame_used[0]     = needed;                    // body frame fully used
+    for (int i = 0; i < needed; i++) fut->register_pool[i] = MAKE_NONE();  // clear pool
+
+    for (int i = 0; i < fut->arg_count; i++) {          // copy captured args into body frame
+        fut->register_pool[i] = fut->args[i];
+        if ((fut->args[i] & QNAN) == QNAN) value_incref(fut->args[i]);
+    }
+    fut->owns_frame = true;                             // pool now owned by this future
+    fut->saved_ip = vm->chunk->functions[fut->func_idx].address;  // start of body
+    fut->saved_dest_reg = -1;                           // no pending await
+    fut->saved_iter_depth = -1;                         // no active loops
+    fut->saved_table_iter_depth = -1;
+    scheduler_push(vm, fut);                            // make it ready
+}
+
+// registers a timer that resolves the future after the given seconds
+void vm_schedule_timer(VM* vm, double seconds, FutureObject* fut) {
+    SleepTimer* t = (SleepTimer*)malloc(sizeof(SleepTimer));  // allocate timer node
+    t->deadline = apex_now_seconds() + seconds;         // compute absolute deadline
+    t->fut = fut;                                       // store future
+    value_incref(MAKE_FUTURE(fut));                     // timer holds a reference
+    t->next = vm->timers;                               // prepend to list
+    vm->timers = t;                                     // update head
+}
+
+// fires all timers whose deadlines have passed
+static bool poll_timers(VM* vm) {
+    double now = apex_now_seconds();                    // current time
+    bool fired = false;                                 // whether anything fired
+    SleepTimer** pp = &vm->timers;                      // walk pointer chain
+    while (*pp) {
+        SleepTimer* t = *pp;                            // current timer
+        if (t->deadline <= now) {                       // deadline reached
+            *pp = t->next;                              // unlink
+            future_resolve(vm, t->fut, MAKE_NONE());    // resolve with none
+            value_decref(MAKE_FUTURE(t->fut));          // release timer's reference
+            free(t);                                    // free node
+            fired = true;                               // mark fired
+        } else {
+            pp = &t->next;                              // advance
+        }
+    }
+    return fired;                                       // return status
+}
+
+// sleeps the thread until the earliest pending timer is due
+static void wait_for_next_timer(VM* vm) {
+    if (!vm->timers) {                              // nothing to wait on
+        if (vm->pending_workers > 0) {              // but workers are running
+#ifdef _WIN32
+            Sleep(1);                               // short poll to check completions
+#else
+            usleep(1000);                           // short poll to check completions
+#endif
+        }
+        return;
+    }
+    double earliest = vm->timers->deadline;         // scan for earliest deadline
+    for (SleepTimer* t = vm->timers->next; t; t = t->next) {
+        if (t->deadline < earliest) earliest = t->deadline;
+    }
+    double wait = earliest - apex_now_seconds();    // compute delay
+    if (wait <= 0) return;                          // already due
+    if (wait > 0.01) wait = 0.01;                   // cap so completions stay responsive
+#ifdef _WIN32
+    Sleep((DWORD)(wait * 1000));                    // windows sleep
+#else
+    usleep((useconds_t)(wait * 1000000));           // posix sleep
+#endif
+}
+
+// drives the scheduler until the target future resolves
+bool vm_drive_until(VM* vm, Value target, Value* out_result) {
+    if (!IS_FUTURE(target)) {                           // non-future passthrough
+        *out_result = target;
+        if ((target & QNAN) == QNAN) value_incref(target);
+        return true;
+    }
+    FutureObject* fut = AS_FUTURE(target);
+
+    SavedVMContext saved_ctx;                           // snapshot of caller's pool
+    vm_context_save(vm, &saved_ctx);
+
+    int saved_iter_depth = vm->iterator_depth;          // save caller loop iterators
+    ForIter saved_iters[16];
+    int saved_iter_count = saved_iter_depth + 1;
+    if (saved_iter_count > 16) saved_iter_count = 16;
+    for (int i = 0; i < saved_iter_count; i++) saved_iters[i] = vm->iterator_stack[i];
+
+    TableIterState saved_tt[4];                         // save caller table iterators
+    int saved_titer = vm->table_iter_depth;
+    int saved_tt_count = saved_titer + 1;
+    if (saved_tt_count > 4) saved_tt_count = 4;
+    for (int i = 0; i < saved_tt_count; i++) saved_tt[i] = vm->table_iters[i];
+
+    FutureObject* saved_task = vm->current_task;        // save caller's task mode
+
+    if (fut->state == 0 && fut->register_pool == NULL) future_start(vm, fut);  // start target if pending
+
+    while (fut->state == 0) {                           // drive until resolved
+        if (vm->had_error) break;                       // abort scheduler on VM error
+        bool ran = false;                               // did we run a slice?
+        while (vm->ready_count > 0) {                   // drain ready queue
+            FutureObject* task = scheduler_pop(vm);     // take next task
+            ran = true;                                 // mark progress
+
+            vm_context_enter(vm, task);                 // install task's private pool
+            vm_execute(vm, vm->chunk);                  // run one slice until suspend or return
+            vm_context_capture(vm, task);               // save task's pool state back
+
+            vm_context_restore(vm, &saved_ctx);         // back to caller's pool between tasks
+            value_decref(MAKE_FUTURE(task));            // drop queue reference
+        }
+        if (fut->state != 0) break;                     // target resolved
+        if (vm->had_error) break;                       // VM error
+
+        if (vm_drain_completions(vm) > 0) continue;     // finished workers woke futures
+
+        if (vm->timers || vm->pending_workers > 0) {    // wait on timers or workers
+            wait_for_next_timer(vm);
+            poll_timers(vm);
+        } else if (!ran) {
+            break;                                      // nothing to do, deadlock
+        }
+    }
+
+    vm_context_restore(vm, &saved_ctx);                 // restore caller's pool
+    vm->current_task = saved_task;                      // restore caller's task mode
+    vm->iterator_depth = saved_iter_depth;
+    for (int i = 0; i < saved_iter_count; i++) vm->iterator_stack[i] = saved_iters[i];
+    vm->table_iter_depth = saved_titer;
+    for (int i = 0; i < saved_tt_count; i++) vm->table_iters[i] = saved_tt[i];
+
+    if (fut->state == 1) {                              // resolved
+        *out_result = fut->result;
+        if ((fut->result & QNAN) == QNAN) value_incref(fut->result);
+        return true;
+    }
+    *out_result = MAKE_NONE();                          // deadlock or error
+    return false;
 }
 
 // creates a new vm instance with the given source code
@@ -847,7 +1217,17 @@ VM* vm_create(const char* source) {
     vm->args_table = MAKE_NONE();                 // default to none until set
     for (int i = 0; i < VM_MAX_FRAMES; i++) vm->frame_futures[i] = MAKE_NONE();  // no frame owns a future yet
     vm->source = source;                          // store source pointer
-    
+
+    vm->ready = NULL;                             // no ready queue yet
+    vm->ready_count = 0;                          // empty queue
+    vm->ready_capacity = 0;                       // no capacity
+    vm->current_task = NULL;                      // no active coroutine
+    vm->timers = NULL;                            // no pending timers
+
+    APEX_MUTEX_INIT(&vm->completion_mutex);       // init completion lock
+    vm->completions = NULL;                       // no pending completions
+    vm->pending_workers = 0;                      // no live workers
+
     string_intern_table_init(&vm->intern_table);  // init string intern table
     return vm;                                    // return new vm
 }
@@ -875,7 +1255,40 @@ void vm_set_args(VM* vm, int argc, char** argv, bool skip_script_name) {
 void vm_destroy(VM* vm) {
     if (!vm) return;                              // guard against null
     value_decref(vm->args_table);                 // release args table and all contained strings
-    
+
+    // wait for any live background worker threads to finish before teardown
+    while (1) {
+        APEX_MUTEX_LOCK(&vm->completion_mutex);   // read counter under lock
+        int pending = vm->pending_workers;        // snapshot
+        APEX_MUTEX_UNLOCK(&vm->completion_mutex); // release lock
+        if (pending <= 0) break;                  // no workers left
+        vm_drain_completions(vm);                 // discard finished results
+#ifdef _WIN32
+        Sleep(1);                                 // short poll interval
+#else
+        usleep(1000);                             // short poll interval
+#endif
+    }
+    vm_drain_completions(vm);                     // final sweep
+
+    // drain ready queue before touching top-level pool
+    for (int i = 0; i < vm->ready_count; i++) {
+        value_decref(MAKE_FUTURE(vm->ready[i]));  // release each queued future
+    }
+    free(vm->ready);                              // free ready queue array
+    vm->ready = NULL;
+    vm->ready_count = 0;
+
+    // drain pending timers
+    SleepTimer* t = vm->timers;                   // walk timer list
+    while (t) {                                   // free every remaining timer
+        SleepTimer* n = t->next;                  // save next before freeing
+        value_decref(MAKE_FUTURE(t->fut));        // release timer's reference
+        free(t);                                  // free timer node
+        t = n;                                    // advance
+    }
+    vm->timers = NULL;
+
     int total_regs = 0;
     for (int f = 0; f < VM_MAX_FRAMES; f++) {
         if (vm->frame_capacity[f] > 0) total_regs += vm->frame_capacity[f];  // sum all frame capacities
@@ -884,20 +1297,25 @@ void vm_destroy(VM* vm) {
         value_decref(vm->register_pool[i]);       // release each register value
     }
     free(vm->register_pool);                      // free the shared register pool
+    vm->register_pool = NULL;
     free(vm->frame_offset);                       // free frame offset array
     free(vm->frame_capacity);                     // free frame capacity array
     free(vm->frame_used);                         // free frame used array
-    
+    vm->frame_offset = NULL;
+    vm->frame_capacity = NULL;
+    vm->frame_used = NULL;
+
     for (int i = 0; i < vm->global_count; i++) {
         value_decref(vm->globals[i]);             // release each global
     }
     for (int i = 0; i < vm->args_top; i++) {
         value_decref(vm->args_stack[i]);          // release any remaining args
     }
-    
+
+    APEX_MUTEX_DESTROY(&vm->completion_mutex);    // destroy lock
     string_intern_table_free(&vm->intern_table);  // free interned strings
 #if APEX_JIT_ENABLED
-    jit_destroy(vm->jit);                     // release JIT and its code page
+    jit_destroy(vm->jit);                         // release JIT and its code page
 #endif
     free(vm);                                     // free vm struct
 }
@@ -994,36 +1412,39 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     vm->code_count = chunk->code_count;                   // total instruction count
     vm->running = true;                                   // mark vm as running
     vm->had_error = false;                                // reset error flag
-    vm->global_count = chunk->global_count;               // number of globals to initialise
+    bool top_level = (vm->current_task == NULL);          // entering top-level or resuming a coroutine
+    if (top_level) {                                      // top-level-only setup
+        vm->global_count = chunk->global_count;           // number of globals to initialise
 #if APEX_JIT_ENABLED
-    if (apex_jit_runtime_enabled) {
-        vm->jit = jit_create(chunk);                          // compile numeric-pure functions
-        if (vm->jit) jit_set_vm(vm->jit, vm);                 // back-pointer for numeric-for reseed
-    } else {
-        vm->jit = NULL;                                       // no JIT context at all
-    }
+        if (apex_jit_runtime_enabled) {
+            vm->jit = jit_create(chunk);                  // compile numeric-pure functions
+            if (vm->jit) jit_set_vm(vm->jit, vm);         // back-pointer for numeric-for reseed
+        } else {
+            vm->jit = NULL;                               // no JIT context at all
+        }
 #endif
 
-    int needed_regs = chunk->functions[0].max_registers;  // registers needed by main function
-    if (needed_regs < REGISTER_INITIAL_SIZE) {
-        needed_regs = REGISTER_INITIAL_SIZE;              // enforce minimum frame size
-    }
-    if (!ensure_register_capacity(vm, 0, needed_regs)) {  // allocate or grow frame 0
-        vm->had_error = true;                             // allocation failed
-        vm->running = false;                              // stop execution
-        return false;                                     // bail out
-    }
-    
-    for (int i = 0; i < chunk->global_count; i++) {
-        vm->globals[i] = MAKE_NONE();                     // initialise each global slot
-    }
-    
-    for (int i = 0; i < chunk->const_count; i++) {               // pre-intern string constants for fast comparison
-        Constant* c = &chunk->constants[i];                      // current constant
-        if (c->type == CONST_STRING && c->cached_str == NULL) {  // string not yet interned
-            int len = (int)strlen(c->string_value);              // compute length once at load time
-            c->cached_str = string_intern(&vm->intern_table,     // intern into vm's table, immortal object
-                                          c->string_value, len);
+        int needed_regs = chunk->functions[0].max_registers;  // registers needed by main function
+        if (needed_regs < REGISTER_INITIAL_SIZE) {
+            needed_regs = REGISTER_INITIAL_SIZE;              // enforce minimum frame size
+        }
+        if (!ensure_register_capacity(vm, 0, needed_regs)) {  // allocate or grow frame 0
+            vm->had_error = true;                             // allocation failed
+            vm->running = false;                              // stop execution
+            return false;                                     // bail out
+        }
+
+        for (int i = 0; i < chunk->global_count; i++) {
+            vm->globals[i] = MAKE_NONE();                     // initialise each global slot
+        }
+
+        for (int i = 0; i < chunk->const_count; i++) {               // pre-intern string constants for fast comparison
+            Constant* c = &chunk->constants[i];                      // current constant
+            if (c->type == CONST_STRING && c->cached_str == NULL) {  // string not yet interned
+                int len = (int)strlen(c->string_value);              // compute length once at load time
+                c->cached_str = string_intern(&vm->intern_table,     // intern into vm's table, immortal object
+                                              c->string_value, len);
+            }
         }
     }
     
@@ -1135,7 +1556,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
 #else
     #define APEX_TRY_JIT_LOOP() ((void)0)
 #endif
-    register Instruction* ip = vm->code;   // instruction pointer in a register for speed
+    register Instruction* ip = top_level ? vm->code : &vm->code[vm->current_task->saved_ip];  // resume point or entry
     register Value* regs = vm->registers;  // current frame registers in a register for speed
     __builtin_prefetch(ip + 1, 0, 1);      // hint cpu to prefetch next instruction
     goto *dispatch_table[ip->opcode];      // jump to first opcode handler
@@ -2076,9 +2497,12 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // switch to new frame
         regs = vm->registers;                     // update local regs pointer
         for (int i = 0; i < arg_count; i++) {
-            regs[i] = vm->args_stack[vm->args_top - arg_count + i];  // copy args into new frame registers
+            Value _arg = vm->args_stack[vm->args_top - arg_count + i];  // fetch source value
+            Value _old = regs[i];                                       // old slot value
+            if ((_old & QNAN) == QNAN) value_decref(_old);              // release old slot value
+            regs[i] = _arg;                                             // take ownership (transfer from args stack)
         }
-        vm->args_top -= arg_count;                // pop args from args stack
+        vm->args_top -= arg_count;                // pop args from args stack (refs now held by callee)
         ip = &vm->code[chunk->functions[func_idx].address];  // jump to function body
         goto *dispatch_table[ip->opcode];         // dispatch first instruction of function
     }
@@ -2193,7 +2617,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // switch to new frame
         regs = vm->registers;                                       // update local regs pointer
         int prev_offset = vm->frame_offset[vm->current_frame - 1];  // caller's frame offset
-        regs[0] = vm->register_pool[prev_offset + arg_reg];         // copy single arg into new frame
+        Value _arg = vm->register_pool[prev_offset + arg_reg];      // fetch source value
+        Value _old = regs[0];                                       // old slot value
+        if ((_old & QNAN) == QNAN) value_decref(_old);              // release old slot value
+        regs[0] = _arg;                                             // take ownership of new value
+        if ((_arg & QNAN) == QNAN) value_incref(_arg);              // bump refcount for callee
         ip = &vm->code[chunk->functions[func_idx].address];         // jump to function body
         goto *dispatch_table[ip->opcode];                           // dispatch first instruction of function
     }
@@ -2243,14 +2671,29 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];  // switch to new frame
         regs = vm->registers;                                       // update local regs pointer
         int prev_offset = vm->frame_offset[vm->current_frame - 1];  // caller's frame offset
-        regs[0] = vm->register_pool[prev_offset + arg1_reg];        // copy first arg into new frame
-        regs[1] = vm->register_pool[prev_offset + arg2_reg];        // copy second arg into new frame
+        Value _a1 = vm->register_pool[prev_offset + arg1_reg];      // fetch first arg value
+        Value _a2 = vm->register_pool[prev_offset + arg2_reg];      // fetch second arg value
+        Value _o0 = regs[0];                                        // old slot 0 value
+        Value _o1 = regs[1];                                        // old slot 1 value
+        if ((_o0 & QNAN) == QNAN) value_decref(_o0);                // release old slot 0
+        if ((_o1 & QNAN) == QNAN) value_decref(_o1);                // release old slot 1
+        regs[0] = _a1;                                              // take ownership of first arg
+        regs[1] = _a2;                                              // take ownership of second arg
+        if ((_a1 & QNAN) == QNAN) value_incref(_a1);                // bump refcount for callee
+        if ((_a2 & QNAN) == QNAN) value_incref(_a2);                // bump refcount for callee
         ip = &vm->code[chunk->functions[func_idx].address];         // jump to function body
         goto *dispatch_table[ip->opcode];                           // dispatch first instruction of function
     }
     OP_RETURN_LABEL: {
         int value_reg = ip->operands[0];         // register holding return value
         Value ret_val = regs[value_reg];         // fetch return value
+        if (vm->current_task != NULL && vm->call_depth == 0) {  // coroutine body returning
+            FutureObject* cur = vm->current_task;               // coroutine being completed
+            vm->current_task = NULL;                            // leave coroutine mode
+            vm->running = false;                                // stop this slice
+            future_resolve(vm, cur, ret_val);                   // resolve its future, wake waiters
+            return true;                                        // back to scheduler
+        }
         RESOLVE_FRAME_FUTURE(ret_val);
         if (unlikely((ret_val & QNAN) == QNAN)) {  // heap object (string/table) - less common
             value_incref(ret_val);               // bump refcount for the returned value
@@ -2278,6 +2721,13 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     OP_RETURN_NUM_LABEL: {
         int value_reg = ip->operands[0];         // register holding return value
         Value ret_val = regs[value_reg];         // fetch return value
+        if (vm->current_task != NULL && vm->call_depth == 0) {  // coroutine body returning
+            FutureObject* cur = vm->current_task;               // coroutine being completed
+            vm->current_task = NULL;                            // leave coroutine mode
+            vm->running = false;                                // stop this slice
+            future_resolve(vm, cur, ret_val);                   // resolve its future, wake waiters
+            return true;                                        // back to scheduler
+        }
         RESOLVE_FRAME_FUTURE(ret_val);
         if (likely(vm->call_depth > 0)) {        // returning from a function call (common)
             vm->call_depth--;                    // pop call frame
@@ -2297,6 +2747,13 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     OP_RETURN_BOOL_LABEL: {
         int value_reg = ip->operands[0];         // register holding return value
         Value ret_val = regs[value_reg];         // fetch return value
+        if (vm->current_task != NULL && vm->call_depth == 0) {  // coroutine body returning
+            FutureObject* cur = vm->current_task;               // coroutine being completed
+            vm->current_task = NULL;                            // leave coroutine mode
+            vm->running = false;                                // stop this slice
+            future_resolve(vm, cur, ret_val);                   // resolve its future, wake waiters
+            return true;                                        // back to scheduler
+        }
         RESOLVE_FRAME_FUTURE(ret_val);
         if (likely(vm->call_depth > 0)) {        // returning from a function call (common)
             vm->call_depth--;                    // pop call frame
@@ -2314,6 +2771,13 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         goto OP_HALT_LABEL;                      // jump to halt
     }
     OP_RETURN_NONE_LABEL: {
+        if (vm->current_task != NULL && vm->call_depth == 0) {  // coroutine body returning
+            FutureObject* cur = vm->current_task;               // coroutine being completed
+            vm->current_task = NULL;                            // leave coroutine mode
+            vm->running = false;                                // stop this slice
+            future_resolve(vm, cur, MAKE_NONE());               // resolve its future with none
+            return true;                                        // back to scheduler
+        }
         RESOLVE_FRAME_FUTURE(MAKE_NONE());
         if (likely(vm->call_depth > 0)) {           // most returns are from function calls
             vm->call_depth--;                       // pop call frame
@@ -2346,6 +2810,22 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         fut->state = 0;                              // pending
         fut->func_idx = func_idx;                    // body to run on await
         fut->arg_count = arg_count;                  // captured argument count
+        fut->register_pool = NULL;                   // pool allocated lazily in future_start
+        fut->frame_offset = NULL;
+        fut->frame_capacity = NULL;
+        fut->frame_used = NULL;
+        fut->pool_capacity = 0;
+        fut->current_frame = 0;
+        fut->owns_frame = false;
+        fut->frame_idx = -1;                         // legacy field, unused
+        fut->saved_ip = 0;                           // no resume point yet
+        fut->saved_dest_reg = -1;                    // no pending await
+        fut->awaiting = MAKE_NONE();                 // nothing awaited
+        fut->waiters = NULL;                         // no waiters yet
+        fut->waiter_count = 0;                       // empty
+        fut->waiter_capacity = 0;                    // no capacity
+        fut->saved_iter_depth = -1;                  // no active loops
+        fut->saved_table_iter_depth = -1;            // no active table iterators
         fut->args = arg_count > 0 ? (Value*)malloc(sizeof(Value) * arg_count) : NULL;  // capture buffer
         for (int i = 0; i < arg_count; i++) {        // capture args from args stack
             Value a = vm->args_stack[vm->args_top - arg_count + i];
@@ -2355,6 +2835,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         vm->args_top -= arg_count;                   // pop args stack
         if ((regs[dest_reg] & QNAN) == QNAN) value_decref(regs[dest_reg]);  // release old dest
         regs[dest_reg] = MAKE_FUTURE(fut);           // return pending future
+        if (fut->func_idx >= 0) {                    // async body: schedule eagerly
+            future_start(vm, fut);                   // enqueue coroutine for the scheduler
+        }
         ip++; goto *dispatch_table[ip->opcode];      // no execution, caller continues
     }
     OP_AWAIT_LABEL: {
@@ -2362,50 +2845,52 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int src = ip->operands[1];                   // source register index
         Value v = regs[src];                         // value being awaited
 
-        if (IS_FUTURE(v) && AS_FUTURE(v)->state == 0) {   // pending: run the body now
+        if (IS_FUTURE(v)) {                          // awaiting a future
             FutureObject* fut = AS_FUTURE(v);
-            if (vm->call_depth >= VM_MAX_CALL_FRAMES) {   // no room for the body call
-                fprintf(stderr, "\033[31mStack overflow while resuming async body\n\033[0m");
-                vm->had_error = true; vm->running = false; goto OP_HALT_LABEL;
-            }
-            vm->call_stack[vm->call_depth].return_address = (int)((ip + 1) - vm->code);  // resume after AWAIT
-            vm->call_stack[vm->call_depth].dest_reg = dest;                              // body result goes to dest
-            vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save caller frame
-            vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;     // save iterator depth
-            vm->call_depth++;                            // push call record
-            vm->current_frame++;                         // switch to a fresh frame for the body
 
-            int needed = chunk->functions[fut->func_idx].max_registers;   // frame size from metadata
-            if (needed < REGISTER_INITIAL_SIZE) needed = REGISTER_INITIAL_SIZE;
-            if (needed < fut->arg_count) needed = fut->arg_count;
-            if (!ensure_register_capacity(vm, vm->current_frame, needed - 1)) {
-                vm->had_error = true; vm->running = false; goto OP_HALT_LABEL;
+            if (fut->state == 1) {                   // already resolved: read result
+                Value result = fut->result;
+                if ((result & QNAN) == QNAN) value_incref(result);
+                if ((regs[dest] & QNAN) == QNAN) value_decref(regs[dest]);
+                regs[dest] = result;
+                ip++; goto *dispatch_table[ip->opcode];
             }
-            vm->registers = &vm->register_pool[vm->frame_offset[vm->current_frame]];
-            regs = vm->registers;                        // update cached regs pointer
-            for (int i = 0; i < fut->arg_count; i++) {   // copy captured args into body regs
-                regs[i] = fut->args[i];
-                if ((regs[i] & QNAN) == QNAN) value_incref(regs[i]);
+
+            if (vm->current_task != NULL) {          // inside a coroutine: suspend
+                FutureObject* cur = vm->current_task;
+                cur->saved_ip = (ip + 1) - vm->code; // resume after AWAIT
+                cur->saved_dest_reg = dest;          // where the result goes
+                value_decref(cur->awaiting);         // release previous awaited future
+                cur->awaiting = v;                   // remember what we wait on
+                value_incref(v);                     // keep reference
+                cur->saved_iter_depth = vm->iterator_depth;               // save loop depth
+                for (int i = 0; i <= vm->iterator_depth && i < 16; i++)   // save loop iterators
+                    cur->saved_iters[i] = vm->iterator_stack[i];
+                cur->saved_table_iter_depth = vm->table_iter_depth;       // save table iterator depth
+                for (int i = 0; i <= vm->table_iter_depth && i < 4; i++)  // save table iterators
+                    cur->saved_table_iters[i] = vm->table_iters[i];
+                future_add_waiter(fut, cur);         // register as waiter
+                if (fut->register_pool == NULL) future_start(vm, fut);  // launch awaited body if pending
+                vm->current_task = NULL;             // leave coroutine mode
+                vm->running = false;                 // stop this slice
+                return true;                         // back to scheduler
             }
-            for (int i = fut->arg_count; i < needed; i++) regs[i] = MAKE_NONE();  // clear rest
-            vm->frame_futures[vm->current_frame] = v;    // bind future to this frame
-            value_incref(v);                             // frame holds a reference to its own future
-            ip = &vm->code[chunk->functions[fut->func_idx].address];  // jump to body
-            goto *dispatch_table[ip->opcode];            // dispatch body's first instruction
-        }
-        if (IS_FUTURE(v)) {                              // already resolved: read result
-            Value result = AS_FUTURE(v)->result;
-            if ((result & QNAN) == QNAN) value_incref(result);
+
+            // top-level await: drive the scheduler
+            Value result;
+            vm_drive_until(vm, v, &result);
+            regs = vm->registers;                    // reload regs in case pool was reallocated
             if ((regs[dest] & QNAN) == QNAN) value_decref(regs[dest]);
             regs[dest] = result;
             ip++; goto *dispatch_table[ip->opcode];
         }
-        if (dest != src) {                               // non-future passthrough: copy
+
+        if (dest != src) {                           // non-future passthrough: copy
             if ((regs[dest] & QNAN) == QNAN) value_decref(regs[dest]);
             if ((v & QNAN) == QNAN) value_incref(v);
             regs[dest] = v;
         }
-        ip++; goto *dispatch_table[ip->opcode];          // advance to next instruction
+        ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
 
     OP_LOAD_GLOBAL_LABEL: {
@@ -2440,8 +2925,59 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
 
     OP_HALT_LABEL:
-        vm->running = false;                     // stop vm execution
-        return !vm->had_error;                   // return true if no errors occurred
+        vm->running = false;
 
-    return !vm->had_error;
+        // top-level teardown: drive the scheduler until all fire-and-forget
+        // coroutines, workers and timers have settled
+        if (top_level && !vm->had_error) {
+            SavedVMContext saved_ctx;                   // snapshot of top-level pool
+            vm_context_save(vm, &saved_ctx);
+
+            int saved_iter_depth = vm->iterator_depth;  // snapshot of top-level iterators
+            ForIter saved_iters[16];
+            int saved_iter_count = saved_iter_depth + 1;
+            if (saved_iter_count > 16) saved_iter_count = 16;
+            for (int i = 0; i < saved_iter_count; i++) saved_iters[i] = vm->iterator_stack[i];
+
+            TableIterState saved_tt[4];                 // snapshot of top-level table iterators
+            int saved_titer = vm->table_iter_depth;
+            int saved_tt_count = saved_titer + 1;
+            if (saved_tt_count > 4) saved_tt_count = 4;
+            for (int i = 0; i < saved_tt_count; i++) saved_tt[i] = vm->table_iters[i];
+
+            while (!vm->had_error && (vm->ready_count > 0 || vm->timers != NULL
+                                      || vm->pending_workers > 0)) {
+                bool ran = false;
+
+                while (vm->ready_count > 0 && !vm->had_error) {
+                    FutureObject* task = scheduler_pop(vm);   // take next task
+                    ran = true;
+
+                    vm_context_enter(vm, task);               // install task's private pool
+                    vm_execute(vm, chunk);                    // run one slice
+                    vm_context_capture(vm, task);             // save pool state back
+
+                    vm_context_restore(vm, &saved_ctx);       // back to top-level pool
+                    value_decref(MAKE_FUTURE(task));          // drop queue reference
+                }
+                if (vm->had_error) break;
+
+                if (vm_drain_completions(vm) > 0) continue;  // finished workers woke futures
+
+                if (vm->timers || vm->pending_workers > 0) { // wait on timers or workers
+                    wait_for_next_timer(vm);
+                    poll_timers(vm);
+                } else if (!ran) {
+                    break;              // queue empty, no timers, no workers — exit
+                }
+            }
+
+            vm_context_restore(vm, &saved_ctx);             // restore top-level pool
+            vm->iterator_depth = saved_iter_depth;
+            for (int i = 0; i < saved_iter_count; i++) vm->iterator_stack[i] = saved_iters[i];
+            vm->table_iter_depth = saved_titer;
+            for (int i = 0; i < saved_tt_count; i++) vm->table_iters[i] = saved_tt[i];
+        }
+
+        return !vm->had_error;
 }

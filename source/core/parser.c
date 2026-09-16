@@ -540,8 +540,7 @@ static bool expr_has_side_effect(ASTNode* node) {
         case AST_UNARY:
             return expr_has_side_effect(node->unary.operand);  // check operand
         case AST_AWAIT:
-            return node->await_expr.expression &&
-                   node->await_expr.expression->type == AST_CALL;
+            return true;
         case AST_INDEX_ACCESS:
             return expr_has_side_effect(node->access.object);  // check object
         case AST_STRING_INTERP: {
@@ -575,14 +574,14 @@ static bool expr_has_side_effect(ASTNode* node) {
 static bool is_known_builtin_module(const char* name) {
     switch (name[0]) {
         case 'o':
-            return strcmp(name, "os") == 0;        // only os starts with 'o'
+            return strcmp(name, "os") == 0;        // os module
         case 's':
             return strcmp(name, "sys") == 0 ||     // sys module
                    strcmp(name, "string") == 0;    // string module
         case 'm':
-            return strcmp(name, "math") == 0;      // only math starts with 'm'
+            return strcmp(name, "math") == 0;      // math module
         case 't':
-            return strcmp(name, "table") == 0;     // only table starts with 't'
+            return strcmp(name, "table") == 0;     // table module
         case 'r':
             return strcmp(name, "random") == 0 ||  // random module
                    strcmp(name, "regex") == 0;     // regex module

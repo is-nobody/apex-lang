@@ -16,6 +16,23 @@
 extern bool apex_jit_runtime_enabled;
 #endif
 
+// platform abstractions for background worker coordination
+#ifdef _WIN32
+    #include <windows.h>
+    typedef CRITICAL_SECTION ApexMutex;          // windows critical section
+    #define APEX_MUTEX_INIT(m)    InitializeCriticalSection(m)
+    #define APEX_MUTEX_LOCK(m)    EnterCriticalSection(m)
+    #define APEX_MUTEX_UNLOCK(m)  LeaveCriticalSection(m)
+    #define APEX_MUTEX_DESTROY(m) DeleteCriticalSection(m)
+#else
+    #include <pthread.h>
+    typedef pthread_mutex_t ApexMutex;           // posix mutex
+    #define APEX_MUTEX_INIT(m)    pthread_mutex_init(m, NULL)
+    #define APEX_MUTEX_LOCK(m)    pthread_mutex_lock(m)
+    #define APEX_MUTEX_UNLOCK(m)  pthread_mutex_unlock(m)
+    #define APEX_MUTEX_DESTROY(m) pthread_mutex_destroy(m)
+#endif
+
 // branch prediction hints for compiler optimization
 #if defined(__GNUC__) || defined(__clang__)
     #define likely(x)   __builtin_expect(!!(x), 1)
@@ -131,16 +148,6 @@ typedef struct StringObject {
     char chars[];            // flexible array member for the actual string data
 } StringObject;
 
-// future produced by an async call; holds args until awaited, result after
-typedef struct FutureObject {
-    RefCountedObject header; // reference counting header for memory management
-    Value result;            // the async body's return value, once resolved
-    int state;               // 0 = pending, 1 = resolved
-    int func_idx;            // function table index of the async body
-    int arg_count;           // number of captured arguments
-    Value* args;             // heap array of captured argument values
-} FutureObject;
-
 // hash table entry with chaining for collisions
 typedef struct TableEntry {
     Value key;               // string key (interned)
@@ -160,6 +167,67 @@ typedef struct Table {
     int array_count;         // number of valid entries in array part
 } Table;
 
+// state for "for key = table" iteration, walks array_part then hash buckets
+typedef struct {
+    Table* table;              // table being iterated
+    int array_index;           // current position in array_part
+    int bucket_index;          // current bucket in hash entries
+    TableEntry* current_entry; // current node in bucket chain
+} TableIterState;
+
+// state for a numeric for-loop, saved across coroutine suspension
+typedef struct {
+    double index;              // current loop iteration value
+    double end;                // loop end bound (inclusive/exclusive based on step)
+    double step;               // loop step increment (positive or negative)
+} ForIter;
+
+// future produced by an async call; also carries coroutine state while suspended
+typedef struct FutureObject {
+    RefCountedObject header;   // reference counting header for memory management
+    Value result;              // the async body's return value, once resolved
+    int state;                 // 0 = pending, 1 = resolved
+    int func_idx;              // function table index of the async body
+    int arg_count;             // number of captured arguments
+    Value* args;               // heap array of captured argument values
+
+    // per-coroutine register pool and frame bookkeeping (each coroutine owns
+    // its own so concurrent coroutines never share frame slots)
+    Value* register_pool;      // this coroutine's private register pool
+    int* frame_offset;         // frame start offsets in register_pool
+    int* frame_capacity;       // capacity of each frame in registers
+    int* frame_used;           // highest register used per frame
+    int pool_capacity;         // total pool capacity in registers
+    int current_frame;         // active frame index within this pool
+    bool owns_frame;           // true once pool was allocated, freed on completion
+
+    int frame_idx;             // legacy: superseded by register_pool, kept for source compat
+    int saved_ip;              // resume offset inside the body
+    int saved_dest_reg;        // register that receives the awaited value
+    Value awaiting;            // future we are currently waiting on (none if runnable)
+    struct FutureObject** waiters;  // futures blocked on this one
+    int waiter_count;          // number of waiters
+    int waiter_capacity;       // capacity of the waiter array
+    ForIter saved_iters[16];   // saved numeric loop iterators across suspension
+    int saved_iter_depth;      // depth of the numeric iterator stack
+    TableIterState saved_table_iters[4];  // saved table iterators across suspension
+    int saved_table_iter_depth;// depth of the table iterator stack
+} FutureObject;
+
+// a finished background task waiting to be handed back to the scheduler
+typedef struct Completion {
+    FutureObject* fut;             // future to resolve (node owns one reference)
+    Value result;                  // result value (node owns one reference if heap-tagged)
+    struct Completion* next;       // next node in the pending list
+} Completion;
+
+// pending sleep that resolves its future when the deadline passes
+typedef struct SleepTimer {
+    double deadline;           // absolute seconds since epoch
+    FutureObject* fut;         // future to resolve
+    struct SleepTimer* next;   // linked list
+} SleepTimer;
+
 // string interning table for deduplication and fast equality
 typedef struct {
     StringObject** buckets;  // hash buckets for interned strings
@@ -174,14 +242,6 @@ typedef struct {
     Table* table_pool[POOL_MAX_ITEMS / 4];     // pool of reusable table objects
     int table_pool_count;                      // number of tables currently in pool
 } ObjectPool;
-
-// state for "for key = table" iteration, walks array_part then hash buckets
-typedef struct {
-    Table* table;              // table being iterated
-    int array_index;           // current position in array_part
-    int bucket_index;          // current bucket in hash entries
-    TableEntry* current_entry; // current node in bucket chain
-} TableIterState;
 
 #if APEX_JIT_ENABLED
 struct JITContext;   // forward declaration, only when JIT is compiled in
@@ -221,11 +281,7 @@ typedef struct {
     bool running;                  // whether the VM is actively executing
     bool had_error;                // whether an error occurred during execution
 
-    struct {
-        double index;              // current loop iteration value
-        double end;                // loop end bound (inclusive/exclusive based on step)
-        double step;               // loop step increment (positive or negative)
-    } iterator_stack[VM_MAX_CALL_FRAMES];
+    ForIter iterator_stack[VM_MAX_CALL_FRAMES];  // active numeric for-loops
     int iterator_depth;            // nesting depth of active numeric for-loops
 
     TableIterState table_iters[16]; // state for table iteration (for key = table loops)
@@ -236,13 +292,21 @@ typedef struct {
 
     const char* source;             // source code string for error reporting
 
-    Value frame_futures[VM_MAX_FRAMES];  // in struct VM, before args_table
-
 #if APEX_JIT_ENABLED
     struct JITContext* jit;         // native JIT, NULL if unavailable / disabled
 #endif
 
     Value args_table;               // table of command line arguments (1-indexed)
+
+    Value frame_futures[VM_MAX_FRAMES];  // futures for each call frame
+    FutureObject** ready;           // ready coroutine queue
+    int ready_count;                // number of ready coroutines
+    int ready_capacity;             // allocated capacity of ready queue
+    FutureObject* current_task;     // coroutine currently executing, NULL at top level
+    SleepTimer* timers;             // pending sleep timers
+    ApexMutex completion_mutex;     // protects completions and pending_workers
+    Completion* completions;        // queue of finished background tasks
+    volatile int pending_workers;   // number of live worker threads
 } VM;
 
 // returns a human-readable type name for a value
@@ -304,5 +368,26 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk);
 
 // populates vm->args_table with user command line arguments (1-indexed)
 void vm_set_args(VM* vm, int argc, char** argv, bool skip_script_name);
+
+// returns current wall-clock time in seconds
+double apex_now_seconds(void);
+
+// starts a pending future as a coroutine and queues it for execution
+void future_start(VM* vm, FutureObject* fut);
+
+// resolves a future, waking its waiters
+void future_resolve(VM* vm, FutureObject* fut, Value value);
+
+// registers a timer that resolves the future after the given seconds
+void vm_schedule_timer(VM* vm, double seconds, FutureObject* fut);
+
+// drives the scheduler until the target future resolves
+bool vm_drive_until(VM* vm, Value target, Value* out_result);
+
+// pushes a completed background task for the scheduler to resolve
+void vm_push_completion(VM* vm, FutureObject* fut, Value result);
+
+// drains the completion queue, resolving each future (scheduler thread only)
+int vm_drain_completions(VM* vm);
 
 #endif // VM_H

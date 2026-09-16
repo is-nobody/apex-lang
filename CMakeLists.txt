@@ -155,6 +155,10 @@ endif()
 # generates compile_commands.json for ide support
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# threading support for background i/o workers
+find_package(Threads REQUIRED)
+target_link_libraries(apex PRIVATE Threads::Threads)
+
 # os-specific library linking
 if(WIN32)
     target_link_libraries(apex PRIVATE shlwapi ws2_32)

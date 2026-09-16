@@ -13,14 +13,14 @@
 static bool is_known_builtin_module(const char* name) {
     switch (name[0]) {
         case 'o':
-            return strcmp(name, "os") == 0;        // only os starts with 'o'
+            return strcmp(name, "os") == 0;        // os module
         case 's':
             return strcmp(name, "sys") == 0 ||     // sys module
                    strcmp(name, "string") == 0;    // string module
         case 'm':
-            return strcmp(name, "math") == 0;      // only math starts with 'm'
+            return strcmp(name, "math") == 0;      // math module
         case 't':
-            return strcmp(name, "table") == 0;     // only table starts with 't'
+            return strcmp(name, "table") == 0;     // table module
         case 'r':
             return strcmp(name, "random") == 0 ||  // random module
                    strcmp(name, "regex") == 0;     // regex module
@@ -594,7 +594,8 @@ static int codegen_string_interp(CodeGenerator* cg, ASTNode* node, int dest_hint
         codegen_expression_into(cg, node->string_interp.parts->nodes[0], dest_hint);
         result_reg = dest_hint;                                            // result lives in dest
     } else {                                                               // no hint: fresh temp
-        result_reg = codegen_expression(cg, node->string_interp.parts->nodes[0]);
+        result_reg = alloc_register(cg);                                   // allocate a fresh destination
+        codegen_expression_into(cg, node->string_interp.parts->nodes[0], result_reg);  // force first part into it
     }
 
     for (int i = 1; i < node->string_interp.parts->count; i++) {           // remaining parts

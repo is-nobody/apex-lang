@@ -349,6 +349,101 @@ async function async_countdown()
     assert_equal(await countdown(5), 5, "async countdown 5")
     assert_equal(await countdown(20), 20, "async countdown 20")
 
+// test: awaited body runs exactly once regardless of how many awaits
+async function counted_body(counter)
+    counter["runs"] = counter["runs"] + 1
+    return counter["runs"]
+
+async function body_runs_once()
+    counter = ["runs" = 0]
+    fut = counted_body(counter)
+    a = await fut
+    b = await fut
+    c = await fut
+    assert_equal(a, 1, "body runs once a")
+    assert_equal(b, 1, "body runs once b")
+    assert_equal(c, 1, "body runs once c")
+    assert_equal(counter["runs"], 1, "body runs once counter")
+
+// test: an already-resolved future awaited at top level returns immediately
+async function immediate_leaf()
+    return 5
+
+async function top_level_resolved()
+    fut = immediate_leaf()
+    r = await fut
+    assert_equal(r, 5, "top level resolved")
+
+// test: awaiting a future produced by another await expression
+async function add_one_no_sleep(x)
+    return x + 1
+
+async function chained_await()
+    r = await add_one_no_sleep(await add_one_no_sleep(await add_one_no_sleep(0)))
+    assert_equal(r, 3, "chained await 3")
+
+// test: a future resolved during a prior await is cached
+async function pre_resolved()
+    fut = add_one_no_sleep(9)
+    a = await fut
+    b = await fut
+    assert_equal(a, 10, "pre resolved a")
+    assert_equal(b, 10, "pre resolved b")
+
+// test: async function returning a future does not force it
+async function produce_future()
+    return add_one_no_sleep(5)
+
+async function returning_future_stays_unforced()
+    inner = await produce_future()
+    if type(inner) != "future"
+        os.output("[ERROR] returning future: expected future, got {type(inner)}")
+    result = await inner
+    assert_equal(result, 6, "returning future 6")
+
+// test: nested async definitions with awaits at every level
+async function outer_fn()
+    async function middle_fn()
+        async function inner_fn()
+            return 1
+        v = await inner_fn()
+        return v + 1
+    v2 = await middle_fn()
+    return v2 + 1
+
+async function nested_async_defs()
+    result = await outer_fn()
+    assert_equal(result, 3, "nested async defs")
+
+// test: async function awaiting a non-future is identity
+async function await_identity(v)
+    return await v
+
+async function await_identity_top()
+    a = await await_identity(7)
+    b = await await_identity("x")
+    c = await await_identity(true)
+    d = await await_identity(none)
+    assert_equal(a, 7, "identity a")
+    assert_equal(b, "x", "identity b")
+    assert_equal(c, true, "identity c")
+    assert_equal(d, none, "identity d")
+
+// test: scheduler drains ready tasks before waiting on timers
+async function echo(x)
+    return x
+
+async function drain_order()
+    f1 = echo(1)
+    f2 = echo(2)
+    f3 = echo(3)
+    r1 = await f1
+    r2 = await f2
+    r3 = await f3
+    assert_equal(r1, 1, "drain r1")
+    assert_equal(r2, 2, "drain r2")
+    assert_equal(r3, 3, "drain r3")
+
 // execute all async/await test cases
 await basic_async_call()
 await inline_await()
@@ -388,6 +483,14 @@ await futures_in_loop()
 await async_chain()
 await async_no_params()
 await async_countdown()
+await body_runs_once()
+await top_level_resolved()
+await chained_await()
+await pre_resolved()
+await returning_future_stays_unforced()
+await nested_async_defs()
+await await_identity_top()
+await drain_order()
 
 // report completion of async/await integration tests
 os.output("[PASS] integration/async_await.apex")
