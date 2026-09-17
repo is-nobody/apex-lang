@@ -272,6 +272,7 @@ typedef struct {
         int base_iterator_depth;   // saved loop iterator depth for nested loops
         int frame_index;           // frame index for restoring registers
         int dest_reg;              // destination register for the return value
+        Value* caller_registers;   // cached pointer to caller's registers
     } call_stack[VM_MAX_CALL_FRAMES];
     
     int call_depth;                // current call stack depth

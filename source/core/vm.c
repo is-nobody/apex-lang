@@ -994,6 +994,7 @@ static bool ensure_register_capacity(VM* vm, int frame_idx, int needed_reg) {
         if (new_pool_cap == 0) new_pool_cap = REGISTER_INITIAL_SIZE;  // initial pool size
         while (new_pool_cap < total_needed) new_pool_cap *= 2;        // double until all frames fit
         
+        Value* old_pool = vm->register_pool;             // remember old base for rebasing cached pointers
         Value* new_pool = (Value*)realloc(vm->register_pool, new_pool_cap * sizeof(Value));  // resize pool
         if (!new_pool) {                                 // allocation failed
             fprintf(stderr, "\033[31mFailed to grow register pool to %d registers\n\033[0m",
@@ -1005,6 +1006,12 @@ static bool ensure_register_capacity(VM* vm, int frame_idx, int needed_reg) {
         }
         vm->register_pool = new_pool;                    // update shared pool pointer
         vm->pool_capacity = new_pool_cap;                // update total pool capacity
+        if (new_pool != old_pool) {                      // pool moved, rebase cached caller pointers
+            for (int i = 0; i < vm->call_depth; i++) {
+                Value* cr = vm->call_stack[i].caller_registers;
+                if (cr) vm->call_stack[i].caller_registers = new_pool + (cr - old_pool);
+            }
+        }
     }
     
     vm->frame_capacity[frame_idx] = new_cap;             // store new capacity for this frame
@@ -2552,6 +2559,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         vm->call_stack[vm->call_depth].dest_reg       = dest_reg;                 // save dest register
         vm->call_stack[vm->call_depth].frame_index    = vm->current_frame;        // save current frame index
         vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;  // save iterator depth
+        vm->call_stack[vm->call_depth].caller_registers    = regs;                // cache caller's register frame base
         vm->call_depth++;                         // push call frame
         vm->current_frame++;                      // advance to next register frame
         
@@ -2658,6 +2666,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         vm->call_stack[vm->call_depth].dest_reg = dest_reg;                          // save dest register
         vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save current frame index
         vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;     // save iterator depth
+        vm->call_stack[vm->call_depth].caller_registers = regs;   // cache caller's register frame base
         vm->call_depth++;                            // push call frame
         vm->current_frame++;                         // advance to next register frame
         
@@ -2704,6 +2713,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         vm->call_stack[vm->call_depth].dest_reg = dest_reg;                          // save dest register
         vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save current frame index
         vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;     // save iterator depth
+        vm->call_stack[vm->call_depth].caller_registers = regs;   // cache caller's register frame base
+
         Value _arg = regs[arg_reg];                  // read arg from caller frame while regs still points there
 
         vm->call_depth++;                            // push call frame
@@ -2758,6 +2769,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         vm->call_stack[vm->call_depth].dest_reg = dest_reg;                          // save dest register
         vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save current frame index
         vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;     // save iterator depth
+        vm->call_stack[vm->call_depth].caller_registers = regs;   // cache caller's register frame base
+        
         Value _a1 = regs[arg1_reg];                  // read first arg from caller frame before switching
         Value _a2 = regs[arg2_reg];                  // read second arg from caller frame before switching
 
@@ -2804,8 +2817,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         if (likely(vm->call_depth > 0)) {        // returning from a function call (common)
             vm->call_depth--;                    // pop call frame
             vm->current_frame = vm->call_stack[vm->call_depth].frame_index;           // restore frame index
-            vm->registers = &vm->register_pool[frame_off[vm->current_frame]];  // restore register frame
-            regs = vm->registers;                // update local regs pointer
+            regs = vm->call_stack[vm->call_depth].caller_registers;  // restore cached caller register frame base
+            vm->registers = regs;                // update local regs pointer
             vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
             int dest_reg = vm->call_stack[vm->call_depth].dest_reg;                   // dest register for return value
             if (unlikely((regs[dest_reg] & QNAN) == QNAN)) {  // old value is heap object (rare)
@@ -2836,8 +2849,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             int return_addr = vm->call_stack[vm->call_depth].return_address;  // get return address
             int dest_reg = vm->call_stack[vm->call_depth].dest_reg;           // get dest register
             vm->current_frame = vm->call_stack[vm->call_depth].frame_index;   // restore frame index
-            vm->registers = &vm->register_pool[frame_off[vm->current_frame]];  // restore register frame
-            regs = vm->registers;                // update local regs pointer
+            regs = vm->call_stack[vm->call_depth].caller_registers;  // restore cached caller register frame base
+            vm->registers = regs;                // update local regs pointer
             vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
             regs[dest_reg] = ret_val;            // store return value in caller's dest reg (no incref, unboxed number)
             ip = &vm->code[return_addr];         // jump to return address
@@ -2861,8 +2874,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             int return_addr = vm->call_stack[vm->call_depth].return_address;  // get return address
             int dest_reg = vm->call_stack[vm->call_depth].dest_reg;           // get dest register
             vm->current_frame = vm->call_stack[vm->call_depth].frame_index;   // restore frame index
-            vm->registers = &vm->register_pool[frame_off[vm->current_frame]];  // restore register frame
-            regs = vm->registers;                // update local regs pointer
+            regs = vm->call_stack[vm->call_depth].caller_registers;  // restore cached caller register frame base
+            vm->registers = regs;                // update local regs pointer
             vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
             regs[dest_reg] = ret_val;            // store return value in caller's dest reg (unboxed bool, no incref)
             ip = &vm->code[return_addr];         // jump to return address
@@ -2884,8 +2897,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             int return_addr = vm->call_stack[vm->call_depth].return_address;  // get return address
             int dest_reg = vm->call_stack[vm->call_depth].dest_reg;           // get dest register
             vm->current_frame = vm->call_stack[vm->call_depth].frame_index;   // restore frame index
-            vm->registers = &vm->register_pool[frame_off[vm->current_frame]];  // restore register frame
-            regs = vm->registers;                   // update local regs pointer
+            regs = vm->call_stack[vm->call_depth].caller_registers;  // restore cached caller register frame base
+            vm->registers = regs;                   // update local regs pointer
             vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
             if (unlikely((regs[dest_reg] & QNAN) == QNAN)) {  // old value is heap object (rare)
                 value_decref(regs[dest_reg]);       // release old value in dest
