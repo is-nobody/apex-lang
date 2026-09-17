@@ -57,6 +57,9 @@ static bool is_pure_loop_instr(JITContext* ctx, int pc) {
             return true;
         case OP_TABLE_ITER_NEXT:                             // loop entry for table iteration
             return true;
+        case OP_LOAD_GLOBAL:                                 // reads vm->globals[idx]
+        case OP_STORE_GLOBAL:                                // writes vm->globals[idx]
+            return true;
         case OP_CALL_0: case OP_CALL_1: case OP_CALL_2: {    // calls allowed only to pure fns
             int target = inst->operands[1];                  // callee function index
             return target >= 0 && target < ctx->func_count && ctx->pure[target];
@@ -267,6 +270,14 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
                 info->table.used     = true;                     // marks loop as table-touching
                 info->touches_tables = true;
                 break;
+            case OP_LOAD_GLOBAL:                                 // d = dest, a = global idx
+                if (d >= 0 && d < 64) pc_writes |= 1ULL << d;
+                if (a >= 0 && a < 64) info->globals_used |= 1ULL << a;
+                break;
+            case OP_STORE_GLOBAL:                                // d = src, a = global idx
+                if (d >= 0 && d < 64) pc_reads |= 1ULL << d;
+                if (a >= 0 && a < 64) info->globals_used |= 1ULL << a;
+                break;
             case OP_TABLE_GET:
                 // d = dest, a = table reg, b = key reg
                 if (d >= 0 && d < 64) {
@@ -329,6 +340,7 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
     }
     info->live_in  = live_in_mask;                               // slots read before first write
     info->live_out = written_mask;                               // slots produced inside the loop
+    info->globals_count = __builtin_popcountll(info->globals_used);  // count globals touched
 }
 
 // registers a loop and runs the slot analysis on its body

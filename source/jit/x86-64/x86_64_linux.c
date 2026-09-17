@@ -38,6 +38,7 @@ static bool sysv_make_exec(void* p, size_t size) {
 const X86_64Abi x86_64_abi_sysv = {
     .name = "x86-64 SysV",                            // human-readable identifier
     .frame_reg = X86_RDI,                             // sysv passes the first pointer arg in rdi
+    .globals_reg = X86_RSI,                           // sysv passes the second pointer arg in rsi
     .frame_extra = 0,                                 // no shadow space, no non-volatile xmm
     .emit_prologue_saves = sysv_prologue_saves,       // no-op on sysv
     .emit_epilogue_restores = sysv_epilogue_restores, // no-op on sysv

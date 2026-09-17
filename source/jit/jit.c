@@ -62,7 +62,7 @@ static const JitBackend* jit_get_backend(void) {
 
 // compiles all numeric-pure functions and returns a jit context (or null)
 JITContext* jit_create(BytecodeChunk* chunk) {
-    if (!chunk || chunk->func_count <= 1) return NULL;           // nothing to compile
+    if (!chunk || chunk->func_count < 1) return NULL;            // nothing to compile
 
     const JitBackend* be = jit_get_backend();                    // pick backend for this arch
     if (!be) return NULL;                                        // no backend, no jit
@@ -137,17 +137,17 @@ JITContext* jit_create(BytecodeChunk* chunk) {
             void* fn_neg = NULL;
 
             if (want_pos && be->emit_loop(ctx, &cb, info, +1, &fn_pos)) {
-                info->native_fn = (void (*)(uint64_t*))fn_pos;   // positive-step entry
+                info->native_fn = (void (*)(uint64_t*, uint64_t*))fn_pos;   // positive-step entry
                 any = true;
             }
             if (want_neg && be->emit_loop(ctx, &cb, info, -1, &fn_neg)) {
-                info->native_fn_neg = (void (*)(uint64_t*))fn_neg;  // negative-step entry
+                info->native_fn_neg = (void (*)(uint64_t*, uint64_t*))fn_neg;  // negative-step entry
                 any = true;
             }
         } else {
             void* fn = NULL;
             if (be->emit_loop(ctx, &cb, info, 0, &fn)) {
-                info->native_fn = (void (*)(uint64_t*))fn;       // single variant
+                info->native_fn = (void (*)(uint64_t*, uint64_t*))fn;       // single variant
                 any = true;
             }
         }
@@ -285,6 +285,7 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* 
     if (li < 0) return JIT_LOOP_NOT_APPLICABLE;                     // pc is not a loop entry
     JitLoopInfo* info = &ctx->loops[li];
     if (!info->native_fn && !info->native_fn_neg) return JIT_LOOP_NOT_APPLICABLE;  // emit failed, no native code
+    if (info->globals_count > 0 && !ctx->vm) return JIT_LOOP_NOT_APPLICABLE;       // globals need the vm base pointer
 
     // counter-indexed writes grow the array themselves; the table slot's
     // live_in check would otherwise reject fresh / undersized arrays
@@ -305,7 +306,7 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* 
     }
 
     // resolve which native entry to call: numeric-for picks by runtime step sign
-    void (*chosen_fn)(uint64_t*) = info->native_fn;
+    void (*chosen_fn)(uint64_t*, uint64_t*) = info->native_fn;
 
     if (info->kind == JIT_LOOP_NUMERIC_FOR) {
         Value vv = regs[info->for_var_reg];
@@ -363,7 +364,8 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* 
         }
     }
 
-    chosen_fn(regs);                                                // run the compiled loop
+    uint64_t* globals_base = ctx->vm ? (uint64_t*)((VM*)ctx->vm)->globals : NULL;  // vm globals array
+    chosen_fn(regs, globals_base);                                  // run the compiled loop
     *exit_pc = info->exit_pc;
 
     // the native loop wrote directly into array_part and never touched

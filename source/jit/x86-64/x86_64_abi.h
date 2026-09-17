@@ -11,6 +11,7 @@
 typedef struct X86_64Abi {
     const char* name;                             // human-readable identifier ("x86-64 sysv")
     int frame_reg;                                // modrm base register holding the Value* / uint64_t* frame (sysv/macos: X86_RDI, win64: X86_RCX)
+    int globals_reg;                              // modrm base register holding the globals base pointer (sysv/macos: X86_RSI, win64: X86_RDX)
     int frame_extra;                              // bytes reserved beneath the register slots (sysv/macos: 0, win64: 48 = 16 saved xmm6/xmm7 + 32 shadow space)
     void (*emit_prologue_saves)(CodeBuf* cb, int base_frame);     // non-volatile register saves; base_frame is aligned offset from rbp
     void (*emit_epilogue_restores)(CodeBuf* cb, int base_frame);  // non-volatile register restores, emitted before leave; ret

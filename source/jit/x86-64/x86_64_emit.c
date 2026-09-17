@@ -856,6 +856,21 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
             x86_emit_movsd_store_base(cb, X86_RBX, xv, (a - 1) * 8);  // array_part[a-1] = xv
             break;
         }
+        case OP_LOAD_GLOBAL: {
+            int idx = a;                                         // global index
+            int x = x86_cache_alloc_excl(cache, cb, -1, -1);     // pick a free xmm
+            if (x < 0) return;                                   // register cache full
+            x86_emit_movsd_load_base(cb, X86_RBX, x, idx * 8);   // rbx = globals base, x = globals[idx]
+            x86_cache_put(cache, x, d);                          // cache dest
+            break;
+        }
+        case OP_STORE_GLOBAL: {
+            int idx = a;                                         // global index
+            int xv = x86_cache_load(cache, cb, d);               // load source slot
+            if (xv < 0) return;                                  // register cache full
+            x86_emit_movsd_store_base(cb, X86_RBX, xv, idx * 8); // globals[idx] = xv
+            break;
+        }
         default:
             break;                                               // unreachable in native loops
     }
@@ -953,10 +968,13 @@ static bool op_writes_dest(Opcode op) {
 }
 
 // rejects loops that would need runtime checks the emitter does not produce
+
 static bool loop_is_safe_to_emit(JITContext* ctx, JitLoopInfo* info) {
     BytecodeChunk* chunk = ctx->chunk;
     int entry     = info->entry_pc;                          // first body pc
     int back_edge = info->back_edge_pc;                      // jump back to entry
+
+    if (info->table.used && info->globals_count > 0) return false;
 
     if (info->kind == JIT_LOOP_NUMERIC_FOR) {
         for (int pc = entry + 1; pc < back_edge; pc++) {     // scan body for writes
@@ -1019,7 +1037,7 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
         frame_slots++;
     }
 
-    int table_saves_bytes = info->table.used ? 8 : 0;        // rbx save if table access
+    int gpr_saves_bytes = (info->table.used || info->globals_count > 0) ? 8 : 0;  // rbx save if table or globals access
 
     int range_size = back_edge - entry + 1;
     if (range_size <= 0) return false;                       // empty range, nothing to emit
@@ -1077,7 +1095,7 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
     size_t mark = cb->len;                                   // rollback point
 
     int base_frame = align16(8 * frame_slots);
-    int frame_size = align16(base_frame + abi->frame_extra + table_saves_bytes);
+    int frame_size = align16(base_frame + abi->frame_extra + gpr_saves_bytes);
 
     emit_prologue(cb, abi, frame_size, base_frame);
 
@@ -1088,6 +1106,10 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
         x86_emit_load_r64_base(cb, X86_RAX, abi->frame_reg, info->table.slot * 8);  // rax = regs[slot]
         x86_emit_clear_high16_rax(cb);                       // strip nan-box tag
         x86_emit_load_r64_base(cb, X86_RBX, X86_RAX, (int32_t)offsetof(Table, array_part));  // rbx = array_part
+    } else if (info->globals_count > 0) {
+        x86_emit_store_r64_rbp(cb, X86_RBX, -rbx_slot_off);  // save caller's rbx
+        emit_u8(cb, 0x48); emit_u8(cb, 0x89);                // mov rbx, abi->globals_reg
+        emit_u8(cb, 0xC0 | (abi->globals_reg << 3) | X86_RBX);
     }
 
     x86_emit_movabs_rax(cb, 0x3FF0000000000000ULL);          // rax = bits of 1.0
@@ -1149,8 +1171,8 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
         x86_emit_movsd_store_base(cb, abi->frame_reg, 0, s * 8);  // regs[s] = xmm0
     }
 
-    if (info->table.used && info->table.slot >= 0) {         // restore caller's rbx
-        x86_emit_load_r64_rbp(cb, X86_RBX, -rbx_slot_off);
+    if ((info->table.used && info->table.slot >= 0) || info->globals_count > 0) {
+        x86_emit_load_r64_rbp(cb, X86_RBX, -rbx_slot_off);   // restore caller's rbx
     }
 
     emit_leave_ret(cb, abi, base_frame);

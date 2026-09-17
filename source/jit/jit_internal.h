@@ -74,10 +74,13 @@ typedef struct {
 
     int  nregs;         // function frame size (max_registers)
 
+    uint64_t globals_used;  // bitmask of globals (0..63) read or written in the loop body
+    int      globals_count; // popcount of globals_used
+
     bool trace_entered;  // APEX_JIT_TRACE_BUILD: first-entry dump already printed?
 
-    void (*native_fn)(uint64_t*);      // compiled entry for positive (or unknown) step
-    void (*native_fn_neg)(uint64_t*);  // compiled entry for negative step, NULL if not emitted
+    void (*native_fn)(uint64_t*, uint64_t*);      // compiled entry for positive (or unknown) step
+    void (*native_fn_neg)(uint64_t*, uint64_t*);  // compiled entry for negative step, NULL if not emitted
 } JitLoopInfo;
 
 // backend interface, declared before JITContext so the context can hold a pointer back to it

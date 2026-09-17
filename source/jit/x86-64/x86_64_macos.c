@@ -38,6 +38,7 @@ static bool macos_make_exec(void* p, size_t size) {
 const X86_64Abi x86_64_abi_macos = {
     .name = "x86-64 macOS",                           // human-readable identifier
     .frame_reg = X86_RDI,                             // sysv-style: first pointer arg in rdi
+    .globals_reg = X86_RSI,                           // sysv-style: second pointer arg in rsi
     .frame_extra = 0,                                 // no shadow space, no non-volatile xmm
     .emit_prologue_saves = macos_prologue_saves,      // no-op on sysv/macos
     .emit_epilogue_restores = macos_epilogue_restores,// no-op on sysv/macos

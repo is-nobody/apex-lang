@@ -41,6 +41,7 @@ static bool win64_make_exec(void* p, size_t size) {
 const X86_64Abi x86_64_abi_win64 = {
     .name = "x86-64 Win64",                           // human-readable identifier
     .frame_reg = X86_RCX,                             // win64 passes the first pointer arg in rcx
+    .globals_reg = X86_RDX,                           // win64 passes the second pointer arg in rdx
     .frame_extra = 48,                                // 16 saved xmm6/xmm7 + 32 bytes shadow space
     .emit_prologue_saves = win64_prologue_saves,      // save non-volatile xmm regs
     .emit_epilogue_restores = win64_epilogue_restores,// restore non-volatile xmm regs
