@@ -23,6 +23,14 @@ typedef struct {
     } locals;                      // maps local variable names to their register slots
 
     struct {
+        bool    active;      // true while emitting a numeric-for body with hoisted constants
+        double* values;      // hoisted constant values (deduped)
+        int*    regs;        // register holding each hoisted constant
+        int     count;       // number of hoisted constants
+        int     capacity;    // allocated capacity of values/regs
+    } hoist;
+
+    struct {
         int* break_jumps;          // list of jump instruction offsets to patch on loop exit
         int break_count;           // number of pending break jumps
         int break_capacity;        // allocated capacity of break_jumps array

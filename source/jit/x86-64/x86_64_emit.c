@@ -884,7 +884,7 @@ static size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf
         if (xa < 0) return (size_t)-1;                       // register cache full
         int xb = x86_cache_load_excl(cache, cb, step_reg, xa, -1);  // load step, avoid xa
         if (xb < 0) return (size_t)-1;                       // register cache full
-        int xc = x86_cache_load_excl(cache, cb, var_reg, xa, xb);   // load counter, avoid xa/xb
+        int xc = x86_cache_alloc_for(cache, cb, var_reg, xa, xb);   // allocate reg, no load
         if (xc < 0) return (size_t)-1;                       // register cache full
 
         if (!iter_in_xmm) {

@@ -45,11 +45,26 @@ int x86_cache_alloc_excl(XmmCache* c, CodeBuf* cb, int excl1, int excl2) {
     return victim;
 }
 
+// finds or evicts the preferred register for `slot`, spilling if it holds a dirty slot
+int x86_cache_alloc_for(XmmCache* c, CodeBuf* cb, int slot, int excl1, int excl2) {
+    int pref = (slot >= 0 && slot < JIT_MAX_SLOTS) ? (slot % XMM_CACHE_REGS) : -1;
+    if (pref >= 0 && pref != excl1 && pref != excl2) {                 // preferred reg available?
+        int s = c->reg_slot[pref];
+        if (s == -1) return pref;                                       // free, use directly
+        if (c->slot_dirty[s]) x86_emit_movsd_store(cb, pref, x86_slot_disp(s));  // spill occupant
+        c->reg_slot[pref] = -1;                                         // clear old mapping
+        c->slot_reg[s] = -1;
+        c->slot_dirty[s] = false;
+        return pref;                                                    // return the freed preferred reg
+    }
+    return x86_cache_alloc_excl(c, cb, excl1, excl2);                   // fall back to any free reg
+}
+
 // returns an xmm holding slot s, loading from memory if needed
 int x86_cache_load_excl(XmmCache* c, CodeBuf* cb, int s, int excl1, int excl2) {
     if (s < 0 || s >= JIT_MAX_SLOTS) return -1;
     if (c->slot_reg[s] >= 0) return c->slot_reg[s];         // cache hit
-    int x = x86_cache_alloc_excl(c, cb, excl1, excl2);
+    int x = x86_cache_alloc_for(c, cb, s, excl1, excl2);    // preferred-register allocation
     if (x < 0) return -1;
     x86_emit_movsd_load(cb, x, x86_slot_disp(s));           // cache miss: load
     c->reg_slot[x] = s;

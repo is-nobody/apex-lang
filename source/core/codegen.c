@@ -250,6 +250,104 @@ static bool try_fold_bool(ASTNode* node, bool* out) {
     }
 }
 
+// recursively collects foldable numeric constants in a loop body for hoisting
+static void collect_hoistable_numbers(CodeGenerator* cg, ASTNode* node) {
+    if (!node || cg->hoist.count >= 8) return;                    // null guard / cap hoisted registers
+
+    double v;
+    if (try_fold_number(node, &v)) {                              // pure numeric subtree?
+        for (int i = 0; i < cg->hoist.count; i++) {               // dedupe by value
+            if (cg->hoist.values[i] == v) return;                 // already collected
+        }
+        if (cg->hoist.count >= cg->hoist.capacity) {              // grow arrays
+            cg->hoist.capacity = cg->hoist.capacity == 0 ? 8 : cg->hoist.capacity * 2;
+            cg->hoist.values = (double*)realloc(cg->hoist.values, sizeof(double) * cg->hoist.capacity);
+            cg->hoist.regs   = (int*)   realloc(cg->hoist.regs,   sizeof(int) * cg->hoist.capacity);
+        }
+        cg->hoist.values[cg->hoist.count] = v;                    // record value
+        cg->hoist.regs[cg->hoist.count] = -1;                     // register assigned later
+        cg->hoist.count++;
+        return;                                                   // do not descend: subtree is fully constant
+    }
+
+    switch (node->type) {                                         // descend into non-constant subtrees
+        case AST_BINARY:
+            collect_hoistable_numbers(cg, node->binary.left);
+            collect_hoistable_numbers(cg, node->binary.right);
+            break;
+        case AST_UNARY:
+            collect_hoistable_numbers(cg, node->unary.operand);
+            break;
+        case AST_AWAIT:
+            collect_hoistable_numbers(cg, node->await_expr.expression);
+            break;
+        case AST_CALL:
+            for (int i = 0; i < node->call.arguments->count; i++)
+                collect_hoistable_numbers(cg, node->call.arguments->nodes[i]);
+            break;
+        case AST_INDEX_ACCESS:
+            collect_hoistable_numbers(cg, node->access.object);
+            collect_hoistable_numbers(cg, node->access.member);
+            break;
+        case AST_TABLE_LITERAL:
+            for (int i = 0; i < node->table_literal.items->count; i++)
+                collect_hoistable_numbers(cg, node->table_literal.items->nodes[i]);
+            for (int i = 0; i < node->table_literal.key_values->count; i++) {
+                ASTNode* kv = node->table_literal.key_values->nodes[i];
+                collect_hoistable_numbers(cg, kv->binary.left);
+                collect_hoistable_numbers(cg, kv->binary.right);
+            }
+            break;
+        case AST_STRING_INTERP:
+            for (int i = 0; i < node->string_interp.parts->count; i++)
+                collect_hoistable_numbers(cg, node->string_interp.parts->nodes[i]);
+            break;
+        case AST_TERNARY:
+            collect_hoistable_numbers(cg, node->ternary.true_expr);
+            collect_hoistable_numbers(cg, node->ternary.false_expr);
+            break;
+        case AST_ASSIGN:
+        case AST_VAR_DECL:
+            collect_hoistable_numbers(cg, node->var_assign.value);
+            break;
+        case AST_EXPR_STMT:
+            collect_hoistable_numbers(cg, node->expr_stmt.expression);
+            break;
+        case AST_BLOCK:
+        case AST_PROGRAM:
+            for (int i = 0; i < node->block.statements->count; i++)
+                collect_hoistable_numbers(cg, node->block.statements->nodes[i]);
+            break;
+        case AST_IF_STMT:
+            collect_hoistable_numbers(cg, node->if_stmt.condition);
+            collect_hoistable_numbers(cg, node->if_stmt.then_branch);
+            collect_hoistable_numbers(cg, node->if_stmt.elif_chain);
+            collect_hoistable_numbers(cg, node->if_stmt.else_branch);
+            break;
+        case AST_FOR_STMT:
+            collect_hoistable_numbers(cg, node->for_stmt.start);
+            collect_hoistable_numbers(cg, node->for_stmt.end);
+            collect_hoistable_numbers(cg, node->for_stmt.step);
+            collect_hoistable_numbers(cg, node->for_stmt.condition);
+            collect_hoistable_numbers(cg, node->for_stmt.body);
+            break;
+        case AST_MATCH_STMT:
+            collect_hoistable_numbers(cg, node->match_stmt.subject);
+            for (int i = 0; i < node->match_stmt.cases->count; i++)
+                collect_hoistable_numbers(cg, node->match_stmt.cases->nodes[i]);
+            collect_hoistable_numbers(cg, node->match_stmt.default_case);
+            break;
+        case AST_CASE:
+            collect_hoistable_numbers(cg, node->case_stmt.body);
+            break;
+        case AST_RETURN_STMT:
+            collect_hoistable_numbers(cg, node->return_stmt.value);
+            break;
+        default:
+            break;                                                // literals, identifiers: nothing
+    }
+}
+
 // snapshot of per-local numeric-ness flags for branch merging
 typedef struct {
     int count;         // number of slots captured
@@ -402,6 +500,12 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->module_globals_capacity = 0;                                       // no capacity
     cg->register_floor = 0;                                                // no floor at top level
 
+    cg->hoist.active   = false;
+    cg->hoist.values   = NULL;
+    cg->hoist.regs     = NULL;
+    cg->hoist.count    = 0;
+    cg->hoist.capacity = 0;
+
     return cg;                                                             // return generator
 }
 
@@ -415,7 +519,10 @@ void codegen_destroy(CodeGenerator* cg) {
     free(cg->locals.names);                                                // free names array
     free(cg->locals.registers);                                            // free registers array
     free(cg->locals.is_number);                                            // free numeric-ness flags array
-    
+
+    free(cg->hoist.values);                                                // free hoist arrays (defensive)
+    free(cg->hoist.regs);
+
     free(cg->loop_stack.break_jumps);                                      // free break jumps
     
     for (int i = 0; i < cg->module_count; i++) {                           // free imported modules
@@ -781,7 +888,6 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             codegen_expression_into(cg, node->for_stmt.start, var_reg);             // write start directly into var_reg
             int end_reg = codegen_expression(cg, node->for_stmt.end);               // evaluate end (fresh temp)
             int step_reg;                                                           // step register
-            
             if (node->for_stmt.step) {                                              // custom step
                 step_reg = codegen_expression(cg, node->for_stmt.step);             // evaluate step
             } else {                                                                // default step = 1
@@ -789,22 +895,66 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
                 emit(cg, INST(OP_LOAD_NUM_IMM, step_reg, 1, 0), node->line);        // load 1 immediate
             }
 
+            // save current hoist scope and install a fresh one for this loop
+            bool prev_hoist_active = cg->hoist.active;
+            double* prev_hoist_values = cg->hoist.values;
+            int* prev_hoist_regs = cg->hoist.regs;
+            int prev_hoist_count = cg->hoist.count;
+            int prev_hoist_capacity = cg->hoist.capacity;
+
+            cg->hoist.active = false;                                               // fresh scope
+            cg->hoist.values = NULL;
+            cg->hoist.regs = NULL;
+            cg->hoist.count = 0;
+            cg->hoist.capacity = 0;
+
+            collect_hoistable_numbers(cg, node->for_stmt.body);                     // scan body for constants
+
+            for (int i = 0; i < cg->hoist.count; i++) {                             // allocate a register per constant
+                int reg = alloc_register(cg);
+                cg->hoist.regs[i] = reg;
+                double v = cg->hoist.values[i];
+                if (v == (int)v && v >= 0 && v <= 65535) {                          // fits in immediate
+                    emit(cg, INST(OP_LOAD_NUM_IMM, reg, (int)v, 0), node->line);    // load immediate once
+                } else {                                                            // full double
+                    int ci = bytecode_add_number_constant(cg->chunk, v);            // add to constant pool
+                    emit(cg, INST(OP_LOAD_NUM, reg, ci, 0), node->line);            // load once
+                }
+            }
+            if (cg->hoist.count > 0) cg->hoist.active = true;                       // enable reuse in the body
+
             emit(cg, INST(OP_FOR_INIT, var_reg, end_reg, step_reg), node->line);    // init for (no MOVE needed)
-            
+
             int loop_var_slot = find_local_slot(cg, node->for_stmt.var_name);       // slot of loop variable
             if (loop_var_slot >= 0) cg->locals.is_number[loop_var_slot] = true;     // FOR_NEXT keeps it numeric
-            
+
             LocalNumSnap loop_entry = snap_numbers(cg);                             // snapshot before body
-            
+
             int loop_start = bytecode_current_offset(cg->chunk);                    // loop start
             cg->loop_stack.continue_addr = loop_start;                              // set continue
-            
+
             int for_next_instr = bytecode_current_offset(cg->chunk);                // for next instr
             emit(cg, INST(OP_FOR_NEXT, var_reg, 0, 0), node->line);                 // check condition
-            
+
+            int prev_loop_floor = cg->register_floor;                               // save floor
+            if (cg->hoist.count > 0) {                                              // pin hoisted regs
+                int highest = 0;                                                    // highest hoisted reg
+                for (int i = 0; i < cg->hoist.count; i++) {
+                    if (cg->hoist.regs[i] > highest) highest = cg->hoist.regs[i];
+                }
+                cg->register_floor = highest + 1;                                   // body temps start above
+            }
+
             codegen_block(cg, node->for_stmt.body);                                 // emit body
+            cg->register_floor = prev_loop_floor;                                   // restore floor after body
+
+            // free hoisted registers (reverse order so each is the last allocated)
+            for (int i = cg->hoist.count - 1; i >= 0; i--) {
+                free_register(cg, cg->hoist.regs[i]);
+            }
+
             LocalNumSnap loop_exit = snap_numbers(cg);                              // snapshot after body
-            
+
             int merge_n = loop_entry.count < loop_exit.count ? loop_entry.count : loop_exit.count;
             for (int i = 0; i < merge_n; i++) {                                     // intersect entry and exit
                 cg->locals.is_number[i] = loop_entry.flags[i] && loop_exit.flags[i];
@@ -812,14 +962,23 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             if (loop_var_slot >= 0) cg->locals.is_number[loop_var_slot] = true;     // loop var always numeric inside loop
             free_snap(loop_entry);                                                  // release snapshots
             free_snap(loop_exit);
-            
+
             emit(cg, INST(OP_JUMP, loop_start, 0, 0), node->line);                  // jump back
-            
+
             int exit_addr = bytecode_current_offset(cg->chunk);                     // exit address
             cg->chunk->code[for_next_instr].operands[1] = exit_addr;                // patch exit
-            
+
             free_register(cg, end_reg);                                             // free end
             if (!node->for_stmt.step) free_register(cg, step_reg);                  // free step if default
+
+            free(cg->hoist.values);                                                 // release hoist arrays
+            free(cg->hoist.regs);
+
+            cg->hoist.active = prev_hoist_active;                                   // restore previous scope
+            cg->hoist.values = prev_hoist_values;
+            cg->hoist.regs = prev_hoist_regs;
+            cg->hoist.count = prev_hoist_count;
+            cg->hoist.capacity = prev_hoist_capacity;
         }
         
         int exit_addr = bytecode_current_offset(cg->chunk);                         // exit address
@@ -888,7 +1047,9 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
         LocalNumSnap loop_entry = snap_numbers(cg);                                 // snapshot before body
         int prev_floor = cg->register_floor;                                        // save floor
         if (right_hoisted) {                                                        // right_reg must survive
-            cg->register_floor = right_reg + 1;                                     // pin it above body temps
+            int new_floor = right_reg + 1;                                          // pin it above body temps
+            if (new_floor < prev_floor) new_floor = prev_floor;                     // never lower an outer floor
+            cg->register_floor = new_floor;
         }
         codegen_block(cg, node->for_stmt.body);                                     // emit body
         LocalNumSnap loop_exit = snap_numbers(cg);                                  // snapshot after body
@@ -953,6 +1114,16 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
 
     double nv;                                                                       // folded numeric value
     if (try_fold_number(node, &nv)) {                                                // constant subtree?
+        if (cg->hoist.active) {                                                      // inside a loop with hoisted constants
+            for (int i = 0; i < cg->hoist.count; i++) {                              // look up folded value
+                if (cg->hoist.values[i] == nv) {                                     // matches a hoisted constant
+                    int hreg = cg->hoist.regs[i];                                    // hoisted register
+                    if (dest_hint < 0 || dest_hint == hreg) return hreg;             // reuse directly
+                    emit(cg, INST(OP_MOVE, dest_hint, hreg, 0), node->line);         // copy into hint
+                    return dest_hint;
+                }
+            }
+        }
         int reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);                   // use hint or fresh
         if (nv == (int)nv && nv >= 0 && nv <= 65535) {                               // fits in immediate
             emit(cg, INST(OP_LOAD_NUM_IMM, reg, (int)nv, 0), node->line);            // load immediate
@@ -1318,7 +1489,9 @@ static void codegen_match_statement(CodeGenerator* cg, ASTNode* node) {
     int no_match_jump = emit(cg, INST(OP_JUMP, 0, 0, 0), line);          // jump when no case matched
 
     int prev_floor = cg->register_floor;                                 // save floor
-    cg->register_floor = subject_reg + 1;                                // pin subject across cases
+    int new_floor = subject_reg + 1;                                     // pin subject across cases
+    if (new_floor < prev_floor) new_floor = prev_floor;                  // never lower an outer floor
+    cg->register_floor = new_floor;
     for (int i = 0; i < case_count; i++) {                               // emit each case body
         ASTNode* case_node = cases->nodes[i];
         restore_numbers(cg, match_before);                               // reset flags before each case body

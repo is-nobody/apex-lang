@@ -238,6 +238,9 @@ bool x86_cache_eq(const XmmCache* a, const XmmCache* b);
 // finds or evicts an xmm register, avoiding two registers that are live
 int  x86_cache_alloc_excl(XmmCache* c, CodeBuf* cb, int excl1, int excl2);
 
+// finds or evicts the preferred register for `slot`, spilling if it holds a dirty slot
+int  x86_cache_alloc_for(XmmCache* c, CodeBuf* cb, int slot, int excl1, int excl2);
+
 // returns an xmm holding slot s, loading from memory if needed
 int  x86_cache_load_excl(XmmCache* c, CodeBuf* cb, int s, int excl1, int excl2);
 
