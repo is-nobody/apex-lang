@@ -1057,15 +1057,21 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
     XmmCache cache_start;
     x86_cache_clear(&cache_start);                           // start from empty cache
     bool converged = false;
+    bool flush_at_back_edge = false;                         // fallback policy when the fixpoint oscillates
     for (int iter = 0; iter < 8; iter++) {                   // fixpoint loop
         XmmCache cache = cache_start;
         scratch.len = 0;
         size_t patch = emit_loop_iteration(abi, ctx, &scratch, &cache, info, const_slot, save_slot, iter_in_xmm, step_sign);
         if (patch == (size_t)-1) return false;               // emit failed
+        if (flush_at_back_edge) x86_cache_clear(&cache);     // simulate the spill before the back edge
         if (x86_cache_eq(&cache, &cache_start)) { converged = true; break; }  // stable state reached
         cache_start = cache;                                 // try again with new state
     }
-    if (!converged) return false;                            // cache state oscillates, give up
+    if (!converged) {
+        x86_cache_clear(&cache_start);                       // empty incoming state
+        flush_at_back_edge = true;                           // force a spill before the back edge
+        converged = true;                                    // empty start + flush at back edge is stable
+    }
 
     // real emit
     size_t mark = cb->len;                                   // rollback point
@@ -1120,6 +1126,7 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
     size_t entry_patch = emit_loop_iteration(abi, ctx, cb, &cache, info, const_slot, save_slot, iter_in_xmm, step_sign);
     if (entry_patch == (size_t)-1) { cb->len = mark; return false; }  // emit failed, rollback
 
+    if (flush_at_back_edge) x86_cache_flush(&cache, cb);     // spill all before back edge
     emit_u8(cb, 0xE9);                                       // jmp loop_top
     size_t back_patch = cb->len;
     emit_i32(cb, 0);                                         // placeholder
