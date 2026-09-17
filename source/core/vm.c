@@ -996,7 +996,7 @@ static bool ensure_register_capacity(VM* vm, int frame_idx, int needed_reg) {
         
         Value* new_pool = (Value*)realloc(vm->register_pool, new_pool_cap * sizeof(Value));  // resize pool
         if (!new_pool) {                                 // allocation failed
-            fprintf(stderr, "\033[31mFatal: failed to grow register pool to %d registers\n\033[0m",
+            fprintf(stderr, "\033[31mFailed to grow register pool to %d registers\n\033[0m",
                     new_pool_cap);
             return false;
         }
