@@ -163,14 +163,11 @@ static bool is_arithmetic_op(ApexTokenType op) {
            op == TOKEN_SLASH || op == TOKEN_PERCENT;
 }
 
-// checks if an expression is guaranteed to produce a number
-static bool is_number_expression(ASTNode* node) {
-    if (!node) return false;
-    if (node->type == AST_LITERAL_NUMBER) return true;
-    if (node->type == AST_BINARY && is_arithmetic_op(node->binary.op)) return true;
-    if (node->type == AST_UNARY && node->unary.op == TOKEN_MINUS) return true;
-    return false;
-}
+// snapshot of per-local numeric-ness flags for branch merging
+typedef struct {
+    int count;         // number of slots captured
+    bool* flags;       // copied flags, or NULL when count is zero
+} LocalNumSnap;
 
 // forward declarations for the dispatcher and helpers with dest_hint contract
 static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint);
@@ -178,6 +175,7 @@ static void codegen_block(CodeGenerator* cg, ASTNode* node);
 static int codegen_optimized_condition(CodeGenerator* cg, ASTNode* condition, int line);
 static int codegen_index_assign(CodeGenerator* cg, ASTNode* node, int dest_hint);
 static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node, int dest_hint);
+static bool is_number_expression(CodeGenerator* cg, ASTNode* node);
 
 // default entry: no destination hint, caller owns the fresh temp
 static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
@@ -216,6 +214,47 @@ static int find_local(CodeGenerator* cg, const char* name) {
     return -1;                                         // not found
 }
 
+// returns the slot index into cg->locals for the given name, or -1 if not found
+static int find_local_slot(CodeGenerator* cg, const char* name) {
+    if (!name) return -1;                              // guard against null
+    for (int i = 0; i < cg->locals.count; i++) {       // iterate locals
+        if (strcmp(cg->locals.names[i], name) == 0) {  // compare names
+            return i;                                  // return slot index
+        }
+    }
+    return -1;                                         // not found
+}
+
+// captures the current per-local numeric-ness flags
+static LocalNumSnap snap_numbers(CodeGenerator* cg) {
+    LocalNumSnap s;
+    s.count = cg->locals.count;                                              // size of current local table
+    s.flags = s.count ? (bool*)malloc(sizeof(bool) * s.count) : NULL;        // allocate snapshot buffer
+    if (s.flags) memcpy(s.flags, cg->locals.is_number, sizeof(bool) * s.count);  // copy flags
+    return s;                                                                // return snapshot
+}
+
+// restores per-local numeric-ness flags from a snapshot
+static void restore_numbers(CodeGenerator* cg, LocalNumSnap s) {
+    int n = cg->locals.count < s.count ? cg->locals.count : s.count;         // clamp to smaller size
+    if (n > 0 && s.flags) memcpy(cg->locals.is_number, s.flags, sizeof(bool) * n);  // copy back flags
+}
+
+// intersects two snapshots into cg (used at control-flow merge points)
+static void merge_numbers(CodeGenerator* cg, LocalNumSnap a, LocalNumSnap b) {
+    int n = cg->locals.count;                                                // upper bound from current
+    if (a.count < n) n = a.count;                                            // clamp to first snapshot
+    if (b.count < n) n = b.count;                                            // clamp to second snapshot
+    for (int i = 0; i < n; i++) {                                            // walk all common slots
+        cg->locals.is_number[i] = a.flags[i] && b.flags[i];                  // number only if both paths number
+    }
+}
+
+// frees a numeric-ness snapshot
+static void free_snap(LocalNumSnap s) {
+    free(s.flags);                                                           // release snapshot buffer
+}
+
 // adds a local variable and assigns it a register, returns the register
 static int add_local(CodeGenerator* cg, const char* name) {
     int existing = find_local(cg, name);                                   // check if already exists
@@ -227,10 +266,13 @@ static int add_local(CodeGenerator* cg, const char* name) {
                                            sizeof(char*) * cg->locals.capacity);
         cg->locals.registers = (int*)realloc(cg->locals.registers,                      // resize registers array
                                              sizeof(int) * cg->locals.capacity);
+        cg->locals.is_number = (bool*)realloc(cg->locals.is_number,                     // resize numeric-ness array
+                                             sizeof(bool) * cg->locals.capacity);
     }
     int reg = alloc_register(cg);                                          // allocate new register
     cg->locals.names[cg->locals.count] = strdup(name);                     // copy name
     cg->locals.registers[cg->locals.count] = reg;                          // store register
+    cg->locals.is_number[cg->locals.count] = false;                        // unknown until assigned
     cg->locals.count++;                                                    // increment count
     return reg;                                                            // return register
 }
@@ -285,6 +327,7 @@ void codegen_destroy(CodeGenerator* cg) {
     }
     free(cg->locals.names);                                                // free names array
     free(cg->locals.registers);                                            // free registers array
+    free(cg->locals.is_number);                                            // free numeric-ness flags array
     
     free(cg->loop_stack.break_jumps);                                      // free break jumps
     
@@ -620,6 +663,7 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
 
     if (node->for_stmt.var_name) {                                                 // named variable loop
         if (node->for_stmt.end == NULL && !node->for_stmt.condition) {             // table iteration
+            LocalNumSnap table_entry = snap_numbers(cg);                           // snapshot before body
             int table_reg = codegen_expression(cg, node->for_stmt.start);          // evaluate table
             int var_reg = add_local(cg, node->for_stmt.var_name);                  // add loop variable
             
@@ -632,6 +676,7 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             emit(cg, INST(OP_TABLE_ITER_NEXT, var_reg, 0, 0), node->line);         // get next item
             
             codegen_block(cg, node->for_stmt.body);                                // emit body
+            restore_numbers(cg, table_entry);                                      // body may reassign: reset flags
             
             emit(cg, INST(OP_JUMP, loop_start, 0, 0), node->line);                 // jump back
             
@@ -639,6 +684,7 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             cg->chunk->code[iter_next_instr].operands[2] = exit_addr;              // patch exit
             
             free_register(cg, table_reg);                                          // free table
+            free_snap(table_entry);                                                // release snapshot
             
             for (int i = prev_break_count; i < cg->loop_stack.break_count; i++) {  // patch breaks
                 bytecode_patch_jump(cg->chunk, cg->loop_stack.break_jumps[i], exit_addr);
@@ -658,6 +704,11 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
 
             emit(cg, INST(OP_FOR_INIT, var_reg, end_reg, step_reg), node->line);    // init for (no MOVE needed)
             
+            int loop_var_slot = find_local_slot(cg, node->for_stmt.var_name);       // slot of loop variable
+            if (loop_var_slot >= 0) cg->locals.is_number[loop_var_slot] = true;     // FOR_NEXT keeps it numeric
+            
+            LocalNumSnap loop_entry = snap_numbers(cg);                             // snapshot before body
+            
             int loop_start = bytecode_current_offset(cg->chunk);                    // loop start
             cg->loop_stack.continue_addr = loop_start;                              // set continue
             
@@ -665,6 +716,15 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             emit(cg, INST(OP_FOR_NEXT, var_reg, 0, 0), node->line);                 // check condition
             
             codegen_block(cg, node->for_stmt.body);                                 // emit body
+            LocalNumSnap loop_exit = snap_numbers(cg);                              // snapshot after body
+            
+            int merge_n = loop_entry.count < loop_exit.count ? loop_entry.count : loop_exit.count;
+            for (int i = 0; i < merge_n; i++) {                                     // intersect entry and exit
+                cg->locals.is_number[i] = loop_entry.flags[i] && loop_exit.flags[i];
+            }
+            if (loop_var_slot >= 0) cg->locals.is_number[loop_var_slot] = true;     // loop var always numeric inside loop
+            free_snap(loop_entry);                                                  // release snapshots
+            free_snap(loop_exit);
             
             emit(cg, INST(OP_JUMP, loop_start, 0, 0), node->line);                  // jump back
             
@@ -688,11 +748,13 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
         bool right_hoisted = false;                                                 // hoisted right
         Opcode jump_op = OP_JUMP;                                                   // jump opcode
 
+        LocalNumSnap cond_entry = snap_numbers(cg);                                 // snapshot before condition
+
         if (condition) {                                                            // has condition
             if (condition->type == AST_BINARY) {                                    // binary condition
                 ApexTokenType op = condition->binary.op;                            // operator
-                bool both_numbers = is_number_expression(condition->binary.left) && // check if both operands are numbers
-                                    is_number_expression(condition->binary.right);
+                bool both_numbers = is_number_expression(cg, condition->binary.left) &&  // check both operands known numeric
+                                    is_number_expression(cg, condition->binary.right);
                 
                 switch (op) {                                                       // map to jump op
                     case TOKEN_LESS:          jump_op = OP_JUMP_IF_GTE; optimized = true; break;
@@ -736,11 +798,22 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             }
         }
 
+        LocalNumSnap loop_entry = snap_numbers(cg);                                 // snapshot before body
         int prev_floor = cg->register_floor;                                        // save floor
         if (right_hoisted) {                                                        // right_reg must survive
             cg->register_floor = right_reg + 1;                                     // pin it above body temps
         }
         codegen_block(cg, node->for_stmt.body);                                     // emit body
+        LocalNumSnap loop_exit = snap_numbers(cg);                                  // snapshot after body
+        
+        int merge_n = loop_entry.count < loop_exit.count ? loop_entry.count : loop_exit.count;
+        for (int i = 0; i < merge_n; i++) {                                         // intersect entry and exit
+            cg->locals.is_number[i] = loop_entry.flags[i] && loop_exit.flags[i];
+        }
+        free_snap(loop_entry);                                                      // release snapshots
+        free_snap(loop_exit);
+        free_snap(cond_entry);
+        
         cg->register_floor = prev_floor;                                            // restore floor
         emit(cg, INST(OP_JUMP, loop_start, 0, 0), node->line);                      // jump back
         
@@ -755,6 +828,32 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
     cg->loop_stack.break_count = prev_break_count;                                  // restore break count
     cg->loop_stack.continue_addr = prev_continue_addr;                              // restore continue
     cg->loop_stack.is_fast = prev_is_fast;                                          // restore fast flag
+}
+
+// checks if an expression is known to produce a number at this point in emission
+static bool is_number_expression(CodeGenerator* cg, ASTNode* node) {
+    if (!node) return false;                                                   // null guard
+    switch (node->type) {
+        case AST_LITERAL_NUMBER:
+            return true;                                                       // literal is intrinsically a number
+        case AST_BINARY:
+            return is_arithmetic_op(node->binary.op);                          // arithmetic yields number by definition
+        case AST_UNARY:
+            return node->unary.op == TOKEN_MINUS;                              // unary minus is always a number
+        case AST_IDENTIFIER: {
+            int slot = find_local_slot(cg, node->identifier.name);             // look up local slot by name
+            if (slot < 0) return false;                                        // globals/unknown: cannot prove locally
+            return cg->locals.is_number[slot];                                 // use tracked numeric-ness
+        }
+        case AST_ASSIGN:
+        case AST_VAR_DECL:
+            return is_number_expression(cg, node->var_assign.value);           // type of assignment is type of RHS
+        case AST_TERNARY:
+            return is_number_expression(cg, node->ternary.true_expr) &&        // both branches must be numbers
+                   is_number_expression(cg, node->ternary.false_expr);
+        default:
+            return false;                                                      // strings, tables, calls, index: unknown
+    }
 }
 
 // main expression dispatcher with dest_hint contract
@@ -819,8 +918,8 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
             int right_reg = codegen_expression(cg, node->binary.right);             // evaluate right
             int result_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);       // result destination
             
-            bool both_numbers = is_number_expression(node->binary.left) &&          // check if both operands are numbers
-                                is_number_expression(node->binary.right);
+            bool both_numbers = is_number_expression(cg, node->binary.left) &&      // check both operands known numeric
+                                is_number_expression(cg, node->binary.right);
             
             Opcode op;                                                              // opcode
             switch (node->binary.op) {                                              // map operator
@@ -999,19 +1098,30 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
             int dest_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);       // result destination
             int cond_reg = codegen_expression(cg, condition);                     // evaluate condition
             
+            LocalNumSnap pre = snap_numbers(cg);                                  // snapshot at branch point
+            
             int jump_to_false = bytecode_current_offset(cg->chunk);               // jump to false
             emit(cg, INST(OP_JUMP_IF_FALSE, 0, cond_reg, 0), node->line);         // jump if false
             free_register(cg, cond_reg);                                          // free condition
             
             codegen_expression_into(cg, true_expr, dest_reg);                     // write true into dest
+            LocalNumSnap true_snap = snap_numbers(cg);                            // snapshot after true
             
             int jump_to_end = bytecode_current_offset(cg->chunk);                 // jump to end
             emit(cg, INST(OP_JUMP, 0, 0, 0), node->line);                         // emit jump
+            
+            restore_numbers(cg, pre);                                             // reset to branch point for false
             
             int false_addr = bytecode_current_offset(cg->chunk);                  // false address
             bytecode_patch_jump(cg->chunk, jump_to_false, false_addr);            // patch jump
             
             codegen_expression_into(cg, false_expr, dest_reg);                    // write false into dest
+            LocalNumSnap false_snap = snap_numbers(cg);                           // snapshot after false
+            
+            merge_numbers(cg, true_snap, false_snap);                             // intersect both branches
+            free_snap(true_snap);                                                 // release temporaries
+            free_snap(false_snap);
+            free_snap(pre);
             
             int end_addr = bytecode_current_offset(cg->chunk);                    // end address
             bytecode_patch_jump(cg->chunk, jump_to_end, end_addr);                // patch jump
@@ -1081,6 +1191,8 @@ static int emit_match_check(CodeGenerator* cg, int subject_reg, ASTNode* pattern
 
 // emits a match statement as a chain of fused constant checks and jumps
 static void codegen_match_statement(CodeGenerator* cg, ASTNode* node) {
+    LocalNumSnap match_before = snap_numbers(cg);                        // snapshot before any case body
+
     int subject_reg = codegen_expression(cg, node->match_stmt.subject);  // evaluate subject
     ASTNodeList* cases = node->match_stmt.cases;                         // non-default cases
     ASTNode* default_case = node->match_stmt.default_case;               // optional default
@@ -1103,6 +1215,7 @@ static void codegen_match_statement(CodeGenerator* cg, ASTNode* node) {
     cg->register_floor = subject_reg + 1;                                // pin subject across cases
     for (int i = 0; i < case_count; i++) {                               // emit each case body
         ASTNode* case_node = cases->nodes[i];
+        restore_numbers(cg, match_before);                               // reset flags before each case body
         int body_start = bytecode_current_offset(cg->chunk);             // body start address
         bytecode_patch_jump(cg->chunk, match_jumps[i], body_start);      // patch match jump
         codegen_block(cg, case_node->case_stmt.body);                    // emit body block
@@ -1110,12 +1223,15 @@ static void codegen_match_statement(CodeGenerator* cg, ASTNode* node) {
     }
 
     if (default_case) {                                                  // emit default body
+        restore_numbers(cg, match_before);                               // reset flags before default body
         int default_start = bytecode_current_offset(cg->chunk);          // default body start
         bytecode_patch_jump(cg->chunk, no_match_jump, default_start);    // patch no-match jump
         codegen_block(cg, default_case->case_stmt.body);                 // emit default body
         end_jumps[end_jump_count++] = emit(cg, INST(OP_JUMP, 0, 0, 0), line);  // jump to end
     }
     cg->register_floor = prev_floor;                                     // restore floor after match
+
+    restore_numbers(cg, match_before);                                   // conservative: unknown state after match
 
     int end_addr = bytecode_current_offset(cg->chunk);                   // match end address
     if (!default_case) {
@@ -1127,12 +1243,14 @@ static void codegen_match_statement(CodeGenerator* cg, ASTNode* node) {
 
     free(match_jumps);
     free(end_jumps);
+    free_snap(match_before);                                             // release snapshot
     free_register(cg, subject_reg);                                      // release subject register
 }
 
 // emits a variable declaration, writing the value directly into the local slot
 static void codegen_var_decl(CodeGenerator* cg, ASTNode* node) {
     int local_reg = add_local(cg, node->var_assign.name);                    // allocate local first
+    int slot = find_local_slot(cg, node->var_assign.name);                   // slot index for flag update
 
     int hint = local_reg;                                                    // default: write directly
     if (ast_unsafe_direct_assign(node->var_assign.value, node->var_assign.name)) {
@@ -1142,6 +1260,10 @@ static void codegen_var_decl(CodeGenerator* cg, ASTNode* node) {
     if (result != local_reg) {                                               // arrived in a fresh temp
         emit(cg, INST(OP_MOVE, local_reg, result, 0), node->line);           // copy into local slot
         free_register(cg, result);                                           // release temp
+    }
+
+    if (slot >= 0) {                                                         // update tracked numeric-ness
+        cg->locals.is_number[slot] = is_number_expression(cg, node->var_assign.value);
     }
 
     bool need_global = (cg->current_module != NULL) ||                       // module scope: global
@@ -1177,6 +1299,7 @@ static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node, int dest_hint) 
 
     int local_reg = find_local(cg, node->var_assign.name);                   // find existing local
     if (local_reg >= 0) {                                                    // local variable
+        int slot = find_local_slot(cg, node->var_assign.name);               // slot index for flag update
         if (node->var_assign.value->type == AST_BINARY) {                    // binary operation
             ASTNode* bin = node->var_assign.value;                           // binary node
             if (bin->binary.left->type == AST_IDENTIFIER &&                  // x = x op y
@@ -1187,6 +1310,7 @@ static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node, int dest_hint) 
                     bin->binary.right->type == AST_LITERAL_NUMBER &&         // right is number
                     bin->binary.right->literal_number.number_value == 1.0) {
                     emit(cg, INST(OP_INC, local_reg, 0, 0), node->line);     // in-place increment
+                    if (slot >= 0) cg->locals.is_number[slot] = true;        // still a number
                     return local_reg;                                        // return local
                 }
                 
@@ -1194,6 +1318,7 @@ static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node, int dest_hint) 
                     bin->binary.right->type == AST_LITERAL_NUMBER &&         // right is number
                     bin->binary.right->literal_number.number_value == 1.0) {
                     emit(cg, INST(OP_DEC, local_reg, 0, 0), node->line);     // in-place decrement
+                    if (slot >= 0) cg->locals.is_number[slot] = true;        // still a number
                     return local_reg;                                        // return local
                 }
             }
@@ -1207,6 +1332,9 @@ static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node, int dest_hint) 
         if (result != local_reg) {                                           // arrived in a fresh temp
             emit(cg, INST(OP_MOVE, local_reg, result, 0), node->line);       // copy into local slot
             free_register(cg, result);                                       // release temp
+        }
+        if (slot >= 0) {                                                     // update tracked numeric-ness
+            cg->locals.is_number[slot] = is_number_expression(cg, node->var_assign.value);
         }
         return local_reg;                                                    // return local
     }
@@ -1248,6 +1376,8 @@ static void codegen_assign(CodeGenerator* cg, ASTNode* node) {
 
 // emits if/else if/else chain with optimized condition evaluation
 static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
+    LocalNumSnap before = snap_numbers(cg);                                  // snapshot before any branch
+
     int jump_to_else = codegen_optimized_condition(cg, node->if_stmt.condition, node->line);  // try to fuse cond+jump
     if (jump_to_else < 0) {                                                  // not optimized
         int cond_reg = codegen_expression(cg, node->if_stmt.condition);      // evaluate condition
@@ -1255,8 +1385,11 @@ static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
         emit(cg, INST(OP_JUMP_IF_FALSE, 0, cond_reg, 0), node->line);        // jump if false
         free_register(cg, cond_reg);                                         // free condition
     }
+
+    LocalNumSnap entry = snap_numbers(cg);                                   // state at branch entry
     
     codegen_block(cg, node->if_stmt.then_branch);                            // emit then branch
+    LocalNumSnap after_then = snap_numbers(cg);                              // state at then exit
     
     ASTNode* else_branch = node->if_stmt.else_branch;                        // direct else branch
     if (!else_branch && node->if_stmt.elif_chain) {                          // no direct else
@@ -1277,30 +1410,50 @@ static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
     int else_addr = bytecode_current_offset(cg->chunk);                      // else address
     bytecode_patch_jump(cg->chunk, jump_to_else, else_addr);                 // patch jump
     
-    ASTNode* elif = node->if_stmt.elif_chain;                                // else if chain
-    while (elif) {                                                           // iterate else if
-        int elif_cond_reg = codegen_expression(cg, elif->if_stmt.condition); // evaluate condition
-        int jump_to_next = bytecode_current_offset(cg->chunk);               // jump to next
-        emit(cg, INST(OP_JUMP_IF_FALSE, 0, elif_cond_reg, 0), elif->line);   // jump if false
-        free_register(cg, elif_cond_reg);                                    // free condition
-        
-        codegen_block(cg, elif->if_stmt.then_branch);                        // emit else if body
-        
-        bool elif_is_last = (elif->if_stmt.elif_chain == NULL) && (else_branch == NULL);
-        if (!elif_is_last) {                                                 // not the trailing branch
-            end_jumps[end_jump_count++] = bytecode_current_offset(cg->chunk);  // save position
-            emit(cg, INST(OP_JUMP, 0, 0, 0), elif->line);                    // jump to end
+    LocalNumSnap after_else;                                                 // state at else exit
+    bool has_else = false;                                                   // whether else emitted
+    bool has_elif = (node->if_stmt.elif_chain != NULL);                      // elif chain present
+    
+    if (has_elif) {
+        restore_numbers(cg, before);                                         // conservative: reset for elif chain
+        ASTNode* elif = node->if_stmt.elif_chain;                            // else if chain
+        while (elif) {                                                       // iterate else if
+            int elif_cond_reg = codegen_expression(cg, elif->if_stmt.condition); // evaluate condition
+            int jump_to_next = bytecode_current_offset(cg->chunk);           // jump to next
+            emit(cg, INST(OP_JUMP_IF_FALSE, 0, elif_cond_reg, 0), elif->line);   // jump if false
+            free_register(cg, elif_cond_reg);                                // free condition
+            
+            codegen_block(cg, elif->if_stmt.then_branch);                    // emit else if body
+            
+            bool elif_is_last = (elif->if_stmt.elif_chain == NULL) && (else_branch == NULL);
+            if (!elif_is_last) {                                             // not the trailing branch
+                end_jumps[end_jump_count++] = bytecode_current_offset(cg->chunk);  // save position
+                emit(cg, INST(OP_JUMP, 0, 0, 0), elif->line);                // jump to end
+            }
+            
+            int next_addr = bytecode_current_offset(cg->chunk);              // next address
+            bytecode_patch_jump(cg->chunk, jump_to_next, next_addr);         // patch jump
+            
+            elif = elif->if_stmt.elif_chain;                                 // next else if
         }
-        
-        int next_addr = bytecode_current_offset(cg->chunk);                  // next address
-        bytecode_patch_jump(cg->chunk, jump_to_next, next_addr);             // patch jump
-        
-        elif = elif->if_stmt.elif_chain;                                     // next else if
     }
     
     if (else_branch) {                                                       // has else
+        if (!has_elif) restore_numbers(cg, entry);                           // reset before else when no elif
         codegen_block(cg, else_branch);                                      // emit else
+        after_else = snap_numbers(cg);                                       // capture else exit state
+        has_else = true;                                                     // mark else emitted
     }
+    
+    if (has_else && !has_elif) {                                             // both if and else present
+        merge_numbers(cg, after_then, after_else);                           // intersect then/else states
+        free_snap(after_else);                                               // release else snapshot
+    } else {
+        restore_numbers(cg, before);                                         // conservative: unknown after if
+    }
+    free_snap(after_then);                                                   // release then snapshot
+    free_snap(entry);                                                        // release entry snapshot
+    free_snap(before);                                                       // release outer snapshot
     
     int end_addr = bytecode_current_offset(cg->chunk);                       // end address
     for (int i = 0; i < end_jump_count; i++) {                               // patch all jumps
@@ -1338,8 +1491,8 @@ static int codegen_optimized_condition(CodeGenerator* cg, ASTNode* condition, in
     
     Opcode jump_op;                                                          // jump opcode for general case
     
-    bool both_numbers = is_number_expression(left) &&                        // check if both operands are numbers
-                        is_number_expression(right);
+    bool both_numbers = is_number_expression(cg, left) &&                    // check both operands known numeric
+                        is_number_expression(cg, right);
     
     switch (op) {                                                            // map to jump
         case TOKEN_LESS:          jump_op = OP_JUMP_IF_GTE; break;
@@ -1495,21 +1648,26 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     int saved_count = cg->locals.count;                                      // save local count
     char** saved_names = NULL;                                               // saved names
     int* saved_regs = NULL;                                                  // saved registers
+    bool* saved_is_number = NULL;                                            // saved numeric-ness flags
 
     if (saved_count > 0) {                                                   // have locals
         saved_names = (char**)malloc(sizeof(char*) * saved_count);           // allocate names
         saved_regs = (int*)malloc(sizeof(int) * saved_count);                // allocate regs
+        saved_is_number = (bool*)malloc(sizeof(bool) * saved_count);         // allocate flags
         for (int i = 0; i < saved_count; i++) {                              // copy locals
             saved_names[i] = strdup(cg->locals.names[i]);                    // copy name
             saved_regs[i] = cg->locals.registers[i];                         // copy reg
+            saved_is_number[i] = cg->locals.is_number[i];                    // copy numeric flag
         }
     }
 
     for (int i = 0; i < cg->locals.count; i++) free(cg->locals.names[i]);    // free local names
     free(cg->locals.names);                                                  // free names array
     free(cg->locals.registers);                                              // free registers array
+    free(cg->locals.is_number);                                              // free numeric flags array
     cg->locals.names = NULL;                                                 // clear names
     cg->locals.registers = NULL;                                             // clear regs
+    cg->locals.is_number = NULL;                                             // clear flags
     cg->locals.count = 0;                                                    // reset count
     cg->locals.capacity = 0;                                                 // reset capacity
     cg->next_register = 0;                                                   // reset next reg
@@ -1554,9 +1712,11 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     for (int i = 0; i < cg->locals.count; i++) free(cg->locals.names[i]);    // free local names
     free(cg->locals.names);                                                  // free names array
     free(cg->locals.registers);                                              // free registers array
+    free(cg->locals.is_number);                                              // free numeric flags array
     
     cg->locals.names = saved_names;                                          // restore names
     cg->locals.registers = saved_regs;                                       // restore regs
+    cg->locals.is_number = saved_is_number;                                  // restore numeric flags
     cg->locals.count = saved_count;                                          // restore count
     cg->locals.capacity = saved_count;                                       // restore capacity
     cg->next_register = prev_next_register;                                  // restore next reg
