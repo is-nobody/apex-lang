@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 // checks if a name is a known built-in module root using first-char switch
 static bool is_known_builtin_module(const char* name) {
@@ -161,6 +162,92 @@ static bool ast_unsafe_direct_assign(ASTNode* node, const char* name) {
 static bool is_arithmetic_op(ApexTokenType op) {
     return op == TOKEN_PLUS || op == TOKEN_MINUS || op == TOKEN_STAR ||
            op == TOKEN_SLASH || op == TOKEN_PERCENT;
+}
+
+// tries to fold an expression into a compile-time numeric constant
+static bool try_fold_number(ASTNode* node, double* out) {
+    if (!node || !out) return false;                                   // null guard
+    switch (node->type) {
+        case AST_LITERAL_NUMBER:
+            *out = node->literal_number.number_value;                  // literal value
+            return true;
+        case AST_UNARY:
+            if (node->unary.op == TOKEN_MINUS) {                       // unary minus
+                double v;
+                if (!try_fold_number(node->unary.operand, &v)) return false;
+                *out = -v;                                             // negate operand
+                return true;
+            }
+            return false;                                              // not: operand may be non-number
+        case AST_BINARY: {
+            double l, r;
+            if (!try_fold_number(node->binary.left,  &l)) return false;  // left must fold
+            if (!try_fold_number(node->binary.right, &r)) return false;  // right must fold
+            switch (node->binary.op) {                                 // evaluate arithmetic
+                case TOKEN_PLUS:    *out = l + r;      return true;
+                case TOKEN_MINUS:   *out = l - r;      return true;
+                case TOKEN_STAR:    *out = l * r;      return true;
+                case TOKEN_SLASH:                                          // division by zero
+                    if (r == 0.0) return false;                        // falls back to runtime
+                    *out = l / r;                      return true;
+                case TOKEN_PERCENT:                                        // modulo by zero
+                    if (r == 0.0) return false;                        // falls back to runtime
+                    *out = fmod(l, r);                 return true;
+                default:
+                    return false;                                      // non-arithmetic op
+            }
+        }
+        default:
+            return false;                                              // identifiers, calls, etc.
+    }
+}
+
+// tries to fold an expression into a compile-time boolean constant
+// only bool literals, not, and numeric comparisons are considered
+static bool try_fold_bool(ASTNode* node, bool* out) {
+    if (!node || !out) return false;                                   // null guard
+    switch (node->type) {
+        case AST_LITERAL_BOOL:
+            *out = node->literal_bool.bool_value;                      // literal value
+            return true;
+        case AST_UNARY:
+            if (node->unary.op == TOKEN_NOT) {                         // logical not
+                bool v;
+                if (!try_fold_bool(node->unary.operand, &v)) return false;
+                *out = !v;                                             // invert operand
+                return true;
+            }
+            return false;                                              // unary minus is not a bool
+        case AST_BINARY: {
+            ApexTokenType op = node->binary.op;
+            if (op == TOKEN_AND || op == TOKEN_OR) {                   // logical and/or
+                bool l, r;
+                if (!try_fold_bool(node->binary.left,  &l)) return false;
+                if (!try_fold_bool(node->binary.right, &r)) return false;
+                *out = (op == TOKEN_AND) ? (l && r) : (l || r);        // evaluate logical op
+                return true;
+            }
+            if (op == TOKEN_EQUAL_EQUAL || op == TOKEN_NOT_EQUAL ||    // numeric comparisons
+                op == TOKEN_LESS || op == TOKEN_GREATER ||
+                op == TOKEN_LESS_EQUAL || op == TOKEN_GREATER_EQUAL) {
+                double l, r;
+                if (!try_fold_number(node->binary.left,  &l)) return false;
+                if (!try_fold_number(node->binary.right, &r)) return false;
+                switch (op) {                                          // evaluate comparison
+                    case TOKEN_EQUAL_EQUAL:   *out = (l == r); return true;
+                    case TOKEN_NOT_EQUAL:     *out = (l != r); return true;
+                    case TOKEN_LESS:          *out = (l < r);  return true;
+                    case TOKEN_GREATER:       *out = (l > r);  return true;
+                    case TOKEN_LESS_EQUAL:    *out = (l <= r); return true;
+                    case TOKEN_GREATER_EQUAL: *out = (l >= r); return true;
+                    default: return false;                             // unreachable
+                }
+            }
+            return false;                                              // non-bool binary op
+        }
+        default:
+            return false;                                              // identifiers, calls, etc.
+    }
 }
 
 // snapshot of per-local numeric-ness flags for branch merging
@@ -862,6 +949,25 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
         int reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);                   // use hint or fresh
         emit(cg, INST(OP_LOAD_NONE, reg, 0, 0), 0);                                  // load none
         return reg;                                                                  // return register
+    }
+
+    double nv;                                                                       // folded numeric value
+    if (try_fold_number(node, &nv)) {                                                // constant subtree?
+        int reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);                   // use hint or fresh
+        if (nv == (int)nv && nv >= 0 && nv <= 65535) {                               // fits in immediate
+            emit(cg, INST(OP_LOAD_NUM_IMM, reg, (int)nv, 0), node->line);            // load immediate
+        } else {                                                                     // large or fractional
+            int const_idx = bytecode_add_number_constant(cg->chunk, nv);             // add to constant pool
+            emit(cg, INST(OP_LOAD_NUM, reg, const_idx, 0), node->line);              // load from pool
+        }
+        return reg;                                                                  // single load replaces subtree
+    }
+
+    bool bv;                                                                         // folded boolean value
+    if (try_fold_bool(node, &bv)) {                                                  // constant boolean?
+        int reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);                   // use hint or fresh
+        emit(cg, INST(OP_LOAD_BOOL, reg, bv ? 1 : 0, 0), node->line);                // load bool directly
+        return reg;                                                                  // single load replaces subtree
     }
 
     switch (node->type) {                                                            // dispatch by type
