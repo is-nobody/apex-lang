@@ -11,13 +11,6 @@
 #include <string.h>
 #include <ctype.h>
 
-#ifdef _WIN32
-  #include <string.h>
-  #define strcasecmp _stricmp
-#else
-  #include <strings.h>
-#endif
-
 // human-readable names for all token types, used in debug output
 static const char* token_type_names[] = {
     "FUNCTION", "IF", "ELSE", "FOR", "MATCH", "CASE",
@@ -359,15 +352,12 @@ static char* read_identifier(Tokenizer* tokenizer) {
 
 // checks if an identifier is a keyword, returns the appropriate token type
 static ApexTokenType lookup_keyword(const char* identifier) {
-    if (strcasecmp(identifier, "true") == 0) return TOKEN_TRUE;    // case-insensitive check for true
-    if (strcasecmp(identifier, "false") == 0) return TOKEN_FALSE;  // case-insensitive check for false
-    
     for (int i = 0; keywords[i].keyword != NULL; i++) {
         if (strcmp(identifier, keywords[i].keyword) == 0) {
             return keywords[i].type;                           // return keyword token type on match
         }
     }
-    
+
     return TOKEN_IDENTIFIER;                                   // not a keyword, it's a user identifier
 }
 
