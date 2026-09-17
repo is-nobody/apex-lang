@@ -307,13 +307,9 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
                 emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x94); emit_u8(cb, 0xC0);  // sete al
-                emit_u8(cb, 0x0F); emit_u8(cb, 0xB6); emit_u8(cb, 0xC0);  // movzbl eax, al
-                emit_u8(cb, 0xF2); emit_u8(cb, 0x0F); emit_u8(cb, 0x2A);
-                emit_u8(cb, 0xC0 | (XMM_SCRATCH << 3));          // cvtsi2sd scratch, eax
                 int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
                 if (xd < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                x86_emit_sse66_rr(cb, 0x28, xd, XMM_SCRATCH);    // movapd d, scratch
+                x86_emit_cmp_box_result(cb, xd, 0x94);           // setne? no: sete al, boxed MAKE_BOOL
                 x86_cache_put(&cache, xd, d);                    // cache dest
                 break;
             }
@@ -325,13 +321,9 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
                 emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x95); emit_u8(cb, 0xC0);  // setne al
-                emit_u8(cb, 0x0F); emit_u8(cb, 0xB6); emit_u8(cb, 0xC0);  // movzbl eax, al
-                emit_u8(cb, 0xF2); emit_u8(cb, 0x0F); emit_u8(cb, 0x2A);
-                emit_u8(cb, 0xC0 | (XMM_SCRATCH << 3));          // cvtsi2sd scratch, eax
                 int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
                 if (xd < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                x86_emit_sse66_rr(cb, 0x28, xd, XMM_SCRATCH);    // movapd d, scratch
+                x86_emit_cmp_box_result(cb, xd, 0x95);           // setne al, boxed MAKE_BOOL
                 x86_cache_put(&cache, xd, d);                    // cache dest
                 break;
             }
@@ -342,13 +334,9 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
                 emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x92); emit_u8(cb, 0xC0);  // setb al
-                emit_u8(cb, 0x0F); emit_u8(cb, 0xB6); emit_u8(cb, 0xC0);  // movzbl eax, al
-                emit_u8(cb, 0xF2); emit_u8(cb, 0x0F); emit_u8(cb, 0x2A);
-                emit_u8(cb, 0xC0 | (XMM_SCRATCH << 3));          // cvtsi2sd scratch, eax
                 int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
                 if (xd < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                x86_emit_sse66_rr(cb, 0x28, xd, XMM_SCRATCH);    // movapd d, scratch
+                x86_emit_cmp_box_result(cb, xd, 0x92);           // setb al, boxed MAKE_BOOL
                 x86_cache_put(&cache, xd, d);                    // cache dest
                 break;
             }
@@ -359,13 +347,9 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
                 emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x97); emit_u8(cb, 0xC0);  // seta al
-                emit_u8(cb, 0x0F); emit_u8(cb, 0xB6); emit_u8(cb, 0xC0);  // movzbl eax, al
-                emit_u8(cb, 0xF2); emit_u8(cb, 0x0F); emit_u8(cb, 0x2A);
-                emit_u8(cb, 0xC0 | (XMM_SCRATCH << 3));          // cvtsi2sd scratch, eax
                 int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
                 if (xd < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                x86_emit_sse66_rr(cb, 0x28, xd, XMM_SCRATCH);    // movapd d, scratch
+                x86_emit_cmp_box_result(cb, xd, 0x97);           // seta al, boxed MAKE_BOOL
                 x86_cache_put(&cache, xd, d);                    // cache dest
                 break;
             }
@@ -376,13 +360,9 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
                 emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x96); emit_u8(cb, 0xC0);  // setbe al
-                emit_u8(cb, 0x0F); emit_u8(cb, 0xB6); emit_u8(cb, 0xC0);  // movzbl eax, al
-                emit_u8(cb, 0xF2); emit_u8(cb, 0x0F); emit_u8(cb, 0x2A);
-                emit_u8(cb, 0xC0 | (XMM_SCRATCH << 3));          // cvtsi2sd scratch, eax
                 int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
                 if (xd < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                x86_emit_sse66_rr(cb, 0x28, xd, XMM_SCRATCH);    // movapd d, scratch
+                x86_emit_cmp_box_result(cb, xd, 0x96);           // setbe al, boxed MAKE_BOOL
                 x86_cache_put(&cache, xd, d);                    // cache dest
                 break;
             }
@@ -393,13 +373,9 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
                 emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x93); emit_u8(cb, 0xC0);  // setae al
-                emit_u8(cb, 0x0F); emit_u8(cb, 0xB6); emit_u8(cb, 0xC0);  // movzbl eax, al
-                emit_u8(cb, 0xF2); emit_u8(cb, 0x0F); emit_u8(cb, 0x2A);
-                emit_u8(cb, 0xC0 | (XMM_SCRATCH << 3));          // cvtsi2sd scratch, eax
                 int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
                 if (xd < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                x86_emit_sse66_rr(cb, 0x28, xd, XMM_SCRATCH);    // movapd d, scratch
+                x86_emit_cmp_box_result(cb, xd, 0x93);           // setae al, boxed MAKE_BOOL
                 x86_cache_put(&cache, xd, d);                    // cache dest
                 break;
             }
@@ -413,14 +389,13 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 did_flush = true;                                // suppress merge flush
                 break;
             }
-            case OP_JUMP_IF_FALSE: {                             // branch when cond == 0
+            case OP_JUMP_IF_FALSE: {                             // branch when cond is false
                 int xa = x86_cache_load(&cache, cb, a);          // load condition
                 if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                x86_emit_sse66_rr(cb, 0x57, XMM_SCRATCH, XMM_SCRATCH);  // xorpd scratch, scratch
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
-                emit_u8(cb, 0xC0 | (xa << 3) | XMM_SCRATCH);     // ucomisd a, 0
+                x86_emit_movq_rax_xmm(cb, xa);                   // rax = raw 64-bit slot
+                emit_u8(cb, 0xA8); emit_u8(cb, 0x01);            // test al, 1
                 x86_cache_flush(&cache, cb);                     // flush before branch
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x84);            // je rel32
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x84);            // je rel32 (bit0 == 0 -> false)
                 fixups[fixup_count].patch_at  = cb->len;         // record placeholder
                 fixups[fixup_count].target_pc = d;               // remember target pc
                 fixup_count++;                                   // one more pending fixup
@@ -737,13 +712,9 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
                 case OP_CMP_LTE: cc = 0x96; break;               // setbe
                 default:         cc = 0x93; break;               // setae (gte)
             }
-            emit_u8(cb, 0x0F); emit_u8(cb, cc); emit_u8(cb, 0xC0);  // setcc al
-            emit_u8(cb, 0x0F); emit_u8(cb, 0xB6); emit_u8(cb, 0xC0);  // movzbl eax, al
-            emit_u8(cb, 0xF2); emit_u8(cb, 0x0F); emit_u8(cb, 0x2A);
-            emit_u8(cb, 0xC0 | (XMM_SCRATCH << 3));              // cvtsi2sd scratch, eax
             int xd = x86_cache_alloc_excl(cache, cb, xa, xb);    // pick dest xmm
             if (xd < 0) return;                                  // register cache full
-            x86_emit_sse66_rr(cb, 0x28, xd, XMM_SCRATCH);        // dest = scratch
+            x86_emit_cmp_box_result(cb, xd, cc);                 // nan-boxed MAKE_BOOL into xd
             x86_cache_put(cache, xd, d);                         // cache dest
             break;
         }
@@ -1198,7 +1169,6 @@ static bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
     if (cb->len + (size_t)range_size * 256 + 1024 > cb->cap) return false;  // buffer too small
 
     size_t mark = cb->len;                                   // rollback point
-
     int const_slot = nregs;                                  // unused here, kept for layout parity
     int frame_slots = const_slot + 1;                        // incl. the unused constant slot
     int base_frame = align16(8 * frame_slots);

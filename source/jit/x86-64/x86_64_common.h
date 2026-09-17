@@ -33,6 +33,9 @@
 // nan-boxed NONE bit pattern (QNAN | TAG_NONE<<48)
 #define X86_NONE_BITS  0x7FF8000000000000ULL
 
+// nan-boxed MAKE_BOOL base pattern (QNAN | TAG_BOOL<<48); bit 0 carries the value
+#define X86_BOOL_BITS  0x7FFA000000000000ULL
+
 // register cache state: which slot lives in which xmm, and which slots have been written since they were last flushed to memory
 typedef struct {
     int  reg_slot[XMM_CACHE_REGS];  // xmm[i] holds slot reg_slot[i], or -1
@@ -107,6 +110,12 @@ static inline void x86_emit_movabs_rax(CodeBuf* b, uint64_t v) {
 // emits movabs r8, imm64 — load 64-bit immediate into r8
 static inline void x86_emit_movabs_r8(CodeBuf* b, uint64_t v) {
     emit_u8(b, 0x49); emit_u8(b, 0xB8);                    // rex.wb + movabs r8
+    emit_u64(b, v);
+}
+
+// emits movabs r11, imm64 — load 64-bit immediate into r11 (caller-saved scratch)
+static inline void x86_emit_movabs_r11(CodeBuf* b, uint64_t v) {
+    emit_u8(b, 0x49); emit_u8(b, 0xBB);                    // rex.wb + movabs r11
     emit_u64(b, v);
 }
 
@@ -208,6 +217,16 @@ static inline void x86_emit_cmp_rax_rdx(CodeBuf* b) {
 // emits cmp rdx, r12 (r12 in reg field, rdx in r/m field)
 static inline void x86_emit_cmp_rdx_r12d(CodeBuf* b) {
     emit_u8(b, 0x4C); emit_u8(b, 0x39); emit_u8(b, 0xE2);
+}
+
+// finishes a comparison: setcc al; movzbl eax, al; or rax, BOOL_BITS; movq xmm_dst, rax
+// leaves xmm_dst holding a nan-boxed MAKE_BOOL matching the interpreter's encoding
+static inline void x86_emit_cmp_box_result(CodeBuf* b, int xmm_dst, uint8_t setcc_op) {
+    emit_u8(b, 0x0F); emit_u8(b, setcc_op); emit_u8(b, 0xC0);      // setcc al
+    emit_u8(b, 0x0F); emit_u8(b, 0xB6); emit_u8(b, 0xC0);          // movzbl eax, al
+    x86_emit_movabs_r11(b, X86_BOOL_BITS);                         // r11 = QNAN|TAG_BOOL
+    emit_u8(b, 0x4C); emit_u8(b, 0x09); emit_u8(b, 0xD8);          // or rax, r11
+    x86_emit_movq_xmm_rax(b, xmm_dst);                             // xmm_dst = nan-boxed bool
 }
 
 // clears cache state without touching memory

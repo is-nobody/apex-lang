@@ -1474,7 +1474,12 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
 // wraps a raw jit return value into a tagged vm value based on the function's return kind
 static inline Value jit_box_return(JITContext* jit, int func_idx, double r) {
     switch (jit_return_type(jit, func_idx)) {
-        case JIT_RET_BOOL: return MAKE_BOOL(r != 0.0);           // bool tag
+        case JIT_RET_BOOL: {
+            // jit booleans are nan-boxed (MAKE_BOOL bits in xmm0); AS_BOOL tests bit 0
+            uint64_t bits;
+            memcpy(&bits, &r, 8);
+            return MAKE_BOOL((bits & 1) != 0);
+        }
         case JIT_RET_NONE: return MAKE_NONE();                   // none tag, r ignored
         default:           return MAKE_NUMBER(r);                // plain number
     }
