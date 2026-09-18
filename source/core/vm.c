@@ -476,9 +476,11 @@ void vm_print_value(Value value) {
     if (IS_NAN(value)) {
         printf("nan");                                    // raw nan value
     } else if (IS_NUMBER(value)) {
-        double num = AS_NUMBER(value);                    // unwrap number
-        if (fabs(num) >= 1e6 || fabs(num - (long long)num) < 1e-9) printf("%.0f", num);  // large or integer, no decimals
-        else printf("%.15g", num);                        // use general format with high precision
+        double num = AS_NUMBER(value);
+        if (num == (long long)num && fabs(num) < 1e15)
+            printf("%.0f", num);        // exact integer, no decimals
+        else
+            printf("%.17g", num);       // shortest-ish round-trip
     } else if (IS_STRING(value)) {
         printf("%s", AS_STRING(value)->chars);            // print raw string chars
     } else if (IS_NONE(value)) {
