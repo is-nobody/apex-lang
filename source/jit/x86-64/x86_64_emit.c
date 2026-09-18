@@ -1116,10 +1116,10 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
     x86_emit_movq_xmm_rax(cb, XMM_SCRATCH);                  // xmm7 = 1.0
     x86_emit_movsd_store(cb, XMM_SCRATCH, x86_slot_disp(const_slot));  // const_slot = 1.0
 
-    // copy live-in slots from vm regs to stack frame
-    uint64_t m = info->live_in;
+    // copy live-in AND live-out slots from vm regs to stack frame
+    uint64_t m = info->live_in | info->live_out;
     while (m) {
-        int s = __builtin_ctzll(m);                          // next live-in slot
+        int s = __builtin_ctzll(m);                          // next slot to seed
         m &= m - 1;
         if (s >= 64) break;                                  // beyond tracked range
         x86_emit_movsd_load_base(cb, abi->frame_reg, 0, s * 8);  // xmm0 = regs[s]
@@ -1224,10 +1224,10 @@ static bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
     // rdx = 0 (iteration counter, caller-saved: no save/restore needed)
     x86_emit_movabs_r8(cb, X86_NONE_BITS);                   // r8 = NONE bits, for hole-skip
 
-    // copy live-in slots from vm regs to frame, except table and loop var
-    uint64_t m = info->live_in;
+    // copy live-in AND live-out slots from vm regs to frame, except table and loop var
+    uint64_t m = info->live_in | info->live_out;
     while (m) {
-        int s = __builtin_ctzll(m);                          // next live-in slot
+        int s = __builtin_ctzll(m);                          // next slot to seed
         m &= m - 1;
         if (s >= 64) break;                                  // beyond tracked range
         if (s == table_slot) continue;                       // table lives in rbx, not frame
