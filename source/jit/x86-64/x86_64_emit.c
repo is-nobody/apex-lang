@@ -13,6 +13,16 @@
 // rounds n up to the next multiple of 16
 static int align16(int n) { return (n + 15) & ~15; }
 
+// helper for OP_JUMP_MATCH_STR: returns 1 if the subject is a string whose
+int jit_match_str(Value subj, StringObject* case_str) {
+    if (!IS_STRING(subj)) return 0;                          // non-strings never match
+    StringObject* s = AS_STRING(subj);                       // unwrap subject pointer
+    if (s == case_str) return 1;                             // same interned pointer
+    if (!s || !case_str) return 0;
+    if (s->length != case_str->length) return 0;             // different lengths
+    return memcmp(s->chars, case_str->chars, s->length) == 0;
+}
+
 // emits the shared prologue then any abi-specific callee-saved register saves=
 static void emit_prologue(CodeBuf* cb, const X86_64Abi* abi,
                           int frame_size, int base_frame) {
@@ -85,6 +95,10 @@ static bool slot_read_before_write(BytecodeChunk* chunk, int pc_after, int end, 
                 reads = (a == s || b == s);
                 break;
             case OP_JUMP_IF_FALSE:                               // reads a
+                reads = (a == s);
+                break;
+            case OP_JUMP_MATCH_NUM: case OP_JUMP_MATCH_STR:      // reads subject in a
+            case OP_JUMP_MATCH_BOOL: case OP_JUMP_MATCH_NONE:
                 reads = (a == s);
                 break;
             case OP_RETURN: case OP_RETURN_NUM:                  // reads d
@@ -165,7 +179,9 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             op == OP_JUMP_IF_EQ || op == OP_JUMP_IF_NEQ ||
             op == OP_JUMP_IF_EQ_NUM || op == OP_JUMP_IF_NEQ_NUM ||
             op == OP_JUMP_IF_LT || op == OP_JUMP_IF_GT ||
-            op == OP_JUMP_IF_LTE || op == OP_JUMP_IF_GTE) {
+            op == OP_JUMP_IF_LTE || op == OP_JUMP_IF_GTE ||
+            op == OP_JUMP_MATCH_NUM || op == OP_JUMP_MATCH_STR ||
+            op == OP_JUMP_MATCH_BOOL || op == OP_JUMP_MATCH_NONE) {
             int t = chunk->code[pc].operands[0];                 // jump target
             if (t >= start && t < end) is_target[t - start] = true;  // mark as merge point
         }
@@ -517,6 +533,79 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 fixup_count++;                                   // one more pending fixup
                 emit_i32(cb, 0);                                 // placeholder
                 did_flush = true;                                // suppress merge flush
+                break;
+            }
+            case OP_JUMP_MATCH_NUM: {                            // jump if R[a] is a number == const[b]
+                int xa = x86_cache_load(&cache, cb, a);          // load subject
+                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }
+                double c = chunk->constants[b].number_value;     // fetch constant
+                uint64_t cbits; memcpy(&cbits, &c, 8);           // reinterpret as u64
+                x86_emit_movabs_rax(cb, cbits);                  // rax = constant bits
+                x86_emit_movq_xmm_rax(cb, XMM_SCRATCH);          // scratch = constant
+                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
+                emit_u8(cb, 0xC0 | (xa << 3) | XMM_SCRATCH);     // ucomisd subj, const
+                x86_cache_flush(&cache, cb);                     // flush before both branches
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x8A);            // jp skip (subj was NaN-tagged)
+                size_t skip_patch = cb->len;
+                emit_i32(cb, 0);
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x84);            // je target
+                fixups[fixup_count].patch_at  = cb->len;
+                fixups[fixup_count].target_pc = d;
+                fixup_count++;
+                emit_i32(cb, 0);
+                int32_t skip_rel = (int32_t)cb->len - (int32_t)(skip_patch + 4);
+                memcpy(cb->buf + skip_patch, &skip_rel, 4);      // patch skip
+                did_flush = true;
+                break;
+            }
+            case OP_JUMP_MATCH_STR: {                            // jump if R[a] is a string == const[b]
+                x86_cache_flush(&cache, cb);                     // call clobbers xmm
+                x86_emit_load_r64_rbp(cb, X86_RDI, x86_slot_disp(a));  // rdi = subject
+                uint64_t addr = (uint64_t)(uintptr_t)&chunk->constants[b].cached_str;
+                x86_emit_movabs_rax(cb, addr);                   // rax = &cached_str
+                x86_emit_load_r64_base(cb, X86_RSI, X86_RAX, 0); // rsi = cached_str
+                uint64_t helper = (uint64_t)(uintptr_t)&jit_match_str;
+                x86_emit_movabs_rax(cb, helper);                 // rax = helper
+                emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);            // call rax
+                emit_u8(cb, 0x85); emit_u8(cb, 0xC0);            // test eax, eax
+                x86_cache_clear(&cache);                         // callee clobbered xmm
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x85);            // jne target  (match → jump)
+                fixups[fixup_count].patch_at  = cb->len;
+                fixups[fixup_count].target_pc = d;
+                fixup_count++;
+                emit_i32(cb, 0);
+                did_flush = true;
+                break;
+            }
+            case OP_JUMP_MATCH_BOOL: {                           // jump if R[a] == MAKE_BOOL(b)
+                int xa = x86_cache_load(&cache, cb, a);
+                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }
+                x86_emit_movq_rax_xmm(cb, xa);                   // rax = subject bits
+                uint64_t expect = X86_BOOL_BITS | (b ? 1ULL : 0ULL);
+                x86_emit_movabs_r11(cb, expect);                 // r11 = expected bool bits
+                emit_u8(cb, 0x4C); emit_u8(cb, 0x39); emit_u8(cb, 0xD8);  // cmp rax, r11
+                x86_cache_flush(&cache, cb);
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x84);            // je target
+                fixups[fixup_count].patch_at  = cb->len;
+                fixups[fixup_count].target_pc = d;
+                fixup_count++;
+                emit_i32(cb, 0);
+                did_flush = true;
+                break;
+            }
+            case OP_JUMP_MATCH_NONE: {                           // jump if R[a] == MAKE_NONE()
+                int xa = x86_cache_load(&cache, cb, a);
+                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }
+                x86_emit_movq_rax_xmm(cb, xa);                   // rax = subject bits
+                x86_emit_movabs_r11(cb, X86_NONE_BITS);          // r11 = NONE bits
+                emit_u8(cb, 0x4C); emit_u8(cb, 0x39); emit_u8(cb, 0xD8);  // cmp rax, r11
+                x86_cache_flush(&cache, cb);
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x84);            // je target
+                fixups[fixup_count].patch_at  = cb->len;
+                fixups[fixup_count].target_pc = d;
+                fixup_count++;
+                emit_i32(cb, 0);
+                did_flush = true;
                 break;
             }
             case OP_CALL_0: {                                    // call with no args

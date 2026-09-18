@@ -112,9 +112,28 @@ static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
             case OP_JUMP_IF_EQ:     case OP_JUMP_IF_NEQ:
             case OP_JUMP_IF_EQ_NUM: case OP_JUMP_IF_NEQ_NUM:
             case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:
-            case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE: {
+            case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:
+            case OP_JUMP_MATCH_BOOL:                             // match jumps share the range check
+            case OP_JUMP_MATCH_NONE: {
                 int target = inst->operands[0];                     // jump target pc
                 if (target < start || target >= end) return false;  // leaves the function
+                break;
+            }
+
+            case OP_JUMP_MATCH_NUM: {                            // subject compared to a number constant
+                int target = inst->operands[0];                  // jump target pc
+                if (target < start || target >= end) return false;
+                int idx = inst->operands[2];                     // constant pool index
+                if (idx < 0 || idx >= chunk->const_count) return false;
+                if (chunk->constants[idx].type != CONST_NUMBER) return false;
+                break;
+            }
+            case OP_JUMP_MATCH_STR: {                            // subject compared to a string constant
+                int target = inst->operands[0];                  // jump target pc
+                if (target < start || target >= end) return false;
+                int idx = inst->operands[2];                     // constant pool index
+                if (idx < 0 || idx >= chunk->const_count) return false;
+                if (chunk->constants[idx].type != CONST_STRING) return false;
                 break;
             }
 
@@ -457,7 +476,9 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
             Opcode op = chunk->code[i].opcode;
             if (op == OP_JUMP || op == OP_FOR_NEXT ||            // unconditional or nested for
                 op == OP_TABLE_ITER_NEXT ||                      // nested table iter
-                (op >= OP_JUMP_IF_EQ && op <= OP_JUMP_IF_GTE)) { // conditional branch
+                (op >= OP_JUMP_IF_EQ && op <= OP_JUMP_IF_GTE) || // conditional branch
+                op == OP_JUMP_MATCH_NUM || op == OP_JUMP_MATCH_STR ||
+                op == OP_JUMP_MATCH_BOOL || op == OP_JUMP_MATCH_NONE) {
                 ok = false;                                      // nested loop or internal branch
             }
         }
