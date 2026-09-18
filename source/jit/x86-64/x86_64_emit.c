@@ -106,6 +106,7 @@ static bool slot_read_before_write(BytecodeChunk* chunk, int pc_after, int end, 
         switch (inst->opcode) {
             case OP_MOVE: case OP_NEG: case OP_INC: case OP_DEC:
             case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:
+            case OP_LOAD_BOOL: case OP_LOAD_NONE:
             case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
             case OP_CMP_EQ: case OP_CMP_NEQ:
             case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
@@ -234,6 +235,23 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 double v = chunk->constants[a].number_value;     // fetch constant
                 uint64_t bits; memcpy(&bits, &v, 8);             // reinterpret as u64
                 x86_emit_movabs_rax(cb, bits);                   // rax = bit pattern
+                x86_emit_movq_xmm_rax(cb, x);                    // xmmX = rax
+                x86_cache_put(&cache, x, d);                     // cache dest
+                break;
+            }
+            case OP_LOAD_BOOL: {                                 // boolean literal
+                int x = x86_cache_alloc_excl(&cache, cb, -1, -1);  // pick a register
+                if (x < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                uint64_t bits = X86_BOOL_BITS | (a ? 1ULL : 0ULL);  // bit 0 carries the value
+                x86_emit_movabs_rax(cb, bits);                   // rax = nan-boxed bool
+                x86_emit_movq_xmm_rax(cb, x);                    // xmmX = rax
+                x86_cache_put(&cache, x, d);                     // cache dest
+                break;
+            }
+            case OP_LOAD_NONE: {                                 // none literal
+                int x = x86_cache_alloc_excl(&cache, cb, -1, -1);  // pick a register
+                if (x < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                x86_emit_movabs_rax(cb, X86_NONE_BITS);          // rax = NONE bit pattern
                 x86_emit_movq_xmm_rax(cb, x);                    // xmmX = rax
                 x86_cache_put(&cache, x, d);                     // cache dest
                 break;
@@ -641,6 +659,23 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
             x86_cache_put(cache, x, d);                          // cache dest
             break;
         }
+        case OP_LOAD_BOOL: {
+            int x = x86_cache_alloc_excl(cache, cb, -1, -1);     // pick a free xmm
+            if (x < 0) return;                                   // register cache full
+            uint64_t bits = X86_BOOL_BITS | (a ? 1ULL : 0ULL);   // bit 0 carries value
+            x86_emit_movabs_rax(cb, bits);                       // rax = nan-boxed bool
+            x86_emit_movq_xmm_rax(cb, x);                        // xmmX = rax
+            x86_cache_put(cache, x, d);                          // cache dest
+            break;
+        }
+        case OP_LOAD_NONE: {
+            int x = x86_cache_alloc_excl(cache, cb, -1, -1);     // pick a free xmm
+            if (x < 0) return;                                   // register cache full
+            x86_emit_movabs_rax(cb, X86_NONE_BITS);              // rax = NONE bit pattern
+            x86_emit_movq_xmm_rax(cb, x);                        // xmmX = rax
+            x86_cache_put(cache, x, d);                          // cache dest
+            break;
+        }
         case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: {
             int xa = x86_cache_load(cache, cb, a);               // load left operand
             if (xa < 0) return;                                  // register cache full
@@ -955,6 +990,7 @@ static bool op_writes_dest(Opcode op) {
     switch (op) {
         case OP_MOVE: case OP_NEG: case OP_INC: case OP_DEC:
         case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:
+        case OP_LOAD_BOOL: case OP_LOAD_NONE:
         case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
         case OP_CMP_EQ: case OP_CMP_NEQ:
         case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:

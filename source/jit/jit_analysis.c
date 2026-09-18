@@ -39,6 +39,8 @@ static bool is_pure_loop_instr(JITContext* ctx, int pc) {
     switch (inst->opcode) {
         case OP_MOVE:                                        // reg-to-reg copy
         case OP_LOAD_NUM_IMM:                                // small int literal
+        case OP_LOAD_BOOL:                                   // boolean literal
+        case OP_LOAD_NONE:                                   // none literal
         case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
         case OP_NEG: case OP_INC: case OP_DEC:               // arithmetic
         case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:             // numeric compares
@@ -86,6 +88,8 @@ static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
         switch (inst->opcode) {
             case OP_MOVE:                                        // trivial moves
             case OP_LOAD_NUM_IMM:                                // small int literals
+            case OP_LOAD_BOOL:                                   // boolean literals
+            case OP_LOAD_NONE:                                   // none literal
             case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
             case OP_NEG: case OP_INC: case OP_DEC:               // arithmetic
             case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:             // numeric compares
@@ -130,7 +134,9 @@ static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
 static bool infer_return_type(BytecodeChunk* chunk, int start, int end,
                               JitReturnType* out) {
     bool is_bool[JIT_MAX_REGS_SCAN];                             // bool-flag per register
+    bool is_none[JIT_MAX_REGS_SCAN];                             // none-flag per register
     memset(is_bool, 0, sizeof(is_bool));                         // no regs are bool initially
+    memset(is_none, 0, sizeof(is_none));                         // no regs are none initially
 
     bool any_bool = false;                                       // saw a bool RETURN
     bool any_num  = false;                                       // saw a numeric RETURN
@@ -146,24 +152,35 @@ static bool infer_return_type(BytecodeChunk* chunk, int start, int end,
             case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:             // a bool
             case OP_CMP_LT: case OP_CMP_GT:
             case OP_CMP_LTE: case OP_CMP_GTE:
-                if (d < JIT_MAX_REGS_SCAN) is_bool[d] = true;    // dest holds bool
+                if (d < JIT_MAX_REGS_SCAN) { is_bool[d] = true; is_none[d] = false; }
                 break;
 
-            case OP_MOVE:                                        // move preserves bool-ness
-                if (d < JIT_MAX_REGS_SCAN)                       // dest in range
-                    is_bool[d] = (a < JIT_MAX_REGS_SCAN) ? is_bool[a] : false;    // copy flag
+            case OP_MOVE:                                        // move preserves bool/none-ness
+                if (d < JIT_MAX_REGS_SCAN) {
+                    is_bool[d] = (a < JIT_MAX_REGS_SCAN) ? is_bool[a] : false;
+                    is_none[d] = (a < JIT_MAX_REGS_SCAN) ? is_none[a] : false;
+                }
+                break;
+
+            case OP_LOAD_BOOL:
+                if (d < JIT_MAX_REGS_SCAN) { is_bool[d] = true;  is_none[d] = false; }
+                break;
+
+            case OP_LOAD_NONE:
+                if (d < JIT_MAX_REGS_SCAN) { is_bool[d] = false; is_none[d] = true; }
                 break;
 
             case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:              // numeric producers
             case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
             case OP_NEG: case OP_INC: case OP_DEC:
             case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:      // treated as numeric here
-                if (d < JIT_MAX_REGS_SCAN) is_bool[d] = false;   // dest is not bool
+                if (d < JIT_MAX_REGS_SCAN) { is_bool[d] = false; is_none[d] = false; }
                 break;
 
             case OP_RETURN:                                      // return kind depends on reg
-                if (d < JIT_MAX_REGS_SCAN && is_bool[d]) any_bool = true;
-                else                                     any_num  = true;
+                if      (d < JIT_MAX_REGS_SCAN && is_none[d]) any_none = true;
+                else if (d < JIT_MAX_REGS_SCAN && is_bool[d]) any_bool = true;
+                else                                          any_num  = true;
                 break;
 
             case OP_RETURN_NUM:                                  // explicitly numeric
@@ -236,6 +253,7 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
                 if (d >= 0 && d < 64) pc_writes |= 1ULL << d;    // result
                 break;
             case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:              // writes d only
+            case OP_LOAD_BOOL: case OP_LOAD_NONE:                // writes d only
                 if (d >= 0 && d < 64) pc_writes |= 1ULL << d;
                 break;
             case OP_JUMP_IF_EQ: case OP_JUMP_IF_NEQ:
