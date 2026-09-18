@@ -44,6 +44,7 @@ typedef struct {
     int current_function;          // index of the function currently being compiled
     bool current_function_has_nested;  // true if current function's body contains a nested function declaration
     int register_floor;            // minimum next_register preserved by codegen_block resets
+    int for_scope_depth;           // nesting depth of for-scopes; used to decide local vs global
 
     int label_counter;             // unique identifier generator for synthetic labels
 

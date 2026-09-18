@@ -499,6 +499,7 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->module_globals_count = 0;                                          // zero module globals
     cg->module_globals_capacity = 0;                                       // no capacity
     cg->register_floor = 0;                                                // no floor at top level
+    cg->for_scope_depth = 0;                                               // not inside any for
 
     cg->hoist.active   = false;
     cg->hoist.values   = NULL;
@@ -857,6 +858,10 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
 
     if (node->for_stmt.var_name) {                                                 // named variable loop
         if (node->for_stmt.end == NULL && !node->for_stmt.condition) {             // table iteration
+            int saved_locals_count = cg->locals.count;                              // capture for-scope boundary
+            int saved_next_register = cg->next_register;
+            cg->for_scope_depth++;                                                  // enter for-scope
+
             LocalNumSnap table_entry = snap_numbers(cg);                           // snapshot before body
             int table_reg = codegen_expression(cg, node->for_stmt.start);          // evaluate table
             int var_reg = add_local(cg, node->for_stmt.var_name);                  // add loop variable
@@ -877,13 +882,23 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             int exit_addr = bytecode_current_offset(cg->chunk);                    // exit address
             cg->chunk->code[iter_next_instr].operands[2] = exit_addr;              // patch exit
             
-            free_register(cg, table_reg);                                          // free table
+            cg->for_scope_depth--;                                                  // exit for-scope
+            for (int i = saved_locals_count; i < cg->locals.count; i++) {           // drop loop var + body locals
+                free(cg->locals.names[i]);
+            }
+            cg->locals.count = saved_locals_count;
+            cg->next_register = saved_next_register;
+
             free_snap(table_entry);                                                // release snapshot
             
             for (int i = prev_break_count; i < cg->loop_stack.break_count; i++) {  // patch breaks
                 bytecode_patch_jump(cg->chunk, cg->loop_stack.break_jumps[i], exit_addr);
             }
         } else {                                                                    // numeric range loop
+            int saved_locals_count = cg->locals.count;                              // capture for-scope boundary
+            int saved_next_register = cg->next_register;
+            cg->for_scope_depth++;                                                  // enter for-scope
+
             int var_reg = add_local(cg, node->for_stmt.var_name);                   // allocate loop variable first
             codegen_expression_into(cg, node->for_stmt.start, var_reg);             // write start directly into var_reg
             int end_reg = codegen_expression(cg, node->for_stmt.end);               // evaluate end (fresh temp)
@@ -948,10 +963,12 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             codegen_block(cg, node->for_stmt.body);                                 // emit body
             cg->register_floor = prev_loop_floor;                                   // restore floor after body
 
-            // free hoisted registers (reverse order so each is the last allocated)
-            for (int i = cg->hoist.count - 1; i >= 0; i--) {
-                free_register(cg, cg->hoist.regs[i]);
+            cg->for_scope_depth--;                                                  // exit for-scope
+            for (int i = saved_locals_count; i < cg->locals.count; i++) {           // drop loop var + body locals
+                free(cg->locals.names[i]);
             }
+            cg->locals.count = saved_locals_count;
+            cg->next_register = saved_next_register;                                // reclaim var/end/step/hoisted at once
 
             LocalNumSnap loop_exit = snap_numbers(cg);                              // snapshot after body
 
@@ -959,7 +976,6 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             for (int i = 0; i < merge_n; i++) {                                     // intersect entry and exit
                 cg->locals.is_number[i] = loop_entry.flags[i] && loop_exit.flags[i];
             }
-            if (loop_var_slot >= 0) cg->locals.is_number[loop_var_slot] = true;     // loop var always numeric inside loop
             free_snap(loop_entry);                                                  // release snapshots
             free_snap(loop_exit);
 
@@ -967,9 +983,6 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
 
             int exit_addr = bytecode_current_offset(cg->chunk);                     // exit address
             cg->chunk->code[for_next_instr].operands[1] = exit_addr;                // patch exit
-
-            free_register(cg, end_reg);                                             // free end
-            if (!node->for_stmt.step) free_register(cg, step_reg);                  // free step if default
 
             free(cg->hoist.values);                                                 // release hoist arrays
             free(cg->hoist.regs);
@@ -982,11 +995,15 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
         }
         
         int exit_addr = bytecode_current_offset(cg->chunk);                         // exit address
-        for (int i = 0; i < cg->loop_stack.break_count; i++) {                      // patch all breaks
+        for (int i = prev_break_count; i < cg->loop_stack.break_count; i++) {       // patch all breaks
             bytecode_patch_jump(cg->chunk, cg->loop_stack.break_jumps[i], exit_addr);
         }
 
     } else {                                                                        // no variable, condition loop
+        int saved_locals_count = cg->locals.count;                                  // capture for-scope boundary
+        int saved_next_register = cg->next_register;
+        cg->for_scope_depth++;                                                      // enter for-scope
+
         ASTNode* condition = node->for_stmt.condition;                              // condition
         int left_reg = -1;                                                          // left operand reg
         int right_reg = -1;                                                         // right operand reg
@@ -1053,6 +1070,13 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
         }
         codegen_block(cg, node->for_stmt.body);                                     // emit body
         LocalNumSnap loop_exit = snap_numbers(cg);                                  // snapshot after body
+
+        cg->for_scope_depth--;                                                      // exit for-scope
+        for (int i = saved_locals_count; i < cg->locals.count; i++) {               // drop body locals
+            free(cg->locals.names[i]);
+        }
+        cg->locals.count = saved_locals_count;
+        cg->next_register = saved_next_register;
         
         int merge_n = loop_entry.count < loop_exit.count ? loop_entry.count : loop_exit.count;
         for (int i = 0; i < merge_n; i++) {                                         // intersect entry and exit
@@ -1546,8 +1570,9 @@ static void codegen_var_decl(CodeGenerator* cg, ASTNode* node) {
     }
 
     bool need_global = (cg->current_module != NULL) ||                       // module scope: global
-                       (cg->current_function == 0) ||                        // top-level: global
-                       cg->current_function_has_nested;                      // nested fn may capture
+                       (cg->for_scope_depth == 0 &&                          // not inside a for-scope
+                        ((cg->current_function == 0) ||                      // top-level: global
+                         cg->current_function_has_nested));                  // nested fn may capture
 
     if (need_global) {                                                       // register global slot
         const char* var_name = node->var_assign.name;                        // variable name
