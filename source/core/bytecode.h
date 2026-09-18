@@ -92,8 +92,6 @@ typedef enum {
     OP_STORE_GLOBAL,     // stores a register value into a global variable
 
     OP_HALT,             // stops vm execution
-
-    OP_COUNT,            // total number of opcodes, used for bounds checking
 } Opcode;
 
 // fixed-size 16-byte instruction (opcode + three 32-bit operands) for fast decoding

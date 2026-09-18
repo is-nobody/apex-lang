@@ -101,16 +101,14 @@ static const char* opcode_names[] = {
     [OP_STORE_GLOBAL]     = "STORE_GLOBAL",
 
     [OP_HALT]             = "HALT",
-
-    [OP_COUNT]            = "COUNT",
 };
 
 // returns the name of an opcode, or "unknown" if out of range
 const char* opcode_name(Opcode op) {
-    if (op >= 0 && op < OP_COUNT && opcode_names[op]) {  // validate opcode range and check name exists
-        return opcode_names[op];                         // return human-readable name from lookup table
+    if (opcode_names[op]) {       // validate opcode range and check name exists
+        return opcode_names[op];  // return human-readable name from lookup table
     }
-    return "UNKNOWN";                                    // fallback for invalid opcode value
+    return "UNKNOWN";             // fallback for invalid opcode value
 }
 
 // creates a new bytecode chunk with initial capacity for code, constants, globals, and debug info
