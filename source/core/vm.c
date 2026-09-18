@@ -494,7 +494,19 @@ void vm_print_value(VM* vm, Value value) {
             vm_print_value(vm, result);                   // recursively print the return value
             if ((result & QNAN) == QNAN) value_decref(result);  // release our reference to the result
         } else {
-            printf("<function>");                         // no vm available, fall back to placeholder
+            printf("function");                         // no vm available, fall back to placeholder
+        }
+    } else if (IS_FUTURE(value)) {
+        if (vm && vm->current_task == NULL) {             // only drive the scheduler from the top level
+            Value result;                                 // placeholder for the resolved value
+            if (vm_drive_until(vm, value, &result)) {     // block until the future settles
+                vm_print_value(vm, result);               // recursively print the resolved value
+                if ((result & QNAN) == QNAN) value_decref(result);  // release our reference to the result
+            } else {
+                printf("future");                       // deadlock or vm error, report placeholder
+            }
+        } else {
+            printf("future");                           // no vm or inside a coroutine, fall back to placeholder
         }
     }
 }
