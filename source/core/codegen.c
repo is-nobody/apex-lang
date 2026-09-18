@@ -10,6 +10,15 @@
 #include <string.h>
 #include <math.h>
 
+// forward declarations for the dispatcher and helpers with dest_hint contract
+static int add_local(CodeGenerator* cg, const char* name);
+static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint);
+static void codegen_block(CodeGenerator* cg, ASTNode* node);
+static int codegen_optimized_condition(CodeGenerator* cg, ASTNode* condition, int line);
+static int codegen_index_assign(CodeGenerator* cg, ASTNode* node, int dest_hint);
+static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node, int dest_hint);
+static bool is_number_expression(CodeGenerator* cg, ASTNode* node);
+
 // checks if a name is a known built-in module root using first-char switch
 static bool is_known_builtin_module(const char* name) {
     switch (name[0]) {
@@ -75,6 +84,62 @@ static bool block_has_function_decl(ASTNode* node) {
         return block_has_function_decl(node->case_stmt.body);
     }
     return false;                                                 // other nodes: no nested function
+}
+
+// recursively collects names assigned inside a function body, skipping nested fns
+static void collect_local_names(CodeGenerator* cg, ASTNode* node) {
+    if (!node) return;                                                      // null guard
+    switch (node->type) {
+        case AST_FUNCTION_DECL:
+            return;                                                         // don't descend into nested fns
+        case AST_VAR_DECL:
+            if (node->var_assign.name) add_local(cg, node->var_assign.name);  // declaration binds a local
+            collect_local_names(cg, node->var_assign.value);                // walk RHS
+            break;
+        case AST_ASSIGN:
+            if (node->var_assign.name && !node->var_assign.access_path)
+                add_local(cg, node->var_assign.name);                       // bare assign binds a local
+            collect_local_names(cg, node->var_assign.value);                // walk RHS
+            if (node->var_assign.access_path)                               // indexed assign: walk target
+                collect_local_names(cg, node->var_assign.access_path);
+            break;
+        case AST_FOR_STMT:
+            if (node->for_stmt.var_name) add_local(cg, node->for_stmt.var_name);  // loop var is a local
+            collect_local_names(cg, node->for_stmt.start);                  // walk range start
+            collect_local_names(cg, node->for_stmt.end);                    // walk range end
+            collect_local_names(cg, node->for_stmt.step);                   // walk range step
+            collect_local_names(cg, node->for_stmt.condition);              // walk condition loop
+            collect_local_names(cg, node->for_stmt.body);                   // walk loop body
+            break;
+        case AST_BLOCK:
+        case AST_PROGRAM:
+            for (int i = 0; i < node->block.statements->count; i++)         // walk each statement
+                collect_local_names(cg, node->block.statements->nodes[i]);
+            break;
+        case AST_IF_STMT:
+            collect_local_names(cg, node->if_stmt.condition);               // walk condition
+            collect_local_names(cg, node->if_stmt.then_branch);             // walk then branch
+            collect_local_names(cg, node->if_stmt.elif_chain);              // walk elif chain
+            collect_local_names(cg, node->if_stmt.else_branch);             // walk else branch
+            break;
+        case AST_MATCH_STMT:
+            collect_local_names(cg, node->match_stmt.subject);              // walk subject
+            for (int i = 0; i < node->match_stmt.cases->count; i++)         // walk each case
+                collect_local_names(cg, node->match_stmt.cases->nodes[i]);
+            collect_local_names(cg, node->match_stmt.default_case);         // walk default case
+            break;
+        case AST_CASE:
+            collect_local_names(cg, node->case_stmt.body);                  // walk case body
+            break;
+        case AST_EXPR_STMT:
+            collect_local_names(cg, node->expr_stmt.expression);            // walk expr
+            break;
+        case AST_RETURN_STMT:
+            collect_local_names(cg, node->return_stmt.value);               // walk return value
+            break;
+        default:
+            break;                                                          // other nodes: nothing to bind
+    }
 }
 
 // returns true if an ast subtree reads a local variable by name
@@ -353,14 +418,6 @@ typedef struct {
     int count;         // number of slots captured
     bool* flags;       // copied flags, or NULL when count is zero
 } LocalNumSnap;
-
-// forward declarations for the dispatcher and helpers with dest_hint contract
-static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint);
-static void codegen_block(CodeGenerator* cg, ASTNode* node);
-static int codegen_optimized_condition(CodeGenerator* cg, ASTNode* condition, int line);
-static int codegen_index_assign(CodeGenerator* cg, ASTNode* node, int dest_hint);
-static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node, int dest_hint);
-static bool is_number_expression(CodeGenerator* cg, ASTNode* node);
 
 // default entry: no destination hint, caller owns the fresh temp
 static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
@@ -1980,12 +2037,20 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     cg->current_function_has_nested =                                        // detect nested function decls
         block_has_function_decl(node->function_decl.body);
 
-    for (int i = 0; i < param_count; i++) {                                  // parameters
-        ASTNode* param = node->function_decl.params->nodes[i];               // param node
-        add_local(cg, param->param.name);                                    // add as local
+    for (int i = 0; i < param_count; i++) {                                 // parameters
+        ASTNode* param = node->function_decl.params->nodes[i];              // param node
+        add_local(cg, param->param.name);                                   // add as local
     }
 
-    codegen_block(cg, node->function_decl.body);                             // emit body
+    // pre-declare locals so assignments inside match/if/for bind to locals, not globals
+    int first_body_local = cg->locals.count;                                // first body-local slot
+    collect_local_names(cg, node->function_decl.body);                      // scan body for assigned names
+    for (int i = first_body_local; i < cg->locals.count; i++) {             // initialize new locals
+        emit(cg, INST(OP_LOAD_NONE, cg->locals.registers[i], 0, 0),         // start as none
+             node->line);
+    }
+
+    codegen_block(cg, node->function_decl.body);                            // emit body
 
     bool ends_with_return = false;                                           // return flag
     if (cg->chunk->code_count > 0) {                                         // has code
