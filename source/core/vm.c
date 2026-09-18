@@ -67,6 +67,7 @@ typedef struct {
 // forward declarations
 static char* table_to_string(Table* table);
 static void table_to_string_builder(Table* table, StringBuilder* sb, int indent_level);
+static Value vm_call_function_sync(VM* vm, int func_idx);
 
 // djb2 hash function for string interning
 static unsigned int intern_hash(const char* chars, int length) {
@@ -472,7 +473,7 @@ static void print_table_recursive(Table* table, int indent_level) {
 }
 
 // prints a value to stdout with formatting
-void vm_print_value(Value value) {
+void vm_print_value(VM* vm, Value value) {
     if (IS_NAN(value)) {
         printf("nan");                                    // raw nan value
     } else if (IS_NUMBER(value)) {
@@ -488,7 +489,13 @@ void vm_print_value(Value value) {
     } else if (IS_TABLE(value)) {
         print_table_recursive(AS_TABLE(value), 0);        // recursively print table structure
     } else if (IS_FUNCTION(value)) {
-        printf("<function>");                             // placeholder for function values
+        if (vm && vm->chunk) {                            // call the function and print its return value
+            Value result = vm_call_function_sync(vm, AS_FUNCTION(value));  // invoke with zero arguments
+            vm_print_value(vm, result);                   // recursively print the return value
+            if ((result & QNAN) == QNAN) value_decref(result);  // release our reference to the result
+        } else {
+            printf("<function>");                         // no vm available, fall back to placeholder
+        }
     }
 }
 
@@ -1084,6 +1091,80 @@ static void vm_context_capture(VM* vm, FutureObject* task) {
     vm->iterator_stack = vm->top_level_iter_storage;   // restore top-level numeric loop storage
     vm->table_iters    = vm->top_level_table_iter_storage;  // restore top-level table iterator storage
     vm->current_task = NULL;                           // leave coroutine mode
+}
+
+// calls a function with no arguments synchronously and returns its result
+// runs the body in an isolated execution context so the caller's state survives
+static Value vm_call_function_sync(VM* vm, int func_idx) {
+    if (!vm || !vm->chunk) return MAKE_NONE();        // need a live chunk to look up the body
+    if (func_idx < 0) return MAKE_NONE();             // reject invalid function index
+
+    FutureObject dummy;                               // stack-allocated future used as execution context
+    memset(&dummy, 0, sizeof(dummy));                 // clear every field before configuring
+    dummy.result = MAKE_NONE();                       // result filled in when the body returns
+    dummy.state = 0;                                  // pending until body completes
+    dummy.func_idx = func_idx;                        // function being invoked
+    dummy.saved_ip = vm->chunk->functions[func_idx].address;  // entry point of the body
+    dummy.saved_dest_reg = -1;                        // no pending await destination
+    dummy.awaiting = MAKE_NONE();                     // not blocked on anything
+    dummy.saved_iter_depth = -1;                      // no active numeric loops
+    dummy.saved_table_iter_depth = -1;                // no active table iterators
+
+    int needed = vm->chunk->functions[func_idx].max_registers;  // body register count
+    if (needed < REGISTER_INITIAL_SIZE) needed = REGISTER_INITIAL_SIZE;  // enforce minimum size
+
+    dummy.register_pool  = (Value*)malloc(sizeof(Value) * needed);           // private register pool
+    dummy.frame_offset   = (int*)calloc(FUTURE_FRAME_INITIAL, sizeof(int));  // private frame offsets
+    dummy.frame_capacity = (int*)calloc(FUTURE_FRAME_INITIAL, sizeof(int));  // private frame capacities
+    dummy.frame_used     = (int*)calloc(FUTURE_FRAME_INITIAL, sizeof(int));  // private usage counters
+    if (!dummy.register_pool || !dummy.frame_offset ||
+        !dummy.frame_capacity || !dummy.frame_used) {                        // allocation failed
+        free(dummy.register_pool);  dummy.register_pool  = NULL;
+        free(dummy.frame_offset);   dummy.frame_offset   = NULL;
+        free(dummy.frame_capacity); dummy.frame_capacity = NULL;
+        free(dummy.frame_used);     dummy.frame_used     = NULL;
+        return MAKE_NONE();                                                  // nothing to report
+    }
+
+    dummy.frame_arrays_size = FUTURE_FRAME_INITIAL;  // number of frame slots allocated
+    dummy.pool_capacity = needed;                    // total pool capacity
+    dummy.current_frame = 0;                         // body runs in frame 0
+    dummy.frame_offset[0] = 0;                       // body frame starts at pool offset 0
+    dummy.frame_capacity[0] = needed;                // body frame capacity
+    dummy.frame_used[0] = needed;                    // body frame fully reserved
+    for (int i = 0; i < needed; i++) {
+        dummy.register_pool[i] = MAKE_NONE();        // clear all body registers
+    }
+
+    SavedVMContext saved_ctx;                        // snapshot of caller's active pool
+    vm_context_save(vm, &saved_ctx);
+    FutureObject* saved_task = vm->current_task;     // preserve caller's task mode
+    int saved_iter = vm->iterator_depth;             // preserve caller's numeric loop depth
+    int saved_titer = vm->table_iter_depth;          // preserve caller's table iterator depth
+
+    vm_context_enter(vm, &dummy);                    // install the temporary context
+    vm_execute(vm, vm->chunk);                       // run body until it returns or errors
+    vm_context_capture(vm, &dummy);                  // copy any grown pool back into dummy
+
+    Value result = dummy.result;                     // capture return value (owns ref if heap)
+    dummy.result = MAKE_NONE();                      // clear so dummy does not double-release
+
+    vm_context_restore(vm, &saved_ctx);              // restore caller's active pool
+    vm->current_task = saved_task;                   // restore caller's task mode
+    vm->iterator_depth = saved_iter;                 // restore caller's numeric loop depth
+    vm->table_iter_depth = saved_titer;              // restore caller's table iterator depth
+
+    for (int i = 0; i < dummy.pool_capacity; i++) {  // release any live registers in dummy pool
+        if ((dummy.register_pool[i] & QNAN) == QNAN) {
+            value_decref(dummy.register_pool[i]);
+        }
+    }
+    free(dummy.register_pool);                       // free dummy register pool
+    free(dummy.frame_offset);                        // free dummy frame offsets
+    free(dummy.frame_capacity);                      // free dummy frame capacities
+    free(dummy.frame_used);                          // free dummy frame usage counters
+
+    return result;                                   // caller owns one reference if heap
 }
 
 // starts a pending future as a coroutine and queues it for execution
