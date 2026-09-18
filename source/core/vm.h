@@ -319,7 +319,7 @@ typedef struct {
 const char* vm_value_type_name(Value value);
 
 // prints a value to stdout
-void vm_print_value(VM* vm, Value value);
+void vm_print_value(Value value);
 
 // increments the reference count of a value (only for heap-allocated types)
 void value_incref(Value v);

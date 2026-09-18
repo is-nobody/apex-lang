@@ -550,7 +550,7 @@ static Value os_access_sync(void* p) {
 bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     if (strcmp(name, "os.output") == 0) {                         // print to stdout
         if (arg_count >= 1) {                                     // require a value argument
-            vm_print_value(vm, args[0]);                          // print value, calling it if it is a function
+            vm_print_value(args[0]);                              // print value
 
             bool needs_newline = true;                            // append newline by default
             if (IS_STRING(args[0])) {                             // string payload may end with '\n'
