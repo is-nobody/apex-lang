@@ -317,9 +317,15 @@ const char* vm_value_type_name(Value value) {
 
 // returns current wall-clock time in seconds
 double apex_now_seconds(void) {
+#ifdef _WIN32
+    struct _timeb tb;                                   // windows timeb
+    _ftime(&tb);                                        // read wall clock
+    return (double)tb.time + (double)tb.millitm / 1000.0;  // combine into seconds
+#else
     struct timeval tv;                                  // timeval buffer
     gettimeofday(&tv, NULL);                            // read wall clock
     return (double)tv.tv_sec + (double)tv.tv_usec / 1000000.0;  // combine into seconds
+#endif
 }
 
 // waits on a condition variable with a millisecond timeout, cross-platform

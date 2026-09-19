@@ -12,6 +12,7 @@
 #include <limits.h>
 #ifdef _WIN32
 #include <process.h>
+#include <windows.h>
 #endif
 
 // dynamic string builder for efficient text assembly
@@ -512,7 +513,7 @@ static void xml_spawn_worker(VM* vm, FutureObject* fut, void* (*fn)(void*),
     bool ok = false;                         // spawn success flag
 #ifdef _WIN32
     uintptr_t h = _beginthreadex(NULL, 0,               // windows thread
-                                 (unsigned __stdcall (*)(void*))fn,
+                                 (unsigned (__stdcall *)(void*))(void*)fn,
                                  arg, 0, NULL);
     if (h) { CloseHandle((HANDLE)h); ok = true; }       // detach handle
 #else

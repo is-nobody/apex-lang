@@ -3,11 +3,11 @@
 // https://github.com/is-nobody/apex-lang
 // MIT license
 
-#include "crypto_module.h"
-#include "vm.h"
 #ifdef _WIN32
 #define _CRT_RAND_S
 #endif
+#include "crypto_module.h"
+#include "vm.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
