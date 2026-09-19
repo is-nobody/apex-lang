@@ -67,6 +67,9 @@ static bool is_pure_loop_instr(JITContext* ctx, int pc) {
             return true;
         case OP_TABLE_ITER_NEXT:                             // loop entry for table iteration
             return true;
+        case OP_TABLE_GET_KEY_STR:                           // fresh string key + get
+        case OP_TABLE_SET_KEY_STR:                           // fresh string key + set
+            return true;
         case OP_LOAD_GLOBAL:                                 // reads vm->globals[idx]
         case OP_STORE_GLOBAL:                                // writes vm->globals[idx]
             return true;
@@ -264,6 +267,7 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
     info->table.indexed_by_counter = false;                      // t[i] with i == loop counter
     info->ref_writes               = 0;                          // slots whose value is refcounted
     info->touches_tables           = false;                      // any table op at all
+    info->str_slots                = 0;                          // slots that receive string Values
     memset(info->live_in_kind, 0, sizeof(info->live_in_kind));   // all slots default to NUM
 
     for (int pc = info->entry_pc; pc <= info->back_edge_pc; pc++) {
@@ -341,6 +345,36 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
             case OP_STORE_GLOBAL:                                // d = src, a = global idx
                 if (d >= 0 && d < 64) pc_reads |= 1ULL << d;
                 if (a >= 0 && a < 64) info->globals_used |= 1ULL << a;
+                break;
+            case OP_TABLE_GET_KEY_STR:                           // d = tbl["prefix" .. num]
+                if (d >= 0 && d < 64) {
+                    pc_writes |= 1ULL << d;
+                    info->ref_writes |= 1ULL << d;               // value may be heap-allocated
+                }
+                if (a >= 0 && a < 64) pc_reads |= 1ULL << a;     // table slot read
+                {
+                    int num_reg = b & 0xFFFF;                    // number register
+                    if (num_reg >= 0 && num_reg < 64) pc_reads |= 1ULL << num_reg;
+                }
+                info->table.used     = true;
+                info->touches_tables = true;
+                if (a >= 0 && a < JIT_MAX_SLOTS) info->live_in_kind[a] = JIT_SLOT_TABLE_ANY;
+                if (info->table.slot < 0) info->table.slot = a;
+                if (info->table.min_count < 1) info->table.min_count = 1;
+                break;
+            case OP_TABLE_SET_KEY_STR:                           // tbl["prefix" .. num] = val
+                if (d >= 0 && d < 64) pc_reads |= 1ULL << d;     // table slot read (operands[0])
+                if (a >= 0 && a < 64) pc_reads |= 1ULL << a;     // value slot read (operands[1])
+                {
+                    int num_reg = b & 0xFFFF;                    // number register (low half of packed)
+                    if (num_reg >= 0 && num_reg < 64) pc_reads |= 1ULL << num_reg;
+                }
+                info->table.used     = true;
+                info->touches_tables = true;
+                info->table.written  = true;
+                if (d >= 0 && d < JIT_MAX_SLOTS) info->live_in_kind[d] = JIT_SLOT_TABLE_ANY;
+                if (info->table.slot < 0) info->table.slot = d;
+                if (info->table.min_count < 1) info->table.min_count = 1;
                 break;
             case OP_TABLE_GET_NUM:                               // same register pattern as GET
             case OP_TABLE_GET:

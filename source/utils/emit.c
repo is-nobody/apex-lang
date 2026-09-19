@@ -294,6 +294,14 @@ static void emit_instruction(BytecodeChunk* chunk, int offset, FILE* out) {  // 
             REG(a); fputs(" <- ", out); REG(b);                   // dst <- tbl
             fputc('[', out); REG(c); fputc(']', out);             // [num]
             break;
+        case OP_TABLE_GET_KEY_STR: {                              // table["prefix" .. num] -> dst
+            int prefix_idx = (int)((uint32_t)c >> 16);            // unpack pool index
+            int num_reg    = c & 0xFFFF;                          // unpack number register
+            REG(a); fputs(" <- ", out); REG(b); fputc('[', out);  // dst <- tbl[
+            print_const_value(chunk, prefix_idx, out);            // prefix string
+            fputs(" .. ", out); REG(num_reg); fputs("]", out);    // .. num]
+            break;
+        }
         case OP_TABLE_SET:                                        // table[key] = value
             REG(a); fputc('[', out); REG(b); fputs("] <- ", out); REG(c);  // tbl[key] <- val
             break;
@@ -311,6 +319,15 @@ static void emit_instruction(BytecodeChunk* chunk, int offset, FILE* out) {  // 
             REG(a); fputc('[', out); REG(b); fputs("] <- ", out); // tbl[num] <- val
             REG(c);                                               // value register
             break;
+        case OP_TABLE_SET_KEY_STR: {                              // table["prefix" .. num] = value
+            int prefix_idx = (int)((uint32_t)c >> 16);            // unpack pool index
+            int num_reg    = c & 0xFFFF;                          // unpack number register
+            REG(a); fputc('[', out);                              // tbl[
+            print_const_value(chunk, prefix_idx, out);            // prefix string
+            fputs(" .. ", out); REG(num_reg); fputs("] <- ", out); // .. num] <- 
+            REG(b);                                               // value
+            break;
+        }
         case OP_TABLE_APPEND:                                     // append positional item
             REG(a); fputs(" += ", out); REG(b);                   // tbl += val
             break;

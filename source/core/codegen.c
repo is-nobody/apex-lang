@@ -1374,6 +1374,21 @@ static bool is_integer_expression(CodeGenerator* cg, ASTNode* node) {
     }
 }
 
+// checks whether `node` is a two-part interpolation "literal{expr}";
+// returns the constant pool index of the literal prefix, or -1.
+// does not emit any code and does not allocate registers.
+static int key_str_prefix_idx(CodeGenerator* cg, ASTNode* node) {
+    if (!node || node->type != AST_STRING_INTERP) return -1;                 // not an interpolation
+    if (node->string_interp.parts->count != 2) return -1;                    // need exactly two parts
+    if (node->string_interp.parts->nodes[0]->type != AST_LITERAL_STRING)
+        return -1;                                                           // left must be a literal
+    const char* prefix = node->string_interp.parts->nodes[0]
+                             ->literal_string.string_value;                  // prefix text
+    int idx = bytecode_add_string_constant(cg->chunk, prefix);               // pool index
+    if (idx < 0 || idx > 0xFFFF) return -1;                                  // must fit packed op2
+    return idx;                                                              // ready to fuse
+}
+
 // main expression dispatcher with dest_hint contract
 static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint) {
     if (!node) {                                                                     // null node
@@ -1661,7 +1676,26 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
                         emit(cg, INST(OP_TABLE_GET_CONST, result_reg, obj_reg, key_idx), node->line); // get by const
                     }
                 }
-            } else {                                                                     // member expression
+            } else if (node->access.member->type == AST_STRING_INTERP) {                 // "prefix{expr}" key?
+                int prefix_idx = key_str_prefix_idx(cg, node->access.member);            // check without emitting
+                if (prefix_idx >= 0) {                                                   // fuse-able pattern
+                    int num_reg = codegen_expression(cg,                                  // evaluate the number
+                                     node->access.member->string_interp.parts->nodes[1]);
+                    int packed = (prefix_idx << 16) | (num_reg & 0xFFFF);                // pack op2
+                    emit(cg, INST(OP_TABLE_GET_KEY_STR, result_reg, obj_reg, packed),    // fused get
+                         node->line);
+                    free_register(cg, num_reg);                                          // free number temp
+                    free_register(cg, obj_reg);                                          // free object
+                    return result_reg;                                                   // return result
+                }
+                int key_reg = codegen_expression(cg, node->access.member);               // fallback: full interp
+                Opcode get_op = is_integer_expression(cg, node->access.member)           // whole-number key?
+                                ? OP_TABLE_GET_NUM : OP_TABLE_GET;
+                emit(cg, INST(get_op, result_reg, obj_reg, key_reg), node->line);        // get by key
+                free_register(cg, key_reg);                                              // free key
+                free_register(cg, obj_reg);                                              // free object
+                return result_reg;                                                       // return result
+            } else {                                                                     // plain member expression
                 int key_reg = codegen_expression(cg, node->access.member);               // evaluate key
                 Opcode get_op = is_integer_expression(cg, node->access.member)           // whole-number key?
                                 ? OP_TABLE_GET_NUM : OP_TABLE_GET;
@@ -2234,6 +2268,27 @@ static int codegen_index_assign(CodeGenerator* cg, ASTNode* node, int dest_hint)
         }
     }
     
+    if (final_acc->access.member->type == AST_STRING_INTERP) {               // "prefix{expr}" key?
+        int prefix_idx = key_str_prefix_idx(cg, final_acc->access.member);   // check without emitting
+        if (prefix_idx >= 0) {                                               // fuse-able pattern
+            int num_reg = codegen_expression(cg,                            // evaluate the number
+                             final_acc->access.member->string_interp.parts->nodes[1]);
+            int packed = (prefix_idx << 16) | (num_reg & 0xFFFF);            // pack op2
+            emit(cg, INST(OP_TABLE_SET_KEY_STR, current_obj_reg, val_reg,    // fused set
+                          packed), final_acc->line);
+            free_register(cg, num_reg);                                      // free number temp
+            free_register(cg, current_obj_reg);                              // free object
+            return val_reg;                                                  // return value
+        }
+        // fallback: full string-interp as the key
+        int key_reg = codegen_expression(cg, final_acc->access.member);      // evaluate key
+        emit(cg, INST(OP_TABLE_SET, current_obj_reg, key_reg, val_reg),      // set by key
+             final_acc->line);
+        free_register(cg, key_reg);                                          // free key
+        free_register(cg, current_obj_reg);                                  // free object
+        return val_reg;                                                      // return value
+    }
+
     int key_reg = codegen_expression(cg, final_acc->access.member);          // evaluate key
     Opcode set_op = is_integer_expression(cg, final_acc->access.member)      // whole-number key?
                     ? OP_TABLE_SET_NUM : OP_TABLE_SET;

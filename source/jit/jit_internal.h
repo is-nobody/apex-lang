@@ -37,8 +37,9 @@ typedef enum {
 
 // how a live-in slot is validated before the native loop runs
 typedef enum {
-    JIT_SLOT_NUM = 0,  // must satisfy IS_NUMBER
-    JIT_SLOT_TABLE,    // must be a table with usable array part
+    JIT_SLOT_NUM = 0,   // must satisfy IS_NUMBER
+    JIT_SLOT_TABLE,     // must be a table with usable array part
+    JIT_SLOT_TABLE_ANY, // must be a table; used by *_KEY_STR helpers, accepts hash-only tables
 } JitSlotKind;
 
 // table usage detected inside a numeric loop body (baseline: at most one table per loop)
@@ -76,6 +77,8 @@ typedef struct {
 
     uint64_t globals_used;  // bitmask of globals (0..63) read or written in the loop body
     int      globals_count; // popcount of globals_used
+
+    uint64_t str_slots;     // bitmask of slots the loop body writes string Values into
 
     bool trace_entered;  // APEX_JIT_TRACE_BUILD: first-entry dump already printed?
 

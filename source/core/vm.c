@@ -1508,6 +1508,16 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     bool top_level = (vm->current_task == NULL);          // entering top-level or resuming a coroutine
     if (top_level) {                                      // top-level-only setup
         vm->global_count = chunk->global_count;           // number of globals to initialise
+
+        for (int i = 0; i < chunk->const_count; i++) {               // pre-intern string constants first
+            Constant* c = &chunk->constants[i];                      // so JIT can read cached_str at emit time
+            if (c->type == CONST_STRING && c->cached_str == NULL) {  // string not yet interned
+                int len = (int)strlen(c->string_value);              // compute length once
+                c->cached_str = string_intern(&vm->intern_table,     // intern into vm's table
+                                              c->string_value, len);
+            }
+        }
+
 #if APEX_JIT_ENABLED
         if (apex_jit_runtime_enabled) {
             vm->jit = jit_create(chunk);                  // compile numeric-pure functions
@@ -1529,15 +1539,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
 
         for (int i = 0; i < chunk->global_count; i++) {
             vm->globals[i] = MAKE_NONE();                     // initialise each global slot
-        }
-
-        for (int i = 0; i < chunk->const_count; i++) {               // pre-intern string constants for fast comparison
-            Constant* c = &chunk->constants[i];                      // current constant
-            if (c->type == CONST_STRING && c->cached_str == NULL) {  // string not yet interned
-                int len = (int)strlen(c->string_value);              // compute length once at load time
-                c->cached_str = string_intern(&vm->intern_table,     // intern into vm's table, immortal object
-                                              c->string_value, len);
-            }
         }
     }
     
@@ -1605,10 +1606,12 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_TABLE_GET_CONST]    = &&OP_TABLE_GET_CONST_LABEL,
         [OP_TABLE_GET_INT]      = &&OP_TABLE_GET_INT_LABEL,
         [OP_TABLE_GET_NUM]      = &&OP_TABLE_GET_NUM_LABEL,
+        [OP_TABLE_GET_KEY_STR]  = &&OP_TABLE_GET_KEY_STR_LABEL,
         [OP_TABLE_SET]          = &&OP_TABLE_SET_LABEL,
         [OP_TABLE_SET_CONST]    = &&OP_TABLE_SET_CONST_LABEL,
         [OP_TABLE_SET_INT]      = &&OP_TABLE_SET_INT_LABEL,
         [OP_TABLE_SET_NUM]      = &&OP_TABLE_SET_NUM_LABEL,
+        [OP_TABLE_SET_KEY_STR]  = &&OP_TABLE_SET_KEY_STR_LABEL,
         [OP_TABLE_APPEND]       = &&OP_TABLE_APPEND_LABEL,
         [OP_NEW_TABLE]          = &&OP_NEW_TABLE_LABEL,
         
@@ -2538,6 +2541,41 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         regs[dest] = MAKE_NONE();
         ip++; goto *dispatch_table[ip->opcode];
     }
+    OP_TABLE_GET_KEY_STR_LABEL: {
+        int dest = ip->operands[0];                  // dest register index
+        int table_reg = ip->operands[1];             // table register
+        int packed = ip->operands[2];                // (prefix_idx << 16) | num_reg
+        int prefix_idx = (int)((uint32_t)packed >> 16);
+        int num_reg = packed & 0xFFFF;
+        StringObject* prefix = (StringObject*)chunk->constants[prefix_idx].cached_str;
+        double n = AS_NUMBER(regs[num_reg]);         // unbox number
+        char nbuf[32];
+        int nlen;
+        if (n == (long long)n && fabs(n) < 1e15)
+            nlen = snprintf(nbuf, sizeof(nbuf), "%.0f", n);
+        else
+            nlen = snprintf(nbuf, sizeof(nbuf), "%.15g", n);
+        int total = prefix->length + nlen;
+        StringObject* key = (StringObject*)malloc(sizeof(StringObject) + total + 1);
+        key->header.ref_count = 1;
+        key->header.type = VAL_STRING;
+        key->length = total;
+        key->hash_computed = false;
+        key->hash = 0;
+        memcpy(key->chars, prefix->chars, prefix->length);
+        memcpy(key->chars + prefix->length, nbuf, nlen);
+        key->chars[total] = '\0';
+        Value kv = MAKE_STRING(key);                 // temporary key Value
+        Value tv = regs[table_reg];                  // fetch table Value
+        Value val = MAKE_NONE();                     // default result
+        if (likely(IS_TABLE(tv))) {                  // valid table slot?
+            table_get(AS_TABLE(tv), kv, &val);       // lookup (increfs val)
+        }
+        value_decref(kv);                            // release temporary key (heap, refcount 1)
+        value_decref(regs[dest]);                    // release old dest value
+        regs[dest] = val;                            // publish result
+        ip++; goto *dispatch_table[ip->opcode];      // advance
+    }
     OP_TABLE_SET_LABEL: {
         int table_reg = ip->operands[0];             // register holding the table
         int key_reg = ip->operands[1];               // register holding the key
@@ -2616,6 +2654,41 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             table_set(t, key_val, regs[val_reg]);
         }
         ip++; goto *dispatch_table[ip->opcode];
+    }
+    OP_TABLE_SET_KEY_STR_LABEL: {
+        int table_reg = ip->operands[0];             // table register
+        int val_reg = ip->operands[1];               // value register
+        int packed = ip->operands[2];                // (prefix_idx << 16) | num_reg
+        int prefix_idx = (int)((uint32_t)packed >> 16);
+        int num_reg = packed & 0xFFFF;
+        StringObject* prefix = (StringObject*)chunk->constants[prefix_idx].cached_str;
+        double n = AS_NUMBER(regs[num_reg]);         // unbox number
+        char nbuf[32];
+        int nlen;
+        if (n == (long long)n && fabs(n) < 1e15)
+            nlen = snprintf(nbuf, sizeof(nbuf), "%.0f", n);
+        else
+            nlen = snprintf(nbuf, sizeof(nbuf), "%.15g", n);
+        int total = prefix->length + nlen;
+        StringObject* key = (StringObject*)malloc(sizeof(StringObject) + total + 1);
+        key->header.ref_count = 1;
+        key->header.type = VAL_STRING;
+        key->length = total;
+        key->hash_computed = false;
+        key->hash = 0;
+        memcpy(key->chars, prefix->chars, prefix->length);
+        memcpy(key->chars + prefix->length, nbuf, nlen);
+        key->chars[total] = '\0';
+        Value tv = regs[table_reg];                  // fetch table Value
+        if (unlikely(!IS_TABLE(tv))) {               // non-table: same error as OP_TABLE_SET
+            free(key);
+            vm->had_error = true;
+            vm->running = false;
+            goto OP_HALT_LABEL;
+        }
+        table_set(AS_TABLE(tv), MAKE_STRING(key), regs[val_reg]);  // set (increfs key+val internally)
+        value_decref(MAKE_STRING(key));              // release our local key reference
+        ip++; goto *dispatch_table[ip->opcode];      // advance
     }
     OP_TABLE_APPEND_LABEL: {
         int table_reg = ip->operands[0];                    // register holding the table

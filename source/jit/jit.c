@@ -257,6 +257,9 @@ static bool live_in_slot_ok(Value v, JitSlotKind kind, JitTableUse* use) {
     if (kind == JIT_SLOT_NUM) {
         return IS_NUMBER(v);                               // numeric slot: any unboxed double
     }
+    if (kind == JIT_SLOT_TABLE_ANY) {
+        return IS_TABLE(v);                                // any table, hash-only included
+    }
     if (!IS_TABLE(v)) return false;                        // table slot: must be a table
     Table* t = AS_TABLE(v);
     if (t->array_part == NULL) return false;               // empty table, nothing to read
@@ -265,6 +268,7 @@ static bool live_in_slot_ok(Value v, JitSlotKind kind, JitTableUse* use) {
     if (use->written && t->array_capacity < use->max_idx) return false;  // set would grow the array
     return true;
 }
+
 // ensures t->array_part has capacity for `end` slots and array_count >= end;
 // uses table_set_int on the last slot so existing entries are preserved (the
 // slot at end-1 is only touched when it is already NONE / freshly grown)

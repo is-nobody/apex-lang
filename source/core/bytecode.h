@@ -74,10 +74,12 @@ typedef enum {
     OP_TABLE_GET_CONST,    // rdst = table[constant_key]
     OP_TABLE_GET_INT,      // get value from table by integer index (direct array_part access)
     OP_TABLE_GET_NUM,      // rdst = table[key_reg], key proven numeric (inline fast path)
+    OP_TABLE_GET_KEY_STR,  // rdst = table["prefix" .. num]; packed op2 = (prefix_idx<<16)|num_reg
     OP_TABLE_SET,          // table[key_reg] = value_reg
     OP_TABLE_SET_CONST,    // table[constant_key] = value_reg
     OP_TABLE_SET_INT,      // set value in table by integer index (direct array_part access)
     OP_TABLE_SET_NUM,      // table[key_reg] = value_reg, key proven numeric (inline fast path)
+    OP_TABLE_SET_KEY_STR,  // table["prefix" .. num] = value; packed op2 = (prefix_idx<<16)|num_reg
     OP_TABLE_APPEND,       // appends a value to a table as a positional item
     OP_NEW_TABLE,          // creates a new empty table in rdst
 
