@@ -23,6 +23,11 @@ int jit_match_str(Value subj, StringObject* case_str) {
     return memcmp(s->chars, case_str->chars, s->length) == 0;
 }
 
+// JIT helper: release the previous vm-register value before the loop
+static void jit_decref_if_heap(Value v) {
+    if ((v & QNAN) == QNAN) value_decref(v);
+}
+
 // fast unsigned decimal itoa; returns digits written, no null terminator
 static int jit_uitoa(char* buf, unsigned long long n) {
     if (n == 0) { buf[0] = '0'; return 1; }
@@ -1404,7 +1409,6 @@ static bool op_writes_dest(Opcode op) {
 }
 
 // rejects loops that would need runtime checks the emitter does not produce
-
 static bool loop_is_safe_to_emit(JITContext* ctx, JitLoopInfo* info) {
     BytecodeChunk* chunk = ctx->chunk;
     int entry     = info->entry_pc;                          // first body pc
@@ -1478,7 +1482,8 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
 
     int save_slot = -1;                                      // stack slot to stash frame_reg across helper call
     int frame_slots = const_slot + 1;                        // incl. constant slot
-    if (needs_helper) {
+    uint64_t writeback_mask = info->live_out & ~info->ref_writes;  // slots whose old value must be released
+    if (needs_helper || writeback_mask != 0) {
         save_slot = frame_slots;                             // reserve one more slot
         frame_slots++;
     }
@@ -1618,8 +1623,20 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
         m &= m - 1;
         if (s >= 64) break;                                  // beyond tracked range
         if (info->ref_writes & (1ULL << s)) continue;        // refcounted value — keep vm's copy
+        if (save_slot >= 0) {                                // release the old value first
+            x86_emit_load_r64_base(cb, X86_RAX, abi->frame_reg, s * 8);  // rax = R[s]
+            x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));
+    #if defined(_WIN32) || defined(_WIN64)
+            emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC1);  // mov rcx, rax
+    #else
+            emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC7);  // mov rdi, rax
+    #endif
+            x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_decref_if_heap);
+            emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);            // call rax
+            x86_emit_load_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // restore frame_reg
+        }
         x86_emit_movsd_load(cb, 0, x86_slot_disp(s));        // xmm0 = frame[s]
-        x86_emit_movsd_store_base(cb, abi->frame_reg, 0, s * 8);  // regs[s] = xmm0
+        x86_emit_movsd_store_base(cb, abi->frame_reg, 0, s * 8);  // R[s] = xmm0
     }
 
     if ((info->table.used && info->table.slot >= 0) || info->globals_count > 0) {
@@ -1649,8 +1666,9 @@ static bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
     if (cb->len + (size_t)range_size * 256 + 1024 > cb->cap) return false;  // buffer too small
 
     size_t mark = cb->len;                                   // rollback point
-    int const_slot = nregs;                                  // unused here, kept for layout parity
-    int frame_slots = const_slot + 1;                        // incl. the unused constant slot
+int const_slot = nregs;                                  // unused here, kept for layout parity
+int save_slot  = nregs + 1;                              // stack slot to stash frame_reg across helper call
+int frame_slots = save_slot + 1;                         // incl. the unused constant slot and save slot
     int base_frame = align16(8 * frame_slots);
 
     int saves_bytes = 24;                                    // rbx + r12 + r13
@@ -1740,8 +1758,18 @@ static bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
         if (s >= 64) break;                                  // beyond tracked range
         if (s == var_reg) continue;                          // already written by the loop body
         if (info->ref_writes & (1ULL << s)) continue;        // refcounted value — keep vm's copy
+        x86_emit_load_r64_base(cb, X86_RAX, abi->frame_reg, s * 8);  // rax = R[s]
+        x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));
+    #if defined(_WIN32) || defined(_WIN64)
+        emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC1);      // mov rcx, rax
+    #else
+        emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC7);      // mov rdi, rax
+    #endif
+        x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_decref_if_heap);
+        emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                // call rax
+        x86_emit_load_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // restore frame_reg
         x86_emit_movsd_load(cb, 0, x86_slot_disp(s));        // xmm0 = frame[s]
-        x86_emit_movsd_store_base(cb, abi->frame_reg, 0, s * 8);  // regs[s] = xmm0
+        x86_emit_movsd_store_base(cb, abi->frame_reg, 0, s * 8);  // R[s] = xmm0
     }
 
     x86_emit_load_r64_rbp(cb, X86_RBX, -off_rbx);             // restore caller's rbx
