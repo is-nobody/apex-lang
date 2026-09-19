@@ -1342,6 +1342,18 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
                 free_register(cg, left_reg);                                     // free left
                 return result_reg;                                               // return result
             }
+            // commutative IMM: when the left operand is a small non-negative constant and the
+            // operator is + or *, swap the operands so the constant lands in the immediate
+            // field; x + 1 / 1 + x and x * 2 / 2 * x generate identical bytecode
+            if (has_imm && (node->binary.op == TOKEN_PLUS || node->binary.op == TOKEN_STAR) &&
+                try_fold_number(node->binary.left, &imm_val) &&
+                imm_val == (int)imm_val && imm_val >= 0 && imm_val <= 65535) {
+                int right_reg = codegen_expression(cg, node->binary.right);      // evaluate right
+                int result_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);  // result destination
+                emit(cg, INST(imm_op, result_reg, right_reg, (int)imm_val), node->line);  // fused op
+                free_register(cg, right_reg);                                    // free right
+                return result_reg;                                               // return result
+            }
             
             int left_reg = codegen_expression(cg, node->binary.left);               // evaluate left
             int right_reg = codegen_expression(cg, node->binary.right);             // evaluate right
