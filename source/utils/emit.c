@@ -266,6 +266,9 @@ static void emit_instruction(BytecodeChunk* chunk, int offset, FILE* out) {  // 
         case OP_FOR_NEXT:                                         // advance numeric for
             REG(a); fputs("  " C_BLUE "exit" C_RESET "=" C_GRAY, out); fprintf(out, "%d" C_RESET, b);  // var exit=target
             break;
+        case OP_FOR_NEXT_LOOP:                                    // advance and jump back to body
+            REG(a); fputs("  " C_BLUE "loop" C_RESET "=" C_GRAY, out); fprintf(out, "%d" C_RESET, b);  // var loop=target
+            break;
         case OP_TABLE_ITER_INIT:                                  // initialize table iterator
             REG(a);                                               // table register
             break;
@@ -287,6 +290,10 @@ static void emit_instruction(BytecodeChunk* chunk, int offset, FILE* out) {  // 
             REG(a); fputs(" <- ", out); REG(b);                   // dst <- tbl
             fprintf(out, "[" C_MAGENTA "%d" C_RESET "]", c);      // [int]
             break;
+        case OP_TABLE_GET_NUM:                                    // table[num_key], key proven numeric
+            REG(a); fputs(" <- ", out); REG(b);                   // dst <- tbl
+            fputc('[', out); REG(c); fputc(']', out);             // [num]
+            break;
         case OP_TABLE_SET:                                        // table[key] = value
             REG(a); fputc('[', out); REG(b); fputs("] <- ", out); REG(c);  // tbl[key] <- val
             break;
@@ -298,6 +305,10 @@ static void emit_instruction(BytecodeChunk* chunk, int offset, FILE* out) {  // 
         case OP_TABLE_SET_INT:                                    // table[int_key] = value
             REG(a);                                               // tbl
             fprintf(out, "[" C_MAGENTA "%d" C_RESET "] <- ", b);  // [int] <- val
+            REG(c);                                               // value register
+            break;
+        case OP_TABLE_SET_NUM:                                    // table[num_key] = value, key proven numeric
+            REG(a); fputc('[', out); REG(b); fputs("] <- ", out); // tbl[num] <- val
             REG(c);                                               // value register
             break;
         case OP_TABLE_APPEND:                                     // append positional item

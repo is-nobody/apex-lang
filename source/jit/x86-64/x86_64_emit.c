@@ -965,6 +965,7 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
             x86_cache_put(cache, 0, d);                      // xmm0 holds the result
             break;
         }
+        case OP_TABLE_GET_NUM:                               // same semantics as OP_TABLE_GET
         case OP_TABLE_GET: {
             int table_reg = a;                               // table register
             int key_reg   = b;                               // key register
@@ -1016,6 +1017,7 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
             x86_cache_put(cache, xd, d);                         // cache dest
             break;
         }
+        case OP_TABLE_SET_NUM:                               // same semantics as OP_TABLE_SET
         case OP_TABLE_SET: {
             // d = table, a = key, b = value
             int table_reg = d;                               // table register
@@ -1209,7 +1211,7 @@ static bool op_writes_dest(Opcode op) {
         case OP_CMP_EQ: case OP_CMP_NEQ:
         case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
         case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
-        case OP_TABLE_GET: case OP_TABLE_GET_INT:
+        case OP_TABLE_GET: case OP_TABLE_GET_INT: case OP_TABLE_GET_NUM:
         case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:
             return true;                                     // d is written by these ops
         default:
@@ -1265,7 +1267,8 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
     bool needs_helper = false;                               // does the body call table_set_int / a function?
     for (int pc = entry + 1; pc < back_edge; pc++) {
         Instruction* inst = &ctx->chunk->code[pc];
-        if (inst->opcode == OP_TABLE_SET) {
+        if (inst->opcode == OP_TABLE_SET ||                  // both forms route through the same
+            inst->opcode == OP_TABLE_SET_NUM) {              // runtime helper on the general path
             if (inst->operands[1] != info->for_var_reg ||    // key is not the loop counter
                 inst->operands[0] != info->table.slot) {     // table is not the primary table
                 needs_helper = true;                         // general path needed

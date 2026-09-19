@@ -1596,6 +1596,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         
         [OP_FOR_INIT]           = &&OP_FOR_INIT_LABEL,
         [OP_FOR_NEXT]           = &&OP_FOR_NEXT_LABEL,
+        [OP_FOR_NEXT_LOOP]      = &&OP_FOR_NEXT_LOOP_LABEL,
         [OP_TABLE_ITER_INIT]    = &&OP_TABLE_ITER_INIT_LABEL,
         [OP_TABLE_ITER_NEXT]    = &&OP_TABLE_ITER_NEXT_LABEL,
         [OP_POP_ITER]           = &&OP_POP_ITER_LABEL,
@@ -1603,9 +1604,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_TABLE_GET]          = &&OP_TABLE_GET_LABEL,
         [OP_TABLE_GET_CONST]    = &&OP_TABLE_GET_CONST_LABEL,
         [OP_TABLE_GET_INT]      = &&OP_TABLE_GET_INT_LABEL,
+        [OP_TABLE_GET_NUM]      = &&OP_TABLE_GET_NUM_LABEL,
         [OP_TABLE_SET]          = &&OP_TABLE_SET_LABEL,
         [OP_TABLE_SET_CONST]    = &&OP_TABLE_SET_CONST_LABEL,
         [OP_TABLE_SET_INT]      = &&OP_TABLE_SET_INT_LABEL,
+        [OP_TABLE_SET_NUM]      = &&OP_TABLE_SET_NUM_LABEL,
         [OP_TABLE_APPEND]       = &&OP_TABLE_APPEND_LABEL,
         [OP_NEW_TABLE]          = &&OP_NEW_TABLE_LABEL,
         
@@ -2362,6 +2365,23 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             }
         }
     }
+    OP_FOR_NEXT_LOOP_LABEL: {
+        APEX_TRY_JIT_LOOP();
+        int var_reg = ip->operands[0];          // loop variable register
+        int loop_addr = ip->operands[1];        // body start (back-edge target)
+        double c = vm->iterator_stack[vm->iterator_depth].index;   // current index
+        double e = vm->iterator_stack[vm->iterator_depth].end;     // end value
+        double s = vm->iterator_stack[vm->iterator_depth].step;    // step value
+        if ((s > 0 && c <= e) || (s < 0 && c >= e)) {              // still in bounds: jump back to body
+            vm->registers[var_reg] = MAKE_NUMBER(c);
+            vm->iterator_stack[vm->iterator_depth].index = c + s;
+            ip = &vm->code[loop_addr];
+            goto *dispatch_table[ip->opcode];
+        }
+        vm->iterator_depth--;                   // pop iterator frame
+        ip++;                                    // fall through to exit
+        goto *dispatch_table[ip->opcode];
+    }
     OP_TABLE_ITER_INIT_LABEL: {
         int table_reg = ip->operands[0];         // register holding the table to iterate
         Value tv = regs[table_reg];              // fetch table value
@@ -2488,6 +2508,36 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         regs[dest] = val;                            // store result
         ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
+    OP_TABLE_GET_NUM_LABEL: {
+        int dest = ip->operands[0];                  // dest register index
+        int table_reg = ip->operands[1];             // register holding the table
+        int key_reg = ip->operands[2];               // register holding the numeric key
+        Value table_val = regs[table_reg];           // fetch table value
+        Value key_val = regs[key_reg];               // fetch key value
+        double num = AS_NUMBER(key_val);             // unbox key (codegen proved it's a number)
+        int idx = (int)num - 1;                      // 1-based -> 0-based, truncates
+
+        if (likely(IS_TABLE(table_val))) {           // table slot must still hold a table
+            Table* t = AS_TABLE(table_val);
+            if (likely(t->array_part != NULL &&
+                       idx >= 0 && idx < t->array_count &&
+                       num == (double)(idx + 1))) {  // fast path: whole number in array range
+                Value val = t->array_part[idx];
+                value_incref(val);                   // bump refcount (no-op for numbers)
+                value_decref(regs[dest]);
+                regs[dest] = val;
+                ip++; goto *dispatch_table[ip->opcode];
+            }
+            Value val = MAKE_NONE();                 // fallback: hash key or OOB
+            table_get(t, key_val, &val);
+            value_decref(regs[dest]);
+            regs[dest] = val;
+            ip++; goto *dispatch_table[ip->opcode];
+        }
+        value_decref(regs[dest]);                    // non-table slot: same as OP_TABLE_GET
+        regs[dest] = MAKE_NONE();
+        ip++; goto *dispatch_table[ip->opcode];
+    }
     OP_TABLE_SET_LABEL: {
         int table_reg = ip->operands[0];             // register holding the table
         int key_reg = ip->operands[1];               // register holding the key
@@ -2535,6 +2585,37 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
         
         ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
+    }
+    OP_TABLE_SET_NUM_LABEL: {
+        int table_reg = ip->operands[0];             // register holding the table
+        int key_reg = ip->operands[1];               // register holding the numeric key
+        int val_reg = ip->operands[2];               // register holding the value
+        Value table_val = regs[table_reg];           // fetch table value
+        Value key_val = regs[key_reg];               // fetch key value
+        double num = AS_NUMBER(key_val);             // unbox key (codegen proved it's a number)
+        int idx = (int)num - 1;                      // 1-based -> 0-based, truncates
+
+        if (unlikely(!IS_TABLE(table_val))) {        // non-table: same error as OP_TABLE_SET
+            vm->had_error = true;
+            vm->running = false;
+            goto OP_HALT_LABEL;
+        }
+        Table* t = AS_TABLE(table_val);
+        if (likely(t->array_part != NULL &&
+                   idx >= 0 && idx < t->array_capacity &&
+                   num == (double)(idx + 1))) {      // fast path: whole number in capacity
+            value_decref(t->array_part[idx]);        // release old value at slot
+            t->array_part[idx] = regs[val_reg];      // store new value
+            value_incref(t->array_part[idx]);        // bump refcount
+            if (idx >= t->array_count) t->array_count = idx + 1;
+            ip++; goto *dispatch_table[ip->opcode];
+        }
+        if (num == (double)(int)num && idx >= 0) {   // integer >= 1: grow the array part
+            table_set_int(t, idx, regs[val_reg]);
+        } else {                                     // non-integer or non-positive: hash part
+            table_set(t, key_val, regs[val_reg]);
+        }
+        ip++; goto *dispatch_table[ip->opcode];
     }
     OP_TABLE_APPEND_LABEL: {
         int table_reg = ip->operands[0];                    // register holding the table

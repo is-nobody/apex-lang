@@ -18,6 +18,7 @@ static int codegen_optimized_condition(CodeGenerator* cg, ASTNode* condition, in
 static int codegen_index_assign(CodeGenerator* cg, ASTNode* node, int dest_hint);
 static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node, int dest_hint);
 static bool is_number_expression(CodeGenerator* cg, ASTNode* node);
+static bool is_integer_expression(CodeGenerator* cg, ASTNode* node);
 
 // checks if a name is a known built-in module root using first-char switch
 static bool is_known_builtin_module(const char* name) {
@@ -502,7 +503,8 @@ static bool op_writes_dest_reg(Opcode op) {
 // snapshot of per-local numeric-ness flags for branch merging
 typedef struct {
     int count;         // number of slots captured
-    bool* flags;       // copied flags, or NULL when count is zero
+    bool* flags;       // copied numeric-ness flags, or NULL when count is zero
+    bool* int_flags;   // copied integer-ness flags, or NULL when count is zero
 } LocalNumSnap;
 
 // default entry: no destination hint, caller owns the fresh temp
@@ -568,15 +570,18 @@ static int find_local_slot(CodeGenerator* cg, const char* name) {
 static LocalNumSnap snap_numbers(CodeGenerator* cg) {
     LocalNumSnap s;
     s.count = cg->locals.count;                                              // size of current local table
-    s.flags = s.count ? (bool*)malloc(sizeof(bool) * s.count) : NULL;        // allocate snapshot buffer
-    if (s.flags) memcpy(s.flags, cg->locals.is_number, sizeof(bool) * s.count);  // copy flags
+    s.flags     = s.count ? (bool*)malloc(sizeof(bool) * s.count) : NULL;    // allocate snapshot buffer
+    s.int_flags = s.count ? (bool*)malloc(sizeof(bool) * s.count) : NULL;    // allocate integer snapshot
+    if (s.flags)     memcpy(s.flags,     cg->locals.is_number,  sizeof(bool) * s.count);  // copy number flags
+    if (s.int_flags) memcpy(s.int_flags, cg->locals.is_integer, sizeof(bool) * s.count);  // copy integer flags
     return s;                                                                // return snapshot
 }
 
 // restores per-local numeric-ness flags from a snapshot
 static void restore_numbers(CodeGenerator* cg, LocalNumSnap s) {
     int n = cg->locals.count < s.count ? cg->locals.count : s.count;         // clamp to smaller size
-    if (n > 0 && s.flags) memcpy(cg->locals.is_number, s.flags, sizeof(bool) * n);  // copy back flags
+    if (n > 0 && s.flags)     memcpy(cg->locals.is_number,  s.flags,     sizeof(bool) * n);  // copy back
+    if (n > 0 && s.int_flags) memcpy(cg->locals.is_integer, s.int_flags, sizeof(bool) * n);  // copy back
 }
 
 // intersects two snapshots into cg (used at control-flow merge points)
@@ -585,13 +590,15 @@ static void merge_numbers(CodeGenerator* cg, LocalNumSnap a, LocalNumSnap b) {
     if (a.count < n) n = a.count;                                            // clamp to first snapshot
     if (b.count < n) n = b.count;                                            // clamp to second snapshot
     for (int i = 0; i < n; i++) {                                            // walk all common slots
-        cg->locals.is_number[i] = a.flags[i] && b.flags[i];                  // number only if both paths number
+        cg->locals.is_number[i]  = a.flags[i]     && b.flags[i];             // number only if both paths number
+        cg->locals.is_integer[i] = a.int_flags[i] && b.int_flags[i];         // integer only if both paths integer
     }
 }
 
 // frees a numeric-ness snapshot
 static void free_snap(LocalNumSnap s) {
-    free(s.flags);                                                           // release snapshot buffer
+    free(s.flags);                                                           // release numeric flags buffer
+    free(s.int_flags);                                                       // release integer flags buffer
 }
 
 // adds a local variable and assigns it a register, returns the register
@@ -607,11 +614,14 @@ static int add_local(CodeGenerator* cg, const char* name) {
                                              sizeof(int) * cg->locals.capacity);
         cg->locals.is_number = (bool*)realloc(cg->locals.is_number,                     // resize numeric-ness array
                                              sizeof(bool) * cg->locals.capacity);
+        cg->locals.is_integer = (bool*)realloc(cg->locals.is_integer,                   // resize integer-ness array
+                                              sizeof(bool) * cg->locals.capacity);
     }
     int reg = alloc_register(cg);                                          // allocate new register
     cg->locals.names[cg->locals.count] = strdup(name);                     // copy name
     cg->locals.registers[cg->locals.count] = reg;                          // store register
     cg->locals.is_number[cg->locals.count] = false;                        // unknown until assigned
+    cg->locals.is_integer[cg->locals.count] = false;                       // unknown until assigned
     cg->locals.count++;                                                    // increment count
     return reg;                                                            // return register
 }
@@ -676,6 +686,9 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->num_cache.count    = 0;
     cg->num_cache.capacity = 0;
 
+    cg->locals.is_integer  = NULL;                                         // allocated lazily by add_local
+    cg->locals.is_number   = NULL;
+
     return cg;                                                             // return generator
 }
 
@@ -689,6 +702,7 @@ void codegen_destroy(CodeGenerator* cg) {
     free(cg->locals.names);                                                // free names array
     free(cg->locals.registers);                                            // free registers array
     free(cg->locals.is_number);                                            // free numeric-ness flags array
+    free(cg->locals.is_integer);                                           // free integer-ness flags array
 
     free(cg->hoist.values);                                                // free hoist arrays (defensive)
     free(cg->hoist.regs);
@@ -1113,15 +1127,28 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             emit(cg, INST(OP_FOR_INIT, var_reg, end_reg, step_reg), node->line);    // init for (no MOVE needed)
 
             int loop_var_slot = find_local_slot(cg, node->for_stmt.var_name);       // slot of loop variable
-            if (loop_var_slot >= 0) cg->locals.is_number[loop_var_slot] = true;     // FOR_NEXT keeps it numeric
+            if (loop_var_slot >= 0) {
+                cg->locals.is_number[loop_var_slot] = true;                        // FOR_NEXT keeps it numeric
+                bool int_start = node->for_stmt.start                              // start whole-number?
+                                 ? is_integer_expression(cg, node->for_stmt.start) // uses tracked flags
+                                 : false;
+                bool int_step = node->for_stmt.step                                // custom step?
+                                ? is_integer_expression(cg, node->for_stmt.step)   // same predicate
+                                : true;                                            // default step 1 is whole
+                if (int_start && int_step) {
+                    cg->locals.is_integer[loop_var_slot] = true;                   // whole-number loop var
+                }
+            }
 
             LocalNumSnap loop_entry = snap_numbers(cg);                             // snapshot before body
 
             int loop_start = bytecode_current_offset(cg->chunk);                    // loop start
-            cg->loop_stack.continue_addr = loop_start;                              // set continue
+            cg->loop_stack.continue_addr = loop_start;                              // continue re-enters the test
 
-            int for_next_instr = bytecode_current_offset(cg->chunk);                // for next instr
-            emit(cg, INST(OP_FOR_NEXT, var_reg, 0, 0), node->line);                 // check condition
+            int for_next_instr = bytecode_current_offset(cg->chunk);                // first test pc
+            emit(cg, INST(OP_FOR_NEXT, var_reg, 0, 0), node->line);                 // first test; fail -> exit
+
+            int body_start = bytecode_current_offset(cg->chunk);                    // body start pc
 
             int prev_loop_floor = cg->register_floor;                               // save floor
             if (cg->hoist.count > 0) {                                              // pin hoisted regs
@@ -1151,10 +1178,11 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             free_snap(loop_entry);                                                  // release snapshots
             free_snap(loop_exit);
 
-            emit(cg, INST(OP_JUMP, loop_start, 0, 0), node->line);                  // jump back
+            // loop-inverted back edge: jumps to body_start on success, falls through on exit
+            emit(cg, INST(OP_FOR_NEXT_LOOP, var_reg, body_start, 0), node->line);
 
             int exit_addr = bytecode_current_offset(cg->chunk);                     // exit address
-            cg->chunk->code[for_next_instr].operands[1] = exit_addr;                // patch exit
+            cg->chunk->code[for_next_instr].operands[1] = exit_addr;                // patch first test's exit
 
             free(cg->hoist.values);                                                 // release hoist arrays
             free(cg->hoist.regs);
@@ -1310,6 +1338,39 @@ static bool is_number_expression(CodeGenerator* cg, ASTNode* node) {
                    is_number_expression(cg, node->ternary.false_expr);
         default:
             return false;                                                      // strings, tables, calls, index: unknown
+    }
+}
+
+// checks if an expression is provably a whole number at this point in emission
+static bool is_integer_expression(CodeGenerator* cg, ASTNode* node) {
+    if (!node) return false;                                                   // null guard
+    switch (node->type) {
+        case AST_LITERAL_NUMBER: {
+            double v = node->literal_number.number_value;                      // literal value
+            return v == (double)(long long)v;                                  // true when whole
+        }
+        case AST_UNARY:
+            return node->unary.op == TOKEN_MINUS &&                            // -x preserves integerness
+                   is_integer_expression(cg, node->unary.operand);
+        case AST_BINARY: {
+            ApexTokenType op = node->binary.op;                                // operator
+            if (op == TOKEN_PLUS || op == TOKEN_MINUS ||                       // int op int = int
+                op == TOKEN_STAR || op == TOKEN_PERCENT) {                     // (division may yield fraction)
+                return is_integer_expression(cg, node->binary.left) &&
+                       is_integer_expression(cg, node->binary.right);
+            }
+            return false;                                                      // division, comparisons: unknown
+        }
+        case AST_IDENTIFIER: {
+            int slot = find_local_slot(cg, node->identifier.name);             // look up local slot
+            if (slot < 0) return false;                                        // globals/unknown
+            return cg->locals.is_integer[slot];                                // use tracked integer-ness
+        }
+        case AST_ASSIGN:
+        case AST_VAR_DECL:
+            return is_integer_expression(cg, node->var_assign.value);          // propagate RHS
+        default:
+            return false;                                                      // calls, tables, etc.
     }
 }
 
@@ -1584,7 +1645,9 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
             if (node->access.member->type == AST_IDENTIFIER) {                                   // member identifier
                 int local_reg = find_local(cg, node->access.member->identifier.name);            // check local
                 if (local_reg >= 0) {                                                            // local variable
-                    emit(cg, INST(OP_TABLE_GET, result_reg, obj_reg, local_reg), node->line);    // get by local
+                    Opcode get_op = is_integer_expression(cg, node->access.member)               // whole-number key?
+                                    ? OP_TABLE_GET_NUM : OP_TABLE_GET;
+                    emit(cg, INST(get_op, result_reg, obj_reg, local_reg), node->line);          // get by local
                 } else {                                                                         // not local
                     int global_idx = bytecode_get_global(cg->chunk, node->access.member->identifier.name);  // check global
                     if (global_idx >= 0) {                                                       // global exists
@@ -1600,7 +1663,9 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
                 }
             } else {                                                                     // member expression
                 int key_reg = codegen_expression(cg, node->access.member);               // evaluate key
-                emit(cg, INST(OP_TABLE_GET, result_reg, obj_reg, key_reg), node->line);  // get by key
+                Opcode get_op = is_integer_expression(cg, node->access.member)           // whole-number key?
+                                ? OP_TABLE_GET_NUM : OP_TABLE_GET;
+                emit(cg, INST(get_op, result_reg, obj_reg, key_reg), node->line);        // get by key
                 free_register(cg, key_reg);                                              // free key
             }
             free_register(cg, obj_reg);                                                  // free object
@@ -1829,6 +1894,7 @@ static void codegen_var_decl(CodeGenerator* cg, ASTNode* node) {
 
     if (slot >= 0) {                                                         // update tracked numeric-ness
         cg->locals.is_number[slot] = is_number_expression(cg, node->var_assign.value);
+        cg->locals.is_integer[slot] = is_integer_expression(cg, node->var_assign.value);
     }
 
     bool need_global = (cg->current_module != NULL) ||                       // module scope: global
@@ -1901,6 +1967,7 @@ static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node, int dest_hint) 
         }
         if (slot >= 0) {                                                     // update tracked numeric-ness
             cg->locals.is_number[slot] = is_number_expression(cg, node->var_assign.value);
+            cg->locals.is_integer[slot] = is_integer_expression(cg, node->var_assign.value);
         }
         return local_reg;                                                    // return local
     }
@@ -2168,7 +2235,9 @@ static int codegen_index_assign(CodeGenerator* cg, ASTNode* node, int dest_hint)
     }
     
     int key_reg = codegen_expression(cg, final_acc->access.member);          // evaluate key
-    emit(cg, INST(OP_TABLE_SET, current_obj_reg, key_reg, val_reg), final_acc->line);  // set
+    Opcode set_op = is_integer_expression(cg, final_acc->access.member)      // whole-number key?
+                    ? OP_TABLE_SET_NUM : OP_TABLE_SET;
+    emit(cg, INST(set_op, current_obj_reg, key_reg, val_reg), final_acc->line);  // set
     free_register(cg, key_reg);                                              // free key
     free_register(cg, current_obj_reg);                                      // free object
     
@@ -2232,15 +2301,18 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     char** saved_names = NULL;                                               // saved names
     int* saved_regs = NULL;                                                  // saved registers
     bool* saved_is_number = NULL;                                            // saved numeric-ness flags
+    bool* saved_is_integer = NULL;                                           // saved integer-ness flags
 
     if (saved_count > 0) {                                                   // have locals
         saved_names = (char**)malloc(sizeof(char*) * saved_count);           // allocate names
         saved_regs = (int*)malloc(sizeof(int) * saved_count);                // allocate regs
         saved_is_number = (bool*)malloc(sizeof(bool) * saved_count);         // allocate flags
+        saved_is_integer = (bool*)malloc(sizeof(bool) * saved_count);        // allocate int flags
         for (int i = 0; i < saved_count; i++) {                              // copy locals
             saved_names[i] = strdup(cg->locals.names[i]);                    // copy name
             saved_regs[i] = cg->locals.registers[i];                         // copy reg
             saved_is_number[i] = cg->locals.is_number[i];                    // copy numeric flag
+            saved_is_integer[i] = cg->locals.is_integer[i];                  // copy integer flag
         }
     }
 
@@ -2248,9 +2320,11 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     free(cg->locals.names);                                                  // free names array
     free(cg->locals.registers);                                              // free registers array
     free(cg->locals.is_number);                                              // free numeric flags array
+    free(cg->locals.is_integer);                                             // free integer flags array
     cg->locals.names = NULL;                                                 // clear names
     cg->locals.registers = NULL;                                             // clear regs
     cg->locals.is_number = NULL;                                             // clear flags
+    cg->locals.is_integer = NULL;                                            // clear int flags
     cg->locals.count = 0;                                                    // reset count
     cg->locals.capacity = 0;                                                 // reset capacity
     cg->next_register = 0;                                                   // reset next reg
@@ -2315,6 +2389,7 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     cg->locals.names = saved_names;                                          // restore names
     cg->locals.registers = saved_regs;                                       // restore regs
     cg->locals.is_number = saved_is_number;                                  // restore numeric flags
+    cg->locals.is_integer = saved_is_integer;                                // restore integer flags
     cg->locals.count = saved_count;                                          // restore count
     cg->locals.capacity = saved_count;                                       // restore capacity
     cg->next_register = prev_next_register;                                  // restore next reg

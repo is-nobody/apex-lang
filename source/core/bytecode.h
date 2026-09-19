@@ -64,7 +64,8 @@ typedef enum {
     OP_CMP_GTE,            // greater-or-equal: rdst = (rleft >= rright)
 
     OP_FOR_INIT,           // initializes a numeric for-loop state
-    OP_FOR_NEXT,           // advances loop and branches if the end is reached
+    OP_FOR_NEXT,           // advances loop; falls through on success, jumps to exit on fail
+    OP_FOR_NEXT_LOOP,      // loop-inverted variant: jumps back to body on success, falls through to exit on fail
     OP_TABLE_ITER_INIT,    // initialize table iterator for "for value in table" loops
     OP_TABLE_ITER_NEXT,    // advance table iterator, yield next key into register
     OP_POP_ITER,           // cleans up iterator state when leaving a loop
@@ -72,9 +73,11 @@ typedef enum {
     OP_TABLE_GET,          // rdst = table[key_reg]
     OP_TABLE_GET_CONST,    // rdst = table[constant_key]
     OP_TABLE_GET_INT,      // get value from table by integer index (direct array_part access)
+    OP_TABLE_GET_NUM,      // rdst = table[key_reg], key proven numeric (inline fast path)
     OP_TABLE_SET,          // table[key_reg] = value_reg
     OP_TABLE_SET_CONST,    // table[constant_key] = value_reg
     OP_TABLE_SET_INT,      // set value in table by integer index (direct array_part access)
+    OP_TABLE_SET_NUM,      // table[key_reg] = value_reg, key proven numeric (inline fast path)
     OP_TABLE_APPEND,       // appends a value to a table as a positional item
     OP_NEW_TABLE,          // creates a new empty table in rdst
 

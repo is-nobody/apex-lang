@@ -18,6 +18,7 @@ typedef struct {
         char** names;              // local variable names for debug information
         int* registers;            // register slot assigned to each local variable
         bool* is_number;           // per-slot: true when the register is known to hold a number right now
+        bool* is_integer;          // per-slot: true when the register is known to hold a whole number
         int count;                 // number of locals in the current scope
         int capacity;              // allocated capacity of the local arrays
     } locals;                      // maps local variable names to their register slots

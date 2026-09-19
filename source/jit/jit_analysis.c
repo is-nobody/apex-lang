@@ -57,10 +57,13 @@ static bool is_pure_loop_instr(JITContext* ctx, int pc) {
         case OP_JUMP_IF_LT_IMM: case OP_JUMP_IF_GT_IMM:
         case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
         case OP_FOR_NEXT:                                    // numeric-for entry
+        case OP_FOR_NEXT_LOOP:                               // loop-inverted back edge
         case OP_TABLE_GET:                                   // validated by analyze_loop_regs
         case OP_TABLE_GET_INT:                               // fixed index into array part
+        case OP_TABLE_GET_NUM:                               // same semantics, numeric key
         case OP_TABLE_SET:                                   // dynamic key, validated later by analyze_loop_regs
         case OP_TABLE_SET_INT:
+        case OP_TABLE_SET_NUM:                               // same semantics, numeric key
             return true;
         case OP_TABLE_ITER_NEXT:                             // loop entry for table iteration
             return true;
@@ -339,6 +342,7 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
                 if (d >= 0 && d < 64) pc_reads |= 1ULL << d;
                 if (a >= 0 && a < 64) info->globals_used |= 1ULL << a;
                 break;
+            case OP_TABLE_GET_NUM:                               // same register pattern as GET
             case OP_TABLE_GET:
                 // d = dest, a = table reg, b = key reg
                 if (d >= 0 && d < 64) {
@@ -367,6 +371,7 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
                 if (info->table.min_count < 1) info->table.min_count = 1;
                 if (b > info->table.min_count) info->table.min_count = b;  // track max index
                 break;
+            case OP_TABLE_SET_NUM:                               // same register pattern as SET
             case OP_TABLE_SET:
                 // d = table, a = key, b = value
                 if (d >= 0 && d < 64) pc_reads |= 1ULL << d;     // table slot read
@@ -473,10 +478,21 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
     if (nregs > JIT_MAX_SLOTS - 2) return;                       // too big for the slot cache
 
     for (int pc = start; pc < end; pc++) {                       // scan for back edges
-        if (chunk->code[pc].opcode != OP_JUMP) continue;         // only plain JUMP
-        int entry = chunk->code[pc].operands[0];                 // target pc
-        if (entry >= pc || entry < start) continue;              // must be backward and in-range
-        if (!is_loop_entry_op(chunk->code[entry].opcode)) continue;  // valid entry opcode
+        Opcode loop_op = chunk->code[pc].opcode;                 // candidate back-edge opcode
+        int entry = -1;                                          // loop entry pc
+        if (loop_op == OP_JUMP) {                                // classic JUMP back edge
+            entry = chunk->code[pc].operands[0];
+            if (entry >= pc || entry < start) continue;          // must be backward and in-range
+            if (!is_loop_entry_op(chunk->code[entry].opcode)) continue;  // valid entry opcode
+        } else if (loop_op == OP_FOR_NEXT_LOOP) {                // loop-inverted back edge
+            int body_target = chunk->code[pc].operands[1];       // body start (target on success)
+            if (body_target >= pc || body_target < start) continue;  // must be backward
+            if (body_target - 1 < start) continue;               // need room for the first FOR_NEXT
+            if (chunk->code[body_target - 1].opcode != OP_FOR_NEXT) continue;  // entry must be FOR_NEXT
+            entry = body_target - 1;                             // the first FOR_NEXT is the loop entry
+        } else {
+            continue;                                            // not a back edge
+        }
 
         Opcode entry_op = chunk->code[entry].opcode;
         int exit_pc = -1;
