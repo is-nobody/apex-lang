@@ -793,10 +793,18 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             }
             case OP_JUMP_MATCH_STR: {                            // jump if R[a] is a string == const[b]
                 x86_cache_flush(&cache, cb);                     // call clobbers xmm
-                x86_emit_load_r64_rbp(cb, X86_RDI, x86_slot_disp(a));  // rdi = subject
+#if defined(_WIN32) || defined(_WIN64)
+                x86_emit_load_r64_rbp(cb, X86_RCX, x86_slot_disp(a));  // win64: rcx = subject
+#else
+                x86_emit_load_r64_rbp(cb, X86_RDI, x86_slot_disp(a));  // sysv: rdi = subject
+#endif
                 uint64_t addr = (uint64_t)(uintptr_t)&chunk->constants[b].cached_str;
                 x86_emit_movabs_rax(cb, addr);                   // rax = &cached_str
-                x86_emit_load_r64_base(cb, X86_RSI, X86_RAX, 0); // rsi = cached_str
+#if defined(_WIN32) || defined(_WIN64)
+                x86_emit_load_r64_base(cb, X86_RDX, X86_RAX, 0); // win64: rdx = cached_str
+#else
+                x86_emit_load_r64_base(cb, X86_RSI, X86_RAX, 0); // sysv: rsi = cached_str
+#endif
                 uint64_t helper = (uint64_t)(uintptr_t)&jit_match_str;
                 x86_emit_movabs_rax(cb, helper);                 // rax = helper
                 emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);            // call rax
@@ -1035,16 +1043,16 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
             emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC6);  // mov rsi, rax
 #endif
 
-            // xmm0 / xmm1 = num
+            // xmm0 = num (sysv) / xmm2 = num (win64: arg 2 is a float)
             x86_emit_movsd_load(cb, 0, x86_slot_disp(num_reg));
 #if defined(_WIN32) || defined(_WIN64)
-            x86_emit_sse66_rr(cb, 0x28, 1, 0);               // win64: xmm1 = num
+            x86_emit_sse66_rr(cb, 0x28, 2, 0);               // win64: xmm2 = num
 #endif
 
             // last arg: value
             x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(val_reg));
 #if defined(_WIN32) || defined(_WIN64)
-            emit_u8(cb, 0x49); emit_u8(cb, 0x89); emit_u8(cb, 0xC0);  // mov r8, rax
+            emit_u8(cb, 0x49); emit_u8(cb, 0x89); emit_u8(cb, 0xC1);  // mov r9, rax
 #else
             emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC2);  // mov rdx, rax
 #endif
@@ -1085,17 +1093,17 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
             emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC6);  // mov rsi, rax
 #endif
 
-            // xmm0 / xmm1 = num
+            // xmm0 = num (sysv) / xmm2 = num (win64: arg 2 is a float)
             x86_emit_movsd_load(cb, 0, x86_slot_disp(num_reg));
 #if defined(_WIN32) || defined(_WIN64)
-            x86_emit_sse66_rr(cb, 0x28, 1, 0);               // win64: xmm1 = num
+            x86_emit_sse66_rr(cb, 0x28, 2, 0);               // win64: xmm2 = num
 #endif
 
             uint64_t helper = (uint64_t)(uintptr_t)&jit_table_get_key_str;
             x86_emit_movabs_rax(cb, helper);
             emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);
 
-            // Value result returned in rax; publish it to the destination slot
+            // value result returned in rax; publish it to the destination slot
             x86_emit_store_r64_rbp(cb, X86_RAX, x86_slot_disp(d));
             x86_emit_load_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // restore caller frame pointer
 
