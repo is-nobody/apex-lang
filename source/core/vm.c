@@ -1623,6 +1623,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_CALL_2]             = &&OP_CALL_2_LABEL,
         [OP_RETURN]             = &&OP_RETURN_LABEL,
         [OP_RETURN_NUM]         = &&OP_RETURN_NUM_LABEL,
+        [OP_RETURN_NUM_IMM]     = &&OP_RETURN_NUM_IMM_LABEL,
         [OP_RETURN_BOOL]        = &&OP_RETURN_BOOL_LABEL,
         [OP_RETURN_NONE]        = &&OP_RETURN_NONE_LABEL,
 
@@ -3004,6 +3005,30 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             vm->registers = regs;                // update local regs pointer
             vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
             regs[dest_reg] = ret_val;            // store return value in caller's dest reg (no incref, unboxed number)
+            ip = &vm->code[return_addr];         // jump to return address
+            goto *dispatch_table[ip->opcode];    // dispatch next instruction
+        }
+        vm->running = false;                     // top-level return, stop execution (rare)
+        goto OP_HALT_LABEL;                      // jump to halt
+    }
+    OP_RETURN_NUM_IMM_LABEL: {
+        Value ret_val = MAKE_NUMBER((double)ip->operands[1]);  // pack immediate as number
+        if (vm->current_task != NULL && vm->call_depth == 0) {  // coroutine body returning
+            FutureObject* cur = vm->current_task;               // coroutine being completed
+            vm->current_task = NULL;                            // leave coroutine mode
+            vm->running = false;                                // stop this slice
+            future_resolve(vm, cur, ret_val);                   // resolve its future, wake waiters
+            return true;                                        // back to scheduler
+        }
+        if (likely(vm->call_depth > 0)) {        // returning from a function call (common)
+            vm->call_depth--;                    // pop call frame
+            int return_addr = vm->call_stack[vm->call_depth].return_address;  // get return address
+            int dest_reg = vm->call_stack[vm->call_depth].dest_reg;           // get dest register
+            vm->current_frame = vm->call_stack[vm->call_depth].frame_index;   // restore frame index
+            regs = vm->call_stack[vm->call_depth].caller_registers;  // restore cached caller register frame base
+            vm->registers = regs;                // update local regs pointer
+            vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
+            regs[dest_reg] = ret_val;            // store number in caller's dest reg (unboxed, no incref)
             ip = &vm->code[return_addr];         // jump to return address
             goto *dispatch_table[ip->opcode];    // dispatch next instruction
         }

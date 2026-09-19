@@ -2284,7 +2284,8 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     if (cg->chunk->code_count > 0) {                                         // has code
         Instruction* last = &cg->chunk->code[cg->chunk->code_count - 1];     // last instruction
         if (last->opcode == OP_RETURN || last->opcode == OP_RETURN_NONE ||   // return type
-            last->opcode == OP_RETURN_NUM || last->opcode == OP_RETURN_BOOL) {
+            last->opcode == OP_RETURN_NUM || last->opcode == OP_RETURN_NUM_IMM ||
+            last->opcode == OP_RETURN_BOOL) {
             ends_with_return = true;                                         // has return
         }
     }
@@ -2355,6 +2356,12 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
 // emits a return statement with optional value
 static void codegen_return(CodeGenerator* cg, ASTNode* node) {
     if (node->return_stmt.value) {                                           // has return value
+        double folded;                                                       // folded numeric value
+        if (try_fold_number(node->return_stmt.value, &folded) &&             // folds to a compile-time constant
+            folded == (int)folded && folded >= 0 && folded <= 65535) {       // fits in the immediate field
+            emit(cg, INST(OP_RETURN_NUM_IMM, 0, (int)folded, 0), node->line);  // return the immediate directly
+            return;                                                          // done, no register needed
+        }
         int value_reg = codegen_expression(cg, node->return_stmt.value);     // evaluate value
         
         ASTNode* val = node->return_stmt.value;                              // value node

@@ -729,11 +729,18 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 break;
             }
             case OP_RETURN:                                      // return slot value
-            case OP_RETURN_NUM:
+            case OP_RETURN_NUM:                                  // return number from register
             case OP_RETURN_BOOL: {
                 int xa = x86_cache_load(&cache, cb, d);          // load return value
                 if (xa < 0) xa = 0;                              // fall back to xmm0
                 if (xa != 0) x86_emit_sse66_rr(cb, 0x28, 0, xa); // movapd xmm0, xa
+                emit_leave_ret(cb, abi, base_frame);
+                x86_cache_clear(&cache);                         // clear state on exit
+                did_flush = true;                                // suppress merge flush
+                break;
+            }
+            case OP_RETURN_NUM_IMM: {                            // return number immediate
+                x86_emit_load_double_imm(cb, 0, a);              // xmm0 = (double)a
                 emit_leave_ret(cb, abi, base_frame);
                 x86_cache_clear(&cache);                         // clear state on exit
                 did_flush = true;                                // suppress merge flush

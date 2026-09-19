@@ -92,6 +92,7 @@ typedef enum {
     OP_CALL_2,             // calling a function with 2 arguments (fast way)
     OP_RETURN,             // returns a value from the current function
     OP_RETURN_NUM,         // return a number (without refcounting)
+    OP_RETURN_NUM_IMM,     // return a small integer (0-65535) directly from the instruction
     OP_RETURN_BOOL,        // return a boolean (without refcounting)
     OP_RETURN_NONE,        // return none value
 

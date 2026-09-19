@@ -101,6 +101,7 @@ static const char* opcode_names[] = {
     [OP_CALL_2]             = "CALL_2",
     [OP_RETURN]             = "RETURN",
     [OP_RETURN_NUM]         = "RETURN_NUM",
+    [OP_RETURN_NUM_IMM]     = "RETURN_NUM_IMM",
     [OP_RETURN_BOOL]        = "RETURN_BOOL",
     [OP_RETURN_NONE]        = "RETURN_NONE",
 
