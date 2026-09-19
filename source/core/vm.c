@@ -2515,21 +2515,22 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int dest = ip->operands[0];                  // dest register index
         int table_reg = ip->operands[1];             // register holding the table
         int index = ip->operands[2];                 // immediate integer key (1-based)
-        
+
         Value table_val = regs[table_reg];           // fetch table value
-        Value val = MAKE_NONE();                     // default to none
-        
+        Value val = MAKE_NONE();                     // default result
+
         if (likely(IS_TABLE(table_val))) {
-            Table* table = AS_TABLE(table_val);      // unwrap table pointer
-            
-            if (table->array_part != NULL && index >= 1 && index <= table->array_count) {
+            Table* table = AS_TABLE(table_val);
+            if (likely((unsigned)(index - 1) < (unsigned)table->array_count)) {
                 val = table->array_part[index - 1];  // direct array access (0-based)
-                value_incref(val);                   // bump refcount (no-op for numbers)
+                if (unlikely((val & QNAN) == QNAN)) value_incref(val);  // heap-only incref
             }
         }
-        
-        value_decref(regs[dest]);                    // release old dest value
-        regs[dest] = val;                            // store result
+
+        Value old = regs[dest];                      // old dest value
+        if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // heap-only decref
+        regs[dest] = val;                            // publish result
+
         ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
     OP_TABLE_GET_NUM_LABEL: {
@@ -2544,21 +2545,26 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         if (likely(IS_TABLE(table_val))) {           // table slot must still hold a table
             Table* t = AS_TABLE(table_val);
             if (likely(t->array_part != NULL &&
-                       idx >= 0 && idx < t->array_count &&
-                       num == (double)(idx + 1))) {  // fast path: whole number in array range
+                    (unsigned)idx < (unsigned)t->array_count &&
+                    num == (double)(idx + 1))) {  // fast path: whole number in array range
                 Value val = t->array_part[idx];
-                value_incref(val);                   // bump refcount (no-op for numbers)
-                value_decref(regs[dest]);
+                if (unlikely((val & QNAN) == QNAN)) value_incref(val);  // heap-only incref
+                Value old = regs[dest];
+                if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // heap-only decref
                 regs[dest] = val;
                 ip++; goto *dispatch_table[ip->opcode];
             }
-            Value val = MAKE_NONE();                 // fallback: hash key or OOB
+            // slow path: hash key or out of range
+            Value val = MAKE_NONE();
             table_get(t, key_val, &val);
-            value_decref(regs[dest]);
+            Value old = regs[dest];
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);
             regs[dest] = val;
             ip++; goto *dispatch_table[ip->opcode];
         }
-        value_decref(regs[dest]);                    // non-table slot: same as OP_TABLE_GET
+        // non-table slot: same as OP_TABLE_GET
+        Value old = regs[dest];
+        if (unlikely((old & QNAN) == QNAN)) value_decref(old);
         regs[dest] = MAKE_NONE();
         ip++; goto *dispatch_table[ip->opcode];
     }
@@ -2652,23 +2658,26 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int table_reg = ip->operands[0];             // register holding the table
         int index = ip->operands[1];                 // immediate integer key (1-based)
         int val_reg = ip->operands[2];               // register holding the value
-        
+
         Table* table = AS_TABLE(regs[table_reg]);    // parser guarantees table type
-        
-        if (table->array_part != NULL && index >= 1 && index <= table->array_capacity) {  // fits in array
-            int idx = index - 1;                     // convert to 0-based
-            
-            value_decref(table->array_part[idx]);    // release old value at slot
-            table->array_part[idx] = regs[val_reg];  // store new value
-            value_incref(table->array_part[idx]);    // bump refcount for stored value
-            
-            if (index > table->array_count) {        // update array count if extending
-                table->array_count = index;
+        Value val = regs[val_reg];                   // value to store
+
+        if (likely((unsigned)(index - 1) < (unsigned)table->array_capacity)) {
+            int idx = index - 1;                     // 0-based slot index
+
+            Value old = table->array_part[idx];      // old value at slot
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // heap-only decref
+
+            table->array_part[idx] = val;            // store new value
+            if (unlikely((val & QNAN) == QNAN)) value_incref(val);  // heap-only incref
+
+            if (index > table->array_count) {        // extended the logical end
+                table->array_count = index;          // update element count
             }
         } else {
-            table_set_int(table, index - 1, regs[val_reg]);  // grow array part if needed
+            table_set_int(table, index - 1, val);    // grow array part if needed
         }
-        
+
         ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
     OP_TABLE_SET_NUM_LABEL: {
@@ -2677,8 +2686,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int val_reg = ip->operands[2];               // register holding the value
         Value table_val = regs[table_reg];           // fetch table value
         Value key_val = regs[key_reg];               // fetch key value
-        double num = AS_NUMBER(key_val);             // unbox key (codegen proved it's a number)
-        int idx = (int)num - 1;                      // 1-based -> 0-based, truncates
+        double num = AS_NUMBER(key_val);             // unbox key
+        int idx = (int)num - 1;                      // 1-based -> 0-based
 
         if (unlikely(!IS_TABLE(table_val))) {        // non-table: same error as OP_TABLE_SET
             vm->had_error = true;
@@ -2686,19 +2695,23 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             goto OP_HALT_LABEL;
         }
         Table* t = AS_TABLE(table_val);
+        Value val = regs[val_reg];
+
         if (likely(t->array_part != NULL &&
-                   idx >= 0 && idx < t->array_capacity &&
-                   num == (double)(idx + 1))) {      // fast path: whole number in capacity
-            value_decref(t->array_part[idx]);        // release old value at slot
-            t->array_part[idx] = regs[val_reg];      // store new value
-            value_incref(t->array_part[idx]);        // bump refcount
-            if (idx >= t->array_count) t->array_count = idx + 1;
+                (unsigned)idx < (unsigned)t->array_capacity &&
+                num == (double)(idx + 1))) {      // fast path: whole number in capacity
+            Value old = t->array_part[idx];
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // heap-only decref
+            t->array_part[idx] = val;
+            if (unlikely((val & QNAN) == QNAN)) value_incref(val);  // heap-only incref
+            if ((unsigned)idx >= (unsigned)t->array_count) t->array_count = idx + 1;
             ip++; goto *dispatch_table[ip->opcode];
         }
-        if (num == (double)(int)num && idx >= 0) {   // integer >= 1: grow the array part
-            table_set_int(t, idx, regs[val_reg]);
-        } else {                                     // non-integer or non-positive: hash part
-            table_set(t, key_val, regs[val_reg]);
+        // slow path: grow the array part, or fall through to the hash part
+        if (num == (double)(int)num && idx >= 0) {
+            table_set_int(t, idx, val);              // grows array_part if needed
+        } else {
+            table_set(t, key_val, val);              // non-integer or non-positive key
         }
         ip++; goto *dispatch_table[ip->opcode];
     }
