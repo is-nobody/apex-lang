@@ -130,9 +130,20 @@ static void emit_return_zero(const X86_64Abi* abi, CodeBuf* cb, int base_frame) 
 // emits indirect call through func_table[func_idx] (args in xmm0/xmm1, result in xmm0)
 static void emit_call_func(CodeBuf* cb, JITContext* ctx, int func_idx) {
     uint64_t slot_addr = (uint64_t)(uintptr_t)&ctx->func_table[func_idx];  // address of the slot
-    x86_emit_movabs_rax(cb, slot_addr);                      // rax = &func_table[idx]
-    emit_u8(cb, 0x48); emit_u8(cb, 0x8B); emit_u8(cb, 0x00); // rax = *rax
-    emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                    // call rax
+    x86_emit_movabs_r11(cb, slot_addr);                      // r11 = &func_table[idx]
+    emit_u8(cb, 0x41); emit_u8(cb, 0xFF); emit_u8(cb, 0x13); // call [r11]
+}
+
+// emits a call to `callee`; if it is the function currently being emitted
+static void emit_call_or_self(CodeBuf* cb, JITContext* ctx, int callee,
+                              int self_idx, size_t self_mark) {
+    if (callee == self_idx) {
+        emit_u8(cb, 0xE8);                                   // call rel32
+        int32_t back = (int32_t)self_mark - (int32_t)(cb->len + 4);
+        emit_i32(cb, back);                                  // rel32 to function entry
+        return;
+    }
+    emit_call_func(cb, ctx, callee);
 }
 
 // returns the jcc opcode that exits the loop when the entry condition is met
@@ -253,6 +264,36 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     if (cb->len + (size_t)range_size * 256 + 512 > cb->cap)      // conservative size check
         return false;
 
+    // precompute distinct immediates used in this function
+    int32_t func_imms[8];
+    int     func_imm_slots[8];
+    int     func_n_imms = 0;
+    bool    func_imm_ok = true;
+    for (int pc = start; pc < end; pc++) {
+        Instruction* inst = &chunk->code[pc];
+        int32_t imm;
+        switch (inst->opcode) {
+            case OP_LOAD_NUM_IMM:
+            case OP_RETURN_NUM_IMM:
+                imm = inst->operands[1]; break;
+            case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:
+            case OP_DIV_IMM: case OP_MOD_IMM:
+            case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:
+            case OP_JUMP_IF_LT_IMM: case OP_JUMP_IF_GT_IMM:
+            case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
+                imm = inst->operands[2]; break;
+            default: continue;
+        }
+        bool found = false;
+        for (int i = 0; i < func_n_imms; i++)
+            if (func_imms[i] == imm) { found = true; break; }
+        if (found) continue;
+        if (func_n_imms >= 8) { func_imm_ok = false; break; }
+        func_imms[func_n_imms++] = imm;
+    }
+    if (!func_imm_ok) func_n_imms = 0;
+    for (int i = 0; i < func_n_imms; i++) func_imm_slots[i] = nregs + i;
+
     bool* is_target     = ctx->scratch_is_target;                // shared jump-target marks
     int32_t* label_off  = ctx->scratch_label_off;                // shared label offset array
     JumpFixup* fixups   = ctx->scratch_fixups;                   // shared jump fixup array
@@ -281,10 +322,15 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     XmmCache cache;                                              // register cache state
     x86_cache_clear(&cache);                                     // start empty
 
-    int base_frame  = align16(8 * nregs);                        // aligned slot region
-    int frame_size  = base_frame + abi->frame_extra;             // plus abi extras (shadow space, saves)
+    int base_frame  = align16(8 * (nregs + func_n_imms));        // incl. precomputed imm slots
+    int frame_size  = base_frame + abi->frame_extra;             // plus abi extras
 
     emit_prologue(cb, abi, frame_size, base_frame);
+
+    for (int i = 0; i < func_n_imms; i++) {                      // store immediates once
+        x86_emit_load_double_imm(cb, XMM_SCRATCH, func_imms[i]);
+        x86_emit_movsd_store(cb, XMM_SCRATCH, x86_slot_disp(func_imm_slots[i]));
+    }
 
     int cached_args = arity < XMM_CACHE_REGS ? arity : XMM_CACHE_REGS;  // args fit in cache
     for (int i = 0; i < cached_args; i++) {                      // cache incoming args
@@ -323,8 +369,12 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             }
             case OP_LOAD_NUM_IMM: {                              // small int literal
                 int x = x86_cache_alloc_excl(&cache, cb, -1, -1);  // pick a register
-                if (x < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                x86_emit_load_double_imm(cb, x, a);              // xmmX = (double)a (cvtsi2sd)
+                if (x < 0) { emit_return_zero(abi, cb, base_frame); break; }
+                int slot = -1;
+                for (int i = 0; i < func_n_imms; i++)
+                    if (func_imms[i] == a) { slot = func_imm_slots[i]; break; }
+                if (slot >= 0) x86_emit_movsd_load(cb, x, x86_slot_disp(slot));
+                else           x86_emit_load_double_imm(cb, x, a);
                 x86_cache_put(&cache, x, d);                     // cache dest
                 break;
             }
@@ -384,18 +434,46 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             case OP_SUB_IMM:
             case OP_MUL_IMM:
             case OP_DIV_IMM: {                                   // binary arithmetic with immediate
-                int xa = x86_cache_load(&cache, cb, a);          // load left operand
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                uint8_t arith_op;                                // sse opcode
+                int xa = x86_cache_load(&cache, cb, a);
+                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }
+                uint8_t arith_op;
                 switch (op) {
-                    case OP_ADD_IMM: arith_op = 0x58; break;     // addsd
-                    case OP_SUB_IMM: arith_op = 0x5C; break;     // subsd
-                    case OP_MUL_IMM: arith_op = 0x59; break;     // mulsd
-                    default:         arith_op = 0x5E; break;     // divsd
+                    case OP_ADD_IMM: arith_op = 0x58; break;
+                    case OP_SUB_IMM: arith_op = 0x5C; break;
+                    case OP_MUL_IMM: arith_op = 0x59; break;
+                    default:         arith_op = 0x5E; break;
                 }
-                x86_emit_load_double_imm(cb, XMM_SCRATCH, b);    // xmm7 = (double)b (cvtsi2sd)
-                x86_emit_sse_arith_rr(cb, arith_op, xa, XMM_SCRATCH);  // xa op= xmm7
-                x86_cache_put(&cache, xa, d);                    // relabel xa as dest
+                int slot = -1;
+                for (int i = 0; i < func_n_imms; i++)
+                    if (func_imms[i] == b) { slot = func_imm_slots[i]; break; }
+                bool preserve = (d != a) &&
+                    slot_read_before_write(chunk, pc + 1, end, a);
+                if (slot >= 0) {
+                    if (preserve) {
+                        int xd = x86_cache_alloc_excl(&cache, cb, xa, -1);
+                        if (xd >= 0) {
+                            x86_emit_sse66_rr(cb, 0x28, xd, xa);
+                            x86_emit_sse_arith_mem(cb, arith_op, xd, x86_slot_disp(slot));
+                            x86_cache_put(&cache, xd, d);
+                            break;
+                        }
+                    }
+                    x86_emit_sse_arith_mem(cb, arith_op, xa, x86_slot_disp(slot));
+                    x86_cache_put(&cache, xa, d);
+                    break;
+                }
+                x86_emit_load_double_imm(cb, XMM_SCRATCH, b);
+                if (preserve) {
+                    int xd = x86_cache_alloc_excl(&cache, cb, xa, XMM_SCRATCH);
+                    if (xd >= 0) {
+                        x86_emit_sse66_rr(cb, 0x28, xd, xa);
+                        x86_emit_sse_arith_rr(cb, arith_op, xd, XMM_SCRATCH);
+                        x86_cache_put(&cache, xd, d);
+                        break;
+                    }
+                }
+                x86_emit_sse_arith_rr(cb, arith_op, xa, XMM_SCRATCH);
+                x86_cache_put(&cache, xa, d);
                 break;
             }
             case OP_MOD_IMM: {                                   // modulo with immediate: a - trunc(a/imm)*imm
@@ -661,9 +739,17 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             case OP_JUMP_IF_GTE_IMM: {                           // imm-jump variants share the pattern
                 int xa = x86_cache_load(&cache, cb, a);          // load left operand
                 if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }
-                x86_emit_load_double_imm(cb, XMM_SCRATCH, b);    // xmm7 = (double)b
+                int slot = -1;
+                for (int i = 0; i < func_n_imms; i++)
+                    if (func_imms[i] == b) { slot = func_imm_slots[i]; break; }
                 emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
-                emit_u8(cb, 0xC0 | (xa << 3) | XMM_SCRATCH);     // ucomisd a, xmm7
+                if (slot >= 0) {
+                    emit_u8(cb, 0x85 | (xa << 3));               // ucomisd a, [rbp+disp32]
+                    emit_i32(cb, x86_slot_disp(slot));
+                } else {
+                    x86_emit_load_double_imm(cb, XMM_SCRATCH, b);
+                    emit_u8(cb, 0xC0 | (xa << 3) | XMM_SCRATCH);
+                }
                 x86_cache_flush(&cache, cb);                     // flush before branch
                 uint8_t jcc;
                 switch (op) {
@@ -757,7 +843,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             }
             case OP_CALL_0: {                                    // call with no args
                 x86_cache_flush(&cache, cb);                     // spill everything before call
-                emit_call_func(cb, ctx, a);                      // result in xmm0
+                emit_call_or_self(cb, ctx, a, func_idx, mark);   // direct self-call or via table
                 x86_cache_put(&cache, 0, d);                     // xmm0 = result
                 break;
             }
@@ -776,7 +862,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                     x86_emit_movsd_load(cb, 0, x86_slot_disp(b));  // reload from memory
                 }                                                // else arg already in xmm0
                 x86_cache_clear(&cache);                         // xmm regs clobbered by callee
-                emit_call_func(cb, ctx, a);                      // result in xmm0
+                emit_call_or_self(cb, ctx, a, func_idx, mark);   // direct self-call or via table
                 x86_cache_put(&cache, 0, d);                     // xmm0 = result
                 break;
             }
@@ -804,7 +890,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 }                                                // else arg1 already in xmm1
                 x86_emit_sse66_rr(cb, 0x28, 0, XMM_SCRATCH);     // arg0 from scratch to xmm0
                 x86_cache_clear(&cache);                         // xmm regs clobbered
-                emit_call_func(cb, ctx, a);                      // result in xmm0
+                emit_call_or_self(cb, ctx, a, func_idx, mark);   // direct self-call or via table
                 x86_cache_put(&cache, 0, d);                     // xmm0 = result
                 break;
             }
@@ -820,10 +906,14 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 break;
             }
             case OP_RETURN_NUM_IMM: {                            // return number immediate
-                x86_emit_load_double_imm(cb, 0, a);              // xmm0 = (double)a
+                int slot = -1;
+                for (int i = 0; i < func_n_imms; i++)
+                    if (func_imms[i] == a) { slot = func_imm_slots[i]; break; }
+                if (slot >= 0) x86_emit_movsd_load(cb, 0, x86_slot_disp(slot));
+                else           x86_emit_load_double_imm(cb, 0, a);
                 emit_leave_ret(cb, abi, base_frame);
-                x86_cache_clear(&cache);                         // clear state on exit
-                did_flush = true;                                // suppress merge flush
+                x86_cache_clear(&cache);
+                did_flush = true;
                 break;
             }
             case OP_RETURN_NONE: {                               // return none, no value
