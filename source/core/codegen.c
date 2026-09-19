@@ -2440,7 +2440,8 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     free(cg->locals.names);                                                  // free names array
     free(cg->locals.registers);                                              // free registers array
     free(cg->locals.is_number);                                              // free numeric flags array
-    
+    free(cg->locals.is_integer);                                             // free integer flags array
+
     cg->locals.names = saved_names;                                          // restore names
     cg->locals.registers = saved_regs;                                       // restore regs
     cg->locals.is_number = saved_is_number;                                  // restore numeric flags
