@@ -31,6 +31,13 @@ typedef struct {
     } hoist;
 
     struct {
+        double* values;      // deduped numeric constants reused across statements
+        int*    regs;        // register holding each cached constant
+        int     count;       // number of cached constants
+        int     capacity;    // allocated capacity of values/regs
+    } num_cache;
+
+    struct {
         int* break_jumps;          // list of jump instruction offsets to patch on loop exit
         int break_count;           // number of pending break jumps
         int break_capacity;        // allocated capacity of break_jumps array
@@ -44,6 +51,7 @@ typedef struct {
     int current_function;          // index of the function currently being compiled
     bool current_function_has_nested;  // true if current function's body contains a nested function declaration
     int register_floor;            // minimum next_register preserved by codegen_block resets
+    int cache_floor;               // persistent floor pinned by the numeric-constant cache
     int for_scope_depth;           // nesting depth of for-scopes; used to decide local vs global
 
     int label_counter;             // unique identifier generator for synthetic labels

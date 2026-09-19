@@ -413,6 +413,32 @@ static void collect_hoistable_numbers(CodeGenerator* cg, ASTNode* node) {
     }
 }
 
+// looks up a numeric constant in the per-function cache, returns register or -1
+static int num_cache_lookup(CodeGenerator* cg, double value) {
+    for (int i = 0; i < cg->num_cache.count; i++) {              // scan cached entries
+        if (cg->num_cache.values[i] == value) {                  // match by exact value
+            return cg->num_cache.regs[i];                        // return cached register
+        }
+    }
+    return -1;                                                   // not cached
+}
+
+// records a numeric constant and pins its register for the rest of the function
+static void num_cache_add(CodeGenerator* cg, double value, int reg) {
+    if (cg->num_cache.count >= 16) return;                       // cap to limit register pressure
+    if (cg->num_cache.count >= cg->num_cache.capacity) {         // need more space
+        cg->num_cache.capacity = cg->num_cache.capacity == 0 ? 8 : cg->num_cache.capacity * 2;
+        cg->num_cache.values = (double*)realloc(cg->num_cache.values,
+                                                sizeof(double) * cg->num_cache.capacity);
+        cg->num_cache.regs   = (int*)   realloc(cg->num_cache.regs,
+                                                sizeof(int) * cg->num_cache.capacity);
+    }
+    cg->num_cache.values[cg->num_cache.count] = value;           // store constant value
+    cg->num_cache.regs[cg->num_cache.count] = reg;               // store register
+    cg->num_cache.count++;                                       // advance count
+    if (cg->cache_floor <= reg) cg->cache_floor = reg + 1;       // pin above cache floor
+}
+
 // snapshot of per-local numeric-ness flags for branch merging
 typedef struct {
     int count;         // number of slots captured
@@ -426,6 +452,9 @@ static int codegen_expression(CodeGenerator* cg, ASTNode* node) {
 
 // allocates a new virtual register for temporary values
 static int alloc_register(CodeGenerator* cg) {
+    if (cg->next_register < cg->cache_floor) {  // never allocate inside pinned cache
+        cg->next_register = cg->cache_floor;    // bump up to the cache floor
+    }
     int reg = cg->next_register++;   // allocate next register
     if (reg >= cg->max_registers) {  // track max used
         cg->max_registers = reg + 1;
@@ -439,6 +468,9 @@ static void free_register(CodeGenerator* cg, int reg) {
         if (cg->locals.registers[i] == reg) {
             return;                               // don't free local vars
         }
+    }
+    if (reg < cg->cache_floor) {                  // pinned by the numeric constant cache
+        return;                                   // keep cached registers alive
     }
     if (reg == cg->next_register - 1) {           // only free last temp
         cg->next_register--;                      // decrement register count
@@ -556,6 +588,7 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->module_globals_count = 0;                                          // zero module globals
     cg->module_globals_capacity = 0;                                       // no capacity
     cg->register_floor = 0;                                                // no floor at top level
+    cg->cache_floor    = 0;                                                // no cache pins yet
     cg->for_scope_depth = 0;                                               // not inside any for
 
     cg->hoist.active   = false;
@@ -563,6 +596,11 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->hoist.regs     = NULL;
     cg->hoist.count    = 0;
     cg->hoist.capacity = 0;
+
+    cg->num_cache.values   = NULL;
+    cg->num_cache.regs     = NULL;
+    cg->num_cache.count    = 0;
+    cg->num_cache.capacity = 0;
 
     return cg;                                                             // return generator
 }
@@ -580,6 +618,9 @@ void codegen_destroy(CodeGenerator* cg) {
 
     free(cg->hoist.values);                                                // free hoist arrays (defensive)
     free(cg->hoist.regs);
+
+    free(cg->num_cache.values);                                            // free numeric constant cache
+    free(cg->num_cache.regs);
 
     free(cg->loop_stack.break_jumps);                                      // free break jumps
     
@@ -1205,6 +1246,12 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
                 }
             }
         }
+        int cached = num_cache_lookup(cg, nv);                                       // check per-function cache
+        if (cached >= 0) {                                                           // already materialized earlier
+            if (dest_hint < 0 || dest_hint == cached) return cached;                 // reuse cached register
+            emit(cg, INST(OP_MOVE, dest_hint, cached, 0), node->line);               // copy into hint
+            return dest_hint;
+        }
         int reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);                   // use hint or fresh
         if (nv == (int)nv && nv >= 0 && nv <= 65535) {                               // fits in immediate
             emit(cg, INST(OP_LOAD_NUM_IMM, reg, (int)nv, 0), node->line);            // load immediate
@@ -1212,6 +1259,7 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
             int const_idx = bytecode_add_number_constant(cg->chunk, nv);             // add to constant pool
             emit(cg, INST(OP_LOAD_NUM, reg, const_idx, 0), node->line);              // load from pool
         }
+        if (dest_hint < 0) num_cache_add(cg, nv, reg);                               // cache self-allocated reg
         return reg;                                                                  // single load replaces subtree
     }
 
@@ -2006,6 +2054,12 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     int prev_next_register = cg->next_register;                              // save next register
     int prev_max_registers = cg->max_registers;                              // save max registers
     bool prev_has_nested = cg->current_function_has_nested;                  // save nested flag
+    int prev_register_floor = cg->register_floor;                            // save register floor
+    int prev_cache_floor = cg->cache_floor;                                  // save cache floor
+    double* prev_num_values = cg->num_cache.values;                          // save outer numeric cache
+    int* prev_num_regs = cg->num_cache.regs;                                 // save outer numeric cache
+    int prev_num_count = cg->num_cache.count;                                // save outer numeric cache
+    int prev_num_capacity = cg->num_cache.capacity;                          // save outer numeric cache
     int saved_count = cg->locals.count;                                      // save local count
     char** saved_names = NULL;                                               // saved names
     int* saved_regs = NULL;                                                  // saved registers
@@ -2036,6 +2090,12 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     cg->current_function = func_idx;                                         // set current function
     cg->current_function_has_nested =                                        // detect nested function decls
         block_has_function_decl(node->function_decl.body);
+    cg->register_floor = 0;                                                  // reset register floor
+    cg->cache_floor = 0;                                                     // fresh cache floor
+    cg->num_cache.values = NULL;                                             // fresh numeric cache
+    cg->num_cache.regs = NULL;
+    cg->num_cache.count = 0;
+    cg->num_cache.capacity = 0;
 
     for (int i = 0; i < param_count; i++) {                                 // parameters
         ASTNode* param = node->function_decl.params->nodes[i];              // param node
@@ -2091,6 +2151,15 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     cg->next_register = prev_next_register;                                  // restore next reg
     cg->max_registers = prev_max_registers;                                  // restore max regs
     cg->current_function = prev_function;                                    // restore function
+    cg->current_function_has_nested = prev_has_nested;                       // restore nested flag
+    cg->register_floor = prev_register_floor;                                // restore register floor
+    cg->cache_floor = prev_cache_floor;                                      // restore cache floor
+    free(cg->num_cache.values);                                              // release fn-local cache
+    free(cg->num_cache.regs);
+    cg->num_cache.values = prev_num_values;                                  // restore outer cache
+    cg->num_cache.regs = prev_num_regs;
+    cg->num_cache.count = prev_num_count;
+    cg->num_cache.capacity = prev_num_capacity;
     cg->current_function_has_nested = prev_has_nested;                       // restore nested flag
 
     bytecode_patch_jump(cg->chunk, jump_over, bytecode_current_offset(cg->chunk));  // patch jump
@@ -2204,6 +2273,7 @@ static void codegen_block(CodeGenerator* cg, ASTNode* node) {
         codegen_statement(cg, stmt);                                         // emit statement
         int reset_to = locals_high_water(cg);                                // keep locals + pinned
         if (reset_to < cg->register_floor) reset_to = cg->register_floor;    // respect floor
+        if (reset_to < cg->cache_floor) reset_to = cg->cache_floor;          // respect cache pins
         if (cg->next_register > reset_to) {                                  // drop temps only
             cg->next_register = reset_to;                                    // reclaim for next stmt
         }
