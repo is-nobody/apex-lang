@@ -15,6 +15,9 @@
 // upper bound on slots any backend can track
 #define JIT_MAX_SLOTS 256
 
+// upper bound on distinct immediates tracked per loop body
+#define JIT_MAX_IMMS 8
+
 // growable byte buffer used during code emission
 typedef struct {
     uint8_t* buf;  // destination buffer (mmap'd)
@@ -74,6 +77,10 @@ typedef struct {
     JitTableUse table;  // baseline: at most one table per loop
 
     int  nregs;         // function frame size (max_registers)
+
+    int  n_imms;                                  // number of distinct immediates precomputed
+    struct { int32_t value; int slot; } imms[JIT_MAX_IMMS];  // value -> frame slot mapping
+    bool imm_opt_ok;                              // all body immediates were precomputed
 
     uint64_t globals_used;  // bitmask of globals (0..63) read or written in the loop body
     int      globals_count; // popcount of globals_used

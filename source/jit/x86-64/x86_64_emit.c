@@ -1051,8 +1051,17 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
                 case OP_MUL_IMM: op = 0x59; break;               // mulsd
                 default:         op = 0x5E; break;               // divsd
             }
-            x86_emit_load_double_imm(cb, XMM_SCRATCH, b);        // xmm7 = (double)b (cvtsi2sd)
-            x86_emit_sse_arith_rr(cb, op, xa, XMM_SCRATCH);      // xa op= xmm7
+            int slot = -1;
+            if (info->imm_opt_ok) {
+                for (int i = 0; i < info->n_imms; i++)
+                    if (info->imms[i].value == b) { slot = info->imms[i].slot; break; }
+            }
+            if (slot >= 0) {
+                x86_emit_sse_arith_mem(cb, op, xa, x86_slot_disp(slot));  // xa op= [imm]
+            } else {
+                x86_emit_load_double_imm(cb, XMM_SCRATCH, b);
+                x86_emit_sse_arith_rr(cb, op, xa, XMM_SCRATCH);
+            }
             x86_cache_put(cache, xa, d);                         // relabel xa as dest
             touched_nan_check = true;
             break;
@@ -1060,16 +1069,34 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
         case OP_MOD_IMM: {                                       // modulo with immediate
             int xa = x86_cache_load(cache, cb, a);               // load a
             if (xa < 0) return;                                  // register cache full
-            x86_emit_load_double_imm(cb, XMM_SCRATCH, b);        // xmm7 = (double)b (cvtsi2sd)
-            int xt = x86_cache_alloc_excl(cache, cb, xa, XMM_SCRATCH);  // temp for a/imm
-            if (xt < 0) return;                                  // register cache full
-            x86_emit_sse66_rr(cb, 0x28, xt, xa);                 // xt = a
-            x86_emit_sse_arith_rr(cb, 0x5E, xt, XMM_SCRATCH);    // xt = a / imm
-            emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x3A);
-            emit_u8(cb, 0x0B);                                   // roundsd opcode
-            emit_u8(cb, 0xC0 | (xt << 3) | xt);                  // round xt, xt
-            emit_u8(cb, 0x03);                                   // round mode: truncate
-            x86_emit_sse_arith_rr(cb, 0x59, xt, XMM_SCRATCH);    // xt = trunc(a/imm) * imm
+            int slot = -1;
+            if (info->imm_opt_ok) {
+                for (int i = 0; i < info->n_imms; i++)
+                    if (info->imms[i].value == b) { slot = info->imms[i].slot; break; }
+            }
+            int xt;
+            if (slot >= 0) {
+                xt = x86_cache_alloc_excl(cache, cb, xa, -1);    // temp for a/imm
+                if (xt < 0) return;
+                x86_emit_sse66_rr(cb, 0x28, xt, xa);             // xt = a
+                x86_emit_sse_arith_mem(cb, 0x5E, xt, x86_slot_disp(slot));  // xt = a / imm
+                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x3A);
+                emit_u8(cb, 0x0B);
+                emit_u8(cb, 0xC0 | (xt << 3) | xt);
+                emit_u8(cb, 0x03);                               // truncate
+                x86_emit_sse_arith_mem(cb, 0x59, xt, x86_slot_disp(slot));  // xt *= imm
+            } else {
+                x86_emit_load_double_imm(cb, XMM_SCRATCH, b);
+                xt = x86_cache_alloc_excl(cache, cb, xa, XMM_SCRATCH);
+                if (xt < 0) return;
+                x86_emit_sse66_rr(cb, 0x28, xt, xa);
+                x86_emit_sse_arith_rr(cb, 0x5E, xt, XMM_SCRATCH);
+                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x3A);
+                emit_u8(cb, 0x0B);
+                emit_u8(cb, 0xC0 | (xt << 3) | xt);
+                emit_u8(cb, 0x03);
+                x86_emit_sse_arith_rr(cb, 0x59, xt, XMM_SCRATCH);
+            }
             x86_emit_sse_arith_rr(cb, 0x5C, xa, xt);             // a = a - xt
             x86_cache_put(cache, xa, d);                         // relabel xa as dest
             touched_nan_check = true;
@@ -1480,8 +1507,32 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
         if (needs_helper) break;
     }
 
+    // precompute distinct immediates used by ADD_IMM/SUB_IMM/MUL_IMM/DIV_IMM/MOD_IMM
+    info->n_imms = 0;
+    info->imm_opt_ok = true;
+    for (int pc = entry + 1; pc < back_edge; pc++) {
+        Instruction* inst = &ctx->chunk->code[pc];
+        int32_t imm;
+        switch (inst->opcode) {
+            case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:
+            case OP_DIV_IMM: case OP_MOD_IMM:
+                imm = inst->operands[2];
+                break;
+            default: continue;
+        }
+        bool found = false;
+        for (int i = 0; i < info->n_imms; i++)
+            if (info->imms[i].value == imm) { found = true; break; }
+        if (found) continue;
+        if (info->n_imms >= JIT_MAX_IMMS) { info->imm_opt_ok = false; info->n_imms = 0; break; }
+        info->imms[info->n_imms++].value = imm;
+    }
+
+    int imm_base_slot = const_slot + 1;                      // first slot for precomputed immediates
+    for (int i = 0; i < info->n_imms; i++) info->imms[i].slot = imm_base_slot + i;
+
     int save_slot = -1;                                      // stack slot to stash frame_reg across helper call
-    int frame_slots = const_slot + 1;                        // incl. constant slot
+    int frame_slots = const_slot + 1 + info->n_imms;         // incl. constant slot + immediates
     uint64_t writeback_mask = info->live_out & ~info->ref_writes;  // slots whose old value must be released
     if (needs_helper || writeback_mask != 0) {
         save_slot = frame_slots;                             // reserve one more slot
@@ -1503,18 +1554,18 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
         bool clobbers = false;
         for (int pc = entry + 1; pc < back_edge; pc++) {
             Opcode op = ctx->chunk->code[pc].opcode;
+            // only ops that truly clobber xmm7 disqualify iter_in_xmm.
+            // imm ops use a memory operand; cmp_* never touched xmm7 anyway.
+            bool op_is_imm = (op == OP_ADD_IMM || op == OP_SUB_IMM ||
+                              op == OP_MUL_IMM || op == OP_DIV_IMM ||
+                              op == OP_MOD_IMM);
+            if (op_is_imm && info->imm_opt_ok) continue;
             if (op == OP_MOD || op == OP_NEG ||              // use XMM_SCRATCH
-                op == OP_ADD_IMM || op == OP_SUB_IMM ||      // use XMM_SCRATCH for the immediate
-                op == OP_MUL_IMM || op == OP_DIV_IMM ||
-                op == OP_MOD_IMM ||
                 op == OP_TABLE_GET_KEY_STR ||                // helper call clobbers xmm
                 op == OP_TABLE_SET_KEY_STR ||                // helper call clobbers xmm
+                op == OP_NEW_TABLE ||                        // helper call clobbers xmm
                 op == OP_CALL_0 || op == OP_CALL_1 ||        // calls clobber all xmm regs
-                op == OP_CALL_2 ||
-                op == OP_CMP_EQ || op == OP_CMP_NEQ ||       // also use XMM_SCRATCH
-                op == OP_CMP_EQ_NUM || op == OP_CMP_NEQ_NUM ||
-                op == OP_CMP_LT || op == OP_CMP_GT ||
-                op == OP_CMP_LTE || op == OP_CMP_GTE) {
+                op == OP_CALL_2) {
                 clobbers = true;
                 break;                                       // iterator must live in memory
             }
@@ -1571,6 +1622,12 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
     x86_emit_movabs_rax(cb, 0x3FF0000000000000ULL);          // rax = bits of 1.0
     x86_emit_movq_xmm_rax(cb, XMM_SCRATCH);                  // xmm7 = 1.0
     x86_emit_movsd_store(cb, XMM_SCRATCH, x86_slot_disp(const_slot));  // const_slot = 1.0
+
+    // store each precomputed immediate into its slot
+    for (int i = 0; i < info->n_imms; i++) {
+        x86_emit_load_double_imm(cb, XMM_SCRATCH, info->imms[i].value);
+        x86_emit_movsd_store(cb, XMM_SCRATCH, x86_slot_disp(info->imms[i].slot));
+    }
 
     // copy live-in AND live-out slots from vm regs to stack frame
     uint64_t m = info->live_in | info->live_out;
