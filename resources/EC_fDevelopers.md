@@ -980,14 +980,14 @@ total = add(10, 5)
 # 7. Async / Await
 Apex has `async` and `await` for deferring work until you actually need the result.
 
-| What                 | When it runs                                                                             |
-|----------------------|------------------------------------------------------------------------------------------|
-| `async function f()` | Body does **not** run at call time. Calling `f()` creates a *future* — a promise object. |
-| `await fut`          | Runs the body (if not yet started) and returns the result.                               |
-| `await value`        | If `value` is not a future, returns it as-is.                                            |
+| What                 | When it runs                                                                                       |
+|----------------------|----------------------------------------------------------------------------------------------------|
+| `async function f()` | Body runs in the background. Calling `f()` starts the body and returns a *future*.                 |
+| `await f()`          | Starts `f` (if it is an async function) and waits for its result.                                  |
+| `await os.read()`    | Starts builtin `os.read` and waits for its result.                                                 |
 
 ## 7.1 Async Function
-Add `async` before `function`. The body of an async function is **not executed when you call it** — instead, the call returns a future.
+Add `async` before `function`. Calling an async function starts its body on the scheduler and returns a future immediately — the caller keeps running without waiting.
 
 ```apex
 import os
@@ -996,17 +996,14 @@ async function add(a, b)
     return a + b
 
 async function main()
-    fut = add(2, 3)          // future created, add body not started yet
-    result = await fut       // body runs here, result is 5
+    result = await add(2, 3)   // body starts, await waits for the result, result is 5
     os.output(result)
 
 await main()
 ```
 
-The future behaves like a normal value: you can store it in a variable, put it in a table, or pass it around.
-
 ## 7.2 Await
-`await` can be used only inside an `async function` or at the top level of the program.
+`await` can be used only inside an `async function` or at the top level of the program. The operand must be a call to an async function or a builtin — nothing else.
 
 ```apex
 import os
@@ -1021,19 +1018,7 @@ async function main()
 await main()
 ```
 
-`await` on a value that is not a future simply returns that value:
-
-```apex
-import os
-
-async function main()
-    x = await 42
-    os.output(x)  // 42
-
-await main()
-```
-
-An awaited call runs the body at the point of `await` — not at the point of the call.
+Awaited calls run in the background; `await` only waits for them to finish. The body of `step` starts when `step("body")` is called, but the caller continues without blocking until `await step("body")`:
 
 ```apex
 import os
@@ -1042,10 +1027,8 @@ async function step(name)
     os.output(name)
 
 async function main()
-    fut = step("body")   // nothing printed yet
-    os.output("before")  // printed first
-    await fut            // now "body" is printed
-    os.output("after")   // printed last
+    await step("body")   // body runs, "body" prints when the scheduler gets to it
+    os.output("after")   // printed after
 
 await main()
 ```

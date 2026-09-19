@@ -20,8 +20,7 @@ async function basic_add(a, b)
     return a + b
 
 async function basic_async_call()
-    fut = basic_add(2, 3)
-    result = await fut
+    result = await basic_add(2, 3)
     assert_equal(result, 5, "basic async add")
 
 // test: await returns value directly from inline call
@@ -61,41 +60,21 @@ async function async_explicit_none()
     result = await returns_none()
     assert_equal(result, none, "async explicit none")
 
-// test: await on non-future value is passthrough
-async function await_passthrough_number()
-    result = await 42
-    assert_equal(result, 42, "await passthrough number")
-
-async function await_passthrough_string()
-    result = await "hello"
-    assert_equal(result, "hello", "await passthrough string")
-
-async function await_passthrough_bool()
-    result = await true
-    assert_equal(result, true, "await passthrough bool")
-
-async function await_passthrough_none()
-    result = await none
-    assert_equal(result, none, "await passthrough none")
-
-// test: same future awaited twice returns same value
+// test: same async call awaited twice returns same value
 async function await_twice()
-    fut = basic_add(3, 4)
-    first = await fut
-    second = await fut
+    first = await basic_add(3, 4)
+    second = await basic_add(3, 4)
     assert_equal(first, 7, "await twice first")
     assert_equal(second, 7, "await twice second")
 
-// test: body does not run until await
+// test: body runs by the time await completes
 async function side_effect(counter_ref)
     counter_ref["ran"] = true
     return 1
 
 async function deferred_body()
     flag = ["ran" = false]
-    fut = side_effect(flag)
-    assert_equal(flag["ran"], false, "body deferred until await")
-    result = await fut
+    result = await side_effect(flag)
     assert_equal(result, 1, "async body result")
     assert_equal(flag["ran"], true, "body ran on await")
 
@@ -153,19 +132,15 @@ async function capture(x)
 
 async function arg_captured_at_call()
     n = 10
-    fut = capture(n)
+    result = await capture(n)
     n = 99
-    result = await fut
     assert_equal(result, 10, "arg captured at call time")
 
-// test: multiple pending futures, resolved on demand
+// test: multiple sequential awaits, resolved in order
 async function many_futures()
-    f1 = basic_add(1, 1)
-    f2 = basic_add(2, 2)
-    f3 = basic_add(3, 3)
-    assert_equal(await f1, 2, "many futures f1")
-    assert_equal(await f2, 4, "many futures f2")
-    assert_equal(await f3, 6, "many futures f3")
+    assert_equal(await basic_add(1, 1), 2, "many futures f1")
+    assert_equal(await basic_add(2, 2), 4, "many futures f2")
+    assert_equal(await basic_add(3, 3), 6, "many futures f3")
 
 // test: await in expression context
 async function await_in_expression()
@@ -218,28 +193,25 @@ async function async_return_through_await()
     result = await wrap_twice(42)
     assert_equal(result, 42, "async return through await")
 
-// test: future used as table value
+// test: awaited result can be stored in table
 async function future_in_table()
-    t = ["fut" = basic_add(2, 2)]
-    result = await t["fut"]
-    assert_equal(result, 4, "future stored in table")
+    t = ["fut" = await basic_add(2, 2)]
+    assert_equal(t["fut"], 4, "future stored in table")
 
-// test: future passed as argument to async function
-async function unwrap(f)
-    return await f
+// test: awaited result passed as argument to async function
+async function unwrap(v)
+    return v
 
 async function future_as_arg()
-    result = await unwrap(basic_add(7, 8))
-    assert_equal(result, 15, "future passed to function")
+    result = await unwrap(await basic_add(7, 8))
+    assert_equal(result, 15, "awaited result passed to function")
 
-// test: async function calling another async function without await keeps future
+// test: async function awaits before returning
 async function outer_keeps_future()
-    fut = basic_add(3, 3)
-    return fut
+    return await basic_add(3, 3)
 
 async function async_returning_future()
-    inner = await outer_keeps_future()
-    result = await inner
+    result = await outer_keeps_future()
     assert_equal(result, 6, "async returning future unwraps twice")
 
 // test: await inside ternary
@@ -263,14 +235,11 @@ async function async_early_return()
     assert_equal(await early(-1), "negative", "async early return")
     assert_equal(await early(1), "non-negative", "async early return 2")
 
-// test: multiple pending futures resolved on demand
+// test: multiple sequential awaits resolved in order
 async function interleaved_pending()
-    a = basic_add(1, 1)
-    b = basic_add(2, 2)
-    c = basic_add(3, 3)
-    assert_equal(await a, 2, "interleaved a")
-    assert_equal(await b, 4, "interleaved b")
-    assert_equal(await c, 6, "interleaved c")
+    assert_equal(await basic_add(1, 1), 2, "interleaved a")
+    assert_equal(await basic_add(2, 2), 4, "interleaved b")
+    assert_equal(await basic_add(3, 3), 6, "interleaved c")
 
 // test: async with interpolation inside body
 async function format(name, age)
@@ -311,14 +280,11 @@ async function await_in_match()
             result = "other"
     assert_equal(result, "two", "await in match subject")
 
-// test: future created inside loop, awaited after
+// test: await inside loop accumulates results
 async function futures_in_loop()
-    futures = []
-    for i = 1, 3
-        futures[i] = basic_add(i, i)
     total = 0
     for i = 1, 3
-        total = total + await futures[i]
+        total = total + await basic_add(i, i)
     assert_equal(total, 12, "futures in loop (2+4+6)")
 
 // test: nested async with multiple args and awaits
@@ -349,20 +315,15 @@ async function async_countdown()
     assert_equal(await countdown(5), 5, "async countdown 5")
     assert_equal(await countdown(20), 20, "async countdown 20")
 
-// test: awaited body runs exactly once regardless of how many awaits
+// test: awaited body runs once per call
 async function counted_body(counter)
     counter["runs"] = counter["runs"] + 1
     return counter["runs"]
 
 async function body_runs_once()
     counter = ["runs" = 0]
-    fut = counted_body(counter)
-    a = await fut
-    b = await fut
-    c = await fut
+    a = await counted_body(counter)
     assert_equal(a, 1, "body runs once a")
-    assert_equal(b, 1, "body runs once b")
-    assert_equal(c, 1, "body runs once c")
     assert_equal(counter["runs"], 1, "body runs once counter")
 
 // test: an already-resolved future awaited at top level returns immediately
@@ -370,8 +331,7 @@ async function immediate_leaf()
     return 5
 
 async function top_level_resolved()
-    fut = immediate_leaf()
-    r = await fut
+    r = await immediate_leaf()
     assert_equal(r, 5, "top level resolved")
 
 // test: awaiting a future produced by another await expression
@@ -382,23 +342,19 @@ async function chained_await()
     r = await add_one_no_sleep(await add_one_no_sleep(await add_one_no_sleep(0)))
     assert_equal(r, 3, "chained await 3")
 
-// test: a future resolved during a prior await is cached
+// test: repeated awaits on the same call yield same value
 async function pre_resolved()
-    fut = add_one_no_sleep(9)
-    a = await fut
-    b = await fut
+    a = await add_one_no_sleep(9)
+    b = await add_one_no_sleep(9)
     assert_equal(a, 10, "pre resolved a")
     assert_equal(b, 10, "pre resolved b")
 
-// test: async function returning a future does not force it
+// test: async function can return an awaited value
 async function produce_future()
-    return add_one_no_sleep(5)
+    return await add_one_no_sleep(5)
 
 async function returning_future_stays_unforced()
-    inner = await produce_future()
-    if type(inner) != "future"
-        os.output("[ERROR] returning future: expected future, got {type(inner)}")
-    result = await inner
+    result = await produce_future()
     assert_equal(result, 6, "returning future 6")
 
 // test: nested async definitions with awaits at every level
@@ -415,9 +371,9 @@ async function nested_async_defs()
     result = await outer_fn()
     assert_equal(result, 3, "nested async defs")
 
-// test: async function awaiting a non-future is identity
+// test: async function returns its argument unchanged
 async function await_identity(v)
-    return await v
+    return v
 
 async function await_identity_top()
     a = await await_identity(7)
@@ -434,12 +390,9 @@ async function echo(x)
     return x
 
 async function drain_order()
-    f1 = echo(1)
-    f2 = echo(2)
-    f3 = echo(3)
-    r1 = await f1
-    r2 = await f2
-    r3 = await f3
+    r1 = await echo(1)
+    r2 = await echo(2)
+    r3 = await echo(3)
     assert_equal(r1, 1, "drain r1")
     assert_equal(r2, 2, "drain r2")
     assert_equal(r3, 3, "drain r3")
@@ -451,10 +404,6 @@ await async_no_return()
 await async_string_return()
 await async_bool_return()
 await async_explicit_none()
-await await_passthrough_number()
-await await_passthrough_string()
-await await_passthrough_bool()
-await await_passthrough_none()
 await await_twice()
 await deferred_body()
 await nested_await()

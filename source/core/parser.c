@@ -614,6 +614,12 @@ static void parser_symbol_clear_const(Parser* parser, int idx) {
     parser_symbol_set_const(parser, idx, false, 0.0);  // clear constant
 }
 
+// marks or clears the async flag on a declared function symbol
+static void parser_symbol_set_async(Parser* parser, int idx, bool is_async) {
+    if (idx < 0) return;                           // invalid index
+    parser->symbols.is_async[idx] = is_async;      // store async flag
+}
+
 // grows the symbol table when capacity is reached
 static void symbols_grow(Parser* parser) {
     if (parser->symbols.count < parser->symbols.capacity) return;  // enough space
@@ -627,6 +633,7 @@ static void symbols_grow(Parser* parser) {
     s->const_known = (bool*)realloc(s->const_known, sizeof(bool) * s->capacity);  // grow const flags
     s->const_values = (double*)realloc(s->const_values, sizeof(double) * s->capacity);  // grow const values
     s->is_constant = (bool*)realloc(s->is_constant, sizeof(bool) * s->capacity);  // grow is_constant flags
+    s->is_async = (bool*)realloc(s->is_async, sizeof(bool) * s->capacity);        // grow is_async flags
 }
 
 // finds a symbol index in a specific scope using hash table for O(1) lookup
@@ -690,6 +697,7 @@ void parser_exit_scope(Parser* parser) {
                 parser->symbols.const_known[write] = parser->symbols.const_known[read];
                 parser->symbols.const_values[write] = parser->symbols.const_values[read];
                 parser->symbols.is_constant[write] = parser->symbols.is_constant[read];
+                parser->symbols.is_async[write] = parser->symbols.is_async[read];
             }
             write++;                               // advance write index
         }
@@ -729,6 +737,7 @@ bool parser_declare_symbol(Parser* parser, const char* name, ParserSymbolKind ki
     parser->symbols.const_known[i] = false;        // not a known constant yet
     parser->symbols.const_values[i] = 0.0;         // default value
     parser->symbols.is_constant[i] = (kind == PARSER_SYM_CONSTANT);  // mark constants
+    parser->symbols.is_async[i] = false;           // not async until marked
     unsigned int h = hash_string_parser(name) & (parser->symbols.hash_size - 1);  // compute bucket
     SymbolHashEntry* entry = pool_alloc(parser);   // allocate from pool
     entry->name = parser->symbols.names[i];
@@ -764,6 +773,7 @@ Parser* parser_create(Token* tokens, int count, const char* filename, const char
     parser->symbols.capacity = 0;                  // no capacity yet
     parser->symbols.current_scope = 0;             // global scope
     parser->symbols.is_constant = NULL;            // is_constant flags
+    parser->symbols.is_async = NULL;               // is_async flags
     parser->symbols.hash_size = 64;                // hash table size
     parser->symbols.hash_table = (SymbolHashEntry**)calloc(parser->symbols.hash_size, sizeof(SymbolHashEntry*));  // allocate hash table
     arena_init(&parser->symbols.name_arena);       // initialize name arena
@@ -806,10 +816,8 @@ void parser_destroy(Parser* parser) {
         free(parser->symbols.const_known);         // free const flags
         free(parser->symbols.const_values);        // free const values
         free(parser->symbols.is_constant);         // free is_constant flags
-        
-        for (int i = 0; i < parser->symbols.hash_size; i++) {
-            // entries are freed by pool_destroy
-        }
+        free(parser->symbols.is_async);            // free is_async flags
+
         pool_destroy(parser->symbols.entry_pool);  // free all hash entry pools
         free(parser->symbols.hash_table);          // free hash table buckets
         free(parser);                              // free parser itself
@@ -1517,6 +1525,7 @@ static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, in
             temp_parser->symbols.const_known[new_idx] = parser->symbols.const_known[i];
             temp_parser->symbols.const_values[new_idx] = parser->symbols.const_values[i];
             temp_parser->symbols.is_constant[new_idx] = parser->symbols.is_constant[i];
+            temp_parser->symbols.is_async[new_idx] = parser->symbols.is_async[i];
         }
     }
     temp_parser->symbols.current_scope = parser->symbols.current_scope;  // match scope
@@ -1977,6 +1986,30 @@ static ASTNode* parse_prefix(Parser* parser) {
                 parser_error_at(parser, await_kw->line, await_kw->column + 5, 1,
                     "Expected expression after 'await'");               // error
                 return NULL;
+            }
+            if (parser->semantic_checks) {                              // validate await target
+                bool awaitable = false;                                 // whether operand may produce a future
+                if (operand->type == AST_CALL) {
+                    char full_name[256] = "";                           // resolved call name buffer
+                    const char* func_name = resolve_call_name(operand->call.callee,
+                                                              full_name, sizeof(full_name));
+                    if (func_name) {
+                        if (lookup_builtin(func_name)) {
+                            awaitable = true;                           // any builtin returns a future
+                        } else {
+                            int sym_idx = symbol_index_recursive(parser, func_name);
+                            if (sym_idx >= 0 && parser->symbols.is_async[sym_idx]) {
+                                awaitable = true;                       // user async function
+                            }
+                        }
+                    }
+                }
+                if (!awaitable) {
+                    int err_len = get_node_len(operand);
+                    if (err_len < 1) err_len = 1;
+                    parser_error_at(parser, operand->line, operand->column, err_len,
+                        "'await' requires a call to an async function or builtin");  // error
+                }
             }
             return ast_create_await(operand);                           // wrap in await node
         }
@@ -2439,6 +2472,9 @@ static ASTNode* parse_function(Parser* parser) {
 
     parser_declare_symbol(parser, name->value, PARSER_SYM_FUNCTION,
                           TYPE_FUNCTION, params->count, name->line, name->column);  // declare function
+
+    int func_sym_idx = symbol_index_in_scope(parser, name->value, parser->symbols.current_scope);  // resolve just-declared symbol in current scope
+    if (func_sym_idx >= 0) parser_symbol_set_async(parser, func_sym_idx, parser->pending_async);  // mark async
 
     parser->function_depth++;                       // enter function
     parser->top_level_depth--;                      // no longer top-level

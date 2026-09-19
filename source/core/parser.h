@@ -70,6 +70,7 @@ typedef struct {
     bool* const_known;       // whether the symbol has a known compile-time constant value
     double* const_values;    // constant value if const_known is true (for numeric folding)
     bool* is_constant;       // whether the variable was declared with 'constant' keyword
+    bool* is_async;          // whether the function was declared with 'async' keyword
     int count;               // number of symbols currently stored
     int capacity;            // allocated capacity of the symbol arrays
     int current_scope;       // current lexical scope depth for symbol lookup
