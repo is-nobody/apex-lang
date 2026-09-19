@@ -26,6 +26,7 @@
 #include <string.h>
 #include <limits.h>
 #include <time.h>
+#include <stddef.h>
 #ifdef _WIN32
 #include <sys/timeb.h>
 #include <process.h>
@@ -67,6 +68,26 @@ typedef struct {
 // forward declarations
 static char* table_to_string(Table* table);
 static void table_to_string_builder(Table* table, StringBuilder* sb, int indent_level);
+
+// fast unsigned itoa, no null terminator, returns digits written
+static inline int vm_uitoa(char* buf, unsigned long long n) {
+    if (n == 0) { buf[0] = '0'; return 1; }
+    char tmp[24];
+    int i = 0;
+    while (n) { tmp[i++] = (char)('0' + (n % 10)); n /= 10; }
+    for (int j = 0; j < i; j++) buf[j] = tmp[i - 1 - j];
+    return i;
+}
+
+// fast signed itoa, handles LLONG_MIN without overflow
+static inline int vm_itoa(char* buf, long long n) {
+    if (n < 0) {
+        buf[0] = '-';
+        unsigned long long u = (unsigned long long)(-(n + 1)) + 1ULL;
+        return 1 + vm_uitoa(buf + 1, u);
+    }
+    return vm_uitoa(buf, (unsigned long long)n);
+}
 
 // djb2 hash function for string interning
 static unsigned int intern_hash(const char* chars, int length) {
@@ -2542,39 +2563,65 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_TABLE_GET_KEY_STR_LABEL: {
-        int dest = ip->operands[0];                  // dest register index
-        int table_reg = ip->operands[1];             // table register
-        int packed = ip->operands[2];                // (prefix_idx << 16) | num_reg
-        int prefix_idx = (int)((uint32_t)packed >> 16);
-        int num_reg = packed & 0xFFFF;
+        int dest       = ip->operands[0];                 // dest register index
+        int table_reg  = ip->operands[1];                 // table register
+        int packed     = ip->operands[2];                 // (prefix_idx << 16) | num_reg
+        int prefix_idx = (int)((uint32_t)packed >> 16);   // unpack prefix pool index
+        int num_reg    = packed & 0xFFFF;                 // unpack number register
+
         StringObject* prefix = (StringObject*)chunk->constants[prefix_idx].cached_str;
-        double n = AS_NUMBER(regs[num_reg]);         // unbox number
-        char nbuf[32];
-        int nlen;
+        double n = AS_NUMBER(regs[num_reg]);              // unbox number (codegen proved numeric)
+
+        char nbuf[32];                                    // formatted numeric tail
+        int nlen;                                         // length of formatted tail
         if (n == (long long)n && fabs(n) < 1e15)
-            nlen = snprintf(nbuf, sizeof(nbuf), "%.0f", n);
+            nlen = vm_itoa(nbuf, (long long)n);           // whole number: custom itoa
         else
-            nlen = snprintf(nbuf, sizeof(nbuf), "%.15g", n);
-        int total = prefix->length + nlen;
-        StringObject* key = (StringObject*)malloc(sizeof(StringObject) + total + 1);
-        key->header.ref_count = 1;
-        key->header.type = VAL_STRING;
-        key->length = total;
-        key->hash_computed = false;
-        key->hash = 0;
-        memcpy(key->chars, prefix->chars, prefix->length);
-        memcpy(key->chars + prefix->length, nbuf, nlen);
-        key->chars[total] = '\0';
-        Value kv = MAKE_STRING(key);                 // temporary key Value
-        Value tv = regs[table_reg];                  // fetch table Value
-        Value val = MAKE_NONE();                     // default result
-        if (likely(IS_TABLE(tv))) {                  // valid table slot?
-            table_get(AS_TABLE(tv), kv, &val);       // lookup (increfs val)
+            nlen = snprintf(nbuf, sizeof(nbuf), "%.15g", n);  // fractional or huge: snprintf
+
+        int total = prefix->length + nlen;                // combined key length
+        Value val = MAKE_NONE();                          // default result
+        Value tv  = regs[table_reg];                      // fetch table value
+
+        if (likely(total <= 96)) {                        // fits in stack buffer
+            union { max_align_t _a; char buf[sizeof(StringObject) + 96]; } ks;
+            StringObject* key = (StringObject*)ks.buf;    // stack-allocated key
+            key->header.ref_count = 1;                    // table_get never touches this
+            key->header.type      = VAL_STRING;           // mark as string
+            key->length           = total;                // store combined length
+            key->hash_computed    = false;                // hash not yet computed
+            key->hash             = 0;                    // clear hash field
+            memcpy(key->chars, prefix->chars, prefix->length);              // copy prefix
+            memcpy(key->chars + prefix->length, nbuf, nlen);                // copy numeric tail
+            key->chars[total] = '\0';                     // null terminate
+
+            if (likely(IS_TABLE(tv))) {                   // valid table slot?
+                table_get(AS_TABLE(tv), MAKE_STRING(key), &val);  // lookup, increfs val only
+            }
+            // no decref: key lives on the stack
+        } else {                                          // too long for stack buffer
+            StringObject* key = (StringObject*)malloc(sizeof(StringObject) + total + 1);
+            key->header.ref_count = 1;                    // fresh object refcount
+            key->header.type      = VAL_STRING;           // mark as string
+            key->length           = total;                // store combined length
+            key->hash_computed    = false;                // hash not yet computed
+            key->hash             = 0;                    // clear hash field
+            memcpy(key->chars, prefix->chars, prefix->length);              // copy prefix
+            memcpy(key->chars + prefix->length, nbuf, nlen);                // copy numeric tail
+            key->chars[total] = '\0';                     // null terminate
+
+            Value kv = MAKE_STRING(key);                  // temporary key value
+            if (likely(IS_TABLE(tv))) {                   // valid table slot?
+                table_get(AS_TABLE(tv), kv, &val);        // lookup, increfs val only
+            }
+            value_decref(kv);                             // release heap key
         }
-        value_decref(kv);                            // release temporary key (heap, refcount 1)
-        value_decref(regs[dest]);                    // release old dest value
-        regs[dest] = val;                            // publish result
-        ip++; goto *dispatch_table[ip->opcode];      // advance
+
+        Value old = regs[dest];                           // save old dest for decref
+        if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap value
+        regs[dest] = val;                                 // publish result (already increfed)
+
+        ip++; goto *dispatch_table[ip->opcode];           // advance to next instruction
     }
     OP_TABLE_SET_LABEL: {
         int table_reg = ip->operands[0];             // register holding the table
@@ -2656,39 +2703,46 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];
     }
     OP_TABLE_SET_KEY_STR_LABEL: {
-        int table_reg = ip->operands[0];             // table register
-        int val_reg = ip->operands[1];               // value register
-        int packed = ip->operands[2];                // (prefix_idx << 16) | num_reg
-        int prefix_idx = (int)((uint32_t)packed >> 16);
-        int num_reg = packed & 0xFFFF;
-        StringObject* prefix = (StringObject*)chunk->constants[prefix_idx].cached_str;
-        double n = AS_NUMBER(regs[num_reg]);         // unbox number
-        char nbuf[32];
-        int nlen;
-        if (n == (long long)n && fabs(n) < 1e15)
-            nlen = snprintf(nbuf, sizeof(nbuf), "%.0f", n);
-        else
-            nlen = snprintf(nbuf, sizeof(nbuf), "%.15g", n);
-        int total = prefix->length + nlen;
-        StringObject* key = (StringObject*)malloc(sizeof(StringObject) + total + 1);
-        key->header.ref_count = 1;
-        key->header.type = VAL_STRING;
-        key->length = total;
-        key->hash_computed = false;
-        key->hash = 0;
-        memcpy(key->chars, prefix->chars, prefix->length);
-        memcpy(key->chars + prefix->length, nbuf, nlen);
-        key->chars[total] = '\0';
-        Value tv = regs[table_reg];                  // fetch table Value
-        if (unlikely(!IS_TABLE(tv))) {               // non-table: same error as OP_TABLE_SET
-            free(key);
-            vm->had_error = true;
-            vm->running = false;
-            goto OP_HALT_LABEL;
+        int table_reg  = ip->operands[0];                 // table register
+        int val_reg    = ip->operands[1];                 // value register
+        int packed     = ip->operands[2];                 // (prefix_idx << 16) | num_reg
+        int prefix_idx = (int)((uint32_t)packed >> 16);   // unpack prefix pool index
+        int num_reg    = packed & 0xFFFF;                 // unpack number register
+
+        Value tv = regs[table_reg];                       // fetch table value
+        if (unlikely(!IS_TABLE(tv))) {                    // non-table: same error as OP_TABLE_SET
+            vm->had_error = true;                         // set error flag
+            vm->running = false;                          // stop execution
+            goto OP_HALT_LABEL;                           // jump to halt
         }
-        table_set(AS_TABLE(tv), MAKE_STRING(key), regs[val_reg]);  // set (increfs key+val internally)
-        value_decref(MAKE_STRING(key));              // release our local key reference
-        ip++; goto *dispatch_table[ip->opcode];      // advance
+
+        StringObject* prefix = (StringObject*)chunk->constants[prefix_idx].cached_str;
+        double n = AS_NUMBER(regs[num_reg]);              // unbox number (codegen proved numeric)
+
+        char nbuf[32];                                    // formatted numeric tail
+        int nlen;                                         // length of formatted tail
+        if (n == (long long)n && fabs(n) < 1e15)
+            nlen = vm_itoa(nbuf, (long long)n);           // whole number: custom itoa
+        else
+            nlen = snprintf(nbuf, sizeof(nbuf), "%.15g", n);  // fractional or huge: snprintf
+
+        int total = prefix->length + nlen;                // combined key length
+
+        StringObject* key = (StringObject*)malloc(sizeof(StringObject) + total + 1);
+        key->header.ref_count = 1;                        // fresh object refcount
+        key->header.type      = VAL_STRING;               // mark as string
+        key->length           = total;                    // store combined length
+        key->hash_computed    = false;                    // hash not yet computed
+        key->hash             = 0;                        // clear hash field
+        memcpy(key->chars, prefix->chars, prefix->length);              // copy prefix
+        memcpy(key->chars + prefix->length, nbuf, nlen);                // copy numeric tail
+        key->chars[total] = '\0';                         // null terminate
+
+        Value kv = MAKE_STRING(key);                      // temporary key value
+        table_set(AS_TABLE(tv), kv, regs[val_reg]);       // set (increfs key + value internally)
+        value_decref(kv);                                 // release our local key reference
+
+        ip++; goto *dispatch_table[ip->opcode];           // advance to next instruction
     }
     OP_TABLE_APPEND_LABEL: {
         int table_reg = ip->operands[0];                    // register holding the table
