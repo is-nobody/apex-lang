@@ -1320,6 +1320,29 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
                 return result_reg;                                                   // return result
             }
             
+            // try IMM-optimized arithmetic when the right operand folds to a numeric constant
+            // that fits the immediate field (integer 0..65535); the fold covers literals,
+            // negative literals via unary minus, and nested constant arithmetic like (1 + 1)
+            Opcode imm_op = OP_MOVE;                                             // sentinel; overwritten on match
+            bool has_imm = false;                                                // true when op maps to an IMM variant
+            switch (node->binary.op) {                                           // map arithmetic op to IMM variant
+                case TOKEN_PLUS:    imm_op = OP_ADD_IMM; has_imm = true; break;
+                case TOKEN_MINUS:   imm_op = OP_SUB_IMM; has_imm = true; break;
+                case TOKEN_STAR:    imm_op = OP_MUL_IMM; has_imm = true; break;
+                case TOKEN_SLASH:   imm_op = OP_DIV_IMM; has_imm = true; break;
+                case TOKEN_PERCENT: imm_op = OP_MOD_IMM; has_imm = true; break;
+                default: break;                                              // not an arithmetic op
+            }
+            double imm_val;                                                      // folded immediate value
+            if (has_imm && try_fold_number(node->binary.right, &imm_val) &&
+                imm_val == (int)imm_val && imm_val >= 0 && imm_val <= 65535) {
+                int left_reg = codegen_expression(cg, node->binary.left);        // evaluate left
+                int result_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);  // result destination
+                emit(cg, INST(imm_op, result_reg, left_reg, (int)imm_val), node->line);  // fused op
+                free_register(cg, left_reg);                                     // free left
+                return result_reg;                                               // return result
+            }
+            
             int left_reg = codegen_expression(cg, node->binary.left);               // evaluate left
             int right_reg = codegen_expression(cg, node->binary.right);             // evaluate right
             int result_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);       // result destination

@@ -238,10 +238,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             case OP_LOAD_NUM_IMM: {                              // small int literal
                 int x = x86_cache_alloc_excl(&cache, cb, -1, -1);  // pick a register
                 if (x < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                double v = (double)a;                            // operand as double
-                uint64_t bits; memcpy(&bits, &v, 8);             // reinterpret as u64
-                x86_emit_movabs_rax(cb, bits);                   // rax = bit pattern
-                x86_emit_movq_xmm_rax(cb, x);                    // xmmX = rax
+                x86_emit_load_double_imm(cb, x, a);              // xmmX = (double)a (cvtsi2sd)
                 x86_cache_put(&cache, x, d);                     // cache dest
                 break;
             }
@@ -295,6 +292,41 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                     x86_emit_sse_arith_rr(cb, arith_op, xa, xb); // xa op= xb
                     x86_cache_put(&cache, xa, d);                // relabel xa as dest
                 }
+                break;
+            }
+            case OP_ADD_IMM:
+            case OP_SUB_IMM:
+            case OP_MUL_IMM:
+            case OP_DIV_IMM: {                                   // binary arithmetic with immediate
+                int xa = x86_cache_load(&cache, cb, a);          // load left operand
+                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                uint8_t arith_op;                                // sse opcode
+                switch (op) {
+                    case OP_ADD_IMM: arith_op = 0x58; break;     // addsd
+                    case OP_SUB_IMM: arith_op = 0x5C; break;     // subsd
+                    case OP_MUL_IMM: arith_op = 0x59; break;     // mulsd
+                    default:         arith_op = 0x5E; break;     // divsd
+                }
+                x86_emit_load_double_imm(cb, XMM_SCRATCH, b);    // xmm7 = (double)b (cvtsi2sd)
+                x86_emit_sse_arith_rr(cb, arith_op, xa, XMM_SCRATCH);  // xa op= xmm7
+                x86_cache_put(&cache, xa, d);                    // relabel xa as dest
+                break;
+            }
+            case OP_MOD_IMM: {                                   // modulo with immediate: a - trunc(a/imm)*imm
+                int xa = x86_cache_load(&cache, cb, a);          // load a
+                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                x86_emit_load_double_imm(cb, XMM_SCRATCH, b);    // xmm7 = (double)b (cvtsi2sd)
+                int xt = x86_cache_alloc_excl(&cache, cb, xa, XMM_SCRATCH);  // temp for a/imm
+                if (xt < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                x86_emit_sse66_rr(cb, 0x28, xt, xa);             // xt = a
+                x86_emit_sse_arith_rr(cb, 0x5E, xt, XMM_SCRATCH);// xt = a / imm
+                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x3A);
+                emit_u8(cb, 0x0B);                               // roundsd opcode
+                emit_u8(cb, 0xC0 | (xt << 3) | xt);              // round xt, xt
+                emit_u8(cb, 0x03);                               // round mode: truncate
+                x86_emit_sse_arith_rr(cb, 0x59, xt, XMM_SCRATCH);// xt = trunc(a/imm) * imm
+                x86_emit_sse_arith_rr(cb, 0x5C, xa, xt);         // a = a - xt
+                x86_cache_put(&cache, xa, d);                    // relabel xa as dest
                 break;
             }
             case OP_MOD: {                                       // x - trunc(x/y)*y
@@ -731,10 +763,7 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
         case OP_LOAD_NUM_IMM: {
             int x = x86_cache_alloc_excl(cache, cb, -1, -1);     // pick a free xmm
             if (x < 0) return;                                   // register cache full
-            double v = (double)a;                                // operand as double
-            uint64_t bits; memcpy(&bits, &v, 8);                 // reinterpret as u64
-            x86_emit_movabs_rax(cb, bits);                       // rax = bit pattern
-            x86_emit_movq_xmm_rax(cb, x);                        // xmmX = rax
+            x86_emit_load_double_imm(cb, x, a);                  // xmmX = (double)a (cvtsi2sd)
             x86_cache_put(cache, x, d);                          // cache dest
             break;
         }
@@ -778,6 +807,40 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
                 default:     op = 0x5E; break;                   // divsd
             }
             x86_emit_sse_arith_rr(cb, op, xa, xb);               // xa op= xb
+            x86_cache_put(cache, xa, d);                         // relabel xa as dest
+            touched_nan_check = true;
+            break;
+        }
+        case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM: case OP_DIV_IMM: {
+            int xa = x86_cache_load(cache, cb, a);               // load left operand
+            if (xa < 0) return;                                  // register cache full
+            uint8_t op;                                          // sse opcode
+            switch (inst->opcode) {
+                case OP_ADD_IMM: op = 0x58; break;               // addsd
+                case OP_SUB_IMM: op = 0x5C; break;               // subsd
+                case OP_MUL_IMM: op = 0x59; break;               // mulsd
+                default:         op = 0x5E; break;               // divsd
+            }
+            x86_emit_load_double_imm(cb, XMM_SCRATCH, b);        // xmm7 = (double)b (cvtsi2sd)
+            x86_emit_sse_arith_rr(cb, op, xa, XMM_SCRATCH);      // xa op= xmm7
+            x86_cache_put(cache, xa, d);                         // relabel xa as dest
+            touched_nan_check = true;
+            break;
+        }
+        case OP_MOD_IMM: {                                       // modulo with immediate
+            int xa = x86_cache_load(cache, cb, a);               // load a
+            if (xa < 0) return;                                  // register cache full
+            x86_emit_load_double_imm(cb, XMM_SCRATCH, b);        // xmm7 = (double)b (cvtsi2sd)
+            int xt = x86_cache_alloc_excl(cache, cb, xa, XMM_SCRATCH);  // temp for a/imm
+            if (xt < 0) return;                                  // register cache full
+            x86_emit_sse66_rr(cb, 0x28, xt, xa);                 // xt = a
+            x86_emit_sse_arith_rr(cb, 0x5E, xt, XMM_SCRATCH);    // xt = a / imm
+            emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x3A);
+            emit_u8(cb, 0x0B);                                   // roundsd opcode
+            emit_u8(cb, 0xC0 | (xt << 3) | xt);                  // round xt, xt
+            emit_u8(cb, 0x03);                                   // round mode: truncate
+            x86_emit_sse_arith_rr(cb, 0x59, xt, XMM_SCRATCH);    // xt = trunc(a/imm) * imm
+            x86_emit_sse_arith_rr(cb, 0x5C, xa, xt);             // a = a - xt
             x86_cache_put(cache, xa, d);                         // relabel xa as dest
             touched_nan_check = true;
             break;
@@ -1178,6 +1241,9 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
         for (int pc = entry + 1; pc < back_edge; pc++) {
             Opcode op = ctx->chunk->code[pc].opcode;
             if (op == OP_MOD || op == OP_NEG ||              // use XMM_SCRATCH
+                op == OP_ADD_IMM || op == OP_SUB_IMM ||      // use XMM_SCRATCH for the immediate
+                op == OP_MUL_IMM || op == OP_DIV_IMM ||
+                op == OP_MOD_IMM ||
                 op == OP_CALL_0 || op == OP_CALL_1 ||        // calls clobber all xmm regs
                 op == OP_CALL_2 ||
                 op == OP_CMP_EQ || op == OP_CMP_NEQ ||       // also use XMM_SCRATCH

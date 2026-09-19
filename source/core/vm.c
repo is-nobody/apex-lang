@@ -1554,6 +1554,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_MUL]                = &&OP_MUL_LABEL,
         [OP_DIV]                = &&OP_DIV_LABEL,
         [OP_MOD]                = &&OP_MOD_LABEL,
+        [OP_ADD_IMM]            = &&OP_ADD_IMM_LABEL,
+        [OP_SUB_IMM]            = &&OP_SUB_IMM_LABEL,
+        [OP_MUL_IMM]            = &&OP_MUL_IMM_LABEL,
+        [OP_DIV_IMM]            = &&OP_DIV_IMM_LABEL,
+        [OP_MOD_IMM]            = &&OP_MOD_IMM_LABEL,
         [OP_NEG]                = &&OP_NEG_LABEL,
         [OP_INC]                = &&OP_INC_LABEL,
         [OP_DEC]                = &&OP_DEC_LABEL,
@@ -1817,6 +1822,106 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         du64 a = {.u = regs[ip->operands[1]]};   // left operand as double
         du64 b = {.u = regs[ip->operands[2]]};   // right operand as double
         double r = fmod(a.d, b.d);               // perform modulo
+        uint64_t old = regs[dest];               // save old value for decref
+
+        if (unlikely(r != r)) {                  // nan result (rare)
+            value_decref(old);                   // release heap object if any
+            regs[dest] = MAKE_NONE();            // store none
+        } else {
+            if (unlikely((old & QNAN) == QNAN)) {  // fast check: old is nan-boxed
+                value_decref(old);               // release heap object
+            }
+            regs[dest] = MAKE_NUMBER(r);         // store number
+        }
+        
+        ip++; goto *dispatch_table[ip->opcode];  // next instruction
+    }
+    OP_ADD_IMM_LABEL: {
+        int dest = ip->operands[0];              // dest register index
+        int left_reg = ip->operands[1];          // left operand register
+        int imm = ip->operands[2];               // immediate integer right operand (0-65535)
+        du64 a = {.u = regs[left_reg]};          // left operand as double
+        double r = a.d + (double)imm;            // perform addition with immediate
+        uint64_t old = regs[dest];               // save old value for decref
+
+        if (unlikely(r != r)) {                  // nan result (rare)
+            value_decref(old);                   // release heap object if any
+            regs[dest] = MAKE_NONE();            // store none
+        } else {
+            if (unlikely((old & QNAN) == QNAN)) {  // fast check: old is nan-boxed
+                value_decref(old);               // release heap object
+            }
+            regs[dest] = MAKE_NUMBER(r);         // store number
+        }
+        
+        ip++; goto *dispatch_table[ip->opcode];  // next instruction
+    }
+    OP_SUB_IMM_LABEL: {
+        int dest = ip->operands[0];              // dest register index
+        int left_reg = ip->operands[1];          // left operand register
+        int imm = ip->operands[2];               // immediate integer right operand (0-65535)
+        du64 a = {.u = regs[left_reg]};          // left operand as double
+        double r = a.d - (double)imm;            // perform subtraction with immediate
+        uint64_t old = regs[dest];               // save old value for decref
+
+        if (unlikely(r != r)) {                  // nan result (rare)
+            value_decref(old);                   // release heap object if any
+            regs[dest] = MAKE_NONE();            // store none
+        } else {
+            if (unlikely((old & QNAN) == QNAN)) {  // fast check: old is nan-boxed
+                value_decref(old);               // release heap object
+            }
+            regs[dest] = MAKE_NUMBER(r);         // store number
+        }
+        
+        ip++; goto *dispatch_table[ip->opcode];  // next instruction
+    }
+    OP_MUL_IMM_LABEL: {
+        int dest = ip->operands[0];              // dest register index
+        int left_reg = ip->operands[1];          // left operand register
+        int imm = ip->operands[2];               // immediate integer right operand (0-65535)
+        du64 a = {.u = regs[left_reg]};          // left operand as double
+        double r = a.d * (double)imm;            // perform multiplication with immediate
+        uint64_t old = regs[dest];               // save old value for decref
+
+        if (unlikely(r != r)) {                  // nan result (rare)
+            value_decref(old);                   // release heap object if any
+            regs[dest] = MAKE_NONE();            // store none
+        } else {
+            if (unlikely((old & QNAN) == QNAN)) {  // fast check: old is nan-boxed
+                value_decref(old);               // release heap object
+            }
+            regs[dest] = MAKE_NUMBER(r);         // store number
+        }
+        
+        ip++; goto *dispatch_table[ip->opcode];  // next instruction
+    }
+    OP_DIV_IMM_LABEL: {
+        int dest = ip->operands[0];              // dest register index
+        int left_reg = ip->operands[1];          // left operand register
+        int imm = ip->operands[2];               // immediate integer right operand (0-65535)
+        du64 a = {.u = regs[left_reg]};          // left operand as double
+        double r = a.d / (double)imm;            // perform division with immediate
+        uint64_t old = regs[dest];               // save old value for decref
+
+        if (unlikely(r != r)) {                  // nan result (rare)
+            value_decref(old);                   // release heap object if any
+            regs[dest] = MAKE_NONE();            // store none
+        } else {
+            if (unlikely((old & QNAN) == QNAN)) {  // fast check: old is nan-boxed
+                value_decref(old);               // release heap object
+            }
+            regs[dest] = MAKE_NUMBER(r);         // store number
+        }
+        
+        ip++; goto *dispatch_table[ip->opcode];  // next instruction
+    }
+    OP_MOD_IMM_LABEL: {
+        int dest = ip->operands[0];              // dest register index
+        int left_reg = ip->operands[1];          // left operand register
+        int imm = ip->operands[2];               // immediate integer right operand (0-65535)
+        du64 a = {.u = regs[left_reg]};          // left operand as double
+        double r = fmod(a.d, (double)imm);       // perform modulo with immediate
         uint64_t old = regs[dest];               // save old value for decref
 
         if (unlikely(r != r)) {                  // nan result (rare)

@@ -23,6 +23,11 @@ typedef enum {
     OP_MUL,                // multiplication: rdst = rleft * rright
     OP_DIV,                // division: rdst = rleft / rright
     OP_MOD,                // modulo: rdst = rleft % rright
+    OP_ADD_IMM,            // addition with immediate integer: rdst = rleft + imm (0-65535)
+    OP_SUB_IMM,            // subtraction with immediate integer: rdst = rleft - imm (0-65535)
+    OP_MUL_IMM,            // multiplication with immediate integer: rdst = rleft * imm (0-65535)
+    OP_DIV_IMM,            // division with immediate integer: rdst = rleft / imm (0-65535)
+    OP_MOD_IMM,            // modulo with immediate integer: rdst = rleft % imm (0-65535)
     OP_NEG,                // unary negation: rdst = -rsrc
     OP_INC,                // increment number in register by 1
     OP_DEC,                // decrement number in register by 1

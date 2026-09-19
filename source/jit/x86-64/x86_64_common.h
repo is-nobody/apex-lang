@@ -169,6 +169,18 @@ static inline void x86_emit_cvttsd2si_edx(CodeBuf* b, int xmm) {
     emit_u8(b, 0xC0 | (2 << 3) | (xmm & 7));                // modrm: reg=edx(010), rm=xmm
 }
 
+// emits the shortest sequence that loads (double)imm into xmm<N>
+static inline void x86_emit_load_double_imm(CodeBuf* b, int xmm, int32_t imm) {
+    if (imm >= 0 && imm <= 255) {
+        emit_u8(b, 0x31); emit_u8(b, 0xC0);              // xor eax, eax
+        emit_u8(b, 0xB0); emit_u8(b, (uint8_t)imm);      // mov al, imm8
+    } else {
+        emit_u8(b, 0xB8); emit_u32(b, (uint32_t)imm);    // mov eax, imm32
+    }
+    emit_u8(b, 0xF2); emit_u8(b, 0x0F); emit_u8(b, 0x2A);  // cvtsi2sd opcode
+    emit_u8(b, 0xC0 | ((xmm & 7) << 3));                 // modrm: reg=xmm, rm=eax
+}
+
 // emits dec edx — edx -= 1
 static inline void x86_emit_dec_edx(CodeBuf* b) {
     emit_u8(b, 0xFF); emit_u8(b, 0xCA);                     // dec edx

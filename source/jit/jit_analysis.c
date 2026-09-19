@@ -42,6 +42,8 @@ static bool is_pure_loop_instr(JITContext* ctx, int pc) {
         case OP_LOAD_BOOL:                                   // boolean literal
         case OP_LOAD_NONE:                                   // none literal
         case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
+        case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:   // arithmetic with immediate
+        case OP_DIV_IMM: case OP_MOD_IMM:                    // arithmetic with immediate
         case OP_NEG: case OP_INC: case OP_DEC:               // arithmetic
         case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:             // numeric compares
         case OP_CMP_EQ:     case OP_CMP_NEQ:                 // generic compares
@@ -91,6 +93,8 @@ static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
             case OP_LOAD_BOOL:                                   // boolean literals
             case OP_LOAD_NONE:                                   // none literal
             case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
+            case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:   // arithmetic with immediate
+            case OP_DIV_IMM: case OP_MOD_IMM:                    // arithmetic with immediate
             case OP_NEG: case OP_INC: case OP_DEC:               // arithmetic
             case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:             // numeric compares
             case OP_CMP_EQ:     case OP_CMP_NEQ:                 // generic compares
@@ -191,6 +195,8 @@ static bool infer_return_type(BytecodeChunk* chunk, int start, int end,
 
             case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:              // numeric producers
             case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
+            case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:    // arithmetic with immediate
+            case OP_DIV_IMM: case OP_MOD_IMM:                     // arithmetic with immediate
             case OP_NEG: case OP_INC: case OP_DEC:
             case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:      // treated as numeric here
                 if (d < JIT_MAX_REGS_SCAN) { is_bool[d] = false; is_none[d] = false; }
@@ -270,6 +276,11 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
                 if (a >= 0 && a < 64) pc_reads  |= 1ULL << a;    // left operand
                 if (b >= 0 && b < 64) pc_reads  |= 1ULL << b;    // right operand
                 if (d >= 0 && d < 64) pc_writes |= 1ULL << d;    // result
+                break;
+            case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:    // d = a OP imm
+            case OP_DIV_IMM: case OP_MOD_IMM:                     // only a is a register
+                if (a >= 0 && a < 64) pc_reads  |= 1ULL << a;    // left operand (a)
+                if (d >= 0 && d < 64) pc_writes |= 1ULL << d;    // result (d)
                 break;
             case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:              // writes d only
             case OP_LOAD_BOOL: case OP_LOAD_NONE:                // writes d only

@@ -156,6 +156,17 @@ static void emit_instruction(BytecodeChunk* chunk, int offset, FILE* out) {  // 
         case OP_DIV: REG(a); fputs(" <- ", out); REG(b); fputs(" / ", out); REG(c); break;   // dst <- a / b
         case OP_MOD: REG(a); fputs(" <- ", out); REG(b); fputs(" % ", out); REG(c); break;   // dst <- a % b
 
+        case OP_ADD_IMM: REG(a); fputs(" <- ", out); REG(b);                                            // dst <- a
+                         fprintf(out, " + " C_MAGENTA "%d" C_RESET, c); break;                          // + imm
+        case OP_SUB_IMM: REG(a); fputs(" <- ", out); REG(b);                                            // dst <- a
+                         fprintf(out, " - " C_MAGENTA "%d" C_RESET, c); break;                          // - imm
+        case OP_MUL_IMM: REG(a); fputs(" <- ", out); REG(b);                                            // dst <- a
+                         fprintf(out, " * " C_MAGENTA "%d" C_RESET, c); break;                          // * imm
+        case OP_DIV_IMM: REG(a); fputs(" <- ", out); REG(b);                                            // dst <- a
+                         fprintf(out, " / " C_MAGENTA "%d" C_RESET, c); break;                          // / imm
+        case OP_MOD_IMM: REG(a); fputs(" <- ", out); REG(b);                                            // dst <- a
+                         fprintf(out, " %% " C_MAGENTA "%d" C_RESET, c); break;                         // % imm
+
         case OP_NEG:                                              // unary minus
             REG(a); fputs(" <- -", out); REG(b);                  // dst <- -src
             break;
