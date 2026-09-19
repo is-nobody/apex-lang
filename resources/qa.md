@@ -5,7 +5,7 @@
 ---
 
 - **Q**: Does Apex have a JIT?
-- **A**: Yes. We used to think it wouldn't be necessary — the heavy CPU work is done by the standard library, which is written in C. But sooner or later a user will need to write something computationally intensive, and we don't want them to have to learn another language to do it — it should just be convenient to stay in Apex. Our JIT is simple and doesn't add much overhead, but it gives a solid speedup on numeric workloads.
+- **A**: Yes. We used to think it wouldn't be necessary — the heavy CPU work is done by the standard library, which is written in C. But sooner or later a user will need to write something computationally intensive, and we don't want them to have to learn another language to do it — it should just be convenient to stay in Apex.
 
 ---
 
