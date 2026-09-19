@@ -293,7 +293,7 @@ static void emit_instruction(BytecodeChunk* chunk, int offset, FILE* out) {  // 
             print_const_value(chunk, b, out);                     // builtin name
             fprintf(out, "(" C_MAGENTA "%d" C_RESET " args)", c); // (n args)
             break;
-        case OP_CALL_BUILTIN_ASYNC:                               // async builtin call
+        case OP_ASYNC_CALL_BUILTIN:                               // async builtin call
             REG(a); fputs(" <- " C_MAGENTA "builtin_async" C_RESET " ", out);  // dst <- builtin_async
             print_const_value(chunk, b, out);                     // builtin name
             fprintf(out, "(" C_MAGENTA "%d" C_RESET " args)", c); // (n args)

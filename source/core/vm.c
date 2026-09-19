@@ -1542,87 +1542,87 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     
     static void* dispatch_table[] = {
-        [OP_MOVE]             = &&OP_MOVE_LABEL,
-        [OP_LOAD_CONST]       = &&OP_LOAD_CONST_LABEL,
-        [OP_LOAD_NUM_IMM]     = &&OP_LOAD_NUM_IMM_LABEL,
-        [OP_LOAD_NUM]         = &&OP_LOAD_NUM_LABEL,
-        [OP_LOAD_BOOL]        = &&OP_LOAD_BOOL_LABEL,
-        [OP_LOAD_NONE]        = &&OP_LOAD_NONE_LABEL,
+        [OP_MOVE]               = &&OP_MOVE_LABEL,
+        [OP_LOAD_CONST]         = &&OP_LOAD_CONST_LABEL,
+        [OP_LOAD_NUM_IMM]       = &&OP_LOAD_NUM_IMM_LABEL,
+        [OP_LOAD_NUM]           = &&OP_LOAD_NUM_LABEL,
+        [OP_LOAD_BOOL]          = &&OP_LOAD_BOOL_LABEL,
+        [OP_LOAD_NONE]          = &&OP_LOAD_NONE_LABEL,
 
-        [OP_ADD]              = &&OP_ADD_LABEL,
-        [OP_SUB]              = &&OP_SUB_LABEL,
-        [OP_MUL]              = &&OP_MUL_LABEL,
-        [OP_DIV]              = &&OP_DIV_LABEL,
-        [OP_MOD]              = &&OP_MOD_LABEL,
-        [OP_NEG]              = &&OP_NEG_LABEL,
-        [OP_INC]              = &&OP_INC_LABEL,
-        [OP_DEC]              = &&OP_DEC_LABEL,
+        [OP_ADD]                = &&OP_ADD_LABEL,
+        [OP_SUB]                = &&OP_SUB_LABEL,
+        [OP_MUL]                = &&OP_MUL_LABEL,
+        [OP_DIV]                = &&OP_DIV_LABEL,
+        [OP_MOD]                = &&OP_MOD_LABEL,
+        [OP_NEG]                = &&OP_NEG_LABEL,
+        [OP_INC]                = &&OP_INC_LABEL,
+        [OP_DEC]                = &&OP_DEC_LABEL,
 
-        [OP_JUMP]             = &&OP_JUMP_LABEL,
-        [OP_JUMP_IF_FALSE]    = &&OP_JUMP_IF_FALSE_LABEL,
-        [OP_JUMP_IF_EQ]       = &&OP_JUMP_IF_EQ_LABEL,
-        [OP_JUMP_IF_NEQ]      = &&OP_JUMP_IF_NEQ_LABEL,
-        [OP_JUMP_IF_EQ_NUM]   = &&OP_JUMP_IF_EQ_NUM_LABEL,
-        [OP_JUMP_IF_NEQ_NUM]  = &&OP_JUMP_IF_NEQ_NUM_LABEL,
-        [OP_JUMP_IF_LT]       = &&OP_JUMP_IF_LT_LABEL,
-        [OP_JUMP_IF_GT]       = &&OP_JUMP_IF_GT_LABEL,
-        [OP_JUMP_IF_LTE]      = &&OP_JUMP_IF_LTE_LABEL,
-        [OP_JUMP_IF_GTE]      = &&OP_JUMP_IF_GTE_LABEL,
+        [OP_JUMP]               = &&OP_JUMP_LABEL,
+        [OP_JUMP_IF_FALSE]      = &&OP_JUMP_IF_FALSE_LABEL,
+        [OP_JUMP_IF_EQ]         = &&OP_JUMP_IF_EQ_LABEL,
+        [OP_JUMP_IF_NEQ]        = &&OP_JUMP_IF_NEQ_LABEL,
+        [OP_JUMP_IF_EQ_NUM]     = &&OP_JUMP_IF_EQ_NUM_LABEL,
+        [OP_JUMP_IF_NEQ_NUM]    = &&OP_JUMP_IF_NEQ_NUM_LABEL,
+        [OP_JUMP_IF_LT]         = &&OP_JUMP_IF_LT_LABEL,
+        [OP_JUMP_IF_GT]         = &&OP_JUMP_IF_GT_LABEL,
+        [OP_JUMP_IF_LTE]        = &&OP_JUMP_IF_LTE_LABEL,
+        [OP_JUMP_IF_GTE]        = &&OP_JUMP_IF_GTE_LABEL,
 
-        [OP_JUMP_MATCH_NUM]   = &&OP_JUMP_MATCH_NUM_LABEL,
-        [OP_JUMP_MATCH_STR]   = &&OP_JUMP_MATCH_STR_LABEL,
-        [OP_JUMP_MATCH_BOOL]  = &&OP_JUMP_MATCH_BOOL_LABEL,
-        [OP_JUMP_MATCH_NONE]  = &&OP_JUMP_MATCH_NONE_LABEL,
+        [OP_JUMP_MATCH_NUM]     = &&OP_JUMP_MATCH_NUM_LABEL,
+        [OP_JUMP_MATCH_STR]     = &&OP_JUMP_MATCH_STR_LABEL,
+        [OP_JUMP_MATCH_BOOL]    = &&OP_JUMP_MATCH_BOOL_LABEL,
+        [OP_JUMP_MATCH_NONE]    = &&OP_JUMP_MATCH_NONE_LABEL,
 
-        [OP_CMP_EQ]           = &&OP_CMP_EQ_LABEL,
-        [OP_CMP_NEQ]          = &&OP_CMP_NEQ_LABEL,
-        [OP_CMP_EQ_NUM]       = &&OP_CMP_EQ_NUM_LABEL,
-        [OP_CMP_NEQ_NUM]      = &&OP_CMP_NEQ_NUM_LABEL,
-        [OP_CMP_LT]           = &&OP_CMP_LT_LABEL,
-        [OP_CMP_GT]           = &&OP_CMP_GT_LABEL,
-        [OP_CMP_LTE]          = &&OP_CMP_LTE_LABEL,
-        [OP_CMP_GTE]          = &&OP_CMP_GTE_LABEL,
+        [OP_CMP_EQ]             = &&OP_CMP_EQ_LABEL,
+        [OP_CMP_NEQ]            = &&OP_CMP_NEQ_LABEL,
+        [OP_CMP_EQ_NUM]         = &&OP_CMP_EQ_NUM_LABEL,
+        [OP_CMP_NEQ_NUM]        = &&OP_CMP_NEQ_NUM_LABEL,
+        [OP_CMP_LT]             = &&OP_CMP_LT_LABEL,
+        [OP_CMP_GT]             = &&OP_CMP_GT_LABEL,
+        [OP_CMP_LTE]            = &&OP_CMP_LTE_LABEL,
+        [OP_CMP_GTE]            = &&OP_CMP_GTE_LABEL,
         
-        [OP_FOR_INIT]         = &&OP_FOR_INIT_LABEL,
-        [OP_FOR_NEXT]         = &&OP_FOR_NEXT_LABEL,
-        [OP_TABLE_ITER_INIT]  = &&OP_TABLE_ITER_INIT_LABEL,
-        [OP_TABLE_ITER_NEXT]  = &&OP_TABLE_ITER_NEXT_LABEL,
-        [OP_POP_ITER]         = &&OP_POP_ITER_LABEL,
+        [OP_FOR_INIT]           = &&OP_FOR_INIT_LABEL,
+        [OP_FOR_NEXT]           = &&OP_FOR_NEXT_LABEL,
+        [OP_TABLE_ITER_INIT]    = &&OP_TABLE_ITER_INIT_LABEL,
+        [OP_TABLE_ITER_NEXT]    = &&OP_TABLE_ITER_NEXT_LABEL,
+        [OP_POP_ITER]           = &&OP_POP_ITER_LABEL,
 
-        [OP_TABLE_GET]        = &&OP_TABLE_GET_LABEL,
-        [OP_TABLE_GET_CONST]  = &&OP_TABLE_GET_CONST_LABEL,
-        [OP_TABLE_GET_INT]    = &&OP_TABLE_GET_INT_LABEL,
-        [OP_TABLE_SET]        = &&OP_TABLE_SET_LABEL,
-        [OP_TABLE_SET_CONST]  = &&OP_TABLE_SET_CONST_LABEL,
-        [OP_TABLE_SET_INT]    = &&OP_TABLE_SET_INT_LABEL,
-        [OP_TABLE_APPEND]     = &&OP_TABLE_APPEND_LABEL,
-        [OP_NEW_TABLE]        = &&OP_NEW_TABLE_LABEL,
+        [OP_TABLE_GET]          = &&OP_TABLE_GET_LABEL,
+        [OP_TABLE_GET_CONST]    = &&OP_TABLE_GET_CONST_LABEL,
+        [OP_TABLE_GET_INT]      = &&OP_TABLE_GET_INT_LABEL,
+        [OP_TABLE_SET]          = &&OP_TABLE_SET_LABEL,
+        [OP_TABLE_SET_CONST]    = &&OP_TABLE_SET_CONST_LABEL,
+        [OP_TABLE_SET_INT]      = &&OP_TABLE_SET_INT_LABEL,
+        [OP_TABLE_APPEND]       = &&OP_TABLE_APPEND_LABEL,
+        [OP_NEW_TABLE]          = &&OP_NEW_TABLE_LABEL,
         
-        [OP_CONCAT]           = &&OP_CONCAT_LABEL,
+        [OP_CONCAT]             = &&OP_CONCAT_LABEL,
 
-        [OP_AND]              = &&OP_AND_LABEL,
-        [OP_OR]               = &&OP_OR_LABEL,
-        [OP_NOT]              = &&OP_NOT_LABEL,
+        [OP_AND]                = &&OP_AND_LABEL,
+        [OP_OR]                 = &&OP_OR_LABEL,
+        [OP_NOT]                = &&OP_NOT_LABEL,
         
-        [OP_PUSH_ARG]         = &&OP_PUSH_ARG_LABEL,
-        [OP_CALL]             = &&OP_CALL_LABEL,
-        [OP_CALL_BUILTIN]     = &&OP_CALL_BUILTIN_LABEL,
-        [OP_CALL_BUILTIN_ASYNC] = &&OP_CALL_BUILTIN_ASYNC_LABEL,
-        [OP_CALL_0]           = &&OP_CALL_0_LABEL,
-        [OP_CALL_1]           = &&OP_CALL_1_LABEL,
-        [OP_CALL_2]           = &&OP_CALL_2_LABEL,
-        [OP_RETURN]           = &&OP_RETURN_LABEL,
-        [OP_RETURN_NUM]       = &&OP_RETURN_NUM_LABEL,
-        [OP_RETURN_BOOL]      = &&OP_RETURN_BOOL_LABEL,
-        [OP_RETURN_NONE]      = &&OP_RETURN_NONE_LABEL,
+        [OP_PUSH_ARG]           = &&OP_PUSH_ARG_LABEL,
+        [OP_CALL]               = &&OP_CALL_LABEL,
+        [OP_CALL_BUILTIN]       = &&OP_CALL_BUILTIN_LABEL,
+        [OP_CALL_0]             = &&OP_CALL_0_LABEL,
+        [OP_CALL_1]             = &&OP_CALL_1_LABEL,
+        [OP_CALL_2]             = &&OP_CALL_2_LABEL,
+        [OP_RETURN]             = &&OP_RETURN_LABEL,
+        [OP_RETURN_NUM]         = &&OP_RETURN_NUM_LABEL,
+        [OP_RETURN_BOOL]        = &&OP_RETURN_BOOL_LABEL,
+        [OP_RETURN_NONE]        = &&OP_RETURN_NONE_LABEL,
 
-        [OP_AWAIT]            = &&OP_AWAIT_LABEL,
-        [OP_ASYNC_CALL]       = &&OP_ASYNC_CALL_LABEL,
+        [OP_ASYNC_CALL]         = &&OP_ASYNC_CALL_LABEL,
+        [OP_ASYNC_CALL_BUILTIN] = &&OP_ASYNC_CALL_BUILTIN_LABEL,
+        [OP_AWAIT]              = &&OP_AWAIT_LABEL,
 
-        [OP_LOAD_GLOBAL]      = &&OP_LOAD_GLOBAL_LABEL,
-        [OP_STORE_GLOBAL]     = &&OP_STORE_GLOBAL_LABEL,
+        [OP_LOAD_GLOBAL]        = &&OP_LOAD_GLOBAL_LABEL,
+        [OP_STORE_GLOBAL]       = &&OP_STORE_GLOBAL_LABEL,
         
-        [OP_HALT]             = &&OP_HALT_LABEL,
+        [OP_HALT]               = &&OP_HALT_LABEL,
     };
 #if APEX_JIT_ENABLED
     #define APEX_TRY_JIT_LOOP() \
@@ -2617,36 +2617,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
         ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
-    OP_CALL_BUILTIN_ASYNC_LABEL: {
-        int dest_reg = ip->operands[0];              // dest register for return value
-        int name_idx = ip->operands[1];              // constant pool index for builtin name
-        int arg_count = ip->operands[2];             // number of arguments
-        Value args[VM_MAX_ARGS_STACK];               // local args array
-        for (int i = 0; i < arg_count && i < 16; i++) {
-            args[i] = vm->args_stack[vm->args_top - arg_count + i];  // copy args from stack
-        }
-        Value result;                                // placeholder for return value
-
-        vm->builtin_async = true;                    // signal libraries to offload
-        bool ok = vm_call_builtin(vm, chunk->constants[name_idx].string_value, arg_count, args, &result);
-        vm->builtin_async = false;                   // clear the signal
-
-        for (int i = 0; i < arg_count; i++) {
-            value_decref(vm->args_stack[vm->args_top - arg_count + i]);  // release args from stack
-        }
-        vm->args_top -= arg_count;                   // pop args from args stack
-        if (ok) {
-            value_decref(vm->registers[dest_reg]);   // release old dest value
-            vm->registers[dest_reg] = result;        // store result from builtin
-        } else {
-            value_decref(vm->registers[dest_reg]);   // release old dest value
-            vm->registers[dest_reg] = MAKE_NONE();   // builtin failed, store none
-        }
-        if (dest_reg >= vm->frame_used[vm->current_frame]) {
-            vm->frame_used[vm->current_frame] = dest_reg + 1;  // track max register used
-        }
-        ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
-    }
     OP_CALL_0_LABEL: {
         if (vm->call_depth >= VM_MAX_CALL_FRAMES) {  // check for call stack overflow
             fprintf(stderr, "\033[31mStack overflow - maximum call depth (%d) exceeded. "
@@ -2957,6 +2927,36 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             future_start(vm, fut);                   // enqueue coroutine for the scheduler
         }
         ip++; goto *dispatch_table[ip->opcode];      // no execution, caller continues
+    }
+    OP_ASYNC_CALL_BUILTIN_LABEL: {
+        int dest_reg = ip->operands[0];              // dest register for return value
+        int name_idx = ip->operands[1];              // constant pool index for builtin name
+        int arg_count = ip->operands[2];             // number of arguments
+        Value args[VM_MAX_ARGS_STACK];               // local args array
+        for (int i = 0; i < arg_count && i < 16; i++) {
+            args[i] = vm->args_stack[vm->args_top - arg_count + i];  // copy args from stack
+        }
+        Value result;                                // placeholder for return value
+
+        vm->builtin_async = true;                    // signal libraries to offload
+        bool ok = vm_call_builtin(vm, chunk->constants[name_idx].string_value, arg_count, args, &result);
+        vm->builtin_async = false;                   // clear the signal
+
+        for (int i = 0; i < arg_count; i++) {
+            value_decref(vm->args_stack[vm->args_top - arg_count + i]);  // release args from stack
+        }
+        vm->args_top -= arg_count;                   // pop args from args stack
+        if (ok) {
+            value_decref(vm->registers[dest_reg]);   // release old dest value
+            vm->registers[dest_reg] = result;        // store result from builtin
+        } else {
+            value_decref(vm->registers[dest_reg]);   // release old dest value
+            vm->registers[dest_reg] = MAKE_NONE();   // builtin failed, store none
+        }
+        if (dest_reg >= vm->frame_used[vm->current_frame]) {
+            vm->frame_used[vm->current_frame] = dest_reg + 1;  // track max register used
+        }
+        ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
     OP_AWAIT_LABEL: {
         int dest = ip->operands[0];                  // dest register index

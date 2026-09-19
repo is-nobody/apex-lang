@@ -788,7 +788,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node, int dest_hint) {
             emit(cg, INST(OP_PUSH_ARG, arg_regs[i], 0, 0), node->line);
         }
         int name_idx = bytecode_add_string_constant(cg->chunk, func_name);    // add name constant
-        int op = cg->current_call_is_awaited ? OP_CALL_BUILTIN_ASYNC : OP_CALL_BUILTIN;
+        int op = cg->current_call_is_awaited ? OP_ASYNC_CALL_BUILTIN : OP_CALL_BUILTIN;
         emit(cg, INST(op, result_reg, name_idx, arg_count), node->line);      // call builtin
     } else {                                                                           // user function
         int func_idx = -1;                                                             // function index
