@@ -19,8 +19,6 @@ os.execute("apex source/tests/benchmark/string_key_operations.apex")
 
 // table operations
 os.execute("apex source/tests/benchmark/hashtable_large.apex")
-os.execute("apex source/tests/benchmark/table_copy.apex")
-os.execute("apex source/tests/benchmark/table_merge.apex")
 os.execute("apex source/tests/benchmark/table_nested_access.apex")
 os.execute("apex source/tests/benchmark/temp_tables.apex")
 os.execute("apex source/tests/benchmark/nested_3d_loops.apex")
