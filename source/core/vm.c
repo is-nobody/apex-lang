@@ -600,6 +600,115 @@ bool table_set_int(Table* table, int index, Value value) {
     return true;                                 // success
 }
 
+// concatenated-key lookup: key = prefix ++ tail
+bool table_get_concat_key(Table* t, StringObject* prefix,
+                          const char* tail, int tail_len, Value* out) {
+    if (!t || !t->entries || !prefix) return false;              // guard: no hash part yet = miss
+    int total = prefix->length + tail_len;                       // combined key length
+    uint32_t h = prefix->hash_computed ? prefix->hash : 5381;    // resume from cached prefix hash
+    if (!prefix->hash_computed) {                                // prefix hash not yet computed
+        for (int i = 0; i < prefix->length; i++)
+            h = ((h << 5) + h) + (uint8_t)prefix->chars[i];      // djb2 over prefix bytes
+    }
+    for (int i = 0; i < tail_len; i++)
+        h = ((h << 5) + h) + (uint8_t)tail[i];                   // continue djb2 over tail bytes
+    uint32_t idx = h % t->capacity;                              // bucket index
+    TableEntry* e = t->entries[idx];                             // head of the bucket chain
+    while (e) {
+        if (e->hash == h) {                                      // hash matches: verify content
+            StringObject* k = AS_STRING(e->key);                 // unwrap stored key string
+            if (k->length == total &&                            // same total length
+                memcmp(k->chars, prefix->chars, prefix->length) == 0 &&  // prefix bytes match
+                memcmp(k->chars + prefix->length, tail, tail_len) == 0) { // tail bytes match
+                if (out) {
+                    *out = e->value;                             // return the value
+                    if ((e->value & QNAN) == QNAN) value_incref(e->value);  // bump refcount
+                }
+                return true;                                     // hit
+            }
+        }
+        e = e->next;                                             // advance chain
+    }
+    return false;                                                // miss
+}
+
+// concatenated-key set: hash once, scan once, allocate only on insert
+bool table_set_concat_key(Table* t, StringObject* prefix,
+                          const char* tail, int tail_len, Value value) {
+    if (!t || !prefix) return false;                             // guard null args
+    if (t->entries == NULL)                                      // lazy-allocate bucket array
+        t->entries = (TableEntry**)calloc(t->capacity, sizeof(TableEntry*));
+
+    if ((double)(t->hash_count + 1) / t->capacity > TABLE_MAX_LOAD) {  // load factor exceeded?
+        int old_capacity = t->capacity;                          // save old capacity
+        TableEntry** old_entries = t->entries;                   // save old bucket array
+        t->capacity = old_capacity * 2;                          // double capacity
+        t->entries = (TableEntry**)calloc(t->capacity, sizeof(TableEntry*));  // new zeroed buckets
+        if (!t->entries) { t->entries = old_entries; t->capacity = old_capacity; return false; }  // rollback on OOM
+        t->hash_count = 0;                                       // recount during rehash
+        for (int i = 0; i < old_capacity; i++) {
+            TableEntry* entry = old_entries[i];                  // walk old bucket
+            while (entry) {
+                TableEntry* next = entry->next;                  // save next before relink
+                uint32_t ix = entry->hash % t->capacity;         // new bucket index
+                entry->next = t->entries[ix];                    // prepend to new bucket
+                t->entries[ix] = entry;                          // update bucket head
+                t->hash_count++;                                 // one entry migrated
+                entry = next;                                    // advance old chain
+            }
+        }
+        free(old_entries);                                       // release old bucket array
+    }
+
+    int total = prefix->length + tail_len;                       // combined key length
+    uint32_t h = prefix->hash_computed ? prefix->hash : 5381;    // resume from cached prefix hash
+    if (!prefix->hash_computed) {                                // prefix hash not yet computed
+        for (int i = 0; i < prefix->length; i++)
+            h = ((h << 5) + h) + (uint8_t)prefix->chars[i];      // djb2 over prefix bytes
+    }
+    for (int i = 0; i < tail_len; i++)
+        h = ((h << 5) + h) + (uint8_t)tail[i];                   // continue djb2 over tail bytes
+
+    uint32_t idx = h % t->capacity;                              // bucket index
+    TableEntry* e = t->entries[idx];                             // head of the bucket chain
+    while (e) {
+        if (e->hash == h) {                                      // hash matches: verify content
+            StringObject* k = AS_STRING(e->key);                 // unwrap stored key string
+            if (k->length == total &&                            // same total length
+                memcmp(k->chars, prefix->chars, prefix->length) == 0 &&  // prefix bytes match
+                memcmp(k->chars + prefix->length, tail, tail_len) == 0) { // tail bytes match
+                value_decref(e->value);                          // release old value
+                e->value = value;                                // store new value
+                if ((value & QNAN) == QNAN) value_incref(value);  // bump refcount for new value
+                return true;                                     // updated existing entry
+            }
+        }
+        e = e->next;                                             // advance chain
+    }
+
+    StringObject* nk = (StringObject*)malloc(sizeof(StringObject) + total + 1);  // allocate key string
+    if (!nk) return false;                                       // allocation failed
+    nk->header.ref_count = 1;                                    // fresh object refcount
+    nk->header.type      = VAL_STRING;                           // mark as string
+    nk->length           = total;                                // store length
+    nk->hash             = h;                                    // cache the computed hash
+    nk->hash_computed    = true;                                 // mark hash as valid
+    memcpy(nk->chars, prefix->chars, prefix->length);            // copy prefix bytes
+    memcpy(nk->chars + prefix->length, tail, tail_len);          // copy tail bytes
+    nk->chars[total] = '\0';                                     // null terminate
+
+    TableEntry* ne = (TableEntry*)malloc(sizeof(TableEntry));    // allocate new entry node
+    if (!ne) { free(nk); return false; }                         // rollback key on OOM
+    ne->key   = MAKE_STRING(nk);                                 // box key pointer
+    ne->hash  = h;                                               // store hash for fast compare
+    ne->value = value;                                           // store value
+    if ((value & QNAN) == QNAN) value_incref(value);             // bump refcount for stored value
+    ne->next  = t->entries[idx];                                 // prepend to bucket chain
+    t->entries[idx] = ne;                                        // publish as new head
+    t->hash_count++;                                             // one more hash entry
+    return true;                                                 // inserted
+}
+
 // sets a value in the table by key, with auto-resizing and duplicate detection
 bool table_set(Table* table, Value key, Value value) {
     if (IS_NUMBER(key)) {                             // try array part for integer keys
@@ -2585,43 +2694,12 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         else
             nlen = snprintf(nbuf, sizeof(nbuf), "%.15g", n);  // fractional or huge: snprintf
 
-        int total = prefix->length + nlen;                // combined key length
         Value val = MAKE_NONE();                          // default result
         Value tv  = regs[table_reg];                      // fetch table value
 
-        if (likely(total <= 96)) {                        // fits in stack buffer
-            union { max_align_t _a; char buf[sizeof(StringObject) + 96]; } ks;
-            StringObject* key = (StringObject*)ks.buf;    // stack-allocated key
-            key->header.ref_count = 1;                    // table_get never touches this
-            key->header.type      = VAL_STRING;           // mark as string
-            key->length           = total;                // store combined length
-            key->hash_computed    = false;                // hash not yet computed
-            key->hash             = 0;                    // clear hash field
-            memcpy(key->chars, prefix->chars, prefix->length);              // copy prefix
-            memcpy(key->chars + prefix->length, nbuf, nlen);                // copy numeric tail
-            key->chars[total] = '\0';                     // null terminate
-
-            if (likely(IS_TABLE(tv))) {                   // valid table slot?
-                table_get(AS_TABLE(tv), MAKE_STRING(key), &val);  // lookup, increfs val only
-            }
-            // no decref: key lives on the stack
-        } else {                                          // too long for stack buffer
-            StringObject* key = (StringObject*)malloc(sizeof(StringObject) + total + 1);
-            key->header.ref_count = 1;                    // fresh object refcount
-            key->header.type      = VAL_STRING;           // mark as string
-            key->length           = total;                // store combined length
-            key->hash_computed    = false;                // hash not yet computed
-            key->hash             = 0;                    // clear hash field
-            memcpy(key->chars, prefix->chars, prefix->length);              // copy prefix
-            memcpy(key->chars + prefix->length, nbuf, nlen);                // copy numeric tail
-            key->chars[total] = '\0';                     // null terminate
-
-            Value kv = MAKE_STRING(key);                  // temporary key value
-            if (likely(IS_TABLE(tv))) {                   // valid table slot?
-                table_get(AS_TABLE(tv), kv, &val);        // lookup, increfs val only
-            }
-            value_decref(kv);                             // release heap key
-        }
+        if (likely(IS_TABLE(tv))) {                       // only tables can be looked up
+            table_get_concat_key(AS_TABLE(tv), prefix, nbuf, nlen, &val);
+        }                                                 // miss leaves val = NONE
 
         Value old = regs[dest];                           // save old dest for decref
         if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap value
@@ -2739,21 +2817,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         else
             nlen = snprintf(nbuf, sizeof(nbuf), "%.15g", n);  // fractional or huge: snprintf
 
-        int total = prefix->length + nlen;                // combined key length
-
-        StringObject* key = (StringObject*)malloc(sizeof(StringObject) + total + 1);
-        key->header.ref_count = 1;                        // fresh object refcount
-        key->header.type      = VAL_STRING;               // mark as string
-        key->length           = total;                    // store combined length
-        key->hash_computed    = false;                    // hash not yet computed
-        key->hash             = 0;                        // clear hash field
-        memcpy(key->chars, prefix->chars, prefix->length);              // copy prefix
-        memcpy(key->chars + prefix->length, nbuf, nlen);                // copy numeric tail
-        key->chars[total] = '\0';                         // null terminate
-
-        Value kv = MAKE_STRING(key);                      // temporary key value
-        table_set(AS_TABLE(tv), kv, regs[val_reg]);       // set (increfs key + value internally)
-        value_decref(kv);                                 // release our local key reference
+        table_set_concat_key(AS_TABLE(tv), prefix, nbuf, nlen, regs[val_reg]);
+                                                          // hash once, alloc only on insert
 
         ip++; goto *dispatch_table[ip->opcode];           // advance to next instruction
     }

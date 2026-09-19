@@ -363,6 +363,12 @@ Value* table_keys(Table* table, int* out_count);
 // sets a value by integer index (uses array part if possible)
 bool table_set_int(Table* table, int index, Value value);
 
+// get/set with a synthetic string key = prefix ++ tail
+bool table_get_concat_key(Table* t, StringObject* prefix,
+                          const char* tail, int tail_len, Value* out);
+bool table_set_concat_key(Table* t, StringObject* prefix,
+                          const char* tail, int tail_len, Value value);
+
 // creates a new vm instance with the given source code
 VM* vm_create(const char* source);
 

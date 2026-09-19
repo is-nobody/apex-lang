@@ -28,91 +28,79 @@ static void jit_decref_if_heap(Value v) {
     if ((v & QNAN) == QNAN) value_decref(v);
 }
 
+// two-digit lookup, eliminates one div per digit
+static const char jit_digit_pairs[200] = {
+    '0','0','0','1','0','2','0','3','0','4','0','5','0','6','0','7','0','8','0','9',
+    '1','0','1','1','1','2','1','3','1','4','1','5','1','6','1','7','1','8','1','9',
+    '2','0','2','1','2','2','2','3','2','4','2','5','2','6','2','7','2','8','2','9',
+    '3','0','3','1','3','2','3','3','3','4','3','5','3','6','3','7','3','8','3','9',
+    '4','0','4','1','4','2','4','3','4','4','4','5','4','6','4','7','4','8','4','9',
+    '5','0','5','1','5','2','5','3','5','4','5','5','5','6','5','7','5','8','5','9',
+    '6','0','6','1','6','2','6','3','6','4','6','5','6','6','6','7','6','8','6','9',
+    '7','0','7','1','7','2','7','3','7','4','7','5','7','6','7','7','7','8','7','9',
+    '8','0','8','1','8','2','8','3','8','4','8','5','8','6','8','7','8','8','8','9',
+    '9','0','9','1','9','2','9','3','9','4','9','5','9','6','9','7','9','8','9','9',
+};
+
 // fast unsigned decimal itoa; returns digits written, no null terminator
 static int jit_uitoa(char* buf, unsigned long long n) {
-    if (n == 0) { buf[0] = '0'; return 1; }
-    char tmp[24];                                        // scratch, reversed
-    int i = 0;
-    while (n) { tmp[i++] = (char)('0' + (n % 10)); n /= 10; }
-    for (int j = 0; j < i; j++) buf[j] = tmp[i - 1 - j]; // reverse into buf
-    return i;
+    if (n < 10) { buf[0] = (char)('0' + (unsigned)n); return 1; }     // single digit fast path
+    char tmp[24];                                                     // scratch, reversed
+    int i = 0;                                                        // digits written into tmp
+    while (n >= 100) {
+        unsigned r = (unsigned)(n % 100);                             // last two digits
+        n /= 100;                                                     // shift right by two
+        tmp[i]     = jit_digit_pairs[r * 2 + 1];                      // low digit first (reversed)
+        tmp[i + 1] = jit_digit_pairs[r * 2];                          // then the high digit
+        i += 2;                                                       // two digits written
+    }
+    if (n >= 10) {                                                    // one two-digit group left
+        tmp[i]     = (char)n;                                         // low digit of the pair
+        tmp[i + 1] = '0' + (char)(n / 10);                            // high digit of the pair
+        i += 2;
+    } else {
+        tmp[i++] = (char)('0' + (unsigned)n);                         // single trailing digit
+    }
+    for (int j = 0; j < i; j++) buf[j] = tmp[i - 1 - j];              // reverse into buf
+    return i;                                                         // number of digits produced
 }
 
 // fast signed decimal itoa; handles INT64_MIN without overflow
 static int jit_itoa(char* buf, long long n) {
     if (n < 0) {
-        buf[0] = '-';
-        unsigned long long u = (unsigned long long)(-(n + 1)) + 1ULL;
-        return 1 + jit_uitoa(buf + 1, u);
+        buf[0] = '-';                                                 // leading minus
+        unsigned long long u = (unsigned long long)(-(n + 1)) + 1ULL; // negate without overflow
+        return 1 + jit_uitoa(buf + 1, u);                             // sign + magnitude digits
     }
-    return jit_uitoa(buf, (unsigned long long)n);
+    return jit_uitoa(buf, (unsigned long long)n);                     // non-negative fast path
 }
 
-// inline key builder shared by the two fused helpers
-static StringObject* jit_build_key(StringObject* prefix, double num) {
-    char nbuf[32];
-    int nlen;
-    if (num == (long long)num && fabs(num) < 1e15)
-        nlen = jit_itoa(nbuf, (long long)num);
-    else
-        nlen = snprintf(nbuf, sizeof(nbuf), "%.15g", num);
-    int total = prefix->length + nlen;
-    StringObject* out = (StringObject*)malloc(sizeof(StringObject) + total + 1);
-    out->header.ref_count = 1;
-    out->header.type = VAL_STRING;
-    out->length = total;
-    out->hash_computed = false;
-    out->hash = 0;
-    memcpy(out->chars, prefix->chars, prefix->length);
-    memcpy(out->chars + prefix->length, nbuf, nlen);
-    out->chars[total] = '\0';
-    return out;
-}
-
-// JIT helper: tbl["prefix" .. num] with a fresh string key
+// JIT helper: tbl["prefix" .. num] with a synthetic key
 Value jit_table_get_key_str(Table* t, StringObject* prefix, double num) {
-    char nbuf[24];                                               // numeric part
-    int nlen;
-    if (num == (long long)num && fabs(num) < 1e15)
-        nlen = jit_itoa(nbuf, (long long)num);                   // fast path
+    char nbuf[24];                                                    // tail buffer on the stack
+    int nlen;                                                         // tail length in digits
+    long long inum = (long long)num;                                  // truncate to integer
+    if ((double)inum == num && inum > -1000000000000000LL && inum < 1000000000000000LL)
+        nlen = jit_itoa(nbuf, inum);                                  // whole number: custom itoa
     else
-        nlen = snprintf(nbuf, sizeof(nbuf), "%.15g", num);
+        nlen = snprintf(nbuf, sizeof(nbuf), "%.15g", num);            // fractional/huge: snprintf
 
-    int total = prefix->length + nlen;
-    if (total > 96) {                                            // longer than stack buffer
-        StringObject* k = jit_build_key(prefix, num);            // slow heap fallback
-        Value kv = MAKE_STRING(k);
-        Value val = MAKE_NONE();
-        table_get(t, kv, &val);
-        value_decref(kv);                                        // release local key ref
-        return val;
-    }
-
-    union {                                                      // stack-local key, no malloc
-        max_align_t _a;
-        char buf[sizeof(StringObject) + 96];
-    } ks;
-    StringObject* key = (StringObject*)ks.buf;
-    key->header.ref_count = 1;                                   // table_get never touches this
-    key->header.type      = VAL_STRING;
-    key->length           = total;
-    key->hash_computed    = false;
-    key->hash             = 0;
-    memcpy(key->chars, prefix->chars, prefix->length);
-    memcpy(key->chars + prefix->length, nbuf, nlen);
-    key->chars[total] = '\0';
-
-    Value val = MAKE_NONE();
-    table_get(t, MAKE_STRING(key), &val);                        // table_get increfs val, not key
-    return val;
+    Value val = MAKE_NONE();                                          // default = key not found
+    table_get_concat_key(t, prefix, nbuf, nlen, &val);                // lookup without allocating key
+    return val;                                                       // incref'd by the helper on hit
 }
 
-// JIT helper: tbl["prefix" .. num] = val with a fresh string key
+// JIT helper: tbl["prefix" .. num] = val, hash computed once
 void jit_table_set_key_str(Table* t, StringObject* prefix, double num, Value val) {
-    StringObject* key = jit_build_key(prefix, num);
-    Value kv = MAKE_STRING(key);
-    table_set(t, kv, val);
-    value_decref(kv);                                            // release local key ref
+    char nbuf[24];                                                    // tail buffer on the stack
+    int nlen;                                                         // tail length in digits
+    long long inum = (long long)num;                                  // truncate to integer
+    if ((double)inum == num && inum > -1000000000000000LL && inum < 1000000000000000LL)
+        nlen = jit_itoa(nbuf, inum);                                  // whole number: custom itoa
+    else
+        nlen = snprintf(nbuf, sizeof(nbuf), "%.15g", num);            // fractional/huge: snprintf
+
+    table_set_concat_key(t, prefix, nbuf, nlen, val);                 // insert/update, alloc only if new
 }
 
 // emits the shared prologue then any abi-specific callee-saved register saves=
