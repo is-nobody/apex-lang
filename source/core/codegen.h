@@ -38,6 +38,17 @@ typedef struct {
     } num_cache;
 
     struct {
+        struct {
+            Opcode op;        // arithmetic opcode that produced this value
+            int left_reg;     // left operand register
+            int right_reg;    // right operand register, -1 for *_IMM
+            int imm;          // immediate operand, ignored when right_reg >= 0
+            int result_reg;   // register currently holding the result
+        } entries[16];        // small fixed cache, capped to bound pressure
+        int count;            // number of live entries
+    } imm_lvn;                // per-statement value numbering for arithmetic results
+
+    struct {
         int* break_jumps;          // list of jump instruction offsets to patch on loop exit
         int break_count;           // number of pending break jumps
         int break_capacity;        // allocated capacity of break_jumps array

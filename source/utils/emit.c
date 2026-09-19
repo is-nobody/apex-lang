@@ -207,6 +207,30 @@ static void emit_instruction(BytecodeChunk* chunk, int offset, FILE* out) {  // 
         case OP_JUMP_IF_GTE:                                      // jump when greater or equal
             fprintf(out, C_BLUE "->" C_RESET " " C_GRAY "%d" C_RESET " if ", a); REG(b); fputs(" >= ", out); REG(c);  // -> target if a >= b
             break;
+        case OP_JUMP_IF_EQ_IMM:                                   // jump when equal (immediate)
+            fprintf(out, C_BLUE "->" C_RESET " " C_GRAY "%d" C_RESET " if ", a); REG(b);
+            fprintf(out, " == " C_MAGENTA "%d" C_RESET, c);       // == imm
+            break;
+        case OP_JUMP_IF_NEQ_IMM:                                  // jump when not equal (immediate)
+            fprintf(out, C_BLUE "->" C_RESET " " C_GRAY "%d" C_RESET " if ", a); REG(b);
+            fprintf(out, " != " C_MAGENTA "%d" C_RESET, c);       // != imm
+            break;
+        case OP_JUMP_IF_LT_IMM:                                   // jump when less (immediate)
+            fprintf(out, C_BLUE "->" C_RESET " " C_GRAY "%d" C_RESET " if ", a); REG(b);
+            fprintf(out, " < " C_MAGENTA "%d" C_RESET, c);        // < imm
+            break;
+        case OP_JUMP_IF_GT_IMM:                                   // jump when greater (immediate)
+            fprintf(out, C_BLUE "->" C_RESET " " C_GRAY "%d" C_RESET " if ", a); REG(b);
+            fprintf(out, " > " C_MAGENTA "%d" C_RESET, c);        // > imm
+            break;
+        case OP_JUMP_IF_LTE_IMM:                                  // jump when less or equal (immediate)
+            fprintf(out, C_BLUE "->" C_RESET " " C_GRAY "%d" C_RESET " if ", a); REG(b);
+            fprintf(out, " <= " C_MAGENTA "%d" C_RESET, c);       // <= imm
+            break;
+        case OP_JUMP_IF_GTE_IMM:                                  // jump when greater or equal (immediate)
+            fprintf(out, C_BLUE "->" C_RESET " " C_GRAY "%d" C_RESET " if ", a); REG(b);
+            fprintf(out, " >= " C_MAGENTA "%d" C_RESET, c);       // >= imm
+            break;
 
         case OP_JUMP_MATCH_NUM:                                   // match number case
             fprintf(out, C_BLUE "->" C_RESET " " C_GRAY "%d" C_RESET " if ", a); REG(b); fputs(" == ", out);  // -> target if subj ==

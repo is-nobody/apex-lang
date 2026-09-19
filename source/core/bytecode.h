@@ -42,6 +42,12 @@ typedef enum {
     OP_JUMP_IF_GT,         // branch if r[op1] > r[op2]
     OP_JUMP_IF_LTE,        // branch if r[op1] <= r[op2]
     OP_JUMP_IF_GTE,        // branch if r[op1] >= r[op2]
+    OP_JUMP_IF_EQ_IMM,     // branch if r[op1] == imm (numeric compare)
+    OP_JUMP_IF_NEQ_IMM,    // branch if r[op1] != imm (numeric compare)
+    OP_JUMP_IF_LT_IMM,     // branch if r[op1] <  imm (numeric compare)
+    OP_JUMP_IF_GT_IMM,     // branch if r[op1] >  imm (numeric compare)
+    OP_JUMP_IF_LTE_IMM,    // branch if r[op1] <= imm (numeric compare)
+    OP_JUMP_IF_GTE_IMM,    // branch if r[op1] >= imm (numeric compare)
 
     OP_JUMP_MATCH_NUM,     // jump if subject equals number constant
     OP_JUMP_MATCH_STR,     // jump if subject equals string constant

@@ -53,6 +53,9 @@ static bool is_pure_loop_instr(JITContext* ctx, int pc) {
         case OP_JUMP_IF_EQ_NUM: case OP_JUMP_IF_NEQ_NUM:
         case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:
         case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:
+        case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:     // conditional branches with imm
+        case OP_JUMP_IF_LT_IMM: case OP_JUMP_IF_GT_IMM:
+        case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
         case OP_FOR_NEXT:                                    // numeric-for entry
         case OP_TABLE_GET:                                   // validated by analyze_loop_regs
         case OP_TABLE_GET_INT:                               // fixed index into array part
@@ -117,6 +120,9 @@ static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
             case OP_JUMP_IF_EQ_NUM: case OP_JUMP_IF_NEQ_NUM:
             case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:
             case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:
+            case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:     // imm-jump variants
+            case OP_JUMP_IF_LT_IMM: case OP_JUMP_IF_GT_IMM:
+            case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
             case OP_JUMP_MATCH_BOOL:                             // match jumps share the range check
             case OP_JUMP_MATCH_NONE: {
                 int target = inst->operands[0];                     // jump target pc
@@ -237,7 +243,7 @@ static bool infer_return_type(BytecodeChunk* chunk, int start, int end,
 static bool is_loop_entry_op(Opcode op) {
     return op == OP_FOR_NEXT ||
            op == OP_TABLE_ITER_NEXT ||
-           (op >= OP_JUMP_IF_EQ && op <= OP_JUMP_IF_GTE);
+           (op >= OP_JUMP_IF_EQ && op <= OP_JUMP_IF_GTE_IMM);  // widened: includes imm variants
 }
 
 // walks the loop body, marks read and written slots, and collects table uses
@@ -292,6 +298,11 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
             case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:
                 if (a >= 0 && a < 64) pc_reads |= 1ULL << a;     // left operand
                 if (b >= 0 && b < 64) pc_reads |= 1ULL << b;     // right operand
+                break;
+            case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:     // imm-jump: only left is a register
+            case OP_JUMP_IF_LT_IMM: case OP_JUMP_IF_GT_IMM:
+            case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
+                if (a >= 0 && a < 64) pc_reads |= 1ULL << a;     // left operand
                 break;
             case OP_FOR_NEXT:                                    // counter and bounds updated by vm
                 if (d >= 0 && d < 64) pc_reads |= pc_writes |= 1ULL << d;
@@ -487,7 +498,8 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
             Opcode op = chunk->code[i].opcode;
             if (op == OP_JUMP || op == OP_FOR_NEXT ||            // unconditional or nested for
                 op == OP_TABLE_ITER_NEXT ||                      // nested table iter
-                (op >= OP_JUMP_IF_EQ && op <= OP_JUMP_IF_GTE) || // conditional branch
+                op == OP_JUMP_IF_FALSE ||                        // plain truthy branch
+                (op >= OP_JUMP_IF_EQ && op <= OP_JUMP_IF_GTE_IMM) ||  // all conditional branches, incl. IMM
                 op == OP_JUMP_MATCH_NUM || op == OP_JUMP_MATCH_STR ||
                 op == OP_JUMP_MATCH_BOOL || op == OP_JUMP_MATCH_NONE) {
                 ok = false;                                      // nested loop or internal branch

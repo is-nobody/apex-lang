@@ -439,6 +439,66 @@ static void num_cache_add(CodeGenerator* cg, double value, int reg) {
     if (cg->cache_floor <= reg) cg->cache_floor = reg + 1;       // pin above cache floor
 }
 
+// looks up a previously computed arithmetic result with identical inputs
+static int imm_lvn_lookup(CodeGenerator* cg, Opcode op, int left_reg, int right_reg, int imm) {
+    for (int i = 0; i < cg->imm_lvn.count; i++) {                    // scan live entries
+        if (cg->imm_lvn.entries[i].op == op &&
+            cg->imm_lvn.entries[i].left_reg == left_reg &&
+            cg->imm_lvn.entries[i].right_reg == right_reg &&
+            cg->imm_lvn.entries[i].imm == imm) {
+            return cg->imm_lvn.entries[i].result_reg;                // cache hit
+        }
+    }
+    return -1;                                                       // not found
+}
+
+// records a freshly computed arithmetic result so later uses can reuse the register
+static void imm_lvn_add(CodeGenerator* cg, Opcode op, int left_reg, int right_reg, int imm, int result_reg) {
+    if (cg->imm_lvn.count >= 16) return;                             // cap to bound pressure
+    cg->imm_lvn.entries[cg->imm_lvn.count].op         = op;          // opcode
+    cg->imm_lvn.entries[cg->imm_lvn.count].left_reg   = left_reg;    // left operand
+    cg->imm_lvn.entries[cg->imm_lvn.count].right_reg  = right_reg;   // right operand (-1 for *_IMM)
+    cg->imm_lvn.entries[cg->imm_lvn.count].imm        = imm;         // immediate (0 for register-register)
+    cg->imm_lvn.entries[cg->imm_lvn.count].result_reg = result_reg;  // register with result
+    cg->imm_lvn.count++;                                             // one more entry
+}
+
+// drops every cache entry whose operand or result has just been overwritten
+static void imm_lvn_invalidate(CodeGenerator* cg, int written_reg) {
+    for (int i = 0; i < cg->imm_lvn.count; i++) {                    // compact in-place
+        if (cg->imm_lvn.entries[i].left_reg == written_reg ||
+            cg->imm_lvn.entries[i].right_reg == written_reg ||
+            cg->imm_lvn.entries[i].result_reg == written_reg) {
+            cg->imm_lvn.entries[i] = cg->imm_lvn.entries[--cg->imm_lvn.count];
+            i--;                                                     // recheck swapped-in entry
+        }
+    }
+}
+
+// true when an opcode writes its operands[0] as a destination register
+static bool op_writes_dest_reg(Opcode op) {
+    switch (op) {
+        case OP_MOVE: case OP_NEG: case OP_INC: case OP_DEC:
+        case OP_LOAD_CONST: case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:
+        case OP_LOAD_BOOL: case OP_LOAD_NONE:
+        case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
+        case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:
+        case OP_DIV_IMM: case OP_MOD_IMM:
+        case OP_CMP_EQ: case OP_CMP_NEQ:
+        case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
+        case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
+        case OP_CALL: case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:
+        case OP_CALL_BUILTIN: case OP_ASYNC_CALL: case OP_ASYNC_CALL_BUILTIN:
+        case OP_LOAD_GLOBAL: case OP_TABLE_GET: case OP_TABLE_GET_CONST:
+        case OP_TABLE_GET_INT: case OP_NEW_TABLE: case OP_CONCAT:
+        case OP_AND: case OP_OR: case OP_NOT:
+        case OP_AWAIT:
+            return true;                                             // these write operands[0]
+        default:
+            return false;                                            // jumps, returns, stores do not
+    }
+}
+
 // snapshot of per-local numeric-ness flags for branch merging
 typedef struct {
     int count;         // number of slots captured
@@ -471,6 +531,11 @@ static void free_register(CodeGenerator* cg, int reg) {
     }
     if (reg < cg->cache_floor) {                  // pinned by the numeric constant cache
         return;                                   // keep cached registers alive
+    }
+    for (int i = 0; i < cg->imm_lvn.count; i++) { // pinned by the LVN cache?
+        if (cg->imm_lvn.entries[i].result_reg == reg) {
+            return;                               // keep LVN-cached value alive
+        }
     }
     if (reg == cg->next_register - 1) {           // only free last temp
         cg->next_register--;                      // decrement register count
@@ -564,6 +629,15 @@ static int locals_high_water(CodeGenerator* cg) {
 
 // emits an instruction with source line info for debugging
 static int emit(CodeGenerator* cg, Instruction inst, int line) {
+    if (inst.opcode == OP_JUMP ||                                          // jump = control-flow merge
+        (inst.opcode >= OP_JUMP_IF_FALSE && inst.opcode <= OP_JUMP_IF_GTE) ||
+        (inst.opcode >= OP_JUMP_IF_EQ_IMM && inst.opcode <= OP_JUMP_IF_GTE_IMM) ||
+        inst.opcode == OP_JUMP_MATCH_NUM || inst.opcode == OP_JUMP_MATCH_STR ||
+        inst.opcode == OP_JUMP_MATCH_BOOL || inst.opcode == OP_JUMP_MATCH_NONE) {
+        cg->imm_lvn.count = 0;                                             // cache is invalid across branches
+    } else if (op_writes_dest_reg(inst.opcode)) {
+        imm_lvn_invalidate(cg, inst.operands[0]);                          // drop entries killed by this write
+    }
     return bytecode_emit_line(cg->chunk, inst, line);                      // emit with line info
 }
 
@@ -1106,8 +1180,12 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
         int left_reg = -1;                                                          // left operand reg
         int right_reg = -1;                                                         // right operand reg
         bool optimized = false;                                                     // optimized flag
+        bool has_imm = false;                                                       // true when an IMM variant exists
         bool right_hoisted = false;                                                 // hoisted right
+        bool imm_jump_ready = false;                                                // right folds to small int
+        double imm_val_for_cond = 0;                                                // folded immediate value
         Opcode jump_op = OP_JUMP;                                                   // jump opcode
+        Opcode jump_op_imm = OP_JUMP;                                               // jump opcode with immediate
 
         LocalNumSnap cond_entry = snap_numbers(cg);                                 // snapshot before condition
 
@@ -1118,15 +1196,20 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
                                     is_number_expression(cg, condition->binary.right);
                 
                 switch (op) {                                                       // map to jump op
-                    case TOKEN_LESS:          jump_op = OP_JUMP_IF_GTE; optimized = true; break;
-                    case TOKEN_LESS_EQUAL:    jump_op = OP_JUMP_IF_GT;  optimized = true; break;
-                    case TOKEN_GREATER:       jump_op = OP_JUMP_IF_LTE; optimized = true; break;
-                    case TOKEN_GREATER_EQUAL: jump_op = OP_JUMP_IF_LT;  optimized = true; break;
-                    case TOKEN_EQUAL_EQUAL:   jump_op = both_numbers ? OP_JUMP_IF_NEQ_NUM : OP_JUMP_IF_NEQ; optimized = true; break;  // specialized if both numbers
-                    case TOKEN_NOT_EQUAL:     jump_op = both_numbers ? OP_JUMP_IF_EQ_NUM : OP_JUMP_IF_EQ; optimized = true; break;     // specialized if both numbers
-                    default: break;                                                 // not optimizable
+                    case TOKEN_LESS:          jump_op = OP_JUMP_IF_GTE; jump_op_imm = OP_JUMP_IF_GTE_IMM; has_imm = true; optimized = true; break;
+                    case TOKEN_LESS_EQUAL:    jump_op = OP_JUMP_IF_GT;  jump_op_imm = OP_JUMP_IF_GT_IMM;  has_imm = true; optimized = true; break;
+                    case TOKEN_GREATER:       jump_op = OP_JUMP_IF_LTE; jump_op_imm = OP_JUMP_IF_LTE_IMM; has_imm = true; optimized = true; break;
+                    case TOKEN_GREATER_EQUAL: jump_op = OP_JUMP_IF_LT;  jump_op_imm = OP_JUMP_IF_LT_IMM;  has_imm = true; optimized = true; break;
+                    case TOKEN_EQUAL_EQUAL:   jump_op = both_numbers ? OP_JUMP_IF_NEQ_NUM : OP_JUMP_IF_NEQ; jump_op_imm = OP_JUMP_IF_NEQ_IMM; has_imm = true; optimized = true; break;
+                    case TOKEN_NOT_EQUAL:     jump_op = both_numbers ? OP_JUMP_IF_EQ_NUM : OP_JUMP_IF_EQ;   jump_op_imm = OP_JUMP_IF_EQ_IMM;   has_imm = true; optimized = true; break;
+                    default: break;
                 }
-                if (optimized) {                                                    // can optimize
+                if (has_imm && try_fold_number(condition->binary.right, &imm_val_for_cond) &&
+                    imm_val_for_cond == (int)imm_val_for_cond &&
+                    imm_val_for_cond >= 0 && imm_val_for_cond <= 65535) {
+                    imm_jump_ready = true;
+                }
+                if (optimized && !imm_jump_ready) {                                 // can optimize and not already folded
                     ASTNode* right_node = condition->binary.right;                  // right side
                     if (right_node->type == AST_LITERAL_NUMBER ||                   // constant right
                         right_node->type == AST_LITERAL_STRING ||
@@ -1145,11 +1228,15 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
         if (condition) {                                                            // has condition
             if (optimized) {                                                        // optimized condition
                 left_reg = codegen_expression(cg, condition->binary.left);          // evaluate left
-                if (!right_hoisted) {                                               // not hoisted
-                    right_reg = codegen_expression(cg, condition->binary.right);    // evaluate right
+                if (imm_jump_ready) {                                               // right folds to a small int
+                    jump_to_end = emit(cg, INST(jump_op_imm, 0, left_reg, (int)imm_val_for_cond), node->line);
+                } else {                                                            // register-register compare
+                    if (!right_hoisted) {                                           // not hoisted
+                        right_reg = codegen_expression(cg, condition->binary.right);  // evaluate right
+                    }
+                    jump_to_end = emit(cg, INST(jump_op, 0, left_reg, right_reg), node->line);  // emit jump
+                    if (!right_hoisted) free_register(cg, right_reg);               // free right
                 }
-                jump_to_end = emit(cg, INST(jump_op, 0, left_reg, right_reg), node->line);  // emit jump
-                if (!right_hoisted) free_register(cg, right_reg);                   // free right
                 free_register(cg, left_reg);                                        // free left
             } else {                                                                // normal condition
                 int cond_reg = codegen_expression(cg, condition);                   // evaluate condition
@@ -1337,8 +1424,16 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
             if (has_imm && try_fold_number(node->binary.right, &imm_val) &&
                 imm_val == (int)imm_val && imm_val >= 0 && imm_val <= 65535) {
                 int left_reg = codegen_expression(cg, node->binary.left);        // evaluate left
+                int cached = imm_lvn_lookup(cg, imm_op, left_reg, -1, (int)imm_val); // reuse if identical
+                if (cached >= 0) {
+                    free_register(cg, left_reg);                                 // release left temp
+                    if (dest_hint < 0 || dest_hint == cached) return cached;     // return cached reg
+                    emit(cg, INST(OP_MOVE, dest_hint, cached, 0), node->line);   // copy into hint
+                    return dest_hint;
+                }
                 int result_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);  // result destination
                 emit(cg, INST(imm_op, result_reg, left_reg, (int)imm_val), node->line);  // fused op
+                if (dest_hint < 0) imm_lvn_add(cg, imm_op, left_reg, -1, (int)imm_val, result_reg);  // cache self-allocated
                 free_register(cg, left_reg);                                     // free left
                 return result_reg;                                               // return result
             }
@@ -1349,15 +1444,22 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
                 try_fold_number(node->binary.left, &imm_val) &&
                 imm_val == (int)imm_val && imm_val >= 0 && imm_val <= 65535) {
                 int right_reg = codegen_expression(cg, node->binary.right);      // evaluate right
+                int cached = imm_lvn_lookup(cg, imm_op, right_reg, -1, (int)imm_val);  // reuse if identical
+                if (cached >= 0) {
+                    free_register(cg, right_reg);                                // release right temp
+                    if (dest_hint < 0 || dest_hint == cached) return cached;     // return cached reg
+                    emit(cg, INST(OP_MOVE, dest_hint, cached, 0), node->line);   // copy into hint
+                    return dest_hint;
+                }
                 int result_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);  // result destination
                 emit(cg, INST(imm_op, result_reg, right_reg, (int)imm_val), node->line);  // fused op
+                if (dest_hint < 0) imm_lvn_add(cg, imm_op, right_reg, -1, (int)imm_val, result_reg);  // cache self-allocated
                 free_register(cg, right_reg);                                    // free right
                 return result_reg;                                               // return result
             }
             
             int left_reg = codegen_expression(cg, node->binary.left);               // evaluate left
             int right_reg = codegen_expression(cg, node->binary.right);             // evaluate right
-            int result_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);       // result destination
             
             bool both_numbers = is_number_expression(cg, node->binary.left) &&      // check both operands known numeric
                                 is_number_expression(cg, node->binary.right);
@@ -1378,9 +1480,29 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
                 default:                                                             // unknown
                     free_register(cg, left_reg);                                     // free left
                     free_register(cg, right_reg);                                    // free right
-                    return result_reg;                                               // return uninitialized
+                    return dest_hint >= 0 ? dest_hint : alloc_register(cg);          // return uninitialized
             }
+
+            // LVN for register-register arithmetic only; comparisons still need
+            // their own register per result because the flag bit is not preserved
+            bool lvn_ok = (op == OP_ADD || op == OP_SUB || op == OP_MUL ||
+                           op == OP_DIV || op == OP_MOD);
+            if (lvn_ok) {
+                int cached = imm_lvn_lookup(cg, op, left_reg, right_reg, 0);        // reuse if identical
+                if (cached >= 0) {
+                    free_register(cg, left_reg);                                     // release left temp
+                    free_register(cg, right_reg);                                    // release right temp
+                    if (dest_hint < 0 || dest_hint == cached) return cached;         // return cached reg
+                    emit(cg, INST(OP_MOVE, dest_hint, cached, 0), node->line);       // copy into hint
+                    return dest_hint;
+                }
+            }
+
+            int result_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);       // result destination
             emit(cg, INST(op, result_reg, left_reg, right_reg), node->line);         // emit operation
+            if (lvn_ok && dest_hint < 0) {
+                imm_lvn_add(cg, op, left_reg, right_reg, 0, result_reg);             // cache self-allocated
+            }
             free_register(cg, left_reg);                                             // free left
             free_register(cg, right_reg);                                            // free right
             return result_reg;                                                       // return result
@@ -1933,19 +2055,30 @@ static int codegen_optimized_condition(CodeGenerator* cg, ASTNode* condition, in
         }
     }
     
-    Opcode jump_op;                                                          // jump opcode for general case
+    Opcode jump_op;                                                          // jump opcode for register-register
+    Opcode jump_op_imm;                                                      // jump opcode for register-immediate
+    bool has_imm = false;                                                    // true when an IMM variant exists
     
     bool both_numbers = is_number_expression(cg, left) &&                    // check both operands known numeric
                         is_number_expression(cg, right);
     
     switch (op) {                                                            // map to jump
-        case TOKEN_LESS:          jump_op = OP_JUMP_IF_GTE; break;
-        case TOKEN_LESS_EQUAL:    jump_op = OP_JUMP_IF_GT;  break;
-        case TOKEN_GREATER:       jump_op = OP_JUMP_IF_LTE; break;
-        case TOKEN_GREATER_EQUAL: jump_op = OP_JUMP_IF_LT;  break;
-        case TOKEN_EQUAL_EQUAL:   jump_op = both_numbers ? OP_JUMP_IF_NEQ_NUM : OP_JUMP_IF_NEQ; break;  // specialized
-        case TOKEN_NOT_EQUAL:     jump_op = both_numbers ? OP_JUMP_IF_EQ_NUM : OP_JUMP_IF_EQ; break;    // specialized
+        case TOKEN_LESS:          jump_op = OP_JUMP_IF_GTE; jump_op_imm = OP_JUMP_IF_GTE_IMM; has_imm = true; break;
+        case TOKEN_LESS_EQUAL:    jump_op = OP_JUMP_IF_GT;  jump_op_imm = OP_JUMP_IF_GT_IMM;  has_imm = true; break;
+        case TOKEN_GREATER:       jump_op = OP_JUMP_IF_LTE; jump_op_imm = OP_JUMP_IF_LTE_IMM; has_imm = true; break;
+        case TOKEN_GREATER_EQUAL: jump_op = OP_JUMP_IF_LT;  jump_op_imm = OP_JUMP_IF_LT_IMM;  has_imm = true; break;
+        case TOKEN_EQUAL_EQUAL:   jump_op = both_numbers ? OP_JUMP_IF_NEQ_NUM : OP_JUMP_IF_NEQ; jump_op_imm = OP_JUMP_IF_NEQ_IMM; has_imm = true; break;  // specialized
+        case TOKEN_NOT_EQUAL:     jump_op = both_numbers ? OP_JUMP_IF_EQ_NUM : OP_JUMP_IF_EQ;   jump_op_imm = OP_JUMP_IF_EQ_IMM;   has_imm = true; break;  // specialized
         default: return -1;                                                  // not optimizable
+    }
+    
+    double imm_val;                                                          // folded immediate
+    if (has_imm && try_fold_number(right, &imm_val) &&                       // right folds to a small int
+        imm_val == (int)imm_val && imm_val >= 0 && imm_val <= 65535) {
+        int left_reg = codegen_expression(cg, left);                         // evaluate left
+        int jump_offset = emit(cg, INST(jump_op_imm, 0, left_reg, (int)imm_val), line);  // fused jump
+        free_register(cg, left_reg);                                         // free left
+        return jump_offset;                                                  // return jump offset
     }
     
     int left_reg = codegen_expression(cg, left);                             // evaluate left
@@ -2268,6 +2401,7 @@ static void codegen_expr_statement(CodeGenerator* cg, ASTNode* node) {
 // statement dispatcher that routes each ast node type to its codegen function
 static void codegen_statement(CodeGenerator* cg, ASTNode* node) {
     if (!node) return;                                                       // guard against null
+    cg->imm_lvn.count = 0;                                                   // cache is statement-scoped
     switch (node->type) {                                                    // dispatch by type
         case AST_VAR_DECL:        codegen_var_decl(cg, node); break;         // variable decl
         case AST_ASSIGN:          codegen_assign(cg, node); break;           // assignment

@@ -58,12 +58,18 @@ static void emit_call_func(CodeBuf* cb, JITContext* ctx, int func_idx) {
 // returns the jcc opcode that exits the loop when the entry condition is met
 static uint8_t jcc_for_entry_op(Opcode op) {
     switch (op) {
-        case OP_JUMP_IF_EQ:     case OP_JUMP_IF_EQ_NUM:  return 0x84;  // je
-        case OP_JUMP_IF_NEQ:    case OP_JUMP_IF_NEQ_NUM: return 0x85;  // jne
-        case OP_JUMP_IF_LT:  return 0x82;  // jb
-        case OP_JUMP_IF_GT:  return 0x87;  // ja
-        case OP_JUMP_IF_LTE: return 0x86;  // jbe
-        case OP_JUMP_IF_GTE: return 0x83;  // jae
+        case OP_JUMP_IF_EQ:     case OP_JUMP_IF_EQ_NUM:  return 0x84;
+        case OP_JUMP_IF_NEQ:    case OP_JUMP_IF_NEQ_NUM: return 0x85;
+        case OP_JUMP_IF_LT:  return 0x82;
+        case OP_JUMP_IF_GT:  return 0x87;
+        case OP_JUMP_IF_LTE: return 0x86;
+        case OP_JUMP_IF_GTE: return 0x83;
+        case OP_JUMP_IF_EQ_IMM:  return 0x84;   // same jcc, different operand form
+        case OP_JUMP_IF_NEQ_IMM: return 0x85;
+        case OP_JUMP_IF_LT_IMM:  return 0x82;
+        case OP_JUMP_IF_GT_IMM:  return 0x87;
+        case OP_JUMP_IF_LTE_IMM: return 0x86;
+        case OP_JUMP_IF_GTE_IMM: return 0x83;
         default:             return 0x84;
     }
 }
@@ -567,6 +573,35 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 did_flush = true;                                // suppress merge flush
                 break;
             }
+            case OP_JUMP_IF_EQ_IMM:                              // branch if a == imm
+            case OP_JUMP_IF_NEQ_IMM:
+            case OP_JUMP_IF_LT_IMM:
+            case OP_JUMP_IF_GT_IMM:
+            case OP_JUMP_IF_LTE_IMM:
+            case OP_JUMP_IF_GTE_IMM: {                           // imm-jump variants share the pattern
+                int xa = x86_cache_load(&cache, cb, a);          // load left operand
+                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }
+                x86_emit_load_double_imm(cb, XMM_SCRATCH, b);    // xmm7 = (double)b
+                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
+                emit_u8(cb, 0xC0 | (xa << 3) | XMM_SCRATCH);     // ucomisd a, xmm7
+                x86_cache_flush(&cache, cb);                     // flush before branch
+                uint8_t jcc;
+                switch (op) {
+                    case OP_JUMP_IF_EQ_IMM:  jcc = 0x84; break;  // je
+                    case OP_JUMP_IF_NEQ_IMM: jcc = 0x85; break;  // jne
+                    case OP_JUMP_IF_LT_IMM:  jcc = 0x82; break;  // jb
+                    case OP_JUMP_IF_GT_IMM:  jcc = 0x87; break;  // ja
+                    case OP_JUMP_IF_LTE_IMM: jcc = 0x86; break;  // jbe
+                    default:                 jcc = 0x83; break;  // jae (gte)
+                }
+                emit_u8(cb, 0x0F); emit_u8(cb, jcc);             // conditional jump
+                fixups[fixup_count].patch_at  = cb->len;
+                fixups[fixup_count].target_pc = d;
+                fixup_count++;
+                emit_i32(cb, 0);
+                did_flush = true;
+                break;
+            }
             case OP_JUMP_MATCH_NUM: {                            // jump if R[a] is a number == const[b]
                 int xa = x86_cache_load(&cache, cb, a);          // load subject
                 if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }
@@ -1068,6 +1103,13 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
     }
 }
 
+// returns true when an opcode is an immediate-comparison jump entry
+static bool entry_op_is_imm(Opcode op) {
+    return op == OP_JUMP_IF_EQ_IMM || op == OP_JUMP_IF_NEQ_IMM ||
+           op == OP_JUMP_IF_LT_IMM || op == OP_JUMP_IF_GT_IMM ||
+           op == OP_JUMP_IF_LTE_IMM || op == OP_JUMP_IF_GTE_IMM;
+}
+
 // emits one iteration (entry test + body) and returns the fixup offset for the exit jump
 static size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                                    XmmCache* cache, JitLoopInfo* info, int const_slot,
@@ -1108,7 +1150,20 @@ static size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf
         if (!iter_in_xmm) {
             x86_emit_movsd_store(cb, 7, x86_slot_disp(info->nregs));  // store iterator
         }
-    } else {                                                 // condition-based loop
+    } else if (entry_op_is_imm(chunk->code[entry].opcode)) { // imm-compare loop entry
+        Instruction* entry_inst = &chunk->code[entry];
+        int a = entry_inst->operands[1];                     // left operand slot
+        int imm = entry_inst->operands[2];                   // immediate
+        int xa = x86_cache_load(cache, cb, a);               // load left operand
+        if (xa < 0) return (size_t)-1;                       // register cache full
+        x86_emit_load_double_imm(cb, XMM_SCRATCH, imm);      // xmm7 = (double)imm
+        emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
+        emit_u8(cb, 0xC0 | (xa << 3) | XMM_SCRATCH);         // ucomisd xa, xmm7
+        uint8_t jcc = jcc_for_entry_op(entry_inst->opcode);  // exit condition opcode
+        emit_u8(cb, 0x0F); emit_u8(cb, jcc);                 // conditional exit
+        exit_patch = cb->len;                                // record placeholder offset
+        emit_i32(cb, 0);                                     // placeholder for rel32
+    } else {                                                 // condition-based loop (register-register)
         Instruction* entry_inst = &chunk->code[entry];
         int a = entry_inst->operands[1];                     // left operand slot
         int b = entry_inst->operands[2];                     // right operand slot

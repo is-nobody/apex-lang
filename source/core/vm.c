@@ -1573,6 +1573,12 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_JUMP_IF_GT]         = &&OP_JUMP_IF_GT_LABEL,
         [OP_JUMP_IF_LTE]        = &&OP_JUMP_IF_LTE_LABEL,
         [OP_JUMP_IF_GTE]        = &&OP_JUMP_IF_GTE_LABEL,
+        [OP_JUMP_IF_EQ_IMM]     = &&OP_JUMP_IF_EQ_IMM_LABEL,
+        [OP_JUMP_IF_NEQ_IMM]    = &&OP_JUMP_IF_NEQ_IMM_LABEL,
+        [OP_JUMP_IF_LT_IMM]     = &&OP_JUMP_IF_LT_IMM_LABEL,
+        [OP_JUMP_IF_GT_IMM]     = &&OP_JUMP_IF_GT_IMM_LABEL,
+        [OP_JUMP_IF_LTE_IMM]    = &&OP_JUMP_IF_LTE_IMM_LABEL,
+        [OP_JUMP_IF_GTE_IMM]    = &&OP_JUMP_IF_GTE_IMM_LABEL,
 
         [OP_JUMP_MATCH_NUM]     = &&OP_JUMP_MATCH_NUM_LABEL,
         [OP_JUMP_MATCH_STR]     = &&OP_JUMP_MATCH_STR_LABEL,
@@ -2102,6 +2108,72 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
         du64 b = {.u = regs[ip->operands[2]]};   // reinterpret right operand as double via union
         if (a.d >= b.d) {                        // compare as doubles, greater or equal
+            ip = &vm->code[target];              // jump to target
+            goto *dispatch_table[ip->opcode];    // dispatch next instruction
+        }
+        ip++; goto *dispatch_table[ip->opcode];  // fall through
+    }
+    OP_JUMP_IF_EQ_IMM_LABEL: {
+        APEX_TRY_JIT_LOOP();
+        int target = ip->operands[0];            // jump target address
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
+        double imm = (double)ip->operands[2];    // immediate as double
+        if (a.d == imm) {                        // compare as doubles
+            ip = &vm->code[target];              // jump to target
+            goto *dispatch_table[ip->opcode];    // dispatch next instruction
+        }
+        ip++; goto *dispatch_table[ip->opcode];  // fall through
+    }
+    OP_JUMP_IF_NEQ_IMM_LABEL: {
+        APEX_TRY_JIT_LOOP();
+        int target = ip->operands[0];            // jump target address
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
+        double imm = (double)ip->operands[2];    // immediate as double
+        if (a.d != imm) {                        // compare as doubles
+            ip = &vm->code[target];              // jump to target
+            goto *dispatch_table[ip->opcode];    // dispatch next instruction
+        }
+        ip++; goto *dispatch_table[ip->opcode];  // fall through
+    }
+    OP_JUMP_IF_LT_IMM_LABEL: {
+        APEX_TRY_JIT_LOOP();
+        int target = ip->operands[0];            // jump target address
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
+        double imm = (double)ip->operands[2];    // immediate as double
+        if (a.d < imm) {                         // compare as doubles
+            ip = &vm->code[target];              // jump to target
+            goto *dispatch_table[ip->opcode];    // dispatch next instruction
+        }
+        ip++; goto *dispatch_table[ip->opcode];  // fall through
+    }
+    OP_JUMP_IF_GT_IMM_LABEL: {
+        APEX_TRY_JIT_LOOP();
+        int target = ip->operands[0];            // jump target address
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
+        double imm = (double)ip->operands[2];    // immediate as double
+        if (a.d > imm) {                         // compare as doubles
+            ip = &vm->code[target];              // jump to target
+            goto *dispatch_table[ip->opcode];    // dispatch next instruction
+        }
+        ip++; goto *dispatch_table[ip->opcode];  // fall through
+    }
+    OP_JUMP_IF_LTE_IMM_LABEL: {
+        APEX_TRY_JIT_LOOP();
+        int target = ip->operands[0];            // jump target address
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
+        double imm = (double)ip->operands[2];    // immediate as double
+        if (a.d <= imm) {                        // compare as doubles
+            ip = &vm->code[target];              // jump to target
+            goto *dispatch_table[ip->opcode];    // dispatch next instruction
+        }
+        ip++; goto *dispatch_table[ip->opcode];  // fall through
+    }
+    OP_JUMP_IF_GTE_IMM_LABEL: {
+        APEX_TRY_JIT_LOOP();
+        int target = ip->operands[0];            // jump target address
+        du64 a = {.u = regs[ip->operands[1]]};   // reinterpret left operand as double via union
+        double imm = (double)ip->operands[2];    // immediate as double
+        if (a.d >= imm) {                        // compare as doubles
             ip = &vm->code[target];              // jump to target
             goto *dispatch_table[ip->opcode];    // dispatch next instruction
         }
