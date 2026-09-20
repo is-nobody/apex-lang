@@ -23,9 +23,12 @@ int jit_match_str(Value subj, StringObject* case_str) {
     return memcmp(s->chars, case_str->chars, s->length) == 0;
 }
 
-// JIT helper: release the previous vm-register value before the loop
-static void jit_decref_if_heap(Value v) {
-    if ((v & QNAN) == QNAN) value_decref(v);
+// JIT helper: replace *dst with new_val
+static void jit_store_slot(Value* dst, Value new_val) {
+    Value old = *dst;
+    if ((new_val & QNAN) == QNAN) value_incref(new_val);
+    if ((old & QNAN) == QNAN)     value_decref(old);
+    *dst = new_val;
 }
 
 // two-digit lookup, eliminates one div per digit
@@ -1766,20 +1769,38 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
         m &= m - 1;
         if (s >= 64) break;                                  // beyond tracked range
         if (info->ref_writes & (1ULL << s)) continue;        // refcounted value — keep vm's copy
-        if (save_slot >= 0) {                                // release the old value first
-            x86_emit_load_r64_base(cb, X86_RAX, abi->frame_reg, s * 8);  // rax = R[s]
-            x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));
-    #if defined(_WIN32) || defined(_WIN64)
-            emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC1);  // mov rcx, rax
-    #else
-            emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC7);  // mov rdi, rax
-    #endif
-            x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_decref_if_heap);
-            emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);            // call rax
+
+        if (save_slot >= 0) {
+            x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // save frame_reg
+
+            // arg0: &pool[s] = frame_reg + s*8
+            if (s != 0) {
+                emit_u8(cb, 0x48); emit_u8(cb, 0x81);
+#if defined(_WIN32) || defined(_WIN64)
+                emit_u8(cb, 0xC1);                                 // add rcx, imm32
+#else
+                emit_u8(cb, 0xC7);                                 // add rdi, imm32
+#endif
+                emit_i32(cb, s * 8);
+            }
+
+            // arg1: frame[s]
+            x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(s));
+#if defined(_WIN32) || defined(_WIN64)
+            emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC2);  // mov rdx, rax
+#else
+            emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC6);  // mov rsi, rax
+#endif
+
+            x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_store_slot);
+            emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);
+
             x86_emit_load_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // restore frame_reg
+        } else {
+            // no save slot reserved: fall back to plain store (no refcount)
+            x86_emit_movsd_load(cb, 0, x86_slot_disp(s));
+            x86_emit_movsd_store_base(cb, abi->frame_reg, 0, s * 8);
         }
-        x86_emit_movsd_load(cb, 0, x86_slot_disp(s));        // xmm0 = frame[s]
-        x86_emit_movsd_store_base(cb, abi->frame_reg, 0, s * 8);  // R[s] = xmm0
     }
 
     if ((info->table.used && info->table.slot >= 0) || info->globals_count > 0) {
@@ -1901,18 +1922,32 @@ int frame_slots = save_slot + 1;                         // incl. the unused con
         if (s >= 64) break;                                  // beyond tracked range
         if (s == var_reg) continue;                          // already written by the loop body
         if (info->ref_writes & (1ULL << s)) continue;        // refcounted value — keep vm's copy
-        x86_emit_load_r64_base(cb, X86_RAX, abi->frame_reg, s * 8);  // rax = R[s]
-        x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));
-    #if defined(_WIN32) || defined(_WIN64)
-        emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC1);      // mov rcx, rax
-    #else
-        emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC7);      // mov rdi, rax
-    #endif
-        x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_decref_if_heap);
-        emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                // call rax
+
+        x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // save frame_reg
+
+        // arg0: &pool[s] = frame_reg + s*8
+        if (s != 0) {
+            emit_u8(cb, 0x48); emit_u8(cb, 0x81);
+#if defined(_WIN32) || defined(_WIN64)
+            emit_u8(cb, 0xC1);                                    // add rcx, imm32
+#else
+            emit_u8(cb, 0xC7);                                    // add rdi, imm32
+#endif
+            emit_i32(cb, s * 8);
+        }
+
+        // arg1: frame[s]
+        x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(s));
+#if defined(_WIN32) || defined(_WIN64)
+        emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC2);  // mov rdx, rax
+#else
+        emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC6);  // mov rsi, rax
+#endif
+
+        x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_store_slot);
+        emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);
+
         x86_emit_load_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // restore frame_reg
-        x86_emit_movsd_load(cb, 0, x86_slot_disp(s));        // xmm0 = frame[s]
-        x86_emit_movsd_store_base(cb, abi->frame_reg, 0, s * 8);  // R[s] = xmm0
     }
 
     x86_emit_load_r64_rbp(cb, X86_RBX, -off_rbx);             // restore caller's rbx
