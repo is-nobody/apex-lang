@@ -259,6 +259,9 @@ int  x86_cache_load_excl(XmmCache* c, CodeBuf* cb, int s, int excl1, int excl2);
 // convenience wrapper around x86_cache_load_excl with no exclusions
 int  x86_cache_load(XmmCache* c, CodeBuf* cb, int s);
 
+// returns the xmm currently holding slot s, or -1 if not cached
+int  x86_cache_lookup(const XmmCache* c, int s);
+
 // marks xmm x as holding slot s (dirty), invalidating prior mappings
 void x86_cache_put(XmmCache* c, int x, int s);
 

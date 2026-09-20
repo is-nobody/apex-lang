@@ -1245,7 +1245,12 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
                 case OP_CMP_LTE: cc = 0x96; break;               // setbe
                 default:         cc = 0x93; break;               // setae (gte)
             }
-            int xd = x86_cache_alloc_excl(cache, cb, xa, xb);    // pick dest xmm
+            // reuse the xmm currently holding d, if any: keeps the dest in
+            // the same register across a preceding JUMP_IF_FALSE local-skip,
+            // so both paths reach the successor with an identical cache state
+            int xd = x86_cache_lookup(cache, d);
+            if (xd == xa || xd == xb) xd = -1;                   // dest aliases a source
+            if (xd < 0) xd = x86_cache_alloc_excl(cache, cb, xa, xb);  // pick dest xmm
             if (xd < 0) return;                                  // register cache full
             x86_emit_cmp_box_result(cb, xd, cc);                 // nan-boxed MAKE_BOOL into xd
             x86_cache_put(cache, xd, d);                         // cache dest
@@ -2099,7 +2104,20 @@ static bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
             if (xa < 0) { cb->len = mark; return false; }
             x86_emit_movq_rax_xmm(cb, xa);                   // rax = raw 64-bit slot
             emit_u8(cb, 0xA8); emit_u8(cb, 0x01);            // test al, 1
-            x86_cache_flush(&cache, cb);                     // flush before branch
+            // local skip over a single CMP writing the same register: the
+            // CMP reuses cond_reg's xmm (see emit_loop_body_instr), so both
+            // paths reach pc+2 with d in the same xmm and no spill is needed
+            bool local_skip = (tgt == pc + 2) &&
+                              (chunk->code[pc + 1].operands[0] == cond_reg) &&
+                              (chunk->code[pc + 1].opcode == OP_CMP_EQ ||
+                               chunk->code[pc + 1].opcode == OP_CMP_EQ_NUM ||
+                               chunk->code[pc + 1].opcode == OP_CMP_NEQ ||
+                               chunk->code[pc + 1].opcode == OP_CMP_NEQ_NUM ||
+                               chunk->code[pc + 1].opcode == OP_CMP_LT ||
+                               chunk->code[pc + 1].opcode == OP_CMP_GT ||
+                               chunk->code[pc + 1].opcode == OP_CMP_LTE ||
+                               chunk->code[pc + 1].opcode == OP_CMP_GTE);
+            if (!local_skip) x86_cache_flush(&cache, cb);    // flush before branch
             emit_u8(cb, 0x0F); emit_u8(cb, 0x84);            // je rel32 (bit0 == 0 -> false)
             if (nfix >= range_size) { cb->len = mark; return false; }
             fixups[nfix].patch_at  = cb->len;
