@@ -2130,6 +2130,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
 
     OP_JUMP_LABEL:
+        APEX_TRY_JIT_LOOP();
         ip = &vm->code[ip->operands[0]];          // jump to target address
         goto *dispatch_table[ip->opcode];         // dispatch next instruction
     OP_JUMP_IF_FALSE_LABEL: {

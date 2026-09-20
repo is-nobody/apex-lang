@@ -166,6 +166,9 @@ JITContext* jit_create(BytecodeChunk* chunk) {
             for (int i = 0; i < ctx->loop_count; i++) {
                 if (!ctx->loops[i].native_fn && !ctx->loops[i].native_fn_neg) continue;  // skip failed emits
                 ctx->pc_to_loop[ctx->loops[i].entry_pc] = i;     // entry pc -> loop index
+                if (ctx->loops[i].kind == JIT_LOOP_COND_ENTER) {
+                    ctx->pc_to_loop[ctx->loops[i].back_edge_pc] = i;
+                }
             }
         }
     }

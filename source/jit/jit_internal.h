@@ -36,6 +36,7 @@ typedef enum {
     JIT_LOOP_NUMERIC_FOR = 0,  // OP_FOR_NEXT entry
     JIT_LOOP_CONDITION   = 1,  // OP_JUMP_IF_* entry
     JIT_LOOP_TABLE_ITER  = 2,  // OP_TABLE_ITER_NEXT entry
+    JIT_LOOP_COND_ENTER  = 3,  // arbitrary entry pc; body exits via JUMP_IF_FALSE past back edge
 } JitLoopKind;
 
 // how a live-in slot is validated before the native loop runs

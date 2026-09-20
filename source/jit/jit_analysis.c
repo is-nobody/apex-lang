@@ -49,6 +49,7 @@ static bool is_pure_loop_instr(JITContext* ctx, int pc) {
         case OP_CMP_EQ:     case OP_CMP_NEQ:                 // generic compares
         case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
         case OP_JUMP:                                        // unconditional
+        case OP_JUMP_IF_FALSE:                               // short-circuit exit test
         case OP_JUMP_IF_EQ:     case OP_JUMP_IF_NEQ:         // conditional branches
         case OP_JUMP_IF_EQ_NUM: case OP_JUMP_IF_NEQ_NUM:
         case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:
@@ -301,6 +302,9 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
             case OP_LOAD_BOOL: case OP_LOAD_NONE:                // writes d only
                 if (d >= 0 && d < 64) pc_writes |= 1ULL << d;
                 break;
+            case OP_JUMP_IF_FALSE:                               // reads cond register only
+                if (a >= 0 && a < 64) pc_reads |= 1ULL << a;
+                break;
             case OP_JUMP_IF_EQ: case OP_JUMP_IF_NEQ:
             case OP_JUMP_IF_EQ_NUM: case OP_JUMP_IF_NEQ_NUM:
             case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:
@@ -517,13 +521,12 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
         if (loop_op == OP_JUMP) {                                // classic JUMP back edge
             entry = chunk->code[pc].operands[0];
             if (entry >= pc || entry < start) continue;          // must be backward and in-range
-            if (!is_loop_entry_op(chunk->code[entry].opcode)) continue;  // valid entry opcode
         } else if (loop_op == OP_FOR_NEXT_LOOP) {                // loop-inverted back edge
             int body_target = chunk->code[pc].operands[1];       // body start (target on success)
-            if (body_target >= pc || body_target < start) continue;  // must be backward
-            if (body_target - 1 < start) continue;               // need room for the first FOR_NEXT
-            if (chunk->code[body_target - 1].opcode != OP_FOR_NEXT) continue;  // entry must be FOR_NEXT
-            entry = body_target - 1;                             // the first FOR_NEXT is the loop entry
+            if (body_target >= pc || body_target < start) continue;
+            if (body_target - 1 < start) continue;
+            if (chunk->code[body_target - 1].opcode != OP_FOR_NEXT) continue;
+            entry = body_target - 1;
         } else {
             continue;                                            // not a back edge
         }
@@ -531,7 +534,7 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
         Opcode entry_op = chunk->code[entry].opcode;
         int exit_pc = -1;
         int for_var_reg = -1, for_end_reg = -1, for_step_reg = -1, step_sign = 0;
-        JitLoopKind kind = JIT_LOOP_CONDITION;                   // default: conditional loop
+        JitLoopKind kind = JIT_LOOP_CONDITION;
 
         if (entry_op == OP_FOR_NEXT) {                           // numeric-for loop
             if (chunk->code[entry].operands[2] != 0) continue;   // non-numeric for — reject
@@ -540,18 +543,40 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
         } else if (entry_op == OP_TABLE_ITER_NEXT) {             // table iteration loop
             exit_pc = chunk->code[entry].operands[2];            // exit address in op3
             kind = JIT_LOOP_TABLE_ITER;
-        } else {                                                 // conditional loop
+        } else if (is_loop_entry_op(entry_op)) {                 // classic condition-entry
             exit_pc = chunk->code[entry].operands[0];            // exit address in op1
+            kind = JIT_LOOP_CONDITION;
+        } else if (loop_op == OP_JUMP && entry_op != OP_JUMP_IF_FALSE) {
+            int found_exit = -1;
+            for (int i = entry + 1; i <= pc; i++) {
+                if (chunk->code[i].opcode != OP_JUMP_IF_FALSE) continue;
+                int tgt = chunk->code[i].operands[0];
+                if (tgt <= pc) continue;                         // internal skip, not an exit
+                if (found_exit < 0) found_exit = tgt;
+                else if (found_exit != tgt) { found_exit = -2; break; }  // multiple exits
+            }
+            if (found_exit < 0) continue;                        // no exit found
+            exit_pc = found_exit;
+            kind = JIT_LOOP_COND_ENTER;
+        } else {
+            continue;                                            // not a supported pattern
         }
+
         if (exit_pc != pc + 1) continue;                         // exit must be right after back edge
 
         bool ok = true;
-        for (int i = entry + 1; i < pc && ok; i++) {             // no jumps inside body
+        for (int i = entry + 1; i < pc && ok; i++) {             // internal branch scan
             Opcode op = chunk->code[i].opcode;
+            if (op == OP_JUMP_IF_FALSE) {
+                if (kind != JIT_LOOP_COND_ENTER) { ok = false; break; }
+                int tgt = chunk->code[i].operands[0];
+                if (tgt >= entry && tgt <= pc) continue;         // internal forward skip
+                if (tgt == exit_pc) continue;                    // loop exit
+                ok = false; break;
+            }
             if (op == OP_JUMP || op == OP_FOR_NEXT ||            // unconditional or nested for
                 op == OP_TABLE_ITER_NEXT ||                      // nested table iter
-                op == OP_JUMP_IF_FALSE ||                        // plain truthy branch
-                (op >= OP_JUMP_IF_EQ && op <= OP_JUMP_IF_GTE_IMM) ||  // all conditional branches, incl. IMM
+                (op >= OP_JUMP_IF_EQ && op <= OP_JUMP_IF_GTE_IMM) ||  // other conds, incl. IMM
                 op == OP_JUMP_MATCH_NUM || op == OP_JUMP_MATCH_STR ||
                 op == OP_JUMP_MATCH_BOOL || op == OP_JUMP_MATCH_NONE) {
                 ok = false;                                      // nested loop or internal branch
@@ -564,17 +589,15 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
         }
         if (!ok) continue;
 
-        if (entry_op == OP_FOR_NEXT) {                           // extra checks for FOR_NEXT
+        if (kind == JIT_LOOP_NUMERIC_FOR) {                      // extra checks for FOR_NEXT
             int fi = entry - 1;
-            if (fi < start) continue;                            // no room for FOR_INIT
-            if (chunk->code[fi].opcode != OP_FOR_INIT) continue; // must be preceded by FOR_INIT
-            for_var_reg  = chunk->code[fi].operands[0];          // loop counter slot
-            for_end_reg  = chunk->code[fi].operands[1];          // end bound slot
-            for_step_reg = chunk->code[fi].operands[2];          // step slot
-            if (chunk->code[entry].operands[0] != for_var_reg) continue;  // FOR_NEXT must use same var
+            if (fi < start) continue;
+            if (chunk->code[fi].opcode != OP_FOR_INIT) continue;
+            for_var_reg  = chunk->code[fi].operands[0];
+            for_end_reg  = chunk->code[fi].operands[1];
+            for_step_reg = chunk->code[fi].operands[2];
+            if (chunk->code[entry].operands[0] != for_var_reg) continue;
 
-            // try to infer step sign from an immediately preceding LOAD_NUM_IMM;
-            // not required — unknown sign falls back to dual emission at emit time
             int p = fi - 1;
             if (p >= start &&
                 chunk->code[p].opcode == OP_LOAD_NUM_IMM &&
@@ -584,13 +607,11 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
                 else if (lit < 0) step_sign = -1;
             }
 
-            // reject dynamic table access that isn't the loop counter
             if (!body_only_uses_counter_index(chunk, entry, pc, for_var_reg)) continue;
-        } else if (entry_op == OP_TABLE_ITER_NEXT) {             // extra checks for TABLE_ITER
+        } else if (kind == JIT_LOOP_TABLE_ITER) {                // extra checks for TABLE_ITER
             int fi = entry - 1;
-            if (fi < start) continue;                            // no room for ITER_INIT
-            if (chunk->code[fi].opcode != OP_TABLE_ITER_INIT) continue;  // must be preceded by ITER_INIT
-            // body must not access any table other than through ITER_NEXT
+            if (fi < start) continue;
+            if (chunk->code[fi].opcode != OP_TABLE_ITER_INIT) continue;
             if (!table_iter_body_is_clean(chunk, entry, pc)) continue;
         }
 
