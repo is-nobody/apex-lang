@@ -80,7 +80,10 @@ if(APEX_JIT_AVAILABLE)
         source/jit/jit.c
         source/jit/jit_analysis.c
         source/jit/x86-64/x86_64_common.c
-        source/jit/x86-64/x86_64_emit.c
+        source/jit/x86-64/x86_64_emit_common.c
+        source/jit/x86-64/x86_64_emit_function.c
+        source/jit/x86-64/x86_64_emit_int.c
+        source/jit/x86-64/x86_64_emit_loop.c
         source/jit/x86-64/x86_64.c
     )
 
