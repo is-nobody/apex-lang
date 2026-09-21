@@ -1423,6 +1423,51 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             }
         }
 
+        // fused emit: CMP_* d,a,b directly followed by JUMP_IF_FALSE d
+        // skips the nan-boxed-bool round-trip: ucomisd sets flags, jcc branches
+        if (pc + 1 < end && !is_target[pc + 1 - start] &&
+            chunk->code[pc + 1].opcode == OP_JUMP_IF_FALSE &&
+            chunk->code[pc + 1].operands[1] == d) {
+            uint8_t fused_jcc = 0;                               // inverted jcc for "jump on false"
+            switch (op) {
+                case OP_CMP_EQ:  case OP_CMP_EQ_NUM:  fused_jcc = 0x85; break;  // jne
+                case OP_CMP_NEQ: case OP_CMP_NEQ_NUM: fused_jcc = 0x84; break;  // je
+                case OP_CMP_LT:  fused_jcc = 0x83; break;                       // jae
+                case OP_CMP_GT:  fused_jcc = 0x86; break;                       // jbe
+                case OP_CMP_LTE: fused_jcc = 0x87; break;                       // ja
+                case OP_CMP_GTE: fused_jcc = 0x82; break;                       // jb
+                default: break;
+            }
+            int fuse_target = fused_jcc ? chunk->code[pc + 1].operands[0] : -1;
+            bool d_dead = fused_jcc && fuse_target >= 0 &&
+                          !slot_read_before_write(chunk, pc + 2, end, d) &&
+                          (fuse_target < pc + 2 ||
+                           !slot_read_before_write(chunk, fuse_target, end, d));
+            if (d_dead) {
+                int xa = x86_cache_load(&cache, cb, a);          // load left operand
+                if (xa < 0) { emit_return_zero(abi, cb, base_frame); continue; }
+                int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load right, avoid xa
+                if (xb < 0) { emit_return_zero(abi, cb, base_frame); continue; }
+                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
+                if (fuse_target >= start && fuse_target < end) {
+                    if (needs_flush[fuse_target - start]) x86_cache_flush(&cache, cb);
+                    else if (use_snap[fuse_target - start]) x86_cache_snap(&jump_snap[fuse_target - start], &cache);
+                } else {
+                    x86_cache_flush(&cache, cb);
+                }
+                emit_u8(cb, 0x0F); emit_u8(cb, fused_jcc);       // jcc rel32
+                fixups[fixup_count].patch_at  = cb->len;         // record placeholder
+                fixups[fixup_count].target_pc = fuse_target;     // remember target pc
+                fixup_count++;                                   // one more pending fixup
+                emit_i32(cb, 0);                                 // placeholder
+                pc++;                                            // skip the JUMP_IF_FALSE
+                if (pc + 1 < end && needs_flush[pc + 1 - start]) {
+                    x86_cache_flush(&cache, cb);                 // fall-through merge flush
+                }
+                continue;                                        // skip the normal switch
+            }
+        }
+
         switch (op) {
             case OP_MOVE: {                                      // reg-to-reg copy
                 int xa = x86_cache_load(&cache, cb, a);          // find xmm for source
@@ -3417,6 +3462,54 @@ static bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
     for (int pc = entry; pc < back_edge; pc++) {
         label_off[pc - entry] = (int32_t)cb->len;
         Instruction* inst = &chunk->code[pc];
+
+        // fused emit: CMP_* d,a,b directly followed by JUMP_IF_FALSE d
+        // skips the nan-boxed-bool round-trip: ucomisd sets flags, jcc branches
+        if (pc + 1 < back_edge &&
+            chunk->code[pc + 1].opcode == OP_JUMP_IF_FALSE &&
+            chunk->code[pc + 1].operands[1] == inst->operands[0]) {
+            uint8_t fused_jcc = 0;                               // inverted jcc for "jump on false"
+            switch (inst->opcode) {
+                case OP_CMP_EQ:  case OP_CMP_EQ_NUM:  fused_jcc = 0x85; break;  // jne
+                case OP_CMP_NEQ: case OP_CMP_NEQ_NUM: fused_jcc = 0x84; break;  // je
+                case OP_CMP_LT:  fused_jcc = 0x83; break;                       // jae
+                case OP_CMP_GT:  fused_jcc = 0x86; break;                       // jbe
+                case OP_CMP_LTE: fused_jcc = 0x87; break;                       // ja
+                case OP_CMP_GTE: fused_jcc = 0x82; break;                       // jb
+                default: break;
+            }
+            bool pc1_is_target = false;                          // is pc+1 already a jump target?
+            if (fused_jcc) {
+                for (int q = entry; q < pc + 1; q++) {
+                    if (chunk->code[q].opcode == OP_JUMP_IF_FALSE &&
+                        chunk->code[q].operands[0] == pc + 1) { pc1_is_target = true; break; }
+                }
+            }
+            int fuse_target = fused_jcc ? chunk->code[pc + 1].operands[0] : -1;
+            bool d_dead = fused_jcc && !pc1_is_target && fuse_target >= 0 &&
+                          !slot_read_before_write(chunk, pc + 2, back_edge, inst->operands[0]) &&
+                          (fuse_target < pc + 2 ||
+                           !slot_read_before_write(chunk, fuse_target, back_edge, inst->operands[0]));
+            if (d_dead) {
+                int a = inst->operands[1];
+                int b = inst->operands[2];
+                int xa = x86_cache_load(&cache, cb, a);          // load left operand
+                if (xa < 0) { cb->len = mark; return false; }
+                int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load right, avoid xa
+                if (xb < 0) { cb->len = mark; return false; }
+                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
+                x86_cache_flush(&cache, cb);                     // target may be a merge point
+                emit_u8(cb, 0x0F); emit_u8(cb, fused_jcc);       // jcc rel32
+                if (nfix >= range_size) { cb->len = mark; return false; }
+                fixups[nfix].patch_at  = cb->len;                // record placeholder
+                fixups[nfix].target_pc = fuse_target;            // remember target pc
+                nfix++;                                          // one more pending fixup
+                emit_i32(cb, 0);                                 // placeholder
+                pc++;                                            // skip the JUMP_IF_FALSE
+                continue;                                        // skip the normal dispatch
+            }
+        }
+
         if (inst->opcode == OP_JUMP_IF_FALSE) {
             int cond_reg = inst->operands[1];                // condition register
             int tgt      = inst->operands[0];                // forward target
