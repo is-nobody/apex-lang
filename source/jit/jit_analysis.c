@@ -598,13 +598,14 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
             for_step_reg = chunk->code[fi].operands[2];
             if (chunk->code[entry].operands[0] != for_var_reg) continue;
 
-            int p = fi - 1;
-            if (p >= start &&
-                chunk->code[p].opcode == OP_LOAD_NUM_IMM &&
-                chunk->code[p].operands[0] == for_step_reg) {
-                int lit = chunk->code[p].operands[1];
+            for (int p = fi - 1; p >= start && p >= fi - 8; p--) {
+                Instruction* ip = &chunk->code[p];
+                if (ip->opcode != OP_LOAD_NUM_IMM) continue;   // skip interleaved loads
+                if (ip->operands[0] != for_step_reg) continue; // not a write to step
+                int lit = ip->operands[1];
                 if (lit > 0) step_sign = +1;
                 else if (lit < 0) step_sign = -1;
+                break;                                         // last write to step wins
             }
 
             if (!body_only_uses_counter_index(chunk, entry, pc, for_var_reg)) continue;

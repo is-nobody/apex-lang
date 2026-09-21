@@ -13,6 +13,10 @@
 // rounds n up to the next multiple of 16
 static int align16(int n) { return (n + 15) & ~15; }
 
+// forward declaration: the int-specialized loop emitters fall back to it
+static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
+                                      JitLoopInfo* info, int step_sign, void** out_fn);
+
 // callee-saved gprs usable as slot pockets on all supported abis
 #define X86_N_GPR_POCKETS 5
 
@@ -636,6 +640,385 @@ static void emit_int_wrapper(CodeBuf* cb, size_t general_off, size_t int_off,
     int32_t jmp_rel = (int32_t)general_off - (int32_t)(cb->len + 4);
     emit_i32(cb, jmp_rel);
 }
+
+// GPRs available to hold bytecode slots inside an int64-specialized loop;
+// all caller-saved so the wrapper needs no callee-saved prologue
+#define INT_LOOP_N_GPRS 8
+
+static const int int_loop_gprs[INT_LOOP_N_GPRS] = {
+    X86_RAX, X86_RCX, X86_RDX, X86_RSI, X86_R8, X86_R9, X86_R10, X86_R11
+};
+
+// returns true if an opcode can execute in int64 GPR mode without losing
+// semantics; excludes DIV/MOD (fractional), CMP_* (bool boxing), and every
+// op that calls, touches tables, or reads globals
+static bool op_is_int_safe(Opcode op) {
+    switch (op) {
+        case OP_MOVE:
+        case OP_LOAD_NUM_IMM:
+        case OP_ADD:  case OP_SUB:  case OP_MUL:
+        case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:
+        case OP_INC:  case OP_DEC:
+        case OP_JUMP:
+        case OP_JUMP_IF_EQ:  case OP_JUMP_IF_NEQ:
+        case OP_JUMP_IF_LT:  case OP_JUMP_IF_GT:
+        case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:
+        case OP_JUMP_IF_EQ_IMM:  case OP_JUMP_IF_NEQ_IMM:
+        case OP_JUMP_IF_LT_IMM:  case OP_JUMP_IF_GT_IMM:
+        case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// checks whether every body instruction between entry and back_edge is
+// int-safe; the loop entry (FOR_NEXT or JUMP_IF_*) is handled separately
+static bool loop_body_is_int_safe(BytecodeChunk* chunk, int entry, int back_edge) {
+    for (int pc = entry + 1; pc < back_edge; pc++) {
+        if (!op_is_int_safe(chunk->code[pc].opcode)) return false;
+    }
+    return true;
+}
+
+// assigns one GPR to every bytecode slot the loop touches; returns the
+// number of GPRs used, or -1 if the loop needs more than the pool has
+static int assign_int_loop_gprs(JITContext* ctx, JitLoopInfo* info,
+                                 int slot_gpr[JIT_MAX_SLOTS]) {
+    for (int i = 0; i < JIT_MAX_SLOTS; i++) slot_gpr[i] = -1;
+    uint64_t used = info->live_in | info->live_out;
+    if (info->for_var_reg  >= 0) used |= 1ULL << info->for_var_reg;
+    if (info->for_end_reg  >= 0) used |= 1ULL << info->for_end_reg;
+    if (info->for_step_reg >= 0) used |= 1ULL << info->for_step_reg;
+    if (info->kind == JIT_LOOP_CONDITION) {                  // entry cmp reads a,b
+        Instruction* e = &ctx->chunk->code[info->entry_pc];
+        if (e->operands[1] >= 0 && e->operands[1] < 64) used |= 1ULL << e->operands[1];
+        if (e->operands[2] >= 0 && e->operands[2] < 64) used |= 1ULL << e->operands[2];
+    }
+    int n = 0;
+    while (used) {
+        int s = __builtin_ctzll(used);
+        used &= used - 1;
+        if (n >= INT_LOOP_N_GPRS) return -1;
+        slot_gpr[s] = int_loop_gprs[n++];
+    }
+    return n;
+}
+
+// fallback: matches_int_accum_loop is gone; the generic emitter below
+// replaces it and works on any int-safe loop, not just counter-sum
+static bool matches_int_accum_loop(JITContext* ctx, JitLoopInfo* info) {
+    if (info->kind != JIT_LOOP_NUMERIC_FOR &&
+        info->kind != JIT_LOOP_CONDITION) return false;      // only those two
+    if (info->kind == JIT_LOOP_NUMERIC_FOR && info->step_sign == -1)
+        return false;                                        // step is a known negative
+    if (!loop_body_is_int_safe(ctx->chunk, info->entry_pc, info->back_edge_pc))
+        return false;                                        // body must be int-safe
+    if (!loop_body_is_int_safe(ctx->chunk, info->entry_pc, info->back_edge_pc))
+        return false;                                        // body must be int-safe
+
+    int slot_gpr[JIT_MAX_SLOTS];                             // scratch, just to count
+    if (assign_int_loop_gprs(ctx, info, slot_gpr) < 0) return false;
+    return true;                                             // anything else: general
+}
+
+// emits a GPR-only version of a numeric loop body instruction; each bytecode
+// slot has a dedicated GPR from slot_gpr[], so the ops are direct analogues
+// of the SSE forms but on int64 operands
+static void emit_int_loop_body(CodeBuf* cb, BytecodeChunk* chunk, int pc,
+                                const int* slot_gpr) {
+    Instruction* inst = &chunk->code[pc];
+    int d = inst->operands[0];
+    int a = inst->operands[1];
+    int b = inst->operands[2];
+    int gd = slot_gpr[d];
+    int ga = slot_gpr[a];
+
+    switch (inst->opcode) {
+        case OP_MOVE:                                        // gd = ga
+            if (d == a) break;
+            emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0));        // rex.w + rex.b
+            emit_u8(cb, 0x89);                               // mov r/m64, r64
+            emit_u8(cb, 0xC0 | ((ga & 7) << 3) | (gd & 7));
+            break;
+        case OP_LOAD_NUM_IMM: {                              // gd = imm32
+            int32_t k = a;
+            emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0));
+            emit_u8(cb, 0xC7);                               // mov r/m64, imm32
+            emit_u8(cb, 0xC0 | (gd & 7));
+            emit_i32(cb, k);
+            break;
+        }
+        case OP_ADD: {                                       // gd = ga + gb
+            int gb = slot_gpr[b];
+            if (d != a) {
+                emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0) | (ga >= 8 ? 0x04 : 0));
+                emit_u8(cb, 0x89); emit_u8(cb, 0xC0 | ((ga & 7) << 3) | (gd & 7));
+            }
+            emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0) | (gb >= 8 ? 0x04 : 0));
+            emit_u8(cb, 0x01); emit_u8(cb, 0xC0 | ((gb & 7) << 3) | (gd & 7));
+            break;
+        }
+        case OP_SUB: {                                       // gd = ga - gb
+            int gb = slot_gpr[b];
+            if (d != a) {
+                emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0) | (ga >= 8 ? 0x04 : 0));
+                emit_u8(cb, 0x89); emit_u8(cb, 0xC0 | ((ga & 7) << 3) | (gd & 7));
+            }
+            emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0) | (gb >= 8 ? 0x04 : 0));
+            emit_u8(cb, 0x29); emit_u8(cb, 0xC0 | ((gb & 7) << 3) | (gd & 7));
+            break;
+        }
+        case OP_MUL: {                                       // gd = ga * gb
+            int gb = slot_gpr[b];
+            if (d != a) {
+                emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0) | (ga >= 8 ? 0x04 : 0));
+                emit_u8(cb, 0x89); emit_u8(cb, 0xC0 | ((ga & 7) << 3) | (gd & 7));
+            }
+            emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0) | (gb >= 8 ? 0x04 : 0));
+            emit_u8(cb, 0x0F); emit_u8(cb, 0xAF);            // imul r64, r/m64
+            emit_u8(cb, 0xC0 | ((gd & 7) << 3) | (gb & 7));
+            break;
+        }
+        case OP_ADD_IMM: {                                   // gd = ga + imm8
+            int32_t k = b;
+            if (d != a) {
+                emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0) | (ga >= 8 ? 0x04 : 0));
+                emit_u8(cb, 0x89); emit_u8(cb, 0xC0 | ((ga & 7) << 3) | (gd & 7));
+            }
+            if (k >= -128 && k <= 127) {
+                emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0));
+                emit_u8(cb, 0x83); emit_u8(cb, 0xC0 | (gd & 7));
+                emit_u8(cb, (uint8_t)k);
+            } else {
+                emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0));
+                emit_u8(cb, 0x81); emit_u8(cb, 0xC0 | (gd & 7));
+                emit_i32(cb, k);
+            }
+            break;
+        }
+        case OP_SUB_IMM: {                                   // gd = ga - imm8
+            int32_t k = b;
+            if (d != a) {
+                emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0) | (ga >= 8 ? 0x04 : 0));
+                emit_u8(cb, 0x89); emit_u8(cb, 0xC0 | ((ga & 7) << 3) | (gd & 7));
+            }
+            if (k >= -128 && k <= 127) {
+                emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0));
+                emit_u8(cb, 0x83); emit_u8(cb, 0xE8 | (gd & 7));
+                emit_u8(cb, (uint8_t)k);
+            } else {
+                emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0));
+                emit_u8(cb, 0x81); emit_u8(cb, 0xE8 | (gd & 7));
+                emit_i32(cb, k);
+            }
+            break;
+        }
+        case OP_MUL_IMM: {                                   // gd = ga * imm
+            int32_t k = b;
+            emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0) | (ga >= 8 ? 0x04 : 0));
+            emit_u8(cb, 0x69);                               // imul r64, r/m64, imm32
+            emit_u8(cb, 0xC0 | ((gd & 7) << 3) | (ga & 7));
+            emit_i32(cb, k);
+            break;
+        }
+        case OP_INC: {                                       // gd += 1
+            emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0));
+            emit_u8(cb, 0x83); emit_u8(cb, 0xC0 | (gd & 7));
+            emit_u8(cb, 0x01);
+            break;
+        }
+        case OP_DEC: {                                       // gd -= 1
+            emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0));
+            emit_u8(cb, 0x83); emit_u8(cb, 0xE8 | (gd & 7));
+            emit_u8(cb, 0x01);
+            break;
+        }
+        case OP_JUMP:                                        // rel32 patched by caller
+        case OP_JUMP_IF_EQ: case OP_JUMP_IF_NEQ:
+        case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:
+        case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:
+        case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:
+        case OP_JUMP_IF_LT_IMM: case OP_JUMP_IF_GT_IMM:
+        case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
+            // int-safe bodies never contain internal branches in the loops
+            // this specialization targets; emit a nop so the emitter can bail
+            // out gracefully if that assumption is ever violated
+            emit_u8(cb, 0x90);
+            break;
+        default:
+            emit_u8(cb, 0x90);                               // nop on unsupported op
+            break;
+    }
+}
+
+// emits a runtime check that loads [rdi + slot*8] as double, converts to
+// int64 in gpr, and verifies the round-trip; on mismatch, jumps to the
+// fallback (general double loop emitted after the int loop)
+static void emit_int_guard_load(CodeBuf* cb, int frame_reg, int slot, int gpr,
+                                 size_t* patch_at) {
+    x86_emit_movsd_load_base(cb, frame_reg, 0, slot * 8);    // xmm0 = regs[slot]
+    emit_u8(cb, 0xF2); emit_u8(cb, 0x48 | (gpr >= 8 ? 0x01 : 0));
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x2C);                    // cvttsd2si r64, xmm0
+    emit_u8(cb, 0xC0 | ((gpr & 7) << 3));
+    emit_u8(cb, 0xF2); emit_u8(cb, 0x48 | (gpr >= 8 ? 0x01 : 0));
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x2A);                    // cvtsi2sd xmm1, r64
+    emit_u8(cb, 0xC8 | ((gpr & 7) << 3));
+    emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E); emit_u8(cb, 0xC8);
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x85);                    // jne fallback
+    *patch_at = cb->len; emit_i32(cb, 0);
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x8A);                    // jp fallback
+    *(patch_at + 1) = 0;                                     // placeholder for caller
+    size_t p2 = cb->len; emit_i32(cb, 0);
+    patch_at[1] = p2;                                        // stash second patch site
+}
+
+// emits a full int64 loop: prologue guard, int body, writeback, and the
+// general double loop as a fallback. Works for numeric-for (+1 step) and
+// condition-entry loops whose body only uses int-safe ops
+static bool x86_64_emit_int_loop(const X86_64Abi* abi, JITContext* ctx,
+                                  CodeBuf* cb, JitLoopInfo* info, void** out_fn) {
+    int slot_gpr[JIT_MAX_SLOTS];
+    int n_gpr = assign_int_loop_gprs(ctx, info, slot_gpr);
+    if (n_gpr < 0) return false;
+
+    size_t mark = cb->len;
+    size_t entry_off = cb->len;
+    int regs = abi->frame_reg;
+
+    // one guard per live-in slot (and per var/end/step for numeric-for)
+    uint64_t live = info->live_in;
+    if (info->for_var_reg  >= 0) live |= 1ULL << info->for_var_reg;
+    if (info->for_end_reg  >= 0) live |= 1ULL << info->for_end_reg;
+    if (info->for_step_reg >= 0) live |= 1ULL << info->for_step_reg;
+    if (info->kind == JIT_LOOP_CONDITION) {
+        Instruction* e = &ctx->chunk->code[info->entry_pc];
+        if (e->operands[1] >= 0 && e->operands[1] < 64) live |= 1ULL << e->operands[1];
+        if (e->operands[2] >= 0 && e->operands[2] < 64) live |= 1ULL << e->operands[2];
+    }
+
+    size_t patch_sites[64];                                  // two per guard, plus step
+    int    n_patches = 0;
+#define PUSH_PATCH(off) do { if (n_patches < 64) patch_sites[n_patches++] = (off); } while (0)
+
+    while (live) {
+        int s = __builtin_ctzll(live);
+        live &= live - 1;
+        int gpr = slot_gpr[s];
+        x86_emit_movsd_load_base(cb, regs, 0, s * 8);        // xmm0 = regs[s]
+        emit_u8(cb, 0xF2); emit_u8(cb, 0x48 | (gpr >= 8 ? 0x04 : 0));
+        emit_u8(cb, 0x0F); emit_u8(cb, 0x2C); emit_u8(cb, 0xC0 | ((gpr & 7) << 3));
+        emit_u8(cb, 0xF2); emit_u8(cb, 0x48 | (gpr >= 8 ? 0x01 : 0));
+        emit_u8(cb, 0x0F); emit_u8(cb, 0x2A); emit_u8(cb, 0xC8 | (gpr & 7));
+        emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E); emit_u8(cb, 0xC8);
+        emit_u8(cb, 0x0F); emit_u8(cb, 0x85); PUSH_PATCH(cb->len); emit_i32(cb, 0);
+        emit_u8(cb, 0x0F); emit_u8(cb, 0x8A); PUSH_PATCH(cb->len); emit_i32(cb, 0);
+    }
+
+    // for numeric-for, additionally require step == 1 in int64 space
+    if (info->kind == JIT_LOOP_NUMERIC_FOR) {
+        int gstep = slot_gpr[info->for_step_reg];
+        emit_u8(cb, 0x48 | (gstep >= 8 ? 0x01 : 0));
+        emit_u8(cb, 0x83); emit_u8(cb, 0xF8 | (gstep & 7));  // cmp gstep, 1
+        emit_u8(cb, 0x01);
+        emit_u8(cb, 0x0F); emit_u8(cb, 0x85); PUSH_PATCH(cb->len); emit_i32(cb, 0);
+    }
+
+    // loop structure
+    int gvar = -1, gend = -1;
+    if (info->kind == JIT_LOOP_NUMERIC_FOR) {
+        gvar = slot_gpr[info->for_var_reg];
+        gend = slot_gpr[info->for_end_reg];
+        emit_u8(cb, 0x48 | (gend >= 8 ? 0x04 : 0) | (gvar >= 8 ? 0x01 : 0));
+        emit_u8(cb, 0x39);                                   // cmp gvar, gend
+        emit_u8(cb, 0xC0 | ((gend & 7) << 3) | (gvar & 7));
+        emit_u8(cb, 0x0F); emit_u8(cb, 0x8F);                // jg .done
+        size_t skip = cb->len; emit_i32(cb, 0);
+        size_t loop_top = cb->len;
+        for (int pc = info->entry_pc + 1; pc < info->back_edge_pc; pc++)
+            emit_int_loop_body(cb, ctx->chunk, pc, slot_gpr);
+        emit_u8(cb, 0x48 | (gvar >= 8 ? 0x01 : 0));
+        emit_u8(cb, 0x83); emit_u8(cb, 0xC0 | (gvar & 7));   // add gvar, 1
+        emit_u8(cb, 0x01);
+        emit_u8(cb, 0x48 | (gend >= 8 ? 0x04 : 0) | (gvar >= 8 ? 0x01 : 0));
+        emit_u8(cb, 0x39);
+        emit_u8(cb, 0xC0 | ((gend & 7) << 3) | (gvar & 7));  // cmp gvar, gend
+        emit_u8(cb, 0x0F); emit_u8(cb, 0x8E);                // jle .loop
+        int32_t back = (int32_t)loop_top - (int32_t)(cb->len + 4);
+        emit_i32(cb, back);
+        emit_u8(cb, 0x48 | (gvar >= 8 ? 0x01 : 0));
+        emit_u8(cb, 0x83); emit_u8(cb, 0xE8 | (gvar & 7));   // sub gvar, 1
+        emit_u8(cb, 0x01);
+        int32_t jg = (int32_t)cb->len - (int32_t)(skip + 4);
+        memcpy(cb->buf + skip, &jg, 4);
+    } else {
+        // condition loop: entry is JUMP_IF_<cond> a, b -> exit
+        Instruction* e = &ctx->chunk->code[info->entry_pc];
+        int ga = slot_gpr[e->operands[1]];
+        int gb = (e->opcode >= OP_JUMP_IF_EQ_IMM &&
+                  e->opcode <= OP_JUMP_IF_GTE_IMM)
+               ? -1 : slot_gpr[e->operands[2]];             // IMM variants: use imm
+        size_t loop_top = cb->len;
+        if (gb >= 0) {
+            emit_u8(cb, 0x48 | (ga >= 8 ? 0x01 : 0) | (gb >= 8 ? 0x04 : 0));
+            emit_u8(cb, 0x39);                               // cmp ga, gb
+            emit_u8(cb, 0xC0 | ((gb & 7) << 3) | (ga & 7));
+        } else {
+            int32_t k = e->operands[2];
+            emit_u8(cb, 0x48 | (ga >= 8 ? 0x01 : 0));
+            emit_u8(cb, 0x83); emit_u8(cb, 0xF8 | (ga & 7)); // cmp ga, imm8
+            emit_u8(cb, (uint8_t)k);
+        }
+        uint8_t jcc;
+        switch (e->opcode) {
+            case OP_JUMP_IF_EQ:  case OP_JUMP_IF_EQ_IMM:  jcc = 0x84; break;
+            case OP_JUMP_IF_NEQ: case OP_JUMP_IF_NEQ_IMM: jcc = 0x85; break;
+            case OP_JUMP_IF_LT:  case OP_JUMP_IF_LT_IMM:  jcc = 0x8C; break;
+            case OP_JUMP_IF_GT:  case OP_JUMP_IF_GT_IMM:  jcc = 0x8F; break;
+            case OP_JUMP_IF_LTE: case OP_JUMP_IF_LTE_IMM: jcc = 0x8E; break;
+            default:                                       jcc = 0x8D; break;
+        }
+        emit_u8(cb, 0x0F); emit_u8(cb, jcc);                 // exit if cond
+        size_t exit_patch = cb->len; emit_i32(cb, 0);
+        for (int pc = info->entry_pc + 1; pc < info->back_edge_pc; pc++)
+            emit_int_loop_body(cb, ctx->chunk, pc, slot_gpr);
+        emit_u8(cb, 0xE9);                                   // jmp loop_top
+        int32_t back = (int32_t)loop_top - (int32_t)(cb->len + 4);
+        emit_i32(cb, back);
+        int32_t exit_rel = (int32_t)cb->len - (int32_t)(exit_patch + 4);
+        memcpy(cb->buf + exit_patch, &exit_rel, 4);
+    }
+
+    // writeback: written slots -> double
+    uint64_t written = info->live_out;
+    if (info->for_var_reg >= 0) written |= 1ULL << info->for_var_reg;
+    while (written) {
+        int s = __builtin_ctzll(written);
+        written &= written - 1;
+        int gpr = slot_gpr[s];
+        emit_u8(cb, 0xF2); emit_u8(cb, 0x48 | (gpr >= 8 ? 0x01 : 0));
+        emit_u8(cb, 0x0F); emit_u8(cb, 0x2A); emit_u8(cb, 0xC0 | (gpr & 7));
+        x86_emit_movsd_store_base(cb, regs, 0, s * 8);
+    }
+    emit_u8(cb, 0xC3);                                       // ret
+
+    // fallback: general double loop, entered from any failed guard
+    size_t fallback_at = cb->len;
+    void* gen_fn = NULL;
+    if (!x86_64_emit_numeric_loop(abi, ctx, cb, info, +1, &gen_fn)) {
+        cb->len = mark;
+        return false;
+    }
+    for (int i = 0; i < n_patches; i++) {
+        int32_t r = (int32_t)fallback_at - (int32_t)(patch_sites[i] + 4);
+        memcpy(cb->buf + patch_sites[i], &r, 4);
+    }
+
+    *out_fn = (void*)(cb->buf + entry_off);
+    return true;
+}
+
+#undef PUSH_PATCH
 
 // emits native x86-64 code for a single numeric-pure function
 bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
@@ -2936,6 +3319,9 @@ bool x86_64_emit_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     }
     if (info->kind == JIT_LOOP_COND_ENTER) {                 // condition-entry loop
         return x86_64_emit_cond_enter_loop(abi, ctx, cb, info, out_fn);
+    }
+    if (matches_int_accum_loop(ctx, info)) {                 // int64-specializable loop
+        return x86_64_emit_int_loop(abi, ctx, cb, info, out_fn);
     }
     return x86_64_emit_numeric_loop(abi, ctx, cb, info, step_sign, out_fn);  // numeric or condition loop
 }
