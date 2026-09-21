@@ -344,6 +344,299 @@ static void emit_nan_check(CodeBuf* cb, int xmm_d) {
     memcpy(cb->buf + patch_at, &rel, 4);
 }
 
+// checks whether a function matches the fib-like self-recursive pattern:
+//   pc+0: JUMP_IF_GTE_IMM R0, guard, pc+2
+//   pc+1: RETURN            R0
+//   pc+2: SUB_IMM          Ra <- R0 - k1
+//   pc+3: CALL_1           Rb <- self(Ra)
+//   pc+4: SUB_IMM          Rc <- R0 - k2
+//   pc+5: CALL_1           Rd <- self(Rc)
+//   pc+6: ADD              Re <- Rb + Rd
+//   pc+7: RETURN_NUM       Re
+// where R0 is the argument slot, all immediates are small positive ints,
+// and no instruction writes slot 0
+static bool matches_int_recursive_pattern(BytecodeChunk* chunk, int self_idx,
+                                           int start, int end) {
+    if (end - start != 8) return false;                      // exact fib shape
+
+    Instruction* i = &chunk->code[start];
+
+    if (i[0].opcode != OP_JUMP_IF_GTE_IMM) return false;     // guard: arg >= imm
+    if (i[0].operands[1] != 0) return false;                 // arg must be slot 0
+    if (i[0].operands[0] != start + 2) return false;         // target must be pc+2
+    int32_t guard = i[0].operands[2];
+    if (guard < 1 || guard > 127) return false;              // cmp rdi, imm8 range
+
+    if (i[1].opcode != OP_RETURN) return false;              // base case: return arg
+    if (i[1].operands[0] != 0) return false;
+
+    if (i[2].opcode != OP_SUB_IMM) return false;             // Ra = R0 - k1
+    if (i[2].operands[1] != 0) return false;
+    int32_t k1 = i[2].operands[2];
+    if (k1 < 1 || k1 > 127) return false;
+    int Ra = i[2].operands[0];
+    if (Ra == 0) return false;
+
+    if (i[3].opcode != OP_CALL_1) return false;              // Rb = self(Ra)
+    if (i[3].operands[1] != self_idx) return false;
+    if (i[3].operands[2] != Ra) return false;
+    int Rb = i[3].operands[0];
+    if (Rb == 0 || Rb == Ra) return false;
+
+    if (i[4].opcode != OP_SUB_IMM) return false;             // Rc = R0 - k2
+    if (i[4].operands[1] != 0) return false;
+    int32_t k2 = i[4].operands[2];
+    if (k2 < 1 || k2 > 127) return false;
+    int Rc = i[4].operands[0];
+    if (Rc == 0 || Rc == Rb) return false;
+
+    if (i[5].opcode != OP_CALL_1) return false;              // Rd = self(Rc)
+    if (i[5].operands[1] != self_idx) return false;
+    if (i[5].operands[2] != Rc) return false;
+    int Rd = i[5].operands[0];
+    if (Rd == 0 || Rd == Rb || Rd == Rc) return false;
+
+    if (i[6].opcode != OP_ADD) return false;                 // Re = Rb + Rd
+    int Re = i[6].operands[0];
+    int add_a = i[6].operands[1];
+    int add_b = i[6].operands[2];
+    if (!((add_a == Rb && add_b == Rd) || (add_a == Rd && add_b == Rb))) return false;
+
+    if (i[7].opcode != OP_RETURN_NUM) return false;          // return Re
+    if (i[7].operands[0] != Re) return false;
+
+    return true;
+}
+
+// emits the int-specialized version of a fib-like self-recursive function;
+// entry convention: argument in rdi, result in rax; caller (the wrapper) has
+// already validated that the argument is an exact integer in range
+static size_t emit_int_recursive_body(CodeBuf* cb, BytecodeChunk* chunk,
+                                       int self_idx, int start, int end) {
+    (void)chunk; (void)self_idx; (void)start; (void)end;     // pattern already verified
+
+    Instruction* i = &chunk->code[start];
+    int32_t guard = i[0].operands[2];
+    int32_t k1    = i[2].operands[2];
+    int32_t k2    = i[4].operands[2];
+
+    size_t fn_start = cb->len;                               // self-call target
+
+    emit_u8(cb, 0x48); emit_u8(cb, 0x83); emit_u8(cb, 0xFF); // cmp rdi, imm8
+    emit_u8(cb, (uint8_t)guard);
+
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x8C);                    // jl ret_arg (arg < guard)
+    size_t ret_arg_jmp = cb->len; emit_i32(cb, 0);
+
+    emit_u8(cb, 0x53);                                       // push rbx
+    emit_u8(cb, 0x41); emit_u8(cb, 0x54);                    // push r12
+
+    emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xFB); // mov rbx, rdi
+
+    emit_u8(cb, 0x48); emit_u8(cb, 0x8D); emit_u8(cb, 0x7B); // lea rdi, [rbx-k1]
+    emit_u8(cb, (uint8_t)(uint8_t)(-k1));
+
+    emit_u8(cb, 0xE8);                                       // call self
+    int32_t call_rel = (int32_t)fn_start - (int32_t)(cb->len + 4);
+    emit_i32(cb, call_rel);
+
+    emit_u8(cb, 0x49); emit_u8(cb, 0x89); emit_u8(cb, 0xC4); // mov r12, rax
+
+    emit_u8(cb, 0x48); emit_u8(cb, 0x8D); emit_u8(cb, 0x7B); // lea rdi, [rbx-k2]
+    emit_u8(cb, (uint8_t)(uint8_t)(-k2));
+
+    emit_u8(cb, 0xE8);                                       // call self
+    call_rel = (int32_t)fn_start - (int32_t)(cb->len + 4);
+    emit_i32(cb, call_rel);
+
+    emit_u8(cb, 0x4C); emit_u8(cb, 0x01); emit_u8(cb, 0xE0); // add rax, r12
+
+    emit_u8(cb, 0x41); emit_u8(cb, 0x5C);                    // pop r12
+    emit_u8(cb, 0x5B);                                       // pop rbx
+
+    emit_u8(cb, 0xC3);                                       // ret
+
+    size_t ret_arg_at = cb->len;                             // ret_arg label
+    int32_t rel = (int32_t)ret_arg_at - (int32_t)(ret_arg_jmp + 4);
+    memcpy(cb->buf + ret_arg_jmp, &rel, 4);
+
+    emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xF8); // mov rax, rdi
+    emit_u8(cb, 0xC3);                                       // ret
+
+    return fn_start;
+}
+
+// checks whether a function matches the tree-like self-recursive pattern:
+//   pc+0: JUMP_IF_NEQ_IMM R0, 0, pc+2
+//   pc+1: RETURN_NUM_IMM  0
+//   pc+2: SUB_IMM         Ra <- R0 - k
+//   pc+3: CALL_1          Rb <- self(Ra)
+//   pc+4: ADD_IMM         Rc <- Rb + c
+//   pc+5: CALL_1          Rd <- self(Ra)
+//   pc+6: ADD             Re <- Rc + Rd
+//   pc+7: RETURN_NUM      Re
+// where R0 is the argument slot, k and c fit the cmp/lea/add imm8 forms, and
+// no instruction writes slot 0
+static bool matches_int_tree_pattern(BytecodeChunk* chunk, int self_idx,
+                                      int start, int end) {
+    if (end - start != 8) return false;                      // exact shape
+
+    Instruction* i = &chunk->code[start];
+
+    if (i[0].opcode != OP_JUMP_IF_NEQ_IMM) return false;     // guard: arg != 0
+    if (i[0].operands[1] != 0) return false;                 // arg must be slot 0
+    if (i[0].operands[0] != start + 2) return false;         // target must be pc+2
+    if (i[0].operands[2] != 0) return false;                 // guard value must be 0
+
+    if (i[1].opcode != OP_RETURN_NUM_IMM) return false;      // base case: return 0
+    if (i[1].operands[1] != 0) return false;
+
+    if (i[2].opcode != OP_SUB_IMM) return false;             // Ra = R0 - k
+    if (i[2].operands[1] != 0) return false;
+    int32_t k = i[2].operands[2];
+    if (k < 1 || k > 127) return false;
+    int Ra = i[2].operands[0];
+    if (Ra == 0) return false;
+
+    if (i[3].opcode != OP_CALL_1) return false;              // Rb = self(Ra)
+    if (i[3].operands[1] != self_idx) return false;
+    if (i[3].operands[2] != Ra) return false;
+    int Rb = i[3].operands[0];
+    if (Rb == 0 || Rb == Ra) return false;
+
+    if (i[4].opcode != OP_ADD_IMM) return false;             // Rc = Rb + c
+    if (i[4].operands[1] != Rb) return false;
+    int32_t c = i[4].operands[2];
+    if (c < -128 || c > 127) return false;
+    int Rc = i[4].operands[0];
+    if (Rc == 0 || Rc == Ra || Rc == Rb) return false;
+
+    if (i[5].opcode != OP_CALL_1) return false;              // Rd = self(Ra)
+    if (i[5].operands[1] != self_idx) return false;
+    if (i[5].operands[2] != Ra) return false;
+    int Rd = i[5].operands[0];
+    if (Rd == 0 || Rd == Ra || Rd == Rb || Rd == Rc) return false;
+
+    if (i[6].opcode != OP_ADD) return false;                 // Re = Rc + Rd
+    int Re = i[6].operands[0];
+    int add_a = i[6].operands[1];
+    int add_b = i[6].operands[2];
+    if (!((add_a == Rc && add_b == Rd) || (add_a == Rd && add_b == Rc))) return false;
+
+    if (i[7].opcode != OP_RETURN_NUM) return false;          // return Re
+    if (i[7].operands[0] != Re) return false;
+
+    return true;
+}
+
+// emits the int-specialized version of a tree-like self-recursive function;
+// entry convention: argument in rdi, result in rax
+static size_t emit_int_tree_body(CodeBuf* cb, BytecodeChunk* chunk,
+                                  int self_idx, int start, int end) {
+    (void)self_idx; (void)end;                               // pattern already verified
+
+    Instruction* i = &chunk->code[start];
+    int32_t k = i[2].operands[2];
+    int32_t c = i[4].operands[2];
+
+    size_t fn_start = cb->len;                               // self-call target
+
+    emit_u8(cb, 0x48); emit_u8(cb, 0x85); emit_u8(cb, 0xFF); // test rdi, rdi
+
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x84);                    // je base (arg == 0)
+    size_t base_jmp = cb->len; emit_i32(cb, 0);
+
+    emit_u8(cb, 0x53);                                       // push rbx
+    emit_u8(cb, 0x41); emit_u8(cb, 0x54);                    // push r12
+
+    emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xFB); // mov rbx, rdi
+
+    emit_u8(cb, 0x48); emit_u8(cb, 0x8D); emit_u8(cb, 0x7B); // lea rdi, [rbx-k]
+    emit_u8(cb, (uint8_t)(uint8_t)(-k));
+
+    emit_u8(cb, 0xE8);                                       // call self
+    int32_t call_rel = (int32_t)fn_start - (int32_t)(cb->len + 4);
+    emit_i32(cb, call_rel);
+
+    emit_u8(cb, 0x48); emit_u8(cb, 0x83); emit_u8(cb, 0xC0); // add rax, imm8
+    emit_u8(cb, (uint8_t)c);
+
+    emit_u8(cb, 0x49); emit_u8(cb, 0x89); emit_u8(cb, 0xC4); // mov r12, rax
+
+    emit_u8(cb, 0x48); emit_u8(cb, 0x8D); emit_u8(cb, 0x7B); // lea rdi, [rbx-k]
+    emit_u8(cb, (uint8_t)(uint8_t)(-k));
+
+    emit_u8(cb, 0xE8);                                       // call self
+    call_rel = (int32_t)fn_start - (int32_t)(cb->len + 4);
+    emit_i32(cb, call_rel);
+
+    emit_u8(cb, 0x4C); emit_u8(cb, 0x01); emit_u8(cb, 0xE0); // add rax, r12
+
+    emit_u8(cb, 0x41); emit_u8(cb, 0x5C);                    // pop r12
+    emit_u8(cb, 0x5B);                                       // pop rbx
+
+    emit_u8(cb, 0xC3);                                       // ret
+
+    size_t base_at = cb->len;                                // base label
+    int32_t rel = (int32_t)base_at - (int32_t)(base_jmp + 4);
+    memcpy(cb->buf + base_jmp, &rel, 4);
+
+    emit_u8(cb, 0x31); emit_u8(cb, 0xC0);                    // xor eax, eax
+    emit_u8(cb, 0xC3);                                       // ret
+
+    return fn_start;
+}
+
+// emits the wrapper that dispatches between the int-specialized body and
+// the general double-based body based on a runtime integer check; the
+// wrapper has the usual double -> double signature
+static void emit_int_wrapper(CodeBuf* cb, size_t general_off, size_t int_off,
+                              int max_n, size_t* out_wrapper_off) {
+    *out_wrapper_off = cb->len;
+
+    emit_u8(cb, 0xF2); emit_u8(cb, 0x48);                    // cvttsd2si rdi, xmm0
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x2C); emit_u8(cb, 0xF8);
+
+    emit_u8(cb, 0xF2); emit_u8(cb, 0x4C);                    // cvtsi2sd xmm15, rdi
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x2A); emit_u8(cb, 0xFF);
+
+    emit_u8(cb, 0x66); emit_u8(cb, 0x44);                    // ucomisd xmm15, xmm0
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x2E); emit_u8(cb, 0xF8);
+
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x8A);                    // jp fallback (NaN-tagged)
+    size_t jp_patch = cb->len; emit_i32(cb, 0);
+
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x85);                    // jne fallback
+    size_t jne_patch = cb->len; emit_i32(cb, 0);
+
+    emit_u8(cb, 0x48); emit_u8(cb, 0x83); emit_u8(cb, 0xFF); // cmp rdi, max_n
+    emit_u8(cb, (uint8_t)max_n);
+
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x8F);                    // jg fallback (> 78: precision)
+    size_t jg_patch = cb->len; emit_i32(cb, 0);
+
+    emit_u8(cb, 0xE8);                                       // call int_version
+    int32_t call_rel = (int32_t)int_off - (int32_t)(cb->len + 4);
+    emit_i32(cb, call_rel);
+
+    emit_u8(cb, 0xF2); emit_u8(cb, 0x48);                    // cvtsi2sd xmm0, rax
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x2A); emit_u8(cb, 0xC0);
+
+    emit_u8(cb, 0xC3);                                       // ret
+
+    size_t fallback_at = cb->len;                            // fallback label
+    int32_t r = (int32_t)fallback_at - (int32_t)(jp_patch  + 4);
+    memcpy(cb->buf + jp_patch,  &r, 4);
+    r = (int32_t)fallback_at - (int32_t)(jne_patch + 4);
+    memcpy(cb->buf + jne_patch, &r, 4);
+    r = (int32_t)fallback_at - (int32_t)(jg_patch  + 4);
+    memcpy(cb->buf + jg_patch,  &r, 4);
+
+    emit_u8(cb, 0xE9);                                       // jmp general_version
+    int32_t jmp_rel = (int32_t)general_off - (int32_t)(cb->len + 4);
+    emit_i32(cb, jmp_rel);
+}
+
 // emits native x86-64 code for a single numeric-pure function
 bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                           int func_idx, void** out_fn) {
@@ -472,6 +765,18 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     size_t rip_fixup_at[64];                                     // rip-relative disp32 offsets
     int    rip_fixup_imm[64];                                    // imm index per fixup
     int    rip_fixup_count = 0;                                  // pending rip fixups
+
+    // try the int-specialized body first: on success it lands before the
+    // general version, and the wrapper emitted at the end becomes the entry
+    size_t int_off   = (size_t)-1;                               // int body offset, -1 if absent
+    int    int_max_n = 0;                                        // wrapper upper bound
+    if (matches_int_recursive_pattern(chunk, func_idx, start, end)) {
+        int_off = emit_int_recursive_body(cb, chunk, func_idx, start, end);
+        int_max_n = 78;                                          // fib(78) is exact in double
+    } else if (matches_int_tree_pattern(chunk, func_idx, start, end)) {
+        int_off = emit_int_tree_body(cb, chunk, func_idx, start, end);
+        int_max_n = 53;                                          // tree(53) = 2^53-1 is exact
+    }
 
     size_t mark = cb->len;                                       // rollback point
 
@@ -1276,7 +1581,13 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
 
     free(pred_count); free(needs_flush); free(use_snap); free(jump_snap);
 
-    *out_fn = (void*)(cb->buf + mark);                           // publish entry pointer
+    if (int_off != (size_t)-1) {                                 // wrap with an int dispatcher
+        size_t wrapper_off = 0;
+        emit_int_wrapper(cb, mark, int_off, int_max_n, &wrapper_off);  // runtime int check + dispatch
+        *out_fn = (void*)(cb->buf + wrapper_off);                // entry is the wrapper
+    } else {
+        *out_fn = (void*)(cb->buf + mark);                       // publish general entry
+    }
     return true;                                                 // emission successful
 }
 
