@@ -40,7 +40,10 @@ bool matches_int_self_recursive(JITContext* ctx, int func_idx) {
 bool x86_64_emit_int_self_recursive(const X86_64Abi* abi, JITContext* ctx,
                                     CodeBuf* cb, int func_idx,
                                     size_t* out_int_off) {
-    static const int arg_gprs[2] = { X86_RDI, X86_RSI };
+    static const int arg_gprs_sysv[2]  = { X86_RDI, X86_RSI };
+    static const int arg_gprs_win64[2] = { X86_RCX, X86_RDX };
+    const int* arg_gprs = (abi->frame_reg == X86_RCX)
+                        ? arg_gprs_win64 : arg_gprs_sysv;
     static const int cs_gprs[5]  = { X86_RBX, X86_R12, X86_R13, X86_R14, X86_R15 };
     static const int scratch_gprs[7] = {
         X86_RAX, X86_RCX, X86_RDX, X86_R8, X86_R9, X86_R10, X86_R11
@@ -166,10 +169,14 @@ bool x86_64_emit_int_self_recursive(const X86_64Abi* abi, JITContext* ctx,
     int nfix = 0;
 
     if (base_at_top) {
-        // when the base case returns a constant, the arg register can be
-        int cmpg = base_returns_imm ? X86_RDI : X86_RAX;
+        // arg0's home register depends on the ABI: rdi on sysv/macos,
+        // rcx on win64. Use arg_gprs[0] instead of hardcoding rdi.
+        int arg0 = arg_gprs[0];
+        int cmpg = base_returns_imm ? arg0 : X86_RAX;
         if (!base_returns_imm) {
-            emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xF8);   // mov rax, rdi
+            uint8_t rex = 0x48 | (arg0 >= 8 ? 0x04 : 0);
+            emit_u8(cb, rex); emit_u8(cb, 0x89);
+            emit_u8(cb, 0xC0 | ((arg0 & 7) << 3) | X86_RAX);           // mov rax, arg0
         }
         if (guard_imm == 0) {
             uint8_t rex = 0x48 | (cmpg >= 8 ? 0x04 : 0) | (cmpg >= 8 ? 0x01 : 0);
@@ -463,8 +470,12 @@ bool x86_64_emit_int_self_recursive(const X86_64Abi* abi, JITContext* ctx,
 
 // emits the wrapper that dispatches between the int-specialized body and the
 void emit_int_wrapper(CodeBuf* cb, size_t general_off, size_t int_off,
-                      int max_n, int arity, size_t* out_wrapper_off) {
-    static const int arg_gprs[2] = { X86_RDI, X86_RSI };
+                      int max_n, int arity, size_t* out_wrapper_off,
+                      const X86_64Abi* abi) {
+    static const int arg_gprs_sysv[2]  = { X86_RDI, X86_RSI };
+    static const int arg_gprs_win64[2] = { X86_RCX, X86_RDX };
+    const int* arg_gprs = (abi->frame_reg == X86_RCX)
+                        ? arg_gprs_win64 : arg_gprs_sysv;
     *out_wrapper_off = cb->len;
 
     size_t patches[8];
@@ -517,12 +528,22 @@ void emit_int_wrapper(CodeBuf* cb, size_t general_off, size_t int_off,
     emit_i32(cb, jmp_rel);
 }
 
-// GPRs available to hold bytecode slots inside an int64-specialized loop;
-#define INT_LOOP_N_GPRS 8
-
-static const int int_loop_gprs[INT_LOOP_N_GPRS] = {
+// GPRs available to hold bytecode slots inside an int64-specialized loop.
+// frame_reg MUST NOT appear here: the guard code reads regs[s] via frame_reg
+// on every live-in slot, and using frame_reg as a slot GPR would clobber it
+// after the first guard.
+//  - SysV: frame_reg = RDI -> RDI excluded.
+//  - Win64: frame_reg = RCX -> RCX excluded; RDI/RSI are callee-saved on
+//    Win64 and can't be used without a save/restore.
+static const int int_loop_gprs_sysv[] = {
     X86_RAX, X86_RCX, X86_RDX, X86_RSI, X86_R8, X86_R9, X86_R10, X86_R11
 };
+#define INT_LOOP_N_GPRS_SYSV 8
+
+static const int int_loop_gprs_win64[] = {
+    X86_RAX, X86_RDX, X86_R8, X86_R9, X86_R10, X86_R11
+};
+#define INT_LOOP_N_GPRS_WIN64 6
 
 // checks whether every body instruction between entry and back_edge is
 static bool loop_body_is_int_safe(BytecodeChunk* chunk, int entry, int back_edge) {
@@ -534,7 +555,12 @@ static bool loop_body_is_int_safe(BytecodeChunk* chunk, int entry, int back_edge
 
 // assigns one GPR to every bytecode slot the loop touches; returns the
 int assign_int_loop_gprs(JITContext* ctx, JitLoopInfo* info,
-                         int slot_gpr[JIT_MAX_SLOTS]) {
+                         int slot_gpr[JIT_MAX_SLOTS], int frame_reg) {
+    const int* gprs = (frame_reg == X86_RCX)
+                    ? int_loop_gprs_win64 : int_loop_gprs_sysv;
+    int n_gprs = (frame_reg == X86_RCX)
+               ? INT_LOOP_N_GPRS_WIN64 : INT_LOOP_N_GPRS_SYSV;
+
     for (int i = 0; i < JIT_MAX_SLOTS; i++) slot_gpr[i] = -1;
     uint64_t used = info->live_in | info->live_out;
     if (info->for_var_reg  >= 0) used |= 1ULL << info->for_var_reg;
@@ -549,25 +575,23 @@ int assign_int_loop_gprs(JITContext* ctx, JitLoopInfo* info,
     while (used) {
         int s = __builtin_ctzll(used);
         used &= used - 1;
-        if (n >= INT_LOOP_N_GPRS) return -1;
-        slot_gpr[s] = int_loop_gprs[n++];
+        if (n >= n_gprs) return -1;
+        slot_gpr[s] = gprs[n++];
     }
     return n;
 }
 
 // fallback: matches_int_accum_loop is gone; the generic emitter below
-bool matches_int_accum_loop(JITContext* ctx, JitLoopInfo* info) {
+bool matches_int_accum_loop(const X86_64Abi* abi, JITContext* ctx, JitLoopInfo* info) {
     if (info->kind != JIT_LOOP_NUMERIC_FOR &&
         info->kind != JIT_LOOP_CONDITION) return false;      // only those two
     if (info->kind == JIT_LOOP_NUMERIC_FOR && info->step_sign == -1)
-        return false;                                        // step is a known negative
-    if (!loop_body_is_int_safe(ctx->chunk, info->entry_pc, info->back_edge_pc))
-        return false;                                        // body must be int-safe
+        return false;                                        // int body assumes non-negative step
     if (!loop_body_is_int_safe(ctx->chunk, info->entry_pc, info->back_edge_pc))
         return false;                                        // body must be int-safe
 
     int slot_gpr[JIT_MAX_SLOTS];                             // scratch, just to count
-    if (assign_int_loop_gprs(ctx, info, slot_gpr) < 0) return false;
+    if (assign_int_loop_gprs(ctx, info, slot_gpr, abi->frame_reg) < 0) return false;
     return true;                                             // anything else: general
 }
 
@@ -699,9 +723,10 @@ void emit_int_loop_body(CodeBuf* cb, BytecodeChunk* chunk, int pc,
 
 // emits a full int64 loop: prologue guard, int body, writeback, and the
 bool x86_64_emit_int_loop(const X86_64Abi* abi, JITContext* ctx,
-                          CodeBuf* cb, JitLoopInfo* info, void** out_fn) {
+                          CodeBuf* cb, JitLoopInfo* info,
+                          int step_sign, void** out_fn) {
     int slot_gpr[JIT_MAX_SLOTS];
-    int n_gpr = assign_int_loop_gprs(ctx, info, slot_gpr);
+    int n_gpr = assign_int_loop_gprs(ctx, info, slot_gpr, abi->frame_reg);
     if (n_gpr < 0) return false;
 
     size_t mark = cb->len;
@@ -827,7 +852,7 @@ bool x86_64_emit_int_loop(const X86_64Abi* abi, JITContext* ctx,
     // fallback: general double loop, entered from any failed guard
     size_t fallback_at = cb->len;
     void* gen_fn = NULL;
-    if (!x86_64_emit_numeric_loop(abi, ctx, cb, info, +1, &gen_fn)) {
+    if (!x86_64_emit_numeric_loop(abi, ctx, cb, info, step_sign, &gen_fn)) {
         cb->len = mark;
         return false;
     }

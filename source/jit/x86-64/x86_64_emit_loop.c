@@ -738,7 +738,13 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
         frame_slots++;
     }
 
-    int gpr_saves_bytes = (info->table.used || info->globals_count > 0) ? 8 : 0;  // rbx save if table or globals access
+    bool need_rbx_save = (info->table.used && info->table.slot >= 0) ||
+                         info->globals_count > 0;
+    int rbx_save_slot = -1;
+    if (need_rbx_save) {
+        rbx_save_slot = frame_slots;                         // rbx lives inside the frame,
+        frame_slots++;                                       // above the shadow space
+    }
 
     int range_size = back_edge - entry + 1;
     if (range_size <= 0) return false;                       // empty range, nothing to emit
@@ -806,19 +812,18 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
     size_t mark = cb->len;                                   // rollback point
 
     int base_frame = align16(8 * frame_slots);
-    int frame_size = align16(base_frame + abi->frame_extra + gpr_saves_bytes);
+    int frame_size = align16(base_frame + abi->frame_extra);
 
     emit_prologue(cb, abi, frame_size, base_frame);
 
     // save rbx if we touch tables, and preload array_part into rbx
-    int rbx_slot_off = base_frame + abi->frame_extra + 8;
     if (info->table.used && info->table.slot >= 0) {
-        x86_emit_store_r64_rbp(cb, X86_RBX, -rbx_slot_off);  // save caller's rbx
+        x86_emit_store_r64_rbp(cb, X86_RBX, x86_slot_disp(rbx_save_slot));  // save caller's rbx
         x86_emit_load_r64_base(cb, X86_RAX, abi->frame_reg, info->table.slot * 8);  // rax = regs[slot]
         x86_emit_clear_high16_rax(cb);                       // strip nan-box tag
         x86_emit_load_r64_base(cb, X86_RBX, X86_RAX, (int32_t)offsetof(Table, array_part));  // rbx = array_part
     } else if (info->globals_count > 0) {
-        x86_emit_store_r64_rbp(cb, X86_RBX, -rbx_slot_off);  // save caller's rbx
+        x86_emit_store_r64_rbp(cb, X86_RBX, x86_slot_disp(rbx_save_slot));  // save caller's rbx
         emit_u8(cb, 0x48); emit_u8(cb, 0x89);                // mov rbx, abi->globals_reg
         emit_u8(cb, 0xC0 | (abi->globals_reg << 3) | X86_RBX);
     }
@@ -918,8 +923,8 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
         }
     }
 
-    if ((info->table.used && info->table.slot >= 0) || info->globals_count > 0) {
-        x86_emit_load_r64_rbp(cb, X86_RBX, -rbx_slot_off);   // restore caller's rbx
+    if (need_rbx_save) {
+        x86_emit_load_r64_rbp(cb, X86_RBX, x86_slot_disp(rbx_save_slot));   // restore caller's rbx
     }
 
     emit_leave_ret(cb, abi, base_frame);
@@ -947,20 +952,18 @@ bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
     size_t mark = cb->len;                                   // rollback point
     int const_slot = nregs;                                  // unused here, kept for layout parity
     int save_slot  = nregs + 1;                              // stack slot to stash frame_reg across helper call
-    int frame_slots = save_slot + 1;                         // incl. the unused constant slot and save slot
+    int slot_rbx   = nregs + 2;                              // rbx lives inside the frame,
+    int slot_r12   = nregs + 3;                              // above the shadow space
+    int slot_r13   = nregs + 4;
+    int frame_slots = nregs + 5;
     int base_frame = align16(8 * frame_slots);
-
-    int saves_bytes = 24;                                    // rbx + r12 + r13
-    int frame_size = align16(base_frame + abi->frame_extra + saves_bytes);
+    int frame_size = align16(base_frame + abi->frame_extra);
 
     emit_prologue(cb, abi, frame_size, base_frame);
 
-    int off_rbx = base_frame + abi->frame_extra + 8;         // save slot for rbx
-    int off_r12 = base_frame + abi->frame_extra + 16;        // save slot for r12
-    int off_r13 = base_frame + abi->frame_extra + 24;        // save slot for r13
-    x86_emit_store_r64_rbp(cb, X86_RBX, -off_rbx);           // save caller's rbx
-    x86_emit_store_r64_rbp(cb, X86_R12, -off_r12);           // save caller's r12
-    x86_emit_store_r64_rbp(cb, X86_R13, -off_r13);           // save caller's r13
+    x86_emit_store_r64_rbp(cb, X86_RBX, x86_slot_disp(slot_rbx));  // save caller's rbx
+    x86_emit_store_r64_rbp(cb, X86_R12, x86_slot_disp(slot_r12));  // save caller's r12
+    x86_emit_store_r64_rbp(cb, X86_R13, x86_slot_disp(slot_r13));  // save caller's r13
 
     // unpack the table pointer and preload its fields into dedicated gprs
     x86_emit_load_r64_base(cb, X86_RAX, abi->frame_reg, table_slot * 8);  // rax = regs[table_slot]
@@ -1065,9 +1068,9 @@ bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
         x86_emit_load_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // restore frame_reg
     }
 
-    x86_emit_load_r64_rbp(cb, X86_RBX, -off_rbx);             // restore caller's rbx
-    x86_emit_load_r64_rbp(cb, X86_R12, -off_r12);             // restore caller's r12
-    x86_emit_load_r64_rbp(cb, X86_R13, -off_r13);             // restore caller's r13
+    x86_emit_load_r64_rbp(cb, X86_RBX, x86_slot_disp(slot_rbx));  // restore caller's rbx
+    x86_emit_load_r64_rbp(cb, X86_R12, x86_slot_disp(slot_r12));  // restore caller's r12
+    x86_emit_load_r64_rbp(cb, X86_R13, x86_slot_disp(slot_r13));  // restore caller's r13
 
     emit_leave_ret(cb, abi, base_frame);
 
@@ -1149,24 +1152,29 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
         frame_slots++;
     }
 
-    int gpr_saves_bytes = (info->table.used || info->globals_count > 0) ? 8 : 0;  // rbx save if table or globals access
+    bool need_rbx_save = (info->table.used && info->table.slot >= 0) ||
+                         info->globals_count > 0;
+    int rbx_save_slot = -1;
+    if (need_rbx_save) {
+        rbx_save_slot = frame_slots;                         // rbx lives inside the frame,
+        frame_slots++;                                       // above the shadow space
+    }
 
     size_t mark = cb->len;                                   // rollback point
 
     int base_frame = align16(8 * frame_slots);
-    int frame_size = align16(base_frame + abi->frame_extra + gpr_saves_bytes);
+    int frame_size = align16(base_frame + abi->frame_extra);
 
     emit_prologue(cb, abi, frame_size, base_frame);
 
     // save rbx if we touch tables or globals, and preload the relevant base
-    int rbx_slot_off = base_frame + abi->frame_extra + 8;
     if (info->table.used && info->table.slot >= 0) {
-        x86_emit_store_r64_rbp(cb, X86_RBX, -rbx_slot_off);
+        x86_emit_store_r64_rbp(cb, X86_RBX, x86_slot_disp(rbx_save_slot));
         x86_emit_load_r64_base(cb, X86_RAX, abi->frame_reg, info->table.slot * 8);
         x86_emit_clear_high16_rax(cb);
         x86_emit_load_r64_base(cb, X86_RBX, X86_RAX, (int32_t)offsetof(Table, array_part));
     } else if (info->globals_count > 0) {
-        x86_emit_store_r64_rbp(cb, X86_RBX, -rbx_slot_off);
+        x86_emit_store_r64_rbp(cb, X86_RBX, x86_slot_disp(rbx_save_slot));
         emit_u8(cb, 0x48); emit_u8(cb, 0x89);
         emit_u8(cb, 0xC0 | (abi->globals_reg << 3) | X86_RBX);
     }
@@ -1347,8 +1355,8 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
         }
     }
 
-    if ((info->table.used && info->table.slot >= 0) || info->globals_count > 0) {
-        x86_emit_load_r64_rbp(cb, X86_RBX, -rbx_slot_off);   // restore caller's rbx
+    if (need_rbx_save) {
+        x86_emit_load_r64_rbp(cb, X86_RBX, x86_slot_disp(rbx_save_slot));   // restore caller's rbx
     }
 
     emit_leave_ret(cb, abi, base_frame);
@@ -1366,8 +1374,8 @@ bool x86_64_emit_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     if (info->kind == JIT_LOOP_COND_ENTER) {                 // condition-entry loop
         return x86_64_emit_cond_enter_loop(abi, ctx, cb, info, out_fn);
     }
-    if (matches_int_accum_loop(ctx, info)) {                 // int64-specializable loop
-        return x86_64_emit_int_loop(abi, ctx, cb, info, out_fn);
+    if (matches_int_accum_loop(abi, ctx, info)) {            // int64-specializable loop
+        return x86_64_emit_int_loop(abi, ctx, cb, info, step_sign, out_fn);
     }
     return x86_64_emit_numeric_loop(abi, ctx, cb, info, step_sign, out_fn);  // numeric or condition loop
 }

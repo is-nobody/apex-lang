@@ -15,7 +15,7 @@ set(CMAKE_C_EXTENSIONS ON)
 option(APEX_JIT_ENABLED "Enable the JIT compiler" ON)
 
 # enables debug tracing of the jit
-option(APEX_JIT_TRACE "Enable JIT debug tracing" OFF)
+option(APEX_JIT_TRACE "Enable JIT debug tracing" ON)
 
 # normalizes the target cpu name into a short arch tag
 string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" APEX_PROC_LOWER)

@@ -1010,7 +1010,8 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     if (int_off != (size_t)-1) {                                 // wrap with an int dispatcher
         size_t wrapper_off = 0;
         emit_int_wrapper(cb, mark, int_off, int_max_n,
-                          chunk->functions[func_idx].arity, &wrapper_off);
+                          chunk->functions[func_idx].arity, &wrapper_off,
+                          abi);
         *out_fn = (void*)(cb->buf + wrapper_off);                // entry is the wrapper
     } else {
         *out_fn = (void*)(cb->buf + mark);                       // publish general entry

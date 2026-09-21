@@ -83,11 +83,11 @@ bool entry_op_is_imm(Opcode op);
 // int loop emitters
 bool matches_int_self_recursive(JITContext* ctx, int func_idx);
 bool x86_64_emit_int_self_recursive(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb, int func_idx, size_t* out_int_off);
-void emit_int_wrapper(CodeBuf* cb, size_t general_off, size_t int_off, int max_n, int arity, size_t* out_wrapper_off);
-int assign_int_loop_gprs(JITContext* ctx, JitLoopInfo* info, int slot_gpr[JIT_MAX_SLOTS]);
-bool matches_int_accum_loop(JITContext* ctx, JitLoopInfo* info);
+void emit_int_wrapper(CodeBuf* cb, size_t general_off, size_t int_off, int max_n, int arity, size_t* out_wrapper_off, const X86_64Abi* abi);
+int assign_int_loop_gprs(JITContext* ctx, JitLoopInfo* info, int slot_gpr[JIT_MAX_SLOTS], int frame_reg);
+bool matches_int_accum_loop(const X86_64Abi* abi, JITContext* ctx, JitLoopInfo* info);
 void emit_int_loop_body(CodeBuf* cb, BytecodeChunk* chunk, int pc, const int* slot_gpr);
-bool x86_64_emit_int_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb, JitLoopInfo* info, void** out_fn);
+bool x86_64_emit_int_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb, JitLoopInfo* info, int step_sign, void** out_fn);
 
 // loop emitters
 void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb, XmmCache* cache, int pc, int const_slot, int save_slot, JitLoopInfo* info);
