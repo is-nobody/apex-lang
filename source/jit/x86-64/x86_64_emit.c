@@ -737,7 +737,7 @@ static void emit_int_loop_body(CodeBuf* cb, BytecodeChunk* chunk, int pc,
     switch (inst->opcode) {
         case OP_MOVE:                                        // gd = ga
             if (d == a) break;
-            emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0));        // rex.w + rex.b
+            emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0) | (ga >= 8 ? 0x04 : 0));
             emit_u8(cb, 0x89);                               // mov r/m64, r64
             emit_u8(cb, 0xC0 | ((ga & 7) << 3) | (gd & 7));
             break;
@@ -775,7 +775,7 @@ static void emit_int_loop_body(CodeBuf* cb, BytecodeChunk* chunk, int pc,
                 emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0) | (ga >= 8 ? 0x04 : 0));
                 emit_u8(cb, 0x89); emit_u8(cb, 0xC0 | ((ga & 7) << 3) | (gd & 7));
             }
-            emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0) | (gb >= 8 ? 0x04 : 0));
+            emit_u8(cb, 0x48 | (gd >= 8 ? 0x04 : 0) | (gb >= 8 ? 0x01 : 0));
             emit_u8(cb, 0x0F); emit_u8(cb, 0xAF);            // imul r64, r/m64
             emit_u8(cb, 0xC0 | ((gd & 7) << 3) | (gb & 7));
             break;
@@ -816,7 +816,7 @@ static void emit_int_loop_body(CodeBuf* cb, BytecodeChunk* chunk, int pc,
         }
         case OP_MUL_IMM: {                                   // gd = ga * imm
             int32_t k = b;
-            emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0) | (ga >= 8 ? 0x04 : 0));
+            emit_u8(cb, 0x48 | (gd >= 8 ? 0x04 : 0) | (ga >= 8 ? 0x01 : 0));
             emit_u8(cb, 0x69);                               // imul r64, r/m64, imm32
             emit_u8(cb, 0xC0 | ((gd & 7) << 3) | (ga & 7));
             emit_i32(cb, k);
