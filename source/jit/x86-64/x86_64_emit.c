@@ -17,6 +17,9 @@ static int align16(int n) { return (n + 15) & ~15; }
 static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                                       JitLoopInfo* info, int step_sign, void** out_fn);
 
+// forward declaration: matches_int_self_recursive uses it before its definition
+static bool op_is_int_safe(Opcode op);
+
 // callee-saved gprs usable as slot pockets on all supported abis
 #define X86_N_GPR_POCKETS 5
 
@@ -348,295 +351,525 @@ static void emit_nan_check(CodeBuf* cb, int xmm_d) {
     memcpy(cb->buf + patch_at, &rel, 4);
 }
 
-// checks whether a function matches the fib-like self-recursive pattern:
-//   pc+0: JUMP_IF_GTE_IMM R0, guard, pc+2
-//   pc+1: RETURN            R0
-//   pc+2: SUB_IMM          Ra <- R0 - k1
-//   pc+3: CALL_1           Rb <- self(Ra)
-//   pc+4: SUB_IMM          Rc <- R0 - k2
-//   pc+5: CALL_1           Rd <- self(Rc)
-//   pc+6: ADD              Re <- Rb + Rd
-//   pc+7: RETURN_NUM       Re
-// where R0 is the argument slot, all immediates are small positive ints,
-// and no instruction writes slot 0
-static bool matches_int_recursive_pattern(BytecodeChunk* chunk, int self_idx,
-                                           int start, int end) {
-    if (end - start != 8) return false;                      // exact fib shape
+// checks whether a function is a self-recursive numeric function whose body
+// can be lowered to int64; every instruction must be int-safe and every call
+// must target the function itself, so no interop state has to be preserved
+static bool matches_int_self_recursive(JITContext* ctx, int func_idx) {
+    BytecodeChunk* chunk = ctx->chunk;
+    int start = ctx->range_start[func_idx];
+    int end   = ctx->range_end[func_idx];
+    if (start >= end) return false;
+    if (ctx->return_type[func_idx] != JIT_RET_NUMBER) return false;
+    if (chunk->functions[func_idx].arity > 2) return false;  // rdi/rsi only
 
-    Instruction* i = &chunk->code[start];
+    bool has_self_call = false;                              // needs at least one self-call
+    for (int pc = start; pc < end; pc++) {
+        Instruction* inst = &chunk->code[pc];
+        switch (inst->opcode) {
+            case OP_RETURN: case OP_RETURN_NUM: case OP_RETURN_NUM_IMM:
+                break;                                       // numeric return: fine
+            case OP_CALL_0: case OP_CALL_1: case OP_CALL_2: {
+                if (inst->operands[1] != func_idx) return false;  // only self-calls
+                has_self_call = true;
+                break;
+            }
+            default:
+                if (!op_is_int_safe(inst->opcode)) return false;
+                break;
+        }
+    }
+    return has_self_call;
+}
 
-    if (i[0].opcode != OP_JUMP_IF_GTE_IMM) return false;     // guard: arg >= imm
-    if (i[0].operands[1] != 0) return false;                 // arg must be slot 0
-    if (i[0].operands[0] != start + 2) return false;         // target must be pc+2
-    int32_t guard = i[0].operands[2];
-    if (guard < 1 || guard > 127) return false;              // cmp rdi, imm8 range
+// emits an int64 version of a self-recursive numeric function; internal
+// calling convention: args in rdi/rsi, result in rax.  The frame uses only
+// push/pop of the callee-saved GPRs actually assigned to slots, so no rbp
+// is needed and every return site is a plain ret after the pops
+static bool x86_64_emit_int_self_recursive(const X86_64Abi* abi, JITContext* ctx,
+                                            CodeBuf* cb, int func_idx,
+                                            size_t* out_int_off) {
+    static const int arg_gprs[2] = { X86_RDI, X86_RSI };
+    static const int cs_gprs[5]  = { X86_RBX, X86_R12, X86_R13, X86_R14, X86_R15 };
+    static const int scratch_gprs[7] = {
+        X86_RAX, X86_RCX, X86_RDX, X86_R8, X86_R9, X86_R10, X86_R11
+    };
 
-    if (i[1].opcode != OP_RETURN) return false;              // base case: return arg
-    if (i[1].operands[0] != 0) return false;
+    BytecodeChunk* chunk = ctx->chunk;
+    int start = ctx->range_start[func_idx];
+    int end   = ctx->range_end[func_idx];
+    int arity = chunk->functions[func_idx].arity;
+    int nregs = chunk->functions[func_idx].max_registers;
+    if (nregs < 1) nregs = 1;
+    int range_size = end - start;
 
-    if (i[2].opcode != OP_SUB_IMM) return false;             // Ra = R0 - k1
-    if (i[2].operands[1] != 0) return false;
-    int32_t k1 = i[2].operands[2];
-    if (k1 < 1 || k1 > 127) return false;
-    int Ra = i[2].operands[0];
-    if (Ra == 0) return false;
+    // find slots live across any recursive call; arg slots are always live
+    uint64_t live_across = 0;
+    for (int i = 0; i < arity; i++) live_across |= 1ULL << i;
+    for (int pc = start; pc < end; pc++) {
+        Opcode op = chunk->code[pc].opcode;
+        if (op != OP_CALL_0 && op != OP_CALL_1 && op != OP_CALL_2) continue;
+        int d = chunk->code[pc].operands[0];
+        for (int s = 0; s < nregs; s++) {
+            if (s == d) continue;
+            if (live_across & (1ULL << s)) continue;
+            if (slot_read_before_write(chunk, pc + 1, end, s))
+                live_across |= 1ULL << s;
+        }
+    }
+    if (__builtin_popcountll(live_across) > 5) return false;
 
-    if (i[3].opcode != OP_CALL_1) return false;              // Rb = self(Ra)
-    if (i[3].operands[1] != self_idx) return false;
-    if (i[3].operands[2] != Ra) return false;
-    int Rb = i[3].operands[0];
-    if (Rb == 0 || Rb == Ra) return false;
+    int slot_gpr[JIT_MAX_SLOTS];
+    for (int s = 0; s < JIT_MAX_SLOTS; s++) slot_gpr[s] = -1;
 
-    if (i[4].opcode != OP_SUB_IMM) return false;             // Rc = R0 - k2
-    if (i[4].operands[1] != 0) return false;
-    int32_t k2 = i[4].operands[2];
-    if (k2 < 1 || k2 > 127) return false;
-    int Rc = i[4].operands[0];
-    if (Rc == 0 || Rc == Rb) return false;
+    uint64_t m = live_across;
+    int cs_idx = 0;
+    while (m) {
+        int s = __builtin_ctzll(m); m &= m - 1;
+        if (s >= nregs) return false;
+        slot_gpr[s] = cs_gprs[cs_idx++];
+    }
 
-    if (i[5].opcode != OP_CALL_1) return false;              // Rd = self(Rc)
-    if (i[5].operands[1] != self_idx) return false;
-    if (i[5].operands[2] != Rc) return false;
-    int Rd = i[5].operands[0];
-    if (Rd == 0 || Rd == Rb || Rd == Rc) return false;
+    // collect every slot the body touches; any not yet assigned gets a
+    // caller-saved scratch GPR (safe: such slots are dead at every call)
+    uint64_t all_slots = 0;
+    for (int pc = start; pc < end; pc++) {
+        Instruction* inst = &chunk->code[pc];
+        int d = inst->operands[0], a = inst->operands[1], b = inst->operands[2];
+        Opcode op = inst->opcode;
+        if (d >= 0 && d < nregs) all_slots |= 1ULL << d;
+        switch (op) {
+            case OP_MOVE: case OP_NEG:
+            case OP_ADD: case OP_SUB: case OP_MUL:
+            case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:
+            case OP_INC: case OP_DEC:
+            case OP_JUMP_IF_EQ: case OP_JUMP_IF_NEQ:
+            case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:
+            case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:
+            case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:
+            case OP_JUMP_IF_LT_IMM: case OP_JUMP_IF_GT_IMM:
+            case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
+            case OP_CALL_1: case OP_CALL_2:
+                if (a >= 0 && a < nregs) all_slots |= 1ULL << a;
+                break;
+            default: break;
+        }
+        if ((op == OP_ADD || op == OP_SUB || op == OP_MUL ||
+             op == OP_JUMP_IF_EQ || op == OP_JUMP_IF_NEQ ||
+             op == OP_JUMP_IF_LT || op == OP_JUMP_IF_GT ||
+             op == OP_JUMP_IF_LTE || op == OP_JUMP_IF_GTE) &&
+            b >= 0 && b < nregs) {
+            all_slots |= 1ULL << b;
+        }
+        if (op == OP_CALL_2 && b + 1 >= 0 && b + 1 < nregs)
+            all_slots |= 1ULL << (b + 1);
+    }
 
-    if (i[6].opcode != OP_ADD) return false;                 // Re = Rb + Rd
-    int Re = i[6].operands[0];
-    int add_a = i[6].operands[1];
-    int add_b = i[6].operands[2];
-    if (!((add_a == Rb && add_b == Rd) || (add_a == Rd && add_b == Rb))) return false;
+    uint64_t rem = all_slots & ~live_across;
+    int scr_idx = 0;
+    while (rem) {
+        int s = __builtin_ctzll(rem); rem &= rem - 1;
+        if (s >= nregs) return false;
+        if (scr_idx >= 7) return false;
+        slot_gpr[s] = scratch_gprs[scr_idx++];
+    }
 
-    if (i[7].opcode != OP_RETURN_NUM) return false;          // return Re
-    if (i[7].operands[0] != Re) return false;
+    size_t int_off = cb->len;
+    *out_int_off = int_off;
 
+    // generic pre-prologue base case: any int-safe JUMP_IF_*_IMM R0, imm,
+    // pc+2 followed by RETURN R0 or RETURN_NUM_IMM c lets the base case be
+    // emitted before the frame is established so leaf calls skip it
+    bool base_at_top = false;
+    Opcode guard_op  = 0;
+    int32_t guard_imm = 0;
+    bool base_returns_imm = false;
+    int32_t base_imm = 0;
+    if (arity >= 1 && end - start >= 3) {
+        Instruction* i0 = &chunk->code[start];
+        Instruction* i1 = &chunk->code[start + 1];
+        if (i0->operands[0] == start + 2 && i0->operands[1] == 0) {
+            switch (i0->opcode) {
+                case OP_JUMP_IF_EQ_IMM:
+                case OP_JUMP_IF_NEQ_IMM:
+                case OP_JUMP_IF_LT_IMM:
+                case OP_JUMP_IF_GT_IMM:
+                case OP_JUMP_IF_LTE_IMM:
+                case OP_JUMP_IF_GTE_IMM:
+                    guard_op  = i0->opcode;
+                    guard_imm = i0->operands[2];
+                    if (i1->opcode == OP_RETURN && i1->operands[0] == 0) {
+                        base_at_top = true;                       // return R0
+                    } else if (i1->opcode == OP_RETURN_NUM_IMM) {
+                        base_at_top = true;                       // return c
+                        base_returns_imm = true;
+                        base_imm = i1->operands[1];
+                    }
+                    break;
+                default: break;
+            }
+        }
+    }
+
+    JumpFixup* fixups  = ctx->scratch_fixups;
+    int32_t*   lbl_off = ctx->scratch_label_off;
+    if (!fixups || !lbl_off) { cb->len = int_off; return false; }
+    for (int i = 0; i < range_size; i++) lbl_off[i] = -1;
+    int nfix = 0;
+
+    if (base_at_top) {
+        // when the base case returns a constant, the arg register can be
+        // compared in place; only copy rdi to rax when the base case
+        // returns arg0 itself.  cmp reg, 0 collapses to test reg, reg
+        int cmpg = base_returns_imm ? X86_RDI : X86_RAX;
+        if (!base_returns_imm) {
+            emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xF8);   // mov rax, rdi
+        }
+        if (guard_imm == 0) {
+            uint8_t rex = 0x48 | (cmpg >= 8 ? 0x04 : 0) | (cmpg >= 8 ? 0x01 : 0);
+            emit_u8(cb, rex); emit_u8(cb, 0x85);                    // test reg, reg
+            emit_u8(cb, 0xC0 | ((cmpg & 7) << 3) | (cmpg & 7));
+        } else if (guard_imm >= -128 && guard_imm <= 127) {
+            emit_u8(cb, 0x48 | (cmpg >= 8 ? 0x01 : 0));
+            emit_u8(cb, 0x83);                                      // cmp reg, imm8
+            emit_u8(cb, 0xF8 | (cmpg & 7));
+            emit_u8(cb, (uint8_t)guard_imm);
+        } else {
+            emit_u8(cb, 0x48 | (cmpg >= 8 ? 0x01 : 0));
+            emit_u8(cb, 0x81);                                      // cmp reg, imm32
+            emit_u8(cb, 0xF8 | (cmpg & 7));
+            emit_i32(cb, guard_imm);
+        }
+        uint8_t jcc;
+        switch (guard_op) {
+            case OP_JUMP_IF_EQ_IMM:  jcc = 0x84; break;             // je
+            case OP_JUMP_IF_NEQ_IMM: jcc = 0x85; break;             // jne
+            case OP_JUMP_IF_LT_IMM:  jcc = 0x8C; break;             // jl
+            case OP_JUMP_IF_GT_IMM:  jcc = 0x8F; break;             // jg
+            case OP_JUMP_IF_LTE_IMM: jcc = 0x8E; break;             // jle
+            default:                 jcc = 0x8D; break;             // jge
+        }
+        emit_u8(cb, 0x0F); emit_u8(cb, jcc);                        // jcc general
+        if (nfix >= range_size) { cb->len = int_off; return false; }
+        fixups[nfix].patch_at  = cb->len;
+        fixups[nfix].target_pc = start + 2;
+        nfix++;
+        emit_i32(cb, 0);
+        if (base_returns_imm) {
+            if (base_imm == 0) {
+                emit_u8(cb, 0x31); emit_u8(cb, 0xC0);               // xor eax, eax
+            } else {
+                emit_u8(cb, 0xB8); emit_u32(cb, (uint32_t)base_imm); // mov eax, imm32
+            }
+        }
+        emit_u8(cb, 0xC3);                                          // ret
+    }
+
+    if (!base_at_top) {
+        for (int i = 0; i < cs_idx; i++) {                          // push cs regs
+            int g = cs_gprs[i];
+            if (g >= 8) { emit_u8(cb, 0x41); emit_u8(cb, 0x50 | (g & 7)); }
+            else        { emit_u8(cb, 0x50 | g); }
+        }
+        for (int i = 0; i < arity; i++) {                           // args into slot gprs
+            int g = slot_gpr[i], ag = arg_gprs[i];
+            if (g == ag) continue;
+            emit_u8(cb, 0x48 | (ag >= 8 ? 0x04 : 0) | (g >= 8 ? 0x01 : 0));
+            emit_u8(cb, 0x89);
+            emit_u8(cb, 0xC0 | ((ag & 7) << 3) | (g & 7));
+        }
+    }
+
+    for (int pc = start; pc < end; pc++) {
+        if (base_at_top && (pc == start || pc == start + 1)) continue;
+        lbl_off[pc - start] = (int32_t)cb->len;                     // label at prologue
+        if (base_at_top && pc == start + 2) {                       // general path start
+            for (int i = 0; i < cs_idx; i++) {
+                int g = cs_gprs[i];
+                if (g >= 8) { emit_u8(cb, 0x41); emit_u8(cb, 0x50 | (g & 7)); }
+                else        { emit_u8(cb, 0x50 | g); }
+            }
+            for (int i = 0; i < arity; i++) {
+                int g = slot_gpr[i], ag = arg_gprs[i];
+                if (g == ag) continue;
+                emit_u8(cb, 0x48 | (ag >= 8 ? 0x04 : 0) | (g >= 8 ? 0x01 : 0));
+                emit_u8(cb, 0x89);
+                emit_u8(cb, 0xC0 | ((ag & 7) << 3) | (g & 7));
+            }
+        }
+
+        Instruction* inst = &chunk->code[pc];
+        int d = inst->operands[0], a = inst->operands[1], b = inst->operands[2];
+        Opcode op = inst->opcode;
+
+        switch (op) {
+            case OP_MOVE: {
+                if (d == a) break;
+                int gd = slot_gpr[d], ga = slot_gpr[a];
+                emit_u8(cb, 0x48 | (ga >= 8 ? 0x04 : 0) | (gd >= 8 ? 0x01 : 0));
+                emit_u8(cb, 0x89);
+                emit_u8(cb, 0xC0 | ((ga & 7) << 3) | (gd & 7));
+                break;
+            }
+            case OP_LOAD_NUM_IMM: {
+                int gd = slot_gpr[d];
+                emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0));
+                emit_u8(cb, 0xC7);
+                emit_u8(cb, 0xC0 | (gd & 7));
+                emit_i32(cb, a);
+                break;
+            }
+            case OP_ADD: case OP_SUB: case OP_MUL: {
+                int gd = slot_gpr[d], ga = slot_gpr[a], gb = slot_gpr[b];
+                if (d != a) {
+                    emit_u8(cb, 0x48 | (ga >= 8 ? 0x04 : 0) | (gd >= 8 ? 0x01 : 0));
+                    emit_u8(cb, 0x89);
+                    emit_u8(cb, 0xC0 | ((ga & 7) << 3) | (gd & 7));
+                }
+                if (op == OP_MUL) {
+                    emit_u8(cb, 0x48 | (gd >= 8 ? 0x04 : 0) | (gb >= 8 ? 0x01 : 0));
+                    emit_u8(cb, 0x0F); emit_u8(cb, 0xAF);
+                    emit_u8(cb, 0xC0 | ((gd & 7) << 3) | (gb & 7));
+                } else {
+                    emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0) | (gb >= 8 ? 0x04 : 0));
+                    emit_u8(cb, op == OP_ADD ? 0x01 : 0x29);
+                    emit_u8(cb, 0xC0 | ((gb & 7) << 3) | (gd & 7));
+                }
+                break;
+            }
+            case OP_ADD_IMM: case OP_SUB_IMM: {
+                int gd = slot_gpr[d], ga = slot_gpr[a];
+                if (d != a) {
+                    emit_u8(cb, 0x48 | (ga >= 8 ? 0x04 : 0) | (gd >= 8 ? 0x01 : 0));
+                    emit_u8(cb, 0x89);
+                    emit_u8(cb, 0xC0 | ((ga & 7) << 3) | (gd & 7));
+                }
+                int32_t k = b;
+                if (k >= -128 && k <= 127) {
+                    emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0));
+                    emit_u8(cb, 0x83);
+                    emit_u8(cb, (op == OP_ADD_IMM ? 0xC0 : 0xE8) | (gd & 7));
+                    emit_u8(cb, (uint8_t)k);
+                } else {
+                    emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0));
+                    emit_u8(cb, 0x81);
+                    emit_u8(cb, (op == OP_ADD_IMM ? 0xC0 : 0xE8) | (gd & 7));
+                    emit_i32(cb, k);
+                }
+                break;
+            }
+            case OP_MUL_IMM: {
+                int gd = slot_gpr[d], ga = slot_gpr[a];
+                emit_u8(cb, 0x48 | (gd >= 8 ? 0x04 : 0) | (ga >= 8 ? 0x01 : 0));
+                emit_u8(cb, 0x69);
+                emit_u8(cb, 0xC0 | ((gd & 7) << 3) | (ga & 7));
+                emit_i32(cb, b);
+                break;
+            }
+            case OP_INC: case OP_DEC: {
+                int gd = slot_gpr[d];
+                emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0));
+                emit_u8(cb, 0x83);
+                emit_u8(cb, (op == OP_INC ? 0xC0 : 0xE8) | (gd & 7));
+                emit_u8(cb, 0x01);
+                break;
+            }
+            case OP_JUMP: {
+                emit_u8(cb, 0xE9);
+                if (nfix >= range_size) { cb->len = int_off; return false; }
+                fixups[nfix].patch_at = cb->len;
+                fixups[nfix].target_pc = d; nfix++;
+                emit_i32(cb, 0);
+                break;
+            }
+            case OP_JUMP_IF_EQ: case OP_JUMP_IF_NEQ:
+            case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:
+            case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE: {
+                int ga = slot_gpr[a], gb = slot_gpr[b];
+                emit_u8(cb, 0x48 | (ga >= 8 ? 0x04 : 0) | (gb >= 8 ? 0x01 : 0));
+                emit_u8(cb, 0x39);
+                emit_u8(cb, 0xC0 | ((gb & 7) << 3) | (ga & 7));
+                uint8_t jcc = op == OP_JUMP_IF_EQ  ? 0x84 :
+                              op == OP_JUMP_IF_NEQ ? 0x85 :
+                              op == OP_JUMP_IF_LT  ? 0x8C :
+                              op == OP_JUMP_IF_GT  ? 0x8F :
+                              op == OP_JUMP_IF_LTE ? 0x8E : 0x8D;
+                emit_u8(cb, 0x0F); emit_u8(cb, jcc);
+                if (nfix >= range_size) { cb->len = int_off; return false; }
+                fixups[nfix].patch_at = cb->len;
+                fixups[nfix].target_pc = d; nfix++;
+                emit_i32(cb, 0);
+                break;
+            }
+            case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:
+            case OP_JUMP_IF_LT_IMM: case OP_JUMP_IF_GT_IMM:
+            case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM: {
+                int ga = slot_gpr[a];
+                emit_u8(cb, 0x48 | (ga >= 8 ? 0x01 : 0));
+                emit_u8(cb, 0x83);
+                emit_u8(cb, 0xF8 | (ga & 7));
+                emit_u8(cb, (uint8_t)b);
+                uint8_t jcc = op == OP_JUMP_IF_EQ_IMM  ? 0x84 :
+                              op == OP_JUMP_IF_NEQ_IMM ? 0x85 :
+                              op == OP_JUMP_IF_LT_IMM  ? 0x8C :
+                              op == OP_JUMP_IF_GT_IMM  ? 0x8F :
+                              op == OP_JUMP_IF_LTE_IMM ? 0x8E : 0x8D;
+                emit_u8(cb, 0x0F); emit_u8(cb, jcc);
+                if (nfix >= range_size) { cb->len = int_off; return false; }
+                fixups[nfix].patch_at = cb->len;
+                fixups[nfix].target_pc = d; nfix++;
+                emit_i32(cb, 0);
+                break;
+            }
+            case OP_CALL_0: {
+                emit_u8(cb, 0xE8);
+                int32_t back = (int32_t)int_off - (int32_t)(cb->len + 4);
+                emit_i32(cb, back);
+                int gd = slot_gpr[d];
+                if (gd != X86_RAX) {
+                    emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0));
+                    emit_u8(cb, 0x89); emit_u8(cb, 0xC0 | (gd & 7));
+                }
+                break;
+            }
+            case OP_CALL_1: {
+                int gb = slot_gpr[b], arg0 = arg_gprs[0];
+                if (gb != arg0) {
+                    emit_u8(cb, 0x48 | (gb >= 8 ? 0x04 : 0) | (arg0 >= 8 ? 0x01 : 0));
+                    emit_u8(cb, 0x89);
+                    emit_u8(cb, 0xC0 | ((gb & 7) << 3) | (arg0 & 7));
+                }
+                emit_u8(cb, 0xE8);
+                int32_t back = (int32_t)int_off - (int32_t)(cb->len + 4);
+                emit_i32(cb, back);
+                int gd = slot_gpr[d];
+                if (gd != X86_RAX) {
+                    emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0));
+                    emit_u8(cb, 0x89); emit_u8(cb, 0xC0 | (gd & 7));
+                }
+                break;
+            }
+            case OP_CALL_2: {
+                int gb = slot_gpr[b], gb1 = slot_gpr[b + 1];
+                int arg0 = arg_gprs[0], arg1 = arg_gprs[1];
+                emit_u8(cb, 0x48 | (gb >= 8 ? 0x04 : 0) | 0x01);        // mov r10, gb
+                emit_u8(cb, 0x89); emit_u8(cb, 0xC0 | ((gb & 7) << 3) | 2);
+                emit_u8(cb, 0x48 | (gb1 >= 8 ? 0x04 : 0) | 0x01);       // mov r11, gb1
+                emit_u8(cb, 0x89); emit_u8(cb, 0xC0 | ((gb1 & 7) << 3) | 3);
+                if (arg0 != X86_R10) {
+                    emit_u8(cb, 0x4C | (arg0 >= 8 ? 0x01 : 0));
+                    emit_u8(cb, 0x89); emit_u8(cb, 0xC0 | ((X86_R10 & 7) << 3) | (arg0 & 7));
+                }
+                if (arg1 != X86_R11) {
+                    emit_u8(cb, 0x4C | (arg1 >= 8 ? 0x01 : 0));
+                    emit_u8(cb, 0x89); emit_u8(cb, 0xC0 | ((X86_R11 & 7) << 3) | (arg1 & 7));
+                }
+                emit_u8(cb, 0xE8);
+                int32_t back = (int32_t)int_off - (int32_t)(cb->len + 4);
+                emit_i32(cb, back);
+                int gd = slot_gpr[d];
+                if (gd != X86_RAX) {
+                    emit_u8(cb, 0x48 | (gd >= 8 ? 0x01 : 0));
+                    emit_u8(cb, 0x89); emit_u8(cb, 0xC0 | (gd & 7));
+                }
+                break;
+            }
+            case OP_RETURN: case OP_RETURN_NUM: {
+                int gd = slot_gpr[d];
+                if (gd != X86_RAX) {
+                    emit_u8(cb, 0x48 | (gd >= 8 ? 0x04 : 0) | (X86_RAX >= 8 ? 0x01 : 0));
+                    emit_u8(cb, 0x89);
+                    emit_u8(cb, 0xC0 | ((gd & 7) << 3) | (X86_RAX & 7));
+                }
+                for (int i = cs_idx - 1; i >= 0; i--) {                 // pop cs regs (reverse)
+                    int g = cs_gprs[i];
+                    if (g >= 8) { emit_u8(cb, 0x41); emit_u8(cb, 0x58 | (g & 7)); }
+                    else        { emit_u8(cb, 0x58 | g); }
+                }
+                emit_u8(cb, 0xC3);
+                break;
+            }
+            case OP_RETURN_NUM_IMM: {
+                emit_u8(cb, 0xB8); emit_u32(cb, (uint32_t)a);           // mov eax, imm32
+                for (int i = cs_idx - 1; i >= 0; i--) {                 // pop cs regs (reverse)
+                    int g = cs_gprs[i];
+                    if (g >= 8) { emit_u8(cb, 0x41); emit_u8(cb, 0x58 | (g & 7)); }
+                    else        { emit_u8(cb, 0x58 | g); }
+                }
+                emit_u8(cb, 0xC3);
+                break;
+            }
+            default:
+                cb->len = int_off; return false;
+        }
+    }
+
+    for (int i = 0; i < nfix; i++) {                                // patch internal jumps
+        int tidx = fixups[i].target_pc - start;
+        if (tidx < 0 || tidx >= range_size || lbl_off[tidx] < 0) {
+            cb->len = int_off; return false;
+        }
+        int32_t rel = (int32_t)lbl_off[tidx] - (int32_t)(fixups[i].patch_at + 4);
+        memcpy(cb->buf + fixups[i].patch_at, &rel, 4);
+    }
     return true;
 }
 
-// emits the int-specialized version of a fib-like self-recursive function;
-// entry convention: argument in rdi, result in rax; caller (the wrapper) has
-// already validated that the argument is an exact integer in range
-static size_t emit_int_recursive_body(CodeBuf* cb, BytecodeChunk* chunk,
-                                       int self_idx, int start, int end) {
-    (void)chunk; (void)self_idx; (void)start; (void)end;     // pattern already verified
-
-    Instruction* i = &chunk->code[start];
-    int32_t guard = i[0].operands[2];
-    int32_t k1    = i[2].operands[2];
-    int32_t k2    = i[4].operands[2];
-
-    size_t fn_start = cb->len;                               // self-call target
-
-    emit_u8(cb, 0x48); emit_u8(cb, 0x83); emit_u8(cb, 0xFF); // cmp rdi, imm8
-    emit_u8(cb, (uint8_t)guard);
-
-    emit_u8(cb, 0x0F); emit_u8(cb, 0x8C);                    // jl ret_arg (arg < guard)
-    size_t ret_arg_jmp = cb->len; emit_i32(cb, 0);
-
-    emit_u8(cb, 0x53);                                       // push rbx
-    emit_u8(cb, 0x41); emit_u8(cb, 0x54);                    // push r12
-
-    emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xFB); // mov rbx, rdi
-
-    emit_u8(cb, 0x48); emit_u8(cb, 0x8D); emit_u8(cb, 0x7B); // lea rdi, [rbx-k1]
-    emit_u8(cb, (uint8_t)(uint8_t)(-k1));
-
-    emit_u8(cb, 0xE8);                                       // call self
-    int32_t call_rel = (int32_t)fn_start - (int32_t)(cb->len + 4);
-    emit_i32(cb, call_rel);
-
-    emit_u8(cb, 0x49); emit_u8(cb, 0x89); emit_u8(cb, 0xC4); // mov r12, rax
-
-    emit_u8(cb, 0x48); emit_u8(cb, 0x8D); emit_u8(cb, 0x7B); // lea rdi, [rbx-k2]
-    emit_u8(cb, (uint8_t)(uint8_t)(-k2));
-
-    emit_u8(cb, 0xE8);                                       // call self
-    call_rel = (int32_t)fn_start - (int32_t)(cb->len + 4);
-    emit_i32(cb, call_rel);
-
-    emit_u8(cb, 0x4C); emit_u8(cb, 0x01); emit_u8(cb, 0xE0); // add rax, r12
-
-    emit_u8(cb, 0x41); emit_u8(cb, 0x5C);                    // pop r12
-    emit_u8(cb, 0x5B);                                       // pop rbx
-
-    emit_u8(cb, 0xC3);                                       // ret
-
-    size_t ret_arg_at = cb->len;                             // ret_arg label
-    int32_t rel = (int32_t)ret_arg_at - (int32_t)(ret_arg_jmp + 4);
-    memcpy(cb->buf + ret_arg_jmp, &rel, 4);
-
-    emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xF8); // mov rax, rdi
-    emit_u8(cb, 0xC3);                                       // ret
-
-    return fn_start;
-}
-
-// checks whether a function matches the tree-like self-recursive pattern:
-//   pc+0: JUMP_IF_NEQ_IMM R0, 0, pc+2
-//   pc+1: RETURN_NUM_IMM  0
-//   pc+2: SUB_IMM         Ra <- R0 - k
-//   pc+3: CALL_1          Rb <- self(Ra)
-//   pc+4: ADD_IMM         Rc <- Rb + c
-//   pc+5: CALL_1          Rd <- self(Ra)
-//   pc+6: ADD             Re <- Rc + Rd
-//   pc+7: RETURN_NUM      Re
-// where R0 is the argument slot, k and c fit the cmp/lea/add imm8 forms, and
-// no instruction writes slot 0
-static bool matches_int_tree_pattern(BytecodeChunk* chunk, int self_idx,
-                                      int start, int end) {
-    if (end - start != 8) return false;                      // exact shape
-
-    Instruction* i = &chunk->code[start];
-
-    if (i[0].opcode != OP_JUMP_IF_NEQ_IMM) return false;     // guard: arg != 0
-    if (i[0].operands[1] != 0) return false;                 // arg must be slot 0
-    if (i[0].operands[0] != start + 2) return false;         // target must be pc+2
-    if (i[0].operands[2] != 0) return false;                 // guard value must be 0
-
-    if (i[1].opcode != OP_RETURN_NUM_IMM) return false;      // base case: return 0
-    if (i[1].operands[1] != 0) return false;
-
-    if (i[2].opcode != OP_SUB_IMM) return false;             // Ra = R0 - k
-    if (i[2].operands[1] != 0) return false;
-    int32_t k = i[2].operands[2];
-    if (k < 1 || k > 127) return false;
-    int Ra = i[2].operands[0];
-    if (Ra == 0) return false;
-
-    if (i[3].opcode != OP_CALL_1) return false;              // Rb = self(Ra)
-    if (i[3].operands[1] != self_idx) return false;
-    if (i[3].operands[2] != Ra) return false;
-    int Rb = i[3].operands[0];
-    if (Rb == 0 || Rb == Ra) return false;
-
-    if (i[4].opcode != OP_ADD_IMM) return false;             // Rc = Rb + c
-    if (i[4].operands[1] != Rb) return false;
-    int32_t c = i[4].operands[2];
-    if (c < -128 || c > 127) return false;
-    int Rc = i[4].operands[0];
-    if (Rc == 0 || Rc == Ra || Rc == Rb) return false;
-
-    if (i[5].opcode != OP_CALL_1) return false;              // Rd = self(Ra)
-    if (i[5].operands[1] != self_idx) return false;
-    if (i[5].operands[2] != Ra) return false;
-    int Rd = i[5].operands[0];
-    if (Rd == 0 || Rd == Ra || Rd == Rb || Rd == Rc) return false;
-
-    if (i[6].opcode != OP_ADD) return false;                 // Re = Rc + Rd
-    int Re = i[6].operands[0];
-    int add_a = i[6].operands[1];
-    int add_b = i[6].operands[2];
-    if (!((add_a == Rc && add_b == Rd) || (add_a == Rd && add_b == Rc))) return false;
-
-    if (i[7].opcode != OP_RETURN_NUM) return false;          // return Re
-    if (i[7].operands[0] != Re) return false;
-
-    return true;
-}
-
-// emits the int-specialized version of a tree-like self-recursive function;
-// entry convention: argument in rdi, result in rax
-static size_t emit_int_tree_body(CodeBuf* cb, BytecodeChunk* chunk,
-                                  int self_idx, int start, int end) {
-    (void)self_idx; (void)end;                               // pattern already verified
-
-    Instruction* i = &chunk->code[start];
-    int32_t k = i[2].operands[2];
-    int32_t c = i[4].operands[2];
-
-    size_t fn_start = cb->len;                               // self-call target
-
-    emit_u8(cb, 0x48); emit_u8(cb, 0x85); emit_u8(cb, 0xFF); // test rdi, rdi
-
-    emit_u8(cb, 0x0F); emit_u8(cb, 0x84);                    // je base (arg == 0)
-    size_t base_jmp = cb->len; emit_i32(cb, 0);
-
-    emit_u8(cb, 0x53);                                       // push rbx
-    emit_u8(cb, 0x41); emit_u8(cb, 0x54);                    // push r12
-
-    emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xFB); // mov rbx, rdi
-
-    emit_u8(cb, 0x48); emit_u8(cb, 0x8D); emit_u8(cb, 0x7B); // lea rdi, [rbx-k]
-    emit_u8(cb, (uint8_t)(uint8_t)(-k));
-
-    emit_u8(cb, 0xE8);                                       // call self
-    int32_t call_rel = (int32_t)fn_start - (int32_t)(cb->len + 4);
-    emit_i32(cb, call_rel);
-
-    emit_u8(cb, 0x48); emit_u8(cb, 0x83); emit_u8(cb, 0xC0); // add rax, imm8
-    emit_u8(cb, (uint8_t)c);
-
-    emit_u8(cb, 0x49); emit_u8(cb, 0x89); emit_u8(cb, 0xC4); // mov r12, rax
-
-    emit_u8(cb, 0x48); emit_u8(cb, 0x8D); emit_u8(cb, 0x7B); // lea rdi, [rbx-k]
-    emit_u8(cb, (uint8_t)(uint8_t)(-k));
-
-    emit_u8(cb, 0xE8);                                       // call self
-    call_rel = (int32_t)fn_start - (int32_t)(cb->len + 4);
-    emit_i32(cb, call_rel);
-
-    emit_u8(cb, 0x4C); emit_u8(cb, 0x01); emit_u8(cb, 0xE0); // add rax, r12
-
-    emit_u8(cb, 0x41); emit_u8(cb, 0x5C);                    // pop r12
-    emit_u8(cb, 0x5B);                                       // pop rbx
-
-    emit_u8(cb, 0xC3);                                       // ret
-
-    size_t base_at = cb->len;                                // base label
-    int32_t rel = (int32_t)base_at - (int32_t)(base_jmp + 4);
-    memcpy(cb->buf + base_jmp, &rel, 4);
-
-    emit_u8(cb, 0x31); emit_u8(cb, 0xC0);                    // xor eax, eax
-    emit_u8(cb, 0xC3);                                       // ret
-
-    return fn_start;
-}
-
-// emits the wrapper that dispatches between the int-specialized body and
-// the general double-based body based on a runtime integer check; the
-// wrapper has the usual double -> double signature
+// emits the wrapper that dispatches between the int-specialized body and the
+// general double body based on a runtime integer check; the int body uses an
+// internal convention (args in rdi/rsi, result in rax), so the wrapper
+// converts each argument with cvttsd2si and round-trips it back through
+// cvtsi2sd to prove exactness before entering the int path
 static void emit_int_wrapper(CodeBuf* cb, size_t general_off, size_t int_off,
-                              int max_n, size_t* out_wrapper_off) {
+                              int max_n, int arity, size_t* out_wrapper_off) {
+    static const int arg_gprs[2] = { X86_RDI, X86_RSI };
     *out_wrapper_off = cb->len;
 
-    emit_u8(cb, 0xF2); emit_u8(cb, 0x48);                    // cvttsd2si rdi, xmm0
-    emit_u8(cb, 0x0F); emit_u8(cb, 0x2C); emit_u8(cb, 0xF8);
+    size_t patches[8];
+    int    n_patches = 0;
 
-    emit_u8(cb, 0xF2); emit_u8(cb, 0x4C);                    // cvtsi2sd xmm15, rdi
-    emit_u8(cb, 0x0F); emit_u8(cb, 0x2A); emit_u8(cb, 0xFF);
+    for (int i = 0; i < arity; i++) {                            // check each arg
+        int ag = arg_gprs[i];
+        uint8_t rex1 = 0x48 | (ag >= 8 ? 0x04 : 0) | (i >= 8 ? 0x01 : 0);
+        emit_u8(cb, 0xF2); emit_u8(cb, rex1);                    // cvttsd2si ag, xmm<i>
+        emit_u8(cb, 0x0F); emit_u8(cb, 0x2C);
+        emit_u8(cb, 0xC0 | ((ag & 7) << 3) | (i & 7));
+        emit_u8(cb, 0xF2); emit_u8(cb, 0x4C | (ag >= 8 ? 0x01 : 0)); // cvtsi2sd xmm15, ag
+        emit_u8(cb, 0x0F); emit_u8(cb, 0x2A);
+        emit_u8(cb, 0xC0 | (7 << 3) | (ag & 7));
+        emit_u8(cb, 0x66); emit_u8(cb, 0x44);                    // ucomisd xmm15, xmm<i>
+        emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
+        emit_u8(cb, 0xC0 | (7 << 3) | (i & 7));
+        emit_u8(cb, 0x0F); emit_u8(cb, 0x8A);                    // jp fallback
+        if (n_patches < 8) patches[n_patches++] = cb->len;
+        emit_i32(cb, 0);
+        emit_u8(cb, 0x0F); emit_u8(cb, 0x85);                    // jne fallback
+        if (n_patches < 8) patches[n_patches++] = cb->len;
+        emit_i32(cb, 0);
+    }
 
-    emit_u8(cb, 0x66); emit_u8(cb, 0x44);                    // ucomisd xmm15, xmm0
-    emit_u8(cb, 0x0F); emit_u8(cb, 0x2E); emit_u8(cb, 0xF8);
+    if (max_n > 0 && arity >= 1) {                               // bound check arg0
+        int ag = arg_gprs[0];
+        emit_u8(cb, 0x48 | (ag >= 8 ? 0x01 : 0));
+        emit_u8(cb, 0x83); emit_u8(cb, 0xF8 | (ag & 7));         // cmp ag, imm8
+        emit_u8(cb, (uint8_t)max_n);
+        emit_u8(cb, 0x0F); emit_u8(cb, 0x8F);                    // jg fallback
+        if (n_patches < 8) patches[n_patches++] = cb->len;
+        emit_i32(cb, 0);
+    }
 
-    emit_u8(cb, 0x0F); emit_u8(cb, 0x8A);                    // jp fallback (NaN-tagged)
-    size_t jp_patch = cb->len; emit_i32(cb, 0);
-
-    emit_u8(cb, 0x0F); emit_u8(cb, 0x85);                    // jne fallback
-    size_t jne_patch = cb->len; emit_i32(cb, 0);
-
-    emit_u8(cb, 0x48); emit_u8(cb, 0x83); emit_u8(cb, 0xFF); // cmp rdi, max_n
-    emit_u8(cb, (uint8_t)max_n);
-
-    emit_u8(cb, 0x0F); emit_u8(cb, 0x8F);                    // jg fallback (> 78: precision)
-    size_t jg_patch = cb->len; emit_i32(cb, 0);
-
-    emit_u8(cb, 0xE8);                                       // call int_version
+    emit_u8(cb, 0xE8);                                           // call int body
     int32_t call_rel = (int32_t)int_off - (int32_t)(cb->len + 4);
     emit_i32(cb, call_rel);
-
-    emit_u8(cb, 0xF2); emit_u8(cb, 0x48);                    // cvtsi2sd xmm0, rax
+    emit_u8(cb, 0xF2); emit_u8(cb, 0x48);                        // cvtsi2sd xmm0, rax
     emit_u8(cb, 0x0F); emit_u8(cb, 0x2A); emit_u8(cb, 0xC0);
+    emit_u8(cb, 0xC3);                                           // ret
 
-    emit_u8(cb, 0xC3);                                       // ret
-
-    size_t fallback_at = cb->len;                            // fallback label
-    int32_t r = (int32_t)fallback_at - (int32_t)(jp_patch  + 4);
-    memcpy(cb->buf + jp_patch,  &r, 4);
-    r = (int32_t)fallback_at - (int32_t)(jne_patch + 4);
-    memcpy(cb->buf + jne_patch, &r, 4);
-    r = (int32_t)fallback_at - (int32_t)(jg_patch  + 4);
-    memcpy(cb->buf + jg_patch,  &r, 4);
-
-    emit_u8(cb, 0xE9);                                       // jmp general_version
+    size_t fallback_at = cb->len;                                // fallback: jmp general
+    for (int i = 0; i < n_patches; i++) {
+        int32_t r = (int32_t)fallback_at - (int32_t)(patches[i] + 4);
+        memcpy(cb->buf + patches[i], &r, 4);
+    }
+    emit_u8(cb, 0xE9);
     int32_t jmp_rel = (int32_t)general_off - (int32_t)(cb->len + 4);
     emit_i32(cb, jmp_rel);
 }
@@ -850,27 +1083,6 @@ static void emit_int_loop_body(CodeBuf* cb, BytecodeChunk* chunk, int pc,
             emit_u8(cb, 0x90);                               // nop on unsupported op
             break;
     }
-}
-
-// emits a runtime check that loads [rdi + slot*8] as double, converts to
-// int64 in gpr, and verifies the round-trip; on mismatch, jumps to the
-// fallback (general double loop emitted after the int loop)
-static void emit_int_guard_load(CodeBuf* cb, int frame_reg, int slot, int gpr,
-                                 size_t* patch_at) {
-    x86_emit_movsd_load_base(cb, frame_reg, 0, slot * 8);    // xmm0 = regs[slot]
-    emit_u8(cb, 0xF2); emit_u8(cb, 0x48 | (gpr >= 8 ? 0x01 : 0));
-    emit_u8(cb, 0x0F); emit_u8(cb, 0x2C);                    // cvttsd2si r64, xmm0
-    emit_u8(cb, 0xC0 | ((gpr & 7) << 3));
-    emit_u8(cb, 0xF2); emit_u8(cb, 0x48 | (gpr >= 8 ? 0x01 : 0));
-    emit_u8(cb, 0x0F); emit_u8(cb, 0x2A);                    // cvtsi2sd xmm1, r64
-    emit_u8(cb, 0xC8 | ((gpr & 7) << 3));
-    emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E); emit_u8(cb, 0xC8);
-    emit_u8(cb, 0x0F); emit_u8(cb, 0x85);                    // jne fallback
-    *patch_at = cb->len; emit_i32(cb, 0);
-    emit_u8(cb, 0x0F); emit_u8(cb, 0x8A);                    // jp fallback
-    *(patch_at + 1) = 0;                                     // placeholder for caller
-    size_t p2 = cb->len; emit_i32(cb, 0);
-    patch_at[1] = p2;                                        // stash second patch site
 }
 
 // emits a full int64 loop: prologue guard, int body, writeback, and the
@@ -1153,12 +1365,12 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     // general version, and the wrapper emitted at the end becomes the entry
     size_t int_off   = (size_t)-1;                               // int body offset, -1 if absent
     int    int_max_n = 0;                                        // wrapper upper bound
-    if (matches_int_recursive_pattern(chunk, func_idx, start, end)) {
-        int_off = emit_int_recursive_body(cb, chunk, func_idx, start, end);
-        int_max_n = 78;                                          // fib(78) is exact in double
-    } else if (matches_int_tree_pattern(chunk, func_idx, start, end)) {
-        int_off = emit_int_tree_body(cb, chunk, func_idx, start, end);
-        int_max_n = 53;                                          // tree(53) = 2^53-1 is exact
+    if (matches_int_self_recursive(ctx, func_idx)) {
+        if (x86_64_emit_int_self_recursive(abi, ctx, cb, func_idx, &int_off)) {
+            int_max_n = 40;                                      // conservative: keeps results < 2^53
+        } else {
+            int_off = (size_t)-1;
+        }
     }
 
     size_t mark = cb->len;                                       // rollback point
@@ -1966,7 +2178,8 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
 
     if (int_off != (size_t)-1) {                                 // wrap with an int dispatcher
         size_t wrapper_off = 0;
-        emit_int_wrapper(cb, mark, int_off, int_max_n, &wrapper_off);  // runtime int check + dispatch
+        emit_int_wrapper(cb, mark, int_off, int_max_n,
+                          chunk->functions[func_idx].arity, &wrapper_off);
         *out_fn = (void*)(cb->buf + wrapper_off);                // entry is the wrapper
     } else {
         *out_fn = (void*)(cb->buf + mark);                       // publish general entry
