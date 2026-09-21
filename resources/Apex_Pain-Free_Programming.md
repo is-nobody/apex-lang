@@ -79,7 +79,12 @@
   - [Comparison Only Works with Compatible Types](#comparison-only-works-with-compatible-types)
   - [Operator Precedence](#operator-precedence)
   - [Chaining Comparisons](#chaining-comparisons)
-- [Logical Operators](#section)
+- [Logical Operators](#logical-operators)
+  - [The Three Logical Operators](#the-three-logical-operators)
+  - [The AND Operator](#the-and-operator)
+  - [The OR Operator](#the-or-operator)
+  - [The NOT Operator](#the-not-operator)
+  - [Combining Logical Operators](#combining-logical-operators)
 
 ### If Statements
 - [If Statement](#section)
@@ -1545,3 +1550,206 @@ One thing to note: you cannot chain comparisons the way you might in math. In ma
 ```
 
 To express "between," you'll need to combine two comparisons with a logical operator — which we'll cover in the next section. For now, know that each comparison is a standalone operation that compares exactly two values.
+
+## Logical Operators
+Comparison operators let you ask single questions: "Is this age greater than 18?" "Is this name equal to Alice?" But real decisions are rarely that simple. You often need to ask compound questions: "Is this person over 18 **and** do they have a license?" "Is today Saturday **or** is it a holiday?" "Is the user **not** banned?"
+
+Logical operators are the tools that combine booleans into more complex conditions. They take boolean values as input and produce a boolean value as output. Since comparisons produce booleans, you can combine comparisons with logical operators to build up rich, nuanced conditions.
+
+### The Three Logical Operators
+Apex provides three logical operators:
+
+| Operator | What It Does                   | Example                |
+|----------|--------------------------------|------------------------|
+| `and`    | Both sides must be true        | `(5 < 10) and (2 > 1)` |
+| `or`     | At least one side must be true | `(2 > 1) or (2 < 1)`   |
+| `not`    | Reverses the value             | `not true`             |
+
+Let's explore each one.
+
+### The AND Operator
+The `and` operator combines two booleans and gives `true` only if **both** are `true`. If either side is `false` — or if both are — the result is `false`.
+
+Here's the full truth table for `and`:
+
+| Left    | Right   | Result  |
+|---------|---------|---------|
+| `true`  | `true`  | `true`  |
+| `true`  | `false` | `false` |
+| `false` | `true`  | `false` |
+| `false` | `false` | `false` |
+
+Think of `and` like a strict requirement. If you say "I'll go to the party if Alice comes **and** Bob comes," you'll only go when both of them show up. If either one is missing, you stay home.
+
+**Using `and` with comparisons:**
+The real power of `and` comes from combining comparisons:
+
+```apex
+age = 25
+has_license = true
+can_drive = (age >= 18) and (has_license == true)
+```
+
+Let's trace through this:
+
+1. `age >= 18` evaluates to `true` (25 is at least 18)
+2. `has_license == true` evaluates to `true` (the variable holds `true`)
+3. `true and true` evaluates to `true`
+
+So `can_drive` becomes `true`. If either condition had been false — say, `has_license` was `false` — then `can_drive` would be `false`.
+
+```apex
+age = 25
+has_license = false
+can_drive = (age >= 18) and (has_license == true)  // false
+```
+
+Now `true and false` gives `false`. The person is old enough but doesn't have a license, so they can't drive.
+
+**A note on comparing booleans:**
+You might notice that `has_license == true` is a bit verbose. Since `has_license` is already a boolean, you could just write `has_license` on its own. But remember from earlier: Apex requires conditions to be explicitly boolean, and there's nothing wrong with being explicit. Both of these work:
+
+```apex
+can_drive = (age >= 18) and (has_license == true)
+can_drive = (age >= 18) and has_license
+```
+
+The second is shorter. The first is more obvious about what it's checking. Choose whichever reads better to you.
+
+### The OR Operator
+The `or` operator combines two booleans and gives `true` if **at least one** is `true`. It only gives `false` when both sides are `false`.
+
+Here's the truth table for `or`:
+
+| Left    | Right   | Result  |
+|---------|---------|---------|
+| `true`  | `true`  | `true`  |
+| `true`  | `false` | `true`  |
+| `false` | `true`  | `true`  |
+| `false` | `false` | `false` |
+
+Think of `or` like a flexible option. If you say "I'll go to the party if Alice comes **or** Bob comes," you'll go if at least one of them shows up. You only stay home if neither comes.
+
+**Using `or` with comparisons:**
+```apex
+day = "Saturday"
+is_holiday = false
+can_relax = (day == "Saturday") or (is_holiday == true)
+```
+
+Let's trace through:
+
+1. `day == "Saturday"` evaluates to `true` (the day is Saturday)
+2. `is_holiday == true` evaluates to `false` (it's not a holiday)
+3. `true or false` evaluates to `true`
+
+So `can_relax` becomes `true`. Even though it's not a holiday, it's Saturday, and that's enough.
+
+```apex
+day = "Tuesday"
+is_holiday = false
+can_relax = (day == "Saturday") or (is_holiday == true)    // false
+```
+
+Now both sides are `false`: it's not Saturday, and it's not a holiday. So `false or false` gives `false`. No relaxing today.
+
+### The NOT Operator
+The `not` operator is different from `and` and `or`. It takes **one** boolean value — not two — and flips it. If the value is `true`, `not` makes it `false`. If it's `false`, `not` makes it `true`.
+
+Here's the truth table for `not`:
+
+| Value   | Result  |
+|---------|---------|
+| `true`  | `false` |
+| `false` | `true`  |
+
+```apex
+not true   // false
+not false  // true
+```
+
+Think of `not` as the word "isn't" or "doesn't." If `is_raining` is `true`, then `not is_raining` is `false` — because it's not the case that it isn't raining.
+
+**Using `not` with comparisons:**
+```apex
+is_raining = false
+can_walk = not is_raining    // true — it's not raining, so we can walk
+```
+
+Here, `is_raining` is `false`, so `not is_raining` is `true`. The variable `can_walk` becomes `true`.
+
+```apex
+is_raining = true
+can_walk = not is_raining    // false — it's raining, so we can't walk
+```
+
+Now `is_raining` is `true`, so `not is_raining` is `false`. `can_walk` is `false`.
+
+**A common use of `not`:**
+`not` is often used to check that something is *not* the case:
+
+```apex
+user = none
+has_user = not (user == none)  // false — user is none, so it's not the case that user exists
+```
+
+Wait, let's trace this carefully:
+
+1. `user == none` evaluates to `true` (the user variable holds `none`)
+2. `not true` evaluates to `false`
+
+So `has_user` becomes `false`, which makes sense: if `user` is `none`, then there is no user, so `has_user` should be false.
+
+### Combining Logical Operators
+You can combine `and`, `or`, and `not` to build complex conditions. Just like with arithmetic, logical operators have a precedence order that determines how expressions are evaluated.
+
+The precedence from highest to lowest is:
+
+1. `not` — happens first
+2. `and` — happens second
+3. `or` — happens last
+
+This means `not` binds most tightly, `and` next, `or` least tightly. Consider this expression:
+
+```apex
+true or false and false
+```
+
+Without precedence rules, you might read this left to right and get confused. But with precedence, `and` happens before `or`, so it's actually:
+
+```apex
+true or (false and false)
+```
+
+Let's evaluate:
+
+1. `false and false` evaluates to `false`
+2. `true or false` evaluates to `true`
+
+So the whole expression is `true`.
+
+If you wanted the `or` to happen first, you'd need parentheses:
+
+```apex
+(true or false) and false
+```
+
+Now:
+
+1. `true or false` evaluates to `true`
+2. `true and false` evaluates to `false`
+
+So the expression is `false`. Different order, different result.
+
+The full precedence order — including the operators from earlier sections — is:
+
+1. `()` — parentheses
+2. `*`, `/`, `%` — multiplication, division, modulo
+3. `+`, `-` — addition, subtraction
+4. `<`, `>`, `<=`, `>=` — ordering comparisons
+5. `==`, `!=` — equality comparisons
+6. `not` — logical NOT
+7. `and` — logical AND
+8. `or` — logical OR
+
+When in doubt, use parentheses. They cost nothing and make your intention obvious.
