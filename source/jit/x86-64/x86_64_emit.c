@@ -13,6 +13,62 @@
 // rounds n up to the next multiple of 16
 static int align16(int n) { return (n + 15) & ~15; }
 
+// checks if an opcode ends a basic block (no fall-through to the next pc)
+static bool op_is_terminator(Opcode op) {
+    return op == OP_JUMP ||
+           op == OP_RETURN || op == OP_RETURN_NUM ||
+           op == OP_RETURN_BOOL || op == OP_RETURN_NONE ||
+           op == OP_RETURN_NUM_IMM;
+}
+
+// compact xmm cache snapshot stored at a unique forward jump site
+typedef struct {
+    int16_t  reg_slot[XMM_CACHE_REGS];  // xmm[i] holds slot reg_slot[i], or -1
+    uint16_t dirty_mask;                // bit i: xmm[i] holds a dirty slot
+} JitCacheSnap;
+
+// captures the current cache into a compact snapshot
+static void x86_cache_snap(JitCacheSnap* snap, const XmmCache* c) {
+    memset(snap, 0, sizeof(*snap));
+    for (int i = 0; i < XMM_CACHE_REGS; i++) {
+        int s = c->reg_slot[i];
+        snap->reg_slot[i] = (int16_t)s;
+        if (s >= 0 && c->slot_dirty[s]) snap->dirty_mask |= (uint16_t)(1u << i);
+    }
+}
+
+// rebuilds the xmm cache from a compact snapshot, clearing prior state
+static void x86_cache_restore(XmmCache* c, const JitCacheSnap* snap) {
+    x86_cache_clear(c);
+    for (int i = 0; i < XMM_CACHE_REGS; i++) {
+        int s = snap->reg_slot[i];
+        if (s < 0) continue;
+        c->reg_slot[i] = s;
+        c->slot_reg[s] = i;
+        c->slot_dirty[s] = (snap->dirty_mask >> i) & 1;
+    }
+}
+
+// checks whether any backward jump in [start,end) targets `target`
+static bool has_backward_jump(BytecodeChunk* chunk, int start, int end, int target) {
+    for (int pc = target + 1; pc < end; pc++) {
+        Opcode op = chunk->code[pc].opcode;
+        if (op == OP_JUMP || op == OP_JUMP_IF_FALSE ||
+            op == OP_JUMP_IF_EQ || op == OP_JUMP_IF_NEQ ||
+            op == OP_JUMP_IF_EQ_NUM || op == OP_JUMP_IF_NEQ_NUM ||
+            op == OP_JUMP_IF_LT || op == OP_JUMP_IF_GT ||
+            op == OP_JUMP_IF_LTE || op == OP_JUMP_IF_GTE ||
+            op == OP_JUMP_IF_EQ_IMM || op == OP_JUMP_IF_NEQ_IMM ||
+            op == OP_JUMP_IF_LT_IMM || op == OP_JUMP_IF_GT_IMM ||
+            op == OP_JUMP_IF_LTE_IMM || op == OP_JUMP_IF_GTE_IMM ||
+            op == OP_JUMP_MATCH_NUM || op == OP_JUMP_MATCH_STR ||
+            op == OP_JUMP_MATCH_BOOL || op == OP_JUMP_MATCH_NONE) {
+            if (chunk->code[pc].operands[0] == target) return true;
+        }
+    }
+    return false;
+}
+
 // helper for OP_JUMP_MATCH_STR: returns 1 if the subject is a string whose
 int jit_match_str(Value subj, StringObject* case_str) {
     if (!IS_STRING(subj)) return 0;                          // non-strings never match
@@ -194,6 +250,13 @@ static bool slot_read_before_write(BytecodeChunk* chunk, int pc_after, int end, 
             case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:            // reads a, b
                 reads = (a == s || b == s);
                 break;
+            case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:   // reads a only, b is an immediate
+            case OP_DIV_IMM: case OP_MOD_IMM:
+            case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:
+            case OP_JUMP_IF_LT_IMM: case OP_JUMP_IF_GT_IMM:
+            case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
+                reads = (a == s);
+                break;
             case OP_JUMP_IF_FALSE:                               // reads a
                 reads = (a == s);
                 break;
@@ -222,6 +285,8 @@ static bool slot_read_before_write(BytecodeChunk* chunk, int pc_after, int end, 
             case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:
             case OP_LOAD_BOOL: case OP_LOAD_NONE:
             case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
+            case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:   // writes d
+            case OP_DIV_IMM: case OP_MOD_IMM:
             case OP_CMP_EQ: case OP_CMP_NEQ:
             case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
             case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
@@ -315,6 +380,15 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     if (!is_target || !label_off || !fixups) return false;       // scratch not available
 
     memset(is_target, 0, range_size * sizeof(bool));             // clear jump-target marks
+
+    int*          pred_count  = (int*)         calloc(range_size, sizeof(int));
+    uint8_t*      needs_flush = (uint8_t*)     calloc(range_size, 1);
+    uint8_t*      use_snap    = (uint8_t*)     calloc(range_size, 1);
+    JitCacheSnap* jump_snap   = (JitCacheSnap*)calloc(range_size, sizeof(JitCacheSnap));
+    if (!pred_count || !needs_flush || !use_snap || !jump_snap) {  // scratch alloc failed
+        free(pred_count); free(needs_flush); free(use_snap); free(jump_snap);
+        return false;
+    }
     for (int pc = start; pc < end; pc++) {                       // collect jump targets
         Opcode op = chunk->code[pc].opcode;
         if (op == OP_JUMP || op == OP_JUMP_IF_FALSE ||
@@ -322,11 +396,48 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             op == OP_JUMP_IF_EQ_NUM || op == OP_JUMP_IF_NEQ_NUM ||
             op == OP_JUMP_IF_LT || op == OP_JUMP_IF_GT ||
             op == OP_JUMP_IF_LTE || op == OP_JUMP_IF_GTE ||
+            op == OP_JUMP_IF_EQ_IMM || op == OP_JUMP_IF_NEQ_IMM ||
+            op == OP_JUMP_IF_LT_IMM || op == OP_JUMP_IF_GT_IMM ||
+            op == OP_JUMP_IF_LTE_IMM || op == OP_JUMP_IF_GTE_IMM ||
             op == OP_JUMP_MATCH_NUM || op == OP_JUMP_MATCH_STR ||
             op == OP_JUMP_MATCH_BOOL || op == OP_JUMP_MATCH_NONE) {
             int t = chunk->code[pc].operands[0];                 // jump target
             if (t >= start && t < end) is_target[t - start] = true;  // mark as merge point
         }
+    }
+
+    for (int pc = start + 1; pc < end; pc++) {                   // fall-through predecessors
+        if (op_is_terminator(chunk->code[pc - 1].opcode)) continue;
+        pred_count[pc - start]++;
+    }
+    for (int pc = start; pc < end; pc++) {                       // add jump predecessors
+        Opcode op = chunk->code[pc].opcode;
+        if (op == OP_JUMP || op == OP_JUMP_IF_FALSE ||
+            op == OP_JUMP_IF_EQ || op == OP_JUMP_IF_NEQ ||
+            op == OP_JUMP_IF_EQ_NUM || op == OP_JUMP_IF_NEQ_NUM ||
+            op == OP_JUMP_IF_LT || op == OP_JUMP_IF_GT ||
+            op == OP_JUMP_IF_LTE || op == OP_JUMP_IF_GTE ||
+            op == OP_JUMP_IF_EQ_IMM || op == OP_JUMP_IF_NEQ_IMM ||
+            op == OP_JUMP_IF_LT_IMM || op == OP_JUMP_IF_GT_IMM ||
+            op == OP_JUMP_IF_LTE_IMM || op == OP_JUMP_IF_GTE_IMM ||
+            op == OP_JUMP_MATCH_NUM || op == OP_JUMP_MATCH_STR ||
+            op == OP_JUMP_MATCH_BOOL || op == OP_JUMP_MATCH_NONE) {
+            int t = chunk->code[pc].operands[0];                 // jump target
+            if (t < start || t >= end) continue;                 // out of range, ignore
+            is_target[t - start] = true;                         // mark as merge point
+            pred_count[t - start]++;
+        }
+    }
+
+    // needs_flush: label must be entered with an empty cache (multi-pred or backward)
+    // use_snap:    label reached only by one forward jump, so its cache state is restored
+    for (int i = 0; i < range_size; i++) {                       // classify every label
+        if (!is_target[i]) continue;                             // pc is not a label
+        int tgt = start + i;                                     // absolute target pc
+        if (has_backward_jump(chunk, start, end, tgt) || pred_count[i] > 1)
+            needs_flush[i] = 1;                                  // multi-pred / backward: flush
+        else
+            use_snap[i] = 1;                                     // unique forward jump: snapshot
     }
 
     for (int i = 0; i < range_size; i++) label_off[i] = -1;      // no label emitted yet
@@ -335,6 +446,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     size_t mark = cb->len;                                       // rollback point
 
     XmmCache cache;                                              // register cache state
+    (void)jump_snap;                                             // read on labels, written at jumps
     x86_cache_clear(&cache);                                     // start empty
 
     int base_frame  = align16(8 * (nregs + func_n_imms));        // incl. precomputed imm slots
@@ -357,6 +469,10 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
 
     for (int pc = start; pc < end; pc++) {                       // emit each bytecode
         label_off[pc - start] = (int32_t)cb->len;                // record label address
+
+        if (use_snap[pc - start]) {                              // unique forward-jump label
+            x86_cache_restore(&cache, &jump_snap[pc - start]);   // restore snapshotted state
+        }
 
         Instruction* inst = &chunk->code[pc];
         int d = inst->operands[0];                               // first operand
@@ -653,7 +769,12 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 break;
             }
             case OP_JUMP: {                                      // unconditional jump
-                x86_cache_flush(&cache, cb);                     // flush before branch
+                if (d >= start && d < end) {                     // in-range target only
+                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
+                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
+                } else {
+                    x86_cache_flush(&cache, cb);                 // out of range: safest
+                }
                 emit_u8(cb, 0xE9);                               // jmp rel32 opcode
                 fixups[fixup_count].patch_at  = cb->len;         // record placeholder
                 fixups[fixup_count].target_pc = d;               // remember target pc
@@ -667,7 +788,12 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 x86_emit_movq_rax_xmm(cb, xa);                   // rax = raw 64-bit slot
                 emit_u8(cb, 0xA8); emit_u8(cb, 0x01);            // test al, 1
-                x86_cache_flush(&cache, cb);                     // flush before branch
+                if (d >= start && d < end) {
+                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
+                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
+                } else {
+                    x86_cache_flush(&cache, cb);
+                }
                 emit_u8(cb, 0x0F); emit_u8(cb, 0x84);            // je rel32 (bit0 == 0 -> false)
                 fixups[fixup_count].patch_at  = cb->len;         // record placeholder
                 fixups[fixup_count].target_pc = d;               // remember target pc
@@ -683,7 +809,12 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
-                x86_cache_flush(&cache, cb);                     // flush before branch
+                if (d >= start && d < end) {
+                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
+                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
+                } else {
+                    x86_cache_flush(&cache, cb);
+                }
                 emit_u8(cb, 0x0F); emit_u8(cb, 0x84);            // je rel32
                 fixups[fixup_count].patch_at  = cb->len;         // record placeholder
                 fixups[fixup_count].target_pc = d;               // remember target pc
@@ -699,7 +830,12 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
-                x86_cache_flush(&cache, cb);                     // flush before branch
+                if (d >= start && d < end) {
+                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
+                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
+                } else {
+                    x86_cache_flush(&cache, cb);
+                }
                 emit_u8(cb, 0x0F); emit_u8(cb, 0x85);            // jne rel32
                 fixups[fixup_count].patch_at  = cb->len;         // record placeholder
                 fixups[fixup_count].target_pc = d;               // remember target pc
@@ -714,7 +850,12 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
-                x86_cache_flush(&cache, cb);                     // flush before branch
+                if (d >= start && d < end) {
+                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
+                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
+                } else {
+                    x86_cache_flush(&cache, cb);
+                }
                 emit_u8(cb, 0x0F); emit_u8(cb, 0x82);            // jb rel32
                 fixups[fixup_count].patch_at  = cb->len;         // record placeholder
                 fixups[fixup_count].target_pc = d;               // remember target pc
@@ -729,7 +870,12 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
-                x86_cache_flush(&cache, cb);                     // flush before branch
+                if (d >= start && d < end) {
+                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
+                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
+                } else {
+                    x86_cache_flush(&cache, cb);
+                }
                 emit_u8(cb, 0x0F); emit_u8(cb, 0x87);            // ja rel32
                 fixups[fixup_count].patch_at  = cb->len;         // record placeholder
                 fixups[fixup_count].target_pc = d;               // remember target pc
@@ -744,7 +890,12 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
-                x86_cache_flush(&cache, cb);                     // flush before branch
+                if (d >= start && d < end) {
+                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
+                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
+                } else {
+                    x86_cache_flush(&cache, cb);
+                }
                 emit_u8(cb, 0x0F); emit_u8(cb, 0x86);            // jbe rel32
                 fixups[fixup_count].patch_at  = cb->len;         // record placeholder
                 fixups[fixup_count].target_pc = d;               // remember target pc
@@ -759,7 +910,12 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
-                x86_cache_flush(&cache, cb);                     // flush before branch
+                if (d >= start && d < end) {
+                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
+                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
+                } else {
+                    x86_cache_flush(&cache, cb);
+                }
                 emit_u8(cb, 0x0F); emit_u8(cb, 0x83);            // jae rel32
                 fixups[fixup_count].patch_at  = cb->len;         // record placeholder
                 fixups[fixup_count].target_pc = d;               // remember target pc
@@ -785,7 +941,12 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                     x86_emit_load_double_imm(cb, XMM_SCRATCH, b);
                     x86_emit_ucomisd_rr(cb, xa, XMM_SCRATCH);
                 }
-                x86_cache_flush(&cache, cb);                     // flush before branch
+                if (d >= start && d < end) {
+                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
+                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
+                } else {
+                    x86_cache_flush(&cache, cb);
+                }
                 uint8_t jcc;
                 switch (op) {
                     case OP_JUMP_IF_EQ_IMM:  jcc = 0x84; break;  // je
@@ -811,7 +972,12 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 x86_emit_movabs_rax(cb, cbits);                  // rax = constant bits
                 x86_emit_movq_xmm_rax(cb, XMM_SCRATCH);          // scratch = constant
                 x86_emit_ucomisd_rr(cb, xa, XMM_SCRATCH);        // ucomisd subj, const
-                x86_cache_flush(&cache, cb);                     // flush before both branches
+                if (d >= start && d < end) {
+                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
+                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
+                } else {
+                    x86_cache_flush(&cache, cb);
+                }
                 emit_u8(cb, 0x0F); emit_u8(cb, 0x8A);            // jp skip (subj was NaN-tagged)
                 size_t skip_patch = cb->len;
                 emit_i32(cb, 0);
@@ -859,7 +1025,12 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 uint64_t expect = X86_BOOL_BITS | (b ? 1ULL : 0ULL);
                 x86_emit_movabs_r11(cb, expect);                 // r11 = expected bool bits
                 emit_u8(cb, 0x4C); emit_u8(cb, 0x39); emit_u8(cb, 0xD8);  // cmp rax, r11
-                x86_cache_flush(&cache, cb);
+                if (d >= start && d < end) {
+                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
+                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
+                } else {
+                    x86_cache_flush(&cache, cb);
+                }
                 emit_u8(cb, 0x0F); emit_u8(cb, 0x84);            // je target
                 fixups[fixup_count].patch_at  = cb->len;
                 fixups[fixup_count].target_pc = d;
@@ -874,7 +1045,12 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 x86_emit_movq_rax_xmm(cb, xa);                   // rax = subject bits
                 x86_emit_movabs_r11(cb, X86_NONE_BITS);          // r11 = NONE bits
                 emit_u8(cb, 0x4C); emit_u8(cb, 0x39); emit_u8(cb, 0xD8);  // cmp rax, r11
-                x86_cache_flush(&cache, cb);
+                if (d >= start && d < end) {
+                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
+                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
+                } else {
+                    x86_cache_flush(&cache, cb);
+                }
                 emit_u8(cb, 0x0F); emit_u8(cb, 0x84);            // je target
                 fixups[fixup_count].patch_at  = cb->len;
                 fixups[fixup_count].target_pc = d;
@@ -971,8 +1147,9 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 break;
         }
 
-        // flush if the next instruction is a jump target — the incoming cache state at a merge point must be consistent
-        if (!did_flush && pc + 1 < end && is_target[pc + 1 - start]) {
+        // flush if the next instruction is a merge point — the incoming cache
+        // state at a multi-predecessor label must be consistent across edges
+        if (!did_flush && pc + 1 < end && needs_flush[pc + 1 - start]) {
             x86_cache_flush(&cache, cb);
         }
     }
@@ -984,11 +1161,14 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         int tidx = fx->target_pc - start;                        // index within range
         if (tidx < 0 || tidx >= range_size || label_off[tidx] < 0) {
             cb->len = mark;                                      // rollback partial emission
+            free(pred_count); free(needs_flush); free(use_snap); free(jump_snap);
             return false;                                        // invalid target
         }
         int32_t rel = (int32_t)label_off[tidx] - (int32_t)(fx->patch_at + 4);  // rel32 distance
         memcpy(cb->buf + fx->patch_at, &rel, 4);                 // write rel32
     }
+
+    free(pred_count); free(needs_flush); free(use_snap); free(jump_snap);
 
     *out_fn = (void*)(cb->buf + mark);                           // publish entry pointer
     return true;                                                 // emission successful
