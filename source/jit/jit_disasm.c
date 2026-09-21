@@ -119,7 +119,8 @@ static int decode_modrm(D* d, const char* const* regnames,
             else            snprintf(index, sizeof(index), "%s*%d", R64[idx], 1 << scale);
         }
     } else if (rm == 5 && mod == 0) {
-        disp_kind = 4;                                       // rip-relative not produced, treat as disp32
+        disp_kind = 4;                                       // rip-relative; render as rip+disp32
+        snprintf(base, sizeof(base), "rip");
     } else {
         int full = rm | (d->rex_b ? 8 : 0);                  // plain base register
         snprintf(base, sizeof(base), "%s", R64[full]);
@@ -130,13 +131,18 @@ static int decode_modrm(D* d, const char* const* regnames,
     else if (disp_kind == 1) { int8_t v = fetch_i8(d); snprintf(disp, sizeof(disp), "%d", v); }
 
     char tmp[64] = "";                                       // assembled "[base+index+disp]"
+    int is_rip = (strcmp(base, "rip") == 0);                 // rip-relative form?
     if (base[0]) strncat(tmp, base, sizeof(tmp) - strlen(tmp) - 1);
     if (has_index) {
         if (tmp[0]) strncat(tmp, "+", sizeof(tmp) - strlen(tmp) - 1);
         strncat(tmp, index, sizeof(tmp) - strlen(tmp) - 1);
     }
     if (disp[0]) {
-        if (tmp[0] && disp[0] != '-') strncat(tmp, "+", sizeof(tmp) - strlen(tmp) - 1);
+        if (is_rip) {                                        // rip+N or rip-N, no extra '+'
+            strncat(tmp, (disp[0] == '-' ? "" : "+"), sizeof(tmp) - strlen(tmp) - 1);
+        } else if (tmp[0] && disp[0] != '-') {
+            strncat(tmp, "+", sizeof(tmp) - strlen(tmp) - 1);
+        }
         strncat(tmp, disp, sizeof(tmp) - strlen(tmp) - 1);
     }
     snprintf(rm_out, rmsz, "[%s]", tmp);

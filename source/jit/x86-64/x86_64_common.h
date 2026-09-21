@@ -134,6 +134,39 @@ static inline void x86_emit_sse_arith_mem(CodeBuf* b, uint8_t op,
     emit_i32(b, disp);                                     // displacement
 }
 
+// emits <op>sd xmm_dst, [rip+disp32]; returns the offset of the disp32 field
+static inline size_t x86_emit_sse_arith_rip(CodeBuf* b, uint8_t op, int xmm_dst) {
+    emit_u8(b, 0xF2);                                      // scalar-double legacy prefix
+    x86_rex_r(b, xmm_dst);                                 // rex.r for xmm8-xmm15
+    emit_u8(b, 0x0F); emit_u8(b, op);                      // scalar-double opcode
+    emit_u8(b, 0x05 | ((xmm_dst & 7) << 3));               // modrm: mod=00, rm=101 (rip-relative)
+    size_t at = b->len;                                    // offset of the disp32 field
+    emit_i32(b, 0);                                        // placeholder, patched later
+    return at;                                             // caller stores it in the fixup list
+}
+
+// emits movsd xmm<N>, [rip+disp32]; returns the offset of the disp32 field
+static inline size_t x86_emit_movsd_load_rip(CodeBuf* b, int xmm) {
+    emit_u8(b, 0xF2);                                      // movsd legacy prefix
+    x86_rex_r(b, xmm);                                     // rex.r for xmm8-xmm15
+    emit_u8(b, 0x0F); emit_u8(b, 0x10);                    // movsd load opcode
+    emit_u8(b, 0x05 | ((xmm & 7) << 3));                   // modrm: mod=00, rm=101 (rip-relative)
+    size_t at = b->len;                                    // offset of the disp32 field
+    emit_i32(b, 0);                                        // placeholder, patched later
+    return at;                                             // caller stores it in the fixup list
+}
+
+// emits ucomisd xmm_a, [rip+disp32]; returns the offset of the disp32 field
+static inline size_t x86_emit_ucomisd_rip(CodeBuf* b, int xmm_a) {
+    emit_u8(b, 0x66);                                      // operand-size prefix
+    x86_rex_r(b, xmm_a);                                   // rex.r for xmm8-xmm15
+    emit_u8(b, 0x0F); emit_u8(b, 0x2E);                    // ucomisd opcode
+    emit_u8(b, 0x05 | ((xmm_a & 7) << 3));                 // modrm: mod=00, rm=101 (rip-relative)
+    size_t at = b->len;                                    // offset of the disp32 field
+    emit_i32(b, 0);                                        // placeholder, patched later
+    return at;                                             // caller stores it in the fixup list
+}
+
 // emits <op>sd xmm_dst, xmm_src — scalar-double op, register-register
 static inline void x86_emit_sse_arith_rr(CodeBuf* b, uint8_t op, int dst, int src) {
     emit_u8(b, 0xF2);                                      // scalar-double legacy prefix
@@ -182,6 +215,24 @@ static inline void x86_emit_movq_rax_xmm(CodeBuf* b, int xmm) {
     emit_u8(b, xmm >= 8 ? 0x4C : 0x48);                    // rex.w (+rex.r for xmm8-xmm15)
     emit_u8(b, 0x0F); emit_u8(b, 0x7E);                    // movq r/m64, xmm
     emit_u8(b, 0xC0 | ((xmm & 7) << 3));                   // modrm, reg=xmm, rm=rax
+}
+
+// emits movq gpr, xmm<N> — copy an sse register into any gpr, bit-exact
+static inline void x86_emit_movq_gpr_xmm(CodeBuf* b, int gpr, int xmm) {
+    emit_u8(b, 0x66);                                      // operand-size prefix
+    uint8_t rex = 0x48 | ((xmm >= 8) ? 0x04 : 0) | ((gpr >= 8) ? 0x01 : 0);
+    emit_u8(b, rex);                                       // rex.w + rex.r + rex.b
+    emit_u8(b, 0x0F); emit_u8(b, 0x7E);                    // movq r/m64, xmm
+    emit_u8(b, 0xC0 | ((xmm & 7) << 3) | (gpr & 7));       // modrm, reg=xmm, rm=gpr
+}
+
+// emits movq xmm<N>, gpr — copy a gpr into any sse register, bit-exact
+static inline void x86_emit_movq_xmm_gpr(CodeBuf* b, int xmm, int gpr) {
+    emit_u8(b, 0x66);                                      // operand-size prefix
+    uint8_t rex = 0x48 | ((xmm >= 8) ? 0x04 : 0) | ((gpr >= 8) ? 0x01 : 0);
+    emit_u8(b, rex);                                       // rex.w + rex.r + rex.b
+    emit_u8(b, 0x0F); emit_u8(b, 0x6E);                    // movq xmm, r/m64
+    emit_u8(b, 0xC0 | ((xmm & 7) << 3) | (gpr & 7));       // modrm, reg=xmm, rm=gpr
 }
 
 // emits mov [rbp+disp32], r64 — store callee-saved gpr into stack slot

@@ -13,6 +13,23 @@
 // rounds n up to the next multiple of 16
 static int align16(int n) { return (n + 15) & ~15; }
 
+// callee-saved gprs usable as slot pockets on all supported abis
+#define X86_N_GPR_POCKETS 5
+
+static const int x86_gpr_pocket_regs[X86_N_GPR_POCKETS] = {
+    X86_RBX, X86_R12, X86_R13, X86_R14, X86_R15
+};
+
+// emits load r64, [rbp+disp32] for each assigned pocket gpr before leave; ret
+static void emit_gpr_pocket_restores(CodeBuf* cb, int pocket_slot_base,
+                                     int n_pockets) {
+    for (int g = 0; g < n_pockets; g++) {                    // restore saved gprs
+        int gpr = x86_gpr_pocket_regs[g];
+        int disp = -8 * (pocket_slot_base + g + 1);
+        x86_emit_load_r64_rbp(cb, gpr, disp);
+    }
+}
+
 // checks if an opcode ends a basic block (no fall-through to the next pc)
 static bool op_is_terminator(Opcode op) {
     return op == OP_JUMP ||
@@ -51,6 +68,7 @@ static void x86_cache_restore(XmmCache* c, const JitCacheSnap* snap) {
 
 // checks whether any backward jump in [start,end) targets `target`
 static bool has_backward_jump(BytecodeChunk* chunk, int start, int end, int target) {
+    (void)start;                                             // start is unused, kept for symmetry
     for (int pc = target + 1; pc < end; pc++) {
         Opcode op = chunk->code[pc].opcode;
         if (op == OP_JUMP || op == OP_JUMP_IF_FALSE ||
@@ -346,7 +364,6 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
 
     // precompute distinct immediates used in this function
     int32_t func_imms[8];
-    int     func_imm_slots[8];
     int     func_n_imms = 0;
     bool    func_imm_ok = true;
     for (int pc = start; pc < end; pc++) {
@@ -372,7 +389,16 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         func_imms[func_n_imms++] = imm;
     }
     if (!func_imm_ok) func_n_imms = 0;
-    for (int i = 0; i < func_n_imms; i++) func_imm_slots[i] = nregs + i;
+
+    // gpr pockets are disabled: on float-heavy bodies the xmm<->gpr round-trip
+    // costs more than an L1 spill/reload because it competes for the FP issue
+    // ports with the arithmetic, while a store/load pair is hidden by the store
+    // buffer; pocket code paths stay dormant while n_pockets is zero
+    int slot_pocket_gpr[JIT_MAX_SLOTS];                      // slot -> pocket gpr index, or -1
+    int slot_to_pocket[X86_N_GPR_POCKETS];                   // pocket gpr index -> slot, or -1
+    int n_pockets = 0;                                       // number of assigned pockets
+    for (int s = 0; s < nregs; s++) slot_pocket_gpr[s] = -1;
+    for (int g = 0; g < X86_N_GPR_POCKETS; g++) slot_to_pocket[g] = -1;
 
     bool* is_target     = ctx->scratch_is_target;                // shared jump-target marks
     int32_t* label_off  = ctx->scratch_label_off;                // shared label offset array
@@ -443,20 +469,26 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     for (int i = 0; i < range_size; i++) label_off[i] = -1;      // no label emitted yet
     int fixup_count = 0;                                         // pending jumps count
 
+    size_t rip_fixup_at[64];                                     // rip-relative disp32 offsets
+    int    rip_fixup_imm[64];                                    // imm index per fixup
+    int    rip_fixup_count = 0;                                  // pending rip fixups
+
     size_t mark = cb->len;                                       // rollback point
 
     XmmCache cache;                                              // register cache state
     (void)jump_snap;                                             // read on labels, written at jumps
     x86_cache_clear(&cache);                                     // start empty
 
-    int base_frame  = align16(8 * (nregs + func_n_imms));        // incl. precomputed imm slots
+    int pocket_slot_base = nregs;                                // first slot for gpr saves
+    int base_frame  = align16(8 * (nregs + n_pockets));          // incl. gpr save slots only
     int frame_size  = base_frame + abi->frame_extra;             // plus abi extras
 
     emit_prologue(cb, abi, frame_size, base_frame);
 
-    for (int i = 0; i < func_n_imms; i++) {                      // store immediates once
-        x86_emit_load_double_imm(cb, XMM_SCRATCH, func_imms[i]);
-        x86_emit_movsd_store(cb, XMM_SCRATCH, x86_slot_disp(func_imm_slots[i]));
+    for (int g = 0; g < n_pockets; g++) {                        // save callee-saved gprs
+        int gpr = x86_gpr_pocket_regs[g];
+        int disp = -8 * (pocket_slot_base + g + 1);
+        x86_emit_store_r64_rbp(cb, gpr, disp);
     }
 
     int cached_args = arity < XMM_CACHE_REGS ? arity : XMM_CACHE_REGS;  // args fit in cache
@@ -501,11 +533,17 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             case OP_LOAD_NUM_IMM: {                              // small int literal
                 int x = x86_cache_alloc_excl(&cache, cb, -1, -1);  // pick a register
                 if (x < 0) { emit_return_zero(abi, cb, base_frame); break; }
-                int slot = -1;
+                int imm_idx = -1;                                // index into the rip pool
                 for (int i = 0; i < func_n_imms; i++)
-                    if (func_imms[i] == a) { slot = func_imm_slots[i]; break; }
-                if (slot >= 0) x86_emit_movsd_load(cb, x, x86_slot_disp(slot));
-                else           x86_emit_load_double_imm(cb, x, a);
+                    if (func_imms[i] == a) { imm_idx = i; break; }
+                if (imm_idx >= 0) {
+                    size_t at = x86_emit_movsd_load_rip(cb, x);  // movsd xmm, [rip+disp32]
+                    rip_fixup_at[rip_fixup_count] = at;
+                    rip_fixup_imm[rip_fixup_count] = imm_idx;
+                    rip_fixup_count++;
+                } else {
+                    x86_emit_load_double_imm(cb, x, a);
+                }
                 x86_cache_put(&cache, x, d);                     // cache dest
                 break;
             }
@@ -586,22 +624,28 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                     case OP_MUL_IMM: arith_op = 0x59; break;
                     default:         arith_op = 0x5E; break;
                 }
-                int slot = -1;
+                        int imm_idx = -1;                                // index into the rip pool
                 for (int i = 0; i < func_n_imms; i++)
-                    if (func_imms[i] == b) { slot = func_imm_slots[i]; break; }
+                    if (func_imms[i] == b) { imm_idx = i; break; }
                 bool preserve = (d != a) &&
                     slot_read_before_write(chunk, pc + 1, end, a);
-                if (slot >= 0) {
+                if (imm_idx >= 0) {
                     if (preserve) {
                         int xd = x86_cache_alloc_excl(&cache, cb, xa, -1);
                         if (xd >= 0) {
                             x86_emit_sse66_rr(cb, 0x28, xd, xa);
-                            x86_emit_sse_arith_mem(cb, arith_op, xd, x86_slot_disp(slot));
+                            size_t at = x86_emit_sse_arith_rip(cb, arith_op, xd);
+                            rip_fixup_at[rip_fixup_count] = at;
+                            rip_fixup_imm[rip_fixup_count] = imm_idx;
+                            rip_fixup_count++;
                             x86_cache_put(&cache, xd, d);
                             break;
                         }
                     }
-                    x86_emit_sse_arith_mem(cb, arith_op, xa, x86_slot_disp(slot));
+                    size_t at = x86_emit_sse_arith_rip(cb, arith_op, xa);
+                    rip_fixup_at[rip_fixup_count] = at;
+                    rip_fixup_imm[rip_fixup_count] = imm_idx;
+                    rip_fixup_count++;
                     x86_cache_put(&cache, xa, d);
                     break;
                 }
@@ -932,11 +976,14 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             case OP_JUMP_IF_GTE_IMM: {                           // imm-jump variants share the pattern
                 int xa = x86_cache_load(&cache, cb, a);          // load left operand
                 if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }
-                int slot = -1;
+                int imm_idx = -1;                                // index into the rip pool
                 for (int i = 0; i < func_n_imms; i++)
-                    if (func_imms[i] == b) { slot = func_imm_slots[i]; break; }
-                if (slot >= 0) {
-                    x86_emit_ucomisd_mem(cb, xa, x86_slot_disp(slot));  // ucomisd a, [rbp+disp32]
+                    if (func_imms[i] == b) { imm_idx = i; break; }
+                if (imm_idx >= 0) {
+                    size_t at = x86_emit_ucomisd_rip(cb, xa);    // ucomisd xa, [rip+disp32]
+                    rip_fixup_at[rip_fixup_count] = at;
+                    rip_fixup_imm[rip_fixup_count] = imm_idx;
+                    rip_fixup_count++;
                 } else {
                     x86_emit_load_double_imm(cb, XMM_SCRATCH, b);
                     x86_emit_ucomisd_rr(cb, xa, XMM_SCRATCH);
@@ -1072,16 +1119,33 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                     int s = cache.reg_slot[i];
                     if (s < 0) continue;                         // empty slot, skip
                     if (s == b && !arg_live) continue;           // dead arg — memory stays stale
-                    if (cache.slot_dirty[s]) x86_emit_movsd_store(cb, i, x86_slot_disp(s));
+                    if (!cache.slot_dirty[s]) continue;          // clean slot, nothing to spill
+                    int g = (s < JIT_MAX_SLOTS) ? slot_pocket_gpr[s] : -1;
+                    if (g >= 0) x86_emit_movq_gpr_xmm(cb, x86_gpr_pocket_regs[g], i);
+                    else        x86_emit_movsd_store(cb, i, x86_slot_disp(s));
+                    cache.slot_dirty[s] = false;
                 }
                 if (arg_xmm >= 0 && arg_xmm != 0) {              // arg in cache, not xmm0
                     x86_emit_sse66_rr(cb, 0x28, 0, arg_xmm);     // movapd xmm0, arg_xmm
                 } else if (arg_xmm < 0) {                        // arg not cached
-                    x86_emit_movsd_load(cb, 0, x86_slot_disp(b));  // reload from memory
+                    int g = (b >= 0 && b < JIT_MAX_SLOTS) ? slot_pocket_gpr[b] : -1;
+                    if (g >= 0) x86_emit_movq_xmm_gpr(cb, 0, x86_gpr_pocket_regs[g]);
+                    else        x86_emit_movsd_load(cb, 0, x86_slot_disp(b));
                 }                                                // else arg already in xmm0
                 x86_cache_clear(&cache);                         // xmm regs clobbered by callee
                 emit_call_or_self(cb, ctx, a, func_idx, mark);   // direct self-call or via table
                 x86_cache_put(&cache, 0, d);                     // xmm0 = result
+                for (int g = 0; g < n_pockets; g++) {            // restore pockets live after call
+                    int s = slot_to_pocket[g];
+                    if (s < 0 || s == d) continue;               // result already holds d
+                    if (!slot_read_before_write(chunk, pc + 1, end, s)) continue;
+                    int x = x86_cache_alloc_excl(&cache, cb, -1, -1);
+                    if (x < 0) continue;                         // register cache full
+                    x86_emit_movq_xmm_gpr(cb, x, x86_gpr_pocket_regs[g]);
+                    cache.reg_slot[x] = s;
+                    cache.slot_reg[s] = x;
+                    cache.slot_dirty[s] = false;
+                }
                 break;
             }
             case OP_CALL_2: {                                    // call with two args
@@ -1094,22 +1158,41 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                     if (s < 0) continue;                         // empty, skip
                     if (s == b     && !arg0_live) continue;      // dead arg0 — memory stays stale
                     if (s == b + 1 && !arg1_live) continue;      // dead arg1 — memory stays stale
-                    if (cache.slot_dirty[s]) x86_emit_movsd_store(cb, i, x86_slot_disp(s));
+                    if (!cache.slot_dirty[s]) continue;          // clean slot, nothing to spill
+                    int g = (s < JIT_MAX_SLOTS) ? slot_pocket_gpr[s] : -1;
+                    if (g >= 0) x86_emit_movq_gpr_xmm(cb, x86_gpr_pocket_regs[g], i);
+                    else        x86_emit_movsd_store(cb, i, x86_slot_disp(s));
+                    cache.slot_dirty[s] = false;
                 }
                 if (arg0_xmm >= 0) {                             // arg0 in cache
-                    x86_emit_sse66_rr(cb, 0x28, XMM_SCRATCH, arg0_xmm);  // stash arg0 in scratch
+                    x86_emit_sse66_rr(cb, 0x28, XMM_SCRATCH, arg0_xmm);
                 } else {                                         // arg0 not cached
-                    x86_emit_movsd_load(cb, XMM_SCRATCH, x86_slot_disp(b));
+                    int g = (b >= 0 && b < JIT_MAX_SLOTS) ? slot_pocket_gpr[b] : -1;
+                    if (g >= 0) x86_emit_movq_xmm_gpr(cb, XMM_SCRATCH, x86_gpr_pocket_regs[g]);
+                    else        x86_emit_movsd_load(cb, XMM_SCRATCH, x86_slot_disp(b));
                 }
                 if (arg1_xmm >= 0 && arg1_xmm != 1) {            // arg1 in cache, not xmm1
-                    x86_emit_sse66_rr(cb, 0x28, 1, arg1_xmm);    // movapd xmm1, arg1_xmm
+                    x86_emit_sse66_rr(cb, 0x28, 1, arg1_xmm);
                 } else if (arg1_xmm < 0) {                       // arg1 not cached
-                    x86_emit_movsd_load(cb, 1, x86_slot_disp(b + 1));  // reload from memory
-                }                                                // else arg1 already in xmm1
+                    int g = (b + 1 >= 0 && b + 1 < JIT_MAX_SLOTS) ? slot_pocket_gpr[b + 1] : -1;
+                    if (g >= 0) x86_emit_movq_xmm_gpr(cb, 1, x86_gpr_pocket_regs[g]);
+                    else        x86_emit_movsd_load(cb, 1, x86_slot_disp(b + 1));
+                }
                 x86_emit_sse66_rr(cb, 0x28, 0, XMM_SCRATCH);     // arg0 from scratch to xmm0
                 x86_cache_clear(&cache);                         // xmm regs clobbered
                 emit_call_or_self(cb, ctx, a, func_idx, mark);   // direct self-call or via table
                 x86_cache_put(&cache, 0, d);                     // xmm0 = result
+                for (int g = 0; g < n_pockets; g++) {            // restore pockets live after call
+                    int s = slot_to_pocket[g];
+                    if (s < 0 || s == d) continue;
+                    if (!slot_read_before_write(chunk, pc + 1, end, s)) continue;
+                    int x = x86_cache_alloc_excl(&cache, cb, -1, -1);
+                    if (x < 0) continue;
+                    x86_emit_movq_xmm_gpr(cb, x, x86_gpr_pocket_regs[g]);
+                    cache.reg_slot[x] = s;
+                    cache.slot_reg[s] = x;
+                    cache.slot_dirty[s] = false;
+                }
                 break;
             }
             case OP_RETURN:                                      // return slot value
@@ -1118,17 +1201,25 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 int xa = x86_cache_load(&cache, cb, d);          // load return value
                 if (xa < 0) xa = 0;                              // fall back to xmm0
                 if (xa != 0) x86_emit_sse66_rr(cb, 0x28, 0, xa); // movapd xmm0, xa
+                emit_gpr_pocket_restores(cb, pocket_slot_base, n_pockets);
                 emit_leave_ret(cb, abi, base_frame);
                 x86_cache_clear(&cache);                         // clear state on exit
                 did_flush = true;                                // suppress merge flush
                 break;
             }
             case OP_RETURN_NUM_IMM: {                            // return number immediate
-                int slot = -1;
+                int imm_idx = -1;                                // index into the rip pool
                 for (int i = 0; i < func_n_imms; i++)
-                    if (func_imms[i] == a) { slot = func_imm_slots[i]; break; }
-                if (slot >= 0) x86_emit_movsd_load(cb, 0, x86_slot_disp(slot));
-                else           x86_emit_load_double_imm(cb, 0, a);
+                    if (func_imms[i] == a) { imm_idx = i; break; }
+                if (imm_idx >= 0) {
+                    size_t at = x86_emit_movsd_load_rip(cb, 0);  // movsd xmm0, [rip+disp32]
+                    rip_fixup_at[rip_fixup_count] = at;
+                    rip_fixup_imm[rip_fixup_count] = imm_idx;
+                    rip_fixup_count++;
+                } else {
+                    x86_emit_load_double_imm(cb, 0, a);
+                }
+                emit_gpr_pocket_restores(cb, pocket_slot_base, n_pockets);
                 emit_leave_ret(cb, abi, base_frame);
                 x86_cache_clear(&cache);
                 did_flush = true;
@@ -1137,6 +1228,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             case OP_RETURN_NONE: {                               // return none, no value
                 emit_u8(cb, 0x66); emit_u8(cb, 0x0F);
                 emit_u8(cb, 0x57); emit_u8(cb, 0xC0);            // xorpd xmm0, xmm0
+                emit_gpr_pocket_restores(cb, pocket_slot_base, n_pockets);
                 emit_leave_ret(cb, abi, base_frame);
                 x86_cache_clear(&cache);                         // clear state on exit
                 did_flush = true;                                // suppress merge flush
@@ -1154,7 +1246,21 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         }
     }
 
+    emit_gpr_pocket_restores(cb, pocket_slot_base, n_pockets);   // restore before leaving
     emit_return_zero(abi, cb, base_frame);                       // safety fallthrough
+
+    size_t pool_off = cb->len;                                   // constant pool starts here
+    for (int i = 0; i < func_n_imms; i++) {                      // append pool of double constants
+        double dv = (double)func_imms[i];
+        uint64_t bits; memcpy(&bits, &dv, 8);
+        emit_u64(cb, bits);
+    }
+    for (int i = 0; i < rip_fixup_count; i++) {                  // patch rip-relative displacements
+        size_t patch_at = rip_fixup_at[i];
+        size_t imm_at   = pool_off + 8 * (size_t)rip_fixup_imm[i];
+        int32_t rel = (int32_t)imm_at - (int32_t)(patch_at + 4);
+        memcpy(cb->buf + patch_at, &rel, 4);
+    }
 
     for (int i = 0; i < fixup_count; i++) {                      // patch every pending jump
         JumpFixup* fx = &fixups[i];
