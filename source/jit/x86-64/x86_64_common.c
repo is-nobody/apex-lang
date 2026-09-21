@@ -5,6 +5,14 @@
 
 #include "x86_64_common.h"
 
+// returns a cache register to receive slot d's new value, preferring d's
+// existing home so the fixpoint pass converges in a small number of steps
+int x86_cache_dest_reg(XmmCache* c, CodeBuf* cb, int d, int excl1, int excl2) {
+    int x = c->slot_reg[d];
+    if (x >= 0 && x != excl1 && x != excl2) return x;   // reuse home
+    return x86_cache_alloc_excl(c, cb, excl1, excl2);   // fresh / evict
+}
+
 // clears cache state without touching memory
 void x86_cache_clear(XmmCache* c) {
     for (int i = 0; i < XMM_CACHE_REGS; i++) c->reg_slot[i] = -1;

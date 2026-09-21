@@ -236,10 +236,22 @@ static bool slot_read_before_write(BytecodeChunk* chunk, int pc_after, int end, 
     return false;                                                // never read in range — dead
 }
 
+// checks whether slot s is live at pc inside a loop body: true if s is read
+// (before any write) either later in the same iteration, or earlier in the
+// body — the latter covers loop-carried reads that the next iteration will
+// hit before reaching pc again
+static bool slot_live_in_loop(BytecodeChunk* chunk, int entry, int back_edge,
+                              int pc, int s) {
+    if (pc + 1 < back_edge &&
+        slot_read_before_write(chunk, pc + 1, back_edge, s)) return true;
+    if (entry + 1 < pc &&
+        slot_read_before_write(chunk, entry + 1, pc, s)) return true;
+    return false;
+}
+
 // rewrites xmm_d to the NONE bit pattern on NaN; matches interpreter semantics
 static void emit_nan_check(CodeBuf* cb, int xmm_d) {
-    emit_u8(cb, 0x66); emit_u8(cb, 0x0F);
-    emit_u8(cb, 0x2E); emit_u8(cb, 0xC0 | (xmm_d << 3) | xmm_d);  // ucomisd xmm_d, xmm_d
+    x86_emit_ucomisd_rr(cb, xmm_d, xmm_d);                        // ucomisd xmm_d, xmm_d
     emit_u8(cb, 0x0F); emit_u8(cb, 0x8B);                          // jnp +rel32
     size_t patch_at = cb->len;                                     // record jump placeholder
     emit_i32(cb, 0);
@@ -425,9 +437,21 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 }
                 bool commutative = (op == OP_ADD || op == OP_MUL);  // swap-safe op?
                 if (prefer_xmm0 && commutative && xb == 0 && xa != 0) {
+                    // xmm0 (holding b) is overwritten with the result
+                    if (d != b && cache.slot_dirty[b] &&
+                        slot_read_before_write(chunk, pc + 1, end, b)) {
+                        x86_emit_movsd_store(cb, 0, x86_slot_disp(b));  // preserve b
+                        cache.slot_dirty[b] = false;
+                    }
                     x86_emit_sse_arith_rr(cb, arith_op, 0, xa);  // xmm0 = xmm0 op xa
                     x86_cache_put(&cache, 0, d);                 // relabel xmm0 as dest
                 } else {
+                    // xa (holding a) is overwritten with the result
+                    if (d != a && cache.slot_dirty[a] &&
+                        slot_read_before_write(chunk, pc + 1, end, a)) {
+                        x86_emit_movsd_store(cb, xa, x86_slot_disp(a));  // preserve a
+                        cache.slot_dirty[a] = false;
+                    }
                     x86_emit_sse_arith_rr(cb, arith_op, xa, xb); // xa op= xb
                     x86_cache_put(&cache, xa, d);                // relabel xa as dest
                 }
@@ -487,11 +511,19 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xt < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 x86_emit_sse66_rr(cb, 0x28, xt, xa);             // xt = a
                 x86_emit_sse_arith_rr(cb, 0x5E, xt, XMM_SCRATCH);// xt = a / imm
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x3A);
+                emit_u8(cb, 0x66);                               // roundsd legacy prefix
+                x86_rex_rb(cb, xt, xt);                          // rex.r/rex.b for xmm8-xmm15
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x3A);
                 emit_u8(cb, 0x0B);                               // roundsd opcode
-                emit_u8(cb, 0xC0 | (xt << 3) | xt);              // round xt, xt
+                emit_u8(cb, 0xC0 | ((xt & 7) << 3) | (xt & 7));  // round xt, xt
                 emit_u8(cb, 0x03);                               // round mode: truncate
                 x86_emit_sse_arith_rr(cb, 0x59, xt, XMM_SCRATCH);// xt = trunc(a/imm) * imm
+                // dest != source: a must survive the in-place subtract
+                if (d != a && cache.slot_dirty[a] &&
+                    slot_read_before_write(chunk, pc + 1, end, a)) {
+                    x86_emit_movsd_store(cb, xa, x86_slot_disp(a));
+                    cache.slot_dirty[a] = false;
+                }
                 x86_emit_sse_arith_rr(cb, 0x5C, xa, xt);         // a = a - xt
                 x86_cache_put(&cache, xa, d);                    // relabel xa as dest
                 break;
@@ -503,11 +535,19 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 x86_emit_sse66_rr(cb, 0x28, XMM_SCRATCH, xa);    // movapd scratch, a
                 x86_emit_sse_arith_rr(cb, 0x5E, XMM_SCRATCH, xb);  // divsd  scratch, b
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x3A);
+                emit_u8(cb, 0x66);                               // roundsd legacy prefix
+                x86_rex_rb(cb, XMM_SCRATCH, XMM_SCRATCH);        // rex.r/rex.b for xmm8-xmm15
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x3A);
                 emit_u8(cb, 0x0B);                               // roundsd opcode
-                emit_u8(cb, 0xC0 | (XMM_SCRATCH << 3) | XMM_SCRATCH);  // modrm scratch, scratch
+                emit_u8(cb, 0xC0 | ((XMM_SCRATCH & 7) << 3) | (XMM_SCRATCH & 7));  // modrm scratch, scratch
                 emit_u8(cb, 0x03);                               // round mode: truncate
                 x86_emit_sse_arith_rr(cb, 0x59, XMM_SCRATCH, xb);  // mulsd  scratch, b
+                // dest != source: a must survive the in-place subtract
+                if (d != a && cache.slot_dirty[a] &&
+                    slot_read_before_write(chunk, pc + 1, end, a)) {
+                    x86_emit_movsd_store(cb, xa, x86_slot_disp(a));
+                    cache.slot_dirty[a] = false;
+                }
                 x86_emit_sse_arith_rr(cb, 0x5C, xa, XMM_SCRATCH);  // subsd  a, scratch
                 x86_cache_put(&cache, xa, d);                    // relabel xa as dest
                 break;
@@ -517,6 +557,12 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 x86_emit_sse66_rr(cb, 0x57, XMM_SCRATCH, XMM_SCRATCH);  // xorpd scratch, scratch
                 x86_emit_sse_arith_rr(cb, 0x5C, XMM_SCRATCH, xa);  // subsd scratch, a
+                // dest != source: a must survive the in-place movapd
+                if (d != a && cache.slot_dirty[a] &&
+                    slot_read_before_write(chunk, pc + 1, end, a)) {
+                    x86_emit_movsd_store(cb, xa, x86_slot_disp(a));
+                    cache.slot_dirty[a] = false;
+                }
                 x86_emit_sse66_rr(cb, 0x28, xa, XMM_SCRATCH);    // movapd a, scratch
                 x86_cache_put(&cache, xa, d);                    // relabel xa as dest
                 break;
@@ -538,8 +584,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
-                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
                 if (xd < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 x86_emit_cmp_box_result(cb, xd, 0x94);           // setne? no: sete al, boxed MAKE_BOOL
@@ -552,8 +597,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
-                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
                 if (xd < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 x86_emit_cmp_box_result(cb, xd, 0x95);           // setne al, boxed MAKE_BOOL
@@ -565,8 +609,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
-                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
                 if (xd < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 x86_emit_cmp_box_result(cb, xd, 0x92);           // setb al, boxed MAKE_BOOL
@@ -578,8 +621,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
-                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
                 if (xd < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 x86_emit_cmp_box_result(cb, xd, 0x97);           // seta al, boxed MAKE_BOOL
@@ -591,8 +633,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
-                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
                 if (xd < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 x86_emit_cmp_box_result(cb, xd, 0x96);           // setbe al, boxed MAKE_BOOL
@@ -604,8 +645,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
-                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
                 if (xd < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 x86_emit_cmp_box_result(cb, xd, 0x93);           // setae al, boxed MAKE_BOOL
@@ -642,8 +682,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
-                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 x86_cache_flush(&cache, cb);                     // flush before branch
                 emit_u8(cb, 0x0F); emit_u8(cb, 0x84);            // je rel32
                 fixups[fixup_count].patch_at  = cb->len;         // record placeholder
@@ -659,8 +698,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
-                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 x86_cache_flush(&cache, cb);                     // flush before branch
                 emit_u8(cb, 0x0F); emit_u8(cb, 0x85);            // jne rel32
                 fixups[fixup_count].patch_at  = cb->len;         // record placeholder
@@ -675,8 +713,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
-                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 x86_cache_flush(&cache, cb);                     // flush before branch
                 emit_u8(cb, 0x0F); emit_u8(cb, 0x82);            // jb rel32
                 fixups[fixup_count].patch_at  = cb->len;         // record placeholder
@@ -691,8 +728,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
-                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 x86_cache_flush(&cache, cb);                     // flush before branch
                 emit_u8(cb, 0x0F); emit_u8(cb, 0x87);            // ja rel32
                 fixups[fixup_count].patch_at  = cb->len;         // record placeholder
@@ -707,8 +743,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
-                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 x86_cache_flush(&cache, cb);                     // flush before branch
                 emit_u8(cb, 0x0F); emit_u8(cb, 0x86);            // jbe rel32
                 fixups[fixup_count].patch_at  = cb->len;         // record placeholder
@@ -723,8 +758,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
                 if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
-                emit_u8(cb, 0xC0 | (xa << 3) | xb);              // ucomisd a, b
+                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 x86_cache_flush(&cache, cb);                     // flush before branch
                 emit_u8(cb, 0x0F); emit_u8(cb, 0x83);            // jae rel32
                 fixups[fixup_count].patch_at  = cb->len;         // record placeholder
@@ -745,13 +779,11 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 int slot = -1;
                 for (int i = 0; i < func_n_imms; i++)
                     if (func_imms[i] == b) { slot = func_imm_slots[i]; break; }
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
                 if (slot >= 0) {
-                    emit_u8(cb, 0x85 | (xa << 3));               // ucomisd a, [rbp+disp32]
-                    emit_i32(cb, x86_slot_disp(slot));
+                    x86_emit_ucomisd_mem(cb, xa, x86_slot_disp(slot));  // ucomisd a, [rbp+disp32]
                 } else {
                     x86_emit_load_double_imm(cb, XMM_SCRATCH, b);
-                    emit_u8(cb, 0xC0 | (xa << 3) | XMM_SCRATCH);
+                    x86_emit_ucomisd_rr(cb, xa, XMM_SCRATCH);
                 }
                 x86_cache_flush(&cache, cb);                     // flush before branch
                 uint8_t jcc;
@@ -778,8 +810,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 uint64_t cbits; memcpy(&cbits, &c, 8);           // reinterpret as u64
                 x86_emit_movabs_rax(cb, cbits);                  // rax = constant bits
                 x86_emit_movq_xmm_rax(cb, XMM_SCRATCH);          // scratch = constant
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
-                emit_u8(cb, 0xC0 | (xa << 3) | XMM_SCRATCH);     // ucomisd subj, const
+                x86_emit_ucomisd_rr(cb, xa, XMM_SCRATCH);        // ucomisd subj, const
                 x86_cache_flush(&cache, cb);                     // flush before both branches
                 emit_u8(cb, 0x0F); emit_u8(cb, 0x8A);            // jp skip (subj was NaN-tagged)
                 size_t skip_patch = cb->len;
@@ -978,20 +1009,30 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
 
     switch (inst->opcode) {
         case OP_MOVE: {
-            int xa = x86_cache_load(cache, cb, a);               // load source slot
-            if (xa < 0) return;                                  // register cache full
-            x86_cache_put(cache, xa, d);                         // relabel xmm as dest
+            if (d == a) break;                               // self-move is a no-op
+            int xa = x86_cache_load(cache, cb, a);           // load source slot
+            if (xa < 0) return;                              // register cache full
+            if (!slot_live_in_loop(chunk, info->entry_pc,
+                                   info->back_edge_pc, pc, a)) {
+                x86_cache_put(cache, xa, d);                 // a is dead: relabel
+            } else {
+                int xd = x86_cache_dest_reg(cache, cb, d, xa, -1);
+                if (xd < 0) return;                          // register cache full
+                if (xd != xa)
+                    x86_emit_sse66_rr(cb, 0x28, xd, xa);     // movapd xd, xa
+                x86_cache_put(cache, xd, d);                 // a survives in xa
+            }
             break;
         }
         case OP_LOAD_NUM_IMM: {
-            int x = x86_cache_alloc_excl(cache, cb, -1, -1);     // pick a free xmm
+            int x = x86_cache_dest_reg(cache, cb, d, -1, -1);    // prefer d's existing home
             if (x < 0) return;                                   // register cache full
             x86_emit_load_double_imm(cb, x, a);                  // xmmX = (double)a (cvtsi2sd)
             x86_cache_put(cache, x, d);                          // cache dest
             break;
         }
         case OP_LOAD_NUM: {
-            int x = x86_cache_alloc_excl(cache, cb, -1, -1);     // pick a free xmm
+            int x = x86_cache_dest_reg(cache, cb, d, -1, -1);    // prefer d's existing home
             if (x < 0) return;                                   // register cache full
             double v = chunk->constants[a].number_value;         // fetch pool constant
             uint64_t bits; memcpy(&bits, &v, 8);                 // reinterpret as u64
@@ -1001,7 +1042,7 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
             break;
         }
         case OP_LOAD_BOOL: {
-            int x = x86_cache_alloc_excl(cache, cb, -1, -1);     // pick a free xmm
+            int x = x86_cache_dest_reg(cache, cb, d, -1, -1);    // prefer d's existing home
             if (x < 0) return;                                   // register cache full
             uint64_t bits = X86_BOOL_BITS | (a ? 1ULL : 0ULL);   // bit 0 carries value
             x86_emit_movabs_rax(cb, bits);                       // rax = nan-boxed bool
@@ -1010,7 +1051,7 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
             break;
         }
         case OP_LOAD_NONE: {
-            int x = x86_cache_alloc_excl(cache, cb, -1, -1);     // pick a free xmm
+            int x = x86_cache_dest_reg(cache, cb, d, -1, -1);    // prefer d's existing home
             if (x < 0) return;                                   // register cache full
             x86_emit_movabs_rax(cb, X86_NONE_BITS);              // rax = NONE bit pattern
             x86_emit_movq_xmm_rax(cb, x);                        // xmmX = rax
@@ -1125,8 +1166,22 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
                 case OP_MUL: op = 0x59; break;                   // mulsd
                 default:     op = 0x5E; break;                   // divsd
             }
-            x86_emit_sse_arith_rr(cb, op, xa, xb);               // xa op= xb
-            x86_cache_put(cache, xa, d);                         // relabel xa as dest
+            int xd = xa;                                         // result register, xa by default
+            if (d != a) {
+                // dest != left source: prefer a separate xmm so a survives
+                xd = x86_cache_dest_reg(cache, cb, d, xa, xb);
+                if (xd < 0) {                                    // no room: spill a
+                    if (cache->slot_dirty[a]) {
+                        x86_emit_movsd_store(cb, xa, x86_slot_disp(a));
+                        cache->slot_dirty[a] = false;
+                    }
+                    xd = xa;
+                } else if (xd != xa) {
+                    x86_emit_sse66_rr(cb, 0x28, xd, xa);         // movapd xd, xa
+                }
+            }
+            x86_emit_sse_arith_rr(cb, op, xd, xb);               // xd op= xb
+            x86_cache_put(cache, xd, d);                         // publish dest
             touched_nan_check = true;
             break;
         }
@@ -1145,13 +1200,27 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
                 for (int i = 0; i < info->n_imms; i++)
                     if (info->imms[i].value == b) { slot = info->imms[i].slot; break; }
             }
+            // dest != left source: spill a before the in-place update
+            int xd = xa;                                         // result register, xa by default
+            if (d != a) {
+                xd = x86_cache_dest_reg(cache, cb, d, xa, XMM_SCRATCH);
+                if (xd < 0) {                                    // no room: spill a
+                    if (cache->slot_dirty[a]) {
+                        x86_emit_movsd_store(cb, xa, x86_slot_disp(a));
+                        cache->slot_dirty[a] = false;
+                    }
+                    xd = xa;
+                } else if (xd != xa) {
+                    x86_emit_sse66_rr(cb, 0x28, xd, xa);         // movapd xd, xa
+                }
+            }
             if (slot >= 0) {
-                x86_emit_sse_arith_mem(cb, op, xa, x86_slot_disp(slot));  // xa op= [imm]
+                x86_emit_sse_arith_mem(cb, op, xd, x86_slot_disp(slot));  // xd op= [imm]
             } else {
                 x86_emit_load_double_imm(cb, XMM_SCRATCH, b);
-                x86_emit_sse_arith_rr(cb, op, xa, XMM_SCRATCH);
+                x86_emit_sse_arith_rr(cb, op, xd, XMM_SCRATCH);
             }
-            x86_cache_put(cache, xa, d);                         // relabel xa as dest
+            x86_cache_put(cache, xd, d);                         // publish dest
             touched_nan_check = true;
             break;
         }
@@ -1169,9 +1238,11 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
                 if (xt < 0) return;
                 x86_emit_sse66_rr(cb, 0x28, xt, xa);             // xt = a
                 x86_emit_sse_arith_mem(cb, 0x5E, xt, x86_slot_disp(slot));  // xt = a / imm
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x3A);
+                emit_u8(cb, 0x66);                               // roundsd legacy prefix
+                x86_rex_rb(cb, xt, xt);                          // rex.r/rex.b for xmm8-xmm15
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x3A);
                 emit_u8(cb, 0x0B);
-                emit_u8(cb, 0xC0 | (xt << 3) | xt);
+                emit_u8(cb, 0xC0 | ((xt & 7) << 3) | (xt & 7));
                 emit_u8(cb, 0x03);                               // truncate
                 x86_emit_sse_arith_mem(cb, 0x59, xt, x86_slot_disp(slot));  // xt *= imm
             } else {
@@ -1180,14 +1251,32 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
                 if (xt < 0) return;
                 x86_emit_sse66_rr(cb, 0x28, xt, xa);
                 x86_emit_sse_arith_rr(cb, 0x5E, xt, XMM_SCRATCH);
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x3A);
+                emit_u8(cb, 0x66);                               // roundsd legacy prefix
+                x86_rex_rb(cb, xt, xt);                          // rex.r/rex.b for xmm8-xmm15
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x3A);
                 emit_u8(cb, 0x0B);
-                emit_u8(cb, 0xC0 | (xt << 3) | xt);
+                emit_u8(cb, 0xC0 | ((xt & 7) << 3) | (xt & 7));
                 emit_u8(cb, 0x03);
                 x86_emit_sse_arith_rr(cb, 0x59, xt, XMM_SCRATCH);
             }
-            x86_emit_sse_arith_rr(cb, 0x5C, xa, xt);             // a = a - xt
-            x86_cache_put(cache, xa, d);                         // relabel xa as dest
+            // dest != left source: preserve a's original value in its frame slot
+            if (d == a) {
+                x86_emit_sse_arith_rr(cb, 0x5C, xa, xt);         // a = a - xt
+                x86_cache_put(cache, xa, d);
+            } else {
+                int xd = x86_cache_dest_reg(cache, cb, d, xa, xt);
+                if (xd < 0) {                                    // no room: spill a
+                    if (cache->slot_dirty[a]) {
+                        x86_emit_movsd_store(cb, xa, x86_slot_disp(a));
+                        cache->slot_dirty[a] = false;
+                    }
+                    xd = xa;
+                } else if (xd != xa) {
+                    x86_emit_sse66_rr(cb, 0x28, xd, xa);         // movapd xd, xa
+                }
+                x86_emit_sse_arith_rr(cb, 0x5C, xd, xt);         // xd = xd - xt
+                x86_cache_put(cache, xd, d);
+            }
             touched_nan_check = true;
             break;
         }
@@ -1198,13 +1287,31 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
             if (xb < 0) return;                                  // register cache full
             x86_emit_sse66_rr(cb, 0x28, XMM_SCRATCH, xa);        // scratch = a
             x86_emit_sse_arith_rr(cb, 0x5E, XMM_SCRATCH, xb);    // scratch = a / b
-            emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x3A);
+            emit_u8(cb, 0x66);                                   // roundsd legacy prefix
+            x86_rex_rb(cb, XMM_SCRATCH, XMM_SCRATCH);            // rex.r/rex.b for xmm8-xmm15
+            emit_u8(cb, 0x0F); emit_u8(cb, 0x3A);
             emit_u8(cb, 0x0B);                                   // roundsd opcode
-            emit_u8(cb, 0xC0 | (XMM_SCRATCH << 3) | XMM_SCRATCH);  // round scratch
+            emit_u8(cb, 0xC0 | ((XMM_SCRATCH & 7) << 3) | (XMM_SCRATCH & 7));  // round scratch
             emit_u8(cb, 0x03);                                   // round mode: truncate
             x86_emit_sse_arith_rr(cb, 0x59, XMM_SCRATCH, xb);    // scratch = trunc(a/b) * b
-            x86_emit_sse_arith_rr(cb, 0x5C, xa, XMM_SCRATCH);    // a = a - scratch
-            x86_cache_put(cache, xa, d);                         // relabel xa as dest
+            // dest != left source: preserve a's original value in its frame slot
+            if (d == a) {
+                x86_emit_sse_arith_rr(cb, 0x5C, xa, XMM_SCRATCH);   // a = a - scratch
+                x86_cache_put(cache, xa, d);
+            } else {
+                int xd = x86_cache_dest_reg(cache, cb, d, xa, -1);
+                if (xd < 0) {                                    // no room: spill a
+                    if (cache->slot_dirty[a]) {
+                        x86_emit_movsd_store(cb, xa, x86_slot_disp(a));
+                        cache->slot_dirty[a] = false;
+                    }
+                    xd = xa;
+                } else if (xd != xa) {
+                    x86_emit_sse66_rr(cb, 0x28, xd, xa);             // movapd xd, xa
+                }
+                x86_emit_sse_arith_rr(cb, 0x5C, xd, XMM_SCRATCH);   // xd = xd - scratch
+                x86_cache_put(cache, xd, d);
+            }
             touched_nan_check = true;
             break;
         }
@@ -1213,8 +1320,22 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
             if (xa < 0) return;                                  // register cache full
             x86_emit_sse66_rr(cb, 0x57, XMM_SCRATCH, XMM_SCRATCH);  // scratch = 0
             x86_emit_sse_arith_rr(cb, 0x5C, XMM_SCRATCH, xa);    // scratch = 0 - a
-            x86_emit_sse66_rr(cb, 0x28, xa, XMM_SCRATCH);        // a = scratch
-            x86_cache_put(cache, xa, d);                         // relabel xa as dest
+            // dest != source: preserve a's original value in its frame slot
+            if (d == a) {
+                x86_emit_sse66_rr(cb, 0x28, xa, XMM_SCRATCH);        // a = -a
+                x86_cache_put(cache, xa, d);
+            } else {
+                int xd = x86_cache_dest_reg(cache, cb, d, xa, -1);
+                if (xd < 0) {                                    // no room: spill a
+                    if (cache->slot_dirty[a]) {
+                        x86_emit_movsd_store(cb, xa, x86_slot_disp(a));
+                        cache->slot_dirty[a] = false;
+                    }
+                    xd = xa;
+                }
+                x86_emit_sse66_rr(cb, 0x28, xd, XMM_SCRATCH);        // xd = -a
+                x86_cache_put(cache, xd, d);
+            }
             touched_nan_check = true;
             break;
         }
@@ -1234,8 +1355,7 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
             if (xa < 0) return;                                  // register cache full
             int xb = x86_cache_load_excl(cache, cb, b, xa, -1);  // load b, avoid xa
             if (xb < 0) return;                                  // register cache full
-            emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
-            emit_u8(cb, 0xC0 | (xa << 3) | xb);                  // ucomisd a, b
+            x86_emit_ucomisd_rr(cb, xa, xb);                     // ucomisd a, b
             uint8_t cc;                                          // setcc opcode
             switch (inst->opcode) {
                 case OP_CMP_EQ:  case OP_CMP_EQ_NUM:  cc = 0x94; break;  // sete
@@ -1250,7 +1370,7 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
             // so both paths reach the successor with an identical cache state
             int xd = x86_cache_lookup(cache, d);
             if (xd == xa || xd == xb) xd = -1;                   // dest aliases a source
-            if (xd < 0) xd = x86_cache_alloc_excl(cache, cb, xa, xb);  // pick dest xmm
+            if (xd < 0) xd = x86_cache_dest_reg(cache, cb, d, xa, xb); // prefer d's home
             if (xd < 0) return;                                  // register cache full
             x86_emit_cmp_box_result(cb, xd, cc);                 // nan-boxed MAKE_BOOL into xd
             x86_cache_put(cache, xd, d);                         // cache dest
@@ -1288,7 +1408,7 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
                 }
                 x86_emit_cvttsd2si_eax(cb, xk);              // eax = (int)key
                 x86_emit_dec_eax(cb);                        // 1-based -> 0-based
-                int xd = x86_cache_alloc_excl(cache, cb, xk, -1);  // pick dest, keep key
+                int xd = x86_cache_dest_reg(cache, cb, d, xk, -1); // prefer d's home
                 if (xd < 0) return;                          // register cache full
                 x86_emit_movsd_load_idx8(cb, xd, X86_RBX, X86_RAX);  // xd = array_part[rax]
                 x86_cache_put(cache, xd, d);                 // cache dest
@@ -1313,14 +1433,14 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
                                 (int32_t)offsetof(Table, array_part));  // rax = array_part
             x86_emit_cvttsd2si_edx(cb, xk);                  // edx = (int)key
             x86_emit_dec_edx(cb);                            // 1-based -> 0-based
-            int xd = x86_cache_alloc_excl(cache, cb, xk, -1);  // pick dest, keep key
+            int xd = x86_cache_dest_reg(cache, cb, d, xk, -1);  // prefer d's home
             if (xd < 0) return;                              // register cache full
             x86_emit_movsd_load_idx8(cb, xd, X86_RAX, X86_RDX);  // xd = array_part[rdx]
             x86_cache_put(cache, xd, d);                     // cache dest
             break;
         }
         case OP_TABLE_GET_INT: {
-            int xd = x86_cache_alloc_excl(cache, cb, -1, -1);    // pick a free xmm
+            int xd = x86_cache_dest_reg(cache, cb, d, -1, -1);   // prefer d's home
             if (xd < 0) return;                                  // register cache full
             x86_emit_movsd_load_base(cb, X86_RBX, xd, (b - 1) * 8);  // xd = array_part[b-1]
             x86_cache_put(cache, xd, d);                         // cache dest
@@ -1398,7 +1518,7 @@ static void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf*
         }
         case OP_LOAD_GLOBAL: {
             int idx = a;                                         // global index
-            int x = x86_cache_alloc_excl(cache, cb, -1, -1);     // pick a free xmm
+            int x = x86_cache_dest_reg(cache, cb, d, -1, -1);    // prefer d's existing home
             if (x < 0) return;                                   // register cache full
             x86_emit_movsd_load_base(cb, X86_RBX, x, idx * 8);   // rbx = globals base, x = globals[idx]
             x86_cache_put(cache, x, d);                          // cache dest
@@ -1431,7 +1551,8 @@ static bool entry_op_is_imm(Opcode op) {
 // emits one iteration (entry test + body) and returns the fixup offset for the exit jump
 static size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                                    XmmCache* cache, JitLoopInfo* info, int const_slot,
-                                   int save_slot, bool iter_in_xmm, int step_sign) {
+                                   int save_slot, bool iter_in_xmm, int step_sign,
+                                   bool needs_helper) {
     BytecodeChunk* chunk = ctx->chunk;
     int entry = info->entry_pc;                              // first body pc
     int back_edge = info->back_edge_pc;                      // jump back to entry
@@ -1450,23 +1571,22 @@ static size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf
         if (xc < 0) return (size_t)-1;                       // register cache full
 
         if (!iter_in_xmm) {
-            x86_emit_movsd_load(cb, 7, x86_slot_disp(info->nregs));  // xmm7 = iterator
+            x86_emit_movsd_load(cb, XMM_SCRATCH, x86_slot_disp(info->nregs));  // xmm15 = iterator
         }
-        emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
-        emit_u8(cb, 0xC0 | (7 << 3) | xa);                   // ucomisd xmm7, xa
+        x86_emit_ucomisd_rr(cb, XMM_SCRATCH, xa);            // ucomisd xmm15, xa
         emit_u8(cb, 0x0F);
         emit_u8(cb, (step_sign > 0) ? 0x87 : 0x82);          // ja exit / jb exit
         exit_patch = cb->len;                                // record placeholder offset
         emit_i32(cb, 0);                                     // placeholder for rel32
 
-        x86_emit_sse66_rr(cb, 0x28, xc, 7);                  // movapd xc, xmm7 (R[var] = c)
+        x86_emit_sse66_rr(cb, 0x28, xc, XMM_SCRATCH);        // movapd xc, xmm15 (R[var] = c)
         x86_cache_put(cache, xc, var_reg);                   // var became dirty
         x86_emit_movsd_store(cb, xc, x86_slot_disp(var_reg)); // frame[var] = i
         cache->slot_dirty[var_reg] = false;                  // memory is in sync
 
-        x86_emit_sse_arith_rr(cb, 0x58, 7, xb);              // addsd xmm7, xb (step)
+        x86_emit_sse_arith_rr(cb, 0x58, XMM_SCRATCH, xb);    // addsd xmm15, xb (step)
         if (!iter_in_xmm) {
-            x86_emit_movsd_store(cb, 7, x86_slot_disp(info->nregs));  // store iterator
+            x86_emit_movsd_store(cb, XMM_SCRATCH, x86_slot_disp(info->nregs));  // store iterator
         }
     } else if (entry_op_is_imm(chunk->code[entry].opcode)) { // imm-compare loop entry
         Instruction* entry_inst = &chunk->code[entry];
@@ -1474,9 +1594,8 @@ static size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf
         int imm = entry_inst->operands[2];                   // immediate
         int xa = x86_cache_load(cache, cb, a);               // load left operand
         if (xa < 0) return (size_t)-1;                       // register cache full
-        x86_emit_load_double_imm(cb, XMM_SCRATCH, imm);      // xmm7 = (double)imm
-        emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
-        emit_u8(cb, 0xC0 | (xa << 3) | XMM_SCRATCH);         // ucomisd xa, xmm7
+        x86_emit_load_double_imm(cb, XMM_SCRATCH, imm);      // xmm15 = (double)imm
+        x86_emit_ucomisd_rr(cb, xa, XMM_SCRATCH);            // ucomisd xa, xmm15
         uint8_t jcc = jcc_for_entry_op(entry_inst->opcode);  // exit condition opcode
         emit_u8(cb, 0x0F); emit_u8(cb, jcc);                 // conditional exit
         exit_patch = cb->len;                                // record placeholder offset
@@ -1490,8 +1609,7 @@ static size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf
         int xb = x86_cache_load_excl(cache, cb, b, xa, -1);  // load right, avoid xa
         if (xb < 0) return (size_t)-1;                       // register cache full
 
-        emit_u8(cb, 0x66); emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
-        emit_u8(cb, 0xC0 | (xa << 3) | xb);                  // ucomisd xa, xb
+        x86_emit_ucomisd_rr(cb, xa, xb);                     // ucomisd xa, xb
 
         uint8_t jcc = jcc_for_entry_op(entry_inst->opcode);  // exit condition opcode
         emit_u8(cb, 0x0F); emit_u8(cb, jcc);                 // conditional exit
@@ -1503,7 +1621,9 @@ static size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf
         emit_loop_body_instr(abi, ctx, cb, cache, pc, const_slot, save_slot, info);
     }
 
-    if (info->touches_tables) {                              // table ops need the frame in sync
+    // helpers read their args from the frame, so spill live dirty slots before
+    // returning; pure fast paths keep the cache live across iterations
+    if (needs_helper) {
         x86_cache_flush(cache, cb);
     }
 
@@ -1642,21 +1762,28 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
 
     if (!loop_is_safe_to_emit(ctx, info)) return false;      // needs runtime checks the emitter lacks
 
-    // scan body to decide if the iterator can stay in xmm7 across iterations
+    // scan body to decide if the iterator can stay in xmm15 across iterations
     bool iter_in_xmm = false;
     if (info->kind == JIT_LOOP_NUMERIC_FOR) {                // only numeric-for has iterator
         bool clobbers = false;
         for (int pc = entry + 1; pc < back_edge; pc++) {
             Opcode op = ctx->chunk->code[pc].opcode;
-            // only ops that truly clobber xmm7 disqualify iter_in_xmm.
-            // imm ops use a memory operand; cmp_* never touched xmm7 anyway.
+            // imm ops stay off XMM_SCRATCH only when every immediate was precomputed;
+            // otherwise the fallback loads the immediate into XMM_SCRATCH and would
+            // clobber the iterator
             bool op_is_imm = (op == OP_ADD_IMM || op == OP_SUB_IMM ||
                               op == OP_MUL_IMM || op == OP_DIV_IMM ||
                               op == OP_MOD_IMM);
-            if (op_is_imm && info->imm_opt_ok) continue;
+            if (op_is_imm) {
+                if (info->imm_opt_ok) continue;              // memory-operand form, scratch-free
+                clobbers = true;                             // imm load clobbers XMM_SCRATCH
+                break;
+            }
             if (op == OP_MOD || op == OP_NEG ||              // use XMM_SCRATCH
                 op == OP_TABLE_GET_KEY_STR ||                // helper call clobbers xmm
                 op == OP_TABLE_SET_KEY_STR ||                // helper call clobbers xmm
+                op == OP_TABLE_SET ||                        // general path calls table_set_int
+                op == OP_TABLE_SET_NUM ||                    // general path calls table_set_int
                 op == OP_NEW_TABLE ||                        // helper call clobbers xmm
                 op == OP_CALL_0 || op == OP_CALL_1 ||        // calls clobber all xmm regs
                 op == OP_CALL_2) {
@@ -1680,7 +1807,7 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
     for (int iter = 0; iter < 8; iter++) {                   // fixpoint loop
         XmmCache cache = cache_start;
         scratch.len = 0;
-        size_t patch = emit_loop_iteration(abi, ctx, &scratch, &cache, info, const_slot, save_slot, iter_in_xmm, step_sign);
+        size_t patch = emit_loop_iteration(abi, ctx, &scratch, &cache, info, const_slot, save_slot, iter_in_xmm, step_sign, needs_helper);
         if (patch == (size_t)-1) return false;               // emit failed
         if (flush_at_back_edge) x86_cache_clear(&cache);     // simulate the spill before the back edge
         if (x86_cache_eq(&cache, &cache_start)) { converged = true; break; }  // stable state reached
@@ -1745,14 +1872,14 @@ static bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, Code
         if (s >= 0) x86_emit_movsd_load(cb, i, x86_slot_disp(s));  // xmm<i> = frame[s]
     }
 
-    if (info->kind == JIT_LOOP_NUMERIC_FOR && iter_in_xmm) {  // load iterator to xmm7
+    if (info->kind == JIT_LOOP_NUMERIC_FOR && iter_in_xmm) {  // load iterator to xmm15
         int var_reg = ctx->chunk->code[entry].operands[0];
-        x86_emit_movsd_load(cb, 7, x86_slot_disp(var_reg));  // xmm7 = R[var]
+        x86_emit_movsd_load(cb, XMM_SCRATCH, x86_slot_disp(var_reg));  // xmm15 = R[var]
     }
 
     int loop_top = (int)cb->len;                             // loop start address
     XmmCache cache = cache_start;
-    size_t entry_patch = emit_loop_iteration(abi, ctx, cb, &cache, info, const_slot, save_slot, iter_in_xmm, step_sign);
+    size_t entry_patch = emit_loop_iteration(abi, ctx, cb, &cache, info, const_slot, save_slot, iter_in_xmm, step_sign, needs_helper);
     if (entry_patch == (size_t)-1) { cb->len = mark; return false; }  // emit failed, rollback
 
     if (flush_at_back_edge) x86_cache_flush(&cache, cb);     // spill all before back edge

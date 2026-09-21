@@ -10,14 +10,14 @@
 
 // saves xmm6 and xmm7 (win64 non-volatile) into the reserved frame slots
 static void win64_prologue_saves(CodeBuf* cb, int base_frame) {
-    x86_emit_movsd_store(cb, 6, -(base_frame + 8));   // xmm6 -> [rbp - base_frame -  8]
-    x86_emit_movsd_store(cb, 7, -(base_frame + 16));  // xmm7 -> [rbp - base_frame - 16]
+    for (int i = 6; i <= 15; i++)                     // win64 non-volatile xmm6-xmm15
+        x86_emit_movsd_store(cb, i, -(base_frame + (i - 5) * 8));
 }
 
 // restores xmm6 and xmm7 before leave; ret
 static void win64_epilogue_restores(CodeBuf* cb, int base_frame) {
-    x86_emit_movsd_load(cb, 6, -(base_frame + 8));    // [rbp - base_frame -  8] -> xmm6
-    x86_emit_movsd_load(cb, 7, -(base_frame + 16));   // [rbp - base_frame - 16] -> xmm7
+    for (int i = 6; i <= 15; i++)                     // win64 non-volatile xmm6-xmm15
+        x86_emit_movsd_load(cb, i, -(base_frame + (i - 5) * 8));
 }
 
 // allocates rw memory via VirtualAlloc, later flipped to rx
@@ -42,7 +42,7 @@ const X86_64Abi x86_64_abi_win64 = {
     .name = "x86-64 Win64",                           // human-readable identifier
     .frame_reg = X86_RCX,                             // win64 passes the first pointer arg in rcx
     .globals_reg = X86_RDX,                           // win64 passes the second pointer arg in rdx
-    .frame_extra = 48,                                // 16 saved xmm6/xmm7 + 32 bytes shadow space
+    .frame_extra = 112,                               // 80 saved xmm6-xmm15 + 32 bytes shadow space
     .emit_prologue_saves = win64_prologue_saves,      // save non-volatile xmm regs
     .emit_epilogue_restores = win64_epilogue_restores,// restore non-volatile xmm regs
     .os_alloc_exec = win64_alloc_exec,                // VirtualAlloc rw
