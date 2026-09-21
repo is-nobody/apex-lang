@@ -84,6 +84,10 @@ if(APEX_JIT_AVAILABLE)
         source/jit/x86-64/x86_64.c
     )
 
+    if(APEX_JIT_TRACE)
+        list(APPEND SOURCES source/jit/jit_disasm.c)
+    endif()
+
     if(WIN32)
         list(APPEND SOURCES source/jit/x86-64/x86_64_windows.c)
     elseif(APPLE)
