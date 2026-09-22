@@ -1909,6 +1909,10 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
             if (check(parser, TOKEN_LPAREN)) {
                 free(member_name);
                 return parse_call(parser, access_node);  // function call
+            } else if (builtin != NULL && check(parser, TOKEN_LBRACKET)) {
+                // allow `builtin[index]` as sugar for `builtin()[index]`
+                free(member_name);
+                return ast_create_call(access_node, NULL);
             } else {
                 parser_error_at(parser, member_line, member_col, 
                               (int)utf8_char_len(member_name),
