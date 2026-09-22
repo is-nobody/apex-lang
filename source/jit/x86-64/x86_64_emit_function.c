@@ -40,8 +40,9 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     int range_size = end - start;                                // number of bytecodes
     if (range_size <= 0) return false;                           // empty body
 
-    if (cb->len + (size_t)range_size * 256 + 512 > cb->cap)      // conservative size check
-        return false;
+    if (cb->len + (size_t)range_size * 256 + 512 > cb->cap)
+        JIT_FATAL("code buffer too small for function %d (need≈%zu, cap=%zu)",
+                func_idx, cb->len + (size_t)range_size * 256 + 512, cb->cap);
 
     // precompute distinct immediates used in this function
     int32_t func_imms[8];
@@ -71,7 +72,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     }
     if (!func_imm_ok) func_n_imms = 0;
 
-    // gpr pockets are disabled: on float-heavy bodies the xmm<->gpr round-trip
+    // gpr pockets are disabled: on float-heavy bodies the xmm<->gpr round-trip costs more than it saves
     int slot_pocket_gpr[JIT_MAX_SLOTS];                      // slot -> pocket gpr index, or -1
     int slot_to_pocket[X86_N_GPR_POCKETS];                   // pocket gpr index -> slot, or -1
     int n_pockets = 0;                                       // number of assigned pockets
@@ -81,7 +82,9 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     bool* is_target     = ctx->scratch_is_target;                // shared jump-target marks
     int32_t* label_off  = ctx->scratch_label_off;                // shared label offset array
     JumpFixup* fixups   = ctx->scratch_fixups;                   // shared jump fixup array
-    if (!is_target || !label_off || !fixups) return false;       // scratch not available
+    if (!is_target || !label_off || !fixups) {
+        JIT_FATAL("scratch arrays missing for function %d", func_idx);
+    }
 
     memset(is_target, 0, range_size * sizeof(bool));             // clear jump-target marks
 
@@ -89,9 +92,8 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     uint8_t*      needs_flush = (uint8_t*)     calloc(range_size, 1);
     uint8_t*      use_snap    = (uint8_t*)     calloc(range_size, 1);
     JitCacheSnap* jump_snap   = (JitCacheSnap*)calloc(range_size, sizeof(JitCacheSnap));
-    if (!pred_count || !needs_flush || !use_snap || !jump_snap) {  // scratch alloc failed
-        free(pred_count); free(needs_flush); free(use_snap); free(jump_snap);
-        return false;
+    if (!pred_count || !needs_flush || !use_snap || !jump_snap) {
+        JIT_FATAL("scratch allocation failed for function %d (range_size=%d)", func_idx, range_size);
     }
     for (int pc = start; pc < end; pc++) {                       // collect jump targets
         Opcode op = chunk->code[pc].opcode;
@@ -150,7 +152,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     int    rip_fixup_imm[64];                                    // imm index per fixup
     int    rip_fixup_count = 0;                                  // pending rip fixups
 
-    // try the int-specialized body first: on success it lands before the
+    // try the int-specialized body first: on success it lands before the general body
     size_t int_off   = (size_t)-1;                               // int body offset, -1 if absent
     int    int_max_n = 0;                                        // wrapper upper bound
     if (matches_int_self_recursive(ctx, func_idx)) {
@@ -232,9 +234,9 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                            !slot_read_before_write(chunk, fuse_target, end, d));
             if (d_dead) {
                 int xa = x86_cache_load(&cache, cb, a);          // load left operand
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); continue; }
+                if (xa < 0) JIT_FATAL("cache full: fused CMP a=%d (func=%d pc=%d)", a, func_idx, pc);
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load right, avoid xa
-                if (xb < 0) { emit_return_zero(abi, cb, base_frame); continue; }
+                if (xb < 0) JIT_FATAL("cache full: fused CMP b=%d (func=%d pc=%d)", b, func_idx, pc);
                 x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 if (fuse_target >= start && fuse_target < end) {
                     if (needs_flush[fuse_target - start]) x86_cache_flush(&cache, cb);
@@ -258,13 +260,13 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         switch (op) {
             case OP_MOVE: {                                      // reg-to-reg copy
                 int xa = x86_cache_load(&cache, cb, a);          // find xmm for source
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xa < 0) JIT_FATAL("cache full: MOVE src=%d (func=%d pc=%d)", a, func_idx, pc);
                 x86_cache_put(&cache, xa, d);                    // relabel xmm as dest
                 break;
             }
             case OP_LOAD_NUM_IMM: {                              // small int literal
                 int x = x86_cache_alloc_excl(&cache, cb, -1, -1);  // pick a register
-                if (x < 0) { emit_return_zero(abi, cb, base_frame); break; }
+                if (x < 0) JIT_FATAL("cache full: LOAD_NUM_IMM dst=%d (func=%d pc=%d)", d, func_idx, pc);
                 int imm_idx = -1;                                // index into the rip pool
                 for (int i = 0; i < func_n_imms; i++)
                     if (func_imms[i] == a) { imm_idx = i; break; }
@@ -281,7 +283,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             }
             case OP_LOAD_NUM: {                                  // full double constant
                 int x = x86_cache_alloc_excl(&cache, cb, -1, -1);  // pick a register
-                if (x < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (x < 0) JIT_FATAL("cache full: LOAD_NUM dst=%d (func=%d pc=%d)", d, func_idx, pc);
                 double v = chunk->constants[a].number_value;     // fetch constant
                 uint64_t bits; memcpy(&bits, &v, 8);             // reinterpret as u64
                 x86_emit_movabs_rax(cb, bits);                   // rax = bit pattern
@@ -291,7 +293,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             }
             case OP_LOAD_BOOL: {                                 // boolean literal
                 int x = x86_cache_alloc_excl(&cache, cb, -1, -1);  // pick a register
-                if (x < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (x < 0) JIT_FATAL("cache full: LOAD_BOOL dst=%d (func=%d pc=%d)", d, func_idx, pc);
                 uint64_t bits = X86_BOOL_BITS | (a ? 1ULL : 0ULL);  // bit 0 carries the value
                 x86_emit_movabs_rax(cb, bits);                   // rax = nan-boxed bool
                 x86_emit_movq_xmm_rax(cb, x);                    // xmmX = rax
@@ -300,7 +302,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             }
             case OP_LOAD_NONE: {                                 // none literal
                 int x = x86_cache_alloc_excl(&cache, cb, -1, -1);  // pick a register
-                if (x < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (x < 0) JIT_FATAL("cache full: LOAD_NONE dst=%d (func=%d pc=%d)", d, func_idx, pc);
                 x86_emit_movabs_rax(cb, X86_NONE_BITS);          // rax = NONE bit pattern
                 x86_emit_movq_xmm_rax(cb, x);                    // xmmX = rax
                 x86_cache_put(&cache, x, d);                     // cache dest
@@ -311,9 +313,9 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             case OP_MUL:
             case OP_DIV: {                                       // binary arithmetic
                 int xa = x86_cache_load(&cache, cb, a);          // load left operand
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xa < 0) JIT_FATAL("cache full: arith a=%d (func=%d pc=%d op=%d)", a, func_idx, pc, op);
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load right, avoid xa
-                if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xb < 0) JIT_FATAL("cache full: arith b=%d (func=%d pc=%d op=%d)", b, func_idx, pc, op);
                 uint8_t arith_op;                                // sse opcode
                 switch (op) {
                     case OP_ADD: arith_op = 0x58; break;         // addsd
@@ -348,7 +350,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             case OP_MUL_IMM:
             case OP_DIV_IMM: {                                   // binary arithmetic with immediate
                 int xa = x86_cache_load(&cache, cb, a);
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }
+                if (xa < 0) JIT_FATAL("cache full: arith_imm a=%d (func=%d pc=%d op=%d)", a, func_idx, pc, op);
                 uint8_t arith_op;
                 switch (op) {
                     case OP_ADD_IMM: arith_op = 0x58; break;
@@ -356,7 +358,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                     case OP_MUL_IMM: arith_op = 0x59; break;
                     default:         arith_op = 0x5E; break;
                 }
-                        int imm_idx = -1;                                // index into the rip pool
+                int imm_idx = -1;                                // index into the rip pool
                 for (int i = 0; i < func_n_imms; i++)
                     if (func_imms[i] == b) { imm_idx = i; break; }
                 bool preserve = (d != a) &&
@@ -397,10 +399,10 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             }
             case OP_MOD_IMM: {                                   // modulo with immediate: a - trunc(a/imm)*imm
                 int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xa < 0) JIT_FATAL("cache full: MOD_IMM a=%d (func=%d pc=%d)", a, func_idx, pc);
                 x86_emit_load_double_imm(cb, XMM_SCRATCH, b);    // xmm7 = (double)b (cvtsi2sd)
                 int xt = x86_cache_alloc_excl(&cache, cb, xa, XMM_SCRATCH);  // temp for a/imm
-                if (xt < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xt < 0) JIT_FATAL("cache full: MOD_IMM temp (func=%d pc=%d)", func_idx, pc);
                 x86_emit_sse66_rr(cb, 0x28, xt, xa);             // xt = a
                 x86_emit_sse_arith_rr(cb, 0x5E, xt, XMM_SCRATCH);// xt = a / imm
                 emit_u8(cb, 0x66);                               // roundsd legacy prefix
@@ -422,9 +424,9 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             }
             case OP_MOD: {                                       // x - trunc(x/y)*y
                 int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xa < 0) JIT_FATAL("cache full: MOD a=%d (func=%d pc=%d)", a, func_idx, pc);
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xb < 0) JIT_FATAL("cache full: MOD b=%d (func=%d pc=%d)", b, func_idx, pc);
                 x86_emit_sse66_rr(cb, 0x28, XMM_SCRATCH, xa);    // movapd scratch, a
                 x86_emit_sse_arith_rr(cb, 0x5E, XMM_SCRATCH, xb);  // divsd  scratch, b
                 emit_u8(cb, 0x66);                               // roundsd legacy prefix
@@ -446,7 +448,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             }
             case OP_NEG: {                                       // unary minus
                 int xa = x86_cache_load(&cache, cb, a);          // load operand
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xa < 0) JIT_FATAL("cache full: NEG a=%d (func=%d pc=%d)", a, func_idx, pc);
                 x86_emit_sse66_rr(cb, 0x57, XMM_SCRATCH, XMM_SCRATCH);  // xorpd scratch, scratch
                 x86_emit_sse_arith_rr(cb, 0x5C, XMM_SCRATCH, xa);  // subsd scratch, a
                 // dest != source: a must survive the in-place movapd
@@ -462,7 +464,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             case OP_INC:
             case OP_DEC: {                                       // in-place +1 / -1
                 int xd = x86_cache_load(&cache, cb, d);          // load dest
-                if (xd < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xd < 0) JIT_FATAL("cache full: INC/DEC dst=%d (func=%d pc=%d op=%d)", d, func_idx, pc, op);
                 x86_emit_movabs_rax(cb, 0x3FF0000000000000ULL);  // rax = 1.0 bits
                 x86_emit_movq_xmm_rax(cb, XMM_SCRATCH);          // scratch = 1.0
                 uint8_t arith_op = (op == OP_INC) ? 0x58 : 0x5C; // addsd / subsd
@@ -473,73 +475,73 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             case OP_CMP_EQ:
             case OP_CMP_EQ_NUM: {                                // d = (a == b)
                 int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xa < 0) JIT_FATAL("cache full: CMP a=%d (func=%d pc=%d op=%d)", a, func_idx, pc, op);
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xb < 0) JIT_FATAL("cache full: CMP b=%d (func=%d pc=%d op=%d)", b, func_idx, pc, op);
                 x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
-                if (xd < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
-                x86_emit_cmp_box_result(cb, xd, 0x94);           // setne? no: sete al, boxed MAKE_BOOL
+                if (xd < 0) JIT_FATAL("cache full: CMP dst=%d (func=%d pc=%d op=%d)", d, func_idx, pc, op);
+                x86_emit_cmp_box_result(cb, xd, 0x94);           // sete al, boxed MAKE_BOOL
                 x86_cache_put(&cache, xd, d);                    // cache dest
                 break;
             }
             case OP_CMP_NEQ:
             case OP_CMP_NEQ_NUM: {                               // d = (a != b)
                 int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xa < 0) JIT_FATAL("cache full: CMP a=%d (func=%d pc=%d op=%d)", a, func_idx, pc, op);
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xb < 0) JIT_FATAL("cache full: CMP b=%d (func=%d pc=%d op=%d)", b, func_idx, pc, op);
                 x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
-                if (xd < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xd < 0) JIT_FATAL("cache full: CMP dst=%d (func=%d pc=%d op=%d)", d, func_idx, pc, op);
                 x86_emit_cmp_box_result(cb, xd, 0x95);           // setne al, boxed MAKE_BOOL
                 x86_cache_put(&cache, xd, d);                    // cache dest
                 break;
             }
             case OP_CMP_LT: {                                    // d = (a < b)
                 int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xa < 0) JIT_FATAL("cache full: CMP a=%d (func=%d pc=%d op=%d)", a, func_idx, pc, op);
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xb < 0) JIT_FATAL("cache full: CMP b=%d (func=%d pc=%d op=%d)", b, func_idx, pc, op);
                 x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
-                if (xd < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xd < 0) JIT_FATAL("cache full: CMP dst=%d (func=%d pc=%d op=%d)", d, func_idx, pc, op);
                 x86_emit_cmp_box_result(cb, xd, 0x92);           // setb al, boxed MAKE_BOOL
                 x86_cache_put(&cache, xd, d);                    // cache dest
                 break;
             }
             case OP_CMP_GT: {                                    // d = (a > b)
                 int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xa < 0) JIT_FATAL("cache full: CMP a=%d (func=%d pc=%d op=%d)", a, func_idx, pc, op);
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xb < 0) JIT_FATAL("cache full: CMP b=%d (func=%d pc=%d op=%d)", b, func_idx, pc, op);
                 x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
-                if (xd < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xd < 0) JIT_FATAL("cache full: CMP dst=%d (func=%d pc=%d op=%d)", d, func_idx, pc, op);
                 x86_emit_cmp_box_result(cb, xd, 0x97);           // seta al, boxed MAKE_BOOL
                 x86_cache_put(&cache, xd, d);                    // cache dest
                 break;
             }
             case OP_CMP_LTE: {                                   // d = (a <= b)
                 int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xa < 0) JIT_FATAL("cache full: CMP a=%d (func=%d pc=%d op=%d)", a, func_idx, pc, op);
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xb < 0) JIT_FATAL("cache full: CMP b=%d (func=%d pc=%d op=%d)", b, func_idx, pc, op);
                 x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
-                if (xd < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xd < 0) JIT_FATAL("cache full: CMP dst=%d (func=%d pc=%d op=%d)", d, func_idx, pc, op);
                 x86_emit_cmp_box_result(cb, xd, 0x96);           // setbe al, boxed MAKE_BOOL
                 x86_cache_put(&cache, xd, d);                    // cache dest
                 break;
             }
             case OP_CMP_GTE: {                                   // d = (a >= b)
                 int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xa < 0) JIT_FATAL("cache full: CMP a=%d (func=%d pc=%d op=%d)", a, func_idx, pc, op);
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xb < 0) JIT_FATAL("cache full: CMP b=%d (func=%d pc=%d op=%d)", b, func_idx, pc, op);
                 x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
-                if (xd < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xd < 0) JIT_FATAL("cache full: CMP dst=%d (func=%d pc=%d op=%d)", d, func_idx, pc, op);
                 x86_emit_cmp_box_result(cb, xd, 0x93);           // setae al, boxed MAKE_BOOL
                 x86_cache_put(&cache, xd, d);                    // cache dest
                 break;
@@ -561,7 +563,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             }
             case OP_JUMP_IF_FALSE: {                             // branch when cond is false
                 int xa = x86_cache_load(&cache, cb, a);          // load condition
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xa < 0) JIT_FATAL("cache full: JUMP_IF_FALSE cond=%d (func=%d pc=%d)", a, func_idx, pc);
                 x86_emit_movq_rax_xmm(cb, xa);                   // rax = raw 64-bit slot
                 emit_u8(cb, 0xA8); emit_u8(cb, 0x01);            // test al, 1
                 if (d >= start && d < end) {
@@ -581,9 +583,9 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             case OP_JUMP_IF_EQ:
             case OP_JUMP_IF_EQ_NUM: {                            // branch if a == b
                 int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xa < 0) JIT_FATAL("cache full: JUMP_IF_EQ a=%d (func=%d pc=%d)", a, func_idx, pc);
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xb < 0) JIT_FATAL("cache full: JUMP_IF_EQ b=%d (func=%d pc=%d)", b, func_idx, pc);
                 x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 if (d >= start && d < end) {
                     if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
@@ -602,9 +604,9 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             case OP_JUMP_IF_NEQ:
             case OP_JUMP_IF_NEQ_NUM: {                           // branch if a != b
                 int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xa < 0) JIT_FATAL("cache full: JUMP_IF_NEQ a=%d (func=%d pc=%d)", a, func_idx, pc);
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xb < 0) JIT_FATAL("cache full: JUMP_IF_NEQ b=%d (func=%d pc=%d)", b, func_idx, pc);
                 x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 if (d >= start && d < end) {
                     if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
@@ -622,9 +624,9 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             }
             case OP_JUMP_IF_LT: {                                // branch if a < b
                 int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xa < 0) JIT_FATAL("cache full: JUMP_IF_LT a=%d (func=%d pc=%d)", a, func_idx, pc);
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xb < 0) JIT_FATAL("cache full: JUMP_IF_LT b=%d (func=%d pc=%d)", b, func_idx, pc);
                 x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 if (d >= start && d < end) {
                     if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
@@ -642,9 +644,9 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             }
             case OP_JUMP_IF_GT: {                                // branch if a > b
                 int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xa < 0) JIT_FATAL("cache full: JUMP_IF_GT a=%d (func=%d pc=%d)", a, func_idx, pc);
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xb < 0) JIT_FATAL("cache full: JUMP_IF_GT b=%d (func=%d pc=%d)", b, func_idx, pc);
                 x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 if (d >= start && d < end) {
                     if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
@@ -662,9 +664,9 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             }
             case OP_JUMP_IF_LTE: {                               // branch if a <= b
                 int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xa < 0) JIT_FATAL("cache full: JUMP_IF_LTE a=%d (func=%d pc=%d)", a, func_idx, pc);
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xb < 0) JIT_FATAL("cache full: JUMP_IF_LTE b=%d (func=%d pc=%d)", b, func_idx, pc);
                 x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 if (d >= start && d < end) {
                     if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
@@ -682,9 +684,9 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             }
             case OP_JUMP_IF_GTE: {                               // branch if a >= b
                 int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xa < 0) JIT_FATAL("cache full: JUMP_IF_GTE a=%d (func=%d pc=%d)", a, func_idx, pc);
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) { emit_return_zero(abi, cb, base_frame); break; }  // no register available
+                if (xb < 0) JIT_FATAL("cache full: JUMP_IF_GTE b=%d (func=%d pc=%d)", b, func_idx, pc);
                 x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 if (d >= start && d < end) {
                     if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
@@ -707,7 +709,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             case OP_JUMP_IF_LTE_IMM:
             case OP_JUMP_IF_GTE_IMM: {                           // imm-jump variants share the pattern
                 int xa = x86_cache_load(&cache, cb, a);          // load left operand
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }
+                if (xa < 0) JIT_FATAL("cache full: JUMP_IF_IMM a=%d (func=%d pc=%d op=%d)", a, func_idx, pc, op);
                 int imm_idx = -1;                                // index into the rip pool
                 for (int i = 0; i < func_n_imms; i++)
                     if (func_imms[i] == b) { imm_idx = i; break; }
@@ -745,7 +747,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             }
             case OP_JUMP_MATCH_NUM: {                            // jump if R[a] is a number == const[b]
                 int xa = x86_cache_load(&cache, cb, a);          // load subject
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }
+                if (xa < 0) JIT_FATAL("cache full: JUMP_MATCH_NUM subj=%d (func=%d pc=%d)", a, func_idx, pc);
                 double c = chunk->constants[b].number_value;     // fetch constant
                 uint64_t cbits; memcpy(&cbits, &c, 8);           // reinterpret as u64
                 x86_emit_movabs_rax(cb, cbits);                  // rax = constant bits
@@ -799,7 +801,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             }
             case OP_JUMP_MATCH_BOOL: {                           // jump if R[a] == MAKE_BOOL(b)
                 int xa = x86_cache_load(&cache, cb, a);
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }
+                if (xa < 0) JIT_FATAL("cache full: JUMP_MATCH_BOOL subj=%d (func=%d pc=%d)", a, func_idx, pc);
                 x86_emit_movq_rax_xmm(cb, xa);                   // rax = subject bits
                 uint64_t expect = X86_BOOL_BITS | (b ? 1ULL : 0ULL);
                 x86_emit_movabs_r11(cb, expect);                 // r11 = expected bool bits
@@ -820,7 +822,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             }
             case OP_JUMP_MATCH_NONE: {                           // jump if R[a] == MAKE_NONE()
                 int xa = x86_cache_load(&cache, cb, a);
-                if (xa < 0) { emit_return_zero(abi, cb, base_frame); break; }
+                if (xa < 0) JIT_FATAL("cache full: JUMP_MATCH_NONE subj=%d (func=%d pc=%d)", a, func_idx, pc);
                 x86_emit_movq_rax_xmm(cb, xa);                   // rax = subject bits
                 x86_emit_movabs_r11(cb, X86_NONE_BITS);          // r11 = NONE bits
                 emit_u8(cb, 0x4C); emit_u8(cb, 0x39); emit_u8(cb, 0xD8);  // cmp rax, r11
@@ -967,11 +969,10 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 break;
             }
             default:                                             // unreachable in pure fn
-                emit_return_zero(abi, cb, base_frame);           // safe fallback
-                break;
+                JIT_FATAL("unreachable opcode %d in pure function %d at pc=%d", op, func_idx, pc);
         }
 
-        // flush if the next instruction is a merge point — the incoming cache
+        // flush if the next instruction is a merge point — the incoming cache must be empty
         if (!did_flush && pc + 1 < end && needs_flush[pc + 1 - start]) {
             x86_cache_flush(&cache, cb);
         }
@@ -997,9 +998,8 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         JumpFixup* fx = &fixups[i];
         int tidx = fx->target_pc - start;                        // index within range
         if (tidx < 0 || tidx >= range_size || label_off[tidx] < 0) {
-            cb->len = mark;                                      // rollback partial emission
-            free(pred_count); free(needs_flush); free(use_snap); free(jump_snap);
-            return false;                                        // invalid target
+            JIT_FATAL("jump fixup out of range: func=%d target_pc=%d range=[%d,%d)",
+                    func_idx, fx->target_pc, start, end);
         }
         int32_t rel = (int32_t)label_off[tidx] - (int32_t)(fx->patch_at + 4);  // rel32 distance
         memcpy(cb->buf + fx->patch_at, &rel, 4);                 // write rel32

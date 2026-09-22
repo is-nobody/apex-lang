@@ -8,11 +8,7 @@
 #include <stddef.h>
 #include <string.h>
 
-// selects up to 4 loop-invariant table slots whose array_part pointer can be
-// hoisted into a callee-saved gpr for the whole loop body; the primary table
-// (info->table.slot) is already cached in rbx, so it is skipped here;
-// additionally hoists slots written once by TABLE_GET_NUM with invariant
-// table/key inputs (their value's array_part is invariant across iterations)
+// hoists up to 4 loop-invariant array_part ptrs into callee-saved gprs; primary stays in rbx
 static void assign_table_caches(JITContext* ctx, JitLoopInfo* info) {
     static const int cache_gprs[4] = { X86_R12, X86_R13, X86_R14, X86_R15 };
     info->n_cached_tables  = 0;
@@ -51,9 +47,7 @@ static void assign_table_caches(JITContext* ctx, JitLoopInfo* info) {
         invariant |= 1ULL << s;                              // now s is a cached base too
     }
 
-    // phase 2: derived invariants — slots written exactly once by TABLE_GET_NUM
-    // whose table and key are already invariant; their value is a table whose
-    // array_part is also invariant, so it can be hoisted to a callee-saved gpr
+    // phase 2: derived invariants — single-writer TABLE_GET_NUM slots with invariant table+key
     for (int s = 0; s < JIT_MAX_SLOTS && (info->n_cached_tables + info->n_derived_caches) < 4; s++) {
         if (!(info->live_out & (1ULL << s))) continue;       // must be written in body
         int write_pc = -1, write_count = 0;                  // locate the unique writer
@@ -154,10 +148,7 @@ static void assign_table_caches(JITContext* ctx, JitLoopInfo* info) {
                 default: break;
             }
         }
-        // writes need the underlying array to be grown; counter_write_prepare
-        // only preps info->table.slot, so a derived cache would write into a
-        // possibly NULL array_part. Leave the producer in place and let the
-        // general SET path grow it via table_set_int.
+        // derived write needs a grown array_part, but only info->table.slot is prepped → skip
         if (used_as_set_table) continue;
         int idx = info->n_cached_tables + info->n_derived_caches;
         int i = info->n_derived_caches++;
@@ -170,9 +161,7 @@ static void assign_table_caches(JITContext* ctx, JitLoopInfo* info) {
     }
 }
 
-// spill dirty slots to frame at the back edge; slots that the body
-// unconditionally overwrites before any read are dead at loop entry, so
-// their stale frame values are never observed — skip their stores
+// spill dirty slots at the back edge; slots dead-on-entry stay stale and are skipped
 static void x86_cache_flush_back_edge(XmmCache* c, CodeBuf* cb,
                                       BytecodeChunk* chunk, int body_start,
                                       int back_edge) {
@@ -205,13 +194,13 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         case OP_MOVE: {
             if (d == a) break;                               // self-move is a no-op
             int xa = x86_cache_load(cache, cb, a);           // load source slot
-            if (xa < 0) return;                              // register cache full
+            if (xa < 0) JIT_FATAL("cache full: MOVE src=%d (pc=%d)", a, pc);
             if (!slot_live_in_loop(chunk, info->entry_pc,
                                    info->back_edge_pc, pc, a)) {
                 x86_cache_put(cache, xa, d);                 // a is dead: relabel
             } else {
                 int xd = x86_cache_dest_reg(cache, cb, d, xa, -1);
-                if (xd < 0) return;                          // register cache full
+                if (xd < 0) JIT_FATAL("cache full: MOVE dst=%d src=%d (pc=%d)", d, a, pc);
                 if (xd != xa)
                     x86_emit_sse66_rr(cb, 0x28, xd, xa);     // movapd xd, xa
                 x86_cache_put(cache, xd, d);                 // a survives in xa
@@ -220,14 +209,14 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         }
         case OP_LOAD_NUM_IMM: {
             int x = x86_cache_dest_reg(cache, cb, d, -1, -1);    // prefer d's existing home
-            if (x < 0) return;                                   // register cache full
+            if (x < 0) JIT_FATAL("cache full: LOAD_NUM_IMM dst=%d (pc=%d)", d, pc);
             x86_emit_load_double_imm(cb, x, a);                  // xmmX = (double)a (cvtsi2sd)
             x86_cache_put(cache, x, d);                          // cache dest
             break;
         }
         case OP_LOAD_NUM: {
             int x = x86_cache_dest_reg(cache, cb, d, -1, -1);    // prefer d's existing home
-            if (x < 0) return;                                   // register cache full
+            if (x < 0) JIT_FATAL("cache full: LOAD_NUM dst=%d (pc=%d)", d, pc);
             double v = chunk->constants[a].number_value;         // fetch pool constant
             uint64_t bits; memcpy(&bits, &v, 8);                 // reinterpret as u64
             x86_emit_movabs_rax(cb, bits);                       // rax = bit pattern
@@ -237,7 +226,7 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         }
         case OP_LOAD_BOOL: {
             int x = x86_cache_dest_reg(cache, cb, d, -1, -1);    // prefer d's existing home
-            if (x < 0) return;                                   // register cache full
+            if (x < 0) JIT_FATAL("cache full: LOAD_BOOL dst=%d (pc=%d)", d, pc);
             uint64_t bits = X86_BOOL_BITS | (a ? 1ULL : 0ULL);   // bit 0 carries value
             x86_emit_movabs_rax(cb, bits);                       // rax = nan-boxed bool
             x86_emit_movq_xmm_rax(cb, x);                        // xmmX = rax
@@ -246,14 +235,15 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         }
         case OP_LOAD_NONE: {
             int x = x86_cache_dest_reg(cache, cb, d, -1, -1);    // prefer d's existing home
-            if (x < 0) return;                                   // register cache full
+            if (x < 0) JIT_FATAL("cache full: LOAD_NONE dst=%d (pc=%d)", d, pc);
             x86_emit_movabs_rax(cb, X86_NONE_BITS);              // rax = NONE bit pattern
             x86_emit_movq_xmm_rax(cb, x);                        // xmmX = rax
             x86_cache_put(cache, x, d);                          // cache dest
             break;
         }
         case OP_TABLE_SET_KEY_STR: {                         // tbl["prefix" .. num] = val
-            if (save_slot < 0) return;
+            if (save_slot < 0)
+                JIT_FATAL("no save slot for TABLE_SET_KEY_STR (pc=%d)", pc);
             x86_cache_flush(cache, cb);
 
             int table_reg  = d;                              // operands[0]
@@ -304,7 +294,8 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             break;
         }
         case OP_TABLE_GET_KEY_STR: {                         // d = tbl["prefix" .. num]
-            if (save_slot < 0) return;
+            if (save_slot < 0)
+                JIT_FATAL("no save slot for TABLE_GET_KEY_STR (pc=%d)", pc);
             x86_cache_flush(cache, cb);
 
             int table_reg  = a;                              // operands[1]
@@ -350,9 +341,9 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         }
         case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: {
             int xa = x86_cache_load(cache, cb, a);               // load left operand
-            if (xa < 0) return;                                  // register cache full
+            if (xa < 0) JIT_FATAL("cache full: arith a=%d (pc=%d op=%d)", a, pc, inst->opcode);
             int xb = x86_cache_load_excl(cache, cb, b, xa, -1);  // load right, avoid xa
-            if (xb < 0) return;                                  // register cache full
+            if (xb < 0) JIT_FATAL("cache full: arith b=%d (pc=%d op=%d)", b, pc, inst->opcode);
             uint8_t op;                                          // sse opcode
             switch (inst->opcode) {
                 case OP_ADD: op = 0x58; break;                   // addsd
@@ -381,7 +372,7 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         }
         case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM: case OP_DIV_IMM: {
             int xa = x86_cache_load(cache, cb, a);               // load left operand
-            if (xa < 0) return;                                  // register cache full
+            if (xa < 0) JIT_FATAL("cache full: arith_imm a=%d (pc=%d op=%d)", a, pc, inst->opcode);
             uint8_t op;                                          // sse opcode
             switch (inst->opcode) {
                 case OP_ADD_IMM: op = 0x58; break;               // addsd
@@ -420,7 +411,7 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         }
         case OP_MOD_IMM: {                                       // modulo with immediate
             int xa = x86_cache_load(cache, cb, a);               // load a
-            if (xa < 0) return;                                  // register cache full
+            if (xa < 0) JIT_FATAL("cache full: MOD_IMM a=%d (pc=%d)", a, pc);
             int slot = -1;
             if (info->imm_opt_ok) {
                 for (int i = 0; i < info->n_imms; i++)
@@ -429,7 +420,7 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             int xt;
             if (slot >= 0) {
                 xt = x86_cache_alloc_excl(cache, cb, xa, -1);    // temp for a/imm
-                if (xt < 0) return;
+                if (xt < 0) JIT_FATAL("cache full: MOD_IMM temp (pc=%d a=%d)", pc, a);
                 x86_emit_sse66_rr(cb, 0x28, xt, xa);             // xt = a
                 x86_emit_sse_arith_mem(cb, 0x5E, xt, x86_slot_disp(slot));  // xt = a / imm
                 emit_u8(cb, 0x66);                               // roundsd legacy prefix
@@ -442,7 +433,7 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             } else {
                 x86_emit_load_double_imm(cb, XMM_SCRATCH, b);
                 xt = x86_cache_alloc_excl(cache, cb, xa, XMM_SCRATCH);
-                if (xt < 0) return;
+                if (xt < 0) JIT_FATAL("cache full: MOD_IMM temp scratch (pc=%d a=%d)", pc, a);
                 x86_emit_sse66_rr(cb, 0x28, xt, xa);
                 x86_emit_sse_arith_rr(cb, 0x5E, xt, XMM_SCRATCH);
                 emit_u8(cb, 0x66);                               // roundsd legacy prefix
@@ -476,9 +467,9 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         }
         case OP_MOD: {
             int xa = x86_cache_load(cache, cb, a);               // load a
-            if (xa < 0) return;                                  // register cache full
+            if (xa < 0) JIT_FATAL("cache full: MOD a=%d (pc=%d)", a, pc);
             int xb = x86_cache_load_excl(cache, cb, b, xa, -1);  // load b, avoid xa
-            if (xb < 0) return;                                  // register cache full
+            if (xb < 0) JIT_FATAL("cache full: MOD b=%d (pc=%d)", b, pc);
             x86_emit_sse66_rr(cb, 0x28, XMM_SCRATCH, xa);        // scratch = a
             x86_emit_sse_arith_rr(cb, 0x5E, XMM_SCRATCH, xb);    // scratch = a / b
             emit_u8(cb, 0x66);                                   // roundsd legacy prefix
@@ -511,7 +502,7 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         }
         case OP_NEG: {
             int xa = x86_cache_load(cache, cb, a);               // load operand
-            if (xa < 0) return;                                  // register cache full
+            if (xa < 0) JIT_FATAL("cache full: NEG a=%d (pc=%d)", a, pc);
             x86_emit_sse66_rr(cb, 0x57, XMM_SCRATCH, XMM_SCRATCH);  // scratch = 0
             x86_emit_sse_arith_rr(cb, 0x5C, XMM_SCRATCH, xa);    // scratch = 0 - a
             // dest != source: preserve a's original value in its frame slot
@@ -535,7 +526,7 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         }
         case OP_INC: case OP_DEC: {
             int xd = x86_cache_load(cache, cb, d);               // load dest
-            if (xd < 0) return;                                  // register cache full
+            if (xd < 0) JIT_FATAL("cache full: INC/DEC dst=%d (pc=%d op=%d)", d, pc, inst->opcode);
             uint8_t op = (inst->opcode == OP_INC) ? 0x58 : 0x5C; // addsd / subsd
             x86_emit_sse_arith_mem(cb, op, xd, x86_slot_disp(const_slot));  // xd op= 1.0
             x86_cache_put(cache, xd, d);                         // mark dest dirty
@@ -546,9 +537,9 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         case OP_CMP_NEQ: case OP_CMP_NEQ_NUM:
         case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE: {
             int xa = x86_cache_load(cache, cb, a);               // load a
-            if (xa < 0) return;                                  // register cache full
+            if (xa < 0) JIT_FATAL("cache full: CMP a=%d (pc=%d op=%d)", a, pc, inst->opcode);
             int xb = x86_cache_load_excl(cache, cb, b, xa, -1);  // load b, avoid xa
-            if (xb < 0) return;                                  // register cache full
+            if (xb < 0) JIT_FATAL("cache full: CMP b=%d (pc=%d op=%d)", b, pc, inst->opcode);
             x86_emit_ucomisd_rr(cb, xa, xb);                     // ucomisd a, b
             uint8_t cc;                                          // setcc opcode
             switch (inst->opcode) {
@@ -563,7 +554,7 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             int xd = x86_cache_lookup(cache, d);
             if (xd == xa || xd == xb) xd = -1;                   // dest aliases a source
             if (xd < 0) xd = x86_cache_dest_reg(cache, cb, d, xa, xb); // prefer d's home
-            if (xd < 0) return;                                  // register cache full
+            if (xd < 0) JIT_FATAL("cache full: CMP dst=%d (pc=%d op=%d)", d, pc, inst->opcode);
             x86_emit_cmp_box_result(cb, xd, cc);                 // nan-boxed MAKE_BOOL into xd
             x86_cache_put(cache, xd, d);                         // cache dest
             break;
@@ -571,7 +562,8 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         case OP_CALL_0:                                      // call with no args
         case OP_CALL_1:                                      // call with one arg
         case OP_CALL_2: {                                    // call with two args
-            if (save_slot < 0) return;                       // no save slot reserved, bail
+            if (save_slot < 0)
+                JIT_FATAL("no save slot for CALL (pc=%d op=%d)", pc, inst->opcode);
             x86_cache_flush(cache, cb);                      // spill dirty slots to frame
             if (inst->opcode == OP_CALL_1 || inst->opcode == OP_CALL_2) {
                 x86_emit_movsd_load(cb, 0, x86_slot_disp(b));  // xmm0 = arg0
@@ -591,8 +583,7 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             int table_reg = a;                               // table register
             int key_reg   = b;                               // key register
 
-            // cached-table fast path: loop-invariant table whose array_part
-            // pointer lives in a callee-saved gpr for the whole loop body
+            // cached-table fast path: loop-invariant table's array_part ptr lives in a cs-gpr
             int cg = -1;                                     // cached array_part gpr
             for (int ci = 0; ci < info->n_cached_tables; ci++)
                 if (info->cached_table_slot[ci] == table_reg) {
@@ -607,7 +598,7 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             if (cg >= 0) {
                 if (key_reg == info->for_var_reg && info->for_var_gpr >= 0) {
                     int xd = x86_cache_dest_reg(cache, cb, d, -1, -1);  // use gpr counter directly
-                    if (xd < 0) return;
+                    if (xd < 0) JIT_FATAL("cache full: TABLE_GET(gpr-key) d=%d (pc=%d)", d, pc);
                     x86_emit_movsd_load_idx8_bx(cb, xd, cg, info->for_var_gpr);
                     x86_cache_put(cache, xd, d);
                     break;
@@ -615,12 +606,12 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 int xk = cache->slot_reg[key_reg];           // key already in cache?
                 if (xk < 0) {
                     xk = x86_cache_load(cache, cb, key_reg); // load key from frame
-                    if (xk < 0) return;                      // register cache full
+                    if (xk < 0) JIT_FATAL("cache full: TABLE_GET(cached) key=%d (pc=%d)", key_reg, pc);
                 }
                 x86_emit_cvttsd2si_eax(cb, xk);              // eax = (int)key
                 x86_emit_dec_eax(cb);                        // 1-based -> 0-based
                 int xd = x86_cache_dest_reg(cache, cb, d, xk, -1);  // prefer d's home
-                if (xd < 0) return;                          // register cache full
+                if (xd < 0) JIT_FATAL("cache full: TABLE_GET(cached) d=%d (pc=%d)", d, pc);
                 x86_emit_movsd_load_idx8_bx(cb, xd, cg, X86_RAX);   // xd = array_part[rax]
                 x86_cache_put(cache, xd, d);                 // cache dest
                 break;
@@ -630,7 +621,7 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             if (key_reg == info->for_var_reg && table_reg == info->table.slot) {
                 if (info->for_var_gpr >= 0) {                // counter lives in gpr, already 0-based
                     int xd = x86_cache_dest_reg(cache, cb, d, -1, -1);
-                    if (xd < 0) return;
+                    if (xd < 0) JIT_FATAL("cache full: TABLE_GET(gpr) d=%d (pc=%d)", d, pc);
                     x86_emit_movsd_load_idx8_bx(cb, xd, X86_RBX, info->for_var_gpr);
                     x86_cache_put(cache, xd, d);
                     break;
@@ -638,12 +629,12 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 int xk = cache->slot_reg[key_reg];           // key already in cache?
                 if (xk < 0) {
                     xk = x86_cache_load(cache, cb, key_reg); // load key from frame
-                    if (xk < 0) return;                      // register cache full
+                    if (xk < 0) JIT_FATAL("cache full: TABLE_GET(counter) key=%d (pc=%d)", key_reg, pc);
                 }
                 x86_emit_cvttsd2si_eax(cb, xk);              // eax = (int)key
                 x86_emit_dec_eax(cb);                        // 1-based -> 0-based
                 int xd = x86_cache_dest_reg(cache, cb, d, xk, -1); // prefer d's home
-                if (xd < 0) return;                          // register cache full
+                if (xd < 0) JIT_FATAL("cache full: TABLE_GET(counter) d=%d (pc=%d)", d, pc);
                 x86_emit_movsd_load_idx8(cb, xd, X86_RBX, X86_RAX);  // xd = array_part[rax]
                 x86_cache_put(cache, xd, d);                 // cache dest
                 break;
@@ -653,7 +644,7 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             int xk = cache->slot_reg[key_reg];
             if (xk < 0) {
                 xk = x86_cache_load(cache, cb, key_reg);
-                if (xk < 0) return;                          // register cache full
+                if (xk < 0) JIT_FATAL("cache full: TABLE_GET key=%d (pc=%d)", key_reg, pc);
             }
 
             int xt = cache->slot_reg[table_reg];             // table still in an xmm?
@@ -668,14 +659,14 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             x86_emit_cvttsd2si_edx(cb, xk);                  // edx = (int)key
             x86_emit_dec_edx(cb);                            // 1-based -> 0-based
             int xd = x86_cache_dest_reg(cache, cb, d, xk, -1);  // prefer d's home
-            if (xd < 0) return;                              // register cache full
+            if (xd < 0) JIT_FATAL("cache full: TABLE_GET d=%d (pc=%d)", d, pc);
             x86_emit_movsd_load_idx8(cb, xd, X86_RAX, X86_RDX);  // xd = array_part[rdx]
             x86_cache_put(cache, xd, d);                     // cache dest
             break;
         }
         case OP_TABLE_GET_INT: {
             int xd = x86_cache_dest_reg(cache, cb, d, -1, -1);   // prefer d's home
-            if (xd < 0) return;                                  // register cache full
+            if (xd < 0) JIT_FATAL("cache full: TABLE_GET_INT d=%d (pc=%d)", d, pc);
             x86_emit_movsd_load_base(cb, X86_RBX, xd, (b - 1) * 8);  // xd = array_part[b-1]
             x86_cache_put(cache, xd, d);                         // cache dest
             break;
@@ -687,41 +678,39 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             int key_reg   = a;                               // key register
             int val_reg   = b;                               // value register
 
-            // fast path: counter key + this loop's primary table
-            // (only this table's array_part is guaranteed to have been grown
-            // by counter_write_prepare; other cached bases must go through
-            // the general helper so table_set_int can grow them on demand)
+            // fast path: counter key + primary table (only this table's array_part is pre-grown)
             if (key_reg == info->for_var_reg && table_reg == info->table.slot) {
                 if (info->for_var_gpr >= 0) {                // counter lives in gpr, already 0-based
                     int xv = x86_cache_load_excl(cache, cb, val_reg, -1, -1);
-                    if (xv < 0) return;
+                    if (xv < 0) JIT_FATAL("cache full: TABLE_SET(gpr) val=%d (pc=%d)", val_reg, pc);
                     x86_emit_movsd_store_idx8_bx(cb, X86_RBX, info->for_var_gpr, xv);
                     break;
                 }
                 int xk = cache->slot_reg[key_reg];
                 if (xk < 0) {
                     xk = x86_cache_load(cache, cb, key_reg);
-                    if (xk < 0) return;                      // register cache full
+                    if (xk < 0) JIT_FATAL("cache full: TABLE_SET(counter) key=%d (pc=%d)", key_reg, pc);
                 }
                 x86_emit_cvttsd2si_eax(cb, xk);              // eax = (int)key
                 x86_emit_dec_eax(cb);                        // 1-based -> 0-based
                 int xv = x86_cache_load_excl(cache, cb, val_reg, xk, -1);  // load value, keep key
-                if (xv < 0) return;                          // register cache full
+                if (xv < 0) JIT_FATAL("cache full: TABLE_SET(counter) val=%d (pc=%d)", val_reg, pc);
                 x86_emit_movsd_store_idx8(cb, X86_RBX, X86_RAX, xv);  // array_part[rax] = xv
                 break;
             }
 
             // general path: call the runtime helper so array_part is grown safely
-            if (save_slot < 0) return;                    // no save slot reserved, bail
+            if (save_slot < 0)
+                JIT_FATAL("no save slot for TABLE_SET (pc=%d)", pc);
             int xk = cache->slot_reg[key_reg];
             if (xk < 0) {
                 xk = x86_cache_load(cache, cb, key_reg);
-                if (xk < 0) return;                       // register cache full
+                if (xk < 0) JIT_FATAL("cache full: TABLE_SET key=%d (pc=%d)", key_reg, pc);
             }
             int xv = cache->slot_reg[val_reg];
             if (xv < 0) {
                 xv = x86_cache_load(cache, cb, val_reg);
-                if (xv < 0) return;                       // register cache full
+                if (xv < 0) JIT_FATAL("cache full: TABLE_SET val=%d (pc=%d)", val_reg, pc);
             }
 
             x86_cache_flush(cache, cb);                   // spill dirty slots before the call
@@ -755,14 +744,14 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         }
         case OP_TABLE_SET_INT: {
             int xv = x86_cache_load(cache, cb, b);               // load value to store
-            if (xv < 0) return;                                  // register cache full
+            if (xv < 0) JIT_FATAL("cache full: TABLE_SET_INT val=%d (pc=%d)", b, pc);
             x86_emit_movsd_store_base(cb, X86_RBX, xv, (a - 1) * 8);  // array_part[a-1] = xv
             break;
         }
         case OP_LOAD_GLOBAL: {
             int idx = a;                                         // global index
             int x = x86_cache_dest_reg(cache, cb, d, -1, -1);    // prefer d's existing home
-            if (x < 0) return;                                   // register cache full
+            if (x < 0) JIT_FATAL("cache full: LOAD_GLOBAL dst=%d (pc=%d)", d, pc);
             x86_emit_movsd_load_base(cb, X86_RBX, x, idx * 8);   // rbx = globals base, x = globals[idx]
             x86_cache_put(cache, x, d);                          // cache dest
             break;
@@ -770,12 +759,12 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         case OP_STORE_GLOBAL: {
             int idx = a;                                         // global index
             int xv = x86_cache_load(cache, cb, d);               // load source slot
-            if (xv < 0) return;                                  // register cache full
+            if (xv < 0) JIT_FATAL("cache full: STORE_GLOBAL src=%d (pc=%d)", d, pc);
             x86_emit_movsd_store_base(cb, X86_RBX, xv, idx * 8); // globals[idx] = xv
             break;
         }
         default:
-            break;                                               // unreachable in native loops
+            JIT_FATAL("unreachable opcode %d in loop body at pc=%d", inst->opcode, pc);
     }
 
     if (touched_nan_check && info->touches_tables) {         // NaN propagation matches interpreter
@@ -800,11 +789,11 @@ size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         int step_reg = info->for_step_reg;                   // step slot
 
         int xa = x86_cache_load(cache, cb, end_reg);         // load end bound
-        if (xa < 0) return (size_t)-1;                       // register cache full
+        if (xa < 0) JIT_FATAL("cache full: loop entry end_reg=%d (pc=%d)", end_reg, entry);
         int xb = x86_cache_load_excl(cache, cb, step_reg, xa, -1);  // load step, avoid xa
-        if (xb < 0) return (size_t)-1;                       // register cache full
+        if (xb < 0) JIT_FATAL("cache full: loop entry step_reg=%d (pc=%d)", step_reg, entry);
         int xc = x86_cache_alloc_for(cache, cb, var_reg, xa, xb);   // allocate reg, no load
-        if (xc < 0) return (size_t)-1;                       // register cache full
+        if (xc < 0) JIT_FATAL("cache full: loop entry var_reg=%d (pc=%d)", var_reg, entry);
 
         if (!iter_in_xmm) {
             x86_emit_movsd_load(cb, XMM_SCRATCH, x86_slot_disp(info->nregs));  // xmm15 = iterator
@@ -821,8 +810,7 @@ size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             x86_emit_movsd_store(cb, xc, x86_slot_disp(var_reg));  // frame[var] = i
             cache->slot_dirty[var_reg] = false;              // memory is in sync
         }
-        // when a gpr mirror exists and no body op reads frame[var], the
-        // frame slot stays stale until the final flush — saves 2 ops/iter
+        // gpr mirror exists & no frame[var] read → slot stays stale till final flush (saves 2 ops/iter)
 
         x86_emit_sse_arith_rr(cb, 0x58, XMM_SCRATCH, xb);    // addsd xmm15, xb (step)
         if (!iter_in_xmm) {
@@ -833,7 +821,7 @@ size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         int a = entry_inst->operands[1];                     // left operand slot
         int imm = entry_inst->operands[2];                   // immediate
         int xa = x86_cache_load(cache, cb, a);               // load left operand
-        if (xa < 0) return (size_t)-1;                       // register cache full
+        if (xa < 0) JIT_FATAL("cache full: loop entry IMM a=%d (pc=%d)", a, entry);
         x86_emit_load_double_imm(cb, XMM_SCRATCH, imm);      // xmm15 = (double)imm
         x86_emit_ucomisd_rr(cb, xa, XMM_SCRATCH);            // ucomisd xa, xmm15
         uint8_t jcc = jcc_for_entry_op(entry_inst->opcode);  // exit condition opcode
@@ -845,9 +833,9 @@ size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         int a = entry_inst->operands[1];                     // left operand slot
         int b = entry_inst->operands[2];                     // right operand slot
         int xa = x86_cache_load(cache, cb, a);               // load left operand
-        if (xa < 0) return (size_t)-1;                       // register cache full
+        if (xa < 0) JIT_FATAL("cache full: loop entry cond a=%d (pc=%d)", a, entry);
         int xb = x86_cache_load_excl(cache, cb, b, xa, -1);  // load right, avoid xa
-        if (xb < 0) return (size_t)-1;                       // register cache full
+        if (xb < 0) JIT_FATAL("cache full: loop entry cond b=%d (pc=%d)", b, entry);
 
         x86_emit_ucomisd_rr(cb, xa, xb);                     // ucomisd xa, xb
 
@@ -861,8 +849,7 @@ size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         emit_loop_body_instr(abi, ctx, cb, cache, pc, const_slot, save_slot, info);
     }
 
-    // advance the integer counter mirror used for table-indexed loads
-    // (deferred until after the body so the first iteration sees r14 = k - 1)
+    // advance integer counter mirror for table-indexed loads; deferred so first iter sees k - 1
     if (info->kind == JIT_LOOP_NUMERIC_FOR && info->for_var_gpr >= 0) {
         int g = info->for_var_gpr;
         emit_u8(cb, 0x48 | (g >= 8 ? 0x01 : 0));
@@ -873,7 +860,7 @@ size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             emit_u8(cb, 0xC8 | (g & 7));
     }
 
-    // helpers read their args from the frame, so spill live dirty slots before
+    // helpers read their args from the frame, so spill live dirty slots before the call
     if (needs_helper) {
         x86_cache_flush(cache, cb);
     }
@@ -1056,8 +1043,8 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
                          info->globals_count > 0;
     int rbx_save_slot = -1;
     if (need_rbx_save) {
-        rbx_save_slot = frame_slots;                         // rbx lives inside the frame,
-        frame_slots++;                                       // above the shadow space
+        rbx_save_slot = frame_slots;                         // rbx lives inside the frame, above shadow space
+        frame_slots++;
     }
     int cached_gpr_save_slot[4] = { -1, -1, -1, -1 };        // save slots for cached table gprs
     for (int i = 0; i < info->n_cached_tables; i++) {
@@ -1077,7 +1064,8 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
     int range_size = back_edge - entry + 1;
     if (range_size <= 0) return false;                       // empty range, nothing to emit
 
-    if (cb->len + (size_t)range_size * 256 + 1024 > cb->cap) return false;  // buffer too small
+    if (cb->len + (size_t)range_size * 256 + 1024 > cb->cap)
+        JIT_FATAL("code buffer too small for numeric loop at pc=%d", entry);
 
     if (!loop_is_safe_to_emit(ctx, info)) return false;      // needs runtime checks the emitter lacks
 
@@ -1114,7 +1102,8 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
     // fixpoint pass: emit into scratch until the cache state stabilizes
     uint8_t* scratch_buf = ctx->scratch_code_buf;            // shared scratch buffer
     size_t scratch_size  = ctx->scratch_code_buf_cap;
-    if (!scratch_buf || scratch_size < (size_t)range_size * 256 + 1024) return false;  // scratch too small
+    if (!scratch_buf || scratch_size < (size_t)range_size * 256 + 1024)
+        JIT_FATAL("scratch buffer too small for numeric loop at pc=%d", entry);
     CodeBuf scratch = { scratch_buf, 0, scratch_size };
 
     XmmCache cache_start;
@@ -1125,7 +1114,8 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
         XmmCache cache = cache_start;
         scratch.len = 0;
         size_t patch = emit_loop_iteration(abi, ctx, &scratch, &cache, info, const_slot, save_slot, iter_in_xmm, step_sign, needs_helper);
-        if (patch == (size_t)-1) return false;               // emit failed
+        if (patch == (size_t)-1)
+            JIT_FATAL("loop emit failed in fixpoint: pc=%d", entry);
         if (flush_at_back_edge) x86_cache_clear(&cache);     // simulate the spill before the back edge
         if (x86_cache_eq(&cache, &cache_start)) { converged = true; break; }  // stable state reached
         cache_start = cache;                                 // try again with new state
@@ -1235,7 +1225,8 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
     int loop_top = (int)cb->len;                             // loop start address
     XmmCache cache = cache_start;
     size_t entry_patch = emit_loop_iteration(abi, ctx, cb, &cache, info, const_slot, save_slot, iter_in_xmm, step_sign, needs_helper);
-    if (entry_patch == (size_t)-1) { cb->len = mark; return false; }  // emit failed, rollback
+    if (entry_patch == (size_t)-1)
+        JIT_FATAL("loop emit failed (real pass): pc=%d", entry);
 
     if (flush_at_back_edge) x86_cache_flush_back_edge(&cache, cb, ctx->chunk,
                                                       entry + 1, back_edge);
@@ -1325,7 +1316,8 @@ bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
 
     int range_size = back_edge - entry + 1;
     if (range_size <= 0) return false;                       // empty range, nothing to emit
-    if (cb->len + (size_t)range_size * 256 + 1024 > cb->cap) return false;  // buffer too small
+    if (cb->len + (size_t)range_size * 256 + 1024 > cb->cap)
+        JIT_FATAL("code buffer too small for table-iter loop at pc=%d", entry);
 
     size_t mark = cb->len;                                   // rollback point
     int const_slot = nregs;                                  // unused here, kept for layout parity
@@ -1386,7 +1378,7 @@ bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
     x86_cache_clear(&cache);                                 // body starts with empty cache
 
     int xv = x86_cache_alloc_excl(&cache, cb, -1, -1);       // xmm to hold the element
-    if (xv < 0) { cb->len = mark; return false; }            // no free xmm, rollback
+    if (xv < 0) JIT_FATAL("cache full: table-iter element reg (pc=%d)", entry);
     x86_emit_movq_xmm_rax(cb, xv);                           // xv = element bits (as double)
     x86_cache_put(&cache, xv, var_reg);                      // cache var_reg in xv
 
@@ -1456,7 +1448,7 @@ bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
     return true;                                             // emission successful
 }
 
-// emits native code for a condition-entry loop: no implicit entry test, the
+// emits native code for a condition-entry loop: no implicit entry test, the caller already passed
 bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
                                   CodeBuf* cb, JitLoopInfo* info, void** out_fn) {
     BytecodeChunk* chunk = ctx->chunk;
@@ -1467,7 +1459,8 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
 
     if (back_edge <= entry) return false;                    // empty body
     int range_size = back_edge - entry + 1;
-    if (cb->len + (size_t)range_size * 256 + 1024 > cb->cap) return false;  // buffer too small
+    if (cb->len + (size_t)range_size * 256 + 1024 > cb->cap)
+        JIT_FATAL("code buffer too small for cond-enter loop at pc=%d", entry);
 
     if (!loop_is_safe_to_emit(ctx, info)) return false;      // needs checks the emitter lacks
     assign_table_caches(ctx, info);                          // hoist loop-invariant table bases to gprs
@@ -1535,8 +1528,8 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
                          info->globals_count > 0;
     int rbx_save_slot = -1;
     if (need_rbx_save) {
-        rbx_save_slot = frame_slots;                         // rbx lives inside the frame,
-        frame_slots++;                                       // above the shadow space
+        rbx_save_slot = frame_slots;                         // rbx lives inside the frame, above shadow space
+        frame_slots++;
     }
     int cached_gpr_save_slot[4] = { -1, -1, -1, -1 };        // save slots for cached table gprs
     for (int i = 0; i < info->n_cached_tables; i++) {
@@ -1615,7 +1608,8 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
     // local label bookkeeping borrowed from the shared scratch pool
     int32_t* label_off = ctx->scratch_label_off;
     JumpFixup* fixups  = ctx->scratch_fixups;
-    if (!label_off || !fixups) { cb->len = mark; return false; }
+    if (!label_off || !fixups)
+        JIT_FATAL("scratch arrays missing for cond-enter loop at pc=%d", entry);
     for (int i = 0; i <= range_size; i++) label_off[i] = -1;
     int nfix = 0;
 
@@ -1655,13 +1649,14 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
                 int a = inst->operands[1];
                 int b = inst->operands[2];
                 int xa = x86_cache_load(&cache, cb, a);          // load left operand
-                if (xa < 0) { cb->len = mark; return false; }
+                if (xa < 0) JIT_FATAL("cache full: cond-enter fused CMP a=%d (pc=%d)", a, pc);
                 int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load right, avoid xa
-                if (xb < 0) { cb->len = mark; return false; }
+                if (xb < 0) JIT_FATAL("cache full: cond-enter fused CMP b=%d (pc=%d)", b, pc);
                 x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
                 x86_cache_flush(&cache, cb);                     // target may be a merge point
                 emit_u8(cb, 0x0F); emit_u8(cb, fused_jcc);       // jcc rel32
-                if (nfix >= range_size) { cb->len = mark; return false; }
+                if (nfix >= range_size)
+                    JIT_FATAL("fixup overflow in cond-enter loop at pc=%d", entry);
                 fixups[nfix].patch_at  = cb->len;                // record placeholder
                 fixups[nfix].target_pc = fuse_target;            // remember target pc
                 nfix++;                                          // one more pending fixup
@@ -1675,10 +1670,10 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
             int cond_reg = inst->operands[1];                // condition register
             int tgt      = inst->operands[0];                // forward target
             int xa = x86_cache_load(&cache, cb, cond_reg);
-            if (xa < 0) { cb->len = mark; return false; }
+            if (xa < 0) JIT_FATAL("cache full: cond-enter JUMP_IF_FALSE cond=%d (pc=%d)", cond_reg, pc);
             x86_emit_movq_rax_xmm(cb, xa);                   // rax = raw 64-bit slot
             emit_u8(cb, 0xA8); emit_u8(cb, 0x01);            // test al, 1
-            // local skip over a single CMP writing the same register: the
+            // local skip over a single CMP writing the same register keeps the branch cache-local
             bool local_skip = (tgt == pc + 2) &&
                               (chunk->code[pc + 1].operands[0] == cond_reg) &&
                               (chunk->code[pc + 1].opcode == OP_CMP_EQ ||
@@ -1691,7 +1686,8 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
                                chunk->code[pc + 1].opcode == OP_CMP_GTE);
             if (!local_skip) x86_cache_flush(&cache, cb);    // flush before branch
             emit_u8(cb, 0x0F); emit_u8(cb, 0x84);            // je rel32 (bit0 == 0 -> false)
-            if (nfix >= range_size) { cb->len = mark; return false; }
+            if (nfix >= range_size)
+                JIT_FATAL("fixup overflow in cond-enter loop at pc=%d", entry);
             fixups[nfix].patch_at  = cb->len;
             fixups[nfix].target_pc = tgt;                    // exit vs internal decided at patch time
             nfix++;
@@ -1719,9 +1715,8 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
             rel = exit_label - (int32_t)(fixups[i].patch_at + 4);
         } else {
             int idx = tgt - entry;
-            if (idx < 0 || idx > range_size || label_off[idx] < 0) {
-                cb->len = mark; return false;
-            }
+            if (idx < 0 || idx > range_size || label_off[idx] < 0)
+                JIT_FATAL("jump target out of range in cond-enter loop (pc=%d tgt=%d)", entry, tgt);
             rel = label_off[idx] - (int32_t)(fixups[i].patch_at + 4);
         }
         memcpy(cb->buf + fixups[i].patch_at, &rel, 4);

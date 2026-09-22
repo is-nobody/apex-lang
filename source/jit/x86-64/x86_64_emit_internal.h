@@ -11,6 +11,16 @@
 #include "jit_internal.h"
 #include "vm.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+
+#define JIT_FATAL(...) do {                                              \
+    fprintf(stderr, "\033[31mJIT fatal error (%s:%d): ", __FILE__, __LINE__); \
+    fprintf(stderr, __VA_ARGS__);                                        \
+    fprintf(stderr, "\n\033[0m");                                        \
+    exit(1);                                                             \
+} while (0)
+
 // rounds n up to the next multiple of 16
 int align16(int n);
 

@@ -84,7 +84,7 @@ bool x86_64_emit_int_self_recursive(const X86_64Abi* abi, JITContext* ctx,
         slot_gpr[s] = cs_gprs[cs_idx++];
     }
 
-    // collect every slot the body touches; any not yet assigned gets a
+    // collect every slot the body touches; any not yet assigned gets a scratch gpr
     uint64_t all_slots = 0;
     for (int pc = start; pc < end; pc++) {
         Instruction* inst = &chunk->code[pc];
@@ -130,7 +130,7 @@ bool x86_64_emit_int_self_recursive(const X86_64Abi* abi, JITContext* ctx,
     size_t int_off = cb->len;
     *out_int_off = int_off;
 
-    // generic pre-prologue base case: any int-safe JUMP_IF_*_IMM R0, imm,
+    // generic pre-prologue base case: any int-safe JUMP_IF_*_IMM R0, imm, <ret>
     bool base_at_top = false;
     Opcode guard_op  = 0;
     int32_t guard_imm = 0;
@@ -164,13 +164,13 @@ bool x86_64_emit_int_self_recursive(const X86_64Abi* abi, JITContext* ctx,
 
     JumpFixup* fixups  = ctx->scratch_fixups;
     int32_t*   lbl_off = ctx->scratch_label_off;
-    if (!fixups || !lbl_off) { cb->len = int_off; return false; }
+    if (!fixups || !lbl_off)
+        JIT_FATAL("scratch missing for int-recursive emit of function %d", func_idx);
     for (int i = 0; i < range_size; i++) lbl_off[i] = -1;
     int nfix = 0;
 
     if (base_at_top) {
-        // arg0's home register depends on the ABI: rdi on sysv/macos,
-        // rcx on win64. Use arg_gprs[0] instead of hardcoding rdi.
+        // arg0's home register depends on the ABI: rdi on sysv/macos, rcx on win64
         int arg0 = arg_gprs[0];
         int cmpg = base_returns_imm ? arg0 : X86_RAX;
         if (!base_returns_imm) {
@@ -203,7 +203,8 @@ bool x86_64_emit_int_self_recursive(const X86_64Abi* abi, JITContext* ctx,
             default:                 jcc = 0x8D; break;             // jge
         }
         emit_u8(cb, 0x0F); emit_u8(cb, jcc);                        // jcc general
-        if (nfix >= range_size) { cb->len = int_off; return false; }
+        if (nfix >= range_size)
+            JIT_FATAL("int fixup overflow in function %d", func_idx);
         fixups[nfix].patch_at  = cb->len;
         fixups[nfix].target_pc = start + 2;
         nfix++;
@@ -329,7 +330,8 @@ bool x86_64_emit_int_self_recursive(const X86_64Abi* abi, JITContext* ctx,
             }
             case OP_JUMP: {
                 emit_u8(cb, 0xE9);
-                if (nfix >= range_size) { cb->len = int_off; return false; }
+                if (nfix >= range_size)
+                    JIT_FATAL("int fixup overflow in function %d", func_idx);
                 fixups[nfix].patch_at = cb->len;
                 fixups[nfix].target_pc = d; nfix++;
                 emit_i32(cb, 0);
@@ -348,7 +350,8 @@ bool x86_64_emit_int_self_recursive(const X86_64Abi* abi, JITContext* ctx,
                               op == OP_JUMP_IF_GT  ? 0x8F :
                               op == OP_JUMP_IF_LTE ? 0x8E : 0x8D;
                 emit_u8(cb, 0x0F); emit_u8(cb, jcc);
-                if (nfix >= range_size) { cb->len = int_off; return false; }
+                if (nfix >= range_size)
+                    JIT_FATAL("int fixup overflow in function %d", func_idx);
                 fixups[nfix].patch_at = cb->len;
                 fixups[nfix].target_pc = d; nfix++;
                 emit_i32(cb, 0);
@@ -368,7 +371,8 @@ bool x86_64_emit_int_self_recursive(const X86_64Abi* abi, JITContext* ctx,
                               op == OP_JUMP_IF_GT_IMM  ? 0x8F :
                               op == OP_JUMP_IF_LTE_IMM ? 0x8E : 0x8D;
                 emit_u8(cb, 0x0F); emit_u8(cb, jcc);
-                if (nfix >= range_size) { cb->len = int_off; return false; }
+                if (nfix >= range_size)
+                    JIT_FATAL("int fixup overflow in function %d", func_idx);
                 fixups[nfix].patch_at = cb->len;
                 fixups[nfix].target_pc = d; nfix++;
                 emit_i32(cb, 0);
@@ -453,22 +457,22 @@ bool x86_64_emit_int_self_recursive(const X86_64Abi* abi, JITContext* ctx,
                 break;
             }
             default:
-                cb->len = int_off; return false;
+                JIT_FATAL("unreachable opcode %d in int body (func=%d pc=%d)", op, func_idx, pc);
         }
     }
 
     for (int i = 0; i < nfix; i++) {                                // patch internal jumps
         int tidx = fixups[i].target_pc - start;
-        if (tidx < 0 || tidx >= range_size || lbl_off[tidx] < 0) {
-            cb->len = int_off; return false;
-        }
+        if (tidx < 0 || tidx >= range_size || lbl_off[tidx] < 0)
+            JIT_FATAL("int jump target out of range in function %d (tgt=%d)",
+                      func_idx, fixups[i].target_pc);
         int32_t rel = (int32_t)lbl_off[tidx] - (int32_t)(fixups[i].patch_at + 4);
         memcpy(cb->buf + fixups[i].patch_at, &rel, 4);
     }
     return true;
 }
 
-// emits the wrapper that dispatches between the int-specialized body and the
+// emits the wrapper that dispatches between the int-specialized body and the general one
 void emit_int_wrapper(CodeBuf* cb, size_t general_off, size_t int_off,
                       int max_n, int arity, size_t* out_wrapper_off,
                       const X86_64Abi* abi) {
@@ -480,6 +484,10 @@ void emit_int_wrapper(CodeBuf* cb, size_t general_off, size_t int_off,
 
     size_t patches[8];
     int    n_patches = 0;
+#define WRAPPER_PUSH(off) do {                                              \
+    if (n_patches >= 8) JIT_FATAL("int wrapper patch overflow (arity=%d)", arity); \
+    patches[n_patches++] = (off);                                           \
+} while (0)
 
     for (int i = 0; i < arity; i++) {                            // check each arg
         int ag = arg_gprs[i];
@@ -494,10 +502,10 @@ void emit_int_wrapper(CodeBuf* cb, size_t general_off, size_t int_off,
         emit_u8(cb, 0x0F); emit_u8(cb, 0x2E);
         emit_u8(cb, 0xC0 | (7 << 3) | (i & 7));
         emit_u8(cb, 0x0F); emit_u8(cb, 0x8A);                    // jp fallback
-        if (n_patches < 8) patches[n_patches++] = cb->len;
+        WRAPPER_PUSH(cb->len);
         emit_i32(cb, 0);
         emit_u8(cb, 0x0F); emit_u8(cb, 0x85);                    // jne fallback
-        if (n_patches < 8) patches[n_patches++] = cb->len;
+        WRAPPER_PUSH(cb->len);
         emit_i32(cb, 0);
     }
 
@@ -507,7 +515,7 @@ void emit_int_wrapper(CodeBuf* cb, size_t general_off, size_t int_off,
         emit_u8(cb, 0x83); emit_u8(cb, 0xF8 | (ag & 7));         // cmp ag, imm8
         emit_u8(cb, (uint8_t)max_n);
         emit_u8(cb, 0x0F); emit_u8(cb, 0x8F);                    // jg fallback
-        if (n_patches < 8) patches[n_patches++] = cb->len;
+        WRAPPER_PUSH(cb->len);
         emit_i32(cb, 0);
     }
 
@@ -526,15 +534,11 @@ void emit_int_wrapper(CodeBuf* cb, size_t general_off, size_t int_off,
     emit_u8(cb, 0xE9);
     int32_t jmp_rel = (int32_t)general_off - (int32_t)(cb->len + 4);
     emit_i32(cb, jmp_rel);
+#undef WRAPPER_PUSH
 }
 
-// GPRs available to hold bytecode slots inside an int64-specialized loop.
-// frame_reg MUST NOT appear here: the guard code reads regs[s] via frame_reg
-// on every live-in slot, and using frame_reg as a slot GPR would clobber it
-// after the first guard.
-//  - SysV: frame_reg = RDI -> RDI excluded.
-//  - Win64: frame_reg = RCX -> RCX excluded; RDI/RSI are callee-saved on
-//    Win64 and can't be used without a save/restore.
+// GPRs for int64 loop slots; frame_reg excluded (guard code reads regs[s] via it);
+// win64: rdi/rsi are callee-saved and unavailable without save/restore
 static const int int_loop_gprs_sysv[] = {
     X86_RAX, X86_RCX, X86_RDX, X86_RSI, X86_R8, X86_R9, X86_R10, X86_R11
 };
@@ -545,7 +549,7 @@ static const int int_loop_gprs_win64[] = {
 };
 #define INT_LOOP_N_GPRS_WIN64 6
 
-// checks whether every body instruction between entry and back_edge is
+// checks whether every body instruction between entry and back_edge is int-safe
 static bool loop_body_is_int_safe(BytecodeChunk* chunk, int entry, int back_edge) {
     for (int pc = entry + 1; pc < back_edge; pc++) {
         if (!op_is_int_safe(chunk->code[pc].opcode)) return false;
@@ -553,7 +557,7 @@ static bool loop_body_is_int_safe(BytecodeChunk* chunk, int entry, int back_edge
     return true;
 }
 
-// assigns one GPR to every bytecode slot the loop touches; returns the
+// assigns one GPR to every bytecode slot the loop touches; returns the count, or -1
 int assign_int_loop_gprs(JITContext* ctx, JitLoopInfo* info,
                          int slot_gpr[JIT_MAX_SLOTS], int frame_reg) {
     const int* gprs = (frame_reg == X86_RCX)
@@ -581,7 +585,7 @@ int assign_int_loop_gprs(JITContext* ctx, JitLoopInfo* info,
     return n;
 }
 
-// fallback: matches_int_accum_loop is gone; the generic emitter below
+// fallback: matches_int_accum_loop is gone; the generic emitter below handles everything else
 bool matches_int_accum_loop(const X86_64Abi* abi, JITContext* ctx, JitLoopInfo* info) {
     if (info->kind != JIT_LOOP_NUMERIC_FOR &&
         info->kind != JIT_LOOP_CONDITION) return false;      // only those two
@@ -595,7 +599,7 @@ bool matches_int_accum_loop(const X86_64Abi* abi, JITContext* ctx, JitLoopInfo* 
     return true;                                             // anything else: general
 }
 
-// emits a GPR-only version of a numeric loop body instruction; each bytecode
+// emits a GPR-only version of a numeric loop body instruction; each bytecode slot maps to a GPR
 void emit_int_loop_body(CodeBuf* cb, BytecodeChunk* chunk, int pc,
                         const int* slot_gpr) {
     Instruction* inst = &chunk->code[pc];
@@ -712,8 +716,7 @@ void emit_int_loop_body(CodeBuf* cb, BytecodeChunk* chunk, int pc,
         case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:
         case OP_JUMP_IF_LT_IMM: case OP_JUMP_IF_GT_IMM:
         case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
-            // int-safe bodies never contain internal branches in the loops
-            emit_u8(cb, 0x90);
+            emit_u8(cb, 0x90);                               // int-safe bodies never contain internal branches
             break;
         default:
             emit_u8(cb, 0x90);                               // nop on unsupported op
@@ -721,15 +724,15 @@ void emit_int_loop_body(CodeBuf* cb, BytecodeChunk* chunk, int pc,
     }
 }
 
-// emits a full int64 loop: prologue guard, int body, writeback, and the
+// emits a full int64 loop: prologue guard, int body, writeback, fallback
 bool x86_64_emit_int_loop(const X86_64Abi* abi, JITContext* ctx,
                           CodeBuf* cb, JitLoopInfo* info,
                           int step_sign, void** out_fn) {
     int slot_gpr[JIT_MAX_SLOTS];
     int n_gpr = assign_int_loop_gprs(ctx, info, slot_gpr, abi->frame_reg);
-    if (n_gpr < 0) return false;
+    if (n_gpr < 0)
+        JIT_FATAL("int loop gpr assignment failed after matches_int_accum_loop passed (pc=%d)", info->entry_pc);
 
-    size_t mark = cb->len;
     size_t entry_off = cb->len;
     int regs = abi->frame_reg;
 
@@ -746,7 +749,10 @@ bool x86_64_emit_int_loop(const X86_64Abi* abi, JITContext* ctx,
 
     size_t patch_sites[64];                                  // two per guard, plus step
     int    n_patches = 0;
-#define PUSH_PATCH(off) do { if (n_patches < 64) patch_sites[n_patches++] = (off); } while (0)
+#define PUSH_PATCH(off) do {                                             \
+    if (n_patches >= 64) JIT_FATAL("int loop guard patch overflow");     \
+    patch_sites[n_patches++] = (off);                                    \
+} while (0)
 
     while (live) {
         int s = __builtin_ctzll(live);
@@ -855,8 +861,7 @@ bool x86_64_emit_int_loop(const X86_64Abi* abi, JITContext* ctx,
     size_t fallback_at = cb->len;
     void* gen_fn = NULL;
     if (!x86_64_emit_numeric_loop(abi, ctx, cb, info, step_sign, &gen_fn)) {
-        cb->len = mark;
-        return false;
+        JIT_FATAL("int loop fallback failed: pc=%d kind=%d", info->entry_pc, info->kind);
     }
     for (int i = 0; i < n_patches; i++) {
         int32_t r = (int32_t)fallback_at - (int32_t)(patch_sites[i] + 4);
