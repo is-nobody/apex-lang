@@ -1114,7 +1114,7 @@ static bool ensure_register_capacity(VM* vm, int frame_idx, int needed_reg) {
         while (new_cap <= needed_reg) {
             new_cap *= 2;                                // grow existing frame
             if (new_cap > REGISTER_MAX_SIZE) {           // safety cap against runaway growth
-                fprintf(stderr, "\033[31mFatal: register frame %d exceeded max size %d "
+                fprintf(stderr, "\033[31mRuntime Error: register frame %d exceeded max size %d "
                         "(requested reg %d)\n\033[0m",
                         frame_idx, REGISTER_MAX_SIZE, needed_reg);
                 return false;                            // allocation refused
@@ -1136,7 +1136,7 @@ static bool ensure_register_capacity(VM* vm, int frame_idx, int needed_reg) {
         Value* old_pool = vm->register_pool;             // remember old base for rebasing cached pointers
         Value* new_pool = (Value*)realloc(vm->register_pool, new_pool_cap * sizeof(Value));  // resize pool
         if (!new_pool) {                                 // allocation failed
-            fprintf(stderr, "\033[31mFailed to grow register pool to %d registers\n\033[0m",
+            fprintf(stderr, "\033[31mRuntime Error: Failed to grow register pool to %d registers\n\033[0m",
                     new_pool_cap);
             return false;
         }
@@ -3003,7 +3003,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
 
     OP_PUSH_ARG_LABEL: {
         if (vm->args_top >= VM_MAX_ARGS_STACK) {     // check for arg stack overflow
-            fprintf(stderr, "\033[31mArgument stack overflow - maximum %d arguments exceeded. "
+            fprintf(stderr, "\033[31mRuntime Error: Argument stack overflow - maximum %d arguments exceeded. "
                     "Too many function arguments being passed.\n\033[0m",
                     VM_MAX_ARGS_STACK);              // print error message
             vm->had_error = true;                    // set error flag
@@ -3019,7 +3019,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_CALL_LABEL: {
         if (vm->call_depth >= VM_MAX_CALL_FRAMES) {  // check for call stack overflow
-            fprintf(stderr, "\033[31mStack overflow - maximum call depth (%d) exceeded. "
+            fprintf(stderr, "\033[31mRuntime Error: Stack overflow - maximum call depth (%d) exceeded. "
                     "Too many nested function calls or infinite recursion detected.\n\033[0m", 
                     VM_MAX_CALL_FRAMES);          // print error message
             vm->had_error = true;                 // set error flag
@@ -3093,9 +3093,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_CALL_0_LABEL: {
         if (vm->call_depth >= VM_MAX_CALL_FRAMES) {  // check for call stack overflow
-            fprintf(stderr, "\033[31mStack overflow - maximum call depth (%d) exceeded. "
+            fprintf(stderr, "\033[31mRuntime Error: Stack overflow - maximum call depth (%d) exceeded. "
                     "Too many nested function calls or infinite recursion detected.\n\033[0m", 
-                    VM_MAX_CALL_FRAMES);             // print error message
+                    VM_MAX_CALL_FRAMES);          // print error message
             vm->had_error = true;                    // set error flag
             vm->running = false;                     // stop execution
             goto OP_HALT_LABEL;                      // jump to halt
@@ -3136,9 +3136,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_CALL_1_LABEL: {
         if (vm->call_depth >= VM_MAX_CALL_FRAMES) {  // check for call stack overflow
-            fprintf(stderr, "\033[31mStack overflow - maximum call depth (%d) exceeded. "
+            fprintf(stderr, "\033[31mRuntime Error: Stack overflow - maximum call depth (%d) exceeded. "
                     "Too many nested function calls or infinite recursion detected.\n\033[0m", 
-                    VM_MAX_CALL_FRAMES);             // print error message
+                    VM_MAX_CALL_FRAMES);          // print error message
             vm->had_error = true;                    // set error flag
             vm->running = false;                     // stop execution
             goto OP_HALT_LABEL;                      // jump to halt
@@ -3190,9 +3190,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     }
     OP_CALL_2_LABEL: {
         if (vm->call_depth >= VM_MAX_CALL_FRAMES) {  // check for call stack overflow
-            fprintf(stderr, "\033[31mStack overflow - maximum call depth (%d) exceeded. "
+            fprintf(stderr, "\033[31mRuntime Error: Stack overflow - maximum call depth (%d) exceeded. "
                     "Too many nested function calls or infinite recursion detected.\n\033[0m", 
-                    VM_MAX_CALL_FRAMES);             // print error message
+                    VM_MAX_CALL_FRAMES);          // print error message
             vm->had_error = true;                    // set error flag
             vm->running = false;                     // stop execution
             goto OP_HALT_LABEL;                      // jump to halt
