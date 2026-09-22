@@ -1,5 +1,5 @@
 // source/examples/task_tracker.apex
-// Implementation of Interactive Task Tracker for Apex language
+// Implementation of Interactive Task Tracker on Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
 
