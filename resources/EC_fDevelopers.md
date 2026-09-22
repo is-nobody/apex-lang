@@ -97,7 +97,7 @@ The most common use — just point Apex at a source file:
 apex hello.apex
 ```
 
-Everything after the filename is passed to your script and is available through `os.args` (see the module reference).
+Everything after the filename is passed to your script and is available through `os.args()` (see the module reference).
 
 ## `apex version`
 Prints the interpreter version together with build details. Useful when reporting bugs or checking which compiler built your binary.
