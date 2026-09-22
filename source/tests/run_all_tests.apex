@@ -60,6 +60,3 @@ run("apex source/tests/libraries/table.apex")
 run("apex source/tests/libraries/string.apex")
 run("apex source/tests/libraries/regex.apex")
 run("apex source/tests/libraries/crypto.apex")
-
-// network is optional (takes too long)
-// run("apex source/tests/libraries/network.apex")

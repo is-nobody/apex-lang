@@ -1,6 +1,7 @@
 **Apex Language Roadmap**
 - Build for Android/iOS
 - `ui` library (apex+html+css+system webview)
+- `network` module
 - `\x` escape sequence support
 - Package manager
 - Language server (LSP)

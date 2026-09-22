@@ -46,8 +46,6 @@ static bool is_known_builtin_module(const char* name) {
             return strcmp(name, "base") == 0;      // base module
         case 'z':
             return strcmp(name, "zip") == 0;       // zip module
-        case 'n':
-            return strcmp(name, "network") == 0;   // network module
         default:
             return false;                          // no builtin module matches
     }
@@ -907,8 +905,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node, int dest_hint) {
              strncmp(func_name, "base.", 5) == 0 ||
              strncmp(func_name, "regex.", 6) == 0 ||
              strncmp(func_name, "crypto.", 7) == 0 ||
-             strncmp(func_name, "zip.", 4) == 0 ||
-             strncmp(func_name, "network.", 8) == 0) {
+             strncmp(func_name, "zip.", 4) == 0) {
         is_builtin = true;
     }
 

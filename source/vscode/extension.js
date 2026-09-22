@@ -19,8 +19,7 @@ const libDocs = {
     'base': 'Base encoding/decoding library.',
     'regex': 'Regular expressions library.',
     'crypto': 'Cryptography library.',
-    'zip': 'ZIP archive compression/decompression library.',
-    'network': 'Network library.'
+    'zip': 'ZIP archive compression/decompression library.'
 };
 
 // extension activation entry point
@@ -205,8 +204,6 @@ function activate(context) {
                 'crypto.random_integer', 'crypto.random_float',
 
                 'zip.pack',              'zip.unpack',
-
-                'network.get',      'network.post',
 
                 'number', 'string', 'type'
             ];
