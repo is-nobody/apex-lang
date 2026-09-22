@@ -301,6 +301,15 @@ static inline void x86_emit_cvttsd2si_eax(CodeBuf* b, int xmm) {
     emit_u8(b, 0xC0 | (xmm & 7));                          // modrm: reg=eax(000), rm=xmm
 }
 
+// emits cvttsd2si gpr, xmm — 64-bit double to int64 truncation into any gpr
+static inline void x86_emit_cvttsd2si_gpr64(CodeBuf* b, int gpr, int xmm) {
+    emit_u8(b, 0xF2);                                      // cvttsd2si legacy prefix
+    uint8_t rex = 0x48 | ((gpr >= 8) ? 0x04 : 0) | ((xmm >= 8) ? 0x01 : 0);
+    emit_u8(b, rex);                                       // rex.w + rex.r + rex.b
+    emit_u8(b, 0x0F); emit_u8(b, 0x2C);                    // cvttsd2si r64, xmm
+    emit_u8(b, 0xC0 | ((gpr & 7) << 3) | (xmm & 7));       // modrm
+}
+
 // emits cvttsd2si edx, xmm — double to int32 truncation into edx
 static inline void x86_emit_cvttsd2si_edx(CodeBuf* b, int xmm) {
     emit_u8(b, 0xF2);                                       // cvttsd2si legacy prefix

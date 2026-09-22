@@ -574,6 +574,13 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                     }
             }
             if (cg >= 0) {
+                if (key_reg == info->for_var_reg && info->for_var_gpr >= 0) {
+                    int xd = x86_cache_dest_reg(cache, cb, d, -1, -1);  // use gpr counter directly
+                    if (xd < 0) return;
+                    x86_emit_movsd_load_idx8_bx(cb, xd, cg, info->for_var_gpr);
+                    x86_cache_put(cache, xd, d);
+                    break;
+                }
                 int xk = cache->slot_reg[key_reg];           // key already in cache?
                 if (xk < 0) {
                     xk = x86_cache_load(cache, cb, key_reg); // load key from frame
@@ -590,6 +597,13 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
 
             // fast path: counter key + this loop's primary table
             if (key_reg == info->for_var_reg && table_reg == info->table.slot) {
+                if (info->for_var_gpr >= 0) {                // counter lives in gpr, already 0-based
+                    int xd = x86_cache_dest_reg(cache, cb, d, -1, -1);
+                    if (xd < 0) return;
+                    x86_emit_movsd_load_idx8_bx(cb, xd, X86_RBX, info->for_var_gpr);
+                    x86_cache_put(cache, xd, d);
+                    break;
+                }
                 int xk = cache->slot_reg[key_reg];           // key already in cache?
                 if (xk < 0) {
                     xk = x86_cache_load(cache, cb, key_reg); // load key from frame
@@ -656,6 +670,12 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                     }
             }
             if (cg >= 0) {
+                if (key_reg == info->for_var_reg && info->for_var_gpr >= 0) {
+                    int xv = x86_cache_load_excl(cache, cb, val_reg, -1, -1);
+                    if (xv < 0) return;
+                    x86_emit_movsd_store_idx8_bx(cb, cg, info->for_var_gpr, xv);
+                    break;
+                }
                 int xk = cache->slot_reg[key_reg];
                 if (xk < 0) {
                     xk = x86_cache_load(cache, cb, key_reg);
@@ -671,6 +691,12 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
 
             // fast path: counter key + this loop's primary table
             if (key_reg == info->for_var_reg && table_reg == info->table.slot) {
+                if (info->for_var_gpr >= 0) {                // counter lives in gpr, already 0-based
+                    int xv = x86_cache_load_excl(cache, cb, val_reg, -1, -1);
+                    if (xv < 0) return;
+                    x86_emit_movsd_store_idx8_bx(cb, X86_RBX, info->for_var_gpr, xv);
+                    break;
+                }
                 int xk = cache->slot_reg[key_reg];
                 if (xk < 0) {
                     xk = x86_cache_load(cache, cb, key_reg);
@@ -830,6 +856,18 @@ size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         emit_loop_body_instr(abi, ctx, cb, cache, pc, const_slot, save_slot, info);
     }
 
+    // advance the integer counter mirror used for table-indexed loads
+    // (deferred until after the body so the first iteration sees r14 = k - 1)
+    if (info->kind == JIT_LOOP_NUMERIC_FOR && info->for_var_gpr >= 0) {
+        int g = info->for_var_gpr;
+        emit_u8(cb, 0x48 | (g >= 8 ? 0x01 : 0));
+        emit_u8(cb, 0xFF);
+        if (step_sign > 0)                               // inc g
+            emit_u8(cb, 0xC0 | (g & 7));
+        else                                             // dec g
+            emit_u8(cb, 0xC8 | (g & 7));
+    }
+
     // helpers read their args from the frame, so spill live dirty slots before
     if (needs_helper) {
         x86_cache_flush(cache, cb);
@@ -936,6 +974,37 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
 
     assign_table_caches(ctx, info);                          // must run before frame_slots is sized
 
+    info->for_var_gpr = -1;                                  // reset cached counter state
+    info->for_var_gpr_slot = -1;
+    if (info->kind == JIT_LOOP_NUMERIC_FOR &&
+        (info->for_step_value == 1 || info->for_step_value == -1)) {
+        bool uses_counter = false;                           // is for_var used as a table key?
+        for (int pc = entry + 1; pc < back_edge && !uses_counter; pc++) {
+            Instruction* inst = &ctx->chunk->code[pc];
+            switch (inst->opcode) {
+                case OP_TABLE_GET_NUM: case OP_TABLE_GET:
+                    if (inst->operands[2] == info->for_var_reg) uses_counter = true;
+                    break;
+                case OP_TABLE_SET_NUM: case OP_TABLE_SET:
+                    if (inst->operands[1] == info->for_var_reg) uses_counter = true;
+                    break;
+                default: break;
+            }
+        }
+        if (uses_counter) {                                  // pick an unused callee-saved gpr
+            static const int all_gprs[4] = { X86_R12, X86_R13, X86_R14, X86_R15 };
+            bool used[4] = { false, false, false, false };
+            for (int i = 0; i < info->n_cached_tables; i++)
+                for (int j = 0; j < 4; j++)
+                    if (info->cached_table_gpr[i] == all_gprs[j]) used[j] = true;
+            for (int i = 0; i < info->n_derived_caches; i++)
+                for (int j = 0; j < 4; j++)
+                    if (info->derived_gpr[i] == all_gprs[j]) used[j] = true;
+            for (int j = 0; j < 4; j++)
+                if (!used[j]) { info->for_var_gpr = all_gprs[j]; break; }
+        }
+    }
+
     int save_slot = -1;                                      // stack slot to stash frame_reg across helper call
     int frame_slots = const_slot + 1 + info->n_imms;         // incl. constant slot + immediates
     uint64_t writeback_mask = info->live_out & ~info->ref_writes;  // slots whose old value must be released
@@ -959,6 +1028,10 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
     int derived_gpr_save_slot[2] = { -1, -1 };               // save slots for derived table gprs
     for (int i = 0; i < info->n_derived_caches; i++) {
         derived_gpr_save_slot[i] = frame_slots;              // one stack slot per derived gpr
+        frame_slots++;
+    }
+    if (info->for_var_gpr >= 0) {                            // reserve a save slot for the counter gpr
+        info->for_var_gpr_slot = frame_slots;
         frame_slots++;
     }
 
@@ -1090,6 +1163,15 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
         int var_reg = ctx->chunk->code[entry].operands[0];
         x86_emit_movsd_load(cb, 0, x86_slot_disp(var_reg));  // xmm0 = R[var]
         x86_emit_movsd_store(cb, 0, x86_slot_disp(nregs));   // frame[nregs] = xmm0
+        if (info->for_var_gpr >= 0) {                        // seed gpr with 0-based counter
+            int g = info->for_var_gpr;
+            x86_emit_store_r64_rbp(cb, g, x86_slot_disp(info->for_var_gpr_slot));
+            x86_emit_movsd_load(cb, 0, x86_slot_disp(var_reg));
+            x86_emit_cvttsd2si_gpr64(cb, g, 0);
+            emit_u8(cb, 0x48 | (g >= 8 ? 0x01 : 0));
+            emit_u8(cb, 0x83); emit_u8(cb, 0xE8 | (g & 7));  // sub g, 1
+            emit_u8(cb, 0x01);
+        }
     }
 
     // preload the fixpoint cache state
@@ -1101,6 +1183,14 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
     if (info->kind == JIT_LOOP_NUMERIC_FOR && iter_in_xmm) {  // load iterator to xmm15
         int var_reg = ctx->chunk->code[entry].operands[0];
         x86_emit_movsd_load(cb, XMM_SCRATCH, x86_slot_disp(var_reg));  // xmm15 = R[var]
+        if (info->for_var_gpr >= 0) {                        // seed gpr with 0-based counter
+            int g = info->for_var_gpr;
+            x86_emit_store_r64_rbp(cb, g, x86_slot_disp(info->for_var_gpr_slot));
+            x86_emit_cvttsd2si_gpr64(cb, g, XMM_SCRATCH);
+            emit_u8(cb, 0x48 | (g >= 8 ? 0x01 : 0));
+            emit_u8(cb, 0x83); emit_u8(cb, 0xE8 | (g & 7));  // sub g, 1
+            emit_u8(cb, 0x01);
+        }
     }
 
     int loop_top = (int)cb->len;                             // loop start address
@@ -1166,6 +1256,9 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
     }
     for (int i = 0; i < info->n_derived_caches; i++) {       // restore derived table gprs
         x86_emit_load_r64_rbp(cb, info->derived_gpr[i], x86_slot_disp(derived_gpr_save_slot[i]));
+    }
+    if (info->for_var_gpr >= 0) {                            // restore caller's counter gpr
+        x86_emit_load_r64_rbp(cb, info->for_var_gpr, x86_slot_disp(info->for_var_gpr_slot));
     }
 
     if (need_rbx_save) {

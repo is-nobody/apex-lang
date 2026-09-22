@@ -450,7 +450,7 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
 // registers a loop and runs the slot analysis on its body
 static void add_loop(JITContext* ctx, int entry, int back_edge, int exit_pc,
                      JitLoopKind kind, int for_var_reg, int for_end_reg, int for_step_reg,
-                     int step_sign, int nregs) {
+                     int step_sign, int step_value, int nregs) {
     if (ctx->loop_count >= ctx->loop_capacity) {                 // grow loop array if needed
         int new_cap = ctx->loop_capacity == 0 ? 8 : ctx->loop_capacity * 2;
         JitLoopInfo* new_arr = (JitLoopInfo*)realloc(ctx->loops, sizeof(JitLoopInfo) * new_cap);
@@ -467,7 +467,10 @@ static void add_loop(JITContext* ctx, int entry, int back_edge, int exit_pc,
     info->for_var_reg  = for_var_reg;                            // loop counter slot (-1 for non-for)
     info->for_end_reg  = for_end_reg;                            // end bound slot (-1 for non-for)
     info->for_step_reg = for_step_reg;                           // step slot (-1 for non-for)
-    info->step_sign    = step_sign;                              // static step sign, 0 if unknown
+    info->step_sign        = step_sign;                          // static step sign, 0 if unknown
+    info->for_step_value   = step_value;                         // exact literal step value
+    info->for_var_gpr      = -1;                                 // no gpr-counter yet
+    info->for_var_gpr_slot = -1;                                 // no save slot yet
     info->nregs        = nregs;                                  // function frame size
     info->table.slot   = -1;                                     // no table seen yet
     analyze_loop_regs(ctx, info);                                // fill live_in/out and table use
@@ -534,6 +537,7 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
         Opcode entry_op = chunk->code[entry].opcode;
         int exit_pc = -1;
         int for_var_reg = -1, for_end_reg = -1, for_step_reg = -1, step_sign = 0;
+        int step_value = 0;                                  // literal step value, 0 if unknown
         JitLoopKind kind = JIT_LOOP_CONDITION;
 
         if (entry_op == OP_FOR_NEXT) {                           // numeric-for loop
@@ -605,6 +609,7 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
                 int lit = ip->operands[1];
                 if (lit > 0) step_sign = +1;
                 else if (lit < 0) step_sign = -1;
+                step_value = lit;                              // remember exact literal
                 break;                                         // last write to step wins
             }
 
@@ -617,7 +622,7 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
         }
 
         add_loop(ctx, entry, pc, exit_pc, kind,                  // register the loop
-                 for_var_reg, for_end_reg, for_step_reg, step_sign, nregs);
+                 for_var_reg, for_end_reg, for_step_reg, step_sign, step_value, nregs);
     }
 }
 
