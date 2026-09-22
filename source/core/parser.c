@@ -2148,13 +2148,18 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
                     left->identifier.name, right, false, NULL,
                     token->line, token->column);
             } else if (left->type == AST_INDEX_ACCESS) {
+                // walk the entire access chain down to the root node
+                ASTNode* root = left;
+                while (root->type == AST_INDEX_ACCESS) {
+                    root = root->access.object;
+                }
+
                 char* name = NULL;
-                if (left->access.object->type == AST_IDENTIFIER) {
-                    name = left->access.object->identifier.name;
+                if (root->type == AST_IDENTIFIER) {
+                    name = root->identifier.name;
                     int idx = symbol_index_recursive(parser, name);
                     if (idx >= 0 && parser->symbols.is_constant[idx]) {
-                        parser_error_at(parser, left->access.object->line, 
-                                    left->access.object->column,
+                        parser_error_at(parser, root->line, root->column,
                                     (int)utf8_char_len(name),
                                     "Cannot modify element of constant '%s'", name);  // error
                     }

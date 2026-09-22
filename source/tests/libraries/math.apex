@@ -68,6 +68,7 @@ function exponent()
 function factorial()
     assert_equal(math.factorial(5), 120, "math.factorial(5)")
     assert_equal(math.factorial(0), 1, "math.factorial(0)")
+    assert_equal(type(math.factorial(171)), "number", "math.factorial(171)")
 
 // test: round down to nearest integer
 function round_down()
