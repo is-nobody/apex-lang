@@ -156,10 +156,12 @@ static int execute_embedded_bytecode(int argc, char** argv) {
     fclose(out);                            // close temp file
     free(payload);                          // release payload memory
     
-    bool ok = execute_bytecode_file(temp_path, argc, argv, false);  // execute the extracted bytecode
-    
+    int exit_code = -1;                                             // reset per-call exit code
+    bool ok = execute_bytecode_file(temp_path, argc, argv, false, &exit_code);  // execute the extracted bytecode
+
     remove(temp_path);                      // delete temporary file
-    
+
+    if (exit_code >= 0) return exit_code;   // os.exit() requested a specific code
     return ok ? 0 : 1;                      // return exit code based on success
 }
 
@@ -235,9 +237,11 @@ static int execute_from_stdin(void) {
         print_error("Cannot create temporary file");          // report error
         return 1;                                             // return error
     }
-    bool ok = execute_source(temp_path, "stdin", 0, NULL, false);  // execute the temp file as "stdin"
+    int exit_code = -1;                                            // reset per-call exit code
+    bool ok = execute_source(temp_path, "stdin", 0, NULL, false, &exit_code);  // execute the temp file as "stdin"
     platform_delete_temp_file(temp_path);                          // clean up temp file
     free(temp_path);                                               // free path string
+    if (exit_code >= 0) return exit_code;                          // os.exit() requested a specific code
     return ok ? 0 : 1;                                             // return exit code based on success
 }
 
@@ -277,18 +281,21 @@ int main(int argc, char** argv) {
 
     if (argc > 1) {                                // file argument provided
         const char* filename = argv[1];            // get filename
-        
+        int exit_code = -1;                        // reset per-call exit code
+
         if (has_extension(filename, ".apexc")) {   // check if bytecode file
-            result = execute_bytecode_file(filename, argc, argv, true) ? 0 : 1;  // execute bytecode
+            result = execute_bytecode_file(filename, argc, argv, true, &exit_code) ? 0 : 1;  // execute bytecode
         } else {
-            result = execute_source(filename, filename, argc, argv, true) ? 0 : 1;  // execute source
+            result = execute_source(filename, filename, argc, argv, true, &exit_code) ? 0 : 1;  // execute source
         }
+        if (exit_code >= 0) return exit_code;      // os.exit() requested a specific code
     }
     else if (!isatty(STDIN_FILENO)) {              // no file argument, read from piped stdin
         result = execute_from_stdin();
     }
     else {                                         // no file and no pipe, start interactive repl
-        repl_run();
+        int repl_code = repl_run();                // repl returns -1 unless os.exit() was used
+        if (repl_code >= 0) return repl_code;      // propagate os.exit() from the repl
     }
 
     return result;                                 // return final exit code

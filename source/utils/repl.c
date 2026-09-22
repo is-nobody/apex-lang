@@ -71,22 +71,24 @@ static void redraw_line(const char* line, int cursor_pos) {
     fflush(stdout);                                     // flush output
 }
 
-static void execute_code(const char* code, const char* display_name) {
-    if (!code || strlen(code) == 0) return;                   // empty code, skip
+static int execute_code(const char* code, const char* display_name) {
+    if (!code || strlen(code) == 0) return -1;                // empty code, skip
     
     char* temp_path = platform_create_temp_file(code, strlen(code));  // create temp file
     if (!temp_path) {                                         // check creation
         print_error("Cannot create temporary file");          // print error
-        return;                                               // return
+        return -1;                                            // return, no exit requested
     }
     
-    execute_source(temp_path, display_name, 0, NULL, false);  // repl: no args
+    int exit_code = -1;                                       // reset per-call exit code
+    execute_source(temp_path, display_name, 0, NULL, false, &exit_code);  // repl: no args
     
     platform_delete_temp_file(temp_path);                     // delete temp file
     free(temp_path);                                          // free path string
+    return exit_code;                                         // propagate os.exit() request
 }
 
-void repl_run(void) {
+int repl_run(void) {
     setup_signals();                                    // setup signal handlers
     printf("Apex 26.09 on %s. Type code, always ready.\n", platform_get_name());  // print banner
     
@@ -138,7 +140,12 @@ void repl_run(void) {
             
             if (!terminal_has_input()) {                             // no more input waiting
                 if (total_len > 0) {                                 // has accumulated input
-                    execute_code(full_input, "REPL");                // execute code
+                    int exit_code = execute_code(full_input, "REPL");  // execute code
+                    if (exit_code >= 0) {                            // os.exit() called
+                        terminal_disable_raw_mode();                 // restore terminal
+                        printf("\r\n");                              // leave the line
+                        return exit_code;                            // propagate exit code
+                    }
                 }
                 total_len = 0;                                       // reset total length
                 full_input[0] = '\0';                                // reset input
@@ -177,4 +184,5 @@ void repl_run(void) {
     
     terminal_disable_raw_mode();  // restore terminal mode
     printf("\r\n");               // print newline
+    return -1;                    // no exit requested
 }

@@ -192,7 +192,7 @@ BytecodeChunk* bytecode_load(const char* path) {
 }
 
 // executes a bytecode file directly, bypassing tokenization and parsing
-bool execute_bytecode_file(const char* filepath, int argc, char** argv, bool skip_script_name) {
+bool execute_bytecode_file(const char* filepath, int argc, char** argv, bool skip_script_name, int* out_exit_code) {
     if (!filepath) return false;                                // validate path
     
     BytecodeChunk* chunk = bytecode_load(filepath);
@@ -221,8 +221,13 @@ bool execute_bytecode_file(const char* filepath, int argc, char** argv, bool ski
     }
     
     bool ok = vm_execute(vm, chunk);                            // run vm
+
+    bool want_exit = vm->exit_requested;                        // capture before vm_destroy
+    int  exit_code = vm->exit_code;                             // capture before vm_destroy
+
     vm_destroy(vm);                                             // free vm
     bytecode_destroy(chunk);                                    // free chunk
-    
+
+    if (out_exit_code) *out_exit_code = want_exit ? exit_code : -1;  // publish requested code
     return ok;                                                  // return execution result
 }

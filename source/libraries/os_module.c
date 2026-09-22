@@ -609,7 +609,9 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     if (strcmp(name, "os.exit") == 0) {                                                 // exit process
         int code = 0;                                                                   // exit code
         if (arg_count >= 1 && IS_NUMBER(args[0])) code = (int)AS_NUMBER(args[0]);       // extract code
-        exit(code);                                                                     // exit with code
+        vm->exit_requested = true;                                                      // defer exit until after vm_destroy
+        vm->exit_code = code;                                                           // remember requested code
+        *result = MAKE_NONE();                                                          // no value produced
         return true;                                                                    // builtin handled
     }
 

@@ -133,7 +133,9 @@ int handle_commands(int argc, char** argv) {
         }
         fclose(f_check);                                                        // close check handle
 
-        bool ok = execute_source(filename, filename, argc - 3, argv + 3, true); // run with user args
+        int exit_code = -1;                                                     // per-call os.exit() code
+        bool ok = execute_source(filename, filename, argc - 3, argv + 3, true, &exit_code); // run with user args
+        if (exit_code >= 0) return exit_code;                                   // os.exit() requested a specific code
         return ok ? 0 : 1;                                                      // propagate exit code
     }
 #else

@@ -14,10 +14,10 @@ void apex_init(void);
 // shuts down the apex runtime and frees global resources
 void apex_shutdown(void);
 
-// executes apex code from a file
-bool apex_execute_file(const char* filepath);
+// executes apex code from a file, writes os.exit() code into out_exit_code (-1 if none)
+bool apex_execute_file(const char* filepath, int* out_exit_code);
 
-// executes apex code from a source string with the given filename for error context
-bool apex_execute_string(const char* source_code, const char* filename);
+// executes apex code from a source string, writes os.exit() code into out_exit_code (-1 if none)
+bool apex_execute_string(const char* source_code, const char* filename, int* out_exit_code);
 
 #endif // APEX_API_H

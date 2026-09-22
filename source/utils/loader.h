@@ -13,6 +13,6 @@
 BytecodeChunk* bytecode_load(const char* path);
 
 // executes a bytecode file directly, bypassing tokenization and parsing
-bool execute_bytecode_file(const char* filepath, int argc, char** argv, bool skip_script_name);
+bool execute_bytecode_file(const char* filepath, int argc, char** argv, bool skip_script_name, int* out_exit_code);
 
 #endif // LOADER_H

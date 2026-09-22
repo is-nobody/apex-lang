@@ -1433,11 +1433,12 @@ VM* vm_create(const char* source) {
     vm->table_iter_depth = -1;                    // no active table iterators
     vm->running = false;                          // not running yet
     vm->had_error = false;                        // no errors yet
-    vm->builtin_async = false;
+    vm->exit_requested = false;                   // no pending os.exit()
+    vm->exit_code = 0;                            // default exit code
     vm->args_top = 0;                             // empty args stack
     vm->args_table = MAKE_NONE();                 // default to none until set
     vm->source = source;                          // store source pointer
-
+    vm->builtin_async = false;                    // not inside an async builtin
     vm->ready = NULL;                             // no ready queue yet
     vm->ready_count = 0;                          // empty queue
     vm->ready_capacity = 0;                       // no capacity
@@ -3084,6 +3085,10 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         if (dest_reg >= vm->frame_used[vm->current_frame]) {
             vm->frame_used[vm->current_frame] = dest_reg + 1;  // track max register used for vm_destroy cleanup
         }
+        if (unlikely(vm->exit_requested)) {          // os.exit() raised a shutdown request
+            vm->running = false;                     // stop the interpreter loop
+            goto OP_HALT_LABEL;                      // unwind through halt for clean teardown
+        }
         ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
     OP_CALL_0_LABEL: {
@@ -3449,6 +3454,10 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         if (dest_reg >= vm->frame_used[vm->current_frame]) {
             vm->frame_used[vm->current_frame] = dest_reg + 1;  // track max register used
         }
+        if (unlikely(vm->exit_requested)) {          // os.exit() raised a shutdown request
+            vm->running = false;                     // stop the interpreter loop
+            goto OP_HALT_LABEL;                      // unwind through halt for clean teardown
+        }
         ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
     OP_AWAIT_LABEL: {
@@ -3536,9 +3545,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     OP_HALT_LABEL:
         vm->running = false;
 
-        // top-level teardown: drive the scheduler until all fire-and-forget
-        // coroutines, workers and timers have settled
-        if (top_level && !vm->had_error) {
+        // drain scheduler on normal exit, skip on os.exit()
+        if (top_level && !vm->had_error && !vm->exit_requested) {
             SavedVMContext saved_ctx;                   // snapshot of top-level pool
             vm_context_save(vm, &saved_ctx);
 

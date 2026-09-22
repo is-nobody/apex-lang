@@ -42,7 +42,7 @@ void cleanup_all(Tokenizer* tok, Parser* par, ASTNode* ast,
 }
 
 // executes apex source code from a file path
-bool execute_source(const char* filepath, const char* filename, int argc, char** argv, bool skip_script_name) {
+bool execute_source(const char* filepath, const char* filename, int argc, char** argv, bool skip_script_name, int* out_exit_code) {
     if (!filepath || !filename) return false;            // validate arguments
     
     FILE* f = fopen(filepath, "rb");                     // open file in binary mode
@@ -105,7 +105,12 @@ bool execute_source(const char* filepath, const char* filename, int argc, char**
     vm = vm_create(source);                                             // create virtual machine
     vm_set_args(vm, argc, argv, skip_script_name);                      // pass cli args with correct skip mode
     bool ok = vm_execute(vm, chunk);                                    // execute bytecode
-    
+
+    bool want_exit = vm->exit_requested;                                // capture before vm_destroy
+    int  exit_code = vm->exit_code;                                     // capture before vm_destroy
+
     cleanup_all(tokenizer, parser, ast, cg, chunk, vm, source);         // cleanup all resources
+
+    if (out_exit_code) *out_exit_code = want_exit ? exit_code : -1;     // -1 = no exit requested
     return ok;                                                          // return execution result
 }

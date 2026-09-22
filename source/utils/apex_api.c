@@ -42,27 +42,29 @@ void apex_shutdown(void) {
 }
 
 // executes apex code from a file
-bool apex_execute_file(const char* filepath) {
+bool apex_execute_file(const char* filepath, int* out_exit_code) {
     if (!is_initialized) {        // check if runtime is initialized
         apex_init();              // initialize if needed
     }
 
     if (!filepath) {                                                    // validate filepath
         print_error("Invalid filepath provided to apex_execute_file");  // print error
+        if (out_exit_code) *out_exit_code = -1;                         // no exit requested
         return false;                                                   // execution failed
     }
 
-    return execute_source(filepath, filepath, 0, NULL, false);          // api: no args
+    return execute_source(filepath, filepath, 0, NULL, false, out_exit_code);  // api: no args
 }
 
 // executes apex code from a source string with the given filename for error context
-bool apex_execute_string(const char* source_code, const char* filename) {
+bool apex_execute_string(const char* source_code, const char* filename, int* out_exit_code) {
     if (!is_initialized) {        // check if runtime is initialized
         apex_init();              // initialize if needed
     }
 
     if (!source_code) {                                                       // validate source code
         print_error("Invalid source_code provided to apex_execute_string");   // print error
+        if (out_exit_code) *out_exit_code = -1;                               // no exit requested
         return false;                                                         // execution failed
     }
 
@@ -72,6 +74,7 @@ bool apex_execute_string(const char* source_code, const char* filename) {
     char* source = (char*)malloc(source_len + 1);  // allocate source copy
     if (!source) {                                 // check allocation
         print_error("Memory allocation failed");   // print error
+        if (out_exit_code) *out_exit_code = -1;    // no exit requested
         return false;                              // execution failed
     }
     memcpy(source, source_code, source_len + 1);   // copy source string
@@ -89,6 +92,7 @@ bool apex_execute_string(const char* source_code, const char* filename) {
 
     if (!tokens || tokenizer_has_error(tokenizer)) {                      // check for tokenization errors
         cleanup_all(tokenizer, NULL, NULL, NULL, NULL, NULL, source);     // cleanup tokenizer only
+        if (out_exit_code) *out_exit_code = -1;                           // no exit requested
         return false;                                                     // execution failed
     }
     
@@ -96,6 +100,7 @@ bool apex_execute_string(const char* source_code, const char* filename) {
     ast = parse_program(parser);                                          // parse ast
     if (!ast || parser_had_errors(parser)) {                              // check for parsing errors
         cleanup_all(tokenizer, parser, ast, NULL, NULL, NULL, source);    // cleanup tokenizer and parser
+        if (out_exit_code) *out_exit_code = -1;                           // no exit requested
         return false;                                                     // execution failed
     }
     
@@ -104,6 +109,7 @@ bool apex_execute_string(const char* source_code, const char* filename) {
     if (!codegen_generate(cg, ast)) {                                     // generate bytecode
         print_error("Code generation failed for '%s'", error_filename);   // print error
         cleanup_all(tokenizer, parser, ast, cg, chunk, NULL, source);     // cleanup everything except vm
+        if (out_exit_code) *out_exit_code = -1;                           // no exit requested
         return false;                                                     // execution failed
     }
     
@@ -111,6 +117,11 @@ bool apex_execute_string(const char* source_code, const char* filename) {
     vm_set_args(vm, 0, NULL, false);                                      // api string: no args
     bool ok = vm_execute(vm, chunk);                                      // execute bytecode
 
+    bool want_exit = vm->exit_requested;                                  // capture before vm_destroy
+    int  exit_code = vm->exit_code;                                       // capture before vm_destroy
+
     cleanup_all(tokenizer, parser, ast, cg, chunk, vm, source);           // cleanup all resources
-    return ok;                                                            // return execution result
+
+    if (out_exit_code) *out_exit_code = want_exit ? exit_code : -1;       // -1 = no exit requested
+    return ok;                                                            // os.exit() never kills the host
 }

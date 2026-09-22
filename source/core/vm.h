@@ -283,6 +283,8 @@ typedef struct {
 
     bool running;                  // whether the VM is actively executing
     bool had_error;                // whether an error occurred during execution
+    bool exit_requested;           // os.exit() was called
+    int  exit_code;                // code passed to os.exit()
 
     bool builtin_async;            // true when the current CALL_BUILTIN_ASYNC is executing
     ForIter* iterator_stack;       // active numeric for-loops
