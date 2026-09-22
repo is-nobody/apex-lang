@@ -143,6 +143,22 @@ static void assign_table_caches(JITContext* ctx, JitLoopInfo* info) {
             }
         }
         if (read_as_value) continue;
+        bool used_as_set_table = false;                      // used as SET's table operand?
+        for (int pc = info->entry_pc; pc <= info->back_edge_pc && !used_as_set_table; pc++) {
+            Instruction* inst = &ctx->chunk->code[pc];
+            switch (inst->opcode) {
+                case OP_TABLE_SET: case OP_TABLE_SET_NUM:
+                case OP_TABLE_SET_INT: case OP_TABLE_SET_KEY_STR:
+                    if (inst->operands[0] == s) used_as_set_table = true;
+                    break;
+                default: break;
+            }
+        }
+        // writes need the underlying array to be grown; counter_write_prepare
+        // only preps info->table.slot, so a derived cache would write into a
+        // possibly NULL array_part. Leave the producer in place and let the
+        // general SET path grow it via table_set_int.
+        if (used_as_set_table) continue;
         int idx = info->n_cached_tables + info->n_derived_caches;
         int i = info->n_derived_caches++;
         info->derived_slot[i]        = s;
@@ -656,40 +672,10 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             int key_reg   = a;                               // key register
             int val_reg   = b;                               // value register
 
-            // cached-table fast path: loop-invariant table whose array_part
-            // pointer lives in a callee-saved gpr for the whole loop body
-            int cg = -1;
-            for (int ci = 0; ci < info->n_cached_tables; ci++)
-                if (info->cached_table_slot[ci] == table_reg) {
-                    cg = info->cached_table_gpr[ci]; break;
-                }
-            if (cg < 0) {                                    // derived-invariant table base?
-                for (int ci = 0; ci < info->n_derived_caches; ci++)
-                    if (info->derived_slot[ci] == table_reg) {
-                        cg = info->derived_gpr[ci]; break;
-                    }
-            }
-            if (cg >= 0) {
-                if (key_reg == info->for_var_reg && info->for_var_gpr >= 0) {
-                    int xv = x86_cache_load_excl(cache, cb, val_reg, -1, -1);
-                    if (xv < 0) return;
-                    x86_emit_movsd_store_idx8_bx(cb, cg, info->for_var_gpr, xv);
-                    break;
-                }
-                int xk = cache->slot_reg[key_reg];
-                if (xk < 0) {
-                    xk = x86_cache_load(cache, cb, key_reg);
-                    if (xk < 0) return;
-                }
-                x86_emit_cvttsd2si_eax(cb, xk);
-                x86_emit_dec_eax(cb);
-                int xv = x86_cache_load_excl(cache, cb, val_reg, xk, -1);
-                if (xv < 0) return;
-                x86_emit_movsd_store_idx8_bx(cb, cg, X86_RAX, xv);
-                break;
-            }
-
             // fast path: counter key + this loop's primary table
+            // (only this table's array_part is guaranteed to have been grown
+            // by counter_write_prepare; other cached bases must go through
+            // the general helper so table_set_int can grow them on demand)
             if (key_reg == info->for_var_reg && table_reg == info->table.slot) {
                 if (info->for_var_gpr >= 0) {                // counter lives in gpr, already 0-based
                     int xv = x86_cache_load_excl(cache, cb, val_reg, -1, -1);
