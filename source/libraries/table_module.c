@@ -145,8 +145,8 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
                 dst->array_part[i] = table->array_part[i];                    // copy element
                 value_incref(dst->array_part[i]);                             // bump refcount for copied value
             }
-            for (int i = table->array_count; i < dst->array_capacity; i++) {  // fill remaining with false
-                dst->array_part[i] = MAKE_BOOL(false);                        // initialize empty slots
+            for (int i = table->array_count; i < dst->array_capacity; i++) {  // fill remaining with none
+                dst->array_part[i] = MAKE_NONE();                              // initialize empty slots
             }
         }
         
@@ -190,8 +190,8 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
                 value_incref(dst->array_part[src1->array_count + i]);          // bump refcount
             }
             
-            for (int i = total_array; i < dst->array_capacity; i++) {          // fill remaining with false
-                dst->array_part[i] = MAKE_BOOL(false);                         // initialize empty slots
+            for (int i = total_array; i < dst->array_capacity; i++) {          // fill remaining with none
+                dst->array_part[i] = MAKE_NONE();                              // initialize empty slots
             }
         }
         
