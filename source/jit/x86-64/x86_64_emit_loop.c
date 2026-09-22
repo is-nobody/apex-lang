@@ -8,11 +8,160 @@
 #include <stddef.h>
 #include <string.h>
 
+// selects up to 4 loop-invariant table slots whose array_part pointer can be
+// hoisted into a callee-saved gpr for the whole loop body; the primary table
+// (info->table.slot) is already cached in rbx, so it is skipped here;
+// additionally hoists slots written once by TABLE_GET_NUM with invariant
+// table/key inputs (their value's array_part is invariant across iterations)
+static void assign_table_caches(JITContext* ctx, JitLoopInfo* info) {
+    static const int cache_gprs[4] = { X86_R12, X86_R13, X86_R14, X86_R15 };
+    info->n_cached_tables  = 0;
+    info->n_derived_caches = 0;
+
+    uint64_t invariant = info->live_in & ~info->live_out;    // written nowhere in body
+    if (info->table.slot >= 0) invariant |= 1ULL << info->table.slot;  // primary lives in rbx
+
+    // phase 1: direct loop-invariant table slots read as tables in the body
+    uint64_t candidates = info->live_in & ~info->live_out;
+    for (int s = 0; s < JIT_MAX_SLOTS && (info->n_cached_tables + info->n_derived_caches) < 4; s++) {
+        if (!(candidates & (1ULL << s))) continue;           // must be loop-invariant
+        if (s == info->table.slot) continue;                 // primary already in rbx
+        JitSlotKind kind = info->live_in_kind[s];
+        if (kind != JIT_SLOT_TABLE && kind != JIT_SLOT_TABLE_ANY) continue;
+        bool used_as_table = false;                          // must be read as a table
+        for (int pc = info->entry_pc; pc <= info->back_edge_pc && !used_as_table; pc++) {
+            Instruction* inst = &ctx->chunk->code[pc];
+            int t = -1;
+            switch (inst->opcode) {
+                case OP_TABLE_GET: case OP_TABLE_GET_NUM:
+                case OP_TABLE_GET_INT: case OP_TABLE_GET_KEY_STR:
+                    t = inst->operands[1]; break;            // table is the first source
+                case OP_TABLE_SET: case OP_TABLE_SET_NUM:
+                case OP_TABLE_SET_INT: case OP_TABLE_SET_KEY_STR:
+                    t = inst->operands[0]; break;            // table is the destination
+                default: break;
+            }
+            if (t == s) used_as_table = true;
+        }
+        if (!used_as_table) continue;
+        int idx = info->n_cached_tables + info->n_derived_caches;
+        int i = info->n_cached_tables++;
+        info->cached_table_slot[i] = s;
+        info->cached_table_gpr[i]  = cache_gprs[idx];
+        invariant |= 1ULL << s;                              // now s is a cached base too
+    }
+
+    // phase 2: derived invariants — slots written exactly once by TABLE_GET_NUM
+    // whose table and key are already invariant; their value is a table whose
+    // array_part is also invariant, so it can be hoisted to a callee-saved gpr
+    for (int s = 0; s < JIT_MAX_SLOTS && (info->n_cached_tables + info->n_derived_caches) < 4; s++) {
+        if (!(info->live_out & (1ULL << s))) continue;       // must be written in body
+        int write_pc = -1, write_count = 0;                  // locate the unique writer
+        for (int pc = info->entry_pc; pc <= info->back_edge_pc; pc++) {
+            Instruction* inst = &ctx->chunk->code[pc];
+            bool writes_s = false;
+            switch (inst->opcode) {
+                case OP_TABLE_GET: case OP_TABLE_GET_NUM:
+                case OP_TABLE_GET_INT: case OP_TABLE_GET_KEY_STR:
+                case OP_MOVE: case OP_NEG: case OP_INC: case OP_DEC:
+                case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:
+                case OP_LOAD_BOOL: case OP_LOAD_NONE:
+                case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
+                case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:
+                case OP_DIV_IMM: case OP_MOD_IMM:
+                case OP_CMP_EQ: case OP_CMP_NEQ:
+                case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
+                case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
+                case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:
+                case OP_LOAD_GLOBAL:
+                    writes_s = (inst->operands[0] == s);
+                    break;
+                default: break;
+            }
+            if (writes_s) { write_pc = pc; write_count++; }
+        }
+        if (write_count != 1 || write_pc < 0) continue;      // must have a single writer
+        Instruction* prod = &ctx->chunk->code[write_pc];
+        if (prod->opcode != OP_TABLE_GET_NUM && prod->opcode != OP_TABLE_GET) continue;
+        int tbl = prod->operands[1], key = prod->operands[2];
+        if (!(invariant & (1ULL << tbl))) continue;          // table must be invariant
+        if (!(invariant & (1ULL << key))) continue;          // key must be invariant
+        int tbl_gpr = -1;                                    // locate the gpr holding tbl's array_part
+        if (tbl == info->table.slot) tbl_gpr = X86_RBX;
+        for (int i = 0; i < info->n_cached_tables; i++)
+            if (info->cached_table_slot[i] == tbl) tbl_gpr = info->cached_table_gpr[i];
+        if (tbl_gpr < 0) continue;
+        bool read_as_value = false;                          // s must be read only in table position
+        for (int pc = info->entry_pc; pc <= info->back_edge_pc && !read_as_value; pc++) {
+            if (pc == write_pc) continue;                    // skip the producer itself
+            Instruction* inst = &ctx->chunk->code[pc];
+            int d = inst->operands[0], a = inst->operands[1], b = inst->operands[2];
+            switch (inst->opcode) {
+                case OP_TABLE_GET: case OP_TABLE_GET_NUM:
+                    if (b == s) read_as_value = true;        // key position is a value read
+                    break;                                   // a==s is fine (table register)
+                case OP_TABLE_GET_INT: case OP_TABLE_GET_KEY_STR:
+                    break;                                   // a==s is fine, no other slot read
+                case OP_TABLE_SET: case OP_TABLE_SET_NUM:
+                    if (a == s || b == s) read_as_value = true;
+                    break;
+                case OP_TABLE_SET_INT:
+                    if (b == s) read_as_value = true;
+                    break;
+                case OP_TABLE_SET_KEY_STR:
+                    if (a == s) read_as_value = true;
+                    break;
+                case OP_MOVE: case OP_NEG:
+                case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
+                case OP_CMP_EQ: case OP_CMP_NEQ: case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
+                case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
+                case OP_JUMP_IF_EQ: case OP_JUMP_IF_NEQ: case OP_JUMP_IF_EQ_NUM:
+                case OP_JUMP_IF_NEQ_NUM: case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:
+                case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:
+                case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:
+                case OP_JUMP_IF_LT_IMM: case OP_JUMP_IF_GT_IMM:
+                case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
+                case OP_JUMP_IF_FALSE: case OP_CALL_1:
+                    if (a == s || b == s) read_as_value = true;
+                    break;
+                case OP_CALL_2:
+                    if (a == s || b == s || b + 1 == s) read_as_value = true;
+                    break;
+                case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:
+                case OP_DIV_IMM: case OP_MOD_IMM:
+                case OP_INC: case OP_DEC:
+                case OP_STORE_GLOBAL:
+                    if (d == s || a == s) read_as_value = true;
+                    break;
+                case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:
+                case OP_LOAD_BOOL: case OP_LOAD_NONE:
+                case OP_JUMP: case OP_LOAD_GLOBAL:
+                    break;                                   // pure writes / no reads
+                default:
+                    if (a == s || b == s || d == s) read_as_value = true;
+                    break;
+            }
+        }
+        if (read_as_value) continue;
+        int idx = info->n_cached_tables + info->n_derived_caches;
+        int i = info->n_derived_caches++;
+        info->derived_slot[i]        = s;
+        info->derived_gpr[i]         = cache_gprs[idx];
+        info->derived_src_gpr[i]     = tbl_gpr;
+        info->derived_key_slot[i]    = key;
+        info->derived_producer_pc[i] = write_pc;
+        invariant |= 1ULL << s;                              // now s is invariant too
+    }
+}
+
 // emits one non-jump loop-body instruction using the xmm register cache
 void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                           XmmCache* cache, int pc, int const_slot, int save_slot,
                           JitLoopInfo* info) {
     (void)abi;                                                   // reserved for ABI-specific opcodes
+    for (int i = 0; i < info->n_derived_caches; i++) {           // producer handled by prologue
+        if (pc == info->derived_producer_pc[i]) return;
+    }
     BytecodeChunk* chunk = ctx->chunk;
     Instruction* inst = &chunk->code[pc];
     int d = inst->operands[0];
@@ -411,6 +560,34 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             int table_reg = a;                               // table register
             int key_reg   = b;                               // key register
 
+            // cached-table fast path: loop-invariant table whose array_part
+            // pointer lives in a callee-saved gpr for the whole loop body
+            int cg = -1;                                     // cached array_part gpr
+            for (int ci = 0; ci < info->n_cached_tables; ci++)
+                if (info->cached_table_slot[ci] == table_reg) {
+                    cg = info->cached_table_gpr[ci]; break;
+                }
+            if (cg < 0) {                                    // derived-invariant table base?
+                for (int ci = 0; ci < info->n_derived_caches; ci++)
+                    if (info->derived_slot[ci] == table_reg) {
+                        cg = info->derived_gpr[ci]; break;
+                    }
+            }
+            if (cg >= 0) {
+                int xk = cache->slot_reg[key_reg];           // key already in cache?
+                if (xk < 0) {
+                    xk = x86_cache_load(cache, cb, key_reg); // load key from frame
+                    if (xk < 0) return;                      // register cache full
+                }
+                x86_emit_cvttsd2si_eax(cb, xk);              // eax = (int)key
+                x86_emit_dec_eax(cb);                        // 1-based -> 0-based
+                int xd = x86_cache_dest_reg(cache, cb, d, xk, -1);  // prefer d's home
+                if (xd < 0) return;                          // register cache full
+                x86_emit_movsd_load_idx8_bx(cb, xd, cg, X86_RAX);   // xd = array_part[rax]
+                x86_cache_put(cache, xd, d);                 // cache dest
+                break;
+            }
+
             // fast path: counter key + this loop's primary table
             if (key_reg == info->for_var_reg && table_reg == info->table.slot) {
                 int xk = cache->slot_reg[key_reg];           // key already in cache?
@@ -464,6 +641,33 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             int table_reg = d;                               // table register
             int key_reg   = a;                               // key register
             int val_reg   = b;                               // value register
+
+            // cached-table fast path: loop-invariant table whose array_part
+            // pointer lives in a callee-saved gpr for the whole loop body
+            int cg = -1;
+            for (int ci = 0; ci < info->n_cached_tables; ci++)
+                if (info->cached_table_slot[ci] == table_reg) {
+                    cg = info->cached_table_gpr[ci]; break;
+                }
+            if (cg < 0) {                                    // derived-invariant table base?
+                for (int ci = 0; ci < info->n_derived_caches; ci++)
+                    if (info->derived_slot[ci] == table_reg) {
+                        cg = info->derived_gpr[ci]; break;
+                    }
+            }
+            if (cg >= 0) {
+                int xk = cache->slot_reg[key_reg];
+                if (xk < 0) {
+                    xk = x86_cache_load(cache, cb, key_reg);
+                    if (xk < 0) return;
+                }
+                x86_emit_cvttsd2si_eax(cb, xk);
+                x86_emit_dec_eax(cb);
+                int xv = x86_cache_load_excl(cache, cb, val_reg, xk, -1);
+                if (xv < 0) return;
+                x86_emit_movsd_store_idx8_bx(cb, cg, X86_RAX, xv);
+                break;
+            }
 
             // fast path: counter key + this loop's primary table
             if (key_reg == info->for_var_reg && table_reg == info->table.slot) {
@@ -730,6 +934,8 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
     int imm_base_slot = const_slot + 1;                      // first slot for precomputed immediates
     for (int i = 0; i < info->n_imms; i++) info->imms[i].slot = imm_base_slot + i;
 
+    assign_table_caches(ctx, info);                          // must run before frame_slots is sized
+
     int save_slot = -1;                                      // stack slot to stash frame_reg across helper call
     int frame_slots = const_slot + 1 + info->n_imms;         // incl. constant slot + immediates
     uint64_t writeback_mask = info->live_out & ~info->ref_writes;  // slots whose old value must be released
@@ -744,6 +950,16 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
     if (need_rbx_save) {
         rbx_save_slot = frame_slots;                         // rbx lives inside the frame,
         frame_slots++;                                       // above the shadow space
+    }
+    int cached_gpr_save_slot[4] = { -1, -1, -1, -1 };        // save slots for cached table gprs
+    for (int i = 0; i < info->n_cached_tables; i++) {
+        cached_gpr_save_slot[i] = frame_slots;               // one stack slot per cached gpr
+        frame_slots++;
+    }
+    int derived_gpr_save_slot[2] = { -1, -1 };               // save slots for derived table gprs
+    for (int i = 0; i < info->n_derived_caches; i++) {
+        derived_gpr_save_slot[i] = frame_slots;              // one stack slot per derived gpr
+        frame_slots++;
     }
 
     int range_size = back_edge - entry + 1;
@@ -827,6 +1043,14 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
         emit_u8(cb, 0x48); emit_u8(cb, 0x89);                // mov rbx, abi->globals_reg
         emit_u8(cb, 0xC0 | (abi->globals_reg << 3) | X86_RBX);
     }
+    for (int i = 0; i < info->n_cached_tables; i++) {        // preload cached table array_parts
+        int slot = info->cached_table_slot[i];
+        int gpr  = info->cached_table_gpr[i];
+        x86_emit_store_r64_rbp(cb, gpr, x86_slot_disp(cached_gpr_save_slot[i]));  // save caller's gpr
+        x86_emit_load_r64_base(cb, X86_RAX, abi->frame_reg, slot * 8);            // rax = regs[slot]
+        x86_emit_clear_high16_rax(cb);                       // strip nan-box tag
+        x86_emit_load_r64_base(cb, gpr, X86_RAX, (int32_t)offsetof(Table, array_part));  // gpr = array_part
+    }
 
     x86_emit_movabs_rax(cb, 0x3FF0000000000000ULL);          // rax = bits of 1.0
     x86_emit_movq_xmm_rax(cb, XMM_SCRATCH);                  // xmm7 = 1.0
@@ -846,6 +1070,20 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
         if (s >= 64) break;                                  // beyond tracked range
         x86_emit_movsd_load_base(cb, abi->frame_reg, 0, s * 8);  // xmm0 = regs[s]
         x86_emit_movsd_store(cb, 0, x86_slot_disp(s));       // frame[s] = xmm0
+    }
+
+    // compute derived invariants: R[d] = src[key], then cache R[d].array_part in a gpr
+    for (int i = 0; i < info->n_derived_caches; i++) {
+        int gpr     = info->derived_gpr[i];
+        int src_gpr = info->derived_src_gpr[i];
+        int key     = info->derived_key_slot[i];
+        x86_emit_store_r64_rbp(cb, gpr, x86_slot_disp(derived_gpr_save_slot[i]));  // save caller's gpr
+        x86_emit_movsd_load(cb, 0, x86_slot_disp(key));      // xmm0 = frame[key]
+        x86_emit_cvttsd2si_edx(cb, 0);                       // edx = (int)key
+        x86_emit_dec_edx(cb);                                // 1-based -> 0-based
+        x86_emit_load_rax_idx8(cb, src_gpr, X86_RDX);        // rax = src_gpr[rdx] (R[d] value)
+        x86_emit_clear_high16_rax(cb);                       // strip nan-box tag
+        x86_emit_load_r64_base(cb, gpr, X86_RAX, (int32_t)offsetof(Table, array_part));  // gpr = R[d].array_part
     }
 
     if (info->kind == JIT_LOOP_NUMERIC_FOR && !iter_in_xmm) {  // seed iterator in memory
@@ -921,6 +1159,13 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
             x86_emit_movsd_load(cb, 0, x86_slot_disp(s));
             x86_emit_movsd_store_base(cb, abi->frame_reg, 0, s * 8);
         }
+    }
+
+    for (int i = 0; i < info->n_cached_tables; i++) {        // restore cached table gprs
+        x86_emit_load_r64_rbp(cb, info->cached_table_gpr[i], x86_slot_disp(cached_gpr_save_slot[i]));
+    }
+    for (int i = 0; i < info->n_derived_caches; i++) {       // restore derived table gprs
+        x86_emit_load_r64_rbp(cb, info->derived_gpr[i], x86_slot_disp(derived_gpr_save_slot[i]));
     }
 
     if (need_rbx_save) {
@@ -1092,6 +1337,7 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
     if (cb->len + (size_t)range_size * 256 + 1024 > cb->cap) return false;  // buffer too small
 
     if (!loop_is_safe_to_emit(ctx, info)) return false;      // needs checks the emitter lacks
+    assign_table_caches(ctx, info);                          // hoist loop-invariant table bases to gprs
 
     // precompute distinct immediates used by ADD_IMM/SUB_IMM/MUL_IMM/DIV_IMM/MOD_IMM
     info->n_imms = 0;
@@ -1159,6 +1405,16 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
         rbx_save_slot = frame_slots;                         // rbx lives inside the frame,
         frame_slots++;                                       // above the shadow space
     }
+    int cached_gpr_save_slot[4] = { -1, -1, -1, -1 };        // save slots for cached table gprs
+    for (int i = 0; i < info->n_cached_tables; i++) {
+        cached_gpr_save_slot[i] = frame_slots;               // one stack slot per cached gpr
+        frame_slots++;
+    }
+    int derived_gpr_save_slot[2] = { -1, -1 };               // save slots for derived table gprs
+    for (int i = 0; i < info->n_derived_caches; i++) {
+        derived_gpr_save_slot[i] = frame_slots;              // one stack slot per derived gpr
+        frame_slots++;
+    }
 
     size_t mark = cb->len;                                   // rollback point
 
@@ -1178,6 +1434,14 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
         emit_u8(cb, 0x48); emit_u8(cb, 0x89);
         emit_u8(cb, 0xC0 | (abi->globals_reg << 3) | X86_RBX);
     }
+    for (int i = 0; i < info->n_cached_tables; i++) {        // preload cached table array_parts
+        int slot = info->cached_table_slot[i];
+        int gpr  = info->cached_table_gpr[i];
+        x86_emit_store_r64_rbp(cb, gpr, x86_slot_disp(cached_gpr_save_slot[i]));
+        x86_emit_load_r64_base(cb, X86_RAX, abi->frame_reg, slot * 8);
+        x86_emit_clear_high16_rax(cb);
+        x86_emit_load_r64_base(cb, gpr, X86_RAX, (int32_t)offsetof(Table, array_part));
+    }
 
     // materialize the 1.0 constant and any precomputed immediates
     x86_emit_movabs_rax(cb, 0x3FF0000000000000ULL);
@@ -1196,6 +1460,20 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
         if (s >= 64) break;
         x86_emit_movsd_load_base(cb, abi->frame_reg, 0, s * 8);
         x86_emit_movsd_store(cb, 0, x86_slot_disp(s));
+    }
+
+    // compute derived invariants: R[d] = src[key], then cache R[d].array_part in a gpr
+    for (int i = 0; i < info->n_derived_caches; i++) {
+        int gpr     = info->derived_gpr[i];
+        int src_gpr = info->derived_src_gpr[i];
+        int key     = info->derived_key_slot[i];
+        x86_emit_store_r64_rbp(cb, gpr, x86_slot_disp(derived_gpr_save_slot[i]));
+        x86_emit_movsd_load(cb, 0, x86_slot_disp(key));
+        x86_emit_cvttsd2si_edx(cb, 0);
+        x86_emit_dec_edx(cb);
+        x86_emit_load_rax_idx8(cb, src_gpr, X86_RDX);
+        x86_emit_clear_high16_rax(cb);
+        x86_emit_load_r64_base(cb, gpr, X86_RAX, (int32_t)offsetof(Table, array_part));
     }
 
     XmmCache cache;
@@ -1353,6 +1631,13 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
             x86_emit_movsd_load(cb, 0, x86_slot_disp(s));
             x86_emit_movsd_store_base(cb, abi->frame_reg, 0, s * 8);
         }
+    }
+
+    for (int i = 0; i < info->n_cached_tables; i++) {        // restore cached table gprs
+        x86_emit_load_r64_rbp(cb, info->cached_table_gpr[i], x86_slot_disp(cached_gpr_save_slot[i]));
+    }
+    for (int i = 0; i < info->n_derived_caches; i++) {       // restore derived table gprs
+        x86_emit_load_r64_rbp(cb, info->derived_gpr[i], x86_slot_disp(derived_gpr_save_slot[i]));
     }
 
     if (need_rbx_save) {

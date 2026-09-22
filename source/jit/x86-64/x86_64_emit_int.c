@@ -781,6 +781,7 @@ bool x86_64_emit_int_loop(const X86_64Abi* abi, JITContext* ctx,
         emit_u8(cb, 0xC0 | ((gend & 7) << 3) | (gvar & 7));
         emit_u8(cb, 0x0F); emit_u8(cb, 0x8F);                // jg .done
         size_t skip = cb->len; emit_i32(cb, 0);
+        while (cb->len & 15) emit_u8(cb, 0x90);              // align loop_top to 16 bytes
         size_t loop_top = cb->len;
         for (int pc = info->entry_pc + 1; pc < info->back_edge_pc; pc++)
             emit_int_loop_body(cb, ctx->chunk, pc, slot_gpr);
@@ -805,6 +806,7 @@ bool x86_64_emit_int_loop(const X86_64Abi* abi, JITContext* ctx,
         int gb = (e->opcode >= OP_JUMP_IF_EQ_IMM &&
                   e->opcode <= OP_JUMP_IF_GTE_IMM)
                ? -1 : slot_gpr[e->operands[2]];             // IMM variants: use imm
+        while (cb->len & 15) emit_u8(cb, 0x90);              // align loop_top to 16 bytes
         size_t loop_top = cb->len;
         if (gb >= 0) {
             emit_u8(cb, 0x48 | (ga >= 8 ? 0x01 : 0) | (gb >= 8 ? 0x04 : 0));

@@ -77,6 +77,17 @@ typedef struct {
 
     JitTableUse table;  // baseline: at most one table per loop
 
+    int  n_cached_tables;         // extra loop-invariant tables cached in callee-saved gprs
+    int  cached_table_slot[4];    // bytecode slots whose array_part pointer is cached
+    int  cached_table_gpr[4];     // gpr holding each cached slot's array_part
+
+    int  n_derived_caches;        // derived invariants: slots computed once from invariant inputs
+    int  derived_slot[2];         // bytecode slot whose value's array_part is cached
+    int  derived_gpr[2];          // gpr holding the derived slot's array_part
+    int  derived_src_gpr[2];      // gpr holding the source table's array_part
+    int  derived_key_slot[2];     // invariant key slot used to index into the source table
+    int  derived_producer_pc[2];  // pc of the producer TABLE_GET_NUM that computed this slot
+
     int  nregs;         // function frame size (max_registers)
 
     int  n_imms;                                  // number of distinct immediates precomputed

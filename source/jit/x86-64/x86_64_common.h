@@ -124,6 +124,40 @@ static inline void x86_emit_movsd_store_idx8(CodeBuf* b, int base, int index, in
     emit_u8(b, (3 << 6) | ((index & 7) << 3) | (base & 7)); // sib: scale=8
 }
 
+// emits movsd [base + index*8], xmm — SIB scale=8 with full rex.b support;
+// base may be r12..r15, rbp/r13 fall back to a zero disp8
+static inline void x86_emit_movsd_store_idx8_bx(CodeBuf* b, int base, int index, int xmm) {
+    uint8_t rex = 0x40;
+    if (xmm   >= 8) rex |= 0x04;                          // rex.r for xmm8-xmm15
+    if (base  >= 8) rex |= 0x01;                          // rex.b for r8-r15 base
+    if (index >= 8) rex |= 0x02;                          // rex.x for r8-r15 index
+    int base_low  = base & 7;                             // low 3 bits of base
+    int need_disp = (base_low == 5);                      // rbp/r13 base needs disp8=0
+    emit_u8(b, 0xF2);                                     // movsd legacy prefix
+    if (rex != 0x40) emit_u8(b, rex);                     // rex when any extension is set
+    emit_u8(b, 0x0F); emit_u8(b, 0x11);                   // movsd store opcode
+    emit_u8(b, (need_disp ? 0x40 : 0) | ((xmm & 7) << 3) | 0x04);  // modrm, rm=SIB
+    emit_u8(b, (3 << 6) | ((index & 7) << 3) | base_low); // sib: scale=8
+    if (need_disp) emit_u8(b, 0);                         // disp8=0 for rbp/r13 base
+}
+
+// emits movsd xmm, [base + index*8] — SIB scale=8 with full rex.b support;
+// base may be r12..r15, rbp/r13 fall back to a zero disp8
+static inline void x86_emit_movsd_load_idx8_bx(CodeBuf* b, int xmm, int base, int index) {
+    uint8_t rex = 0x40;
+    if (xmm   >= 8) rex |= 0x04;
+    if (base  >= 8) rex |= 0x01;
+    if (index >= 8) rex |= 0x02;
+    int base_low  = base & 7;
+    int need_disp = (base_low == 5);
+    emit_u8(b, 0xF2);
+    if (rex != 0x40) emit_u8(b, rex);
+    emit_u8(b, 0x0F); emit_u8(b, 0x10);
+    emit_u8(b, (need_disp ? 0x40 : 0) | ((xmm & 7) << 3) | 0x04);
+    emit_u8(b, (3 << 6) | ((index & 7) << 3) | base_low);
+    if (need_disp) emit_u8(b, 0);
+}
+
 // emits <op>sd xmm_dst, [rbp+disp32] — scalar-double op with memory source
 static inline void x86_emit_sse_arith_mem(CodeBuf* b, uint8_t op,
                                            int xmm_dst, int32_t disp) {
