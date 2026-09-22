@@ -170,6 +170,21 @@ static void assign_table_caches(JITContext* ctx, JitLoopInfo* info) {
     }
 }
 
+// spill dirty slots to frame at the back edge; slots that the body
+// unconditionally overwrites before any read are dead at loop entry, so
+// their stale frame values are never observed — skip their stores
+static void x86_cache_flush_back_edge(XmmCache* c, CodeBuf* cb,
+                                      BytecodeChunk* chunk, int body_start,
+                                      int back_edge) {
+    for (int i = 0; i < XMM_CACHE_REGS; i++) {
+        int s = c->reg_slot[i];
+        if (s < 0 || !c->slot_dirty[s]) continue;
+        if (!slot_read_before_write(chunk, body_start, back_edge, s)) continue;
+        x86_emit_movsd_store(cb, i, x86_slot_disp(s));
+    }
+    x86_cache_clear(c);
+}
+
 // emits one non-jump loop-body instruction using the xmm register cache
 void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                           XmmCache* cache, int pc, int const_slot, int save_slot,
@@ -802,8 +817,12 @@ size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
 
         x86_emit_sse66_rr(cb, 0x28, xc, XMM_SCRATCH);        // movapd xc, xmm15 (R[var] = c)
         x86_cache_put(cache, xc, var_reg);                   // var became dirty
-        x86_emit_movsd_store(cb, xc, x86_slot_disp(var_reg)); // frame[var] = i
-        cache->slot_dirty[var_reg] = false;                  // memory is in sync
+        if (info->for_var_gpr < 0 || !info->for_var_frame_safe) {
+            x86_emit_movsd_store(cb, xc, x86_slot_disp(var_reg));  // frame[var] = i
+            cache->slot_dirty[var_reg] = false;              // memory is in sync
+        }
+        // when a gpr mirror exists and no body op reads frame[var], the
+        // frame slot stays stale until the final flush — saves 2 ops/iter
 
         x86_emit_sse_arith_rr(cb, 0x58, XMM_SCRATCH, xb);    // addsd xmm15, xb (step)
         if (!iter_in_xmm) {
@@ -989,6 +1008,40 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
             for (int j = 0; j < 4; j++)
                 if (!used[j]) { info->for_var_gpr = all_gprs[j]; break; }
         }
+    }
+
+    info->for_var_frame_safe = false;                        // pessimistic default
+    if (info->for_var_gpr >= 0) {
+        bool safe = true;                                    // does anything read frame[var]?
+        for (int pc = entry + 1; pc < back_edge && safe; pc++) {
+            Instruction* inst = &ctx->chunk->code[pc];
+            int d = inst->operands[0], a = inst->operands[1], b = inst->operands[2];
+            switch (inst->opcode) {
+                case OP_CALL_1:
+                    if (b == info->for_var_reg) safe = false;            // arg via frame
+                    break;
+                case OP_CALL_2:
+                    if (b == info->for_var_reg || b + 1 == info->for_var_reg) safe = false;
+                    break;
+                case OP_TABLE_GET: case OP_TABLE_GET_NUM:
+                    // if counter is the table operand, the general path reads frame
+                    if (a == info->for_var_reg) safe = false;
+                    break;
+                case OP_TABLE_SET: case OP_TABLE_SET_NUM:
+                    // if counter appears anywhere, general/fallback path reads frame
+                    if (d == info->for_var_reg || a == info->for_var_reg ||
+                        b == info->for_var_reg) safe = false;
+                    break;
+                case OP_TABLE_GET_INT: case OP_TABLE_SET_INT:
+                case OP_TABLE_GET_KEY_STR: case OP_TABLE_SET_KEY_STR:
+                    if (d == info->for_var_reg || a == info->for_var_reg ||
+                        b == info->for_var_reg) safe = false;
+                    break;
+                default:                                     // ops routed through xmm cache
+                    break;
+            }
+        }
+        info->for_var_frame_safe = safe;
     }
 
     int save_slot = -1;                                      // stack slot to stash frame_reg across helper call
@@ -1184,7 +1237,8 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
     size_t entry_patch = emit_loop_iteration(abi, ctx, cb, &cache, info, const_slot, save_slot, iter_in_xmm, step_sign, needs_helper);
     if (entry_patch == (size_t)-1) { cb->len = mark; return false; }  // emit failed, rollback
 
-    if (flush_at_back_edge) x86_cache_flush(&cache, cb);     // spill all before back edge
+    if (flush_at_back_edge) x86_cache_flush_back_edge(&cache, cb, ctx->chunk,
+                                                      entry + 1, back_edge);
     emit_u8(cb, 0xE9);                                       // jmp loop_top
     size_t back_patch = cb->len;
     emit_i32(cb, 0);                                         // placeholder
@@ -1648,7 +1702,7 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
     }
     label_off[back_edge - entry] = (int32_t)cb->len;         // label for the back-edge pc
 
-    x86_cache_flush(&cache, cb);                             // spill any remaining dirty slots
+    x86_cache_flush_back_edge(&cache, cb, chunk, entry, back_edge);
 
     // back edge jump
     emit_u8(cb, 0xE9);

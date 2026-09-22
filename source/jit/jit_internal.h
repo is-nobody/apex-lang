@@ -70,6 +70,7 @@ typedef struct {
     int  for_step_value;    // FOR_NEXT: literal step value when known, 0 otherwise
     int  for_var_gpr;       // for_var integer counter in a callee-saved gpr, -1 if unused
     int  for_var_gpr_slot;  // stack save slot for the counter gpr, -1 if unused
+    bool for_var_frame_safe;  // true when no body op reads frame[for_var] directly
 
     uint64_t live_in;   // bitmask of slots read inside the loop
     uint64_t live_out;  // bitmask of slots written inside the loop
