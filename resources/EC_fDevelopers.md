@@ -627,12 +627,31 @@ import os
 x = 5
 
 if x < 10
-    x = 42
+    y = 42        // y is new — declared inside the if block
+    os.output(y)  // 42
 
-os.output(x)  // 42 — visible
+os.output(y)  // ERROR — y is not defined here
 ```
 
-**No new scope is created.** Variables declared inside an `if` block remain accessible outside:
+**Each branch creates its own scope.** Variables declared inside an `if`, `else if`, or `else` block are local to that branch and are not visible after it. The same name can be reused in sibling branches without a redeclaration error:
+
+```apex
+import os
+
+score = 85
+
+if score >= 90
+    grade = "A"
+    os.output(grade)
+else if score >= 80
+    grade = "B"  // same name, different branch — OK
+    os.output(grade)
+else
+    grade = "C"
+    os.output(grade)
+
+os.output(grade)  // ERROR — grade is not defined here
+```
 
 ### Explicit Conditions Required
 In Apex, conditions must be **explicitly boolean**. You cannot use variables directly as conditions (no "truthy" or "falsy" values). 
@@ -683,6 +702,8 @@ else if score >= 80
 
 Apex checks conditions in order from top to bottom. As soon as one condition is `true`, it runs that block and skips the rest. The remaining `else if` blocks are never checked.
 
+Each branch (`if`, every `else if`, `else`) has its own scope, so a variable declared inside one branch is not visible in the others or after the whole chain.
+
 ## 3.3 Else Statement
 `else` catches everything that wasn't caught by `if` or `else if`. It runs when no other condition was `true`.
 
@@ -713,12 +734,11 @@ os.output(weather)  // hot
 The ternary operator can only be used for short conditions. If the selection logic requires 2 or more checks, you must use regular `if-else if-else` blocks — 2 or more checks are not allowed in a ternary statement.
 
 # 4. Match
+`match` is how you compare one value against a list of fixed options. It's cleaner than a long chain of `if`/`else if`/`else` when every branch checks the **same value** against a **constant**.
 
-`match` is how you compare one value against a list of fixed options. It's cleaner than a long chain of `if`/`else if` when every branch checks the **same value** against a **constant**.
-
-| Statement | When It Runs |
-|-----------|--------------|
-| `case <constant>` | The subject equals that constant |
+| Statement         | When It Runs                        |
+|-------------------|-------------------------------------|
+| `case <constant>` | The subject equals that constant    |
 | `case` (no value) | No other case matched — the default |
 
 Think of it as a specialized `if` that only answers one question: *"does this value equal one of these constants?"*
@@ -729,7 +749,7 @@ Think of it as a specialized `if` that only answers one question: *"does this va
 - The **default** case has no value and must be last.
 - Only **one** default case is allowed.
 - Cases are checked **top to bottom**; the first match wins.
-- `match` does **not** create a new scope.
+- Each `case` body creates its own scope — variables declared inside are local to that case.
 - If nothing matches and there is no default, execution continues after the `match`.
 
 ## 4.1 Match Statement
@@ -751,7 +771,7 @@ match status
 
 Apex checks the cases from top to bottom. As soon as one matches, it runs that branch and skips the rest — exactly like `if`/`else if`.
 
-Blocks use the same **4-space indentation** rule as `if` and `for`. No new scope is created, so variables declared inside a case stay visible after the `match`.
+Blocks use the same **4-space indentation** rule as `if` and `for`. Each `case` body has its own scope, so a variable declared inside a case is not visible after the `match` — and the same name can be reused in different cases:
 
 ```apex
 import os
@@ -761,8 +781,12 @@ code = 200
 match code
     case 200
         message = "OK"
+        os.output(message)
+    case 404
+        message = "Not Found"  // same name, different case — OK
+        os.output(message)
 
-os.output(message)  // "OK" — visible outside
+os.output(message)  // ERROR — message is not defined here
 ```
 
 ## 4.2 Case Patterns

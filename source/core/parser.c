@@ -2531,7 +2531,9 @@ static ASTNode* parse_if_statement(Parser* parser) {
     parser_check_condition(parser, condition, "If");  // validate condition
 
     parser->expecting_indented_block = true;
+    parser->symbols.current_scope++;                // new scope for then branch
     ASTNode* then_branch = parse_block(parser, true, "if");  // parse then branch
+    parser_exit_scope(parser);                      // exit then branch scope
     
     ASTNode* elif_chain = NULL;                    // chain of else if clauses
     ASTNode* else_branch = NULL;                   // else clause
@@ -2573,7 +2575,9 @@ static ASTNode* parse_if_statement(Parser* parser) {
             parser_check_condition(parser, elif_condition, "If");  // validate condition
             
             parser->expecting_indented_block = true;
+            parser->symbols.current_scope++;        // new scope for else if branch
             ASTNode* elif_then = parse_block(parser, true, "if");  // parse else if then branch
+            parser_exit_scope(parser);              // exit else if branch scope
             
             ASTNode* elif_node = ast_create_if(elif_condition, elif_then, NULL, NULL);  // use ast_create_if instead of manual malloc
             
@@ -2589,7 +2593,9 @@ static ASTNode* parse_if_statement(Parser* parser) {
         } else {
             skip_newlines(parser);                 // allow newline before indented block
             parser->expecting_indented_block = true;
+            parser->symbols.current_scope++;        // new scope for else branch
             else_branch = parse_block(parser, true, "else");  // parse else block
+            parser_exit_scope(parser);              // exit else branch scope
             if (elif_tail) {
                 elif_tail->if_stmt.else_branch = else_branch;  // only on last elif
             }
@@ -2703,7 +2709,9 @@ static ASTNode* parse_match_statement(Parser* parser) {
             }
         }
 
+        parser->symbols.current_scope++;                            // new scope for case body
         ASTNode* body = parse_block(parser, true, "case");          // parse indented case body
+        parser_exit_scope(parser);                                  // exit case body scope
         ASTNode* case_node = ast_create_case(pattern, body,
                                              case_kw->line, case_kw->column);
 
