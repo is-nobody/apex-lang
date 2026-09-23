@@ -509,6 +509,44 @@ static void num_cache_add(CodeGenerator* cg, double value, int reg) {
     if (cg->cache_floor <= reg) cg->cache_floor = reg + 1;       // pin above cache floor
 }
 
+// looks up a string literal in the per-function cache, returns register or -1
+static int str_cache_lookup(CodeGenerator* cg, const char* value) {
+    for (int i = 0; i < cg->str_cache.count; i++) {              // scan cached entries
+        if (strcmp(cg->str_cache.values[i], value) == 0) {       // match by content
+            return cg->str_cache.regs[i];                        // return cached register
+        }
+    }
+    return -1;                                                   // not cached
+}
+
+// records a string literal and pins its register for the rest of the function
+static void str_cache_add(CodeGenerator* cg, const char* value, int reg) {
+    if (cg->str_cache.count >= 16) return;                       // cap to limit register pressure
+    if (cg->str_cache.count >= cg->str_cache.capacity) {         // need more space
+        cg->str_cache.capacity = cg->str_cache.capacity == 0 ? 8 : cg->str_cache.capacity * 2;
+        cg->str_cache.values = (char**)realloc(cg->str_cache.values,
+                                               sizeof(char*) * cg->str_cache.capacity);
+        cg->str_cache.regs   = (int*)   realloc(cg->str_cache.regs,
+                                                sizeof(int) * cg->str_cache.capacity);
+    }
+    cg->str_cache.values[cg->str_cache.count] = strdup(value);   // own a copy of the content
+    cg->str_cache.regs[cg->str_cache.count]   = reg;             // store register
+    cg->str_cache.count++;                                       // advance count
+    if (cg->cache_floor <= reg) cg->cache_floor = reg + 1;       // pin above cache floor
+}
+
+// drops every string-cache entry whose register has just been overwritten
+static void str_cache_invalidate(CodeGenerator* cg, int written_reg) {
+    for (int i = 0; i < cg->str_cache.count; i++) {
+        if (cg->str_cache.regs[i] == written_reg) {
+            free(cg->str_cache.values[i]);                               // release owned copy
+            cg->str_cache.values[i] = cg->str_cache.values[--cg->str_cache.count];
+            cg->str_cache.regs[i]   = cg->str_cache.regs[cg->str_cache.count];
+            i--;                                                         // recheck swapped-in entry
+        }
+    }
+}
+
 // looks up a previously computed arithmetic result with identical inputs
 static int imm_lvn_lookup(CodeGenerator* cg, Opcode op, int left_reg, int right_reg, int imm) {
     for (int i = 0; i < cg->imm_lvn.count; i++) {                    // scan live entries
@@ -716,6 +754,7 @@ static int emit(CodeGenerator* cg, Instruction inst, int line) {
         cg->imm_lvn.count = 0;                                             // cache is invalid across branches
     } else if (op_writes_dest_reg(inst.opcode)) {
         imm_lvn_invalidate(cg, inst.operands[0]);                          // drop entries killed by this write
+        str_cache_invalidate(cg, inst.operands[0]);                        // drop string-cache entry for this reg
     }
     return bytecode_emit_line(cg->chunk, inst, line);                      // emit with line info
 }
@@ -755,6 +794,11 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->num_cache.count    = 0;
     cg->num_cache.capacity = 0;
 
+    cg->str_cache.values   = NULL;
+    cg->str_cache.regs     = NULL;
+    cg->str_cache.count    = 0;
+    cg->str_cache.capacity = 0;
+
     cg->locals.is_integer  = NULL;                                         // allocated lazily by add_local
     cg->locals.is_number   = NULL;
 
@@ -778,6 +822,12 @@ void codegen_destroy(CodeGenerator* cg) {
 
     free(cg->num_cache.values);                                            // free numeric constant cache
     free(cg->num_cache.regs);
+
+    for (int i = 0; i < cg->str_cache.count; i++) {                        // free string constant cache
+        free(cg->str_cache.values[i]);
+    }
+    free(cg->str_cache.values);
+    free(cg->str_cache.regs);
 
     free(cg->loop_stack.break_jumps);                                      // free break jumps
     
@@ -807,12 +857,21 @@ static int codegen_literal_number(CodeGenerator* cg, ASTNode* node, int dest) {
     return dest;                                                           // return destination
 }
 
-// emits a string literal into dest (or fresh temp)
+// emits a string literal into dest (or fresh temp), reusing a cached register when possible
 static int codegen_literal_string(CodeGenerator* cg, ASTNode* node, int dest) {
+    const char* value = node->literal_string.string_value;                 // literal text
+
+    int cached = str_cache_lookup(cg, value);                              // already materialised?
+    if (cached >= 0) {
+        if (dest < 0 || dest == cached) return cached;                     // reuse cached register
+        emit(cg, INST(OP_MOVE, dest, cached, 0), node->line);              // copy into requested dest
+        return dest;                                                       // return destination
+    }
+
     if (dest < 0) dest = alloc_register(cg);                               // allocate if no hint
-    int const_idx = bytecode_add_string_constant(cg->chunk,                // add string constant
-                                                 node->literal_string.string_value);
+    int const_idx = bytecode_add_string_constant(cg->chunk, value);        // add string constant
     emit(cg, INST(OP_LOAD_CONST, dest, const_idx, 0), node->line);         // load constant
+    str_cache_add(cg, value, dest);                                        // cache the destination register
     return dest;                                                           // return destination
 }
 
@@ -2624,6 +2683,10 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     int* prev_num_regs = cg->num_cache.regs;                                 // save outer numeric cache
     int prev_num_count = cg->num_cache.count;                                // save outer numeric cache
     int prev_num_capacity = cg->num_cache.capacity;                          // save outer numeric cache
+    char** prev_str_values = cg->str_cache.values;                           // save outer string cache
+    int*   prev_str_regs   = cg->str_cache.regs;
+    int    prev_str_count  = cg->str_cache.count;
+    int    prev_str_capacity = cg->str_cache.capacity;
     int saved_count = cg->locals.count;                                      // save local count
     char** saved_names = NULL;                                               // saved names
     int* saved_regs = NULL;                                                  // saved registers
@@ -2665,6 +2728,10 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     cg->num_cache.regs = NULL;
     cg->num_cache.count = 0;
     cg->num_cache.capacity = 0;
+    cg->str_cache.values = NULL;                                             // fresh string cache
+    cg->str_cache.regs = NULL;
+    cg->str_cache.count = 0;
+    cg->str_cache.capacity = 0;
 
     for (int i = 0; i < param_count; i++) {                                 // parameters
         ASTNode* param = node->function_decl.params->nodes[i];              // param node
@@ -2726,12 +2793,23 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     cg->current_function_has_nested = prev_has_nested;                       // restore nested flag
     cg->register_floor = prev_register_floor;                                // restore register floor
     cg->cache_floor = prev_cache_floor;                                      // restore cache floor
-    free(cg->num_cache.values);                                              // release fn-local cache
+    free(cg->num_cache.values);                                              // release fn-local numeric cache
     free(cg->num_cache.regs);
     cg->num_cache.values = prev_num_values;                                  // restore outer cache
     cg->num_cache.regs = prev_num_regs;
     cg->num_cache.count = prev_num_count;
     cg->num_cache.capacity = prev_num_capacity;
+
+    for (int i = 0; i < cg->str_cache.count; i++) {                          // release fn-local string cache
+        free(cg->str_cache.values[i]);
+    }
+    free(cg->str_cache.values);
+    free(cg->str_cache.regs);
+    cg->str_cache.values = prev_str_values;                                  // restore outer string cache
+    cg->str_cache.regs = prev_str_regs;
+    cg->str_cache.count = prev_str_count;
+    cg->str_cache.capacity = prev_str_capacity;
+
     cg->current_function_has_nested = prev_has_nested;                       // restore nested flag
 
     bytecode_patch_jump(cg->chunk, jump_over, bytecode_current_offset(cg->chunk));  // patch jump

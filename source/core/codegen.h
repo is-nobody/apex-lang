@@ -39,6 +39,13 @@ typedef struct {
     } num_cache;
 
     struct {
+        char**  values;      // deduped string literals (owned copies), reused across statements
+        int*    regs;        // register holding each cached string
+        int     count;       // number of cached strings
+        int     capacity;    // allocated capacity of values/regs
+    } str_cache;
+
+    struct {
         struct {
             Opcode op;        // arithmetic opcode that produced this value
             int left_reg;     // left operand register
