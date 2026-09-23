@@ -81,7 +81,7 @@ No project setup, no manifest, no dependency tree. From a single script to a ful
 ## Documentation
 Each of the documents explains variables, data types, operators, control flow, functions, imports, and built-in libraries.
 
-- **[Apex Reference Manual for Beginners](resources/RM_fBeginners.md)** — Excellent for beginners in programming, with a detailed explanation of each topic.
+- **[Apex: Pain-Free Programming](resources/Apex_Pain-Free_Programming.md)** — Excellent for beginners in programming, with a detailed explanation of each topic.
 - **[Apex Express Course for Developers](resources/EC_fDevelopers.md)** — Excellent for developers, offering minimal and clear coverage of each topic.
 - **[Library Reference](resources/Library_Reference.md)** — The standard library, module by module.
 
