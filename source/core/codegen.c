@@ -1371,6 +1371,28 @@ static bool is_integer_expression(CodeGenerator* cg, ASTNode* node) {
     }
 }
 
+// syntactic equality for the subset of nodes that appear in identities
+static bool ast_same_expr(ASTNode* a, ASTNode* b) {
+    if (a == b) return true;                                    // same pointer
+    if (!a || !b) return false;                                 // one is null
+    if (a->type != b->type) return false;                       // different kinds
+    switch (a->type) {
+        case AST_IDENTIFIER:
+            return strcmp(a->identifier.name, b->identifier.name) == 0;
+        case AST_LITERAL_NUMBER:
+            return a->literal_number.number_value == b->literal_number.number_value;
+        case AST_LITERAL_STRING:
+            return strcmp(a->literal_string.string_value,
+                          b->literal_string.string_value) == 0;
+        case AST_LITERAL_BOOL:
+            return a->literal_bool.bool_value == b->literal_bool.bool_value;
+        case AST_LITERAL_NONE:
+            return true;
+        default:
+            return false;                                       // deeper shapes: give up
+    }
+}
+
 // checks whether `node` is a two-part interpolation "literal{expr}";
 // returns the constant pool index of the literal prefix, or -1.
 // does not emit any code and does not allocate registers.
@@ -1478,6 +1500,112 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
                 bytecode_patch_jump(cg->chunk, jump_idx, bytecode_current_offset(cg->chunk));  // patch skip
 
                 return result_reg;                                                   // return result
+            }
+
+            // algebraic identities (run AFTER constant folding)
+            {
+                ApexTokenType bop = node->binary.op;
+                double lv, rv;
+                bool lconst = try_fold_number(node->binary.left,  &lv);
+                bool rconst = try_fold_number(node->binary.right, &rv);
+
+                switch (bop) {
+                    // x + 0 = x, 0 + x = x  (holds for ALL values incl. none)
+                    case TOKEN_PLUS:
+                        if (rconst && rv == 0.0)
+                            return codegen_expression_into(cg, node->binary.left,  dest_hint);
+                        if (lconst && lv == 0.0)
+                            return codegen_expression_into(cg, node->binary.right, dest_hint);
+                        break;
+
+                    // x - 0 = x  (holds for ALL values incl. none)
+                    case TOKEN_MINUS:
+                        if (rconst && rv == 0.0)
+                            return codegen_expression_into(cg, node->binary.left,  dest_hint);
+                        // 0 - x = -x  (safe only when x is a number)
+                        if (lconst && lv == 0.0 &&
+                            is_number_expression(cg, node->binary.right)) {
+                            int op_reg = codegen_expression(cg, node->binary.right);
+                            int res    = dest_hint >= 0 ? dest_hint : alloc_register(cg);
+                            emit(cg, INST(OP_NEG, res, op_reg, 0), node->line);
+                            free_register(cg, op_reg);
+                            return res;
+                        }
+                        // x - x = 0  (safe only when x is a number)
+                        if (ast_same_expr(node->binary.left, node->binary.right) &&
+                            is_number_expression(cg, node->binary.left)) {
+                            int res = dest_hint >= 0 ? dest_hint : alloc_register(cg);
+                            emit(cg, INST(OP_LOAD_NUM_IMM, res, 0, 0), node->line);
+                            return res;
+                        }
+                        break;
+
+                    // x * 1 = x, 1 * x = x  (holds for ALL values incl. none)
+                    case TOKEN_STAR:
+                        if (rconst && rv == 1.0)
+                            return codegen_expression_into(cg, node->binary.left,  dest_hint);
+                        if (lconst && lv == 1.0)
+                            return codegen_expression_into(cg, node->binary.right, dest_hint);
+                        // x * 0 = 0, 0 * x = 0  (safe only when x is a number)
+                        if (rconst && rv == 0.0 &&
+                            is_number_expression(cg, node->binary.left)) {
+                            int res = dest_hint >= 0 ? dest_hint : alloc_register(cg);
+                            emit(cg, INST(OP_LOAD_NUM_IMM, res, 0, 0), node->line);
+                            return res;
+                        }
+                        if (lconst && lv == 0.0 &&
+                            is_number_expression(cg, node->binary.right)) {
+                            int res = dest_hint >= 0 ? dest_hint : alloc_register(cg);
+                            emit(cg, INST(OP_LOAD_NUM_IMM, res, 0, 0), node->line);
+                            return res;
+                        }
+                        break;
+
+                    // x / 1 = x  (holds for ALL values incl. none)
+                    case TOKEN_SLASH:
+                        if (rconst && rv == 1.0)
+                            return codegen_expression_into(cg, node->binary.left,  dest_hint);
+                        break;
+
+                    // x == x = true, x != x = false, x <= x = true, x >= x = true,
+                    // x < x = false, x > x = false   (safe only when x is a number)
+                    case TOKEN_EQUAL_EQUAL:
+                        if (ast_same_expr(node->binary.left, node->binary.right) &&
+                            is_number_expression(cg, node->binary.left)) {
+                            int res = dest_hint >= 0 ? dest_hint : alloc_register(cg);
+                            emit(cg, INST(OP_LOAD_BOOL, res, 1, 0), node->line);
+                            return res;
+                        }
+                        break;
+                    case TOKEN_NOT_EQUAL:
+                        if (ast_same_expr(node->binary.left, node->binary.right) &&
+                            is_number_expression(cg, node->binary.left)) {
+                            int res = dest_hint >= 0 ? dest_hint : alloc_register(cg);
+                            emit(cg, INST(OP_LOAD_BOOL, res, 0, 0), node->line);
+                            return res;
+                        }
+                        break;
+                    case TOKEN_LESS_EQUAL:
+                    case TOKEN_GREATER_EQUAL:
+                        if (ast_same_expr(node->binary.left, node->binary.right) &&
+                            is_number_expression(cg, node->binary.left)) {
+                            int res = dest_hint >= 0 ? dest_hint : alloc_register(cg);
+                            emit(cg, INST(OP_LOAD_BOOL, res, 1, 0), node->line);
+                            return res;
+                        }
+                        break;
+                    case TOKEN_LESS:
+                    case TOKEN_GREATER:
+                        if (ast_same_expr(node->binary.left, node->binary.right) &&
+                            is_number_expression(cg, node->binary.left)) {
+                            int res = dest_hint >= 0 ? dest_hint : alloc_register(cg);
+                            emit(cg, INST(OP_LOAD_BOOL, res, 0, 0), node->line);
+                            return res;
+                        }
+                        break;
+
+                    default: break;
+                }
             }
             
             // try IMM-optimized arithmetic when the right operand folds to a numeric constant
@@ -2073,52 +2201,62 @@ static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
     
     int else_addr = bytecode_current_offset(cg->chunk);                      // else address
     bytecode_patch_jump(cg->chunk, jump_to_else, else_addr);                 // patch jump
-    
-    LocalNumSnap after_else;                                                 // state at else exit
-    bool has_else = false;                                                   // whether else emitted
+
     bool has_elif = (node->if_stmt.elif_chain != NULL);                      // elif chain present
-    
+
+    // running intersection of every branch exit; starts as then-branch's exit
+    LocalNumSnap merged = after_then;
+
     if (has_elif) {
-        restore_numbers(cg, before);                                         // conservative: reset for elif chain
         ASTNode* elif = node->if_stmt.elif_chain;                            // else if chain
-        while (elif) {                                                       // iterate else if
-            int elif_cond_reg = codegen_expression(cg, elif->if_stmt.condition); // evaluate condition
-            int jump_to_next = bytecode_current_offset(cg->chunk);           // jump to next
-            emit(cg, INST(OP_JUMP_IF_FALSE, 0, elif_cond_reg, 0), elif->line);   // jump if false
-            free_register(cg, elif_cond_reg);                                // free condition
-            
+        while (elif) {
+            restore_numbers(cg, entry);                                      // reset for this elif body
+
+            int elif_cond_reg = codegen_expression(cg, elif->if_stmt.condition);
+            int jump_to_next = bytecode_current_offset(cg->chunk);
+            emit(cg, INST(OP_JUMP_IF_FALSE, 0, elif_cond_reg, 0), elif->line);
+            free_register(cg, elif_cond_reg);
+
             codegen_block(cg, elif->if_stmt.then_branch);                    // emit else if body
-            
+
+            LocalNumSnap after_elif = snap_numbers(cg);                      // this branch's exit
+            merge_numbers(cg, merged, after_elif);                           // intersect into cg->locals
+            free_snap(merged);                                               // release previous merged
+            free_snap(after_elif);
+            merged = snap_numbers(cg);                                       // capture the intersection
+
             bool elif_is_last = (elif->if_stmt.elif_chain == NULL) && (else_branch == NULL);
             if (!elif_is_last) {                                             // not the trailing branch
-                end_jumps[end_jump_count++] = bytecode_current_offset(cg->chunk);  // save position
-                emit(cg, INST(OP_JUMP, 0, 0, 0), elif->line);                // jump to end
+                end_jumps[end_jump_count++] = bytecode_current_offset(cg->chunk);
+                emit(cg, INST(OP_JUMP, 0, 0, 0), elif->line);
             }
-            
-            int next_addr = bytecode_current_offset(cg->chunk);              // next address
-            bytecode_patch_jump(cg->chunk, jump_to_next, next_addr);         // patch jump
-            
+
+            int next_addr = bytecode_current_offset(cg->chunk);
+            bytecode_patch_jump(cg->chunk, jump_to_next, next_addr);
+
             elif = elif->if_stmt.elif_chain;                                 // next else if
         }
     }
-    
+
     if (else_branch) {                                                       // has else
-        if (!has_elif) restore_numbers(cg, entry);                           // reset before else when no elif
+        restore_numbers(cg, entry);                                          // reset before else
         codegen_block(cg, else_branch);                                      // emit else
-        after_else = snap_numbers(cg);                                       // capture else exit state
-        has_else = true;                                                     // mark else emitted
-    }
-    
-    if (has_else && !has_elif) {                                             // both if and else present
-        merge_numbers(cg, after_then, after_else);                           // intersect then/else states
-        free_snap(after_else);                                               // release else snapshot
+        LocalNumSnap after_else = snap_numbers(cg);
+        merge_numbers(cg, merged, after_else);                               // intersect else into merged
+        free_snap(merged);
+        free_snap(after_else);
+        merged = snap_numbers(cg);
     } else {
-        restore_numbers(cg, before);                                         // conservative: unknown after if
+        // no else: the fall-through (pre-branch `entry`) is another exit
+        merge_numbers(cg, merged, entry);
+        free_snap(merged);
+        merged = snap_numbers(cg);
     }
-    free_snap(after_then);                                                   // release then snapshot
+
+    free_snap(merged);                                                       // final merged state
     free_snap(entry);                                                        // release entry snapshot
     free_snap(before);                                                       // release outer snapshot
-    
+
     int end_addr = bytecode_current_offset(cg->chunk);                       // end address
     for (int i = 0; i < end_jump_count; i++) {                               // patch all jumps
         bytecode_patch_jump(cg->chunk, end_jumps[i], end_addr);
