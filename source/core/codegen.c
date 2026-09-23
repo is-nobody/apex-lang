@@ -783,8 +783,156 @@ static int locals_high_water(CodeGenerator* cg) {
     return highest + 1;                                        // next free index
 }
 
+// pure ops: writes operands[0] with no observable side effect
+static bool op_is_pure(Opcode op) {
+    switch (op) {
+        case OP_MOVE: case OP_NEG: case OP_INC: case OP_DEC:
+        case OP_LOAD_CONST: case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:
+        case OP_LOAD_BOOL: case OP_LOAD_NONE: case OP_LOAD_GLOBAL:
+        case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
+        case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:
+        case OP_DIV_IMM: case OP_MOD_IMM:
+        case OP_CMP_EQ: case OP_CMP_NEQ:
+        case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
+        case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
+        case OP_AND: case OP_OR: case OP_NOT:
+        case OP_TABLE_GET: case OP_TABLE_GET_CONST: case OP_TABLE_GET_INT:
+        case OP_CONCAT: case OP_NEW_TABLE:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// does inst read `reg` as a source operand? op-specific, respects operand types
+static bool inst_reads_reg(Instruction* inst, int reg) {
+    switch (inst->opcode) {
+        case OP_LOAD_NUM_IMM: case OP_LOAD_NUM: case OP_LOAD_CONST:
+        case OP_LOAD_BOOL: case OP_LOAD_NONE: case OP_LOAD_GLOBAL:
+            return false;                                       // no source registers
+        case OP_MOVE: case OP_NEG: case OP_ADD: case OP_SUB:
+        case OP_MUL: case OP_DIV: case OP_MOD:
+        case OP_CMP_EQ: case OP_CMP_NEQ:
+        case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
+        case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
+        case OP_AND: case OP_OR: case OP_CONCAT:
+            return inst->operands[1] == reg || inst->operands[2] == reg;
+        case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:
+        case OP_DIV_IMM: case OP_MOD_IMM:
+            return inst->operands[1] == reg;                    // operand 2 is immediate
+        case OP_INC: case OP_DEC:
+            return inst->operands[0] == reg;                    // reads its own dest
+        case OP_TABLE_GET: case OP_TABLE_GET_NUM:
+            return inst->operands[1] == reg || inst->operands[2] == reg;
+        case OP_TABLE_GET_INT:
+            return inst->operands[1] == reg;
+        default:
+            return true;                                        // conservative
+    }
+}
+
+// true when some jump in the chunk targets `target`
+static bool code_has_jump_to(CodeGenerator* cg, int target) {
+    for (int i = 0; i < cg->chunk->code_count; i++) {
+        Opcode op = cg->chunk->code[i].opcode;
+        if (op == OP_JUMP ||
+            (op >= OP_JUMP_IF_FALSE && op <= OP_JUMP_IF_GTE) ||
+            (op >= OP_JUMP_IF_EQ_IMM && op <= OP_JUMP_IF_GTE_IMM) ||
+            op == OP_JUMP_MATCH_NUM || op == OP_JUMP_MATCH_STR ||
+            op == OP_JUMP_MATCH_BOOL || op == OP_JUMP_MATCH_NONE) {
+            if (cg->chunk->code[i].operands[0] == target) return true;
+        }
+    }
+    return false;
+}
+
+// fuse this instruction into the previous one; returns fused pc or -1
+static int try_peephole_fuse(CodeGenerator* cg, Instruction* inst) {
+    if (cg->chunk->code_count == 0) return -1;
+    Instruction* prev = &cg->chunk->code[cg->chunk->code_count - 1];
+    int d = inst->operands[0], a = inst->operands[1], b = inst->operands[2];
+
+    // bail when a jump lands on the slot we would drop
+    if (code_has_jump_to(cg, cg->chunk->code_count)) return -1;
+
+    // LOAD_NONE d + RETURN|RETURN_NUM|RETURN_BOOL d  ->  RETURN_NONE
+    if ((inst->opcode == OP_RETURN || inst->opcode == OP_RETURN_NUM ||
+         inst->opcode == OP_RETURN_BOOL) &&
+        prev->opcode == OP_LOAD_NONE && prev->operands[0] == d) {
+        prev->opcode = OP_RETURN_NONE;
+        prev->operands[0] = prev->operands[1] = prev->operands[2] = 0;
+        return cg->chunk->code_count - 1;
+    }
+
+    // LOAD_NUM_IMM d,k + RETURN|RETURN_NUM d  ->  RETURN_NUM_IMM k
+    if ((inst->opcode == OP_RETURN || inst->opcode == OP_RETURN_NUM) &&
+        prev->opcode == OP_LOAD_NUM_IMM && prev->operands[0] == d &&
+        prev->operands[1] >= 0 && prev->operands[1] <= 65535) {
+        int k = prev->operands[1];
+        prev->opcode = OP_RETURN_NUM_IMM;
+        prev->operands[0] = 0;
+        prev->operands[1] = k;
+        prev->operands[2] = 0;
+        return cg->chunk->code_count - 1;
+    }
+
+    // MOVE d,a + RETURN|RETURN_NUM|RETURN_BOOL d  ->  RETURN* a
+    if ((inst->opcode == OP_RETURN || inst->opcode == OP_RETURN_NUM ||
+         inst->opcode == OP_RETURN_BOOL) &&
+        prev->opcode == OP_MOVE && prev->operands[0] == d &&
+        prev->operands[1] != d) {
+        int ma = prev->operands[1];
+        prev->opcode = inst->opcode;
+        prev->operands[0] = ma;
+        prev->operands[1] = prev->operands[2] = 0;
+        return cg->chunk->code_count - 1;
+    }
+
+    // <any pure write> + RETURN_NONE  ->  RETURN_NONE
+    if (inst->opcode == OP_RETURN_NONE && op_is_pure(prev->opcode)) {
+        prev->opcode = OP_RETURN_NONE;
+        prev->operands[0] = prev->operands[1] = prev->operands[2] = 0;
+        return cg->chunk->code_count - 1;
+    }
+
+    // <pure write to d> + <write to d not reading d>  ->  drop prev, keep inst
+    if (op_writes_dest_reg(inst->opcode) && op_is_pure(prev->opcode) &&
+        op_writes_dest_reg(prev->opcode) && prev->operands[0] == d &&
+        !inst_reads_reg(inst, d)) {
+        prev->opcode = inst->opcode;
+        prev->operands[0] = d;
+        prev->operands[1] = a;
+        prev->operands[2] = b;
+        return cg->chunk->code_count - 1;
+    }
+
+    // MOVE d,a + <write d reading d>  ->  substitute a for d in sources
+    if (prev->opcode == OP_MOVE && op_writes_dest_reg(inst->opcode) &&
+        prev->operands[0] == d && prev->operands[1] != d) {
+        int ma = prev->operands[1];
+        prev->opcode = inst->opcode;
+        prev->operands[0] = d;
+        prev->operands[1] = (a == d) ? ma : a;
+        prev->operands[2] = (b == d) ? ma : b;
+        return cg->chunk->code_count - 1;
+    }
+
+    return -1;
+}
+
 // emits an instruction with source line info for debugging
 static int emit(CodeGenerator* cg, Instruction inst, int line) {
+    // fold this instruction into the previous one; on success re-run cache invalidation on the fused op
+    int fused_idx = try_peephole_fuse(cg, &inst);
+    if (fused_idx >= 0) {
+        Instruction* fused = &cg->chunk->code[fused_idx];
+        if (op_writes_dest_reg(fused->opcode)) {
+            imm_lvn_invalidate(cg, fused->operands[0]);
+            str_cache_invalidate(cg, fused->operands[0]);
+        }
+        return fused_idx;
+    }
+
     if (inst.opcode == OP_JUMP ||                                          // jump = control-flow merge
         (inst.opcode >= OP_JUMP_IF_FALSE && inst.opcode <= OP_JUMP_IF_GTE) ||
         (inst.opcode >= OP_JUMP_IF_EQ_IMM && inst.opcode <= OP_JUMP_IF_GTE_IMM) ||
@@ -2905,7 +3053,7 @@ static void codegen_return(CodeGenerator* cg, ASTNode* node) {
         ASTNode* val = node->return_stmt.value;                              // value node
         bool is_number = false;                                              // guaranteed number flag
         bool is_bool = false;                                                // guaranteed boolean flag
-        
+
         if (val->type == AST_LITERAL_NUMBER) {                               // number literal
             is_number = true;
         } else if (val->type == AST_LITERAL_BOOL) {                          // boolean literal
@@ -2923,6 +3071,12 @@ static void codegen_return(CodeGenerator* cg, ASTNode* node) {
         } else if (val->type == AST_UNARY) {                                 // unary op
             if (val->unary.op == TOKEN_MINUS) is_number = true;              // unary minus → number
             else if (val->unary.op == TOKEN_NOT) is_bool = true;             // not → bool
+        } else if (val->type == AST_IDENTIFIER && !is_bool) {                // tracked local?
+            int slot = find_local_slot(cg, val->identifier.name);
+            if (slot >= 0) {
+                if (cg->locals.is_number[slot])  is_number = true;           // proven number
+                // is_bool is not tracked in the local table; leave it false
+            }
         }
         
         if (is_bool) {                                                       // guaranteed boolean
