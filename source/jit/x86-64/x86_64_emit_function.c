@@ -203,6 +203,29 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         Opcode op = inst->opcode;                                // opcode shorthand
         bool did_flush = false;                                  // cache flushed this step
 
+        // dead xmm write: pure op writing to a slot never read before its next overwrite
+        if (op_writes_dest(op) &&
+            (op == OP_MOVE || op == OP_LOAD_NUM_IMM || op == OP_LOAD_NUM ||
+             op == OP_LOAD_BOOL || op == OP_LOAD_NONE ||
+             op == OP_ADD || op == OP_SUB || op == OP_MUL || op == OP_DIV ||
+             op == OP_ADD_IMM || op == OP_SUB_IMM || op == OP_MUL_IMM ||
+             op == OP_DIV_IMM || op == OP_NEG || op == OP_INC || op == OP_DEC ||
+             op == OP_CMP_EQ || op == OP_CMP_NEQ ||
+             op == OP_CMP_EQ_NUM || op == OP_CMP_NEQ_NUM ||
+             op == OP_CMP_LT || op == OP_CMP_GT ||
+             op == OP_CMP_LTE || op == OP_CMP_GTE ||
+             op == OP_TABLE_GET || op == OP_TABLE_GET_INT || op == OP_TABLE_GET_NUM) &&
+            d >= 0 && d < JIT_MAX_SLOTS &&
+            !slot_read_before_write(chunk, pc + 1, end, d)) {
+            int xi = cache.slot_reg[d];
+            if (xi >= 0) {                                       // invalidate without spill
+                cache.reg_slot[xi] = -1;
+                cache.slot_reg[d]  = -1;
+                cache.slot_dirty[d] = false;
+            }
+            continue;                                            // skip to next instruction
+        }
+
         bool prefer_xmm0 = false;                                // next op returns this dest?
         if (pc + 1 < end) {                                      // next instruction exists
             Instruction* nx = &chunk->code[pc + 1];

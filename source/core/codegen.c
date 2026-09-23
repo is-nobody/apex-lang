@@ -293,6 +293,45 @@ static bool ast_unsafe_direct_assign(ASTNode* node, const char* name) {
     }
 }
 
+// true when evaluating `node` can have an observable effect (call, await,
+// nested assignment). Pure allocations and reads do not count.
+static bool codegen_expr_has_side_effect(ASTNode* node) {
+    if (!node) return false;
+    switch (node->type) {
+        case AST_CALL:
+        case AST_AWAIT:
+        case AST_ASSIGN:
+        case AST_VAR_DECL:
+            return true;
+        case AST_BINARY:
+            return codegen_expr_has_side_effect(node->binary.left) ||
+                   codegen_expr_has_side_effect(node->binary.right);
+        case AST_UNARY:
+            return codegen_expr_has_side_effect(node->unary.operand);
+        case AST_INDEX_ACCESS:
+            return codegen_expr_has_side_effect(node->access.object);
+        case AST_STRING_INTERP:
+            for (int i = 0; i < node->string_interp.parts->count; i++)
+                if (codegen_expr_has_side_effect(node->string_interp.parts->nodes[i])) return true;
+            return false;
+        case AST_TABLE_LITERAL:
+            for (int i = 0; i < node->table_literal.items->count; i++)
+                if (codegen_expr_has_side_effect(node->table_literal.items->nodes[i])) return true;
+            for (int i = 0; i < node->table_literal.key_values->count; i++) {
+                ASTNode* kv = node->table_literal.key_values->nodes[i];
+                if (codegen_expr_has_side_effect(kv->binary.left) ||
+                    codegen_expr_has_side_effect(kv->binary.right)) return true;
+            }
+            return false;
+        case AST_TERNARY:
+            return codegen_expr_has_side_effect(node->ternary.condition) ||
+                   codegen_expr_has_side_effect(node->ternary.true_expr) ||
+                   codegen_expr_has_side_effect(node->ternary.false_expr);
+        default:
+            return false;                                    // identifiers, literals: pure
+    }
+}
+
 // checks if a binary operator always produces a number result
 static bool is_arithmetic_op(ApexTokenType op) {
     return op == TOKEN_PLUS || op == TOKEN_MINUS || op == TOKEN_STAR ||
@@ -2216,6 +2255,15 @@ static void codegen_var_decl(CodeGenerator* cg, ASTNode* node) {
         }
     }
 
+    // dce: dead store with a side-effect-free rhs
+    bool can_dce = (cg->current_function != 0) &&
+                   (!cg->current_function_has_nested) &&
+                   is_local_dead_after_current_stmt(cg, node->var_assign.name) &&
+                   !codegen_expr_has_side_effect(node->var_assign.value);
+    if (can_dce) {
+        return;                                                              // nothing observable happens
+    }
+
     int local_reg = add_local(cg, node->var_assign.name);                    // allocate local first
     int slot = find_local_slot(cg, node->var_assign.name);                   // slot index for flag update
 
@@ -2340,6 +2388,15 @@ static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node, int dest_hint) 
 
 // wrapper for assignments that discards the result register
 static void codegen_assign(CodeGenerator* cg, ASTNode* node) {
+    // dce: bare assignment statement whose local is dead and whose rhs is pure
+    if (node->var_assign.name && !node->var_assign.access_path &&
+        cg->current_function != 0 &&
+        !cg->current_function_has_nested &&
+        is_local_dead_after_current_stmt(cg, node->var_assign.name) &&
+        !codegen_expr_has_side_effect(node->var_assign.value)) {
+        return;
+    }
+
     int reg = codegen_assign_expr(cg, node, -1);                             // fresh temp, no hint
     free_register(cg, reg);                                                  // discard result
 }
