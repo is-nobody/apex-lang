@@ -52,24 +52,43 @@ constant IGNORE_FILES = [
     ".gitmodules", ".editorconfig", ".prettierrc", ".eslintrc", ".babelrc"
 ]
 
-// shared mutable state; tables are reference types, so updating
-// state["output_name"] from any function is visible everywhere
-state = ["output_name" = ""]
+// precomputed O(1) lookup sets; built once so per-file checks skip the linear scan
+IGNORE_DIR_SET = []
+IGNORE_EXT_SET = []
+IGNORE_FILE_SET = []
 
-// case-insensitive membership test against a table of strings
-function contains_ci(haystack, needle)
-    needle_lower = string.lower(needle)
-    for item in haystack
-        if string.lower(item) == needle_lower
-            return true
-    return false
+for d in IGNORE_DIRS
+    IGNORE_DIR_SET[d] = true
 
-// case-sensitive membership test against a table of strings
-function contains(haystack, needle)
-    for item in haystack
-        if item == needle
-            return true
-    return false
+for e in IGNORE_EXTS
+    IGNORE_EXT_SET[string.lower(e)] = true
+
+for f in IGNORE_FILES
+    IGNORE_FILE_SET[f] = true
+
+// shared mutable state; chunk_count lives here so reassignments inside functions stick
+state = ["output_name" = "", "chunk_count" = 0]
+
+// buffered output; flushed in batches, tracked by state["chunk_count"]
+chunks = []
+
+// flush the output buffer to the output file and clear it
+function flush()
+    if state["chunk_count"] == 0
+        return none
+    os.append(state["output_name"], string.join(chunks, ""))
+    table.clear(chunks)
+    state["chunk_count"] = 0
+    return none
+
+// append a string to the output buffer; flushes when the batch is full
+function emit(s)
+    n = state["chunk_count"] + 1
+    chunks[n] = s
+    state["chunk_count"] = n
+    if n >= 500
+        flush()
+    return none
 
 // true when the directory name should be skipped
 function should_ignore_dir(name)
@@ -77,35 +96,35 @@ function should_ignore_dir(name)
     if n > 0
         if string.slice(name, 1, 1) == "."
             return true
-    return contains(IGNORE_DIRS, name)
+    return table.has(IGNORE_DIR_SET, name)
 
 // extract the extension (text after the last dot), or "" if none
 function get_ext(filename)
-    n = string.length(filename)
-    for i = n, 1, -1
-        if string.slice(filename, i, i) == "."
-            return string.slice(filename, i + 1, n)
-    return ""
+    parts = string.split(filename, ".")
+    n = table.size(parts)
+    if n <= 1
+        return ""
+    return parts[n]
 
-// true when the extension is in the ignore list
+// true when the extension is in the ignore list (case-insensitive)
 function should_ignore_ext(ext)
     if string.length(ext) == 0
         return false
-    return contains_ci(IGNORE_EXTS, ext)
+    return table.has(IGNORE_EXT_SET, string.lower(ext))
 
 // true when the filename is in the ignore list (or is the output file)
 function should_ignore_file(name)
     if name == state["output_name"]
         return true
-    return contains(IGNORE_FILES, name)
+    return table.has(IGNORE_FILE_SET, name)
 
 // return the final component of a path (after the last slash)
 function basename(path)
-    n = string.length(path)
-    for i = n, 1, -1
-        if string.slice(path, i, i) == "/"
-            return string.slice(path, i + 1, n)
-    return path
+    parts = string.split(path, "/")
+    n = table.size(parts)
+    if n == 0
+        return path
+    return parts[n]
 
 // read a file, apply filters, and append it to the output markdown
 function process_file(full_path, rel_path)
@@ -121,18 +140,17 @@ function process_file(full_path, rel_path)
     if content == none
         return none
 
-    header = "`{rel_path}`\n\n```{ext}\n"
-    os.append(state["output_name"], header)
-    os.append(state["output_name"], content)
+    emit("`{rel_path}`\n\n```{ext}\n")
+    emit(content)
 
     // ensure file body ends with a newline before the closing fence
     n = string.length(content)
     if n > 0
         last = string.slice(content, n, n)
         if last != "\n"
-            os.append(state["output_name"], "\n")
+            emit("\n")
 
-    os.append(state["output_name"], "```\n\n")
+    emit("```\n\n")
     return none
 
 // recursively walk a directory tree
@@ -145,8 +163,6 @@ function walk_dir(base, rel)
 
     for i = 1, count
         name = entries[i]
-        if string.length(name) == 0
-            continue
 
         // declare paths before the branch so both arms can see them
         rel_path = name
@@ -154,13 +170,11 @@ function walk_dir(base, rel)
             rel_path = "{rel}/{name}"
         full_path = "{base}/{name}"
 
-        is_dir = os.is_folder(full_path)
-        is_reg = os.is_file(full_path)
-
-        if is_dir == true
+        // one stat per entry; process_file bails out on anything os.read cannot read
+        if os.is_folder(full_path) == true
             if should_ignore_dir(name) != true
                 walk_dir(full_path, rel_path)
-        else if is_reg == true
+        else
             process_file(full_path, rel_path)
     return none
 
@@ -175,10 +189,14 @@ function main()
     state["output_name"] = "{base}.md"
 
     // create the output file with its title (truncates any existing content)
-    os.write(state["output_name"], "# {base}\n\n")
+    os.write(state["output_name"], "")
+    emit("# {base}\n\n")
 
     // walk the tree starting at the current directory
     walk_dir(cwd, "")
+
+    // flush whatever is left in the buffer
+    flush()
 
     out = state["output_name"]
     os.output("Done -> {out}")
