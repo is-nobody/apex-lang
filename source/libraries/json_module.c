@@ -51,9 +51,9 @@ static void sb_free(StringBuilder* sb) {
     sb->length = 0;                                                               // reset length
 }
 
-// skips whitespace in a json string
+// skips whitespace in a json string (only space, tab, newline, carriage return)
 static void skip_ws(const char** s) {
-    while (**s && isspace((unsigned char)**s)) (*s)++;                            // skip whitespace chars
+    while (**s == ' ' || **s == '\t' || **s == '\n' || **s == '\r') (*s)++;      // skip json whitespace
 }
 
 // parses a json string with escape sequence handling
@@ -72,8 +72,9 @@ static bool parse_string_raw(const char** s, char** out_str, int* out_len) {
     }
     if (**s != '"') return false;                                                 // missing closing quote
     
-    char* buffer = (char*)malloc(len + 1);                                        // allocate buffer
+    char* buffer = (char*)malloc(len * 4 + 1);                                    // allocate buffer with headroom
     if (!buffer) return false;                                                    // allocation failed
+    int buf_size = len * 4;                                                       // usable bytes (excluding null)
     
     const char* p = start;                                                        // parse pointer
     int idx = 0;                                                                  // output index
@@ -89,7 +90,60 @@ static bool parse_string_raw(const char** s, char** out_str, int* out_len) {
                 case 'n': buffer[idx++] = '\n'; break;                            // newline
                 case 'r': buffer[idx++] = '\r'; break;                            // carriage return
                 case 't': buffer[idx++] = '\t'; break;                            // tab
-                case 'u': buffer[idx++] = '?'; p += 4; break;                     // unicode (simplified)
+                case 'u': {                                                       // unicode escape \uXXXX
+                    unsigned int cp = 0;                                          // parsed codepoint
+                    bool ok = (*s - p) >= 5;                                      // room for 4 hex digits?
+                    for (int i = 1; ok && i <= 4; i++) {                          // read 4 hex digits
+                        char h = p[i];                                            // next hex digit
+                        cp <<= 4;                                                 // shift left one nibble
+                        if      (h >= '0' && h <= '9') cp |= (unsigned)(h - '0'); // decimal digit
+                        else if (h >= 'a' && h <= 'f') cp |= (unsigned)(h - 'a' + 10);  // lowercase hex
+                        else if (h >= 'A' && h <= 'F') cp |= (unsigned)(h - 'A' + 10);  // uppercase hex
+                        else ok = false;                                          // invalid digit
+                    }
+                    if (!ok) cp = 0xFFFD;                                         // malformed escape
+                    if (cp >= 0xD800 && cp <= 0xDBFF) {                           // high surrogate
+                        if ((*s - p) >= 11 && p[5] == '\\' && p[6] == 'u') {      // followed by \uXXXX?
+                            unsigned int lo = 0;                                  // low surrogate
+                            bool ok2 = true;                                      // second parse ok?
+                            for (int i = 7; ok2 && i <= 10; i++) {                // read 4 more hex digits
+                                char h = p[i];                                    // next hex digit
+                                lo <<= 4;                                         // shift left one nibble
+                                if      (h >= '0' && h <= '9') lo |= (unsigned)(h - '0');
+                                else if (h >= 'a' && h <= 'f') lo |= (unsigned)(h - 'a' + 10);
+                                else if (h >= 'A' && h <= 'F') lo |= (unsigned)(h - 'A' + 10);
+                                else ok2 = false;                                 // invalid digit
+                            }
+                            if (ok2 && lo >= 0xDC00 && lo <= 0xDFFF) {            // valid surrogate pair
+                                cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                                p += 6;                                           // also skip second escape
+                            } else {
+                                cp = 0xFFFD;                                      // invalid pair
+                            }
+                        } else {
+                            cp = 0xFFFD;                                          // lone high surrogate
+                        }
+                    } else if (cp >= 0xDC00 && cp <= 0xDFFF) {                    // lone low surrogate
+                        cp = 0xFFFD;                                              // replacement char
+                    }
+                    if (cp < 0x80 && idx + 1 <= buf_size) {                       // 1-byte utf-8
+                        buffer[idx++] = (char)cp;
+                    } else if (cp < 0x800 && idx + 2 <= buf_size) {               // 2-byte utf-8
+                        buffer[idx++] = (char)(0xC0 | (cp >> 6));
+                        buffer[idx++] = (char)(0x80 | (cp & 0x3F));
+                    } else if (cp < 0x10000 && idx + 3 <= buf_size) {             // 3-byte utf-8
+                        buffer[idx++] = (char)(0xE0 | (cp >> 12));
+                        buffer[idx++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+                        buffer[idx++] = (char)(0x80 | (cp & 0x3F));
+                    } else if (idx + 4 <= buf_size) {                             // 4-byte utf-8
+                        buffer[idx++] = (char)(0xF0 | (cp >> 18));
+                        buffer[idx++] = (char)(0x80 | ((cp >> 12) & 0x3F));
+                        buffer[idx++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+                        buffer[idx++] = (char)(0x80 | (cp & 0x3F));
+                    }
+                    p += 4;                                                       // advance past hex digits
+                    break;
+                }
                 default: buffer[idx++] = *p; break;                               // unknown escape
             }
         } else {
@@ -104,13 +158,38 @@ static bool parse_string_raw(const char** s, char** out_str, int* out_len) {
     return true;                                                                  // success
 }
 
-// parses a json number
+// parses a json number using strict json grammar (no plus sign, no leading dot, no trailing dot)
 static bool parse_number(const char** s, Value* out_value) {
-    char* endptr;                                                                 // end pointer for strtod
-    double val = strtod(*s, &endptr);                                             // parse double
-    if (endptr == *s) return false;                                               // no number parsed
-    *out_value = MAKE_NUMBER(val);                                                // store as number
-    *s = endptr;                                                                  // advance pointer
+    const char* p = *s;                                                           // cursor over input
+    if (*p == '-') p++;                                                           // optional minus sign
+    if (*p == '0') {                                                              // leading zero
+        p++;                                                                      // single zero only
+    } else if (*p >= '1' && *p <= '9') {                                          // 1-9 start
+        while (*p >= '0' && *p <= '9') p++;                                       // consume digits
+    } else {
+        return false;                                                             // no integer part
+    }
+    if (*p == '.') {                                                              // fractional part
+        p++;                                                                      // consume dot
+        if (*p < '0' || *p > '9') return false;                                   // need >=1 digit
+        while (*p >= '0' && *p <= '9') p++;                                       // consume digits
+    }
+    if (*p == 'e' || *p == 'E') {                                                 // exponent part
+        p++;                                                                      // consume e/E
+        if (*p == '+' || *p == '-') p++;                                          // optional sign
+        if (*p < '0' || *p > '9') return false;                                   // need >=1 digit
+        while (*p >= '0' && *p <= '9') p++;                                       // consume digits
+    }
+    int len = (int)(p - *s);                                                      // token length
+    char local_buf[64];                                                           // stack scratch
+    char* buf = (len < (int)sizeof(local_buf))                                    // fits on stack?
+              ? local_buf : (char*)malloc((size_t)len + 1);                       // else heap
+    if (!buf) return false;                                                       // allocation failed
+    memcpy(buf, *s, len);                                                         // copy token
+    buf[len] = '\0';                                                              // null terminate
+    *out_value = MAKE_NUMBER(strtod(buf, NULL));                                  // parse as double
+    if (buf != local_buf) free(buf);                                              // release heap buffer
+    *s = p;                                                                       // advance input
     return true;                                                                  // success
 }
 
@@ -266,17 +345,46 @@ static void append_escaped(StringBuilder* sb, const char* str) {
     sb_append(sb, "\"", 1);                                                       // closing quote
 }
 
+// renders any non-string key as a NUL-terminated string for json emission
+// strings are handled by the caller directly and never reach this function
+static void key_to_cstr(Value key, char* buf, int bufsz) {
+    if (IS_NUMBER(key)) {                                                         // number key
+        double k = AS_NUMBER(key);                                                // extract number
+        if (isnan(k) || isinf(k)) {                                               // non-finite
+            snprintf(buf, bufsz, "null");                                         // json has no nan/inf
+        } else if (fabs(k) < 1e15 && k == (double)(long long)k) {                 // whole number
+            snprintf(buf, bufsz, "%lld", (long long)k);                           // integer form
+        } else {
+            snprintf(buf, bufsz, "%.17g", k);                                     // shortest round-trip
+        }
+    } else if (IS_NONE(key)) {                                                    // none key
+        snprintf(buf, bufsz, "none");                                             // serialized as "none"
+    } else if (IS_BOOL(key)) {                                                    // bool key
+        snprintf(buf, bufsz, "%s", AS_BOOL(key) ? "true" : "false");               // true/false
+    } else if (IS_FUNCTION(key)) {                                                // function key
+        snprintf(buf, bufsz, "function");                                         // placeholder
+    } else if (IS_FUTURE(key)) {                                                  // future key
+        snprintf(buf, bufsz, "future");                                           // placeholder
+    } else {                                                                      // unknown
+        snprintf(buf, bufsz, "unknown");                                          // fallback
+    }
+}
+
 // recursively encodes a vm value to json; VM-agnostic so it can run on a worker
 static void json_encode_value(Value value, StringBuilder* sb) {
     if (IS_NUMBER(value)) {                                                       // number value
         char buf[64];                                                             // buffer for number
         double num = AS_NUMBER(value);                                            // extract number
-        if (fabs(num - (long long)num) < 1e-9 && fabs(num) < 1e15) {              // integer
-            snprintf(buf, sizeof(buf), "%lld", (long long)num);                   // format as integer
+        if (isnan(num) || isinf(num)) {                                           // non-finite
+            sb_append(sb, "null", 4);                                             // json has no nan/inf
         } else {
-            snprintf(buf, sizeof(buf), "%.15g", num);                             // format as float
+            if (fabs(num) < 1e15 && fabs(num - (long long)num) < 1e-9) {          // integer
+                snprintf(buf, sizeof(buf), "%lld", (long long)num);               // format as integer
+            } else {
+                snprintf(buf, sizeof(buf), "%.17g", num);                         // shortest round-trip
+            }
+            sb_append(sb, buf, (int)strlen(buf));                                 // append number
         }
-        sb_append(sb, buf, (int)strlen(buf));                                     // append number
     } else if (IS_BOOL(value)) {                                                  // boolean value
         sb_append(sb, AS_BOOL(value) ? "true" : "false", AS_BOOL(value) ? 4 : 5); // append bool
     } else if (IS_STRING(value)) {                                                // string value
@@ -302,15 +410,13 @@ static void json_encode_value(Value value, StringBuilder* sb) {
             bool first = true;                                                    // first item flag
             
             for (int i = 0; i < t->array_count; i++) {                            // array part as key-value
-                if (!IS_BOOL(t->array_part[i]) || AS_BOOL(t->array_part[i])) {    // skip false values
-                    if (!first) sb_append(sb, ", ", 2);                           // comma separator
-                    first = false;                                                // not first anymore
-                    char key[32];                                                 // numeric key buffer
-                    snprintf(key, sizeof(key), "%d", i + 1);                      // 1-based index
-                    append_escaped(sb, key);                                      // append key
-                    sb_append(sb, ": ", 2);                                       // colon separator
-                    json_encode_value(t->array_part[i], sb);                      // encode value
-                }
+                if (!first) sb_append(sb, ", ", 2);                               // comma separator
+                first = false;                                                    // not first anymore
+                char key[32];                                                     // numeric key buffer
+                snprintf(key, sizeof(key), "%d", i + 1);                          // 1-based index
+                append_escaped(sb, key);                                          // append key
+                sb_append(sb, ": ", 2);                                           // colon separator
+                json_encode_value(t->array_part[i], sb);                          // encode value
             }
             
             for (int i = 0; i < t->capacity; i++) {                               // hash part
@@ -319,11 +425,11 @@ static void json_encode_value(Value value, StringBuilder* sb) {
                     if (!first) sb_append(sb, ", ", 2);                           // comma separator
                     first = false;                                                // not first anymore
                     if (IS_STRING(entry->key)) {                                  // string key
-                        append_escaped(sb, AS_STRING(entry->key)->chars);         // append key
-                    } else if (IS_NUMBER(entry->key)) {                           // number key
-                        char num_buf[64];                                         // number buffer
-                        snprintf(num_buf, sizeof(num_buf), "%g", AS_NUMBER(entry->key));  // format
-                        append_escaped(sb, num_buf);                              // append key
+                        append_escaped(sb, AS_STRING(entry->key)->chars);         // append key directly
+                    } else {                                                      // any other key type
+                        char key_buf[64];                                         // scratch for converted key
+                        key_to_cstr(entry->key, key_buf, sizeof(key_buf));        // stringify key
+                        append_escaped(sb, key_buf);                              // append converted key
                     }
                     sb_append(sb, ": ", 2);                                       // colon separator
                     json_encode_value(entry->value, sb);                          // encode value
@@ -343,6 +449,11 @@ static Value json_decode_impl(const char* str) {
     Value result;                                                                 // parsed result
     if (!json_parse_value(&p, &result)) {                                         // parse failed
         return MAKE_NONE();                                                       // return none
+    }
+    skip_ws(&p);                                                                  // allow trailing whitespace
+    if (*p != '\0') {                                                             // trailing garbage
+        value_decref(result);                                                     // release parsed value
+        return MAKE_NONE();                                                       // reject whole parse
     }
     return result;                                                                // return parsed value
 }
