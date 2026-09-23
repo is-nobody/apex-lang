@@ -1309,50 +1309,71 @@ bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
     int entry = info->entry_pc;                              // first body pc
     int back_edge = info->back_edge_pc;                      // jump back to entry
     int nregs = info->nregs;                                 // function frame size
-    int table_slot = info->table.slot;                       // register holding the table
+    int table_slot = info->table.slot;                       // slot holding the iterated table
     int var_reg = chunk->code[entry].operands[0];            // loop variable slot
 
-    if (table_slot < 0) return false;                        // no table detected, bail
+    if (table_slot < 0) return false;                        // no table pinned, bail
 
     int range_size = back_edge - entry + 1;
-    if (range_size <= 0) return false;                       // empty range, nothing to emit
+    if (range_size <= 0) return false;                       // empty range
     if (cb->len + (size_t)range_size * 256 + 1024 > cb->cap)
         JIT_FATAL("code buffer too small for table-iter loop at pc=%d", entry);
 
-    size_t mark = cb->len;                                   // rollback point
-    int const_slot = nregs;                                  // unused here, kept for layout parity
-    int save_slot  = nregs + 1;                              // stack slot to stash frame_reg across helper call
-    int slot_rbx   = nregs + 2;                              // rbx lives inside the frame,
-    int slot_r12   = nregs + 3;                              // above the shadow space
+    // frame layout: 0..nregs-1 bytecode slots, then per-loop scratch slots
+    //   const_slot   : 1.0 for INC/DEC
+    //   save_slot    : stash for abi->frame_reg across helper calls
+    //   slot_rbx     : caller's rbx (array_part of iterated table)
+    //   slot_r12     : caller's r12 (array_count)
+    //   slot_r13     : caller's r13 (reserved)
+    //   slot_r14     : caller's r14 (iteration counter — callee-saved)
+    //   slot_r15     : caller's r15 (NONE bit pattern — callee-saved)
+    int const_slot = nregs;
+    int save_slot  = nregs + 1;
+    int slot_rbx   = nregs + 2;
+    int slot_r12   = nregs + 3;
     int slot_r13   = nregs + 4;
-    int frame_slots = nregs + 5;
+    int slot_r14   = nregs + 5;
+    int slot_r15   = nregs + 6;
+    int frame_slots = nregs + 7;
     int base_frame = align16(8 * frame_slots);
     int frame_size = align16(base_frame + abi->frame_extra);
+
+    size_t mark = cb->len;                                   // rollback point
 
     emit_prologue(cb, abi, frame_size, base_frame);
 
     x86_emit_store_r64_rbp(cb, X86_RBX, x86_slot_disp(slot_rbx));  // save caller's rbx
     x86_emit_store_r64_rbp(cb, X86_R12, x86_slot_disp(slot_r12));  // save caller's r12
     x86_emit_store_r64_rbp(cb, X86_R13, x86_slot_disp(slot_r13));  // save caller's r13
+    x86_emit_store_r64_rbp(cb, X86_R14, x86_slot_disp(slot_r14));  // save caller's r14
+    x86_emit_store_r64_rbp(cb, X86_R15, x86_slot_disp(slot_r15));  // save caller's r15
 
-    // unpack the table pointer and preload its fields into dedicated gprs
+    // materialize the 1.0 constant once; OP_INC/OP_DEC read it from this slot
+    x86_emit_movabs_rax(cb, 0x3FF0000000000000ULL);          // rax = bits of 1.0
+    x86_emit_movq_xmm_rax(cb, XMM_SCRATCH);                  // xmm15 = 1.0
+    x86_emit_movsd_store(cb, XMM_SCRATCH, x86_slot_disp(const_slot));  // frame[const_slot] = 1.0
+
+    // preload the iterated table: rbx = array_part, r12 = array_count
     x86_emit_load_r64_base(cb, X86_RAX, abi->frame_reg, table_slot * 8);  // rax = regs[table_slot]
     x86_emit_clear_high16_rax(cb);                           // strip nan-box tag
     x86_emit_load_r64_base(cb, X86_RBX, X86_RAX, (int32_t)offsetof(Table, array_part));   // rbx = array_part
     x86_emit_load_r64_base(cb, X86_R12, X86_RAX, (int32_t)offsetof(Table, array_count));  // r12 = array_count
 
-    emit_u8(cb, 0x31); emit_u8(cb, 0xD2);                    // xor edx, edx
-    // rdx = 0 (iteration counter, caller-saved: no save/restore needed)
-    x86_emit_movabs_r8(cb, X86_NONE_BITS);                   // r8 = NONE bits, for hole-skip
+    // r14 = 0 (iteration counter, callee-saved so TABLE_SET's helper cannot clobber it)
+    emit_u8(cb, 0x45); emit_u8(cb, 0x31); emit_u8(cb, 0xF6); // xor r14d, r14d
 
-    // copy live-in AND live-out slots from vm regs to frame, except table and loop var
+    // r15 = NONE bit pattern (callee-saved; kept live across helper calls)
+    emit_u8(cb, 0x49); emit_u8(cb, 0xBF);                    // movabs r15, imm64
+    emit_u64(cb, X86_NONE_BITS);
+
+    // seed live-in AND live-out slots from the vm's frame, except table (in rbx) and var (written each iter)
     uint64_t m = info->live_in | info->live_out;
     while (m) {
-        int s = __builtin_ctzll(m);                          // next slot to seed
+        int s = __builtin_ctzll(m);
         m &= m - 1;
-        if (s >= 64) break;                                  // beyond tracked range
-        if (s == table_slot) continue;                       // table lives in rbx, not frame
-        if (s == var_reg)   continue;                        // var written each iteration
+        if (s >= 64) break;
+        if (s == table_slot) continue;
+        if (s == var_reg)    continue;
         x86_emit_movsd_load_base(cb, abi->frame_reg, 0, s * 8);  // xmm0 = regs[s]
         x86_emit_movsd_store(cb, 0, x86_slot_disp(s));       // frame[s] = xmm0
     }
@@ -1360,14 +1381,15 @@ bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
     int loop_top = (int)cb->len;                             // loop start address
 
     // if counter >= array_count, exit
-    x86_emit_cmp_rdx_r12d(cb);                               // cmp rdx, r12
+    emit_u8(cb, 0x4D); emit_u8(cb, 0x39); emit_u8(cb, 0xE6); // cmp r14, r12
     emit_u8(cb, 0x0F); emit_u8(cb, 0x83);                    // jae rel32
     size_t exit_patch = cb->len;
     emit_i32(cb, 0);                                         // placeholder
 
-    x86_emit_load_rax_idx8(cb, X86_RBX, X86_RDX);            // rax = array_part[rdx]
+    // rax = array_part[r14]
+    emit_u8(cb, 0x4A); emit_u8(cb, 0x8B); emit_u8(cb, 0x04); emit_u8(cb, 0xF3);
     // if element is NONE, skip to next iteration
-    x86_emit_cmp_rax_r8(cb);                                 // cmp rax, NONE bits
+    emit_u8(cb, 0x4D); emit_u8(cb, 0x39); emit_u8(cb, 0xF8); // cmp rax, r15
     emit_u8(cb, 0x0F); emit_u8(cb, 0x84);                    // je rel32 (skip)
     size_t skip_patch = cb->len;
     emit_i32(cb, 0);                                         // placeholder
@@ -1379,11 +1401,11 @@ bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
 
     int xv = x86_cache_alloc_excl(&cache, cb, -1, -1);       // xmm to hold the element
     if (xv < 0) JIT_FATAL("cache full: table-iter element reg (pc=%d)", entry);
-    x86_emit_movq_xmm_rax(cb, xv);                           // xv = element bits (as double)
+    x86_emit_movq_xmm_rax(cb, xv);                           // xv = element bits
     x86_cache_put(&cache, xv, var_reg);                      // cache var_reg in xv
 
     for (int pc = entry + 1; pc < back_edge; pc++) {         // emit body
-        emit_loop_body_instr(abi, ctx, cb, &cache, pc, const_slot, -1, info);
+        emit_loop_body_instr(abi, ctx, cb, &cache, pc, const_slot, save_slot, info);
     }
 
     x86_cache_flush(&cache, cb);                             // spill dirty slots to frame
@@ -1392,8 +1414,10 @@ bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
     int32_t skip_rel = skip_label - (int32_t)(skip_patch + 4);
     memcpy(cb->buf + skip_patch, &skip_rel, 4);              // patch skip jump
 
-    emit_u8(cb, 0x48); emit_u8(cb, 0xFF); emit_u8(cb, 0xC2); // inc rdx
-    emit_u8(cb, 0xE9);                                       // jmp rel32
+    // inc r14
+    emit_u8(cb, 0x49); emit_u8(cb, 0xFF); emit_u8(cb, 0xC6); // inc r14
+
+    emit_u8(cb, 0xE9);                                       // jmp loop_top
     size_t back_patch = cb->len;
     emit_i32(cb, 0);                                         // placeholder
     int32_t back_rel = loop_top - (int32_t)(back_patch + 4);
@@ -1403,49 +1427,48 @@ bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
     int32_t exit_rel = exit_label - (int32_t)(exit_patch + 4);
     memcpy(cb->buf + exit_patch, &exit_rel, 4);              // patch exit jump
 
-    m = info->live_out;                                      // copy written slots back to vm
+    // write back live_out slots to vm's register frame
+    m = info->live_out;
     while (m) {
-        int s = __builtin_ctzll(m);                          // next written slot
+        int s = __builtin_ctzll(m);
         m &= m - 1;
-        if (s >= 64) break;                                  // beyond tracked range
-        if (s == var_reg) continue;                          // already written by the loop body
-        if (info->ref_writes & (1ULL << s)) continue;        // refcounted value — keep vm's copy
+        if (s >= 64) break;
+        if (s == var_reg) continue;                          // loop var already written per-iter
+        if (info->ref_writes & (1ULL << s)) continue;        // refcounted — keep vm's copy
 
-        x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // save frame_reg
+        x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));
 
-        // arg0: &pool[s] = frame_reg + s*8
-        if (s != 0) {
+        if (s != 0) {                                        // arg0: &pool[s]
             emit_u8(cb, 0x48); emit_u8(cb, 0x81);
 #if defined(_WIN32) || defined(_WIN64)
-            emit_u8(cb, 0xC1);                                    // add rcx, imm32
+            emit_u8(cb, 0xC1);                               // add rcx, imm32
 #else
-            emit_u8(cb, 0xC7);                                    // add rdi, imm32
+            emit_u8(cb, 0xC7);                               // add rdi, imm32
 #endif
             emit_i32(cb, s * 8);
         }
 
-        // arg1: frame[s]
-        x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(s));
+        x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(s));  // arg1: frame[s]
 #if defined(_WIN32) || defined(_WIN64)
         emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC2);  // mov rdx, rax
 #else
         emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC6);  // mov rsi, rax
 #endif
-
         x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_store_slot);
-        emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);
-
-        x86_emit_load_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // restore frame_reg
+        emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                // call jit_store_slot
+        x86_emit_load_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));
     }
 
     x86_emit_load_r64_rbp(cb, X86_RBX, x86_slot_disp(slot_rbx));  // restore caller's rbx
     x86_emit_load_r64_rbp(cb, X86_R12, x86_slot_disp(slot_r12));  // restore caller's r12
     x86_emit_load_r64_rbp(cb, X86_R13, x86_slot_disp(slot_r13));  // restore caller's r13
+    x86_emit_load_r64_rbp(cb, X86_R14, x86_slot_disp(slot_r14));  // restore caller's r14
+    x86_emit_load_r64_rbp(cb, X86_R15, x86_slot_disp(slot_r15));  // restore caller's r15
 
     emit_leave_ret(cb, abi, base_frame);
 
     *out_fn = (void*)(cb->buf + mark);                       // publish entry pointer
-    return true;                                             // emission successful
+    return true;
 }
 
 // emits native code for a condition-entry loop: no implicit entry test, the caller already passed

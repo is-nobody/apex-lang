@@ -450,7 +450,7 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
 // registers a loop and runs the slot analysis on its body
 static void add_loop(JITContext* ctx, int entry, int back_edge, int exit_pc,
                      JitLoopKind kind, int for_var_reg, int for_end_reg, int for_step_reg,
-                     int step_sign, int step_value, int nregs) {
+                     int step_sign, int step_value, int nregs, int init_table_reg) {
     if (ctx->loop_count >= ctx->loop_capacity) {                 // grow loop array if needed
         int new_cap = ctx->loop_capacity == 0 ? 8 : ctx->loop_capacity * 2;
         JitLoopInfo* new_arr = (JitLoopInfo*)realloc(ctx->loops, sizeof(JitLoopInfo) * new_cap);
@@ -472,7 +472,8 @@ static void add_loop(JITContext* ctx, int entry, int back_edge, int exit_pc,
     info->for_var_gpr      = -1;                                 // no gpr-counter yet
     info->for_var_gpr_slot = -1;                                 // no save slot yet
     info->nregs        = nregs;                                  // function frame size
-    info->table.slot   = -1;                                     // no table seen yet
+    info->table.slot   = (init_table_reg >= 0) ? init_table_reg : -1;
+    info->table.used   = (init_table_reg >= 0);                  // mark as touched
     analyze_loop_regs(ctx, info);                                // fill live_in/out and table use
 }
 
@@ -480,16 +481,23 @@ static void add_loop(JITContext* ctx, int entry, int back_edge, int exit_pc,
 static bool table_iter_body_is_clean(BytecodeChunk* chunk, int entry, int back_edge) {
     for (int pc = entry + 1; pc < back_edge; pc++) {               // skip entry instr itself
         Opcode op = chunk->code[pc].opcode;
-        if (op == OP_TABLE_GET || op == OP_TABLE_GET_INT ||        // any table read
-            op == OP_TABLE_SET_INT || op == OP_TABLE_ITER_NEXT ||  // any table write or nested iter
-            op == OP_TABLE_ITER_INIT) {                            // nested table iteration
-            return false;                                          // body touches table directly
-        }
-        if (op == OP_CALL_0 || op == OP_CALL_1 || op == OP_CALL_2) {  // calls need extra state preserved
-            return false;                                          // not supported by table-iter emitter yet
+        switch (op) {
+            // rejects — need a base the emitter is not carrying
+            case OP_TABLE_GET_INT: case OP_TABLE_SET_INT:          // use rbx as array_part of another table
+            case OP_LOAD_GLOBAL: case OP_STORE_GLOBAL:             // use rbx as globals base
+            // rejects — no lowering exists in emit_loop_body_instr
+            case OP_TABLE_GET_CONST: case OP_TABLE_SET_CONST:
+            case OP_TABLE_APPEND: case OP_NEW_TABLE:
+            // rejects — nested iteration
+            case OP_TABLE_ITER_NEXT: case OP_TABLE_ITER_INIT:
+            // rejects — helper clobbers rdx (the counter mirror) or r8 (NONE bits)
+            case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:
+                return false;
+            default:
+                break;
         }
     }
-    return true;                                                   // only the entry touches the table
+    return true;
 }
 
 // checks whether a numeric-for body uses only numeric table access (no string keys)
@@ -538,6 +546,7 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
         int exit_pc = -1;
         int for_var_reg = -1, for_end_reg = -1, for_step_reg = -1, step_sign = 0;
         int step_value = 0;                                  // literal step value, 0 if unknown
+        int init_table_reg = -1;                             // table-iter: slot of iterated table
         JitLoopKind kind = JIT_LOOP_CONDITION;
 
         if (entry_op == OP_FOR_NEXT) {                           // numeric-for loop
@@ -619,10 +628,12 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
             if (fi < start) continue;
             if (chunk->code[fi].opcode != OP_TABLE_ITER_INIT) continue;
             if (!table_iter_body_is_clean(chunk, entry, pc)) continue;
+            init_table_reg = chunk->code[fi].operands[0];        // iterated table's frame slot
         }
 
         add_loop(ctx, entry, pc, exit_pc, kind,                  // register the loop
-                 for_var_reg, for_end_reg, for_step_reg, step_sign, step_value, nregs);
+                 for_var_reg, for_end_reg, for_step_reg, step_sign, step_value, nregs,
+                 init_table_reg);
     }
 }
 
