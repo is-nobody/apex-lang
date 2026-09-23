@@ -61,16 +61,74 @@ static Value make_string_val(VM* vm, const char* str) {
     return MAKE_STRING(string_intern(&vm->intern_table, str, len));  // intern and box as value
 }
 
-// comparison function for sorting table keys
+// dynamic string builder for joins whose length is not known up front;
+// a fixed stack buffer used to overflow once joined output exceeded 64 KiB
+typedef struct {
+    char* buffer;                                                    // dynamically growing buffer
+    int length;                                                      // current used length
+    int capacity;                                                    // total allocated capacity
+} StringBuilder;
+
+// initializes the builder with the requested capacity (min 16 bytes)
+static void sb_init(StringBuilder* sb, int initial_capacity) {
+    sb->capacity = initial_capacity > 16 ? initial_capacity : 16;    // enforce minimum capacity
+    sb->buffer = (char*)malloc(sb->capacity);                        // allocate initial buffer
+    if (!sb->buffer) { sb->length = 0; sb->capacity = 0; return; }   // allocation failed
+    sb->length = 0;                                                  // start empty
+    sb->buffer[0] = '\0';                                            // null terminate
+}
+
+// grows the buffer to guarantee room for extra bytes plus a null terminator
+static void sb_reserve(StringBuilder* sb, int extra) {
+    if (!sb->buffer) return;                                         // buffer not initialized
+    if (sb->length + extra + 1 <= sb->capacity) return;              // already has room
+    int new_cap = sb->capacity > 0 ? sb->capacity : 16;              // start from current capacity
+    while (new_cap < sb->length + extra + 1) new_cap *= 2;           // double until it fits
+    char* new_buf = (char*)realloc(sb->buffer, new_cap);             // resize buffer
+    if (!new_buf) return;                                            // realloc failed, keep old
+    sb->buffer = new_buf;                                            // install new buffer
+    sb->capacity = new_cap;                                          // update capacity
+}
+
+// appends len bytes from str to the builder, growing if needed
+static void sb_append(StringBuilder* sb, const char* str, int len) {
+    if (!sb->buffer || len <= 0) return;                             // nothing to append
+    sb_reserve(sb, len);                                             // ensure capacity
+    memcpy(sb->buffer + sb->length, str, len);                       // copy bytes
+    sb->length += len;                                               // update length
+    sb->buffer[sb->length] = '\0';                                   // null terminate
+}
+
+// releases the builder's internal buffer and resets its state
+static void sb_free(StringBuilder* sb) {
+    if (sb->buffer) free(sb->buffer);                                // release buffer
+    sb->buffer = NULL;                                               // clear pointer
+    sb->length = 0;                                                  // reset length
+    sb->capacity = 0;                                                // reset capacity
+}
+
+// comparison function for sorting table keys as documented:
+// numbers first in ascending order, then strings lexicographically
 static int compare_keys(const void* a, const void* b) {
     Value va = *(const Value*)a;                                     // cast first key
     Value vb = *(const Value*)b;                                     // cast second key
-    
-    if (IS_NUMBER(va) && IS_NUMBER(vb)) {                            // both are numbers
+
+    bool na = IS_NUMBER(va);                                         // first key is a number
+    bool nb = IS_NUMBER(vb);                                         // second key is a number
+
+    if (na && nb) {                                                  // both numbers: ascending
         double diff = AS_NUMBER(va) - AS_NUMBER(vb);                 // compute difference
         return (diff > 0) - (diff < 0);                              // return -1, 0, or 1
     }
-    return 0;                                                        // fallback
+    if (na) return -1;                                               // numbers come before strings
+    if (nb) return 1;                                                // strings come after numbers
+
+    bool isa = IS_STRING(va);                                        // first key is a string
+    bool isb = IS_STRING(vb);                                        // second key is a string
+    if (isa && isb) {                                                // both strings: lexicographic
+        return strcmp(AS_STRING(va)->chars, AS_STRING(vb)->chars);   // compare contents
+    }
+    return 0;                                                        // otherwise: unspecified
 }
 
 // dispatcher for string manipulation built-in functions
@@ -344,11 +402,14 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             return true;                                      // builtin handled
         }
         const char* sep = "";                                 // default separator
+        int sep_len = 0;                                      // default separator length
         if (arg_count >= 2 && IS_STRING(args[1])) {           // custom separator provided
             sep = AS_STRING(args[1])->chars;                  // use custom separator
+            sep_len = AS_STRING(args[1])->length;             // cache its length
         }
         
-        char buffer[65536] = "";                              // static buffer for result
+        StringBuilder sb;                                     // dynamic result buffer
+        sb_init(&sb, 256);                                    // init with a modest initial capacity
         Table* table = AS_TABLE(args[0]);                     // unwrap table
         
         int count;                                            // key count
@@ -361,26 +422,33 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             for (int i = 0; i < count; i++) {                 // iterate over sorted keys
                 Value val;                                    // value storage
                 if (table_get(table, keys[i], &val)) {        // lookup value by key
-                    if (!first) strcat(buffer, sep);          // add separator if not first
+                    if (!first) sb_append(&sb, sep, sep_len); // add separator if not first
                     first = false;                            // no longer first
-                    
-                    if (IS_STRING(val)) {                                  // string value
-                        strcat(buffer, AS_STRING(val)->chars);             // append string
-                    } else if (IS_NUMBER(val)) {                           // number value
-                        char num[64];                                      // number buffer
-                        snprintf(num, sizeof(num), "%g", AS_NUMBER(val));  // format number
-                        strcat(buffer, num);                               // append number
-                    } else if (IS_BOOL(val)) {                             // boolean value
-                        strcat(buffer, AS_BOOL(val) ? "true" : "false");   // append bool string
+
+                    if (IS_STRING(val)) {                                             // string value
+                        sb_append(&sb, AS_STRING(val)->chars, AS_STRING(val)->length); // append raw bytes
+                    } else if (IS_NUMBER(val)) {                                      // number value
+                        char num[64];                                                 // number buffer
+                        int n = snprintf(num, sizeof(num), "%g", AS_NUMBER(val));     // format number
+                        if (n > 0) sb_append(&sb, num, n);                            // append formatted digits
+                    } else if (IS_BOOL(val)) {                                        // boolean value
+                        const char* b = AS_BOOL(val) ? "true" : "false";              // bool text
+                        sb_append(&sb, b, (int)strlen(b));                            // append bool text
                     }
-                    value_decref(val);          // release value reference
+                    value_decref(val);                                            // release value reference
                 }
-                value_decref(keys[i]);          // release key reference
+                value_decref(keys[i]);                                            // release key reference
             }
-            free(keys);                         // free keys array
+            free(keys);                                                           // free keys array
         }
-        *result = make_string_val(vm, buffer);  // intern and return
-        return true;                            // builtin handled
+
+        // join results vary per call and can be very large, so build a regular
+        // refcounted string instead of interning; interning would permanently
+        // pin each unique result inside the intern table
+        const char* buf = sb.buffer ? sb.buffer : "";                             // guard against OOM
+        *result = MAKE_STRING(string_create(buf, sb.length));                     // fresh refcounted string
+        sb_free(&sb);                                                             // release builder
+        return true;                                                              // builtin handled
     }
     
     return false;                               // not a recognized builtin
