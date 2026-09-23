@@ -22,6 +22,7 @@ static bool is_number_expression(CodeGenerator* cg, ASTNode* node);
 static bool is_integer_expression(CodeGenerator* cg, ASTNode* node);
 static bool function_is_inlinable(ASTNode* fn_decl);
 static bool expr_only_uses_params(ASTNode* node, ASTNodeList* params);
+static bool try_fold_inline_call(CodeGenerator* cg, ASTNode* node, double* out);
 static bool try_inline_function(CodeGenerator* cg, int func_idx,
                                 ASTNodeList* arg_nodes,
                                 int* arg_regs, int arg_count,
@@ -385,13 +386,89 @@ static bool try_fold_number(CodeGenerator* cg, ASTNode* node, double* out) {
                     return false;                                      // non-arithmetic op
             }
         }
+        case AST_CALL:
+            if (!cg) return false;
+            return try_fold_inline_call(cg, node, out);
         default:
             return false;                                              // calls, index, etc.
     }
 }
 
-// tries to fold an expression into a compile-time boolean constant
-// only bool literals, not, and numeric comparisons are considered
+// Folds a call to an inlinable single-return function whose arguments all fold
+// to numbers. AST-only — no code is emitted and no registers are allocated.
+static bool try_fold_inline_call(CodeGenerator* cg, ASTNode* node, double* out) {
+    if (!cg || !node || node->type != AST_CALL) return false;
+    ASTNode* callee = node->call.callee;
+    if (callee->type != AST_IDENTIFIER) return false;
+    const char* fname = callee->identifier.name;
+
+    int func_idx = -1;
+    for (int i = 0; i < cg->chunk->func_count; i++) {
+        if (strcmp(cg->chunk->functions[i].name, fname) == 0) { func_idx = i; break; }
+    }
+    if (func_idx < 0 || func_idx >= cg->fn_decls_cap) return false;
+    ASTNode* fn = cg->fn_decls[func_idx];
+    if (!fn || !function_is_inlinable(fn)) return false;
+
+    ASTNodeList* params = fn->function_decl.params;
+    ASTNodeList* args   = node->call.arguments;
+    if (params->count != args->count || args->count > 8) return false;
+
+    double arg_vals[8];
+    for (int i = 0; i < args->count; i++) {
+        if (!try_fold_number(cg, args->nodes[i], &arg_vals[i])) return false;
+    }
+
+    char**  s_names = cg->locals.names;
+    int*    s_regs  = cg->locals.registers;
+    bool*   s_num   = cg->locals.is_number;
+    bool*   s_int   = cg->locals.is_integer;
+    bool*   s_ck    = cg->locals.const_known;
+    double* s_cv    = cg->locals.const_value;
+    int     s_count = cg->locals.count;
+    int     s_cap   = cg->locals.capacity;
+
+    int n   = params->count;
+    int cap = n < 4 ? 4 : n;
+    cg->locals.names        = (char**)malloc(sizeof(char*) * cap);
+    cg->locals.registers    = (int*)malloc(sizeof(int) * cap);
+    cg->locals.is_number    = (bool*)malloc(sizeof(bool) * cap);
+    cg->locals.is_integer   = (bool*)malloc(sizeof(bool) * cap);
+    cg->locals.const_known  = (bool*)malloc(sizeof(bool) * cap);
+    cg->locals.const_value  = (double*)malloc(sizeof(double) * cap);
+    cg->locals.count        = n;
+    cg->locals.capacity     = cap;
+    for (int i = 0; i < n; i++) {
+        cg->locals.names[i]       = strdup(params->nodes[i]->param.name);
+        cg->locals.registers[i]   = 0;
+        cg->locals.is_number[i]   = true;
+        cg->locals.is_integer[i]  = (arg_vals[i] == (double)(long long)arg_vals[i]);
+        cg->locals.const_known[i] = true;
+        cg->locals.const_value[i] = arg_vals[i];
+    }
+
+    ASTNode* ret = fn->function_decl.body->block.statements->nodes[0]->return_stmt.value;
+    bool ok = try_fold_number(cg, ret, out);
+
+    for (int i = 0; i < n; i++) free(cg->locals.names[i]);
+    free(cg->locals.names);
+    free(cg->locals.registers);
+    free(cg->locals.is_number);
+    free(cg->locals.is_integer);
+    free(cg->locals.const_known);
+    free(cg->locals.const_value);
+    cg->locals.names       = s_names;
+    cg->locals.registers   = s_regs;
+    cg->locals.is_number   = s_num;
+    cg->locals.is_integer  = s_int;
+    cg->locals.const_known = s_ck;
+    cg->locals.const_value = s_cv;
+    cg->locals.count       = s_count;
+    cg->locals.capacity    = s_cap;
+    return ok;
+}
+
+// tries to fold an expression into a compile-time boolean constant only bool literals
 static bool try_fold_bool(CodeGenerator* cg, ASTNode* node, bool* out) {
     if (!node || !out) return false;                                   // null guard
     switch (node->type) {
@@ -3725,7 +3802,34 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
         for (int j = first_body_local; j < i; j++) {
             if (cg->locals.registers[j] == r) { dup = true; break; }
         }
-        if (!dup) emit(cg, INST(OP_LOAD_NONE, r, 0, 0), node->line);
+        if (dup) continue;
+        // skip the prologue LOAD_NONE when `x = <pure-non-self-ref>` appears in straight-line top-level
+        {
+            bool definitely_assigned = false;
+            ASTNode* body = node->function_decl.body;
+            if (body && (body->type == AST_BLOCK || body->type == AST_PROGRAM)) {
+                const char* nm = cg->locals.names[i];
+                for (int si = 0; si < body->block.statements->count; si++) {
+                    ASTNode* s = body->block.statements->nodes[si];
+                    if (s->type == AST_VAR_DECL || s->type == AST_ASSIGN) {
+                        if (s->var_assign.name && strcmp(s->var_assign.name, nm) == 0) {
+                            if (!s->var_assign.access_path &&
+                                !ast_references_local(s->var_assign.value, nm)) {
+                                definitely_assigned = true;
+                            }
+                            break;
+                        }
+                    }
+                    if (stmt_references_local(s, nm)) break;
+                    if (s->type == AST_IF_STMT || s->type == AST_FOR_STMT ||
+                        s->type == AST_MATCH_STMT || s->type == AST_BREAK_STMT ||
+                        s->type == AST_CONTINUE_STMT || s->type == AST_RETURN_STMT ||
+                        s->type == AST_FUNCTION_DECL) break;
+                }
+            }
+            if (definitely_assigned) continue;
+        }
+        emit(cg, INST(OP_LOAD_NONE, r, 0, 0), node->line);
     }
 
     codegen_block(cg, node->function_decl.body);                            // emit body
