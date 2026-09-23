@@ -109,6 +109,7 @@ static Value csv_parse_value(const char* str) {
 }
 
 // extracts a single csv field with quoted field support (rfc 4180)
+// returns NULL when a quoted field is left unterminated at end of input
 static char* csv_parse_field(CsvParser* p) {
     StringBuilder sb;                                                           // string builder
     sb_init(&sb, 64);                                                           // init builder
@@ -121,6 +122,7 @@ static char* csv_parse_field(CsvParser* p) {
     char c = csv_peek(p);                                                       // peek char
     if (c == '"') {                                                             // quoted field
         csv_advance(p);                                                         // skip opening quote
+        bool closed = false;                                                    // whether closing quote was seen
         while (csv_has_next(p)) {                                               // parse quoted content
             c = csv_advance(p);                                                 // read char
             if (c == '"') {                                                     // possible end of quote
@@ -128,11 +130,16 @@ static char* csv_parse_field(CsvParser* p) {
                     sb_append_char(&sb, '"');                                   // append quote
                     csv_advance(p);                                             // skip second quote
                 } else {
+                    closed = true;                                              // closing quote seen
                     break;                                                      // end of quoted field
                 }
             } else {
                 sb_append_char(&sb, c);                                         // append char
             }
+        }
+        if (!closed) {                                                          // rfc 4180: unterminated quote
+            sb_free(&sb);                                                       // release builder
+            return NULL;                                                        // signal parse error
         }
         // after closing quote, only skip comma if present
         if (csv_peek(p) == ',') csv_advance(p);                                 // skip comma
@@ -364,7 +371,15 @@ static Value csv_decode_impl(const char* data, int len) {
         if (col_count > 0) {                                                 // valid columns
             headers = (char**)malloc(sizeof(char*) * col_count);             // allocate headers
             if (headers) {                                                   // allocation succeeded
-                for (int i = 0; i < col_count; i++) headers[i] = csv_parse_field(&parser);  // parse each
+                for (int i = 0; i < col_count; i++) {                        // parse each header field
+                    headers[i] = csv_parse_field(&parser);                   // may return NULL on error
+                    if (headers[i] == NULL) {                                // rfc 4180: unterminated quote
+                        for (int j = 0; j < i; j++) free(headers[j]);        // release previous headers
+                        free(headers);                                       // release header array
+                        value_decref(table_list);                            // release result table
+                        return MAKE_NONE();                                  // reject whole document
+                    }
+                }
             }
         }
     }
@@ -380,9 +395,15 @@ static Value csv_decode_impl(const char* data, int len) {
         Table* row_table = table_create(8);                                  // row table
         Value row_table_val = MAKE_TABLE(row_table);                         // box row
         if (headers && col_count > 0) {                                      // header mode
-            for (int i = 0; i < col_count; i++) {                            // parse columns
-                if (!csv_has_next(&parser)) break;                           // end of row
-                char* field = csv_parse_field(&parser);                      // parse field
+            for (int i = 0; i < col_count; i++) {                            // parse every column
+                char* field = csv_parse_field(&parser);                      // parse field (even at eof)
+                if (field == NULL) {                                         // rfc 4180: unterminated quote
+                    value_decref(row_table_val);                             // release row
+                    for (int j = 0; j < col_count; j++) free(headers[j]);    // release headers
+                    free(headers);                                           // release header array
+                    value_decref(table_list);                                // release result table
+                    return MAKE_NONE();                                      // reject whole document
+                }
                 Value val = csv_parse_value(field);                          // parse value
                 if (headers[i]) {                                            // valid header
                     Value k = MAKE_STRING(string_create(headers[i], strlen(headers[i])));  // fresh key
