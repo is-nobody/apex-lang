@@ -1815,7 +1815,8 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             
             int iter_next_instr = bytecode_current_offset(cg->chunk);              // iter instruction
             emit(cg, INST(OP_TABLE_ITER_NEXT, var_reg, 0, 0), node->line);         // get next item
-            
+
+            cg->imm_lvn.count = 0;                                                 // body: back-edge merge point
             codegen_block(cg, node->for_stmt.body);                                // emit body
             restore_numbers(cg, table_entry);                                      // body may reassign: reset flags
             
@@ -1929,6 +1930,8 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
 
             int body_start = bytecode_current_offset(cg->chunk);                    // body start pc
 
+            cg->imm_lvn.count = 0;                                                  // body: back-edge merge point
+
             int prev_loop_floor = cg->register_floor;                               // save floor
             if (cg->hoist.count > 0 || cg->hoist.get_count > 0) {                   // pin hoisted regs
                 int highest = 0;                                                    // highest hoisted reg
@@ -2039,9 +2042,11 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             }
         }
 
+        cg->imm_lvn.count = 0;                                                      // loop top: back-edge merge point
+
         int loop_start = bytecode_current_offset(cg->chunk);                        // loop start
         cg->loop_stack.continue_addr = loop_start;                                  // set continue
-        
+
         int jump_to_end = -1;                                                       // jump to end instr
         if (condition) {                                                            // has condition
             if (optimized) {                                                        // optimized condition
@@ -2104,6 +2109,8 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
     cg->loop_stack.continue_addr = prev_continue_addr;                              // restore continue
     cg->loop_stack.is_fast = prev_is_fast;                                          // restore fast flag
     cg->loop_depth--;                                                               // re-enable copy propagation
+
+    cg->imm_lvn.count = 0;                                                          // loop exit is a merge point
 }
 
 // checks if an expression is known to produce a number at this point in emission
@@ -2428,7 +2435,7 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
                 }
                 int result_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);  // result destination
                 emit(cg, INST(imm_op, result_reg, left_reg, (int)imm_val), node->line);  // fused op
-                if (dest_hint < 0) imm_lvn_add(cg, imm_op, left_reg, -1, (int)imm_val, result_reg);  // cache self-allocated
+                imm_lvn_add(cg, imm_op, left_reg, -1, (int)imm_val, result_reg);   // cache every result
                 free_register(cg, left_reg);                                     // free left
                 return result_reg;                                               // return result
             }
@@ -2448,7 +2455,7 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
                 }
                 int result_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);  // result destination
                 emit(cg, INST(imm_op, result_reg, right_reg, (int)imm_val), node->line);  // fused op
-                if (dest_hint < 0) imm_lvn_add(cg, imm_op, right_reg, -1, (int)imm_val, result_reg);  // cache self-allocated
+                imm_lvn_add(cg, imm_op, right_reg, -1, (int)imm_val, result_reg);   // cache every result
                 free_register(cg, right_reg);                                    // free right
                 return result_reg;                                               // return result
             }
@@ -2495,8 +2502,8 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
 
             int result_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);       // result destination
             emit(cg, INST(op, result_reg, left_reg, right_reg), node->line);         // emit operation
-            if (lvn_ok && dest_hint < 0) {
-                imm_lvn_add(cg, op, left_reg, right_reg, 0, result_reg);             // cache self-allocated
+            if (lvn_ok) {
+                imm_lvn_add(cg, op, left_reg, right_reg, 0, result_reg);             // cache every result
             }
             free_register(cg, left_reg);                                             // free left
             free_register(cg, right_reg);                                            // free right
@@ -2727,14 +2734,15 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
             free_snap(false_snap);
             free_snap(pre);
             
-            // after the ternary, register contents depend on which branch ran;
-            // entries from either branch are no longer trustworthy
+            // after the ternary, register contents depend on which branch ran
             cg->num_cache.count = saved_num_count;
             cg->str_cache.count = saved_str_count;
             
             int end_addr = bytecode_current_offset(cg->chunk);                    // end address
             PATCH_JUMP(cg, jump_to_end, end_addr);                                // patch jump
-            
+
+            cg->imm_lvn.count = 0;                                                // ternary end is a merge point
+
             return dest_reg;                                                      // return result
         }
 
@@ -2884,6 +2892,8 @@ static void codegen_match_statement(CodeGenerator* cg, ASTNode* node) {
     free(end_jumps);
     free_snap(match_before);                                             // release snapshot
     free_register(cg, subject_reg);                                      // release subject register
+
+    cg->imm_lvn.count = 0;                                               // match end is a merge point
 }
 
 // emits a variable declaration, writing the value directly into the local slot
@@ -3227,6 +3237,8 @@ static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
     for (int i = 0; i < end_jump_count; i++) {                               // patch all jumps
         PATCH_JUMP(cg, end_jumps[i], end_addr);
     }
+
+    cg->imm_lvn.count = 0;                                                   // end is a merge point
 }
 
 // tries to optimize comparison conditions into direct jump instructions
@@ -3512,6 +3524,7 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     cg->str_cache.regs = NULL;
     cg->str_cache.count = 0;
     cg->str_cache.capacity = 0;
+    cg->imm_lvn.count = 0;                                                   // fresh LVN cache
 
     for (int i = 0; i < param_count; i++) {                                 // parameters
         ASTNode* param = node->function_decl.params->nodes[i];              // param node
@@ -3697,7 +3710,6 @@ static void codegen_expr_statement(CodeGenerator* cg, ASTNode* node) {
 // statement dispatcher that routes each ast node type to its codegen function
 static void codegen_statement(CodeGenerator* cg, ASTNode* node) {
     if (!node) return;                                                       // guard against null
-    cg->imm_lvn.count = 0;                                                   // cache is statement-scoped
     switch (node->type) {                                                    // dispatch by type
         case AST_VAR_DECL:        codegen_var_decl(cg, node); break;         // variable decl
         case AST_ASSIGN:          codegen_assign(cg, node); break;           // assignment
