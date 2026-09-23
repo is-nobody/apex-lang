@@ -29,6 +29,12 @@ typedef struct {
         int*    regs;        // register holding each hoisted constant
         int     count;       // number of hoisted constants
         int     capacity;    // allocated capacity of values/regs
+
+        const char** get_names;    // table identifier
+        double*      get_indices;  // constant index value
+        int*         get_regs;     // register holding the loaded value
+        int          get_count;
+        int          get_capacity;
     } hoist;
 
     struct {

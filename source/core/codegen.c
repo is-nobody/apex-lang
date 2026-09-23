@@ -712,6 +712,241 @@ static int find_local_slot(CodeGenerator* cg, const char* name) {
     return -1;                                         // not found
 }
 
+// body may mutate an outer-scope table (call/await/nested fn/indexed assign)
+static bool body_unsafe_for_licm(ASTNode* node) {
+    if (!node) return false;
+    switch (node->type) {
+        case AST_CALL: case AST_AWAIT: case AST_FUNCTION_DECL:
+            return true;
+        case AST_ASSIGN:
+            if (node->var_assign.access_path) return true;   // indexed assign
+            return body_unsafe_for_licm(node->var_assign.value);
+        case AST_VAR_DECL:
+            return body_unsafe_for_licm(node->var_assign.value);
+        case AST_BINARY:
+            return body_unsafe_for_licm(node->binary.left) ||
+                   body_unsafe_for_licm(node->binary.right);
+        case AST_UNARY:
+            return body_unsafe_for_licm(node->unary.operand);
+        case AST_INDEX_ACCESS:
+            return body_unsafe_for_licm(node->access.object) ||
+                   body_unsafe_for_licm(node->access.member);
+        case AST_EXPR_STMT:
+            return body_unsafe_for_licm(node->expr_stmt.expression);
+        case AST_RETURN_STMT:
+            return body_unsafe_for_licm(node->return_stmt.value);
+        case AST_IF_STMT:
+            return body_unsafe_for_licm(node->if_stmt.condition) ||
+                   body_unsafe_for_licm(node->if_stmt.then_branch) ||
+                   body_unsafe_for_licm(node->if_stmt.elif_chain) ||
+                   body_unsafe_for_licm(node->if_stmt.else_branch);
+        case AST_FOR_STMT:
+            return body_unsafe_for_licm(node->for_stmt.start) ||
+                   body_unsafe_for_licm(node->for_stmt.end) ||
+                   body_unsafe_for_licm(node->for_stmt.step) ||
+                   body_unsafe_for_licm(node->for_stmt.condition) ||
+                   body_unsafe_for_licm(node->for_stmt.body);
+        case AST_BLOCK:
+        case AST_PROGRAM:
+            for (int i = 0; i < node->block.statements->count; i++)
+                if (body_unsafe_for_licm(node->block.statements->nodes[i])) return true;
+            return false;
+        case AST_MATCH_STMT:
+            if (body_unsafe_for_licm(node->match_stmt.subject)) return true;
+            if (node->match_stmt.cases) {
+                for (int i = 0; i < node->match_stmt.cases->count; i++)
+                    if (body_unsafe_for_licm(node->match_stmt.cases->nodes[i])) return true;
+            }
+            return body_unsafe_for_licm(node->match_stmt.default_case);
+        case AST_CASE:
+            return body_unsafe_for_licm(node->case_stmt.body);
+        case AST_STRING_INTERP:
+            for (int i = 0; i < node->string_interp.parts->count; i++)
+                if (body_unsafe_for_licm(node->string_interp.parts->nodes[i])) return true;
+            return false;
+        case AST_TABLE_LITERAL:
+            for (int i = 0; i < node->table_literal.items->count; i++)
+                if (body_unsafe_for_licm(node->table_literal.items->nodes[i])) return true;
+            for (int i = 0; i < node->table_literal.key_values->count; i++) {
+                ASTNode* kv = node->table_literal.key_values->nodes[i];
+                if (body_unsafe_for_licm(kv->binary.left) ||
+                    body_unsafe_for_licm(kv->binary.right)) return true;
+            }
+            return false;
+        case AST_TERNARY:
+            return body_unsafe_for_licm(node->ternary.condition) ||
+                   body_unsafe_for_licm(node->ternary.true_expr) ||
+                   body_unsafe_for_licm(node->ternary.false_expr);
+        default:
+            return false;
+    }
+}
+
+// true if `name` is assigned (bare or via index) anywhere in the body
+static bool body_assigns_name(ASTNode* node, const char* name) {
+    if (!node) return false;
+    switch (node->type) {
+        case AST_VAR_DECL:
+        case AST_ASSIGN:
+            if (node->var_assign.name && strcmp(node->var_assign.name, name) == 0)
+                return true;
+            if (body_assigns_name(node->var_assign.value, name)) return true;
+            if (node->var_assign.access_path &&
+                body_assigns_name(node->var_assign.access_path, name)) return true;
+            return false;
+        case AST_FOR_STMT:
+            if (node->for_stmt.var_name && strcmp(node->for_stmt.var_name, name) == 0)
+                return true;
+            return body_assigns_name(node->for_stmt.body, name);
+        case AST_BLOCK:
+        case AST_PROGRAM:
+            for (int i = 0; i < node->block.statements->count; i++)
+                if (body_assigns_name(node->block.statements->nodes[i], name)) return true;
+            return false;
+        case AST_IF_STMT:
+            return body_assigns_name(node->if_stmt.then_branch, name) ||
+                   body_assigns_name(node->if_stmt.elif_chain, name) ||
+                   body_assigns_name(node->if_stmt.else_branch, name);
+        case AST_MATCH_STMT:
+            if (node->match_stmt.cases) {
+                for (int i = 0; i < node->match_stmt.cases->count; i++)
+                    if (body_assigns_name(node->match_stmt.cases->nodes[i], name)) return true;
+            }
+            return body_assigns_name(node->match_stmt.default_case, name);
+        case AST_CASE:
+            return body_assigns_name(node->case_stmt.body, name);
+        default:
+            return false;
+    }
+}
+
+// record a candidate; deduped by (table name, index)
+static void add_hoistable_get(CodeGenerator* cg, const char* table, double idx) {
+    for (int i = 0; i < cg->hoist.get_count; i++) {
+        if (strcmp(cg->hoist.get_names[i], table) == 0 &&
+            cg->hoist.get_indices[i] == idx) return;
+    }
+    if (cg->hoist.get_count >= cg->hoist.get_capacity) {
+        cg->hoist.get_capacity = cg->hoist.get_capacity == 0 ? 8 : cg->hoist.get_capacity * 2;
+        cg->hoist.get_names   = (const char**)realloc(cg->hoist.get_names,
+                                                      sizeof(char*) * cg->hoist.get_capacity);
+        cg->hoist.get_indices = (double*)realloc(cg->hoist.get_indices,
+                                                 sizeof(double) * cg->hoist.get_capacity);
+        cg->hoist.get_regs    = (int*)realloc(cg->hoist.get_regs,
+                                              sizeof(int) * cg->hoist.get_capacity);
+    }
+    cg->hoist.get_names[cg->hoist.get_count]   = table;   // AST-owned string, alive
+    cg->hoist.get_indices[cg->hoist.get_count] = idx;
+    cg->hoist.get_regs[cg->hoist.get_count]    = -1;      // assigned later
+    cg->hoist.get_count++;
+}
+
+// recursive walk collecting AST_INDEX_ACCESS nodes t[CONST] that qualify
+static void scan_hoistable_gets(CodeGenerator* cg, ASTNode* node, ASTNode* body) {
+    if (!node) return;
+    if (node->type == AST_INDEX_ACCESS) {
+        if (node->access.object->type == AST_IDENTIFIER &&
+            node->access.member->type == AST_LITERAL_NUMBER) {
+            const char* tname = node->access.object->identifier.name;
+            int tslot = find_local_slot(cg, tname);
+            double idx = node->access.member->literal_number.number_value;
+            if (tslot >= 0 &&
+                idx == (int)idx && idx >= 1 && idx <= 65535 &&
+                !body_assigns_name(body, tname)) {
+                add_hoistable_get(cg, tname, idx);
+                return;                                  // accepted; don't recurse
+            }
+        }
+    }
+    switch (node->type) {
+        case AST_BINARY:
+            scan_hoistable_gets(cg, node->binary.left, body);
+            scan_hoistable_gets(cg, node->binary.right, body);
+            break;
+        case AST_UNARY:
+            scan_hoistable_gets(cg, node->unary.operand, body);
+            break;
+        case AST_INDEX_ACCESS:
+            scan_hoistable_gets(cg, node->access.object, body);
+            scan_hoistable_gets(cg, node->access.member, body);
+            break;
+        case AST_CALL:
+            scan_hoistable_gets(cg, node->call.callee, body);
+            for (int i = 0; i < node->call.arguments->count; i++)
+                scan_hoistable_gets(cg, node->call.arguments->nodes[i], body);
+            break;
+        case AST_AWAIT:
+            scan_hoistable_gets(cg, node->await_expr.expression, body);
+            break;
+        case AST_VAR_DECL:
+        case AST_ASSIGN:
+            scan_hoistable_gets(cg, node->var_assign.value, body);
+            break;
+        case AST_EXPR_STMT:
+            scan_hoistable_gets(cg, node->expr_stmt.expression, body);
+            break;
+        case AST_RETURN_STMT:
+            scan_hoistable_gets(cg, node->return_stmt.value, body);
+            break;
+        case AST_BLOCK:
+        case AST_PROGRAM:
+            for (int i = 0; i < node->block.statements->count; i++)
+                scan_hoistable_gets(cg, node->block.statements->nodes[i], body);
+            break;
+        case AST_IF_STMT:
+            scan_hoistable_gets(cg, node->if_stmt.condition, body);
+            scan_hoistable_gets(cg, node->if_stmt.then_branch, body);
+            scan_hoistable_gets(cg, node->if_stmt.elif_chain, body);
+            scan_hoistable_gets(cg, node->if_stmt.else_branch, body);
+            break;
+        case AST_FOR_STMT:
+            scan_hoistable_gets(cg, node->for_stmt.start, body);
+            scan_hoistable_gets(cg, node->for_stmt.end, body);
+            scan_hoistable_gets(cg, node->for_stmt.step, body);
+            scan_hoistable_gets(cg, node->for_stmt.condition, body);
+            scan_hoistable_gets(cg, node->for_stmt.body, body);
+            break;
+        case AST_MATCH_STMT:
+            scan_hoistable_gets(cg, node->match_stmt.subject, body);
+            if (node->match_stmt.cases) {
+                for (int i = 0; i < node->match_stmt.cases->count; i++)
+                    scan_hoistable_gets(cg, node->match_stmt.cases->nodes[i], body);
+            }
+            scan_hoistable_gets(cg, node->match_stmt.default_case, body);
+            break;
+        case AST_CASE:
+            scan_hoistable_gets(cg, node->case_stmt.body, body);
+            break;
+        case AST_STRING_INTERP:
+            for (int i = 0; i < node->string_interp.parts->count; i++)
+                scan_hoistable_gets(cg, node->string_interp.parts->nodes[i], body);
+            break;
+        case AST_TABLE_LITERAL:
+            for (int i = 0; i < node->table_literal.items->count; i++)
+                scan_hoistable_gets(cg, node->table_literal.items->nodes[i], body);
+            for (int i = 0; i < node->table_literal.key_values->count; i++) {
+                ASTNode* kv = node->table_literal.key_values->nodes[i];
+                scan_hoistable_gets(cg, kv->binary.left, body);
+                scan_hoistable_gets(cg, kv->binary.right, body);
+            }
+            break;
+        case AST_TERNARY:
+            scan_hoistable_gets(cg, node->ternary.condition, body);
+            scan_hoistable_gets(cg, node->ternary.true_expr, body);
+            scan_hoistable_gets(cg, node->ternary.false_expr, body);
+            break;
+        default:
+            break;
+    }
+}
+
+// entry point: fills cg->hoist.get_* for the loop body
+static void collect_hoistable_table_gets(CodeGenerator* cg, ASTNode* body) {
+    if (!body) return;
+    if (body_unsafe_for_licm(body)) return;   // calls, awaits, nested fns, indexed assigns
+    scan_hoistable_gets(cg, body, body);
+}
+
 // captures the current per-local numeric-ness flags
 static LocalNumSnap snap_numbers(CodeGenerator* cg) {
     LocalNumSnap s;
@@ -975,6 +1210,11 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->hoist.regs     = NULL;
     cg->hoist.count    = 0;
     cg->hoist.capacity = 0;
+    cg->hoist.get_names    = NULL;
+    cg->hoist.get_indices  = NULL;
+    cg->hoist.get_regs     = NULL;
+    cg->hoist.get_count    = 0;
+    cg->hoist.get_capacity = 0;
 
     cg->num_cache.values   = NULL;
     cg->num_cache.regs     = NULL;
@@ -1006,6 +1246,9 @@ void codegen_destroy(CodeGenerator* cg) {
 
     free(cg->hoist.values);                                                // free hoist arrays (defensive)
     free(cg->hoist.regs);
+    free(cg->hoist.get_names);
+    free(cg->hoist.get_indices);
+    free(cg->hoist.get_regs);
 
     free(cg->num_cache.values);                                            // free numeric constant cache
     free(cg->num_cache.regs);
@@ -1417,12 +1660,22 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             int* prev_hoist_regs = cg->hoist.regs;
             int prev_hoist_count = cg->hoist.count;
             int prev_hoist_capacity = cg->hoist.capacity;
+            const char** prev_get_names    = cg->hoist.get_names;
+            double*      prev_get_indices  = cg->hoist.get_indices;
+            int*         prev_get_regs     = cg->hoist.get_regs;
+            int          prev_get_count    = cg->hoist.get_count;
+            int          prev_get_capacity = cg->hoist.get_capacity;
 
             cg->hoist.active = false;                                               // fresh scope
             cg->hoist.values = NULL;
             cg->hoist.regs = NULL;
             cg->hoist.count = 0;
             cg->hoist.capacity = 0;
+            cg->hoist.get_names    = NULL;
+            cg->hoist.get_indices  = NULL;
+            cg->hoist.get_regs     = NULL;
+            cg->hoist.get_count    = 0;
+            cg->hoist.get_capacity = 0;
 
             collect_hoistable_numbers(cg, node->for_stmt.body);                     // scan body for constants
 
@@ -1438,6 +1691,18 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
                 }
             }
             if (cg->hoist.count > 0) cg->hoist.active = true;                       // enable reuse in the body
+
+            // licm: hoist loop-invariant t[CONST] reads into their own registers
+            collect_hoistable_table_gets(cg, node->for_stmt.body);
+            for (int i = 0; i < cg->hoist.get_count; i++) {
+                int tslot = find_local_slot(cg, cg->hoist.get_names[i]);
+                int t_reg = cg->locals.registers[tslot];
+                int idx   = (int)cg->hoist.get_indices[i];
+                int dst   = alloc_register(cg);
+                emit(cg, INST(OP_TABLE_GET_INT, dst, t_reg, idx), node->line);
+                cg->hoist.get_regs[i] = dst;
+            }
+            if (cg->hoist.get_count > 0) cg->hoist.active = true;
 
             emit(cg, INST(OP_FOR_INIT, var_reg, end_reg, step_reg), node->line);    // init for (no MOVE needed)
 
@@ -1466,10 +1731,13 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             int body_start = bytecode_current_offset(cg->chunk);                    // body start pc
 
             int prev_loop_floor = cg->register_floor;                               // save floor
-            if (cg->hoist.count > 0) {                                              // pin hoisted regs
+            if (cg->hoist.count > 0 || cg->hoist.get_count > 0) {                   // pin hoisted regs
                 int highest = 0;                                                    // highest hoisted reg
                 for (int i = 0; i < cg->hoist.count; i++) {
                     if (cg->hoist.regs[i] > highest) highest = cg->hoist.regs[i];
+                }
+                for (int i = 0; i < cg->hoist.get_count; i++) {
+                    if (cg->hoist.get_regs[i] > highest) highest = cg->hoist.get_regs[i];
                 }
                 cg->register_floor = highest + 1;                                   // body temps start above
             }
@@ -1501,12 +1769,20 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
 
             free(cg->hoist.values);                                                 // release hoist arrays
             free(cg->hoist.regs);
+            free(cg->hoist.get_names);
+            free(cg->hoist.get_indices);
+            free(cg->hoist.get_regs);
 
             cg->hoist.active = prev_hoist_active;                                   // restore previous scope
             cg->hoist.values = prev_hoist_values;
             cg->hoist.regs = prev_hoist_regs;
             cg->hoist.count = prev_hoist_count;
             cg->hoist.capacity = prev_hoist_capacity;
+            cg->hoist.get_names    = prev_get_names;
+            cg->hoist.get_indices  = prev_get_indices;
+            cg->hoist.get_regs     = prev_get_regs;
+            cg->hoist.get_count    = prev_get_count;
+            cg->hoist.get_capacity = prev_get_capacity;
         }
         
         int exit_addr = bytecode_current_offset(cg->chunk);                         // exit address
@@ -2047,6 +2323,23 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
             return codegen_call(cg, node, dest_hint);
 
         case AST_INDEX_ACCESS: {                                                     // table index access
+            // licm: if the enclosing loop hoisted this exact access, return the pre-loaded register
+            if (cg->hoist.get_count > 0 &&
+                node->access.object->type == AST_IDENTIFIER &&
+                node->access.member->type == AST_LITERAL_NUMBER) {
+                const char* nm = node->access.object->identifier.name;
+                double idx = node->access.member->literal_number.number_value;
+                for (int i = 0; i < cg->hoist.get_count; i++) {
+                    if (strcmp(cg->hoist.get_names[i], nm) == 0 &&
+                        cg->hoist.get_indices[i] == idx) {
+                        int r = cg->hoist.get_regs[i];
+                        if (dest_hint < 0 || dest_hint == r) return r;
+                        emit(cg, INST(OP_MOVE, dest_hint, r, 0), node->line);
+                        return dest_hint;
+                    }
+                }
+            }
+
             bool is_module_access = false;                                           // module flag
             char full_name[512] = "";                                                // qualified name
 
