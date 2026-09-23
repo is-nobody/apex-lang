@@ -1157,20 +1157,31 @@ static bool inst_reads_reg(Instruction* inst, int reg) {
     }
 }
 
-// true when some jump in the chunk targets `target`
-static bool code_has_jump_to(CodeGenerator* cg, int target) {
-    for (int i = 0; i < cg->chunk->code_count; i++) {
-        Opcode op = cg->chunk->code[i].opcode;
-        if (op == OP_JUMP ||
-            (op >= OP_JUMP_IF_FALSE && op <= OP_JUMP_IF_GTE) ||
-            (op >= OP_JUMP_IF_EQ_IMM && op <= OP_JUMP_IF_GTE_IMM) ||
-            op == OP_JUMP_MATCH_NUM || op == OP_JUMP_MATCH_STR ||
-            op == OP_JUMP_MATCH_BOOL || op == OP_JUMP_MATCH_NONE) {
-            if (cg->chunk->code[i].operands[0] == target) return true;
-        }
+// records that `pc` is a jump target; grows the bitset on demand
+static void mark_jump_target(CodeGenerator* cg, int pc) {
+    if (pc < 0) return;
+    if (pc >= cg->jump_targets_cap) {
+        int new_cap = cg->jump_targets_cap < 256 ? 256 : cg->jump_targets_cap;
+        while (new_cap <= pc) new_cap *= 2;
+        cg->jump_targets = (uint8_t*)realloc(cg->jump_targets, new_cap);
+        memset(cg->jump_targets + cg->jump_targets_cap, 0,
+               new_cap - cg->jump_targets_cap);
+        cg->jump_targets_cap = new_cap;
     }
-    return false;
+    cg->jump_targets[pc] = 1;
 }
+
+// true when some jump in the chunk targets `target` (O(1) lookup)
+static bool code_has_jump_to(CodeGenerator* cg, int target) {
+    return target >= 0 && target < cg->jump_targets_cap &&
+           cg->jump_targets[target] != 0;
+}
+
+// wraps bytecode_patch_jump so every patched target is recorded in the bitset
+#define PATCH_JUMP(cg, jump_idx, target) do {                       \
+    bytecode_patch_jump((cg)->chunk, (jump_idx), (target));         \
+    mark_jump_target((cg), (target));                               \
+} while (0)
 
 // fuse this instruction into the previous one; returns fused pc or -1
 static int try_peephole_fuse(CodeGenerator* cg, Instruction* inst) {
@@ -1248,7 +1259,6 @@ static int try_peephole_fuse(CodeGenerator* cg, Instruction* inst) {
 
 // emits an instruction with source line info for debugging
 static int emit(CodeGenerator* cg, Instruction inst, int line) {
-    // fold this instruction into the previous one; on success re-run cache invalidation on the fused op
     int fused_idx = try_peephole_fuse(cg, &inst);
     if (fused_idx >= 0) {
         Instruction* fused = &cg->chunk->code[fused_idx];
@@ -1259,17 +1269,24 @@ static int emit(CodeGenerator* cg, Instruction inst, int line) {
         return fused_idx;
     }
 
-    if (inst.opcode == OP_JUMP ||                                          // jump = control-flow merge
-        (inst.opcode >= OP_JUMP_IF_FALSE && inst.opcode <= OP_JUMP_IF_GTE) ||
-        (inst.opcode >= OP_JUMP_IF_EQ_IMM && inst.opcode <= OP_JUMP_IF_GTE_IMM) ||
-        inst.opcode == OP_JUMP_MATCH_NUM || inst.opcode == OP_JUMP_MATCH_STR ||
-        inst.opcode == OP_JUMP_MATCH_BOOL || inst.opcode == OP_JUMP_MATCH_NONE) {
-        cg->imm_lvn.count = 0;                                             // cache is invalid across branches
-    } else if (op_writes_dest_reg(inst.opcode)) {
-        imm_lvn_invalidate(cg, inst.operands[0]);                          // drop entries killed by this write
-        str_cache_invalidate(cg, inst.operands[0]);                        // drop string-cache entry for this reg
+    bool is_jump = (inst.opcode == OP_JUMP ||
+                    (inst.opcode >= OP_JUMP_IF_FALSE && inst.opcode <= OP_JUMP_IF_GTE) ||
+                    (inst.opcode >= OP_JUMP_IF_EQ_IMM && inst.opcode <= OP_JUMP_IF_GTE_IMM) ||
+                    inst.opcode == OP_JUMP_MATCH_NUM || inst.opcode == OP_JUMP_MATCH_STR ||
+                    inst.opcode == OP_JUMP_MATCH_BOOL || inst.opcode == OP_JUMP_MATCH_NONE);
+
+    // backward jumps are emitted with their final target already in operands[0]
+    if (is_jump && inst.operands[0] != 0) {
+        mark_jump_target(cg, inst.operands[0]);
     }
-    return bytecode_emit_line(cg->chunk, inst, line);                      // emit with line info
+
+    if (is_jump) {
+        cg->imm_lvn.count = 0;
+    } else if (op_writes_dest_reg(inst.opcode)) {
+        imm_lvn_invalidate(cg, inst.operands[0]);
+        str_cache_invalidate(cg, inst.operands[0]);
+    }
+    return bytecode_emit_line(cg->chunk, inst, line);
 }
 
 // creates a new code generator
@@ -1295,7 +1312,8 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->register_floor = 0;                                                // no floor at top level
     cg->cache_floor    = 0;                                                // no cache pins yet
     cg->for_scope_depth = 0;                                               // not inside any for
-
+    cg->jump_targets     = NULL;
+    cg->jump_targets_cap = 0;
     cg->hoist.active   = false;
     cg->hoist.values   = NULL;
     cg->hoist.regs     = NULL;
@@ -1351,6 +1369,7 @@ void codegen_destroy(CodeGenerator* cg) {
     free(cg->str_cache.regs);
 
     free(cg->loop_stack.break_jumps);                                      // free break jumps
+    free(cg->jump_targets);
     
     for (int i = 0; i < cg->module_count; i++) {                           // free imported modules
         free(cg->imported_modules[i]);
@@ -1716,6 +1735,7 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             
             int exit_addr = bytecode_current_offset(cg->chunk);                    // exit address
             cg->chunk->code[iter_next_instr].operands[2] = exit_addr;              // patch exit
+            mark_jump_target(cg, exit_addr);                                       // record in bitset
             
             cg->for_scope_depth--;                                                  // exit for-scope
             for (int i = saved_locals_count; i < cg->locals.count; i++) {           // drop loop var + body locals
@@ -1727,7 +1747,7 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             free_snap(table_entry);                                                // release snapshot
             
             for (int i = prev_break_count; i < cg->loop_stack.break_count; i++) {  // patch breaks
-                bytecode_patch_jump(cg->chunk, cg->loop_stack.break_jumps[i], exit_addr);
+                PATCH_JUMP(cg, cg->loop_stack.break_jumps[i], exit_addr);
             }
         } else {                                                                    // numeric range loop
             int saved_locals_count = cg->locals.count;                              // capture for-scope boundary
@@ -1857,6 +1877,7 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
 
             int exit_addr = bytecode_current_offset(cg->chunk);                     // exit address
             cg->chunk->code[for_next_instr].operands[1] = exit_addr;                // patch first test's exit
+            mark_jump_target(cg, exit_addr);                                        // record in bitset
 
             free(cg->hoist.values);                                                 // release hoist arrays
             free(cg->hoist.regs);
@@ -1878,9 +1899,8 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
         
         int exit_addr = bytecode_current_offset(cg->chunk);                         // exit address
         for (int i = prev_break_count; i < cg->loop_stack.break_count; i++) {       // patch all breaks
-            bytecode_patch_jump(cg->chunk, cg->loop_stack.break_jumps[i], exit_addr);
+            PATCH_JUMP(cg, cg->loop_stack.break_jumps[i], exit_addr);
         }
-
     } else {                                                                        // no variable, condition loop
         int saved_locals_count = cg->locals.count;                                  // capture for-scope boundary
         int saved_next_register = cg->next_register;
@@ -1986,10 +2006,10 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
         
         int end_addr = bytecode_current_offset(cg->chunk);                          // end address
         if (jump_to_end >= 0)                                                       // patch jump
-            bytecode_patch_jump(cg->chunk, jump_to_end, end_addr);
+            PATCH_JUMP(cg, jump_to_end, end_addr);
             
         for (int i = 0; i < cg->loop_stack.break_count; i++)                        // patch breaks
-            bytecode_patch_jump(cg->chunk, cg->loop_stack.break_jumps[i], end_addr);
+            PATCH_JUMP(cg, cg->loop_stack.break_jumps[i], end_addr);
     }
 
     cg->loop_stack.break_count = prev_break_count;                                  // restore break count
@@ -2183,7 +2203,7 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
                     free_register(cg, right_reg);                                    // free right temp
                 }
 
-                bytecode_patch_jump(cg->chunk, jump_idx, bytecode_current_offset(cg->chunk));  // patch skip
+                PATCH_JUMP(cg, jump_idx, bytecode_current_offset(cg->chunk));                // patch skip
 
                 return result_reg;                                                   // return result
             }
@@ -2603,7 +2623,7 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
             restore_numbers(cg, pre);                                             // reset to branch point for false
             
             int false_addr = bytecode_current_offset(cg->chunk);                  // false address
-            bytecode_patch_jump(cg->chunk, jump_to_false, false_addr);            // patch jump
+            PATCH_JUMP(cg, jump_to_false, false_addr);                            // patch jump
             
             codegen_expression_into(cg, false_expr, dest_reg);                    // write false into dest
             LocalNumSnap false_snap = snap_numbers(cg);                           // snapshot after false
@@ -2614,7 +2634,7 @@ static int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hi
             free_snap(pre);
             
             int end_addr = bytecode_current_offset(cg->chunk);                    // end address
-            bytecode_patch_jump(cg->chunk, jump_to_end, end_addr);                // patch jump
+            PATCH_JUMP(cg, jump_to_end, end_addr);                                // patch jump
             
             return dest_reg;                                                      // return result
         }
@@ -2709,7 +2729,7 @@ static void codegen_match_statement(CodeGenerator* cg, ASTNode* node) {
         ASTNode* case_node = cases->nodes[i];
         restore_numbers(cg, match_before);                               // reset flags before each case body
         int body_start = bytecode_current_offset(cg->chunk);             // body start address
-        bytecode_patch_jump(cg->chunk, match_jumps[i], body_start);      // patch match jump
+        PATCH_JUMP(cg, match_jumps[i], body_start);                      // patch match jump
         codegen_block(cg, case_node->case_stmt.body);                    // emit body block
         end_jumps[end_jump_count++] = emit(cg, INST(OP_JUMP, 0, 0, 0), line);  // jump to end
     }
@@ -2717,7 +2737,7 @@ static void codegen_match_statement(CodeGenerator* cg, ASTNode* node) {
     if (default_case) {                                                  // emit default body
         restore_numbers(cg, match_before);                               // reset flags before default body
         int default_start = bytecode_current_offset(cg->chunk);          // default body start
-        bytecode_patch_jump(cg->chunk, no_match_jump, default_start);    // patch no-match jump
+        PATCH_JUMP(cg, no_match_jump, default_start);                    // patch no-match jump
         codegen_block(cg, default_case->case_stmt.body);                 // emit default body
         end_jumps[end_jump_count++] = emit(cg, INST(OP_JUMP, 0, 0, 0), line);  // jump to end
     }
@@ -2727,10 +2747,10 @@ static void codegen_match_statement(CodeGenerator* cg, ASTNode* node) {
 
     int end_addr = bytecode_current_offset(cg->chunk);                   // match end address
     if (!default_case) {
-        bytecode_patch_jump(cg->chunk, no_match_jump, end_addr);         // no default: go to end
+        PATCH_JUMP(cg, no_match_jump, end_addr);                         // no default: go to end
     }
     for (int i = 0; i < end_jump_count; i++) {                           // patch all end jumps
-        bytecode_patch_jump(cg->chunk, end_jumps[i], end_addr);
+        PATCH_JUMP(cg, end_jumps[i], end_addr);
     }
 
     free(match_jumps);
@@ -2985,7 +3005,7 @@ static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
     }
     
     int else_addr = bytecode_current_offset(cg->chunk);                      // else address
-    bytecode_patch_jump(cg->chunk, jump_to_else, else_addr);                 // patch jump
+    PATCH_JUMP(cg, jump_to_else, else_addr);                                 // patch jump
 
     bool has_elif = (node->if_stmt.elif_chain != NULL);                      // elif chain present
 
@@ -3017,7 +3037,7 @@ static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
             }
 
             int next_addr = bytecode_current_offset(cg->chunk);
-            bytecode_patch_jump(cg->chunk, jump_to_next, next_addr);
+            PATCH_JUMP(cg, jump_to_next, next_addr);
 
             elif = elif->if_stmt.elif_chain;                                 // next else if
         }
@@ -3044,7 +3064,7 @@ static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
 
     int end_addr = bytecode_current_offset(cg->chunk);                       // end address
     for (int i = 0; i < end_jump_count; i++) {                               // patch all jumps
-        bytecode_patch_jump(cg->chunk, end_jumps[i], end_addr);
+        PATCH_JUMP(cg, end_jumps[i], end_addr);
     }
 }
 
@@ -3419,7 +3439,7 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
 
     cg->current_function_has_nested = prev_has_nested;                       // restore nested flag
 
-    bytecode_patch_jump(cg->chunk, jump_over, bytecode_current_offset(cg->chunk));  // patch jump
+    PATCH_JUMP(cg, jump_over, bytecode_current_offset(cg->chunk));           // patch jump
 
     int func_const_idx = bytecode_add_constant(cg->chunk,                    // add function constant
         (Constant){.type = CONST_FUNCTION, .function_index = func_idx});
@@ -3580,3 +3600,5 @@ bool codegen_generate(CodeGenerator* cg, ASTNode* ast) {
     emit(cg, INST(OP_HALT, 0, 0, 0), 0);                                     // halt instruction
     return true;                                                             // success
 }
+
+#undef PATCH_JUMP
