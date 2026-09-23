@@ -3706,8 +3706,8 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     int first_body_local = cg->locals.count;                                // first body-local slot
     collect_local_names(cg, node->function_decl.body);                      // scan body for assigned names
 
-    // compact register assignment: linear scan reuses dead slots
-    if (cg->locals.count > 0) {
+    // ls only pays off when the natural unique-register assignment is wasteful
+    if (cg->locals.count > 40) {
         int n_loc = cg->locals.count;
         int* lf = (int*)malloc(sizeof(int) * n_loc);
         int* ll = (int*)malloc(sizeof(int) * n_loc);
