@@ -194,6 +194,77 @@ static bool ast_references_local(ASTNode* node, const char* name) {
     }
 }
 
+// statement-level variant of ast_references_local: returns true if the statement
+// reads or writes the named local, recursing into nested blocks
+static bool stmt_references_local(ASTNode* node, const char* name) {
+    if (!node || !name) return false;
+    switch (node->type) {
+        case AST_VAR_DECL:
+            if (node->var_assign.name && strcmp(node->var_assign.name, name) == 0) return true;
+            return ast_references_local(node->var_assign.value, name);
+        case AST_ASSIGN:
+            if (node->var_assign.name && strcmp(node->var_assign.name, name) == 0) return true;
+            if (node->var_assign.access_path &&
+                ast_references_local(node->var_assign.access_path, name)) return true;
+            return ast_references_local(node->var_assign.value, name);
+        case AST_EXPR_STMT:
+            return ast_references_local(node->expr_stmt.expression, name);
+        case AST_RETURN_STMT:
+            return node->return_stmt.value &&
+                   ast_references_local(node->return_stmt.value, name);
+        case AST_IF_STMT:
+            return ast_references_local(node->if_stmt.condition, name) ||
+                   stmt_references_local(node->if_stmt.then_branch, name) ||
+                   stmt_references_local(node->if_stmt.elif_chain, name) ||
+                   stmt_references_local(node->if_stmt.else_branch, name);
+        case AST_FOR_STMT:
+            if (node->for_stmt.var_name && strcmp(node->for_stmt.var_name, name) == 0) return true;
+            if (ast_references_local(node->for_stmt.start, name)) return true;
+            if (ast_references_local(node->for_stmt.end, name)) return true;
+            if (ast_references_local(node->for_stmt.step, name)) return true;
+            if (ast_references_local(node->for_stmt.condition, name)) return true;
+            return stmt_references_local(node->for_stmt.body, name);
+        case AST_BLOCK:
+        case AST_PROGRAM:
+            for (int i = 0; i < node->block.statements->count; i++)
+                if (stmt_references_local(node->block.statements->nodes[i], name)) return true;
+            return false;
+        case AST_MATCH_STMT:
+            if (ast_references_local(node->match_stmt.subject, name)) return true;
+            if (node->match_stmt.cases) {
+                for (int i = 0; i < node->match_stmt.cases->count; i++)
+                    if (stmt_references_local(node->match_stmt.cases->nodes[i], name)) return true;
+            }
+            return stmt_references_local(node->match_stmt.default_case, name);
+        case AST_CASE:
+            return stmt_references_local(node->case_stmt.body, name);
+        case AST_FUNCTION_DECL:    // nested bodies have their own locals; outer locals
+        case AST_BREAK_STMT:       // not visible inside
+        case AST_CONTINUE_STMT:
+        case AST_IMPORT_STMT:
+            return false;
+        default:
+            return true;           // unknown: be conservative
+    }
+}
+
+// true if `name` is never referenced (read or written) in any statement
+// after the current position, walking up through enclosing blocks.
+// returns false inside loops because the same code runs on later iterations
+// and earlier statements in the same loop body are not visible here.
+static bool is_local_dead_after_current_stmt(CodeGenerator* cg, const char* name) {
+    if (!name || cg->loop_depth > 0) return false;
+    int limit = cg->block_depth < 32 ? cg->block_depth : 32;
+    for (int d = limit - 1; d >= 0; d--) {
+        ASTNodeList* stmts = cg->block_stack[d].stmts;
+        if (!stmts) continue;
+        for (int i = cg->block_stack[d].index + 1; i < stmts->count; i++) {
+            if (stmt_references_local(stmts->nodes[i], name)) return false;
+        }
+    }
+    return true;
+}
+
 // true if writing `node`'s result into local `name` could expose a partial value
 static bool ast_unsafe_direct_assign(ASTNode* node, const char* name) {
     if (!node || !name) return false;                                              // null guard
@@ -1036,6 +1107,7 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
     int prev_break_count = cg->loop_stack.break_count;                             // save break count
     int prev_continue_addr = cg->loop_stack.continue_addr;                         // save continue addr
     bool prev_is_fast = cg->loop_stack.is_fast;                                    // save fast flag
+    cg->loop_depth++;                                                              // disable copy propagation inside loops
     
     cg->loop_stack.is_fast = (node->for_stmt.var_name != NULL);                    // set fast flag
 
@@ -1310,6 +1382,7 @@ static void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
     cg->loop_stack.break_count = prev_break_count;                                  // restore break count
     cg->loop_stack.continue_addr = prev_continue_addr;                              // restore continue
     cg->loop_stack.is_fast = prev_is_fast;                                          // restore fast flag
+    cg->loop_depth--;                                                               // re-enable copy propagation
 }
 
 // checks if an expression is known to produce a number at this point in emission
@@ -2038,6 +2111,52 @@ static void codegen_match_statement(CodeGenerator* cg, ASTNode* node) {
 
 // emits a variable declaration, writing the value directly into the local slot
 static void codegen_var_decl(CodeGenerator* cg, ASTNode* node) {
+    // copy propagation: `y = x` where x is a local and x is dead after this statement
+    if (node->var_assign.name && node->var_assign.value &&
+        node->var_assign.value->type == AST_IDENTIFIER) {
+        const char* rhs_name = node->var_assign.value->identifier.name;
+        int rhs_reg = find_local(cg, rhs_name);
+        if (rhs_reg >= 0 &&
+            strcmp(node->var_assign.name, rhs_name) != 0 &&
+            is_local_dead_after_current_stmt(cg, rhs_name)) {
+            int y_reg   = add_local(cg, node->var_assign.name);
+            int y_slot  = find_local_slot(cg, node->var_assign.name);
+            int x_slot  = find_local_slot(cg, rhs_name);
+
+            cg->locals.registers[y_slot] = rhs_reg;                          // y lives in x's register
+
+            if (y_reg == cg->next_register - 1) {                            // freshly allocated temp
+                cg->next_register--;                                         // reclaim it
+            }
+
+            if (x_slot >= 0) {                                               // inherit type flags
+                cg->locals.is_number[y_slot]  = cg->locals.is_number[x_slot];
+                cg->locals.is_integer[y_slot] = cg->locals.is_integer[x_slot];
+            } else {
+                cg->locals.is_number[y_slot]  = false;
+                cg->locals.is_integer[y_slot] = false;
+            }
+
+            bool need_global = (cg->current_module != NULL) ||               // mirror the normal path
+                               (cg->for_scope_depth == 0 &&
+                                ((cg->current_function == 0) ||
+                                 cg->current_function_has_nested));
+            if (need_global) {
+                const char* var_name = node->var_assign.name;
+                char global_name[512];
+                if (cg->current_module) {
+                    snprintf(global_name, sizeof(global_name), "%s.%s",
+                             cg->current_module, var_name);
+                    var_name = global_name;
+                    add_module_global(cg, global_name);
+                }
+                int global_idx = bytecode_add_global(cg->chunk, var_name);
+                emit(cg, INST(OP_STORE_GLOBAL, rhs_reg, global_idx, 0), node->line);
+            }
+            return;
+        }
+    }
+
     int local_reg = add_local(cg, node->var_assign.name);                    // allocate local first
     int slot = find_local_slot(cg, node->var_assign.name);                   // slot index for flag update
 
@@ -2728,7 +2847,15 @@ static void codegen_statement(CodeGenerator* cg, ASTNode* node) {
 // emits a block of statements sequentially, resetting temps between them
 static void codegen_block(CodeGenerator* cg, ASTNode* node) {
     if (!node || (node->type != AST_BLOCK && node->type != AST_PROGRAM)) return;  // validate
+    int frame = -1;                                                          // block_stack slot used
+    if (cg->block_depth < 32) {
+        frame = cg->block_depth;
+        cg->block_stack[frame].stmts = node->block.statements;
+        cg->block_stack[frame].index = 0;
+    }
+    cg->block_depth++;
     for (int i = 0; i < node->block.statements->count; i++) {                // iterate statements
+        if (frame >= 0) cg->block_stack[frame].index = i;                    // record position for lookahead
         ASTNode* stmt = node->block.statements->nodes[i];                    // current statement
         codegen_statement(cg, stmt);                                         // emit statement
         int reset_to = locals_high_water(cg);                                // keep locals + pinned
@@ -2738,6 +2865,7 @@ static void codegen_block(CodeGenerator* cg, ASTNode* node) {
             cg->next_register = reset_to;                                    // reclaim for next stmt
         }
     }
+    cg->block_depth--;
 }
 
 // public entry point that generates bytecode from an ast

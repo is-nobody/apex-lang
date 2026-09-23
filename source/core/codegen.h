@@ -65,6 +65,13 @@ typedef struct {
     int register_floor;            // minimum next_register preserved by codegen_block resets
     int cache_floor;               // persistent floor pinned by the numeric-constant cache
     int for_scope_depth;           // nesting depth of for-scopes; used to decide local vs global
+    int loop_depth;                // nesting depth of active for-loops (used to gate copy propagation)
+
+    struct {
+        ASTNodeList* stmts;        // statements of the enclosing block
+        int          index;        // index of the statement being emitted in that block
+    } block_stack[32];             // stack of enclosing blocks for lookahead liveness
+    int block_depth;               // number of frames in block_stack
 
     int label_counter;             // unique identifier generator for synthetic labels
 
