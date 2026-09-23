@@ -2168,6 +2168,24 @@ static void codegen_assign(CodeGenerator* cg, ASTNode* node) {
 
 // emits if/else if/else chain with optimized condition evaluation
 static void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
+    // constant condition: emit only the reachable branch, drop the dead one
+    bool cv;
+    if (try_fold_bool(node->if_stmt.condition, &cv)) {
+        if (cv) {
+            codegen_block(cg, node->if_stmt.then_branch);                    // if true: only then
+            return;
+        }
+        if (node->if_stmt.elif_chain) {                                      // if false: try elif chain
+            codegen_if_statement(cg, node->if_stmt.elif_chain);              // recurse: it may also fold
+            return;
+        }
+        ASTNode* cb_else = node->if_stmt.else_branch;                        // if false: else, if any
+        if (cb_else) {
+            codegen_block(cg, cb_else);
+        }
+        return;
+    }
+
     LocalNumSnap before = snap_numbers(cg);                                  // snapshot before any branch
 
     int jump_to_else = codegen_optimized_condition(cg, node->if_stmt.condition, node->line);  // try to fuse cond+jump
