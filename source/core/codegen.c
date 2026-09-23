@@ -20,6 +20,12 @@ static int codegen_index_assign(CodeGenerator* cg, ASTNode* node, int dest_hint)
 static int codegen_assign_expr(CodeGenerator* cg, ASTNode* node, int dest_hint);
 static bool is_number_expression(CodeGenerator* cg, ASTNode* node);
 static bool is_integer_expression(CodeGenerator* cg, ASTNode* node);
+static bool function_is_inlinable(ASTNode* fn_decl);
+static bool expr_only_uses_params(ASTNode* node, ASTNodeList* params);
+static bool try_inline_function(CodeGenerator* cg, int func_idx,
+                                ASTNodeList* arg_nodes,
+                                int* arg_regs, int arg_count,
+                                int result_reg, int line);
 
 // checks if a name is a known built-in module root using first-char switch
 static bool is_known_builtin_module(const char* name) {
@@ -1357,6 +1363,8 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->module_globals = NULL;                                             // no module globals
     cg->module_globals_count = 0;                                          // zero module globals
     cg->module_globals_capacity = 0;                                       // no capacity
+    cg->fn_decls     = NULL;                                               // no per-function ASTs yet
+    cg->fn_decls_cap = 0;                                                  // zero capacity
     cg->register_floor = 0;                                                // no floor at top level
     cg->cache_floor    = 0;                                                // no cache pins yet
     cg->for_scope_depth = 0;                                               // not inside any for
@@ -1432,7 +1440,9 @@ void codegen_destroy(CodeGenerator* cg) {
         free(cg->module_globals[i]);
     }
     free(cg->module_globals);                                              // free globals array
-    
+
+    free(cg->fn_decls);                                                    // ASTs are owned by the parser; only the table is ours
+
     free(cg);                                                              // free generator
 }
 
@@ -1560,6 +1570,143 @@ static int codegen_identifier(CodeGenerator* cg, ASTNode* node, int dest) {
     return reg;                                                            // return register
 }
 
+// true when every identifier in expr matches one of the given parameter names
+static bool expr_only_uses_params(ASTNode* node, ASTNodeList* params) {
+    if (!node) return true;                                                // empty expression is fine
+    switch (node->type) {
+        case AST_IDENTIFIER: {
+            const char* n = node->identifier.name;                         // referenced name
+            for (int i = 0; i < params->count; i++) {                      // scan parameter list
+                if (strcmp(params->nodes[i]->param.name, n) == 0) return true;
+            }
+            return false;                                                  // not a parameter: reject
+        }
+        case AST_LITERAL_NUMBER:
+        case AST_LITERAL_STRING:
+        case AST_LITERAL_BOOL:
+        case AST_LITERAL_NONE:
+            return true;                                                   // literals are always safe
+        case AST_BINARY:
+            return expr_only_uses_params(node->binary.left, params) &&
+                   expr_only_uses_params(node->binary.right, params);
+        case AST_UNARY:
+            return expr_only_uses_params(node->unary.operand, params);
+        case AST_TERNARY:
+            return expr_only_uses_params(node->ternary.condition, params) &&
+                   expr_only_uses_params(node->ternary.true_expr, params) &&
+                   expr_only_uses_params(node->ternary.false_expr, params);
+        case AST_STRING_INTERP:
+            for (int i = 0; i < node->string_interp.parts->count; i++)
+                if (!expr_only_uses_params(node->string_interp.parts->nodes[i], params)) return false;
+            return true;
+        case AST_TABLE_LITERAL:
+            for (int i = 0; i < node->table_literal.items->count; i++)
+                if (!expr_only_uses_params(node->table_literal.items->nodes[i], params)) return false;
+            for (int i = 0; i < node->table_literal.key_values->count; i++) {
+                ASTNode* kv = node->table_literal.key_values->nodes[i];
+                if (!expr_only_uses_params(kv->binary.left, params)) return false;
+                if (!expr_only_uses_params(kv->binary.right, params)) return false;
+            }
+            return true;
+        default:
+            return false;                                                  // calls, index, await: reject
+    }
+}
+
+// true when a function is `return <pure expr>` with params-only references
+static bool function_is_inlinable(ASTNode* fn_decl) {
+    if (!fn_decl || fn_decl->type != AST_FUNCTION_DECL) return false;
+    if (fn_decl->function_decl.is_async) return false;                     // async returns a future: skip
+    ASTNodeList* params = fn_decl->function_decl.params;
+    if (params->count > 4) return false;                                   // cap by arity to bound bloat
+    ASTNode* body = fn_decl->function_decl.body;
+    if (!body || body->type != AST_BLOCK) return false;
+    if (body->block.statements->count != 1) return false;                  // only single-stmt bodies
+    ASTNode* stmt = body->block.statements->nodes[0];
+    if (stmt->type != AST_RETURN_STMT || !stmt->return_stmt.value) return false;
+    ASTNode* ret = stmt->return_stmt.value;                                // returned expression
+    if (codegen_expr_has_side_effect(ret)) return false;                   // pure only
+    if (!expr_only_uses_params(ret, params)) return false;                 // no captures / globals
+    return true;
+}
+
+// inlines `return <expr>` at the call site by rebinding params to arg registers
+static bool try_inline_function(CodeGenerator* cg, int func_idx,
+                                ASTNodeList* arg_nodes,
+                                int* arg_regs, int arg_count,
+                                int result_reg, int line) {
+    ASTNode* fn_decl = cg->fn_decls[func_idx];
+    ASTNodeList* params = fn_decl->function_decl.params;
+    if (params->count != arg_count) return false;                          // arity mismatch: bail
+
+    ASTNode* ret_expr = fn_decl->function_decl.body->block.statements->nodes[0]
+                            ->return_stmt.value;
+
+    // save caller's locals table
+    char**  saved_names    = cg->locals.names;
+    int*    saved_regs     = cg->locals.registers;
+    bool*   saved_is_num   = cg->locals.is_number;
+    bool*   saved_is_int   = cg->locals.is_integer;
+    bool*   saved_ck       = cg->locals.const_known;
+    double* saved_cv       = cg->locals.const_value;
+    int     saved_count    = cg->locals.count;
+    int     saved_cap      = cg->locals.capacity;
+
+    // install a fresh locals table containing only the parameters
+    int n   = arg_count;
+    int cap = n < 4 ? 4 : n;                                               // small minimum
+    cg->locals.names        = (char**)malloc(sizeof(char*) * cap);
+    cg->locals.registers    = (int*)malloc(sizeof(int) * cap);
+    cg->locals.is_number    = (bool*)malloc(sizeof(bool) * cap);
+    cg->locals.is_integer   = (bool*)malloc(sizeof(bool) * cap);
+    cg->locals.const_known  = (bool*)malloc(sizeof(bool) * cap);
+    cg->locals.const_value  = (double*)malloc(sizeof(double) * cap);
+    cg->locals.count        = n;
+    cg->locals.capacity     = cap;
+    for (int i = 0; i < n; i++) {
+        ASTNode* p = params->nodes[i];
+        cg->locals.names[i]       = strdup(p->param.name);
+        cg->locals.registers[i]   = arg_regs[i];                           // borrow the caller's arg reg
+        cg->locals.is_number[i]   = true;                                  // best-effort guess
+        cg->locals.is_integer[i]  = false;
+        cg->locals.const_known[i] = false;
+        cg->locals.const_value[i] = 0.0;
+
+        // seed constant-ness from a literal-number argument so the inlined body can be folded
+        if (arg_nodes && i < arg_nodes->count) {
+            ASTNode* a = arg_nodes->nodes[i];
+            if (a && a->type == AST_LITERAL_NUMBER) {
+                double v = a->literal_number.number_value;
+                cg->locals.const_known[i] = true;
+                cg->locals.const_value[i] = v;
+                cg->locals.is_number[i]   = true;
+                if (v == (double)(long long)v) cg->locals.is_integer[i] = true;
+            }
+        }
+    }
+
+    codegen_expression_into(cg, ret_expr, result_reg);                     // body evaluates into caller's dest
+
+    // restore caller's locals table
+    for (int i = 0; i < n; i++) free(cg->locals.names[i]);
+    free(cg->locals.names);
+    free(cg->locals.registers);
+    free(cg->locals.is_number);
+    free(cg->locals.is_integer);
+    free(cg->locals.const_known);
+    free(cg->locals.const_value);
+    cg->locals.names        = saved_names;
+    cg->locals.registers    = saved_regs;
+    cg->locals.is_number    = saved_is_num;
+    cg->locals.is_integer   = saved_is_int;
+    cg->locals.const_known  = saved_ck;
+    cg->locals.const_value  = saved_cv;
+    cg->locals.count        = saved_count;
+    cg->locals.capacity     = saved_cap;
+    (void)line;
+    return true;
+}
+
 // emits a function call, resolving builtins and user functions by name
 static int codegen_call(CodeGenerator* cg, ASTNode* node, int dest_hint) {
     ASTNodeList* args_list = node->call.arguments;                      // arguments list
@@ -1683,7 +1830,21 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node, int dest_hint) {
             }
             return result_reg;                                            // caller gets a future
         }
-        
+
+        // ipa: inline small pure single-return functions at the call site
+        if (func_idx >= 0 && func_idx < cg->fn_decls_cap &&                   // AST available?
+            cg->fn_decls[func_idx] &&                                         // non-null decl
+            function_is_inlinable(cg->fn_decls[func_idx])) {                  // pure `return <expr>`
+            if (try_inline_function(cg, func_idx, args_list, arg_regs, arg_count,
+                                    result_reg, node->line)) {                // body codegen into dest
+                if (arg_regs) {                                               // release arg temporaries
+                    for (int i = 0; i < arg_count; i++) free_register(cg, arg_regs[i]);
+                    free(arg_regs);
+                }
+                return result_reg;                                            // result is already in dest
+            }
+        }
+
         if (func_idx >= 0) {                                                   // function found
             if (arg_count == 0) {                                              // zero args
                 emit(cg, INST(OP_CALL_0, result_reg, func_idx, 0), node->line);
@@ -3448,6 +3609,16 @@ static void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     int param_count = node->function_decl.params->count;                     // parameter count
     int func_idx = bytecode_add_function(cg->chunk, chunk_func_name, param_count);  // add function
     cg->chunk->functions[func_idx].is_async = node->function_decl.is_async;         // propagate async flag
+
+    if (func_idx >= cg->fn_decls_cap) {                                      // grow AST table on demand
+        int new_cap = cg->fn_decls_cap == 0 ? 16 : cg->fn_decls_cap;         // start / keep current
+        while (new_cap <= func_idx) new_cap *= 2;                            // double until fits
+        cg->fn_decls = (ASTNode**)realloc(cg->fn_decls,
+                                          sizeof(ASTNode*) * new_cap);
+        for (int i = cg->fn_decls_cap; i < new_cap; i++) cg->fn_decls[i] = NULL;  // zero new slots
+        cg->fn_decls_cap = new_cap;
+    }
+    cg->fn_decls[func_idx] = node;                                           // keep AST for inlining
 
     int jump_over = bytecode_current_offset(cg->chunk);                      // jump over function body
     emit(cg, INST(OP_JUMP, 0, 0, 0), node->line);                            // emit jump

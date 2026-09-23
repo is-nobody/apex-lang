@@ -100,6 +100,9 @@ typedef struct {
     char** module_globals;         // global variables specific to the current module
     int module_globals_count;      // number of module-specific globals
     int module_globals_capacity;   // allocated capacity of module_globals array
+
+    ASTNode** fn_decls;            // AST_FUNCTION_DECL for each compiled function (indexed by func_idx)
+    int       fn_decls_cap;        // allocated size of fn_decls
 } CodeGenerator;
 
 // creates a new code generator attached to a bytecode chunk
