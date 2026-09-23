@@ -1190,6 +1190,19 @@ static bool inst_reads_reg(Instruction* inst, int reg) {
     }
 }
 
+// follows a chain of unconditional jumps: while pc points at an OP_JUMP
+static int resolve_jump_target(CodeGenerator* cg, int pc) {
+    for (int hop = 0; hop < 16; hop++) {
+        if (pc < 0 || pc >= cg->chunk->code_count) break;
+        Instruction* t = &cg->chunk->code[pc];
+        if (t->opcode != OP_JUMP) break;             // not a plain unconditional jump
+        int next = t->operands[0];
+        if (next == 0 || next == pc) break;          // placeholder or self-loop
+        pc = next;
+    }
+    return pc;
+}
+
 // records that `pc` is a jump target; grows the bitset on demand
 static void mark_jump_target(CodeGenerator* cg, int pc) {
     if (pc < 0) return;
@@ -1212,8 +1225,9 @@ static bool code_has_jump_to(CodeGenerator* cg, int target) {
 
 // wraps bytecode_patch_jump so every patched target is recorded in the bitset
 #define PATCH_JUMP(cg, jump_idx, target) do {                       \
-    bytecode_patch_jump((cg)->chunk, (jump_idx), (target));         \
-    mark_jump_target((cg), (target));                               \
+    int _t = resolve_jump_target((cg), (target));                   \
+    bytecode_patch_jump((cg)->chunk, (jump_idx), (_t));             \
+    mark_jump_target((cg), (_t));                                   \
 } while (0)
 
 // fuse this instruction into the previous one; returns fused pc or -1
@@ -1310,6 +1324,7 @@ static int emit(CodeGenerator* cg, Instruction inst, int line) {
 
     // backward jumps are emitted with their final target already in operands[0]
     if (is_jump && inst.operands[0] != 0) {
+        inst.operands[0] = resolve_jump_target(cg, inst.operands[0]);
         mark_jump_target(cg, inst.operands[0]);
     }
 
