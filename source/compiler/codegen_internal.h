@@ -50,6 +50,7 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node);
 
 // codegen_for_fold.c
 bool try_emit_symbolic_loop(CodeGenerator* cg, ASTNode* node);
+bool try_emit_runtime_poly_sum(CodeGenerator* cg, ASTNode* node);
 
 // codegen_match.c
 void codegen_match_statement(CodeGenerator* cg, ASTNode* node);
