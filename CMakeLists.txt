@@ -65,6 +65,7 @@ set(SOURCES
     source/compiler/opt_dce.c
     source/compiler/opt_branch_merge.c
     source/compiler/opt_jump_targets.c
+    source/compiler/opt_linear_scan.c
 
     source/libraries/os_module.c
     source/libraries/sys_module.c

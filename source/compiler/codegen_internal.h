@@ -105,6 +105,11 @@ bool is_local_dead_after_current_stmt(CodeGenerator* cg, const char* name);
 bool ast_unsafe_direct_assign(ASTNode* node, const char* name);
 bool codegen_expr_has_side_effect(ASTNode* node);
 
+
+// opt_linear_scan.c
+void liveness_walk(CodeGenerator* cg, ASTNode* node, int* stmt_idx, int* first, int* last);
+void assign_registers_linear_scan(CodeGenerator* cg, int n_params, int* first, int* last);
+
 // opt_branch_merge.c
 LocalNumSnap snap_numbers(CodeGenerator* cg);
 void restore_numbers(CodeGenerator* cg, LocalNumSnap s);

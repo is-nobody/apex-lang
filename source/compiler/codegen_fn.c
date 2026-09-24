@@ -212,6 +212,19 @@ void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     // parser guarantees every local is assigned before its first read
     collect_local_names(cg, node->function_decl.body);                      // scan body for assigned names
 
+    // linear-scan register allocation: reuse registers for disjoint live ranges
+    if (cg->locals.count > 0) {
+        int n_loc = cg->locals.count;
+        int* lf = (int*)malloc(sizeof(int) * n_loc);
+        int* ll = (int*)malloc(sizeof(int) * n_loc);
+        for (int i = 0; i < n_loc; i++) { lf[i] = -1; ll[i] = -1; }
+        int sidx = 0;
+        liveness_walk(cg, node->function_decl.body, &sidx, lf, ll);
+        assign_registers_linear_scan(cg, param_count, lf, ll);
+        free(lf);
+        free(ll);
+    }
+
     codegen_block(cg, node->function_decl.body);                            // emit body
 
     bool ends_with_return = false;                                           // return flag
