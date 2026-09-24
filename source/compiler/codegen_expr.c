@@ -379,6 +379,16 @@ int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint) {
                 }
             }
         }
+        // reuse the local's live register when the fold came from an identifier
+        if (node->type == AST_IDENTIFIER) {
+            int slot = find_local_slot(cg, node->identifier.name);
+            if (slot >= 0 && cg->locals.const_known[slot]) {
+                int lreg = cg->locals.registers[slot];
+                if (dest_hint < 0 || dest_hint == lreg) return lreg;                 // reuse directly
+                emit(cg, INST(OP_MOVE, dest_hint, lreg, 0), node->line);             // copy into hint
+                return dest_hint;
+            }
+        }
         int cached = num_cache_lookup(cg, nv);                                       // check per-function cache
         if (cached >= 0) {                                                           // already materialized earlier
             if (dest_hint < 0 || dest_hint == cached) return cached;                 // reuse cached register
