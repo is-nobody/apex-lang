@@ -209,30 +209,8 @@ void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     }
 
     // pre-declare locals so assignments inside match/if/for bind to locals, not globals
-    int first_body_local = cg->locals.count;                                // first body-local slot
+    // parser guarantees every local is assigned before its first read
     collect_local_names(cg, node->function_decl.body);                      // scan body for assigned names
-
-    // ls only pays off when the natural unique-register assignment is wasteful
-    if (cg->locals.count > 20) {
-        int n_loc = cg->locals.count;
-        int* lf = (int*)malloc(sizeof(int) * n_loc);
-        int* ll = (int*)malloc(sizeof(int) * n_loc);
-        for (int i = 0; i < n_loc; i++) { lf[i] = -1; ll[i] = -1; }
-        int sidx = 0;
-        liveness_walk(cg, node->function_decl.body, &sidx, lf, ll);
-        assign_registers_linear_scan(cg, param_count, lf, ll);
-        free(lf);
-        free(ll);
-    }
-
-    for (int i = first_body_local; i < cg->locals.count; i++) {
-        int r = cg->locals.registers[i];
-        bool dup = false;
-        for (int j = first_body_local; j < i; j++) {
-            if (cg->locals.registers[j] == r) { dup = true; break; }
-        }
-        if (!dup) emit(cg, INST(OP_LOAD_NONE, r, 0, 0), node->line);
-    }
 
     codegen_block(cg, node->function_decl.body);                            // emit body
 

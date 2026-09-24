@@ -116,10 +116,6 @@ int  resolve_jump_target(CodeGenerator* cg, int pc);
 void mark_jump_target(CodeGenerator* cg, int pc);
 bool code_has_jump_to(CodeGenerator* cg, int target);
 
-// opt_linear_scan.c
-void liveness_walk(CodeGenerator* cg, ASTNode* node, int* stmt_idx, int* first, int* last);
-void assign_registers_linear_scan(CodeGenerator* cg, int n_params, int* first, int* last);
-
 // wraps bytecode_patch_jump so every patched target is recorded in the bitset
 #define PATCH_JUMP(cg, jump_idx, target) do {                       \
     int _t = resolve_jump_target((cg), (target));                   \
