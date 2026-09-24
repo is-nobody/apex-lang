@@ -367,6 +367,19 @@ int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint) {
         return reg;                                                                  // return register
     }
 
+    // licm: substitute a loop-invariant expression with its pre-loaded register
+    if (cg->hoist.active && cg->hoist.expr_count > 0 &&
+        (node->type == AST_BINARY || node->type == AST_UNARY || node->type == AST_INDEX_ACCESS)) {
+        for (int i = 0; i < cg->hoist.expr_count; i++) {
+            if (expr_struct_eq(node, cg->hoist.exprs[i])) {
+                int r = cg->hoist.expr_regs[i];
+                if (dest_hint < 0 || dest_hint == r) return r;
+                emit(cg, INST(OP_MOVE, dest_hint, r, 0), node->line);
+                return dest_hint;
+            }
+        }
+    }
+
     // iv strength reduction: substitute `loop_var OP c` with its accumulator
     if (cg->iv_reduce.loop_var && node->type == AST_BINARY &&
         node->binary.left && node->binary.right) {

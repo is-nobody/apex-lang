@@ -275,6 +275,133 @@ static void collect_iv_candidates(CodeGenerator* cg, ASTNode* node, const char* 
     }
 }
 
+// true when `node` is a pure expression tree with no loop_var and no body-assigned names
+static bool expr_is_hoistable(ASTNode* node, ASTNode* body, const char* loop_var) {
+    if (!node) return false;
+    switch (node->type) {
+        case AST_LITERAL_NUMBER:
+        case AST_LITERAL_STRING:
+        case AST_LITERAL_BOOL:
+        case AST_LITERAL_NONE:
+            return true;
+        case AST_IDENTIFIER: {
+            const char* nm = node->identifier.name;
+            if (loop_var && strcmp(nm, loop_var) == 0) return false;
+            if (body_assigns_name(body, nm)) return false;
+            return true;
+        }
+        case AST_BINARY:
+            return expr_is_hoistable(node->binary.left,  body, loop_var) &&
+                   expr_is_hoistable(node->binary.right, body, loop_var);
+        case AST_UNARY:
+            return expr_is_hoistable(node->unary.operand, body, loop_var);
+        case AST_INDEX_ACCESS: {
+            // t[CONST] is handled by collect_hoistable_table_gets; skip to avoid double hoisting
+            if (node->access.object->type == AST_IDENTIFIER &&
+                node->access.member->type == AST_LITERAL_NUMBER) {
+                double idx = node->access.member->literal_number.number_value;
+                if (idx == (int)idx && idx >= 1 && idx <= 65535) return false;
+            }
+            return expr_is_hoistable(node->access.object, body, loop_var) &&
+                   expr_is_hoistable(node->access.member, body, loop_var);
+        }
+        default:
+            return false;                                       // calls, awaits, ternary, tables, interps: skip
+    }
+}
+
+// collects hoistable pure expressions top-down; deduped by structural equality
+static void collect_hoistable_exprs(ASTNode* node, ASTNode* body, const char* loop_var,
+                                     ASTNode* cands[], int* count, int max) {
+    if (!node || *count >= max) return;
+
+    if ((node->type == AST_BINARY || node->type == AST_UNARY ||
+         node->type == AST_INDEX_ACCESS) &&
+        expr_is_hoistable(node, body, loop_var)) {
+        bool dup = false;
+        for (int i = 0; i < *count; i++) {
+            if (expr_struct_eq(cands[i], node)) { dup = true; break; }
+        }
+        if (!dup) {
+            cands[*count] = node;
+            (*count)++;
+        }
+        return;                                                 // don't descend: whole subtree is covered
+    }
+
+    switch (node->type) {
+        case AST_BINARY:
+            collect_hoistable_exprs(node->binary.left,  body, loop_var, cands, count, max);
+            collect_hoistable_exprs(node->binary.right, body, loop_var, cands, count, max);
+            break;
+        case AST_UNARY:
+            collect_hoistable_exprs(node->unary.operand, body, loop_var, cands, count, max);
+            break;
+        case AST_INDEX_ACCESS:
+            collect_hoistable_exprs(node->access.object, body, loop_var, cands, count, max);
+            collect_hoistable_exprs(node->access.member, body, loop_var, cands, count, max);
+            break;
+        case AST_CALL:
+            for (int i = 0; i < node->call.arguments->count; i++)
+                collect_hoistable_exprs(node->call.arguments->nodes[i], body, loop_var, cands, count, max);
+            break;
+        case AST_ASSIGN:
+        case AST_VAR_DECL:
+            collect_hoistable_exprs(node->var_assign.value, body, loop_var, cands, count, max);
+            break;
+        case AST_EXPR_STMT:
+            collect_hoistable_exprs(node->expr_stmt.expression, body, loop_var, cands, count, max);
+            break;
+        case AST_RETURN_STMT:
+            collect_hoistable_exprs(node->return_stmt.value, body, loop_var, cands, count, max);
+            break;
+        case AST_BLOCK:
+        case AST_PROGRAM:
+            for (int i = 0; i < node->block.statements->count; i++)
+                collect_hoistable_exprs(node->block.statements->nodes[i], body, loop_var, cands, count, max);
+            break;
+        case AST_IF_STMT:
+            collect_hoistable_exprs(node->if_stmt.condition,   body, loop_var, cands, count, max);
+            collect_hoistable_exprs(node->if_stmt.then_branch, body, loop_var, cands, count, max);
+            collect_hoistable_exprs(node->if_stmt.elif_chain,  body, loop_var, cands, count, max);
+            collect_hoistable_exprs(node->if_stmt.else_branch, body, loop_var, cands, count, max);
+            break;
+        case AST_FOR_STMT:
+            break;                                              // nested loop: skip
+        case AST_MATCH_STMT:
+            collect_hoistable_exprs(node->match_stmt.subject, body, loop_var, cands, count, max);
+            if (node->match_stmt.cases) {
+                for (int i = 0; i < node->match_stmt.cases->count; i++)
+                    collect_hoistable_exprs(node->match_stmt.cases->nodes[i], body, loop_var, cands, count, max);
+            }
+            collect_hoistable_exprs(node->match_stmt.default_case, body, loop_var, cands, count, max);
+            break;
+        case AST_CASE:
+            collect_hoistable_exprs(node->case_stmt.body, body, loop_var, cands, count, max);
+            break;
+        case AST_STRING_INTERP:
+            for (int i = 0; i < node->string_interp.parts->count; i++)
+                collect_hoistable_exprs(node->string_interp.parts->nodes[i], body, loop_var, cands, count, max);
+            break;
+        case AST_TABLE_LITERAL:
+            for (int i = 0; i < node->table_literal.items->count; i++)
+                collect_hoistable_exprs(node->table_literal.items->nodes[i], body, loop_var, cands, count, max);
+            for (int i = 0; i < node->table_literal.key_values->count; i++) {
+                ASTNode* kv = node->table_literal.key_values->nodes[i];
+                collect_hoistable_exprs(kv->binary.left,  body, loop_var, cands, count, max);
+                collect_hoistable_exprs(kv->binary.right, body, loop_var, cands, count, max);
+            }
+            break;
+        case AST_TERNARY:
+            collect_hoistable_exprs(node->ternary.condition,  body, loop_var, cands, count, max);
+            collect_hoistable_exprs(node->ternary.true_expr,  body, loop_var, cands, count, max);
+            collect_hoistable_exprs(node->ternary.false_expr, body, loop_var, cands, count, max);
+            break;
+        default:
+            break;
+    }
+}
+
 // emits for loops, supporting both range loops and table iteration
 void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
     // zero-trip range loop: body never runs, so drop the whole statement
@@ -354,10 +481,12 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
 
             int var_reg = add_local(cg, node->for_stmt.var_name);                   // allocate loop variable first
             codegen_expression_into(cg, node->for_stmt.start, var_reg);             // write start directly into var_reg
-            int end_reg = codegen_expression(cg, node->for_stmt.end);               // evaluate end (fresh temp)
+            int end_reg = alloc_register(cg);                                       // fresh register for the loop bound
+            codegen_expression_into(cg, node->for_stmt.end, end_reg);               // spill: bound fixed at loop entry
             int step_reg;                                                           // step register
             if (node->for_stmt.step) {                                              // custom step
-                step_reg = codegen_expression(cg, node->for_stmt.step);             // evaluate step
+                step_reg = alloc_register(cg);                                      // fresh register for the step
+                codegen_expression_into(cg, node->for_stmt.step, step_reg);         // spill: step fixed at loop entry
             } else {                                                                // default step = 1
                 step_reg = alloc_register(cg);                                      // allocate register
                 emit(cg, INST(OP_LOAD_NUM_IMM, step_reg, 1, 0), node->line);        // load 1 immediate
@@ -374,6 +503,11 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             int*         prev_get_regs     = cg->hoist.get_regs;
             int          prev_get_count    = cg->hoist.get_count;
             int          prev_get_capacity = cg->hoist.get_capacity;
+            ASTNode* prev_hoist_exprs[8];
+            int      prev_hoist_expr_regs[8];
+            int      prev_hoist_expr_count = cg->hoist.expr_count;
+            memcpy(prev_hoist_exprs,     cg->hoist.exprs,     sizeof(prev_hoist_exprs));
+            memcpy(prev_hoist_expr_regs, cg->hoist.expr_regs, sizeof(prev_hoist_expr_regs));
 
             cg->hoist.active = false;                                               // fresh scope
             cg->hoist.values = NULL;
@@ -385,6 +519,7 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             cg->hoist.get_regs     = NULL;
             cg->hoist.get_count    = 0;
             cg->hoist.get_capacity = 0;
+            cg->hoist.expr_count   = 0;
 
             // iv strength reduction: analyze body FIRST so constants consumed by
             // IV accumulators aren't re-hoisted as dead registers below
@@ -447,6 +582,22 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             }
             if (cg->hoist.get_count > 0) cg->hoist.active = true;
 
+            // extended licm: hoist arbitrary pure loop-invariant expressions
+            ASTNode* expr_cands[8];
+            int expr_count = 0;
+            collect_hoistable_exprs(node->for_stmt.body, node->for_stmt.body,
+                                     node->for_stmt.var_name, expr_cands, &expr_count, 8);
+            if (expr_count > 0) {
+                cg->hoist.active = true;                                            // enable substitution
+                for (int i = 0; i < expr_count; i++) {
+                    int reg = alloc_register(cg);
+                    cg->hoist.exprs[i] = expr_cands[i];
+                    codegen_expression_into(cg, expr_cands[i], reg);                // emits into reg
+                    cg->hoist.expr_regs[i] = reg;
+                    cg->hoist.expr_count = i + 1;                                   // now visible for later exprs
+                }
+            }
+
             // emit IV accumulator initializers (analysis done above)
             for (int i = 0; i < iv_count; i++) {
                 int acc = alloc_register(cg);
@@ -500,13 +651,17 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             cg->imm_lvn.count = 0;                                                  // body: back-edge merge point
 
             int prev_loop_floor = cg->register_floor;                               // save floor
-            if (cg->hoist.count > 0 || cg->hoist.get_count > 0 || iv_count > 0) {   // pin hoisted + iv regs
+            if (cg->hoist.count > 0 || cg->hoist.get_count > 0 ||
+                cg->hoist.expr_count > 0 || iv_count > 0) {                         // pin hoisted + iv regs
                 int highest = 0;                                                    // highest hoisted reg
                 for (int i = 0; i < cg->hoist.count; i++) {
                     if (cg->hoist.regs[i] > highest) highest = cg->hoist.regs[i];
                 }
                 for (int i = 0; i < cg->hoist.get_count; i++) {
                     if (cg->hoist.get_regs[i] > highest) highest = cg->hoist.get_regs[i];
+                }
+                for (int i = 0; i < cg->hoist.expr_count; i++) {
+                    if (cg->hoist.expr_regs[i] > highest) highest = cg->hoist.expr_regs[i];
                 }
                 for (int i = 0; i < iv_count; i++) {
                     if (cg->iv_reduce.entries[i].reg > highest) highest = cg->iv_reduce.entries[i].reg;
@@ -576,6 +731,9 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             cg->hoist.get_regs     = prev_get_regs;
             cg->hoist.get_count    = prev_get_count;
             cg->hoist.get_capacity = prev_get_capacity;
+            memcpy(cg->hoist.exprs,     prev_hoist_exprs,     sizeof(prev_hoist_exprs));
+            memcpy(cg->hoist.expr_regs, prev_hoist_expr_regs, sizeof(prev_hoist_expr_regs));
+            cg->hoist.expr_count   = prev_hoist_expr_count;
         }
 
         int exit_addr = bytecode_current_offset(cg->chunk);                         // exit address

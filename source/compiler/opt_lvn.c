@@ -20,6 +20,8 @@ int imm_lvn_lookup(CodeGenerator* cg, Opcode op, int left_reg, int right_reg, in
 
 // records a freshly computed arithmetic result so later uses can reuse the register
 void imm_lvn_add(CodeGenerator* cg, Opcode op, int left_reg, int right_reg, int imm, int result_reg) {
+    if (result_reg >= 0 && (result_reg == left_reg || result_reg == right_reg))
+        return;                                                      // in-place: entry stale the moment it is added
     if (cg->imm_lvn.count >= 16) return;                             // cap to bound pressure
     cg->imm_lvn.entries[cg->imm_lvn.count].op         = op;          // opcode
     cg->imm_lvn.entries[cg->imm_lvn.count].left_reg   = left_reg;    // left operand

@@ -369,3 +369,36 @@ bool for_is_zero_trip(CodeGenerator* cg, ASTNode* node) {
     if (step_v < 0 && start_v < end_v) return true;   // descending out of range
     return false;
 }
+
+// deep structural equality for hoistable nodes (identifiers, literals,
+// binary, unary, index_access); unknown types compare unequal
+bool expr_struct_eq(ASTNode* a, ASTNode* b) {
+    if (a == b) return true;
+    if (!a || !b) return false;
+    if (a->type != b->type) return false;
+    switch (a->type) {
+        case AST_IDENTIFIER:
+            return strcmp(a->identifier.name, b->identifier.name) == 0;
+        case AST_LITERAL_NUMBER:
+            return a->literal_number.number_value == b->literal_number.number_value;
+        case AST_LITERAL_STRING:
+            return strcmp(a->literal_string.string_value,
+                          b->literal_string.string_value) == 0;
+        case AST_LITERAL_BOOL:
+            return a->literal_bool.bool_value == b->literal_bool.bool_value;
+        case AST_LITERAL_NONE:
+            return true;
+        case AST_BINARY:
+            return a->binary.op == b->binary.op &&
+                   expr_struct_eq(a->binary.left, b->binary.left) &&
+                   expr_struct_eq(a->binary.right, b->binary.right);
+        case AST_UNARY:
+            return a->unary.op == b->unary.op &&
+                   expr_struct_eq(a->unary.operand, b->unary.operand);
+        case AST_INDEX_ACCESS:
+            return expr_struct_eq(a->access.object, b->access.object) &&
+                   expr_struct_eq(a->access.member, b->access.member);
+        default:
+            return false;
+    }
+}

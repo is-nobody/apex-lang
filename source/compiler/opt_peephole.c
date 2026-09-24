@@ -139,6 +139,38 @@ int try_peephole_fuse(CodeGenerator* cg, Instruction* inst) {
         return cg->chunk->code_count - 1;
     }
 
+    // MOVE md,ms + <op reading md as source, writing != md>  ->  substitute ms for md in sources
+    if (prev->opcode == OP_MOVE && op_writes_dest_reg(inst->opcode)) {
+        int md = prev->operands[0];
+        int ms = prev->operands[1];
+        if (md != ms && md != d) {
+            bool changed = false;
+            switch (inst->opcode) {
+                case OP_MOVE:
+                    if (inst->operands[1] == md) { inst->operands[1] = ms; changed = true; }
+                    break;
+                case OP_NEG: case OP_ADD: case OP_SUB:
+                case OP_MUL: case OP_DIV: case OP_MOD:
+                case OP_CMP_EQ: case OP_CMP_NEQ:
+                case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
+                case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
+                case OP_AND: case OP_OR: case OP_CONCAT:
+                case OP_TABLE_GET: case OP_TABLE_GET_NUM:
+                    if (inst->operands[1] == md) { inst->operands[1] = ms; changed = true; }
+                    if (inst->operands[2] == md) { inst->operands[2] = ms; changed = true; }
+                    break;
+                case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:
+                case OP_DIV_IMM: case OP_MOD_IMM:
+                case OP_TABLE_GET_INT:
+                    if (inst->operands[1] == md) { inst->operands[1] = ms; changed = true; }
+                    break;
+                default:
+                    break;
+            }
+            if (changed) return -1;
+        }
+    }
+
     // LOAD_NUM_IMM d,k + ADD_IMM|SUB_IMM|MUL_IMM|DIV_IMM|MOD_IMM d,d,m
     if (prev->opcode == OP_LOAD_NUM_IMM && prev->operands[0] == d &&
         inst->operands[1] == d &&

@@ -38,6 +38,10 @@ typedef struct {
         int*         get_regs;     // register holding the loaded value
         int          get_count;
         int          get_capacity;
+
+        ASTNode* exprs[8];         // hoisted pure expressions (cap 8)
+        int      expr_regs[8];     // registers holding each hoisted expression
+        int      expr_count;       // number of hoisted expressions
     } hoist;
 
     struct {

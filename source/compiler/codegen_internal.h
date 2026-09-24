@@ -96,6 +96,7 @@ void collect_hoistable_numbers(CodeGenerator* cg, ASTNode* node);
 void collect_hoistable_table_gets(CodeGenerator* cg, ASTNode* body);
 void invalidate_loop_consts(CodeGenerator* cg, ASTNode* body, const char* loop_var);
 bool for_is_zero_trip(CodeGenerator* cg, ASTNode* node);
+bool expr_struct_eq(ASTNode* a, ASTNode* b);
 
 // opt_dce.c
 bool ast_references_local(ASTNode* node, const char* name);
