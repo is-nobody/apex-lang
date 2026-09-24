@@ -25,5 +25,7 @@ os.execute("apex source/tests/benchmark/nested_3d_loops.apex")
 os.execute("apex source/tests/benchmark/table_int_index.apex")
 os.execute("apex source/tests/benchmark/table_dynamic_read.apex")
 
-// matrix & arithmetic
+// arithmetic
 os.execute("apex source/tests/benchmark/matrix_multiplication.apex")
+os.execute("apex source/tests/benchmark/float_arithmetic.apex")
+os.execute("apex source/tests/benchmark/mandelbrot.apex")
