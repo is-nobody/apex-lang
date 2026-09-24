@@ -80,6 +80,8 @@ int add_local(CodeGenerator* cg, const char* name) {
                                               sizeof(bool) * cg->locals.capacity);
         cg->locals.const_value = (double*)realloc(cg->locals.const_value,               // resize const-value array
                                               sizeof(double) * cg->locals.capacity);
+        cg->locals.materialized = (bool*)realloc(cg->locals.materialized,               // resize materialized array
+                                              sizeof(bool) * cg->locals.capacity);
     }
     int reg = alloc_register(cg);                                          // allocate new register
     cg->locals.names[cg->locals.count] = strdup(name);                     // copy name
@@ -88,6 +90,7 @@ int add_local(CodeGenerator* cg, const char* name) {
     cg->locals.is_integer[cg->locals.count] = false;                       // unknown until assigned
     cg->locals.const_known[cg->locals.count] = false;                      // not a known constant yet
     cg->locals.const_value[cg->locals.count] = 0.0;                        // placeholder
+    cg->locals.materialized[cg->locals.count] = true;                      // real register by default
     cg->locals.count++;                                                    // increment count
     return reg;                                                            // return register
 }

@@ -22,6 +22,7 @@ typedef struct {
         bool* is_integer;          // per-slot: true when the register is known to hold a whole number
         bool* const_known;         // per-slot: true when the value is a known numeric constant
         double* const_value;       // the constant value when const_known is true
+        bool* materialized;        // per-slot: true when the register holds a real runtime value
         int count;                 // number of locals in the current scope
         int capacity;              // allocated capacity of the local arrays
     } locals;                      // maps local variable names to their register slots

@@ -98,6 +98,7 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->locals.is_number   = NULL;
     cg->locals.const_known = NULL;
     cg->locals.const_value = NULL;
+    cg->locals.materialized = NULL;
 
     return cg;                                                             // return generator
 }
@@ -115,6 +116,7 @@ void codegen_destroy(CodeGenerator* cg) {
     free(cg->locals.is_integer);                                           // free integer-ness flags array
     free(cg->locals.const_known);                                          // free const-known flags array
     free(cg->locals.const_value);                                          // free const-value array
+    free(cg->locals.materialized);                                         // free materialized flags array
 
     free(cg->hoist.values);                                                // free hoist arrays (defensive)
     free(cg->hoist.regs);

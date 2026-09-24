@@ -199,6 +199,7 @@ bool try_inline_function(CodeGenerator* cg, int func_idx,
     bool*   saved_is_int   = cg->locals.is_integer;
     bool*   saved_ck       = cg->locals.const_known;
     double* saved_cv       = cg->locals.const_value;
+    bool*   saved_mat      = cg->locals.materialized;
     int     saved_count    = cg->locals.count;
     int     saved_cap      = cg->locals.capacity;
 
@@ -211,6 +212,7 @@ bool try_inline_function(CodeGenerator* cg, int func_idx,
     cg->locals.is_integer   = (bool*)malloc(sizeof(bool) * cap);
     cg->locals.const_known  = (bool*)malloc(sizeof(bool) * cap);
     cg->locals.const_value  = (double*)malloc(sizeof(double) * cap);
+    cg->locals.materialized = (bool*)malloc(sizeof(bool) * cap);
     cg->locals.count        = arg_count;
     cg->locals.capacity     = cap;
     for (int i = 0; i < arg_count; i++) {
@@ -239,18 +241,21 @@ bool try_inline_function(CodeGenerator* cg, int func_idx,
         ASTNode* stmt = body->block.statements->nodes[i];
         if (stmt->type == AST_VAR_DECL || stmt->type == AST_ASSIGN) {
             int local_reg = add_local(cg, stmt->var_assign.name);   // fresh slot (or existing)
-            codegen_expression_into(cg, stmt->var_assign.value, local_reg);
-            int slot = find_local_slot(cg, stmt->var_assign.name);  // refresh flags for later folds
-            if (slot >= 0) {
-                cg->locals.is_number[slot]  = is_number_expression(cg, stmt->var_assign.value);
-                cg->locals.is_integer[slot] = is_integer_expression(cg, stmt->var_assign.value);
-                double cv;
-                if (try_fold_number(cg, stmt->var_assign.value, &cv)) {
-                    cg->locals.const_known[slot] = true;
-                    cg->locals.const_value[slot] = cv;
-                } else {
-                    cg->locals.const_known[slot] = false;
-                }
+            int slot = find_local_slot(cg, stmt->var_assign.name);
+            double cv;
+            if (try_fold_number(cg, stmt->var_assign.value, &cv)) {
+                // foldable: record the constant but emit no register write
+                cg->locals.const_known[slot]  = true;
+                cg->locals.const_value[slot]  = cv;
+                cg->locals.is_number[slot]    = true;
+                cg->locals.is_integer[slot]   = (cv == (double)(long long)cv);
+                cg->locals.materialized[slot] = false;
+            } else {
+                codegen_expression_into(cg, stmt->var_assign.value, local_reg);
+                cg->locals.is_number[slot]    = is_number_expression(cg, stmt->var_assign.value);
+                cg->locals.is_integer[slot]   = is_integer_expression(cg, stmt->var_assign.value);
+                cg->locals.const_known[slot]  = false;
+                cg->locals.materialized[slot] = true;
             }
         } else if (stmt->type == AST_RETURN_STMT) {
             codegen_expression_into(cg, stmt->return_stmt.value, result_reg);
@@ -265,12 +270,14 @@ bool try_inline_function(CodeGenerator* cg, int func_idx,
     free(cg->locals.is_integer);
     free(cg->locals.const_known);
     free(cg->locals.const_value);
+    free(cg->locals.materialized);
     cg->locals.names        = saved_names;
     cg->locals.registers    = saved_regs;
     cg->locals.is_number    = saved_is_num;
     cg->locals.is_integer   = saved_is_int;
     cg->locals.const_known  = saved_ck;
     cg->locals.const_value  = saved_cv;
+    cg->locals.materialized = saved_mat;
     cg->locals.count        = saved_count;
     cg->locals.capacity     = saved_cap;
     (void)line;
@@ -291,7 +298,6 @@ bool try_fold_inline_call(CodeGenerator* cg, ASTNode* node, double* out) {
     if (func_idx < 0 || func_idx >= cg->fn_decls_cap) return false;
     ASTNode* fn = cg->fn_decls[func_idx];
     if (!fn || !function_is_inlinable(fn)) return false;
-    if (fn->function_decl.body->block.statements->count != 1) return false;  // fold path: single stmt only
 
     ASTNodeList* params = fn->function_decl.params;
     ASTNodeList* args   = node->call.arguments;
@@ -302,6 +308,12 @@ bool try_fold_inline_call(CodeGenerator* cg, ASTNode* node, double* out) {
         if (!try_fold_number(cg, args->nodes[i], &arg_vals[i])) return false;
     }
 
+    ASTNode* body = fn->function_decl.body;
+    int stmt_count = body->block.statements->count;
+    int n   = params->count;
+    int cap = n + stmt_count;
+    if (cap < 4) cap = 4;
+
     char**  s_names = cg->locals.names;
     int*    s_regs  = cg->locals.registers;
     bool*   s_num   = cg->locals.is_number;
@@ -311,8 +323,6 @@ bool try_fold_inline_call(CodeGenerator* cg, ASTNode* node, double* out) {
     int     s_count = cg->locals.count;
     int     s_cap   = cg->locals.capacity;
 
-    int n   = params->count;
-    int cap = n < 4 ? 4 : n;
     cg->locals.names        = (char**)malloc(sizeof(char*) * cap);
     cg->locals.registers    = (int*)malloc(sizeof(int) * cap);
     cg->locals.is_number    = (bool*)malloc(sizeof(bool) * cap);
@@ -330,10 +340,29 @@ bool try_fold_inline_call(CodeGenerator* cg, ASTNode* node, double* out) {
         cg->locals.const_value[i] = arg_vals[i];
     }
 
-    ASTNode* ret = fn->function_decl.body->block.statements->nodes[0]->return_stmt.value;
-    bool ok = try_fold_number(cg, ret, out);
+    bool ok = false;
+    for (int i = 0; i < stmt_count && cg->locals.count < cap; i++) {
+        ASTNode* stmt = body->block.statements->nodes[i];
+        if (stmt->type == AST_VAR_DECL || stmt->type == AST_ASSIGN) {
+            double cv;
+            if (!try_fold_number(cg, stmt->var_assign.value, &cv)) break;
+            int slot = find_local_slot(cg, stmt->var_assign.name);
+            if (slot < 0) {
+                slot = cg->locals.count++;
+                cg->locals.names[slot]     = strdup(stmt->var_assign.name);
+                cg->locals.registers[slot] = 0;
+            }
+            cg->locals.is_number[slot]    = true;
+            cg->locals.is_integer[slot]   = (cv == (double)(long long)cv);
+            cg->locals.const_known[slot]  = true;
+            cg->locals.const_value[slot]  = cv;
+        } else if (stmt->type == AST_RETURN_STMT) {
+            ok = try_fold_number(cg, stmt->return_stmt.value, out);
+            break;
+        }
+    }
 
-    for (int i = 0; i < n; i++) free(cg->locals.names[i]);
+    for (int i = 0; i < cg->locals.count; i++) free(cg->locals.names[i]);
     free(cg->locals.names);
     free(cg->locals.registers);
     free(cg->locals.is_number);
