@@ -1,0 +1,219 @@
+// source/compiler/opt_inline.c
+// Inlining of small pure single-return functions
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
+#include "codegen_internal.h"
+#include <stdlib.h>
+#include <string.h>
+
+// true when every identifier in expr matches one of the given parameter names
+bool expr_only_uses_params(ASTNode* node, ASTNodeList* params) {
+    if (!node) return true;                                                // empty expression is fine
+    switch (node->type) {
+        case AST_IDENTIFIER: {
+            const char* n = node->identifier.name;                         // referenced name
+            for (int i = 0; i < params->count; i++) {                      // scan parameter list
+                if (strcmp(params->nodes[i]->param.name, n) == 0) return true;
+            }
+            return false;                                                  // not a parameter: reject
+        }
+        case AST_LITERAL_NUMBER:
+        case AST_LITERAL_STRING:
+        case AST_LITERAL_BOOL:
+        case AST_LITERAL_NONE:
+            return true;                                                   // literals are always safe
+        case AST_BINARY:
+            return expr_only_uses_params(node->binary.left, params) &&
+                   expr_only_uses_params(node->binary.right, params);
+        case AST_UNARY:
+            return expr_only_uses_params(node->unary.operand, params);
+        case AST_TERNARY:
+            return expr_only_uses_params(node->ternary.condition, params) &&
+                   expr_only_uses_params(node->ternary.true_expr, params) &&
+                   expr_only_uses_params(node->ternary.false_expr, params);
+        case AST_STRING_INTERP:
+            for (int i = 0; i < node->string_interp.parts->count; i++)
+                if (!expr_only_uses_params(node->string_interp.parts->nodes[i], params)) return false;
+            return true;
+        case AST_TABLE_LITERAL:
+            for (int i = 0; i < node->table_literal.items->count; i++)
+                if (!expr_only_uses_params(node->table_literal.items->nodes[i], params)) return false;
+            for (int i = 0; i < node->table_literal.key_values->count; i++) {
+                ASTNode* kv = node->table_literal.key_values->nodes[i];
+                if (!expr_only_uses_params(kv->binary.left, params)) return false;
+                if (!expr_only_uses_params(kv->binary.right, params)) return false;
+            }
+            return true;
+        default:
+            return false;                                                  // calls, index, await: reject
+    }
+}
+
+// true when a function is `return <pure expr>` with params-only references
+bool function_is_inlinable(ASTNode* fn_decl) {
+    if (!fn_decl || fn_decl->type != AST_FUNCTION_DECL) return false;
+    if (fn_decl->function_decl.is_async) return false;                     // async returns a future: skip
+    ASTNodeList* params = fn_decl->function_decl.params;
+    if (params->count > 4) return false;                                   // cap by arity to bound bloat
+    ASTNode* body = fn_decl->function_decl.body;
+    if (!body || body->type != AST_BLOCK) return false;
+    if (body->block.statements->count != 1) return false;                  // only single-stmt bodies
+    ASTNode* stmt = body->block.statements->nodes[0];
+    if (stmt->type != AST_RETURN_STMT || !stmt->return_stmt.value) return false;
+    ASTNode* ret = stmt->return_stmt.value;                                // returned expression
+    if (codegen_expr_has_side_effect(ret)) return false;                   // pure only
+    if (!expr_only_uses_params(ret, params)) return false;                 // no captures / globals
+    return true;
+}
+
+// inlines `return <expr>` at the call site by rebinding params to arg registers
+bool try_inline_function(CodeGenerator* cg, int func_idx,
+                         ASTNodeList* arg_nodes,
+                         int* arg_regs, int arg_count,
+                         int result_reg, int line) {
+    ASTNode* fn_decl = cg->fn_decls[func_idx];
+    ASTNodeList* params = fn_decl->function_decl.params;
+    if (params->count != arg_count) return false;                          // arity mismatch: bail
+
+    ASTNode* ret_expr = fn_decl->function_decl.body->block.statements->nodes[0]
+                            ->return_stmt.value;
+
+    // save caller's locals table
+    char**  saved_names    = cg->locals.names;
+    int*    saved_regs     = cg->locals.registers;
+    bool*   saved_is_num   = cg->locals.is_number;
+    bool*   saved_is_int   = cg->locals.is_integer;
+    bool*   saved_ck       = cg->locals.const_known;
+    double* saved_cv       = cg->locals.const_value;
+    int     saved_count    = cg->locals.count;
+    int     saved_cap      = cg->locals.capacity;
+
+    // install a fresh locals table containing only the parameters
+    int n   = arg_count;
+    int cap = n < 4 ? 4 : n;                                               // small minimum
+    cg->locals.names        = (char**)malloc(sizeof(char*) * cap);
+    cg->locals.registers    = (int*)malloc(sizeof(int) * cap);
+    cg->locals.is_number    = (bool*)malloc(sizeof(bool) * cap);
+    cg->locals.is_integer   = (bool*)malloc(sizeof(bool) * cap);
+    cg->locals.const_known  = (bool*)malloc(sizeof(bool) * cap);
+    cg->locals.const_value  = (double*)malloc(sizeof(double) * cap);
+    cg->locals.count        = n;
+    cg->locals.capacity     = cap;
+    for (int i = 0; i < n; i++) {
+        ASTNode* p = params->nodes[i];
+        cg->locals.names[i]       = strdup(p->param.name);
+        cg->locals.registers[i]   = arg_regs[i];                           // borrow the caller's arg reg
+        cg->locals.is_number[i]   = true;                                  // best-effort guess
+        cg->locals.is_integer[i]  = false;
+        cg->locals.const_known[i] = false;
+        cg->locals.const_value[i] = 0.0;
+
+        // seed constant-ness from a literal-number argument so the inlined body can be folded
+        if (arg_nodes && i < arg_nodes->count) {
+            ASTNode* a = arg_nodes->nodes[i];
+            if (a && a->type == AST_LITERAL_NUMBER) {
+                double v = a->literal_number.number_value;
+                cg->locals.const_known[i] = true;
+                cg->locals.const_value[i] = v;
+                cg->locals.is_number[i]   = true;
+                if (v == (double)(long long)v) cg->locals.is_integer[i] = true;
+            }
+        }
+    }
+
+    codegen_expression_into(cg, ret_expr, result_reg);                     // body evaluates into caller's dest
+
+    // restore caller's locals table
+    for (int i = 0; i < n; i++) free(cg->locals.names[i]);
+    free(cg->locals.names);
+    free(cg->locals.registers);
+    free(cg->locals.is_number);
+    free(cg->locals.is_integer);
+    free(cg->locals.const_known);
+    free(cg->locals.const_value);
+    cg->locals.names        = saved_names;
+    cg->locals.registers    = saved_regs;
+    cg->locals.is_number    = saved_is_num;
+    cg->locals.is_integer   = saved_is_int;
+    cg->locals.const_known  = saved_ck;
+    cg->locals.const_value  = saved_cv;
+    cg->locals.count        = saved_count;
+    cg->locals.capacity     = saved_cap;
+    (void)line;
+    return true;
+}
+
+// Folds a call to an inlinable single-return function whose arguments all fold
+// to numbers. AST-only — no code is emitted and no registers are allocated.
+bool try_fold_inline_call(CodeGenerator* cg, ASTNode* node, double* out) {
+    if (!cg || !node || node->type != AST_CALL) return false;
+    ASTNode* callee = node->call.callee;
+    if (callee->type != AST_IDENTIFIER) return false;
+    const char* fname = callee->identifier.name;
+
+    int func_idx = -1;
+    for (int i = 0; i < cg->chunk->func_count; i++) {
+        if (strcmp(cg->chunk->functions[i].name, fname) == 0) { func_idx = i; break; }
+    }
+    if (func_idx < 0 || func_idx >= cg->fn_decls_cap) return false;
+    ASTNode* fn = cg->fn_decls[func_idx];
+    if (!fn || !function_is_inlinable(fn)) return false;
+
+    ASTNodeList* params = fn->function_decl.params;
+    ASTNodeList* args   = node->call.arguments;
+    if (params->count != args->count || args->count > 8) return false;
+
+    double arg_vals[8];
+    for (int i = 0; i < args->count; i++) {
+        if (!try_fold_number(cg, args->nodes[i], &arg_vals[i])) return false;
+    }
+
+    char**  s_names = cg->locals.names;
+    int*    s_regs  = cg->locals.registers;
+    bool*   s_num   = cg->locals.is_number;
+    bool*   s_int   = cg->locals.is_integer;
+    bool*   s_ck    = cg->locals.const_known;
+    double* s_cv    = cg->locals.const_value;
+    int     s_count = cg->locals.count;
+    int     s_cap   = cg->locals.capacity;
+
+    int n   = params->count;
+    int cap = n < 4 ? 4 : n;
+    cg->locals.names        = (char**)malloc(sizeof(char*) * cap);
+    cg->locals.registers    = (int*)malloc(sizeof(int) * cap);
+    cg->locals.is_number    = (bool*)malloc(sizeof(bool) * cap);
+    cg->locals.is_integer   = (bool*)malloc(sizeof(bool) * cap);
+    cg->locals.const_known  = (bool*)malloc(sizeof(bool) * cap);
+    cg->locals.const_value  = (double*)malloc(sizeof(double) * cap);
+    cg->locals.count        = n;
+    cg->locals.capacity     = cap;
+    for (int i = 0; i < n; i++) {
+        cg->locals.names[i]       = strdup(params->nodes[i]->param.name);
+        cg->locals.registers[i]   = 0;
+        cg->locals.is_number[i]   = true;
+        cg->locals.is_integer[i]  = (arg_vals[i] == (double)(long long)arg_vals[i]);
+        cg->locals.const_known[i] = true;
+        cg->locals.const_value[i] = arg_vals[i];
+    }
+
+    ASTNode* ret = fn->function_decl.body->block.statements->nodes[0]->return_stmt.value;
+    bool ok = try_fold_number(cg, ret, out);
+
+    for (int i = 0; i < n; i++) free(cg->locals.names[i]);
+    free(cg->locals.names);
+    free(cg->locals.registers);
+    free(cg->locals.is_number);
+    free(cg->locals.is_integer);
+    free(cg->locals.const_known);
+    free(cg->locals.const_value);
+    cg->locals.names       = s_names;
+    cg->locals.registers   = s_regs;
+    cg->locals.is_number   = s_num;
+    cg->locals.is_integer  = s_int;
+    cg->locals.const_known = s_ck;
+    cg->locals.const_value = s_cv;
+    cg->locals.count       = s_count;
+    cg->locals.capacity    = s_cap;
+    return ok;
+}

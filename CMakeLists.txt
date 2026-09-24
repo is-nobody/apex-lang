@@ -45,8 +45,27 @@ set(SOURCES
     source/core/parser.c
     source/core/ast.c
     source/core/bytecode.c
-    source/core/codegen.c
     source/core/vm.c
+
+    source/compiler/codegen.c
+    source/compiler/codegen_expr.c
+    source/compiler/codegen_stmt.c
+    source/compiler/codegen_if.c
+    source/compiler/codegen_for.c
+    source/compiler/codegen_match.c
+    source/compiler/codegen_fn.c
+    source/compiler/codegen_scope.c
+    source/compiler/codegen_modules.c
+    source/compiler/opt_const_fold.c
+    source/compiler/opt_const_cache.c
+    source/compiler/opt_lvn.c
+    source/compiler/opt_peephole.c
+    source/compiler/opt_inline.c
+    source/compiler/opt_licm.c
+    source/compiler/opt_dce.c
+    source/compiler/opt_branch_merge.c
+    source/compiler/opt_jump_targets.c
+    source/compiler/opt_linear_scan.c
 
     source/libraries/os_module.c
     source/libraries/sys_module.c
@@ -105,6 +124,7 @@ add_executable(apex ${SOURCES})
 target_include_directories(apex PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/source/core
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/compiler
     ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries
     ${CMAKE_CURRENT_SOURCE_DIR}/source/utils
     ${CMAKE_CURRENT_SOURCE_DIR}/source/jit

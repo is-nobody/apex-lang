@@ -1,4 +1,4 @@
-// source/core/codegen.h
+// source/compiler/codegen.h
 // Implementation of Bytecode Code Generation for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
@@ -9,6 +9,7 @@
 #include "ast.h"
 #include "bytecode.h"
 #include <stdbool.h>
+#include <stdint.h>
 
 // code generator context holding all state needed during bytecode emission
 typedef struct {
