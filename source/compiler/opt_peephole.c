@@ -7,7 +7,7 @@
 #include <math.h>
 
 // pure ops: writes operands[0] with no observable side effect
-static bool op_is_pure(Opcode op) {
+bool op_is_pure(Opcode op) {
     switch (op) {
         case OP_MOVE: case OP_NEG: case OP_INC: case OP_DEC:
         case OP_LOAD_CONST: case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:
@@ -28,11 +28,13 @@ static bool op_is_pure(Opcode op) {
 }
 
 // does inst read `reg` as a source operand? op-specific, respects operand types
-static bool inst_reads_reg(Instruction* inst, int reg) {
+bool inst_reads_reg(Instruction* inst, int reg) {
     switch (inst->opcode) {
         case OP_LOAD_NUM_IMM: case OP_LOAD_NUM: case OP_LOAD_CONST:
-        case OP_LOAD_BOOL: case OP_LOAD_NONE: case OP_LOAD_GLOBAL:
-            return false;                                       // no source registers
+        case OP_LOAD_BOOL: case OP_LOAD_NONE:
+            return false;                                       // pure load, no source regs
+        case OP_LOAD_GLOBAL:
+            return false;                                       // operand 1 is a global index, not a reg
         case OP_MOVE: case OP_NEG: case OP_ADD: case OP_SUB:
         case OP_MUL: case OP_DIV: case OP_MOD:
         case OP_CMP_EQ: case OP_CMP_NEQ:
@@ -49,6 +51,27 @@ static bool inst_reads_reg(Instruction* inst, int reg) {
             return inst->operands[1] == reg || inst->operands[2] == reg;
         case OP_TABLE_GET_INT:
             return inst->operands[1] == reg;
+        case OP_PUSH_ARG:
+            return inst->operands[0] == reg;                    // reads its one operand
+        case OP_STORE_GLOBAL:
+            return inst->operands[0] == reg;                    // reads the value register
+        case OP_CALL:                                               // dest, func_idx, arg_count
+            return false;                                       // args captured via PUSH_ARG
+        case OP_CALL_0:                                             // dest, func_idx, unused
+            return false;
+        case OP_CALL_1:                                             // dest, func_idx, arg_reg
+            return inst->operands[2] == reg;
+        case OP_CALL_2:                                             // dest, func_idx, arg_base (args in base, base+1)
+            return inst->operands[2] == reg ||
+                   inst->operands[2] + 1 == reg;
+        case OP_CALL_BUILTIN: case OP_ASYNC_CALL_BUILTIN:           // dest, name_idx, arg_count
+            return false;                                       // args captured via PUSH_ARG
+        case OP_ASYNC_CALL:                                         // dest, func_idx, arg_count
+            return false;                                       // args captured via PUSH_ARG
+        case OP_RETURN: case OP_RETURN_NUM: case OP_RETURN_BOOL:
+            return inst->operands[0] == reg;                    // reads the return value
+        case OP_RETURN_NONE:
+            return false;                                       // no value register
         default:
             return true;                                        // conservative
     }

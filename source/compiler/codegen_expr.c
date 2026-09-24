@@ -317,12 +317,17 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node, int dest_hint) {
 }
 
 // emits string interpolation by concatenating parts, first part goes into dest
-static int codegen_string_interp(CodeGenerator* cg, ASTNode* node, int dest_hint) {
+int codegen_string_interp(CodeGenerator* cg, ASTNode* node, int dest_hint) {
     if (node->string_interp.parts->count == 0) {                           // empty interpolation
         int reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);         // use hint or fresh
         int empty_idx = bytecode_add_string_constant(cg->chunk, "");       // empty string constant
         emit(cg, INST(OP_LOAD_CONST, reg, empty_idx, 0), node->line);      // load empty
         return reg;                                                        // return register
+    }
+
+    // single part: no concatenation to accumulate into, forward the value as-is
+    if (node->string_interp.parts->count == 1) {
+        return codegen_expression_into(cg, node->string_interp.parts->nodes[0], dest_hint);
     }
 
     int result_reg;                                                        // result register

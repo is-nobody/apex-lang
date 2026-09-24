@@ -81,6 +81,12 @@ bool op_writes_dest_reg(Opcode op);
 
 // opt_peephole.c
 int  try_peephole_fuse(CodeGenerator* cg, Instruction* inst);
+bool op_is_pure(Opcode op);
+bool inst_reads_reg(Instruction* inst, int reg);
+
+// opt_bc_dce.c
+int  dce_local_range(CodeGenerator* cg, int from_pc, int to_pc);
+void compact_bytecode(CodeGenerator* cg);
 
 // opt_inline.c
 bool function_is_inlinable(ASTNode* fn_decl);

@@ -446,6 +446,7 @@ void codegen_statement(CodeGenerator* cg, ASTNode* node) {
 // emits a block of statements sequentially, resetting temps between them
 void codegen_block(CodeGenerator* cg, ASTNode* node) {
     if (!node || (node->type != AST_BLOCK && node->type != AST_PROGRAM)) return;  // validate
+    int start_pc = bytecode_current_offset(cg->chunk);                       // block start for dce
     int frame = -1;                                                          // block_stack slot used
     if (cg->block_depth < 32) {
         frame = cg->block_depth;
@@ -465,4 +466,8 @@ void codegen_block(CodeGenerator* cg, ASTNode* node) {
         }
     }
     cg->block_depth--;
+    // bytecode-level local dce: only runs when control cannot fall through
+    if (cg->loop_depth == 0) {                                               // loops need liveness
+        dce_local_range(cg, start_pc, cg->chunk->code_count);                // kill dead stores
+    }
 }

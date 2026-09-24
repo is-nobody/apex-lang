@@ -170,5 +170,6 @@ bool codegen_generate(CodeGenerator* cg, ASTNode* ast) {
     cg->chunk->functions[0].max_registers = entry_max;                       // store padded entry max regs
 
     emit(cg, INST(OP_HALT, 0, 0, 0), 0);                                     // halt instruction
+    compact_bytecode(cg);                                                    // drop no-ops, remap pcs
     return true;                                                             // success
 }
