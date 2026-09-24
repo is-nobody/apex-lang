@@ -540,7 +540,8 @@ static bool expr_has_side_effect(ASTNode* node) {
         case AST_AWAIT:
             return true;
         case AST_INDEX_ACCESS:
-            return expr_has_side_effect(node->access.object);  // check object
+            return expr_has_side_effect(node->access.object) ||
+                expr_has_side_effect(node->access.member);   // key may call/await
         case AST_STRING_INTERP: {
             for (int i = 0; i < node->string_interp.parts->count; i++) {
                 if (expr_has_side_effect(node->string_interp.parts->nodes[i])) {

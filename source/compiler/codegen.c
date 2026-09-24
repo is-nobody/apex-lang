@@ -67,6 +67,7 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->register_floor = 0;                                                // no floor at top level
     cg->cache_floor    = 0;                                                // no cache pins yet
     cg->for_scope_depth = 0;                                               // not inside any for
+    cg->unswitch_depth = 0;                                                // no unswitch in flight
     cg->jump_targets     = NULL;
     cg->jump_targets_cap = 0;
     cg->hoist.active   = false;

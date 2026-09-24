@@ -5,11 +5,153 @@
 
 #include "codegen_internal.h"
 #include <stdlib.h>
+#include <string.h>
+
+// true when `cond` reads any name that `body` assigns; conservative on calls
+static bool cond_reads_assigned(ASTNode* cond, ASTNode* body) {
+    if (!cond || !body) return true;                            // conservative
+    switch (cond->type) {
+        case AST_LITERAL_NUMBER:
+        case AST_LITERAL_STRING:
+        case AST_LITERAL_BOOL:
+        case AST_LITERAL_NONE:
+            return false;
+        case AST_IDENTIFIER:
+            return body_assigns_name(body, cond->identifier.name);
+        case AST_BINARY:
+            return cond_reads_assigned(cond->binary.left, body) ||
+                   cond_reads_assigned(cond->binary.right, body);
+        case AST_UNARY:
+            return cond_reads_assigned(cond->unary.operand, body);
+        case AST_INDEX_ACCESS:
+            return cond_reads_assigned(cond->access.object, body) ||
+                   cond_reads_assigned(cond->access.member, body);
+        case AST_TERNARY:
+            return cond_reads_assigned(cond->ternary.condition, body) ||
+                   cond_reads_assigned(cond->ternary.true_expr, body) ||
+                   cond_reads_assigned(cond->ternary.false_expr, body);
+        case AST_STRING_INTERP:
+            for (int i = 0; i < cond->string_interp.parts->count; i++) {
+                if (cond_reads_assigned(cond->string_interp.parts->nodes[i], body)) return true;
+            }
+            return false;
+        default:
+            return true;                                        // calls, awaits, unknown: reject
+    }
+}
+
+// true when `cond` is loop-invariant: reads neither the loop variable nor anything the body assigns
+static bool cond_is_loop_invariant(ASTNode* cond, ASTNode* body, const char* loop_var) {
+    if (!cond) return false;
+    if (loop_var && ast_references_local(cond, loop_var)) return false;
+    if (cond_reads_assigned(cond, body)) return false;
+    return true;
+}
+
+// finds the first top-level if whose condition is loop-invariant; returns index or -1
+static int find_unswitchable_if(ASTNode* body, const char* loop_var) {
+    if (!body || (body->type != AST_BLOCK && body->type != AST_PROGRAM)) return -1;
+    if (body_unsafe_for_licm(body)) return -1;                  // calls, awaits, indexed assigns
+    if (body->block.statements->count - 1 > 6) return -1;       // code-bloat cap on pre+post
+    for (int i = 0; i < body->block.statements->count; i++) {
+        ASTNode* stmt = body->block.statements->nodes[i];
+        if (!stmt || stmt->type != AST_IF_STMT) continue;
+        if (stmt->if_stmt.elif_chain) continue;                 // elif chains not supported
+        if (!cond_is_loop_invariant(stmt->if_stmt.condition, body, loop_var)) continue;
+        return i;
+    }
+    return -1;
+}
+
+// builds a statement list = pre + branch content + post, dropping the if itself
+static ASTNodeList* build_split_stmts(ASTNode* body, int if_idx, ASTNode* branch) {
+    ASTNodeList* result = ast_list_create();
+    ASTNodeList* src = body->block.statements;
+    for (int i = 0; i < src->count; i++) {
+        if (i == if_idx) {
+            if (branch && (branch->type == AST_BLOCK || branch->type == AST_PROGRAM)) {
+                ASTNodeList* bl = branch->block.statements;
+                for (int j = 0; j < bl->count; j++) ast_list_add(result, bl->nodes[j]);
+            }
+        } else {
+            ast_list_add(result, src->nodes[i]);
+        }
+    }
+    return result;
+}
+
+// emits two duplicated loops guarded by the invariant condition
+static void emit_unswitched_for(CodeGenerator* cg, ASTNode* node, int if_idx) {
+    ASTNode* body = node->for_stmt.body;
+    ASTNodeList* orig = body->block.statements;
+    ASTNode* if_node = orig->nodes[if_idx];
+    ASTNode* cond = if_node->if_stmt.condition;
+    ASTNode* then_br = if_node->if_stmt.then_branch;
+    ASTNode* else_br = if_node->if_stmt.else_branch;
+
+    ASTNodeList* then_stmts = build_split_stmts(body, if_idx, then_br);
+
+    bool else_is_empty = (else_br == NULL) && (if_idx == 0) && (orig->count == 1);
+
+    LocalNumSnap pre = snap_numbers(cg);
+    int saved_num = cg->num_cache.count;
+    int saved_str = cg->str_cache.count;
+
+    int jump_false = codegen_optimized_condition(cg, cond, if_node->line);  // invariant: evaluate once
+    if (jump_false < 0) {                                                    // fallback: non-comparison condition
+        int cond_reg = codegen_expression(cg, cond);
+        jump_false = bytecode_current_offset(cg->chunk);
+        emit(cg, INST(OP_JUMP_IF_FALSE, 0, cond_reg, 0), if_node->line);
+        free_register(cg, cond_reg);
+    }
+
+    body->block.statements = then_stmts;                        // temporary body swap
+    cg->unswitch_depth++;
+    codegen_for_statement(cg, node);
+    cg->unswitch_depth--;
+    body->block.statements = orig;                              // restore
+
+    if (else_is_empty) {                                        // no else: fall through
+        PATCH_JUMP(cg, jump_false, bytecode_current_offset(cg->chunk));
+        free_snap(pre);
+        return;
+    }
+
+    ASTNodeList* else_stmts = build_split_stmts(body, if_idx, else_br);
+
+    int jump_end = bytecode_current_offset(cg->chunk);
+    emit(cg, INST(OP_JUMP, 0, 0, 0), if_node->line);            // skip else-loop
+
+    PATCH_JUMP(cg, jump_false, bytecode_current_offset(cg->chunk));
+
+    cg->num_cache.count = saved_num;                            // else path: drop then-side caches
+    cg->str_cache.count = saved_str;
+    restore_numbers(cg, pre);
+
+    body->block.statements = else_stmts;                        // temporary body swap
+    cg->unswitch_depth++;
+    codegen_for_statement(cg, node);
+    cg->unswitch_depth--;
+    body->block.statements = orig;
+
+    PATCH_JUMP(cg, jump_end, bytecode_current_offset(cg->chunk));
+
+    free_snap(pre);
+}
 
 // emits for loops, supporting both range loops and table iteration
 void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
     // zero-trip range loop: body never runs, so drop the whole statement
     if (for_is_zero_trip(cg, node)) return;
+
+    // loop unswitching: hoist an invariant `if` out of the loop body
+    if (cg->unswitch_depth == 0 && node->for_stmt.var_name) {
+        int if_idx = find_unswitchable_if(node->for_stmt.body, node->for_stmt.var_name);
+        if (if_idx >= 0) {
+            emit_unswitched_for(cg, node, if_idx);
+            return;
+        }
+    }
 
     // the body and the (re-evaluated) condition see the loop's per-iteration value
     invalidate_loop_consts(cg, node->for_stmt.body, node->for_stmt.var_name);

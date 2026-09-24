@@ -81,6 +81,7 @@ typedef struct {
     int register_floor;            // minimum next_register preserved by codegen_block resets
     int cache_floor;               // persistent floor pinned by the numeric-constant cache
     int for_scope_depth;           // nesting depth of for-scopes; used to decide local vs global
+    int unswitch_depth;            // recursion depth of loop unswitching; caps body duplication
     int loop_depth;                // nesting depth of active for-loops (used to gate copy propagation)
     uint8_t* jump_targets;         // jump_targets[pc] == 1 when some jump in the chunk targets pc
     int      jump_targets_cap;     // allocated size of jump_targets
