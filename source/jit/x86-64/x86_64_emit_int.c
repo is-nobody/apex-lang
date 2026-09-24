@@ -573,7 +573,8 @@ int assign_int_loop_gprs(JITContext* ctx, JitLoopInfo* info,
     if (info->kind == JIT_LOOP_CONDITION) {                  // entry cmp reads a,b
         Instruction* e = &ctx->chunk->code[info->entry_pc];
         if (e->operands[1] >= 0 && e->operands[1] < 64) used |= 1ULL << e->operands[1];
-        if (e->operands[2] >= 0 && e->operands[2] < 64) used |= 1ULL << e->operands[2];
+        if (!entry_op_is_imm(e->opcode) &&
+            e->operands[2] >= 0 && e->operands[2] < 64) used |= 1ULL << e->operands[2];
     }
     int n = 0;
     while (used) {
@@ -744,7 +745,8 @@ bool x86_64_emit_int_loop(const X86_64Abi* abi, JITContext* ctx,
     if (info->kind == JIT_LOOP_CONDITION) {
         Instruction* e = &ctx->chunk->code[info->entry_pc];
         if (e->operands[1] >= 0 && e->operands[1] < 64) live |= 1ULL << e->operands[1];
-        if (e->operands[2] >= 0 && e->operands[2] < 64) live |= 1ULL << e->operands[2];
+        if (!entry_op_is_imm(e->opcode) &&
+            e->operands[2] >= 0 && e->operands[2] < 64) live |= 1ULL << e->operands[2];
     }
 
     size_t patch_sites[64];                                  // two per guard, plus step
@@ -758,6 +760,9 @@ bool x86_64_emit_int_loop(const X86_64Abi* abi, JITContext* ctx,
         int s = __builtin_ctzll(live);
         live &= live - 1;
         int gpr = slot_gpr[s];
+        if (gpr < 0)
+            JIT_FATAL("int loop guard: slot %d has no gpr assigned "
+                      "(pc=%d)", s, info->entry_pc);
         x86_emit_movsd_load_base(cb, regs, 0, s * 8);        // xmm0 = regs[s]
         emit_u8(cb, 0xF2); emit_u8(cb, 0x48 | (gpr >= 8 ? 0x04 : 0));
         emit_u8(cb, 0x0F); emit_u8(cb, 0x2C); emit_u8(cb, 0xC0 | ((gpr & 7) << 3));
