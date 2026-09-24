@@ -170,6 +170,126 @@ static bool body_has_continue(ASTNode* node) {
     }
 }
 
+// true when any statement in `node` is a `break` or `continue` targeting the current loop
+static bool body_has_break_or_continue(ASTNode* node) {
+    if (!node) return false;
+    switch (node->type) {
+        case AST_BREAK_STMT:
+        case AST_CONTINUE_STMT: return true;
+        case AST_FOR_STMT:      return false;                   // nested loop owns its own break/continue
+        case AST_FUNCTION_DECL: return false;
+        case AST_BLOCK:
+        case AST_PROGRAM:
+            for (int i = 0; i < node->block.statements->count; i++) {
+                if (body_has_break_or_continue(node->block.statements->nodes[i])) return true;
+            }
+            return false;
+        case AST_IF_STMT:
+            return body_has_break_or_continue(node->if_stmt.then_branch) ||
+                   body_has_break_or_continue(node->if_stmt.elif_chain) ||
+                   body_has_break_or_continue(node->if_stmt.else_branch);
+        case AST_MATCH_STMT:
+            if (node->match_stmt.cases) {
+                for (int i = 0; i < node->match_stmt.cases->count; i++) {
+                    if (body_has_break_or_continue(node->match_stmt.cases->nodes[i])) return true;
+                }
+            }
+            return body_has_break_or_continue(node->match_stmt.default_case);
+        case AST_CASE:
+            return body_has_break_or_continue(node->case_stmt.body);
+        default:
+            return false;
+    }
+}
+
+// top-level statement count of the body block; rough code-bloat proxy
+static int body_stmt_count(ASTNode* body) {
+    if (!body || (body->type != AST_BLOCK && body->type != AST_PROGRAM)) return 0;
+    return body->block.statements->count;
+}
+
+// returns the trip count when the loop bound is a small foldable constant
+// range, or -1 when the loop cannot be unrolled; writes start / step into
+// out_start / out_step for the caller
+static int unrollable_trip_count(CodeGenerator* cg, ASTNode* node,
+                                  double* out_start, double* out_step) {
+    if (!node->for_stmt.var_name) return -1;                 // table iteration
+    if (!node->for_stmt.end) return -1;                      // table iteration
+    if (node->for_stmt.condition) return -1;                 // condition loop
+
+    double sv, ev, stv = 1.0;
+    if (!try_fold_number(cg, node->for_stmt.start, &sv)) return -1;
+    if (!try_fold_number(cg, node->for_stmt.end,   &ev)) return -1;
+    if (node->for_stmt.step &&
+        !try_fold_number(cg, node->for_stmt.step, &stv)) return -1;
+    if (stv == 0.0) return -1;                               // already handled by for_is_zero_trip
+    if (sv != (double)(long long)sv) return -1;              // integer bounds only
+    if (ev != (double)(long long)ev) return -1;
+    if (stv != (double)(long long)stv) return -1;
+
+    int count = 0;
+    double v = sv;
+    if (stv > 0) {
+        while (v <= ev) {
+            count++;
+            if (count > 8) return -1;                        // too many trips
+            v += stv;
+        }
+    } else {
+        while (v >= ev) {
+            count++;
+            if (count > 8) return -1;
+            v += stv;
+        }
+    }
+    if (count == 0) return -1;                               // empty loop
+    *out_start = sv;
+    *out_step  = stv;
+    return count;
+}
+
+// emits the loop body once per iteration with the loop var pinned to a constant
+static void emit_unrolled_for(CodeGenerator* cg, ASTNode* node,
+                              double start_v, double step_v, int count) {
+    const char* var = node->for_stmt.var_name;
+    int saved_locals_count = cg->locals.count;
+    int saved_next_register = cg->next_register;
+    cg->for_scope_depth++;
+    cg->unroll_depth++;
+
+    int var_reg = add_local(cg, var);
+    int slot = find_local_slot(cg, var);
+    cg->locals.is_number[slot] = true;
+
+    bool uses_var = stmt_references_local(node->for_stmt.body, var);  // skip loads when var is never referenced
+
+    for (int it = 0; it < count; it++) {
+        double v = start_v + it * step_v;
+        if (uses_var) {
+            if (v == (double)(int)v && v >= 0 && v <= 65535) {   // fits in immediate
+                emit(cg, INST(OP_LOAD_NUM_IMM, var_reg, (int)v, 0), node->line);
+            } else {                                             // full double
+                int ci = bytecode_add_number_constant(cg->chunk, v);
+                emit(cg, INST(OP_LOAD_NUM, var_reg, ci, 0), node->line);
+            }
+        }
+        cg->locals.is_integer[slot]  = true;
+        cg->locals.const_known[slot] = true;                     // fold all reads of `var`
+        cg->locals.const_value[slot] = v;
+
+        codegen_block(cg, node->for_stmt.body);                  // emit one iteration
+    }
+
+    cg->unroll_depth--;
+    cg->for_scope_depth--;
+
+    for (int i = saved_locals_count; i < cg->locals.count; i++) {
+        free(cg->locals.names[i]);
+    }
+    cg->locals.count = saved_locals_count;
+    cg->next_register = saved_next_register;
+}
+
 // collects unique `loop_var OP c` candidates; deduped by (op, value)
 static void collect_iv_candidates(CodeGenerator* cg, ASTNode* node, const char* loop_var,
                                    Opcode* ops, double* vals, int* count, int max) {
@@ -406,6 +526,20 @@ static void collect_hoistable_exprs(ASTNode* node, ASTNode* body, const char* lo
 void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
     // zero-trip range loop: body never runs, so drop the whole statement
     if (for_is_zero_trip(cg, node)) return;
+
+    // small constant-trip range loop: unroll entirely
+    if (cg->unroll_depth == 0 && cg->unswitch_depth == 0) {
+        double unroll_start = 0.0, unroll_step = 1.0;
+        int trips = unrollable_trip_count(cg, node, &unroll_start, &unroll_step);
+        if (trips > 0) {
+            int body_size = body_stmt_count(node->for_stmt.body);
+            if (body_size > 0 && body_size * trips <= 16 &&
+                !body_has_break_or_continue(node->for_stmt.body)) {
+                emit_unrolled_for(cg, node, unroll_start, unroll_step, trips);
+                return;
+            }
+        }
+    }
 
     // loop unswitching: hoist an invariant `if` out of the loop body
     if (cg->unswitch_depth == 0 && node->for_stmt.var_name) {

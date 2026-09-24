@@ -54,6 +54,17 @@ bool ast_references_local(ASTNode* node, const char* name) {
                    ast_references_local(node->ternary.false_expr, name);    // any branch
         case AST_ASSIGN:
             return ast_references_local(node->var_assign.value, name);      // nested assign RHS
+        case AST_BLOCK:
+        case AST_PROGRAM:
+            for (int i = 0; i < node->block.statements->count; i++) {       // any statement
+                if (ast_references_local(node->block.statements->nodes[i], name)) return true;
+            }
+            return false;
+        case AST_EXPR_STMT:
+            return ast_references_local(node->expr_stmt.expression, name);  // expr statement
+        case AST_RETURN_STMT:
+            return node->return_stmt.value &&
+                   ast_references_local(node->return_stmt.value, name);     // return value
         default:
             return false;                                                    // conservative
     }
