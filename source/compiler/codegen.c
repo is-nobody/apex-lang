@@ -48,6 +48,8 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->chunk = chunk;                                                     // store bytecode chunk
     cg->next_register = 0;                                                 // start at 0
     cg->max_registers = 0;                                                 // no registers yet
+    cg->iv_reduce.loop_var = NULL;                                         // no reduction active
+    cg->iv_reduce.count = 0;                                               // no candidates
     cg->current_function = -1;                                             // no active function
     cg->label_counter = 0;                                                 // label counter
     cg->current_call_is_awaited = false;                                   // no awaited call in flight

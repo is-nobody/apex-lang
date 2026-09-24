@@ -367,6 +367,38 @@ int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint) {
         return reg;                                                                  // return register
     }
 
+    // iv strength reduction: substitute `loop_var OP c` with its accumulator
+    if (cg->iv_reduce.loop_var && node->type == AST_BINARY &&
+        node->binary.left && node->binary.right) {
+        ApexTokenType bop = node->binary.op;
+        Opcode red = (bop == TOKEN_STAR) ? OP_MUL :
+                     (bop == TOKEN_PLUS) ? OP_ADD : OP_MOVE;
+        if (red != OP_MOVE) {
+            ASTNode* cn = NULL;                                                      // constant side
+            if (node->binary.left->type == AST_IDENTIFIER &&
+                strcmp(node->binary.left->identifier.name, cg->iv_reduce.loop_var) == 0) {
+                cn = node->binary.right;
+            } else if (node->binary.right->type == AST_IDENTIFIER &&
+                       strcmp(node->binary.right->identifier.name, cg->iv_reduce.loop_var) == 0) {
+                cn = node->binary.left;
+            }
+            if (cn) {
+                double cv;
+                if (try_fold_number(cg, cn, &cv)) {
+                    for (int k = 0; k < cg->iv_reduce.count; k++) {
+                        if (cg->iv_reduce.entries[k].op == red &&
+                            cg->iv_reduce.entries[k].value == cv) {
+                            int reg = cg->iv_reduce.entries[k].reg;
+                            if (dest_hint < 0 || dest_hint == reg) return reg;
+                            emit(cg, INST(OP_MOVE, dest_hint, reg, 0), node->line);
+                            return dest_hint;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     double nv;                                                                       // folded numeric value
     if (try_fold_number(cg, node, &nv)) {                                            // constant subtree?
         if (cg->hoist.active) {                                                      // inside a loop with hoisted constants

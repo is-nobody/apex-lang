@@ -97,7 +97,7 @@ static void emit_unswitched_for(CodeGenerator* cg, ASTNode* node, int if_idx) {
     int saved_num = cg->num_cache.count;
     int saved_str = cg->str_cache.count;
 
-    int jump_false = codegen_optimized_condition(cg, cond, if_node->line);  // invariant: evaluate once
+    int jump_false = codegen_optimized_condition(cg, cond, if_node->line);   // invariant: evaluate once
     if (jump_false < 0) {                                                    // fallback: non-comparison condition
         int cond_reg = codegen_expression(cg, cond);
         jump_false = bytecode_current_offset(cg->chunk);
@@ -139,6 +139,142 @@ static void emit_unswitched_for(CodeGenerator* cg, ASTNode* node, int if_idx) {
     free_snap(pre);
 }
 
+// true when any statement in `node` is a `continue` that targets the current loop
+static bool body_has_continue(ASTNode* node) {
+    if (!node) return false;
+    switch (node->type) {
+        case AST_CONTINUE_STMT: return true;
+        case AST_FOR_STMT:      return false;                   // nested loop's continue targets itself
+        case AST_FUNCTION_DECL: return false;                   // nested function has own control flow
+        case AST_BLOCK:
+        case AST_PROGRAM:
+            for (int i = 0; i < node->block.statements->count; i++) {
+                if (body_has_continue(node->block.statements->nodes[i])) return true;
+            }
+            return false;
+        case AST_IF_STMT:
+            return body_has_continue(node->if_stmt.then_branch) ||
+                   body_has_continue(node->if_stmt.elif_chain) ||
+                   body_has_continue(node->if_stmt.else_branch);
+        case AST_MATCH_STMT:
+            if (node->match_stmt.cases) {
+                for (int i = 0; i < node->match_stmt.cases->count; i++) {
+                    if (body_has_continue(node->match_stmt.cases->nodes[i])) return true;
+                }
+            }
+            return body_has_continue(node->match_stmt.default_case);
+        case AST_CASE:
+            return body_has_continue(node->case_stmt.body);
+        default:
+            return false;
+    }
+}
+
+// collects unique `loop_var OP c` candidates; deduped by (op, value)
+static void collect_iv_candidates(CodeGenerator* cg, ASTNode* node, const char* loop_var,
+                                   Opcode* ops, double* vals, int* count, int max) {
+    if (!node || *count >= max) return;
+    if (node->type == AST_BINARY) {
+        ApexTokenType bop = node->binary.op;
+        Opcode red = (bop == TOKEN_STAR) ? OP_MUL :
+                     (bop == TOKEN_PLUS) ? OP_ADD : OP_MOVE;
+        if (red != OP_MOVE) {
+            ASTNode* cn = NULL;
+            if (node->binary.left->type == AST_IDENTIFIER &&
+                strcmp(node->binary.left->identifier.name, loop_var) == 0) {
+                cn = node->binary.right;
+            } else if (node->binary.right->type == AST_IDENTIFIER &&
+                       strcmp(node->binary.right->identifier.name, loop_var) == 0) {
+                cn = node->binary.left;
+            }
+            if (cn) {
+                double cv;
+                if (try_fold_number(cg, cn, &cv)) {
+                    bool dup = false;
+                    for (int k = 0; k < *count; k++) {
+                        if (ops[k] == red && vals[k] == cv) { dup = true; break; }
+                    }
+                    if (!dup) {
+                        ops[*count] = red;
+                        vals[*count] = cv;
+                        (*count)++;
+                    }
+                }
+            }
+        }
+        collect_iv_candidates(cg, node->binary.left,  loop_var, ops, vals, count, max);
+        collect_iv_candidates(cg, node->binary.right, loop_var, ops, vals, count, max);
+        return;
+    }
+    switch (node->type) {
+        case AST_UNARY:
+            collect_iv_candidates(cg, node->unary.operand, loop_var, ops, vals, count, max);
+            break;
+        case AST_CALL:
+            for (int i = 0; i < node->call.arguments->count; i++)
+                collect_iv_candidates(cg, node->call.arguments->nodes[i], loop_var, ops, vals, count, max);
+            break;
+        case AST_INDEX_ACCESS:
+            collect_iv_candidates(cg, node->access.object, loop_var, ops, vals, count, max);
+            collect_iv_candidates(cg, node->access.member, loop_var, ops, vals, count, max);
+            break;
+        case AST_TERNARY:
+            collect_iv_candidates(cg, node->ternary.condition, loop_var, ops, vals, count, max);
+            collect_iv_candidates(cg, node->ternary.true_expr, loop_var, ops, vals, count, max);
+            collect_iv_candidates(cg, node->ternary.false_expr, loop_var, ops, vals, count, max);
+            break;
+        case AST_STRING_INTERP:
+            for (int i = 0; i < node->string_interp.parts->count; i++)
+                collect_iv_candidates(cg, node->string_interp.parts->nodes[i], loop_var, ops, vals, count, max);
+            break;
+        case AST_TABLE_LITERAL:
+            for (int i = 0; i < node->table_literal.items->count; i++)
+                collect_iv_candidates(cg, node->table_literal.items->nodes[i], loop_var, ops, vals, count, max);
+            for (int i = 0; i < node->table_literal.key_values->count; i++) {
+                ASTNode* kv = node->table_literal.key_values->nodes[i];
+                collect_iv_candidates(cg, kv->binary.left,  loop_var, ops, vals, count, max);
+                collect_iv_candidates(cg, kv->binary.right, loop_var, ops, vals, count, max);
+            }
+            break;
+        case AST_ASSIGN:
+        case AST_VAR_DECL:
+            collect_iv_candidates(cg, node->var_assign.value, loop_var, ops, vals, count, max);
+            break;
+        case AST_EXPR_STMT:
+            collect_iv_candidates(cg, node->expr_stmt.expression, loop_var, ops, vals, count, max);
+            break;
+        case AST_RETURN_STMT:
+            collect_iv_candidates(cg, node->return_stmt.value, loop_var, ops, vals, count, max);
+            break;
+        case AST_BLOCK:
+        case AST_PROGRAM:
+            for (int i = 0; i < node->block.statements->count; i++)
+                collect_iv_candidates(cg, node->block.statements->nodes[i], loop_var, ops, vals, count, max);
+            break;
+        case AST_IF_STMT:
+            collect_iv_candidates(cg, node->if_stmt.condition, loop_var, ops, vals, count, max);
+            collect_iv_candidates(cg, node->if_stmt.then_branch, loop_var, ops, vals, count, max);
+            collect_iv_candidates(cg, node->if_stmt.elif_chain, loop_var, ops, vals, count, max);
+            collect_iv_candidates(cg, node->if_stmt.else_branch, loop_var, ops, vals, count, max);
+            break;
+        case AST_FOR_STMT:
+            break;                                              // nested loop has own induction var context
+        case AST_MATCH_STMT:
+            collect_iv_candidates(cg, node->match_stmt.subject, loop_var, ops, vals, count, max);
+            if (node->match_stmt.cases) {
+                for (int i = 0; i < node->match_stmt.cases->count; i++)
+                    collect_iv_candidates(cg, node->match_stmt.cases->nodes[i], loop_var, ops, vals, count, max);
+            }
+            collect_iv_candidates(cg, node->match_stmt.default_case, loop_var, ops, vals, count, max);
+            break;
+        case AST_CASE:
+            collect_iv_candidates(cg, node->case_stmt.body, loop_var, ops, vals, count, max);
+            break;
+        default:
+            break;
+    }
+}
+
 // emits for loops, supporting both range loops and table iteration
 void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
     // zero-trip range loop: body never runs, so drop the whole statement
@@ -155,6 +291,14 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
 
     // the body and the (re-evaluated) condition see the loop's per-iteration value
     invalidate_loop_consts(cg, node->for_stmt.body, node->for_stmt.var_name);
+
+    // save outer iv_reduce state (nested loops may shadow the loop var)
+    const char* prev_iv_var = cg->iv_reduce.loop_var;
+    int prev_iv_count = cg->iv_reduce.count;
+    struct { Opcode op; double value; int reg; } prev_iv_entries[8];
+    memcpy(prev_iv_entries, cg->iv_reduce.entries, sizeof(prev_iv_entries));
+    cg->iv_reduce.loop_var = NULL;
+    cg->iv_reduce.count = 0;
 
     int prev_break_count = cg->loop_stack.break_count;
     int prev_continue_addr = cg->loop_stack.continue_addr;                         // save continue addr
@@ -242,7 +386,41 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             cg->hoist.get_count    = 0;
             cg->hoist.get_capacity = 0;
 
+            // iv strength reduction: analyze body FIRST so constants consumed by
+            // IV accumulators aren't re-hoisted as dead registers below
+            int iv_count = 0;
+            double iv_step = 1.0;
+            Opcode iv_ops[8];
+            double iv_vals[8];
+            if (!body_assigns_name(node->for_stmt.body, node->for_stmt.var_name) &&
+                !body_has_continue(node->for_stmt.body)) {
+                bool step_const = true;
+                if (node->for_stmt.step) {
+                    if (!try_fold_number(cg, node->for_stmt.step, &iv_step)) step_const = false;
+                }
+                if (step_const) {
+                    collect_iv_candidates(cg, node->for_stmt.body, node->for_stmt.var_name,
+                                          iv_ops, iv_vals, &iv_count, 8);
+                }
+            }
+
             collect_hoistable_numbers(cg, node->for_stmt.body);                     // scan body for constants
+
+            // drop hoist entries whose value went into an IV accumulator
+            if (iv_count > 0 && cg->hoist.count > 0) {
+                int w = 0;
+                for (int r = 0; r < cg->hoist.count; r++) {
+                    bool consumed = false;
+                    for (int k = 0; k < iv_count; k++) {
+                        if (cg->hoist.values[r] == iv_vals[k]) { consumed = true; break; }
+                    }
+                    if (!consumed) {
+                        if (w != r) cg->hoist.values[w] = cg->hoist.values[r];
+                        w++;
+                    }
+                }
+                cg->hoist.count = w;
+            }
 
             for (int i = 0; i < cg->hoist.count; i++) {                             // allocate a register per constant
                 int reg = alloc_register(cg);
@@ -268,6 +446,30 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
                 cg->hoist.get_regs[i] = dst;
             }
             if (cg->hoist.get_count > 0) cg->hoist.active = true;
+
+            // emit IV accumulator initializers (analysis done above)
+            for (int i = 0; i < iv_count; i++) {
+                int acc = alloc_register(cg);
+                Opcode red = iv_ops[i];
+                double c = iv_vals[i];
+                if (c == (int)c && c >= 0 && c <= 65535) {                          // fits in immediate
+                    Opcode iop = (red == OP_MUL) ? OP_MUL_IMM : OP_ADD_IMM;
+                    emit(cg, INST(iop, acc, var_reg, (int)c), node->line);
+                } else {                                                            // full double constant
+                    int cidx = bytecode_add_number_constant(cg->chunk, c);
+                    int creg = alloc_register(cg);
+                    emit(cg, INST(OP_LOAD_NUM, creg, cidx, 0), node->line);
+                    emit(cg, INST(red, acc, var_reg, creg), node->line);
+                    free_register(cg, creg);
+                }
+                cg->iv_reduce.entries[i].op    = red;
+                cg->iv_reduce.entries[i].value = c;
+                cg->iv_reduce.entries[i].reg   = acc;
+            }
+            if (iv_count > 0) {
+                cg->iv_reduce.loop_var = node->for_stmt.var_name;
+                cg->iv_reduce.count    = iv_count;
+            }
 
             emit(cg, INST(OP_FOR_INIT, var_reg, end_reg, step_reg), node->line);    // init for (no MOVE needed)
 
@@ -298,7 +500,7 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             cg->imm_lvn.count = 0;                                                  // body: back-edge merge point
 
             int prev_loop_floor = cg->register_floor;                               // save floor
-            if (cg->hoist.count > 0 || cg->hoist.get_count > 0) {                   // pin hoisted regs
+            if (cg->hoist.count > 0 || cg->hoist.get_count > 0 || iv_count > 0) {   // pin hoisted + iv regs
                 int highest = 0;                                                    // highest hoisted reg
                 for (int i = 0; i < cg->hoist.count; i++) {
                     if (cg->hoist.regs[i] > highest) highest = cg->hoist.regs[i];
@@ -306,11 +508,34 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
                 for (int i = 0; i < cg->hoist.get_count; i++) {
                     if (cg->hoist.get_regs[i] > highest) highest = cg->hoist.get_regs[i];
                 }
+                for (int i = 0; i < iv_count; i++) {
+                    if (cg->iv_reduce.entries[i].reg > highest) highest = cg->iv_reduce.entries[i].reg;
+                }
                 cg->register_floor = highest + 1;                                   // body temps start above
             }
 
             codegen_block(cg, node->for_stmt.body);                                 // emit body
             cg->register_floor = prev_loop_floor;                                   // restore floor after body
+
+            if (iv_count > 0) {                                                     // iv strength reduction: advance accumulators
+                for (int i = 0; i < iv_count; i++) {
+                    Opcode red = cg->iv_reduce.entries[i].op;
+                    double c   = cg->iv_reduce.entries[i].value;
+                    int acc    = cg->iv_reduce.entries[i].reg;
+                    double inc = (red == OP_MUL) ? c * iv_step : iv_step;
+                    if (inc == (int)inc && inc >= 0 && inc <= 65535) {              // fits in immediate
+                        emit(cg, INST(OP_ADD_IMM, acc, acc, (int)inc), node->line);
+                    } else {                                                        // full double constant
+                        int cidx = bytecode_add_number_constant(cg->chunk, inc);
+                        int creg = alloc_register(cg);
+                        emit(cg, INST(OP_LOAD_NUM, creg, cidx, 0), node->line);
+                        emit(cg, INST(OP_ADD, acc, acc, creg), node->line);
+                        free_register(cg, creg);
+                    }
+                }
+                cg->iv_reduce.loop_var = NULL;                                      // deactivate before register reset
+                cg->iv_reduce.count    = 0;
+            }
 
             cg->for_scope_depth--;                                                  // exit for-scope
             for (int i = saved_locals_count; i < cg->locals.count; i++) {           // drop loop var + body locals
@@ -476,4 +701,8 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
     cg->loop_depth--;                                                               // re-enable copy propagation
 
     cg->imm_lvn.count = 0;                                                          // loop exit is a merge point
+
+    cg->iv_reduce.loop_var = prev_iv_var;                                           // restore outer iv_reduce
+    cg->iv_reduce.count    = prev_iv_count;
+    memcpy(cg->iv_reduce.entries, prev_iv_entries, sizeof(prev_iv_entries));
 }

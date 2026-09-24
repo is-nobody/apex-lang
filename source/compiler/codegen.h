@@ -76,6 +76,16 @@ typedef struct {
     int next_register;             // next free register index for allocation
     int max_registers;             // highest register index used so far (for frame sizing)
 
+    struct {
+        const char* loop_var;      // name of the reduced induction variable, or NULL
+        int count;                 // number of active reductions
+        struct {
+            Opcode op;             // OP_MUL or OP_ADD
+            double value;          // constant operand c
+            int reg;               // accumulator register
+        } entries[8];
+    } iv_reduce;                   // per-loop induction-variable strength reduction
+
     int current_function;          // index of the function currently being compiled
     bool current_function_has_nested;  // true if current function's body contains a nested function declaration
     int register_floor;            // minimum next_register preserved by codegen_block resets
