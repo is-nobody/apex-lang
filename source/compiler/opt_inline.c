@@ -203,6 +203,15 @@ bool try_inline_function(CodeGenerator* cg, int func_idx,
     int     saved_count    = cg->locals.count;
     int     saved_cap      = cg->locals.capacity;
 
+    // fold each argument in the CALLER's context, before swapping locals
+    double pre_vals[16];
+    bool   pre_ok[16];
+    int    pre_n = arg_count < 16 ? arg_count : 16;
+    for (int i = 0; i < pre_n; i++) {
+        pre_ok[i] = arg_nodes && i < arg_nodes->count &&
+                    try_fold_number(cg, arg_nodes->nodes[i], &pre_vals[i]);
+    }
+
     // fresh locals table sized for params plus one slot per body statement
     int cap = arg_count + stmt_count;
     if (cap < 4) cap = 4;
@@ -224,16 +233,13 @@ bool try_inline_function(CodeGenerator* cg, int func_idx,
         cg->locals.const_known[i] = false;
         cg->locals.const_value[i] = 0.0;
 
-        // seed constant-ness from a literal-number argument so the inlined body can be folded
-        if (arg_nodes && i < arg_nodes->count) {
-            ASTNode* a = arg_nodes->nodes[i];
-            if (a && a->type == AST_LITERAL_NUMBER) {
-                double v = a->literal_number.number_value;
-                cg->locals.const_known[i] = true;
-                cg->locals.const_value[i] = v;
-                cg->locals.is_number[i]   = true;
-                if (v == (double)(long long)v) cg->locals.is_integer[i] = true;
-            }
+        // seed constant-ness from a pre-folded argument so the inlined body can be folded
+        if (i < pre_n && pre_ok[i]) {
+            double v = pre_vals[i];
+            cg->locals.const_known[i] = true;
+            cg->locals.const_value[i] = v;
+            cg->locals.is_number[i]   = true;
+            if (v == (double)(long long)v) cg->locals.is_integer[i] = true;
         }
     }
 
