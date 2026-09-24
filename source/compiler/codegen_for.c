@@ -4,6 +4,7 @@
 // MIT license
 
 #include "codegen_internal.h"
+#include "codegen_internal.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -526,6 +527,9 @@ static void collect_hoistable_exprs(ASTNode* node, ASTNode* body, const char* lo
 void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
     // zero-trip range loop: body never runs, so drop the whole statement
     if (for_is_zero_trip(cg, node)) return;
+
+    // universal symbolic interpreter for constant range loops
+    if (try_emit_symbolic_loop(cg, node)) return;
 
     // small constant-trip range loop: unroll entirely
     if (cg->unroll_depth == 0 && cg->unswitch_depth == 0) {

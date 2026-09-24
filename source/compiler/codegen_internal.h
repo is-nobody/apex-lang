@@ -48,6 +48,9 @@ int  codegen_optimized_condition(CodeGenerator* cg, ASTNode* condition, int line
 // codegen_for.c
 void codegen_for_statement(CodeGenerator* cg, ASTNode* node);
 
+// codegen_for_fold.c
+bool try_emit_symbolic_loop(CodeGenerator* cg, ASTNode* node);
+
 // codegen_match.c
 void codegen_match_statement(CodeGenerator* cg, ASTNode* node);
 int  emit_match_check(CodeGenerator* cg, int subject_reg, ASTNode* pattern, int line);
