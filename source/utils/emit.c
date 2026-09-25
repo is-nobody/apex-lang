@@ -91,6 +91,29 @@ static void print_const_value(BytecodeChunk* chunk, int idx, FILE* out) {  // ch
                 fprintf(out, "<fn#%d>", c->function_index);       // fallback index form
             fputs(C_RESET, out);                                  // reset color
             break;
+        case CONST_TABLE: {                                       // compile-time table literal
+            fputs(C_CYAN "[", out);                               // opening bracket
+            int total = c->table.array_count + c->table.hash_count;  // total entries
+            int shown = 0;                                        // entries printed so far
+            const int max_show = 5;                               // cap to avoid huge dumps
+
+            for (int i = 0; i < c->table.array_count && shown < max_show; i++) {  // positional items
+                if (shown > 0) fputs(", ", out);                  // separator
+                print_const_value(chunk, c->table.value_indices[i], out);        // recurse value
+                shown++;
+            }
+            for (int i = 0; i < c->table.hash_count && shown < max_show; i++) {   // key-value pairs
+                if (shown > 0) fputs(", ", out);                  // separator
+                print_const_value(chunk, c->table.key_indices[i], out);          // recurse key
+                fputs(" = ", out);                                // key = value
+                print_const_value(chunk, c->table.value_indices[c->table.array_count + i], out);  // recurse value
+                shown++;
+            }
+            if (total > shown)                                    // truncation indicator
+                fprintf(out, ", " C_GRAY "...+%d more" C_RESET, total - shown);
+            fputs(C_CYAN "]" C_RESET, out);                       // closing bracket
+            break;
+        }
         default:                                                  // unknown type
             fputs(C_RED "<?>" C_RESET, out);                      // red unknown marker
             break;
@@ -334,6 +357,10 @@ static void emit_instruction(BytecodeChunk* chunk, int offset, FILE* out) {  // 
         case OP_NEW_TABLE:                                        // create empty table
             REG(a); fputs(" <- []", out);                         // dst <- []
             break;
+        case OP_LOAD_TABLE:                                       // materialize table literal
+            REG(a); fputs(" <- ", out);                           // dst <-
+            print_const_value(chunk, b, out);                     // table literal summary
+            break;
 
         case OP_CONCAT:                                           // string concatenation
             REG(a); fputs(" <- ", out); REG(b); fputs(" .. ", out); REG(c);  // dst <- a .. b
@@ -511,12 +538,13 @@ int emit_command(int argc, char** argv) {                         // argc/argv: 
             Constant* cn = &chunk->constants[i];                  // fetch entry
             fprintf(stdout, "  " C_GRAY "[%2d]" C_RESET " ", i);  // index
             switch (cn->type) {                                   // type label
-                case CONST_NUMBER:   fputs(C_MAGENTA "NUMBER"   C_RESET "  ", stdout); break;  // number label
-                case CONST_STRING:   fputs(C_GREEN   "STRING"   C_RESET "  ", stdout); break;  // string label
-                case CONST_BOOL:     fputs(C_MAGENTA "BOOL"     C_RESET "    ", stdout); break;  // bool label
-                case CONST_NONE:     fputs(C_MAGENTA "NONE"     C_RESET "    ", stdout); break;  // none label
+                case CONST_NUMBER:   fputs(C_MAGENTA "NUMBER"   C_RESET "   ", stdout); break;  // number label
+                case CONST_STRING:   fputs(C_GREEN   "STRING"   C_RESET "   ", stdout); break;  // string label
+                case CONST_BOOL:     fputs(C_MAGENTA "BOOL"     C_RESET "     ", stdout); break;  // bool label
+                case CONST_NONE:     fputs(C_MAGENTA "NONE"     C_RESET "     ", stdout); break;  // none label
                 case CONST_FUNCTION: fputs(C_YELLOW  "FUNCTION" C_RESET " ", stdout); break;  // function label
-                default:             fputs(C_RED     "?"        C_RESET "       ", stdout); break;  // unknown label
+                case CONST_TABLE:    fputs(C_CYAN    "TABLE"    C_RESET "    ", stdout); break;  // table label
+                default:             fputs(C_RED     "?"        C_RESET "        ", stdout); break;  // unknown label
             }
             print_const_value(chunk, i, stdout);                  // print value
             fputc('\n', stdout);                                  // newline

@@ -1632,6 +1632,43 @@ static inline Value jit_box_return(JITContext* jit, int func_idx, double r) {
 }
 #endif
 
+// forward decl for the recursive table-literal materializer
+static Table* const_table_materialize(BytecodeChunk* chunk, Constant* c);
+
+// converts a scalar constant pool entry into a tagged runtime value
+static inline Value const_to_value(BytecodeChunk* chunk, Constant* c) {
+    switch (c->type) {
+        case CONST_NUMBER:  return MAKE_NUMBER(c->number_value);
+        case CONST_STRING:  return MAKE_STRING((StringObject*)c->cached_str);
+        case CONST_BOOL:    return MAKE_BOOL(c->bool_value);
+        case CONST_NONE:    return MAKE_NONE();
+        case CONST_TABLE:   return MAKE_TABLE(const_table_materialize(chunk, c));
+        default:            return MAKE_NONE();
+    }
+}
+
+// builds a fresh Table from a CONST_TABLE entry; caller owns the reference
+static Table* const_table_materialize(BytecodeChunk* chunk, Constant* c) {
+    int cap = c->table.array_capacity > 0 ? c->table.array_capacity : 8;
+    Table* t = table_create(cap);
+    int n_arr = c->table.array_count;
+    int n_kv  = c->table.hash_count;
+
+    for (int i = 0; i < n_arr; i++) {                           // positional items into array part
+        Value v = const_to_value(chunk, &chunk->constants[c->table.value_indices[i]]);
+        table_set_int(t, i, v);
+        if ((v & QNAN) == QNAN) value_decref(v);                // table_set_int holds its own reference
+    }
+    for (int i = 0; i < n_kv; i++) {                            // key-value pairs into hash part
+        Value k = const_to_value(chunk, &chunk->constants[c->table.key_indices[i]]);
+        Value v = const_to_value(chunk, &chunk->constants[c->table.value_indices[n_arr + i]]);
+        table_set(t, k, v);
+        if ((k & QNAN) == QNAN) value_decref(k);
+        if ((v & QNAN) == QNAN) value_decref(v);
+    }
+    return t;
+}
+
 // main execution loop with direct threaded dispatch for performance
 bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     if (!vm || !chunk) return false;                      // validate arguments
@@ -1750,6 +1787,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_TABLE_SET_KEY_STR]  = &&OP_TABLE_SET_KEY_STR_LABEL,
         [OP_TABLE_APPEND]       = &&OP_TABLE_APPEND_LABEL,
         [OP_NEW_TABLE]          = &&OP_NEW_TABLE_LABEL,
+        [OP_LOAD_TABLE]         = &&OP_LOAD_TABLE_LABEL,
         
         [OP_CONCAT]             = &&OP_CONCAT_LABEL,
 
@@ -2877,6 +2915,16 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int dest = ip->operands[0];              // dest register index
         value_decref(vm->registers[dest]);       // release old value in dest
         vm->registers[dest] = MAKE_TABLE(table_create(8));  // create new table with default capacity
+        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
+    }
+    OP_LOAD_TABLE_LABEL: {
+        int dest = ip->operands[0];              // dest register index
+        int idx  = ip->operands[1];              // constant pool index
+        Constant* c = &chunk->constants[idx];
+        Table* t = const_table_materialize(chunk, c);
+        Value old = regs[dest];                  // old value in dest
+        if ((old & QNAN) == QNAN) value_decref(old);
+        regs[dest] = MAKE_TABLE(t);              // publish fresh table
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
 

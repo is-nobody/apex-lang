@@ -105,7 +105,8 @@ bool op_writes_dest_reg(Opcode op) {
         case OP_CALL: case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:
         case OP_CALL_BUILTIN: case OP_ASYNC_CALL: case OP_ASYNC_CALL_BUILTIN:
         case OP_LOAD_GLOBAL: case OP_TABLE_GET: case OP_TABLE_GET_CONST:
-        case OP_TABLE_GET_INT: case OP_NEW_TABLE: case OP_CONCAT:
+        case OP_TABLE_GET_INT: case OP_NEW_TABLE: case OP_LOAD_TABLE:
+        case OP_CONCAT:
         case OP_AND: case OP_OR: case OP_NOT:
         case OP_AWAIT:
             return true;                                             // these write operands[0]

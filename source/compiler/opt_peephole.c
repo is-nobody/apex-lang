@@ -20,7 +20,7 @@ bool op_is_pure(Opcode op) {
         case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
         case OP_AND: case OP_OR: case OP_NOT:
         case OP_TABLE_GET: case OP_TABLE_GET_CONST: case OP_TABLE_GET_INT:
-        case OP_CONCAT: case OP_NEW_TABLE:
+        case OP_CONCAT: case OP_NEW_TABLE: case OP_LOAD_TABLE:
             return true;
         default:
             return false;
@@ -35,6 +35,8 @@ bool inst_reads_reg(Instruction* inst, int reg) {
             return false;                                       // pure load, no source regs
         case OP_LOAD_GLOBAL:
             return false;                                       // operand 1 is a global index, not a reg
+        case OP_LOAD_TABLE:
+            return false;                                       // operand 1 is a constant pool index
         case OP_MOVE: case OP_NEG: case OP_ADD: case OP_SUB:
         case OP_MUL: case OP_DIV: case OP_MOD:
         case OP_CMP_EQ: case OP_CMP_NEQ:

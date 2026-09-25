@@ -92,6 +92,7 @@ static const char* opcode_names[] = {
     [OP_TABLE_SET_KEY_STR]  = "TABLE_SET_KEY_STR",
     [OP_TABLE_APPEND]       = "TABLE_APPEND",
     [OP_NEW_TABLE]          = "NEW_TABLE",
+    [OP_LOAD_TABLE]         = "LOAD_TABLE",
 
     [OP_CONCAT]             = "CONCAT",
 
@@ -173,6 +174,12 @@ void bytecode_destroy(BytecodeChunk* chunk) {
         if (chunk->constants[i].type == CONST_JUMP_TABLE) {           // jump table owns its addresses
             free(chunk->constants[i].jump_table.addresses);
             chunk->constants[i].jump_table.addresses = NULL;
+        }
+        if (chunk->constants[i].type == CONST_TABLE) {                // table literal owns its index arrays
+            free(chunk->constants[i].table.key_indices);
+            free(chunk->constants[i].table.value_indices);
+            chunk->constants[i].table.key_indices = NULL;
+            chunk->constants[i].table.value_indices = NULL;
         }
         if (chunk->constants[i].type == CONST_STRING) {               // check if constant is a string
             if (chunk->constants[i].string_value) {                   // check if string value exists
@@ -260,7 +267,8 @@ int bytecode_emit_line(BytecodeChunk* chunk, Instruction inst, int line) {
 
 // adds a constant to the pool, deduplicating identical values to save space
 int bytecode_add_constant(BytecodeChunk* chunk, Constant constant) {
-    if (constant.type == CONST_JUMP_TABLE) {                       // jump tables are unique, never deduped
+    if (constant.type == CONST_JUMP_TABLE ||
+        constant.type == CONST_TABLE) {                            // jump tables and table literals are unique
         if (chunk->const_count >= chunk->const_capacity) {
             chunk->const_capacity *= 2;
             chunk->constants = (Constant*)realloc(chunk->constants,

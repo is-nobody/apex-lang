@@ -83,6 +83,7 @@ typedef enum {
     OP_TABLE_SET_KEY_STR,  // table["prefix" .. num] = value; packed op2 = (prefix_idx<<16)|num_reg
     OP_TABLE_APPEND,       // appends a value to a table as a positional item
     OP_NEW_TABLE,          // creates a new empty table in rdst
+    OP_LOAD_TABLE,         // materializes a compile-time table literal into rdst
 
     OP_CONCAT,             // string concatenation: rdst = rleft + rright
 
@@ -131,6 +132,7 @@ typedef enum {
     CONST_NONE,          // none/null constant
     CONST_BOOL,          // boolean true/false
     CONST_FUNCTION,      // function index into the function table
+    CONST_TABLE,         // compile-time table literal
     CONST_JUMP_TABLE,    // dense integer match dispatch table
 } ConstantType;
 
@@ -146,6 +148,13 @@ typedef struct {
             int* addresses;      // owned array of code offsets, one per slot
             int  count;          // number of slots in the table
         } jump_table;            // CONST_JUMP_TABLE: dense integer dispatch
+        struct {
+            int  array_count;    // number of positional items
+            int  hash_count;     // number of key-value pairs
+            int* key_indices;    // const pool indices of keys, NULL when hash_count is zero
+            int* value_indices;  // const pool indices, first array_count positional, then hash_count kv
+            int  array_capacity; // hint for table_create/array_part_grow
+        } table;                 // CONST_TABLE: compile-time table literal
     };
     void* cached_str;            // cached StringObject* for CONST_STRING, set at vm_execute
 } Constant;

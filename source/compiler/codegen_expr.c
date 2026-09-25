@@ -378,6 +378,84 @@ int key_str_prefix_idx(CodeGenerator* cg, ASTNode* node) {
     return idx;                                                              // ready to fuse
 }
 
+// true when a table literal subtree is fully known at compile time
+static bool is_const_table_literal(ASTNode* node) {
+    if (!node) return false;                                        // null guard
+    switch (node->type) {
+        case AST_LITERAL_NUMBER:
+        case AST_LITERAL_STRING:
+        case AST_LITERAL_BOOL:
+        case AST_LITERAL_NONE:
+            return true;                                            // literal leaf
+        case AST_UNARY:
+            return node->unary.op == TOKEN_MINUS &&
+                   node->unary.operand->type == AST_LITERAL_NUMBER;  // negative number literal
+        case AST_TABLE_LITERAL:
+            for (int i = 0; i < node->table_literal.items->count; i++) {
+                if (!is_const_table_literal(node->table_literal.items->nodes[i])) return false;
+            }
+            for (int i = 0; i < node->table_literal.key_values->count; i++) {
+                ASTNode* kv = node->table_literal.key_values->nodes[i];
+                if (!is_const_table_literal(kv->binary.left))  return false;
+                if (!is_const_table_literal(kv->binary.right)) return false;
+            }
+            return true;                                            // nested pure literal table
+        default:
+            return false;                                           // identifiers, calls, interps
+    }
+}
+
+// folds a constant subtree into the pool, returns its constant index
+static int const_table_slot(CodeGenerator* cg, ASTNode* node) {
+    if (node->type == AST_LITERAL_NUMBER) {
+        return bytecode_add_number_constant(cg->chunk, node->literal_number.number_value);
+    }
+    if (node->type == AST_LITERAL_STRING) {
+        return bytecode_add_string_constant(cg->chunk, node->literal_string.string_value);
+    }
+    if (node->type == AST_LITERAL_BOOL) {
+        return bytecode_add_bool_constant(cg->chunk, node->literal_bool.bool_value);
+    }
+    if (node->type == AST_LITERAL_NONE) {
+        return bytecode_add_none_constant(cg->chunk);
+    }
+    if (node->type == AST_UNARY) {                                  // only reachable for -<number>
+        double v = -node->unary.operand->literal_number.number_value;
+        return bytecode_add_number_constant(cg->chunk, v);
+    }
+
+    int n_items = node->table_literal.items->count;                  // positional item count
+    int n_kv    = node->table_literal.key_values->count;             // key-value pair count
+    int total   = n_items + n_kv;                                    // total entry count
+
+    Constant c;
+    memset(&c, 0, sizeof(c));
+    c.type                  = CONST_TABLE;
+    c.table.array_count     = n_items;
+    c.table.hash_count      = n_kv;
+    c.table.key_indices     = n_kv ? (int*)malloc(sizeof(int) * n_kv) : NULL;
+    c.table.value_indices   = total ? (int*)malloc(sizeof(int) * total) : NULL;
+    c.table.array_capacity  = (n_kv == 0 && n_items > 0 && n_items < 64) ? 64 : 0;
+
+    for (int i = 0; i < n_items; i++) {                              // positional values at front
+        c.table.value_indices[i] = const_table_slot(cg, node->table_literal.items->nodes[i]);
+    }
+    for (int i = 0; i < n_kv; i++) {                                 // kv values after positional
+        ASTNode* kv = node->table_literal.key_values->nodes[i];
+        c.table.key_indices[i]          = const_table_slot(cg, kv->binary.left);
+        c.table.value_indices[n_items + i] = const_table_slot(cg, kv->binary.right);
+    }
+    return bytecode_add_constant(cg->chunk, c);
+}
+
+// emits a single OP_LOAD_TABLE for a compile-time table literal
+static int codegen_const_table(CodeGenerator* cg, ASTNode* node, int dest_hint) {
+    int idx = const_table_slot(cg, node);
+    int reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);
+    emit(cg, INST(OP_LOAD_TABLE, reg, idx, 0), node->line);
+    return reg;
+}
+
 // main expression dispatcher with dest_hint contract
 int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint) {
     if (!node) {                                                                     // null node
@@ -922,6 +1000,9 @@ int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint) {
         }
 
         case AST_TABLE_LITERAL: {                                                        // table literal
+            if (is_const_table_literal(node)) {                                          // fully known at compile time
+                return codegen_const_table(cg, node, dest_hint);
+            }
             int table_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);             // table dest
             emit(cg, INST(OP_NEW_TABLE, table_reg, 0, 0), node->line);                   // create table
 
