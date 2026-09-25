@@ -64,8 +64,11 @@ void str_cache_invalidate(CodeGenerator* cg, int written_reg) {
     for (int i = 0; i < cg->str_cache.count; i++) {
         if (cg->str_cache.regs[i] == written_reg) {
             free(cg->str_cache.values[i]);                               // release owned copy
-            cg->str_cache.values[i] = cg->str_cache.values[--cg->str_cache.count];
+            cg->str_cache.count--;
+            cg->str_cache.values[i] = cg->str_cache.values[cg->str_cache.count];
             cg->str_cache.regs[i]   = cg->str_cache.regs[cg->str_cache.count];
+            cg->str_cache.values[cg->str_cache.count] = NULL;            // clear moved-from slot
+            cg->str_cache.regs[cg->str_cache.count]   = -1;              // so a later count restore cannot resurrect it
             i--;                                                         // recheck swapped-in entry
         }
     }
