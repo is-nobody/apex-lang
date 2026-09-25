@@ -466,7 +466,8 @@ int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint) {
 
     // licm: substitute a loop-invariant expression with its pre-loaded register
     if (cg->hoist.active && cg->hoist.expr_count > 0 &&
-        (node->type == AST_BINARY || node->type == AST_UNARY || node->type == AST_INDEX_ACCESS)) {
+        (node->type == AST_BINARY || node->type == AST_UNARY ||
+         node->type == AST_INDEX_ACCESS || node->type == AST_CALL)) {
         for (int i = 0; i < cg->hoist.expr_count; i++) {
             if (expr_struct_eq(node, cg->hoist.exprs[i])) {
                 int r = cg->hoist.expr_regs[i];

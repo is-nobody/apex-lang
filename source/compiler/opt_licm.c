@@ -8,6 +8,66 @@
 #include <stdlib.h>
 #include <string.h>
 
+// builtins safe to hoist out of a loop
+bool builtin_is_pure(const char* name) {
+    if (!name) return false;
+
+    if (strcmp(name, "number") == 0) return true;                  // number(x) -> number
+    if (strcmp(name, "string") == 0) return true;                  // string(x) -> string
+    if (strcmp(name, "type") == 0) return true;                    // type(x)   -> string
+
+    if (strcmp(name, "string.length") == 0) return true;           // -> number
+    if (strcmp(name, "string.lower") == 0) return true;            // -> string
+    if (strcmp(name, "string.upper") == 0) return true;            // -> string
+    if (strcmp(name, "string.slice") == 0) return true;            // -> string
+    if (strcmp(name, "string.join") == 0) return true;             // -> string
+    if (strcmp(name, "string.trim") == 0) return true;             // -> string
+    if (strcmp(name, "string.find") == 0) return true;             // -> number
+    if (strcmp(name, "string.replace") == 0) return true;          // -> string
+    // string.split: returns a fresh table, excluded
+
+    if (strncmp(name, "math.", 5) == 0) return true;               // math.*: number, string, or table?
+                                                                   // reference lists only number results
+    if (strncmp(name, "base.encode_", 12) == 0) return true;       // -> string
+    if (strncmp(name, "base.decode_", 12) == 0) return true;       // -> string
+
+    if (strcmp(name, "regex.replace") == 0) return true;           // -> string
+    // regex.find_all / split / search: return tables, excluded
+
+    if (strncmp(name, "crypto.random_", 14) == 0) return false;    // not deterministic
+    if (strcmp(name, "crypto.md5") == 0) return true;              // -> string
+    if (strcmp(name, "crypto.sha1") == 0) return true;             // -> string
+    if (strcmp(name, "crypto.sha256") == 0) return true;           // -> string
+    if (strcmp(name, "crypto.sha384") == 0) return true;           // -> string
+    if (strcmp(name, "crypto.sha512") == 0) return true;           // -> string
+    if (strcmp(name, "crypto.hmac_md5") == 0) return true;         // -> string
+    if (strcmp(name, "crypto.hmac_sha1") == 0) return true;        // -> string
+    if (strcmp(name, "crypto.hmac_sha256") == 0) return true;      // -> string
+    if (strcmp(name, "crypto.hmac_sha384") == 0) return true;      // -> string
+    if (strcmp(name, "crypto.hmac_sha512") == 0) return true;      // -> string
+    if (strcmp(name, "crypto.pbkdf2_md5") == 0) return true;       // -> string
+    if (strcmp(name, "crypto.pbkdf2_sha1") == 0) return true;      // -> string
+    if (strcmp(name, "crypto.pbkdf2_sha256") == 0) return true;    // -> string
+    if (strcmp(name, "crypto.pbkdf2_sha384") == 0) return true;    // -> string
+    if (strcmp(name, "crypto.pbkdf2_sha512") == 0) return true;    // -> string
+    if (strcmp(name, "crypto.aes128_encrypt") == 0) return true;   // -> string
+    if (strcmp(name, "crypto.aes128_decrypt") == 0) return true;   // -> string
+    if (strcmp(name, "crypto.aes192_encrypt") == 0) return true;   // -> string
+    if (strcmp(name, "crypto.aes192_decrypt") == 0) return true;   // -> string
+    if (strcmp(name, "crypto.aes256_encrypt") == 0) return true;   // -> string
+    if (strcmp(name, "crypto.aes256_decrypt") == 0) return true;   // -> string
+    if (strcmp(name, "crypto.compare_strings") == 0) return true;  // -> bool
+
+    if (strcmp(name, "json.encode") == 0) return true;             // -> string
+    // json.decode: returns a table, excluded
+    if (strcmp(name, "xml.encode") == 0) return true;              // -> string
+    // xml.decode: returns a table, excluded
+    if (strcmp(name, "csv.encode") == 0) return true;              // -> string
+    // csv.decode: returns a table, excluded
+
+    return false;                                                  // not on the pure whitelist
+}
+
 // body may mutate an outer-scope table (call/await/nested fn/indexed assign)
 bool body_unsafe_for_licm(ASTNode* node) {
     if (!node) return false;
@@ -428,6 +488,14 @@ bool expr_struct_eq(ASTNode* a, ASTNode* b) {
         case AST_INDEX_ACCESS:
             return expr_struct_eq(a->access.object, b->access.object) &&
                    expr_struct_eq(a->access.member, b->access.member);
+        case AST_CALL:
+            if (!expr_struct_eq(a->call.callee, b->call.callee)) return false;
+            if (a->call.arguments->count != b->call.arguments->count) return false;
+            for (int i = 0; i < a->call.arguments->count; i++) {
+                if (!expr_struct_eq(a->call.arguments->nodes[i],
+                                    b->call.arguments->nodes[i])) return false;
+            }
+            return true;
         default:
             return false;
     }

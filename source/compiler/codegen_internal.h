@@ -111,6 +111,7 @@ bool try_fold_inline_call(CodeGenerator* cg, ASTNode* node, double* out);
 bool expr_only_uses_params(ASTNode* node, ASTNodeList* params);
 
 // opt_licm.c
+bool builtin_is_pure(const char* name);
 bool body_unsafe_for_licm(ASTNode* node);
 bool body_assigns_name(ASTNode* node, const char* name);
 void collect_hoistable_numbers(CodeGenerator* cg, ASTNode* node);

@@ -395,6 +395,39 @@ static void collect_iv_candidates(CodeGenerator* cg, ASTNode* node, const char* 
     }
 }
 
+// extracts a dotted callee name ("string.length") from an identifier or a chain of AST_INDEX_ACCESS nodes
+static const char* call_callee_name(ASTNode* callee, char* buf, size_t buflen) {
+    if (callee->type == AST_IDENTIFIER) {                          // bare name
+        return callee->identifier.name;
+    }
+    if (callee->type != AST_INDEX_ACCESS) return NULL;             // not a dotted path
+    ASTNode* parts[8];
+    int n = 0;
+    ASTNode* cur = callee;
+    while (cur->type == AST_INDEX_ACCESS) {                        // walk down to the root
+        if (n >= 8) return NULL;
+        if (cur->access.member->type != AST_IDENTIFIER) return NULL;
+        parts[n++] = cur->access.member;
+        cur = cur->access.object;
+    }
+    if (cur->type != AST_IDENTIFIER) return NULL;
+    if (n >= 8) return NULL;
+    parts[n++] = cur;
+    buf[0] = '\0';
+    for (int i = n - 1; i >= 0; i--) {                             // join right-to-left
+        size_t cur_len = strlen(buf);
+        if (i < n - 1) {
+            if (cur_len + 1 >= buflen) return NULL;                // no room for '.' + null
+            strcat(buf, ".");
+        }
+        cur_len = strlen(buf);
+        size_t add_len = strlen(parts[i]->identifier.name);
+        if (cur_len + add_len >= buflen) return NULL;              // no room for name + null
+        strcat(buf, parts[i]->identifier.name);
+    }
+    return buf;
+}
+
 // true when `node` is a pure expression tree with no loop_var and no body-assigned names
 static bool expr_is_hoistable(ASTNode* node, ASTNode* body, const char* loop_var) {
     if (!node) return false;
@@ -425,8 +458,19 @@ static bool expr_is_hoistable(ASTNode* node, ASTNode* body, const char* loop_var
             return expr_is_hoistable(node->access.object, body, loop_var) &&
                    expr_is_hoistable(node->access.member, body, loop_var);
         }
+        case AST_CALL: {
+            char name_buf[256];
+            const char* fname = call_callee_name(node->call.callee,  // resolve callee name
+                                                 name_buf, sizeof(name_buf));
+            if (!fname) return false;                                // unknown callee shape
+            if (!builtin_is_pure(fname)) return false;               // not on the pure whitelist
+            for (int i = 0; i < node->call.arguments->count; i++) {  // all args must be pure
+                if (!expr_is_hoistable(node->call.arguments->nodes[i], body, loop_var)) return false;
+            }
+            return true;                                             // pure call, all args invariant
+        }
         default:
-            return false;                                       // calls, awaits, ternary, tables, interps: skip
+            return false;                                       // awaits, ternary, tables, interps: skip
     }
 }
 
@@ -435,8 +479,19 @@ static void collect_hoistable_exprs(ASTNode* node, ASTNode* body, const char* lo
                                      ASTNode* cands[], int* count, int max) {
     if (!node || *count >= max) return;
 
-    if ((node->type == AST_BINARY || node->type == AST_UNARY ||
-         node->type == AST_INDEX_ACCESS) &&
+    // comparisons and logical operators are never hoisted as whole atoms
+    bool is_condition = false;
+    if (node->type == AST_BINARY) {
+        ApexTokenType op = node->binary.op;
+        is_condition = (op == TOKEN_EQUAL_EQUAL || op == TOKEN_NOT_EQUAL ||
+                        op == TOKEN_LESS         || op == TOKEN_GREATER ||
+                        op == TOKEN_LESS_EQUAL   || op == TOKEN_GREATER_EQUAL ||
+                        op == TOKEN_AND          || op == TOKEN_OR);
+    }
+
+    if (!is_condition &&
+        (node->type == AST_BINARY || node->type == AST_UNARY ||
+         node->type == AST_INDEX_ACCESS || node->type == AST_CALL) &&
         expr_is_hoistable(node, body, loop_var)) {
         bool dup = false;
         for (int i = 0; i < *count; i++) {
