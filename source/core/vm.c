@@ -1585,8 +1585,12 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
         if (arg_count >= 1) {
             char buffer[256];                    // temp buffer for number conversion
             if (IS_NUMBER(args[0])) {
-                snprintf(buffer, sizeof(buffer), "%g", AS_NUMBER(args[0]));   // format number to string
-                *result = MAKE_STRING(string_intern(&vm->intern_table, buffer, strlen(buffer)));  // intern result
+                double num = AS_NUMBER(args[0]);
+                if (fabs(num) < 1e15 && fabs(num - (long long)num) < 1e-9)
+                    snprintf(buffer, sizeof(buffer), "%.0f", num);
+                else
+                    snprintf(buffer, sizeof(buffer), "%.15g", num);
+                *result = MAKE_STRING(string_intern(&vm->intern_table, buffer, strlen(buffer)));
             } else if (IS_NONE(args[0])) {
                 *result = MAKE_STRING(string_intern(&vm->intern_table, "none", 4));  // intern "none"
             } else if (IS_BOOL(args[0])) {
