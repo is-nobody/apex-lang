@@ -53,6 +53,7 @@ typedef enum {
     OP_JUMP_MATCH_STR,     // jump if subject equals string constant
     OP_JUMP_MATCH_BOOL,    // jump if subject equals boolean constant
     OP_JUMP_MATCH_NONE,    // jump if subject is none
+    OP_JUMP_TABLE,         // jump to jump_table[subject - min]
 
     OP_CMP_EQ,             // equality comparison: rdst = (rleft == rright)
     OP_CMP_NEQ,            // inequality: rdst = (rleft != rright)
@@ -130,6 +131,7 @@ typedef enum {
     CONST_NONE,          // none/null constant
     CONST_BOOL,          // boolean true/false
     CONST_FUNCTION,      // function index into the function table
+    CONST_JUMP_TABLE,    // dense integer match dispatch table
 } ConstantType;
 
 // a constant pool entry with a type and a type-specific value
@@ -140,6 +142,10 @@ typedef struct {
         char* string_value;      // string constant (interned, pointer to string pool)
         bool bool_value;         // boolean constant (true/false)
         int function_index;      // function constant (index into functions table)
+        struct {
+            int* addresses;      // owned array of code offsets, one per slot
+            int  count;          // number of slots in the table
+        } jump_table;            // CONST_JUMP_TABLE: dense integer dispatch
     };
     void* cached_str;            // cached StringObject* for CONST_STRING, set at vm_execute
 } Constant;

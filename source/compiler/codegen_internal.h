@@ -40,6 +40,7 @@ int  key_str_prefix_idx(CodeGenerator* cg, ASTNode* node);
 void codegen_block(CodeGenerator* cg, ASTNode* node);
 void codegen_statement(CodeGenerator* cg, ASTNode* node);
 int  codegen_assign_expr(CodeGenerator* cg, ASTNode* node, int dest_hint);
+bool stmt_always_exits(ASTNode* node);
 
 // codegen_if.c
 void codegen_if_statement(CodeGenerator* cg, ASTNode* node);

@@ -62,6 +62,7 @@ static const char* opcode_names[] = {
     [OP_JUMP_MATCH_STR]     = "JUMP_MATCH_STR",
     [OP_JUMP_MATCH_BOOL]    = "JUMP_MATCH_BOOL",
     [OP_JUMP_MATCH_NONE]    = "JUMP_MATCH_NONE",
+    [OP_JUMP_TABLE]         = "JUMP_TABLE",
 
     [OP_CMP_EQ]             = "CMP_EQ",
     [OP_CMP_NEQ]            = "CMP_NEQ",
@@ -169,6 +170,10 @@ void bytecode_destroy(BytecodeChunk* chunk) {
     free(chunk->code);                                                // free instruction array
     
     for (int i = 0; i < chunk->const_count; i++) {                    // iterate over constants
+        if (chunk->constants[i].type == CONST_JUMP_TABLE) {           // jump table owns its addresses
+            free(chunk->constants[i].jump_table.addresses);
+            chunk->constants[i].jump_table.addresses = NULL;
+        }
         if (chunk->constants[i].type == CONST_STRING) {               // check if constant is a string
             if (chunk->constants[i].string_value) {                   // check if string value exists
                 bool in_pool = false;                                 // flag to track if string is in pool
@@ -255,6 +260,16 @@ int bytecode_emit_line(BytecodeChunk* chunk, Instruction inst, int line) {
 
 // adds a constant to the pool, deduplicating identical values to save space
 int bytecode_add_constant(BytecodeChunk* chunk, Constant constant) {
+    if (constant.type == CONST_JUMP_TABLE) {                       // jump tables are unique, never deduped
+        if (chunk->const_count >= chunk->const_capacity) {
+            chunk->const_capacity *= 2;
+            chunk->constants = (Constant*)realloc(chunk->constants,
+                                                  sizeof(Constant) * chunk->const_capacity);
+        }
+        int index = chunk->const_count;
+        chunk->constants[chunk->const_count++] = constant;
+        return index;
+    }
     if (constant.type == CONST_STRING) {                           // fast path for string constants
         for (int i = 0; i < chunk->const_count; i++) {             // iterate over existing constants
             if (chunk->constants[i].type == CONST_STRING &&

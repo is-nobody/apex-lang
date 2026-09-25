@@ -145,11 +145,10 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             use_snap[i] = 1;                                     // unique forward jump: snapshot
     }
 
-    for (int i = 0; i < range_size; i++) label_off[i] = -1;      // no label emitted yet
+    for (int i = 0; i <= range_size; i++) label_off[i] = -1;     // incl. the pc==end sentinel
     int fixup_count = 0;                                         // pending jumps count
 
-    // dead-store elimination below assumes straight-line code; a backward jump
-    // makes earlier pcs reachable from later ones, breaking the forward scan
+    // dead-store elimination below assumes straight-line code
     bool func_has_backward_jump = false;
     for (int pc = start; pc < end; pc++) {
         Opcode op = chunk->code[pc].opcode;
@@ -166,6 +165,10 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     size_t rip_fixup_at[64];                                     // rip-relative disp32 offsets
     int    rip_fixup_imm[64];                                    // imm index per fixup
     int    rip_fixup_count = 0;                                  // pending rip fixups
+
+    size_t tab_fixup_at[256];                                    // inline dispatch tables: 8-byte slots
+    int    tab_fixup_pc[256];                                    // bytecode pc each slot must point at
+    int    tab_fixup_count = 0;                                  // number of pending table slots
 
     // try the int-specialized body first: on success it lands before the general body
     size_t int_off   = (size_t)-1;                               // int body offset, -1 if absent
@@ -879,6 +882,79 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 did_flush = true;
                 break;
             }
+            case OP_JUMP_TABLE: {                                // dense integer match dispatch
+                int subj_reg = inst->operands[0];
+                int min_val  = inst->operands[1];
+                int tbl_idx  = inst->operands[2];
+                Constant* tbl = &chunk->constants[tbl_idx];
+                if (tbl->type != CONST_JUMP_TABLE)
+                    JIT_FATAL("OP_JUMP_TABLE without CONST_JUMP_TABLE (func=%d pc=%d)", func_idx, pc);
+                int range = tbl->jump_table.count;
+
+                int xa = x86_cache_load(&cache, cb, subj_reg);
+                if (xa < 0) JIT_FATAL("cache full: JUMP_TABLE subj=%d (func=%d pc=%d)", subj_reg, func_idx, pc);
+
+                // spill dirty slots to memory before any branch
+                x86_cache_flush(&cache, cb);
+
+                // verify the value was a whole number by round-tripping
+                x86_emit_cvttsd2si_eax(cb, xa);                  // eax = (int)subj
+                emit_u8(cb, 0xF2);                               // cvtsi2sd xmm15, eax
+                x86_rex_r(cb, XMM_SCRATCH);
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x2A);
+                emit_u8(cb, 0xC0 | ((XMM_SCRATCH & 7) << 3));
+                x86_emit_ucomisd_rr(cb, xa, XMM_SCRATCH);        // ucomisd subj, truncated
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x85);            // jne miss
+                size_t miss_patch = cb->len;
+                emit_i32(cb, 0);
+
+                if (min_val != 0) {                              // sub eax, min
+                    if (min_val >= -128 && min_val <= 127) {
+                        emit_u8(cb, 0x83); emit_u8(cb, 0xE8);
+                        emit_u8(cb, (uint8_t)min_val);
+                    } else {
+                        emit_u8(cb, 0x2D); emit_u32(cb, (uint32_t)min_val);
+                    }
+                }
+                if (range <= 127) {                              // cmp eax, range
+                    emit_u8(cb, 0x83); emit_u8(cb, 0xF8);
+                    emit_u8(cb, (uint8_t)range);
+                } else {
+                    emit_u8(cb, 0x3D); emit_u32(cb, (uint32_t)range);
+                }
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x83);            // jae miss
+                size_t bounds_patch = cb->len;
+                emit_i32(cb, 0);
+
+                emit_u8(cb, 0x4C); emit_u8(cb, 0x8D);            // lea r11, [rip + table_disp]
+                emit_u8(cb, 0x1D);
+                size_t table_disp_at = cb->len;
+                emit_i32(cb, 0);
+                emit_u8(cb, 0x41); emit_u8(cb, 0xFF);            // jmp qword [r11 + rax*8]
+                emit_u8(cb, 0x24);
+                emit_u8(cb, 0xC3);                               // sib: scale=8, index=rax, base=r11
+
+                size_t table_start = cb->len;                    // inline absolute-address table
+                for (int i = 0; i < range; i++) {
+                    if (tab_fixup_count >= 256)
+                        JIT_FATAL("jump-table slot overflow in function %d", func_idx);
+                    tab_fixup_at[tab_fixup_count] = cb->len;
+                    tab_fixup_pc[tab_fixup_count] = tbl->jump_table.addresses[i];
+                    tab_fixup_count++;
+                    emit_u64(cb, 0);                             // absolute target, patched later
+                }
+                size_t after_table = cb->len;
+
+                int32_t tdisp = (int32_t)table_start - (int32_t)(table_disp_at + 4);
+                memcpy(cb->buf + table_disp_at, &tdisp, 4);
+                int32_t mrel = (int32_t)after_table - (int32_t)(miss_patch + 4);
+                memcpy(cb->buf + miss_patch, &mrel, 4);
+                int32_t brel = (int32_t)after_table - (int32_t)(bounds_patch + 4);
+                memcpy(cb->buf + bounds_patch, &brel, 4);
+
+                did_flush = true;                                // cache already flushed above
+                break;
+            }
             case OP_CALL_0: {                                    // call with no args
                 x86_cache_flush(&cache, cb);                     // spill everything before call
                 emit_call_or_self(cb, ctx, a, func_idx, mark);   // direct self-call or via table
@@ -1017,6 +1093,8 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         }
     }
 
+    label_off[range_size] = (int32_t)cb->len;                    // pc==end target (fall through past body)
+
     emit_gpr_pocket_restores(cb, pocket_slot_base, n_pockets);   // restore before leaving
     emit_return_zero(abi, cb, base_frame);                       // safety fallthrough
 
@@ -1036,12 +1114,22 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     for (int i = 0; i < fixup_count; i++) {                      // patch every pending jump
         JumpFixup* fx = &fixups[i];
         int tidx = fx->target_pc - start;                        // index within range
-        if (tidx < 0 || tidx >= range_size || label_off[tidx] < 0) {
+        if (tidx < 0 || tidx > range_size || label_off[tidx] < 0) {
             JIT_FATAL("jump fixup out of range: func=%d target_pc=%d range=[%d,%d)",
                     func_idx, fx->target_pc, start, end);
         }
         int32_t rel = (int32_t)label_off[tidx] - (int32_t)(fx->patch_at + 4);  // rel32 distance
         memcpy(cb->buf + fx->patch_at, &rel, 4);                 // write rel32
+    }
+
+    for (int i = 0; i < tab_fixup_count; i++) {                  // patch every dispatch slot
+        int tidx = tab_fixup_pc[i] - start;
+        if (tidx < 0 || tidx > range_size || label_off[tidx] < 0) {
+            JIT_FATAL("jump-table slot out of range: func=%d target_pc=%d range=[%d,%d)",
+                    func_idx, tab_fixup_pc[i], start, end);
+        }
+        uint64_t addr = (uint64_t)(uintptr_t)(cb->buf + label_off[tidx]);
+        memcpy(cb->buf + tab_fixup_at[i], &addr, 8);             // write 8-byte absolute
     }
 
     free(pred_count); free(needs_flush); free(use_snap); free(jump_snap);

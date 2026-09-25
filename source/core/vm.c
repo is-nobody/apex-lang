@@ -1720,6 +1720,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_JUMP_MATCH_STR]     = &&OP_JUMP_MATCH_STR_LABEL,
         [OP_JUMP_MATCH_BOOL]    = &&OP_JUMP_MATCH_BOOL_LABEL,
         [OP_JUMP_MATCH_NONE]    = &&OP_JUMP_MATCH_NONE_LABEL,
+        [OP_JUMP_TABLE]         = &&OP_JUMP_TABLE_LABEL,
 
         [OP_CMP_EQ]             = &&OP_CMP_EQ_LABEL,
         [OP_CMP_NEQ]            = &&OP_CMP_NEQ_LABEL,
@@ -2375,6 +2376,25 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             goto *dispatch_table[ip->opcode];
         }
         ip++; goto *dispatch_table[ip->opcode];    // no match, continue to next check
+    }
+    OP_JUMP_TABLE_LABEL: {
+        APEX_TRY_JIT_LOOP();
+        int subj_reg  = ip->operands[0];               // register holding the subject
+        int min_val   = ip->operands[1];               // lowest case value
+        int table_idx = ip->operands[2];               // constant pool index
+        Value subj = regs[subj_reg];
+        if (likely(IS_NUMBER(subj))) {                 // tables only match numbers
+            double n = AS_NUMBER(subj);
+            if (n == (double)(int)n) {                 // whole number
+                int offset = (int)n - min_val;
+                Constant* c = &chunk->constants[table_idx];
+                if ((unsigned)offset < (unsigned)c->jump_table.count) {
+                    ip = &vm->code[c->jump_table.addresses[offset]];
+                    goto *dispatch_table[ip->opcode];
+                }
+            }
+        }
+        ip++; goto *dispatch_table[ip->opcode];        // miss: fall through to no_match JUMP
     }
 
     OP_CMP_EQ_LABEL: {

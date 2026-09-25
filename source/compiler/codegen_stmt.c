@@ -508,7 +508,7 @@ void codegen_statement(CodeGenerator* cg, ASTNode* node) {
 }
 
 // true when control does not fall through past this statement: a direct return/break/continue
-static bool stmt_always_exits(ASTNode* node) {
+bool stmt_always_exits(ASTNode* node) {
     if (!node) return false;
     switch (node->type) {
         case AST_RETURN_STMT:

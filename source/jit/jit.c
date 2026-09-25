@@ -103,7 +103,7 @@ JITContext* jit_create(BytecodeChunk* chunk) {
     // reusable scratch buffers, sized once for the whole chunk
     int code_count = chunk->code_count;
     ctx->scratch_is_target = (bool*)calloc(code_count, sizeof(bool));
-    ctx->scratch_label_off = (int32_t*)malloc(sizeof(int32_t) * code_count);
+    ctx->scratch_label_off = (int32_t*)malloc(sizeof(int32_t) * (code_count + 1));
     ctx->scratch_fixups    = (JumpFixup*)malloc(sizeof(JumpFixup) * code_count);
     ctx->scratch_code_buf_cap = (size_t)code_count * be->bytes_per_instruction + 1024;
     ctx->scratch_code_buf  = (uint8_t*)malloc(ctx->scratch_code_buf_cap);

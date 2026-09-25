@@ -166,7 +166,7 @@ bool x86_64_emit_int_self_recursive(const X86_64Abi* abi, JITContext* ctx,
     int32_t*   lbl_off = ctx->scratch_label_off;
     if (!fixups || !lbl_off)
         JIT_FATAL("scratch missing for int-recursive emit of function %d", func_idx);
-    for (int i = 0; i < range_size; i++) lbl_off[i] = -1;
+    for (int i = 0; i <= range_size; i++) lbl_off[i] = -1;
     int nfix = 0;
 
     if (base_at_top) {
@@ -460,10 +460,11 @@ bool x86_64_emit_int_self_recursive(const X86_64Abi* abi, JITContext* ctx,
                 JIT_FATAL("unreachable opcode %d in int body (func=%d pc=%d)", op, func_idx, pc);
         }
     }
+    lbl_off[range_size] = (int32_t)cb->len;                         // pc==end: fall-through target
 
     for (int i = 0; i < nfix; i++) {                                // patch internal jumps
         int tidx = fixups[i].target_pc - start;
-        if (tidx < 0 || tidx >= range_size || lbl_off[tidx] < 0)
+        if (tidx < 0 || tidx > range_size || lbl_off[tidx] < 0)
             JIT_FATAL("int jump target out of range in function %d (tgt=%d)",
                       func_idx, fixups[i].target_pc);
         int32_t rel = (int32_t)lbl_off[tidx] - (int32_t)(fixups[i].patch_at + 4);

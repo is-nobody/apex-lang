@@ -88,6 +88,18 @@ static bool is_pure_loop_instr(JITContext* ctx, int pc) {
     }
 }
 
+// true when a constant is a jump table whose every target lies inside the compiled bytecode range
+static bool jump_table_in_range(BytecodeChunk* chunk, int idx, int start, int end) {
+    if (idx < 0 || idx >= chunk->const_count) return false;
+    Constant* c = &chunk->constants[idx];
+    if (c->type != CONST_JUMP_TABLE) return false;
+    for (int i = 0; i < c->jump_table.count; i++) {
+        int t = c->jump_table.addresses[i];
+        if (t < start || t > end) return false;  // end is a valid fallthrough
+    }
+    return true;
+}
+
 // checks if a function contains only numeric ops and in-range jumps
 static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
     BytecodeChunk* chunk = ctx->chunk;
@@ -134,7 +146,7 @@ static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
             case OP_JUMP_MATCH_BOOL:                             // match jumps share the range check
             case OP_JUMP_MATCH_NONE: {
                 int target = inst->operands[0];                     // jump target pc
-                if (target < start || target >= end) return false;  // leaves the function
+                if (target < start || target > end) return false;   // end is a valid exit
                 break;
             }
 
@@ -152,6 +164,11 @@ static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
                 int idx = inst->operands[2];                     // constant pool index
                 if (idx < 0 || idx >= chunk->const_count) return false;
                 if (chunk->constants[idx].type != CONST_STRING) return false;
+                break;
+            }
+            case OP_JUMP_TABLE: {                                // dense integer match dispatch
+                int idx = inst->operands[2];                     // constant pool index
+                if (!jump_table_in_range(chunk, idx, start, end)) return false;
                 break;
             }
 

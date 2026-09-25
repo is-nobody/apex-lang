@@ -75,4 +75,17 @@ void thread_jumps(CodeGenerator* cg) {
             mark_jump_target(cg, th);
         }
     }
+    for (int i = 0; i < cg->chunk->const_count; i++) {
+        Constant* c = &cg->chunk->constants[i];
+        if (c->type != CONST_JUMP_TABLE) continue;
+        for (int j = 0; j < c->jump_table.count; j++) {
+            int old = c->jump_table.addresses[j];
+            if (old < 0 || old >= n) continue;
+            int th = thread_target(cg, old);
+            if (th != old) {
+                c->jump_table.addresses[j] = th;
+                mark_jump_target(cg, th);
+            }
+        }
+    }
 }

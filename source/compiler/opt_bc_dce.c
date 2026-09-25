@@ -115,6 +115,15 @@ void compact_bytecode(CodeGenerator* cg) {
         if (old >= 0 && old <= total) cg->chunk->functions[i].address = map[old];
     }
 
+    for (int i = 0; i < cg->chunk->const_count; i++) {        // jump table target addresses
+        Constant* c = &cg->chunk->constants[i];
+        if (c->type != CONST_JUMP_TABLE) continue;
+        for (int j = 0; j < c->jump_table.count; j++) {
+            int old = c->jump_table.addresses[j];
+            if (old >= 0 && old <= total) c->jump_table.addresses[j] = map[old];
+        }
+    }
+
     if (cg->jump_targets) {                                   // rebuild the bitset at new pcs
         memset(cg->jump_targets, 0, cg->jump_targets_cap);
         for (int pc = 0; pc < new_count; pc++) {
@@ -124,6 +133,13 @@ void compact_bytecode(CodeGenerator* cg) {
                 mark_jump_target(cg, in->operands[1]);
             if (in->opcode == OP_TABLE_ITER_NEXT)
                 mark_jump_target(cg, in->operands[2]);
+        }
+        for (int i = 0; i < cg->chunk->const_count; i++) {
+            Constant* c = &cg->chunk->constants[i];
+            if (c->type != CONST_JUMP_TABLE) continue;
+            for (int j = 0; j < c->jump_table.count; j++) {
+                mark_jump_target(cg, c->jump_table.addresses[j]);
+            }
         }
     }
 
