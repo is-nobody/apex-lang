@@ -4,6 +4,7 @@
 // MIT license
 
 #include "codegen_internal.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -347,42 +348,115 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node, int dest_hint) {
     return result_reg;                                                        // return result register
 }
 
-// emits string interpolation by concatenating parts, first part goes into dest
-int codegen_string_interp(CodeGenerator* cg, ASTNode* node, int dest_hint) {
-    if (node->string_interp.parts->count == 0) {                           // empty interpolation
-        int reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);         // use hint or fresh
-        int empty_idx = bytecode_add_string_constant(cg->chunk, "");       // empty string constant
-        emit(cg, INST(OP_LOAD_CONST, reg, empty_idx, 0), node->line);      // load empty
-        return reg;                                                        // return register
+// compile-time string value of an interpolation part
+static char* interp_const_str(CodeGenerator* cg, ASTNode* part) {
+    switch (part->type) {
+        case AST_LITERAL_STRING:
+            return strdup(part->literal_string.string_value);
+        case AST_LITERAL_NONE:
+            return strdup("none");
+        case AST_LITERAL_BOOL:
+            return strdup(part->literal_bool.bool_value ? "true" : "false");
+        default: break;
     }
-
-    // single part: no concatenation to accumulate into, forward the value as-is
-    if (node->string_interp.parts->count == 1) {
-        return codegen_expression_into(cg, node->string_interp.parts->nodes[0], dest_hint);
+    double v;
+    if (try_fold_number(cg, part, &v)) {
+        char buf[64];
+        if (fabs(v) >= 1e6 || fabs(v - (long long)v) < 1e-9)
+            snprintf(buf, sizeof(buf), "%.0f", v);
+        else
+            snprintf(buf, sizeof(buf), "%.15g", v);
+        return strdup(buf);
     }
-
-    int result_reg;                                                        // result register
-    if (dest_hint >= 0) {                                                  // write first part into dest
-        codegen_expression_into(cg, node->string_interp.parts->nodes[0], dest_hint);
-        result_reg = dest_hint;                                            // result lives in dest
-    } else {                                                               // no hint: fresh temp
-        result_reg = alloc_register(cg);                                   // allocate a fresh destination
-        codegen_expression_into(cg, node->string_interp.parts->nodes[0], result_reg);  // force first part into it
-    }
-
-    for (int i = 1; i < node->string_interp.parts->count; i++) {           // remaining parts
-        ASTNode* part = node->string_interp.parts->nodes[i];               // current part
-        int part_reg = codegen_expression(cg, part);                       // fresh temp for part
-        emit(cg, INST(OP_CONCAT, result_reg, result_reg, part_reg),        // in-place concatenation
-             node->line);
-        free_register(cg, part_reg);                                       // free part temp
-    }
-    return result_reg;                                                     // return final result
+    return NULL;
 }
 
-// checks whether `node` is a two-part interpolation "literal{expr}";
-// returns the constant pool index of the literal prefix, or -1.
-// does not emit any code and does not allocate registers.
+// emits string interpolation by concatenating parts, first part goes into dest
+int codegen_string_interp(CodeGenerator* cg, ASTNode* node, int dest_hint) {
+    ASTNodeList* parts = node->string_interp.parts;
+
+    if (parts->count == 0) {                                              // empty interpolation
+        int reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);
+        int empty_idx = bytecode_add_string_constant(cg->chunk, "");
+        emit(cg, INST(OP_LOAD_CONST, reg, empty_idx, 0), node->line);
+        return reg;
+    }
+
+    // collapse adjacent compile-time parts into a single literal
+    int n = parts->count;
+    struct {
+        bool  is_const;                                                   // true: use str, false: use node
+        char* str;                                                        // owned when is_const
+        ASTNode* node;                                                    // borrowed when !is_const
+    }* mp = (void*)malloc(sizeof(*mp) * n);
+    int mcount = 0;
+    char* run = NULL;
+    size_t run_len = 0, run_cap = 0;
+
+    for (int i = 0; i < n; i++) {
+        char* cs = interp_const_str(cg, parts->nodes[i]);
+        if (cs) {
+            size_t cl = strlen(cs);
+            if (run_len + cl + 1 > run_cap) {
+                size_t nc = run_cap == 0 ? 32 : run_cap;
+                while (nc < run_len + cl + 1) nc *= 2;
+                run = (char*)realloc(run, nc);
+                run_cap = nc;
+            }
+            memcpy(run + run_len, cs, cl);
+            run_len += cl;
+            run[run_len] = '\0';
+            free(cs);
+        } else {
+            if (run_len > 0) {                                            // flush pending run
+                mp[mcount].is_const = true;
+                mp[mcount].str      = strdup(run);
+                mp[mcount].node     = NULL;
+                mcount++;
+                run_len = 0;
+            }
+            mp[mcount].is_const = false;
+            mp[mcount].str      = NULL;
+            mp[mcount].node     = parts->nodes[i];
+            mcount++;
+        }
+    }
+    if (run_len > 0) {                                                    // flush trailing run
+        mp[mcount].is_const = true;
+        mp[mcount].str      = strdup(run);
+        mp[mcount].node     = NULL;
+        mcount++;
+    }
+    free(run);
+
+    // emit the first merged part into the result register
+    int result_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);
+    if (mp[0].is_const) {
+        int idx = bytecode_add_string_constant(cg->chunk, mp[0].str);
+        emit(cg, INST(OP_LOAD_CONST, result_reg, idx, 0), node->line);
+    } else {
+        codegen_expression_into(cg, mp[0].node, result_reg);
+    }
+
+    for (int i = 1; i < mcount; i++) {                                    // remaining merged parts
+        int part_reg;
+        if (mp[i].is_const) {
+            part_reg = alloc_register(cg);
+            int idx = bytecode_add_string_constant(cg->chunk, mp[i].str);
+            emit(cg, INST(OP_LOAD_CONST, part_reg, idx, 0), node->line);
+        } else {
+            part_reg = codegen_expression(cg, mp[i].node);
+        }
+        emit(cg, INST(OP_CONCAT, result_reg, result_reg, part_reg), node->line);
+        free_register(cg, part_reg);
+    }
+
+    for (int i = 0; i < mcount; i++) free(mp[i].str);
+    free(mp);
+    return result_reg;
+}
+
+// checks whether `node` is a two-part interpolation "literal{expr}"
 int key_str_prefix_idx(CodeGenerator* cg, ASTNode* node) {
     if (!node || node->type != AST_STRING_INTERP) return -1;                 // not an interpolation
     if (node->string_interp.parts->count != 2) return -1;                    // need exactly two parts
