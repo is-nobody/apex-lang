@@ -222,7 +222,7 @@ typedef struct FutureObject {
     int waiter_capacity;       // capacity of the waiter array
     ForIter saved_iters[16];   // saved numeric loop iterators across suspension
     int saved_iter_depth;      // depth of the numeric iterator stack
-    TableIterState saved_table_iters[4];  // saved table iterators across suspension
+    TableIterState saved_table_iters[16];  // saved table iterators across suspension
     int saved_table_iter_depth;// depth of the table iterator stack
 } FutureObject;
 
