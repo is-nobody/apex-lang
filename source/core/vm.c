@@ -1855,7 +1855,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int dest = ip->operands[0];                    // dest register index
         int value = ip->operands[1];                   // immediate integer value (0-65535)
         Value old = regs[dest];                        // read current value in dest register
-        if (unlikely((old & QNAN) == QNAN)) {         // fast nan-boxing check: only nan-tagged values
+        if (unlikely((old & QNAN) == QNAN)) {          // fast nan-boxing check: only nan-tagged values
             value_decref(old);                         // are heap objects needing refcount cleanup
         }                                              // unboxed numbers skip this branch entirely
         regs[dest] = MAKE_NUMBER((double)value);       // store unboxed number, no incref needed
@@ -1866,7 +1866,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int const_idx = ip->operands[1];               // constant pool index for double value
         double value = chunk->constants[const_idx].number_value;  // fetch double from constant pool
         Value old = regs[dest];                        // read current value in dest register
-        if (unlikely((old & QNAN) == QNAN)) {         // fast nan-boxing check: only nan-tagged values
+        if (unlikely((old & QNAN) == QNAN)) {          // fast nan-boxing check: only nan-tagged values
             value_decref(old);                         // are heap objects needing refcount cleanup
         }                                              // unboxed numbers skip this branch entirely
         regs[dest] = MAKE_NUMBER(value);               // store unboxed double, no incref needed
@@ -2421,6 +2421,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         else if (IS_TABLE(left) && IS_TABLE(right)) {
             result = table_equal(AS_TABLE(left), AS_TABLE(right), 0);  // compare tables
         }
+        if ((regs[dest] & QNAN) == QNAN) value_decref(regs[dest]);
         regs[dest] = MAKE_BOOL(result);          // store result as bool
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
@@ -2447,6 +2448,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         else if (IS_TABLE(left) && IS_TABLE(right)) {
             result = !table_equal(AS_TABLE(left), AS_TABLE(right), 0);  // compare tables
         }
+        if ((regs[dest] & QNAN) == QNAN) value_decref(regs[dest]);
         regs[dest] = MAKE_BOOL(result);          // store result as bool
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
