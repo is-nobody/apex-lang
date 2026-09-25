@@ -707,14 +707,21 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             }
             if (cg->hoist.count > 0) cg->hoist.active = true;                       // enable reuse in the body
 
-            // licm: hoist loop-invariant t[CONST] reads into their own registers
+            // licm: hoist loop-invariant t[CONST] reads and global loads
             collect_hoistable_table_gets(cg, node->for_stmt.body);
             for (int i = 0; i < cg->hoist.get_count; i++) {
-                int tslot = find_local_slot(cg, cg->hoist.get_names[i]);
-                int t_reg = cg->locals.registers[tslot];
-                int idx   = (int)cg->hoist.get_indices[i];
-                int dst   = alloc_register(cg);
-                emit(cg, INST(OP_TABLE_GET_INT, dst, t_reg, idx), node->line);
+                int dst = alloc_register(cg);
+                if (cg->hoist.get_indices[i] < 0) {
+                    const char* gname = cg->hoist.get_names[i];
+                    int gidx = bytecode_get_global(cg->chunk, gname);
+                    if (gidx < 0) gidx = bytecode_add_global(cg->chunk, gname);
+                    emit(cg, INST(OP_LOAD_GLOBAL, dst, gidx, 0), node->line);
+                } else {
+                    int tslot = find_local_slot(cg, cg->hoist.get_names[i]);
+                    int t_reg = cg->locals.registers[tslot];
+                    int idx   = (int)cg->hoist.get_indices[i];
+                    emit(cg, INST(OP_TABLE_GET_INT, dst, t_reg, idx), node->line);
+                }
                 cg->hoist.get_regs[i] = dst;
             }
             if (cg->hoist.get_count > 0) cg->hoist.active = true;

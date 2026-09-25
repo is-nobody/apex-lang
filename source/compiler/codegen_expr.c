@@ -70,6 +70,19 @@ static int codegen_identifier(CodeGenerator* cg, ASTNode* node, int dest) {
         return dest;                                                       // return destination
     }
 
+    if (cg->hoist.get_count > 0) {
+        for (int i = 0; i < cg->hoist.get_count; i++) {
+            if (cg->hoist.get_indices[i] < 0 &&
+                cg->hoist.get_regs[i] >= 0 &&
+                strcmp(cg->hoist.get_names[i], name) == 0) {
+                int r = cg->hoist.get_regs[i];
+                if (dest < 0 || dest == r) return r;
+                emit(cg, INST(OP_MOVE, dest, r, 0), node->line);
+                return dest;
+            }
+        }
+    }
+
     for (int i = 0; i < cg->module_count; i++) {                           // check imported modules
         char full_name[512];                                               // qualified name buffer
         snprintf(full_name, sizeof(full_name), "%s.%s", cg->imported_modules[i], name);

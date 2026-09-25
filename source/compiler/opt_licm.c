@@ -4,6 +4,7 @@
 // MIT license
 
 #include "codegen_internal.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -237,6 +238,33 @@ static void add_hoistable_get(CodeGenerator* cg, const char* table, double idx) 
 // recursive walk collecting AST_INDEX_ACCESS nodes t[CONST] that qualify
 static void scan_hoistable_gets(CodeGenerator* cg, ASTNode* node, ASTNode* body) {
     if (!node) return;
+
+    if (node->type == AST_INDEX_ACCESS &&
+        node->access.object->type == AST_IDENTIFIER) {
+        const char* obj = node->access.object->identifier.name;
+        bool is_module = false;
+        for (int i = 0; i < cg->module_count; i++) {
+            if (strcmp(cg->imported_modules[i], obj) == 0) { is_module = true; break; }
+        }
+        if (!is_module && is_known_builtin_module(obj)) is_module = true;
+        if (is_module) return;
+    }
+
+    if (node->type == AST_IDENTIFIER) {
+        if (cg->current_module) return;
+        const char* nm = node->identifier.name;
+        if (find_local_slot(cg, nm) >= 0) return;
+        if (body_assigns_name(body, nm)) return;
+        if (strchr(nm, '.')) return;
+        for (int i = 0; i < cg->module_count; i++) {
+            char q[512];
+            snprintf(q, sizeof(q), "%s.%s", cg->imported_modules[i], nm);
+            if (bytecode_get_global(cg->chunk, q) >= 0) return;
+        }
+        add_hoistable_get(cg, nm, -1.0);
+        return;
+    }
+
     if (node->type == AST_INDEX_ACCESS) {
         if (node->access.object->type == AST_IDENTIFIER &&
             node->access.member->type == AST_LITERAL_NUMBER) {
@@ -264,7 +292,9 @@ static void scan_hoistable_gets(CodeGenerator* cg, ASTNode* node, ASTNode* body)
             scan_hoistable_gets(cg, node->access.member, body);
             break;
         case AST_CALL:
-            scan_hoistable_gets(cg, node->call.callee, body);
+            if (node->call.callee->type != AST_IDENTIFIER) {
+                scan_hoistable_gets(cg, node->call.callee, body);
+            }
             for (int i = 0; i < node->call.arguments->count; i++)
                 scan_hoistable_gets(cg, node->call.arguments->nodes[i], body);
             break;
