@@ -327,7 +327,8 @@ static bool counter_write_prepare(Table* t, int end) {
 }
 
 // runs a compiled loop natively if its entry pc matches and all guards pass
-JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* exit_pc) {
+JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs,
+                                  int frame_size, int* exit_pc) {
     if (!ctx || !ctx->pc_to_loop) return JIT_LOOP_NOT_APPLICABLE;   // no jit, no loops
     if (pc < 0 || pc >= ctx->chunk->code_count) return JIT_LOOP_NOT_APPLICABLE;  // pc out of range
     int li = ctx->pc_to_loop[pc];
@@ -348,6 +349,7 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* 
         int s = __builtin_ctzll(m);
         m &= m - 1;
         if (s >= 64) return JIT_LOOP_NOT_APPLICABLE;                // slot beyond tracking range
+        if (s >= frame_size) return JIT_LOOP_NOT_APPLICABLE;        // slot beyond this frame
         if (counter_write && s == table_slot) continue;             // handled explicitly below
         if (!live_in_slot_ok(regs[s], info->live_in_kind[s], &info->table)) {
             return JIT_LOOP_NOT_APPLICABLE;                         // wrong type or table shape
@@ -358,6 +360,11 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* 
     void (*chosen_fn)(uint64_t*, uint64_t*) = info->native_fn;
 
     if (info->kind == JIT_LOOP_NUMERIC_FOR) {
+        if (info->for_var_reg  >= frame_size ||
+            info->for_end_reg  >= frame_size ||
+            info->for_step_reg >= frame_size) {
+            return JIT_LOOP_NOT_APPLICABLE;
+        }
         Value vv = regs[info->for_var_reg];
         Value ve = regs[info->for_end_reg];
         Value vs = regs[info->for_step_reg];
@@ -380,6 +387,8 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* 
             if (start > end) return JIT_LOOP_NOT_APPLICABLE;                        // zero-iteration loop
             if (end > 2147483647.0) return JIT_LOOP_NOT_APPLICABLE;                 // array index range
 
+            if (info->table.slot < 0 || info->table.slot >= frame_size)
+                return JIT_LOOP_NOT_APPLICABLE;
             Value tv = regs[info->table.slot];
             if (!IS_TABLE(tv)) return JIT_LOOP_NOT_APPLICABLE;
             Table* t = AS_TABLE(tv);
@@ -397,6 +406,8 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* 
     }
 
     if (info->kind == JIT_LOOP_TABLE_ITER) {
+        if (info->table.slot < 0 || info->table.slot >= frame_size)
+            return JIT_LOOP_NOT_APPLICABLE;
         Value tv = regs[info->table.slot];
         if (!IS_TABLE(tv)) return JIT_LOOP_NOT_APPLICABLE;
         Table* t = AS_TABLE(tv);

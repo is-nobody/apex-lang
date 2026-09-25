@@ -1784,7 +1784,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             if (unlikely(apex_jit_runtime_enabled && vm->jit != NULL)) { \
                 int _cur = (int)(ip - vm->code); \
                 int _exit; \
-                JitLoopResult _r = jit_try_native_loop(vm->jit, _cur, (uint64_t*)regs, &_exit); \
+                JitLoopResult _r = jit_try_native_loop(vm->jit, _cur, (uint64_t*)regs, \
+                                                       frame_cap[vm->current_frame], &_exit); \
                 if (_r == JIT_LOOP_RAN_NORMAL) { \
                     ip = &vm->code[_exit]; \
                     goto *dispatch_table[ip->opcode]; \
@@ -3038,7 +3039,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
     OP_CALL_LABEL: {
-        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {  // check for call stack overflow
+        if (vm->call_depth >= VM_MAX_CALL_FRAMES - 1) {  // check for call stack overflow
             fprintf(stderr, "\033[31mRuntime Error: Stack overflow - maximum call depth (%d) exceeded. "
                     "Too many nested function calls or infinite recursion detected.\n\033[0m", 
                     VM_MAX_CALL_FRAMES);          // print error message
@@ -3112,7 +3113,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
     OP_CALL_0_LABEL: {
-        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {  // check for call stack overflow
+        if (vm->call_depth >= VM_MAX_CALL_FRAMES - 1) {  // check for call stack overflow
             fprintf(stderr, "\033[31mRuntime Error: Stack overflow - maximum call depth (%d) exceeded. "
                     "Too many nested function calls or infinite recursion detected.\n\033[0m", 
                     VM_MAX_CALL_FRAMES);          // print error message
@@ -3155,7 +3156,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         goto *dispatch_table[ip->opcode];            // dispatch first instruction of function
     }
     OP_CALL_1_LABEL: {
-        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {  // check for call stack overflow
+        if (vm->call_depth >= VM_MAX_CALL_FRAMES - 1) {  // check for call stack overflow
             fprintf(stderr, "\033[31mRuntime Error: Stack overflow - maximum call depth (%d) exceeded. "
                     "Too many nested function calls or infinite recursion detected.\n\033[0m", 
                     VM_MAX_CALL_FRAMES);          // print error message
@@ -3209,7 +3210,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         goto *dispatch_table[ip->opcode];                           // dispatch first instruction of function
     }
     OP_CALL_2_LABEL: {
-        if (vm->call_depth >= VM_MAX_CALL_FRAMES) {  // check for call stack overflow
+        if (vm->call_depth >= VM_MAX_CALL_FRAMES - 1) {  // check for call stack overflow
             fprintf(stderr, "\033[31mRuntime Error: Stack overflow - maximum call depth (%d) exceeded. "
                     "Too many nested function calls or infinite recursion detected.\n\033[0m", 
                     VM_MAX_CALL_FRAMES);          // print error message

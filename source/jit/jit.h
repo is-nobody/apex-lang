@@ -53,7 +53,8 @@ double jit_call_2(JITContext* ctx, int func_idx, double a, double b);
 int jit_compiled_count(JITContext* ctx);
 
 // runs a compiled loop natively when pc matches an entry and live-in slots are numbers
-JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs, int* exit_pc);
+JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs,
+                                  int frame_size, int* exit_pc);
 
 // sets a back-pointer to the owning VM; used for numeric-for reseed
 void jit_set_vm(JITContext* ctx, void* vm);

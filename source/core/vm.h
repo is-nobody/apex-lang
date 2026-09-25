@@ -293,7 +293,7 @@ typedef struct {
 
     TableIterState* table_iters;   // state for table iteration (for value in table loops)
     int table_iter_depth;          // nesting depth of active table iterators
-    TableIterState top_level_table_iter_storage[16];  // backing storage for top-level table iterators
+    TableIterState top_level_table_iter_storage[VM_MAX_CALL_FRAMES];  // backing storage for top-level table iterators
 
     StringInternTable intern_table; // global string interning table for deduplication
 
