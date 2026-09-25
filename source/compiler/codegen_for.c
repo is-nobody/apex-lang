@@ -531,9 +531,6 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
     // universal symbolic interpreter for constant range loops
     if (try_emit_symbolic_loop(cg, node)) return;
 
-    // closed-form Faulhaber sum for runtime-bound polynomial loops
-    if (try_emit_runtime_poly_sum(cg, node)) return;
-
     // small constant-trip range loop: unroll entirely
     if (cg->unroll_depth == 0 && cg->unswitch_depth == 0) {
         double unroll_start = 0.0, unroll_step = 1.0;
