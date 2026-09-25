@@ -77,6 +77,14 @@ bool inst_reads_reg(Instruction* inst, int reg) {
     }
 }
 
+// true when `reg` is the home register of a named local in the current function
+static bool peephole_is_local_reg(CodeGenerator* cg, int reg) {
+    for (int i = 0; i < cg->locals.count; i++) {
+        if (cg->locals.registers[i] == reg) return true;
+    }
+    return false;
+}
+
 // fuse this instruction into the previous one; returns fused pc or -1
 int try_peephole_fuse(CodeGenerator* cg, Instruction* inst) {
     if (cg->chunk->code_count == 0) return -1;
@@ -97,6 +105,17 @@ int try_peephole_fuse(CodeGenerator* cg, Instruction* inst) {
         prev->operands[0] = d;
         prev->operands[1] = a;
         prev->operands[2] = b;
+        return cg->chunk->code_count - 1;
+    }
+
+    // LOAD d,k + MOVE e,d  ->  LOAD e,k
+    if ((prev->opcode == OP_LOAD_NUM_IMM || prev->opcode == OP_LOAD_NUM ||
+         prev->opcode == OP_LOAD_BOOL    || prev->opcode == OP_LOAD_NONE) &&
+        inst->opcode == OP_MOVE &&
+        prev->operands[0] == inst->operands[1] &&
+        prev->operands[0] != inst->operands[0] &&
+        !peephole_is_local_reg(cg, prev->operands[0])) {
+        prev->operands[0] = inst->operands[0];
         return cg->chunk->code_count - 1;
     }
 
@@ -329,13 +348,43 @@ int try_peephole_fuse(CodeGenerator* cg, Instruction* inst) {
         return -1;
     }
 
-    // ADD_IMM r,r,k1 + ADD_IMM r,r,k2 -> ADD_IMM r,r,k1+k2
-    if (prev->opcode == OP_ADD_IMM && inst->opcode == OP_ADD_IMM &&
+    // NEG r,r + NEG r,r  ->  no-op (nop, dropped by compact_bytecode)
+    if (prev->opcode == OP_NEG && inst->opcode == OP_NEG &&
         prev->operands[0] == prev->operands[1] &&
         inst->operands[0] == inst->operands[1] &&
-        prev->operands[0] == inst->operands[0] &&
-        prev->operands[2] + inst->operands[2] <= 65535) {
-        prev->operands[2] += inst->operands[2];
+        prev->operands[0] == inst->operands[0]) {
+        prev->opcode = OP_MOVE;
+        prev->operands[0] = prev->operands[1] = prev->operands[2] = 0;
+        return cg->chunk->code_count - 1;
+    }
+
+    // ADD_IMM/SUB_IMM r,r,k1 + ADD_IMM/SUB_IMM r,r,k2 -> single ADD_IMM/SUB_IMM
+    //
+    // Both ops are r = r +/- k for their own sign; the pair is equivalent
+    // to r = r + (sign1*k1 + sign2*k2).  Net delta is bounded by
+    // [-65535, +65535], so the immediate field never overflows.
+    if ((prev->opcode == OP_ADD_IMM || prev->opcode == OP_SUB_IMM) &&
+        (inst->opcode == OP_ADD_IMM || inst->opcode == OP_SUB_IMM) &&
+        prev->operands[0] == prev->operands[1] &&
+        inst->operands[0] == inst->operands[1] &&
+        prev->operands[0] == inst->operands[0]) {
+        int k1 = prev->operands[2];
+        int k2 = inst->operands[2];
+        long long delta = 0;
+        delta += (prev->opcode == OP_ADD_IMM) ?  (long long)k1 : -(long long)k1;
+        delta += (inst->opcode == OP_ADD_IMM) ?  (long long)k2 : -(long long)k2;
+        if (delta == 0) {
+            prev->opcode = OP_MOVE;
+            prev->operands[0] = prev->operands[1] = prev->operands[2] = 0;
+            return cg->chunk->code_count - 1;
+        }
+        if (delta > 0) {
+            prev->opcode = OP_ADD_IMM;
+            prev->operands[2] = (int)delta;
+        } else {
+            prev->opcode = OP_SUB_IMM;
+            prev->operands[2] = (int)(-delta);
+        }
         return cg->chunk->code_count - 1;
     }
 
