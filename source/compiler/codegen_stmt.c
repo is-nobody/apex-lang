@@ -331,9 +331,73 @@ static void codegen_assign(CodeGenerator* cg, ASTNode* node) {
     free_register(cg, reg);                                                  // discard result
 }
 
+// recognizes `return f(args)` where f resolves to the function currently being compiled
+static bool try_tail_call(CodeGenerator* cg, ASTNode* call) {
+    if (cg->current_function < 0) return false;
+    if (cg->chunk->functions[cg->current_function].is_async) return false;
+
+    ASTNode* callee = call->call.callee;
+    if (!callee || callee->type != AST_IDENTIFIER) return false;
+    const char* callee_name = callee->identifier.name;
+
+    int target_idx = -1;
+    if (cg->current_module) {                                  // qualified first
+        char qualified[512];
+        snprintf(qualified, sizeof(qualified), "%s.%s",
+                 cg->current_module, callee_name);
+        for (int i = 0; i < cg->chunk->func_count; i++) {
+            if (strcmp(cg->chunk->functions[i].name, qualified) == 0) {
+                target_idx = i;
+                break;
+            }
+        }
+    }
+    if (target_idx < 0) {                                      // then bare
+        for (int i = 0; i < cg->chunk->func_count; i++) {
+            if (strcmp(cg->chunk->functions[i].name, callee_name) == 0) {
+                target_idx = i;
+                break;
+            }
+        }
+    }
+    if (target_idx != cg->current_function) return false;
+
+    int param_count = cg->chunk->functions[target_idx].arity;
+    if (call->call.arguments->count != param_count) return false;
+    if (param_count > 64) return false;
+
+    // force every argument into its own fresh temp
+    int arg_temps[64];
+    for (int i = 0; i < param_count; i++) {
+        int t = alloc_register(cg);
+        codegen_expression_into(cg, call->call.arguments->nodes[i], t);
+        arg_temps[i] = t;
+    }
+
+    for (int i = 0; i < param_count; i++) {                    // into param slots
+        if (arg_temps[i] != i) {
+            emit(cg, INST(OP_MOVE, i, arg_temps[i], 0), call->line);
+        }
+    }
+    for (int i = 0; i < param_count; i++) {
+        free_register(cg, arg_temps[i]);
+    }
+
+    int entry = cg->chunk->functions[target_idx].address;
+    emit(cg, INST(OP_JUMP, entry, 0, 0), call->line);
+    mark_jump_target(cg, entry);
+    return true;
+}
+
 // emits a return statement with optional value
 static void codegen_return(CodeGenerator* cg, ASTNode* node) {
     if (node->return_stmt.value) {                                           // has return value
+        // tail-call: `return f(args)` where f is the current function
+        if (node->return_stmt.value->type == AST_CALL &&
+            try_tail_call(cg, node->return_stmt.value)) {
+            return;
+        }
+
         double folded;                                                       // folded numeric value
         if (try_fold_number(cg, node->return_stmt.value, &folded) &&         // folds to a compile-time constant
             folded == (int)folded && folded >= 0 && folded <= 65535) {       // fits in the immediate field
