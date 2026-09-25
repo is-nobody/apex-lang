@@ -43,6 +43,53 @@ void imm_lvn_invalidate(CodeGenerator* cg, int written_reg) {
     }
 }
 
+// invalidate cache entries whose value the emitted instruction may have changed
+void imm_lvn_on_emit(CodeGenerator* cg, Instruction* inst) {
+    switch (inst->opcode) {
+        case OP_CALL: case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:
+        case OP_CALL_BUILTIN:
+        case OP_ASYNC_CALL: case OP_ASYNC_CALL_BUILTIN:
+            cg->imm_lvn.count = 0;
+            return;
+
+        case OP_STORE_GLOBAL: {
+            int g = inst->operands[1];
+            for (int i = 0; i < cg->imm_lvn.count; i++) {
+                if (cg->imm_lvn.entries[i].op == OP_LOAD_GLOBAL &&
+                    cg->imm_lvn.entries[i].imm == g) {
+                    cg->imm_lvn.entries[i] =
+                        cg->imm_lvn.entries[--cg->imm_lvn.count];
+                    i--;
+                }
+            }
+            return;
+        }
+
+        case OP_TABLE_SET: case OP_TABLE_SET_CONST:
+        case OP_TABLE_SET_INT: case OP_TABLE_SET_NUM:
+        case OP_TABLE_SET_KEY_STR: case OP_TABLE_APPEND: {
+            int t = inst->operands[0];
+            for (int i = 0; i < cg->imm_lvn.count; i++) {
+                Opcode op = cg->imm_lvn.entries[i].op;
+                if ((op == OP_TABLE_GET_CONST || op == OP_TABLE_GET_INT) &&
+                    cg->imm_lvn.entries[i].left_reg == t) {
+                    cg->imm_lvn.entries[i] =
+                        cg->imm_lvn.entries[--cg->imm_lvn.count];
+                    i--;
+                }
+            }
+            return;
+        }
+
+        default:
+            break;
+    }
+
+    if (op_writes_dest_reg(inst->opcode)) {
+        imm_lvn_invalidate(cg, inst->operands[0]);
+    }
+}
+
 // true when an opcode writes its operands[0] as a destination register
 bool op_writes_dest_reg(Opcode op) {
     switch (op) {

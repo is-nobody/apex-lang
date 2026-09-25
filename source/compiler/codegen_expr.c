@@ -29,18 +29,28 @@ static int codegen_literal_number(CodeGenerator* cg, ASTNode* node, int dest) {
 // emits a string literal into dest (or fresh temp), reusing a cached register when possible
 static int codegen_literal_string(CodeGenerator* cg, ASTNode* node, int dest) {
     const char* value = node->literal_string.string_value;                 // literal text
+    int const_idx = bytecode_add_string_constant(cg->chunk, value);        // pool index
+
+    // lvn backstop: str_cache may have evicted this entry
+    int lvn_cached = imm_lvn_lookup(cg, OP_LOAD_CONST, -1, -1, const_idx);
+    if (lvn_cached >= 0) {
+        if (dest < 0 || dest == lvn_cached) return lvn_cached;
+        emit(cg, INST(OP_MOVE, dest, lvn_cached, 0), node->line);
+        return dest;
+    }
 
     int cached = str_cache_lookup(cg, value);                              // already materialised?
     if (cached >= 0) {
+        imm_lvn_add(cg, OP_LOAD_CONST, -1, -1, const_idx, cached);
         if (dest < 0 || dest == cached) return cached;                     // reuse cached register
         emit(cg, INST(OP_MOVE, dest, cached, 0), node->line);              // copy into requested dest
         return dest;                                                       // return destination
     }
 
     if (dest < 0) dest = alloc_register(cg);                               // allocate if no hint
-    int const_idx = bytecode_add_string_constant(cg->chunk, value);        // add string constant
     emit(cg, INST(OP_LOAD_CONST, dest, const_idx, 0), node->line);         // load constant
     str_cache_add(cg, value, dest);                                        // cache the destination register
+    imm_lvn_add(cg, OP_LOAD_CONST, -1, -1, const_idx, dest);               // LVN backstop
     return dest;                                                           // return destination
 }
 
@@ -59,6 +69,20 @@ static int codegen_literal_bool(CodeGenerator* cg, ASTNode* node, int dest) {
     return dest;                                                           // return destination
 }
 
+// load a global into a register, reusing a cached lvn register when one already holds that global's value
+static int load_global_cached(CodeGenerator* cg, int global_idx, int dest, int line) {
+    int cached = imm_lvn_lookup(cg, OP_LOAD_GLOBAL, -1, -1, global_idx);
+    if (cached >= 0) {
+        if (dest < 0 || dest == cached) return cached;
+        emit(cg, INST(OP_MOVE, dest, cached, 0), line);
+        return dest;
+    }
+    int reg = dest >= 0 ? dest : alloc_register(cg);
+    emit(cg, INST(OP_LOAD_GLOBAL, reg, global_idx, 0), line);
+    imm_lvn_add(cg, OP_LOAD_GLOBAL, -1, -1, global_idx, reg);
+    return reg;
+}
+
 // emits an identifier, preferring local variables over globals
 static int codegen_identifier(CodeGenerator* cg, ASTNode* node, int dest) {
     const char* name = node->identifier.name;                              // get identifier name
@@ -70,28 +94,13 @@ static int codegen_identifier(CodeGenerator* cg, ASTNode* node, int dest) {
         return dest;                                                       // return destination
     }
 
-    if (cg->hoist.get_count > 0) {
-        for (int i = 0; i < cg->hoist.get_count; i++) {
-            if (cg->hoist.get_indices[i] < 0 &&
-                cg->hoist.get_regs[i] >= 0 &&
-                strcmp(cg->hoist.get_names[i], name) == 0) {
-                int r = cg->hoist.get_regs[i];
-                if (dest < 0 || dest == r) return r;
-                emit(cg, INST(OP_MOVE, dest, r, 0), node->line);
-                return dest;
-            }
-        }
-    }
-
     for (int i = 0; i < cg->module_count; i++) {                           // check imported modules
         char full_name[512];                                               // qualified name buffer
         snprintf(full_name, sizeof(full_name), "%s.%s", cg->imported_modules[i], name);
 
         int global_idx = bytecode_get_global(cg->chunk, full_name);        // lookup global
         if (global_idx >= 0) {                                             // found in module
-            int reg = dest >= 0 ? dest : alloc_register(cg);               // use hint or fresh
-            emit(cg, INST(OP_LOAD_GLOBAL, reg, global_idx, 0), node->line);
-            return reg;                                                    // return register
+            return load_global_cached(cg, global_idx, dest, node->line);
         }
     }
 
@@ -100,9 +109,7 @@ static int codegen_identifier(CodeGenerator* cg, ASTNode* node, int dest) {
         snprintf(qualified, sizeof(qualified), "%s.%s", cg->current_module, name);
         int global_idx = bytecode_get_global(cg->chunk, qualified);        // lookup qualified global
         if (global_idx >= 0) {                                             // found qualified global
-            int reg = dest >= 0 ? dest : alloc_register(cg);               // use hint or fresh
-            emit(cg, INST(OP_LOAD_GLOBAL, reg, global_idx, 0), node->line);
-            return reg;                                                    // return register
+            return load_global_cached(cg, global_idx, dest, node->line);
         }
     }
 
@@ -115,9 +122,7 @@ static int codegen_identifier(CodeGenerator* cg, ASTNode* node, int dest) {
             emit(cg, INST(OP_MOVE, dest, reg, 0), node->line);             // copy into requested dest
             return dest;                                                   // return destination
         }
-        int reg = dest >= 0 ? dest : alloc_register(cg);                   // use hint or fresh
-        emit(cg, INST(OP_LOAD_GLOBAL, reg, global_idx, 0), node->line);
-        return reg;                                                        // return register
+        return load_global_cached(cg, global_idx, dest, node->line);
     }
 
     if (cg->current_module && !strchr(name, '.')) {                        // inside module and bare name
@@ -131,9 +136,7 @@ static int codegen_identifier(CodeGenerator* cg, ASTNode* node, int dest) {
             emit(cg, INST(OP_MOVE, dest, reg, 0), node->line);             // copy into requested dest
             return dest;                                                   // return destination
         }
-        int reg = dest >= 0 ? dest : alloc_register(cg);                   // use hint or fresh
-        emit(cg, INST(OP_LOAD_GLOBAL, reg, global_idx, 0), node->line);
-        return reg;                                                        // return register
+        return load_global_cached(cg, global_idx, dest, node->line);
     }
 
     // fallback: create bare global (for non-module code)
@@ -145,9 +148,7 @@ static int codegen_identifier(CodeGenerator* cg, ASTNode* node, int dest) {
         emit(cg, INST(OP_MOVE, dest, reg, 0), node->line);                 // copy into requested dest
         return dest;                                                       // return destination
     }
-    int reg = dest >= 0 ? dest : alloc_register(cg);                       // use hint or fresh
-    emit(cg, INST(OP_LOAD_GLOBAL, reg, global_idx, 0), node->line);
-    return reg;                                                            // return register
+    return load_global_cached(cg, global_idx, dest, node->line);
 }
 
 // emits a function call, resolving builtins and user functions by name
@@ -847,7 +848,15 @@ int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint) {
                 double key_val = node->access.member->literal_number.number_value;               // get key value
 
                 if (key_val == (int)key_val && key_val >= 1 && key_val <= 65535) {               // fits in immediate
+                    int cached = imm_lvn_lookup(cg, OP_TABLE_GET_INT, obj_reg, -1, (int)key_val);
+                    if (cached >= 0) {
+                        free_register(cg, obj_reg);
+                        if (dest_hint < 0 || dest_hint == cached) return cached;
+                        emit(cg, INST(OP_MOVE, dest_hint, cached, 0), node->line);
+                        return dest_hint;
+                    }
                     emit(cg, INST(OP_TABLE_GET_INT, result_reg, obj_reg, (int)key_val), node->line);  // direct array access
+                    imm_lvn_add(cg, OP_TABLE_GET_INT, obj_reg, -1, (int)key_val, result_reg);
                     free_register(cg, obj_reg);                                                  // free object
                     return result_reg;                                                           // return result
                 }
@@ -869,7 +878,17 @@ int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint) {
                     } else {                                                                     // constant string
                         int key_idx = bytecode_add_string_constant(cg->chunk,                    // add string constant
                             node->access.member->identifier.name);
+                        int cached = imm_lvn_lookup(cg, OP_TABLE_GET_CONST, obj_reg, -1, key_idx);
+                        if (cached >= 0) {
+                            free_register(cg, obj_reg);
+                            if (dest_hint < 0 || dest_hint == cached) return cached;
+                            emit(cg, INST(OP_MOVE, dest_hint, cached, 0), node->line);
+                            return dest_hint;
+                        }
                         emit(cg, INST(OP_TABLE_GET_CONST, result_reg, obj_reg, key_idx), node->line); // get by const
+                        imm_lvn_add(cg, OP_TABLE_GET_CONST, obj_reg, -1, key_idx, result_reg);
+                        free_register(cg, obj_reg);
+                        return result_reg;
                     }
                 }
             } else if (node->access.member->type == AST_STRING_INTERP) {                 // "prefix{expr}" key?

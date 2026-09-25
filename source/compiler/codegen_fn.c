@@ -295,6 +295,9 @@ void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
 
     cg->current_function_has_nested = prev_has_nested;                       // restore nested flag
 
+    // the nested function's body sits behind an op_jump in the instruction stream
+    cg->imm_lvn.count = 0;
+
     PATCH_JUMP(cg, jump_over, bytecode_current_offset(cg->chunk));           // patch jump
 
     int func_const_idx = bytecode_add_constant(cg->chunk,                    // add function constant

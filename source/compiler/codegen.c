@@ -14,8 +14,8 @@ int emit(CodeGenerator* cg, Instruction inst, int line) {
     int fused_idx = try_peephole_fuse(cg, &inst);
     if (fused_idx >= 0) {
         Instruction* fused = &cg->chunk->code[fused_idx];
+        imm_lvn_on_emit(cg, fused);
         if (op_writes_dest_reg(fused->opcode)) {
-            imm_lvn_invalidate(cg, fused->operands[0]);
             str_cache_invalidate(cg, fused->operands[0]);
         }
         return fused_idx;
@@ -35,9 +35,11 @@ int emit(CodeGenerator* cg, Instruction inst, int line) {
 
     if (is_jump) {
         cg->imm_lvn.count = 0;
-    } else if (op_writes_dest_reg(inst.opcode)) {
-        imm_lvn_invalidate(cg, inst.operands[0]);
-        str_cache_invalidate(cg, inst.operands[0]);
+    } else {
+        imm_lvn_on_emit(cg, &inst);
+        if (op_writes_dest_reg(inst.opcode)) {
+            str_cache_invalidate(cg, inst.operands[0]);
+        }
     }
     return bytecode_emit_line(cg->chunk, inst, line);
 }

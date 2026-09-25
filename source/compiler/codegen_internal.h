@@ -88,6 +88,7 @@ void str_cache_invalidate(CodeGenerator* cg, int written_reg);
 int  imm_lvn_lookup(CodeGenerator* cg, Opcode op, int left_reg, int right_reg, int imm);
 void imm_lvn_add(CodeGenerator* cg, Opcode op, int left_reg, int right_reg, int imm, int result_reg);
 void imm_lvn_invalidate(CodeGenerator* cg, int written_reg);
+void imm_lvn_on_emit(CodeGenerator* cg, Instruction* inst);
 bool op_writes_dest_reg(Opcode op);
 
 // opt_peephole.c
