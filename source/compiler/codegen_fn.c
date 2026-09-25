@@ -117,12 +117,25 @@ void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     cg->chunk->functions[func_idx].is_async = node->function_decl.is_async;         // propagate async flag
 
     if (func_idx >= cg->fn_decls_cap) {                                      // grow AST table on demand
-        int new_cap = cg->fn_decls_cap == 0 ? 16 : cg->fn_decls_cap;         // start / keep current
+        int old_cap = cg->fn_decls_cap;                                      // old size, for zeroing new slots
+        int new_cap = old_cap == 0 ? 16 : old_cap;                           // start / keep current
         while (new_cap <= func_idx) new_cap *= 2;                            // double until fits
         cg->fn_decls = (ASTNode**)realloc(cg->fn_decls,
                                           sizeof(ASTNode*) * new_cap);
-        for (int i = cg->fn_decls_cap; i < new_cap; i++) cg->fn_decls[i] = NULL;  // zero new slots
-        cg->fn_decls_cap = new_cap;
+        for (int i = old_cap; i < new_cap; i++) cg->fn_decls[i] = NULL;      // zero new slots
+
+        cg->fn_cache.memoizable   = (int8_t*)realloc(cg->fn_cache.memoizable,   new_cap);
+        cg->fn_cache.returns_bool = (int8_t*)realloc(cg->fn_cache.returns_bool, new_cap);
+        cg->fn_cache.inlinable    = (int8_t*)realloc(cg->fn_cache.inlinable,    new_cap);
+        cg->fn_cache.node_count   = (int*)   realloc(cg->fn_cache.node_count,   sizeof(int) * new_cap);
+        for (int i = old_cap; i < new_cap; i++) {                            // zero new cache slots
+            cg->fn_cache.memoizable[i]   = -1;                               // -1 unknown
+            cg->fn_cache.returns_bool[i] = -1;                               // -1 unknown
+            cg->fn_cache.inlinable[i]    = -1;                               // -1 unknown
+            cg->fn_cache.node_count[i]   = -1;                               // -1 unknown
+        }
+        cg->fn_cache.capacity = new_cap;                                     // record new capacity
+        cg->fn_decls_cap = new_cap;                                          // record new capacity
     }
     cg->fn_decls[func_idx] = node;                                           // keep AST for inlining
 

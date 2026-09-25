@@ -210,26 +210,37 @@ static int ast_node_count(ASTNode* node) {
     }
 }
 
-// true when a function can be inlined
-bool function_is_inlinable(ASTNode* fn_decl) {
-    if (!fn_decl || fn_decl->type != AST_FUNCTION_DECL) return false;
-    if (fn_decl->function_decl.is_async) return false;
-    ASTNodeList* params = fn_decl->function_decl.params;
-    if (params->count > 8) return false;
-    ASTNode* body = fn_decl->function_decl.body;
-    if (!body || body->type != AST_BLOCK) return false;
-    if (body->block.statements->count == 0) return false;
-    if (!stmt_always_returns(body)) return false;                  // no fall-through
+// true when a function can be inlined; result memoized per func_idx
+bool function_is_inlinable(CodeGenerator* cg, int func_idx) {
+    if (func_idx < 0 || func_idx >= cg->fn_decls_cap) return false;
+    if (cg->fn_cache.inlinable[func_idx] >= 0)                     // already decided: O(1)
+        return cg->fn_cache.inlinable[func_idx] == 1;
 
-    const char* names[24];
-    int name_count = 0;
-    for (int i = 0; i < params->count && name_count < 24; i++) {
-        names[name_count++] = params->nodes[i]->param.name;
+    ASTNode* fn_decl = cg->fn_decls[func_idx];                     // cached AST slot
+    bool ok = false;
+    if (fn_decl && fn_decl->type == AST_FUNCTION_DECL &&
+        !fn_decl->function_decl.is_async) {
+        ASTNodeList* params = fn_decl->function_decl.params;
+        ASTNode* body = fn_decl->function_decl.body;
+        if (params->count <= 8 && body && body->type == AST_BLOCK &&
+            body->block.statements->count > 0 &&
+            stmt_always_returns(body)) {                           // no fall-through
+            const char* names[24];
+            int name_count = 0;
+            for (int i = 0; i < params->count && name_count < 24; i++)
+                names[name_count++] = params->nodes[i]->param.name;
+            int budget = 24;
+            if (inline_body_ok(body, names, &name_count, &budget)) {
+                int nc = ast_node_count(body);                     // compute cost once
+                if (nc <= 60) {
+                    cg->fn_cache.node_count[func_idx] = nc;        // stash for try_inline_function
+                    ok = true;
+                }
+            }
+        }
     }
-    int budget = 24;
-    if (!inline_body_ok(body, names, &name_count, &budget)) return false;
-    if (ast_node_count(body) > 60) return false;
-    return true;
+    cg->fn_cache.inlinable[func_idx] = ok ? 1 : 0;                 // memoize decision
+    return ok;
 }
 
 // total AST-node budget for a single top-level inline operation
@@ -251,7 +262,9 @@ bool try_inline_function(CodeGenerator* cg, int func_idx,
 
     // cumulative budget: reset only at the top-level inline, then let each nested inline decrement it
     if (cg->inline_depth == 0) cg->inline_budget = INLINE_TOTAL_BUDGET;
-    int cost = ast_node_count(body);
+    int cost = cg->fn_cache.node_count[func_idx] >= 0              // reuse cached cost
+             ? cg->fn_cache.node_count[func_idx]
+             : ast_node_count(body);
     if (cost > cg->inline_budget) return false;                    // over budget: fall back to CALL
     cg->inline_budget -= cost;
 
@@ -378,7 +391,7 @@ bool try_fold_inline_call(CodeGenerator* cg, ASTNode* node, double* out) {
     }
     if (func_idx < 0 || func_idx >= cg->fn_decls_cap) return false;
     ASTNode* fn = cg->fn_decls[func_idx];
-    if (!fn || !function_is_inlinable(fn)) return false;
+    if (!fn || !function_is_inlinable(cg, func_idx)) return false;
 
     ASTNodeList* params = fn->function_decl.params;
     ASTNodeList* args   = node->call.arguments;

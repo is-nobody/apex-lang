@@ -104,7 +104,7 @@ void compact_bytecode(CodeGenerator* cg);
 bool op_has_pc_in_op0(Opcode op);
 
 // opt_inline.c
-bool function_is_inlinable(ASTNode* fn_decl);
+bool function_is_inlinable(CodeGenerator* cg, int func_idx);
 bool try_inline_function(CodeGenerator* cg, int func_idx, ASTNodeList* arg_nodes,
                          int* arg_regs, int arg_count, int result_reg, int line);
 bool try_fold_inline_call(CodeGenerator* cg, ASTNode* node, double* out);

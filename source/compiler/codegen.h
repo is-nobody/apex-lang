@@ -140,6 +140,14 @@ typedef struct {
     ASTNode** fn_decls;            // AST_FUNCTION_DECL for each compiled function (indexed by func_idx)
     int       fn_decls_cap;        // allocated size of fn_decls
 
+    struct {
+        int8_t* memoizable;        // per-func: -1 unknown, 0 no, 1 yes
+        int8_t* returns_bool;      // per-func: -1 unknown, 0 no, 1 yes
+        int8_t* inlinable;         // per-func: -1 unknown, 0 no, 1 yes
+        int*    node_count;        // per-func: ast_node_count(body), -1 unknown
+        int     capacity;          // allocated size of the four arrays above
+    } fn_cache;                    // memoized per-function predicates, filled lazily
+
     ASTNode*  ast_root;            // whole-program AST, exposed for pre-passes
 
     int  inline_result_reg;        // register receiving return values while inlining, -1 otherwise

@@ -104,15 +104,21 @@ static bool is_pure_body(CodeGenerator* cg, ASTNode* n, int self_idx) {
     }
 }
 
-// true when fn_decl is safe to memoize: pure, self-recursive, arity 1..N
+// true when fn_decl is safe to memoize: pure, self-recursive, arity 1..N; memoized per func_idx
 static bool is_memoizable_fn(CodeGenerator* cg, int func_idx) {
     if (func_idx < 0 || func_idx >= cg->fn_decls_cap) return false;
-    ASTNode* fn = cg->fn_decls[func_idx];
-    if (!fn || fn->type != AST_FUNCTION_DECL) return false;
-    if (fn->function_decl.is_async) return false;
-    int argc = fn->function_decl.params->count;
-    if (argc < 1 || argc > REC_MEMO_ARGS_MAX) return false;
-    return is_pure_body(cg, fn->function_decl.body, func_idx);
+    if (cg->fn_cache.memoizable[func_idx] >= 0)                    // already decided: O(1)
+        return cg->fn_cache.memoizable[func_idx] == 1;
+
+    ASTNode* fn = cg->fn_decls[func_idx];                          // cached AST slot
+    bool ok = false;
+    if (fn && fn->type == AST_FUNCTION_DECL && !fn->function_decl.is_async) {
+        int argc = fn->function_decl.params->count;
+        if (argc >= 1 && argc <= REC_MEMO_ARGS_MAX)
+            ok = is_pure_body(cg, fn->function_decl.body, func_idx);
+    }
+    cg->fn_cache.memoizable[func_idx] = ok ? 1 : 0;                // memoize decision
+    return ok;
 }
 
 // forward decls used by mutual recursion between expr and body walkers
@@ -335,7 +341,11 @@ bool recursive_call_is_bool(CodeGenerator* cg, ASTNode* call) {
     int fidx = resolve_callee_func_idx(cg, call->call.callee);
     if (fidx < 0) return false;
     if (!is_memoizable_fn(cg, fidx)) return false;
-    return rec_body_returns_bool_only(cg, cg->fn_decls[fidx]->function_decl.body);
+    if (cg->fn_cache.returns_bool[fidx] >= 0)                      // already decided: O(1)
+        return cg->fn_cache.returns_bool[fidx] == 1;
+    bool ok = rec_body_returns_bool_only(cg, cg->fn_decls[fidx]->function_decl.body);
+    cg->fn_cache.returns_bool[fidx] = ok ? 1 : 0;                  // memoize decision
+    return ok;
 }
 
 // fold a call to a bool-returning pure recursive fn with constant args

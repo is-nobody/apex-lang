@@ -68,6 +68,11 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->module_globals_capacity = 0;                                       // no capacity
     cg->fn_decls     = NULL;                                               // no per-function ASTs yet
     cg->fn_decls_cap = 0;                                                  // zero capacity
+    cg->fn_cache.memoizable   = NULL;                                      // no cached predicates yet
+    cg->fn_cache.returns_bool = NULL;                                      // no cached predicates yet
+    cg->fn_cache.inlinable    = NULL;                                      // no cached predicates yet
+    cg->fn_cache.node_count   = NULL;                                      // no cached costs yet
+    cg->fn_cache.capacity     = 0;                                         // zero capacity
     cg->register_floor = 0;                                                // no floor at top level
     cg->cache_floor    = 0;                                                // no cache pins yet
     cg->for_scope_depth = 0;                                               // not inside any for
@@ -161,6 +166,10 @@ void codegen_destroy(CodeGenerator* cg) {
     }
     free(cg->module_globals);                                              // free globals array
 
+    free(cg->fn_cache.memoizable);                                         // release per-func predicate cache
+    free(cg->fn_cache.returns_bool);                                       // release per-func predicate cache
+    free(cg->fn_cache.inlinable);                                          // release per-func predicate cache
+    free(cg->fn_cache.node_count);                                         // release per-func cost cache
     free(cg->fn_decls);                                                    // ASTs are owned by the parser; only the table is ours
     free(cg->rec_memo.entries);                                            // release compile-time memo
     free(cg->inline_exits);                                                // release inline-exit list

@@ -296,7 +296,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node, int dest_hint) {
         // ipa: inline small pure single-return functions at the call site
         if (func_idx >= 0 && func_idx < cg->fn_decls_cap &&                   // AST available?
             cg->fn_decls[func_idx] &&                                         // non-null decl
-            function_is_inlinable(cg->fn_decls[func_idx])) {                  // pure `return <expr>`
+            function_is_inlinable(cg, func_idx)) {                            // pure `return <expr>`
             if (try_inline_function(cg, func_idx, args_list, arg_regs, arg_count,
                                     result_reg, node->line)) {                // body codegen into dest
                 if (arg_regs) {                                               // release arg temporaries
