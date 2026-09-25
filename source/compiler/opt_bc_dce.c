@@ -34,9 +34,7 @@ static void inst_make_nop(Instruction* inst) {
     inst->operands[2] = 0;
 }
 
-// removes pure stores whose destination is never read before being
-// overwritten or before the end of the straight-line range.
-// safe only when control does not fall through past to_pc-1.
+// removes pure stores whose destination is never read before being overwritten
 int dce_local_range(CodeGenerator* cg, int from_pc, int to_pc) {
     if (from_pc >= to_pc) return 0;                          // empty range
     if (!inst_is_terminator(cg->chunk->code[to_pc - 1].opcode))
@@ -70,7 +68,7 @@ int dce_local_range(CodeGenerator* cg, int from_pc, int to_pc) {
 }
 
 // true when the opcode's operands[0] is a code offset that must be remapped
-static bool op_has_pc_in_op0(Opcode op) {
+bool op_has_pc_in_op0(Opcode op) {
     if (op == OP_JUMP) return true;
     if (op >= OP_JUMP_IF_FALSE && op <= OP_JUMP_IF_GTE) return true;
     if (op >= OP_JUMP_IF_EQ_IMM && op <= OP_JUMP_IF_GTE_IMM) return true;
@@ -80,9 +78,6 @@ static bool op_has_pc_in_op0(Opcode op) {
 }
 
 // drops every MOVE R,R no-op and remaps all code offsets
-// (jump targets, function entry addresses, iterator exits, for-loop edges).
-// must run after all emission for the chunk is complete: pending break/continue
-// jumps and jump_targets are considered final.
 void compact_bytecode(CodeGenerator* cg) {
     int total = cg->chunk->code_count;
     if (total == 0) return;

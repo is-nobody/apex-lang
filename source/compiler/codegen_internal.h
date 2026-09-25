@@ -99,6 +99,7 @@ bool inst_reads_reg(Instruction* inst, int reg);
 // opt_bc_dce.c
 int  dce_local_range(CodeGenerator* cg, int from_pc, int to_pc);
 void compact_bytecode(CodeGenerator* cg);
+bool op_has_pc_in_op0(Opcode op);
 
 // opt_inline.c
 bool function_is_inlinable(ASTNode* fn_decl);
@@ -138,6 +139,7 @@ void free_snap(LocalNumSnap s);
 int  resolve_jump_target(CodeGenerator* cg, int pc);
 void mark_jump_target(CodeGenerator* cg, int pc);
 bool code_has_jump_to(CodeGenerator* cg, int target);
+void thread_jumps(CodeGenerator* cg);
 
 // wraps bytecode_patch_jump so every patched target is recorded in the bitset
 #define PATCH_JUMP(cg, jump_idx, target) do {                       \
