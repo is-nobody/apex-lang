@@ -53,7 +53,10 @@ bool ast_references_local(ASTNode* node, const char* name) {
                    ast_references_local(node->ternary.true_expr, name) ||
                    ast_references_local(node->ternary.false_expr, name);    // any branch
         case AST_ASSIGN:
-            return ast_references_local(node->var_assign.value, name);      // nested assign RHS
+            if (node->var_assign.name && strcmp(node->var_assign.name, name) == 0) return true;
+            if (node->var_assign.access_path &&
+                ast_references_local(node->var_assign.access_path, name)) return true;
+            return ast_references_local(node->var_assign.value, name);
         case AST_BLOCK:
         case AST_PROGRAM:
             for (int i = 0; i < node->block.statements->count; i++) {       // any statement
