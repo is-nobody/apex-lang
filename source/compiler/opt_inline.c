@@ -304,6 +304,23 @@ bool try_inline_function(CodeGenerator* cg, int func_idx,
     if (cg->register_floor < floor) cg->register_floor = floor;
     if (cg->next_register   < floor) cg->next_register   = floor;
 
+    // derive the module prefix from the inlined function's registered name
+    char inline_module[512];
+    inline_module[0] = '\0';
+    {
+        const char* fname = cg->chunk->functions[func_idx].name;
+        const char* fdot = strrchr(fname, '.');
+        if (fdot) {
+            size_t prefix_len = (size_t)(fdot - fname);
+            if (prefix_len < sizeof(inline_module)) {
+                memcpy(inline_module, fname, prefix_len);
+                inline_module[prefix_len] = '\0';
+            }
+        }
+    }
+    char* saved_module = cg->current_module;
+    if (inline_module[0]) cg->current_module = inline_module;
+
     // switch into inline mode: return statements now write to result_reg
     cg->inline_result_reg = result_reg;
     cg->inline_depth++;
@@ -313,6 +330,7 @@ bool try_inline_function(CodeGenerator* cg, int func_idx,
 
     cg->inline_depth--;
     cg->inline_result_reg = saved_inline_reg;
+    cg->current_module = saved_module;
 
     // patch every collected inline exit to point here
     int end_pc = bytecode_current_offset(cg->chunk);

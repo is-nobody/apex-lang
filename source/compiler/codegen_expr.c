@@ -260,6 +260,23 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node, int dest_hint) {
                         break;                                                         // exit loop
                     }
                 }
+            } else {                                                                   // bare name: suffix match
+                char suffix[512];                                                      // ".<func_name>"
+                snprintf(suffix, sizeof(suffix), ".%s", func_name);                    // build suffix
+                size_t suffix_len = strlen(suffix);
+                int match_idx = -1;                                                    // unique candidate
+                int match_count = 0;                                                   // number of matches seen
+                for (int i = 0; i < cg->chunk->func_count; i++) {                      // scan function table
+                    const char* fname = cg->chunk->functions[i].name;
+                    size_t fname_len = strlen(fname);
+                    if (fname_len > suffix_len &&
+                        strcmp(fname + fname_len - suffix_len, suffix) == 0) {         // ends in ".<name>"
+                        match_idx = i;
+                        match_count++;
+                        if (match_count > 1) break;                                    // ambiguous: give up
+                    }
+                }
+                if (match_count == 1) func_idx = match_idx;                            // unique: use it
             }
         }
 
