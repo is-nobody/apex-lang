@@ -394,6 +394,30 @@ static bool try_tail_call(CodeGenerator* cg, ASTNode* call) {
 
 // emits a return statement with optional value
 static void codegen_return(CodeGenerator* cg, ASTNode* node) {
+    // inlined body: route the return into the inliner's destination register
+    // and jump to the inline exit instead of emitting OP_RETURN
+    if (cg->inline_result_reg >= 0) {
+        if (node->return_stmt.value) {
+            int v = codegen_expression_into(cg, node->return_stmt.value,
+                                            cg->inline_result_reg);
+            if (v != cg->inline_result_reg) {
+                emit(cg, INST(OP_MOVE, cg->inline_result_reg, v, 0), node->line);
+                free_register(cg, v);
+            }
+        } else {
+            emit(cg, INST(OP_LOAD_NONE, cg->inline_result_reg, 0, 0), node->line);
+        }
+        int jump_idx = bytecode_emit_line(cg->chunk, INST(OP_JUMP, 0, 0, 0), node->line);
+        if (cg->inline_exit_count >= cg->inline_exit_capacity) {
+            cg->inline_exit_capacity = cg->inline_exit_capacity == 0
+                                       ? 8 : cg->inline_exit_capacity * 2;
+            cg->inline_exits = (int*)realloc(cg->inline_exits,
+                                             sizeof(int) * cg->inline_exit_capacity);
+        }
+        cg->inline_exits[cg->inline_exit_count++] = jump_idx;
+        return;
+    }
+
     if (node->return_stmt.value) {                                           // has return value
         // tail-call: `return f(args)` where f is the current function
         if (node->return_stmt.value->type == AST_CALL &&

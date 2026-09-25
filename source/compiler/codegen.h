@@ -141,6 +141,13 @@ typedef struct {
     int       fn_decls_cap;        // allocated size of fn_decls
 
     ASTNode*  ast_root;            // whole-program AST, exposed for pre-passes
+
+    int  inline_result_reg;        // register receiving return values while inlining, -1 otherwise
+    int* inline_exits;             // pending JUMP indices to patch at the inline exit
+    int  inline_exit_count;
+    int  inline_exit_capacity;
+    int  inline_depth;             // current nesting depth of inlined bodies
+    int  inline_budget;            // remaining AST-node budget for the active top-level inline
 } CodeGenerator;
 
 // creates a new code generator attached to a bytecode chunk

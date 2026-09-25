@@ -108,6 +108,13 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->rec_memo.depth = 0;
     cg->ast_root = NULL;                                                   // no AST yet
 
+    cg->inline_result_reg   = -1;                                          // not inlining
+    cg->inline_exits        = NULL;
+    cg->inline_exit_count   = 0;
+    cg->inline_exit_capacity = 0;
+    cg->inline_depth        = 0;
+    cg->inline_budget       = 0;
+
     return cg;                                                             // return generator
 }
 
@@ -156,6 +163,7 @@ void codegen_destroy(CodeGenerator* cg) {
 
     free(cg->fn_decls);                                                    // ASTs are owned by the parser; only the table is ours
     free(cg->rec_memo.entries);                                            // release compile-time memo
+    free(cg->inline_exits);                                                // release inline-exit list
     free(cg);                                                              // free generator
 }
 
