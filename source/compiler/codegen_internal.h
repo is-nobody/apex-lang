@@ -59,6 +59,14 @@ int  emit_match_check(CodeGenerator* cg, int subject_reg, ASTNode* pattern, int 
 // codegen_fn.c
 void codegen_function_decl(CodeGenerator* cg, ASTNode* node);
 
+// opt_recursion.c
+bool try_fold_recursive_call(CodeGenerator* cg, ASTNode* call, double* out);
+bool try_fold_recursive_bool(CodeGenerator* cg, ASTNode* call, bool* out);
+bool recursive_call_is_bool(CodeGenerator* cg, ASTNode* call);
+
+// opt_recursion_rewrite.c
+bool try_rewrite_recursive_fn(CodeGenerator* cg, int func_idx);
+
 // codegen_modules.c
 bool is_known_builtin_module(const char* name);
 void add_module_global(CodeGenerator* cg, const char* full_name);

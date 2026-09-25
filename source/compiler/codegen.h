@@ -11,6 +11,16 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define REC_MEMO_ARGS_MAX 4
+
+// one compile-time memoized evaluation result
+typedef struct RecMemoEntry {
+    int    fidx;
+    int    argc;
+    double args[4];
+    double result;
+} RecMemoEntry;
+
 // code generator context holding all state needed during bytecode emission
 typedef struct {
     BytecodeChunk* chunk;          // target bytecode chunk being populated with instructions
@@ -91,6 +101,14 @@ typedef struct {
         } entries[8];
     } iv_reduce;                   // per-loop induction-variable strength reduction
 
+    // compile-time memo for pure recursive functions
+    struct {
+        struct RecMemoEntry* entries;
+        int count;
+        int capacity;
+        int depth;
+    } rec_memo;
+
     int current_function;          // index of the function currently being compiled
     bool current_function_has_nested;  // true if current function's body contains a nested function declaration
     int register_floor;            // minimum next_register preserved by codegen_block resets
@@ -121,6 +139,8 @@ typedef struct {
 
     ASTNode** fn_decls;            // AST_FUNCTION_DECL for each compiled function (indexed by func_idx)
     int       fn_decls_cap;        // allocated size of fn_decls
+
+    ASTNode*  ast_root;            // whole-program AST, exposed for pre-passes
 } CodeGenerator;
 
 // creates a new code generator attached to a bytecode chunk

@@ -100,6 +100,12 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->locals.const_value = NULL;
     cg->locals.materialized = NULL;
 
+    cg->rec_memo.entries = NULL;                                           // compile-time memo
+    cg->rec_memo.count = 0;
+    cg->rec_memo.capacity = 0;
+    cg->rec_memo.depth = 0;
+    cg->ast_root = NULL;                                                   // no AST yet
+
     return cg;                                                             // return generator
 }
 
@@ -147,7 +153,7 @@ void codegen_destroy(CodeGenerator* cg) {
     free(cg->module_globals);                                              // free globals array
 
     free(cg->fn_decls);                                                    // ASTs are owned by the parser; only the table is ours
-
+    free(cg->rec_memo.entries);                                            // release compile-time memo
     free(cg);                                                              // free generator
 }
 
@@ -155,7 +161,9 @@ void codegen_destroy(CodeGenerator* cg) {
 bool codegen_generate(CodeGenerator* cg, ASTNode* ast) {
     if (!cg || !ast) return false;                                           // validate
 
+    cg->ast_root = ast;                                                      // expose AST for pre-passes
     bytecode_add_function(cg->chunk, "__entry-apex__", 0);                   // add entry function
+    cg->current_function = 0;                                                // set current function
     cg->current_function = 0;                                                // set current function
 
     if (ast->type == AST_PROGRAM || ast->type == AST_BLOCK) {                // program or block

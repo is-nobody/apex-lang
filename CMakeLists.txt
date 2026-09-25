@@ -68,6 +68,7 @@ set(SOURCES
     source/compiler/opt_linear_scan.c
     source/compiler/opt_bc_dce.c
     source/compiler/opt_for_fold.c
+    source/compiler/opt_recursion.c
 
     source/libraries/os_module.c
     source/libraries/sys_module.c

@@ -55,6 +55,8 @@ bool try_fold_number(CodeGenerator* cg, ASTNode* node, double* out) {
         }
         case AST_CALL:
             if (!cg) return false;
+            if (recursive_call_is_bool(cg, node)) return false;            // handled by try_fold_bool
+            if (try_fold_recursive_call(cg, node, out)) return true;       // pure recursive memo
             return try_fold_inline_call(cg, node, out);
         default:
             return false;                                              // calls, index, etc.
@@ -103,6 +105,9 @@ bool try_fold_bool(CodeGenerator* cg, ASTNode* node, bool* out) {
             }
             return false;                                              // non-bool binary op
         }
+        case AST_CALL:
+            if (!cg) return false;
+            return try_fold_recursive_bool(cg, node, out);
         default:
             return false;                                              // identifiers, calls, etc.
     }

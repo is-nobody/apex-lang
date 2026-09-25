@@ -225,7 +225,7 @@ void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
         free(ll);
     }
 
-    codegen_block(cg, node->function_decl.body);                            // emit body
+    codegen_block(cg, node->function_decl.body);
 
     bool ends_with_return = false;                                           // return flag
     if (cg->chunk->code_count > 0) {                                         // has code
@@ -308,11 +308,11 @@ void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
         add_module_global(cg, global_name);                                  // register module global
     }
 
-    int global_idx = bytecode_get_global(cg->chunk, gname);                  // lookup global slot
-    if (global_idx < 0) global_idx = bytecode_add_global(cg->chunk, gname);  // create if missing
+    int global_idx = bytecode_get_global(cg->chunk, gname);
+    if (global_idx < 0) global_idx = bytecode_add_global(cg->chunk, gname);
 
-    int temp_reg = alloc_register(cg);                                       // allocate temp
-    emit(cg, INST(OP_LOAD_CONST, temp_reg, func_const_idx, 0), node->line);  // load function value
-    emit(cg, INST(OP_STORE_GLOBAL, temp_reg, global_idx, 0), node->line);    // expose via global slot
-    free_register(cg, temp_reg);                                             // free temp
+    int temp_reg = alloc_register(cg);
+    emit(cg, INST(OP_LOAD_CONST, temp_reg, func_const_idx, 0), node->line);
+    emit(cg, INST(OP_STORE_GLOBAL, temp_reg, global_idx, 0), node->line);
+    free_register(cg, temp_reg);
 }
