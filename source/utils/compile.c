@@ -91,6 +91,26 @@ static void write_constant(FILE* f, Constant* c) {
             break;
         case CONST_NONE:
             break;  // none has no data
+        case CONST_JUMP_TABLE: {
+            write_u32(f, (uint32_t)c->jump_table.count);  // slot count
+            for (int i = 0; i < c->jump_table.count; i++) {
+                write_u32(f, (uint32_t)c->jump_table.addresses[i]);  // each target pc
+            }
+            break;
+        }
+        case CONST_TABLE: {
+            write_u32(f, (uint32_t)c->table.array_count);     // positional count
+            write_u32(f, (uint32_t)c->table.hash_count);      // kv count
+            write_u32(f, (uint32_t)c->table.array_capacity);  // growth hint
+            for (int i = 0; i < c->table.hash_count; i++) {
+                write_u32(f, (uint32_t)c->table.key_indices[i]);  // each key pool index
+            }
+            int total = c->table.array_count + c->table.hash_count;
+            for (int i = 0; i < total; i++) {
+                write_u32(f, (uint32_t)c->table.value_indices[i]);  // each value pool index
+            }
+            break;
+        }
         default:
             break;
     }

@@ -103,6 +103,38 @@ static Constant read_constant(FILE* f) {
         case CONST_NONE: {
             break;                                // none has no data
         }
+        case CONST_JUMP_TABLE: {
+            uint32_t count = read_u32(f);                       // slot count
+            c.jump_table.count = (int)count;
+            c.jump_table.addresses = count
+                ? (int*)malloc(sizeof(int) * count)             // target pc array
+                : NULL;
+            for (uint32_t i = 0; i < count; i++) {
+                c.jump_table.addresses[i] = (int)read_u32(f);   // each target pc
+            }
+            break;
+        }
+        case CONST_TABLE: {
+            uint32_t n_arr = read_u32(f);                       // positional count
+            uint32_t n_kv  = read_u32(f);                       // kv count
+            uint32_t cap   = read_u32(f);                       // growth hint
+            c.table.array_count    = (int)n_arr;
+            c.table.hash_count     = (int)n_kv;
+            c.table.array_capacity = (int)cap;
+            c.table.key_indices    = n_kv
+                ? (int*)malloc(sizeof(int) * n_kv)              // kv key pool indices
+                : NULL;
+            c.table.value_indices  = (n_arr + n_kv)
+                ? (int*)malloc(sizeof(int) * (n_arr + n_kv))    // value pool indices
+                : NULL;
+            for (uint32_t i = 0; i < n_kv; i++) {
+                c.table.key_indices[i] = (int)read_u32(f);      // each key pool index
+            }
+            for (uint32_t i = 0; i < n_arr + n_kv; i++) {
+                c.table.value_indices[i] = (int)read_u32(f);    // each value pool index
+            }
+            break;
+        }
         default: {
             c.type = CONST_NONE;                  // fallback for unknown
             break;
