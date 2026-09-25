@@ -885,6 +885,11 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             PATCH_JUMP(cg, cg->loop_stack.break_jumps[i], exit_addr);
         }
     } else {                                                                        // no variable, condition loop
+        // constant false condition: the body never runs, drop the whole loop
+        if (node->for_stmt.condition) {
+            bool cv;
+            if (try_fold_bool(cg, node->for_stmt.condition, &cv) && !cv) return;
+        }
         int saved_locals_count = cg->locals.count;                                  // capture for-scope boundary
         int saved_next_register = cg->next_register;
         cg->for_scope_depth++;                                                      // enter for-scope

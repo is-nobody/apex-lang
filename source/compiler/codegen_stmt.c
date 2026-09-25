@@ -507,6 +507,37 @@ void codegen_statement(CodeGenerator* cg, ASTNode* node) {
     }
 }
 
+// true when control does not fall through past this statement: a direct return/break/continue
+static bool stmt_always_exits(ASTNode* node) {
+    if (!node) return false;
+    switch (node->type) {
+        case AST_RETURN_STMT:
+        case AST_BREAK_STMT:
+        case AST_CONTINUE_STMT:
+            return true;
+        case AST_BLOCK:
+        case AST_PROGRAM:
+            for (int i = 0; i < node->block.statements->count; i++) {
+                if (stmt_always_exits(node->block.statements->nodes[i])) return true;
+            }
+            return false;
+        case AST_IF_STMT: {
+            ASTNode* cur = node;
+            while (cur) {
+                if (!stmt_always_exits(cur->if_stmt.then_branch)) return false;
+                if (cur->if_stmt.elif_chain) {
+                    cur = cur->if_stmt.elif_chain;
+                } else {
+                    return stmt_always_exits(cur->if_stmt.else_branch);
+                }
+            }
+            return false;
+        }
+        default:
+            return false;
+    }
+}
+
 // emits a block of statements sequentially, resetting temps between them
 void codegen_block(CodeGenerator* cg, ASTNode* node) {
     if (!node || (node->type != AST_BLOCK && node->type != AST_PROGRAM)) return;  // validate
@@ -522,6 +553,7 @@ void codegen_block(CodeGenerator* cg, ASTNode* node) {
         if (frame >= 0) cg->block_stack[frame].index = i;                    // record position for lookahead
         ASTNode* stmt = node->block.statements->nodes[i];                    // current statement
         codegen_statement(cg, stmt);                                         // emit statement
+        if (stmt_always_exits(stmt)) break;                                  // rest of block is dead
         int reset_to = locals_high_water(cg);                                // keep locals + pinned
         if (reset_to < cg->register_floor) reset_to = cg->register_floor;    // respect floor
         if (reset_to < cg->cache_floor) reset_to = cg->cache_floor;          // respect cache pins
