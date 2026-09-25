@@ -101,8 +101,7 @@ static void emit_unswitched_for(CodeGenerator* cg, ASTNode* node, int if_idx) {
     int jump_false = codegen_optimized_condition(cg, cond, if_node->line);   // invariant: evaluate once
     if (jump_false < 0) {                                                    // fallback: non-comparison condition
         int cond_reg = codegen_expression(cg, cond);
-        jump_false = bytecode_current_offset(cg->chunk);
-        emit(cg, INST(OP_JUMP_IF_FALSE, 0, cond_reg, 0), if_node->line);
+        jump_false = emit(cg, INST(OP_JUMP_IF_FALSE, 0, cond_reg, 0), if_node->line);
         free_register(cg, cond_reg);
     }
 
@@ -949,8 +948,7 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
                 free_register(cg, left_reg);                                        // free left
             } else {                                                                // normal condition
                 int cond_reg = codegen_expression(cg, condition);                   // evaluate condition
-                jump_to_end = bytecode_current_offset(cg->chunk);                   // jump address
-                emit(cg, INST(OP_JUMP_IF_FALSE, 0, cond_reg, 0), node->line);       // jump if false
+                jump_to_end = emit(cg, INST(OP_JUMP_IF_FALSE, 0, cond_reg, 0), node->line);
                 free_register(cg, cond_reg);                                        // free condition
             }
         }

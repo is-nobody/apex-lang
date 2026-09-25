@@ -919,8 +919,7 @@ int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint) {
             int saved_num_count = cg->num_cache.count;
             int saved_str_count = cg->str_cache.count;
 
-            int jump_to_false = bytecode_current_offset(cg->chunk);               // jump to false
-            emit(cg, INST(OP_JUMP_IF_FALSE, 0, cond_reg, 0), node->line);         // jump if false
+            int jump_to_false = emit(cg, INST(OP_JUMP_IF_FALSE, 0, cond_reg, 0), node->line);
             free_register(cg, cond_reg);                                          // free condition
 
             codegen_expression_into(cg, true_expr, dest_reg);                     // write true into dest

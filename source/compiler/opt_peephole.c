@@ -329,5 +329,23 @@ int try_peephole_fuse(CodeGenerator* cg, Instruction* inst) {
         return -1;
     }
 
+    // ADD_IMM r,r,k1 + ADD_IMM r,r,k2 -> ADD_IMM r,r,k1+k2
+    if (prev->opcode == OP_ADD_IMM && inst->opcode == OP_ADD_IMM &&
+        prev->operands[0] == prev->operands[1] &&
+        inst->operands[0] == inst->operands[1] &&
+        prev->operands[0] == inst->operands[0] &&
+        prev->operands[2] + inst->operands[2] <= 65535) {
+        prev->operands[2] += inst->operands[2];
+        return cg->chunk->code_count - 1;
+    }
+
+    // MOVE a,b + MOVE b,a -> MOVE a,b
+    if (prev->opcode == OP_MOVE && inst->opcode == OP_MOVE &&
+        prev->operands[0] == inst->operands[1] &&
+        prev->operands[1] == inst->operands[0] &&
+        prev->operands[0] != prev->operands[1]) {
+        return cg->chunk->code_count - 1;
+    }
+
     return -1;
 }

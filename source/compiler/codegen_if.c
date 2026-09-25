@@ -99,8 +99,7 @@ void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
     int jump_to_else = codegen_optimized_condition(cg, node->if_stmt.condition, node->line);  // try to fuse cond+jump
     if (jump_to_else < 0) {                                                  // not optimized
         int cond_reg = codegen_expression(cg, node->if_stmt.condition);      // evaluate condition
-        jump_to_else = bytecode_current_offset(cg->chunk);                   // jump address
-        emit(cg, INST(OP_JUMP_IF_FALSE, 0, cond_reg, 0), node->line);        // jump if false
+        jump_to_else = emit(cg, INST(OP_JUMP_IF_FALSE, 0, cond_reg, 0), node->line);
         free_register(cg, cond_reg);                                         // free condition
     }
 
