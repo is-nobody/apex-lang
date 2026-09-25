@@ -9,6 +9,12 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+// maximum allowable block nesting depth
+#define MAX_NESTING_DEPTH 16
+
+// hard limit for the indent_stack array, overflow protection
+#define INDENT_STACK_SIZE 256
+
 // all token types recognized by the lexer, including keywords, literals, and delimiters
 typedef enum {
     TOKEN_FUNCTION,      // 'function' keyword for function declarations
@@ -74,20 +80,20 @@ typedef struct {
 
 // tokenizer state tracking source scan position, indentation, and output buffer
 typedef struct {
-    char* source;            // the entire source code string
-    size_t source_length;    // cached length of source to avoid repeated strlen calls
-    char* filename;          // source file name for error reporting
-    int pos;                 // current position in the source
-    int line;                // current line number
-    int column;              // current column number
-    Token* tokens;           // dynamically growing array of tokens
-    int token_count;         // number of tokens collected so far
-    int token_capacity;      // allocated capacity of the tokens array
-    int indent_stack[256];   // stack for tracking indentation levels
-    int indent_depth;        // current indentation depth index
-    int pending_newline;     // flag to defer newline emission after indentation
-    int paren_depth;         // depth of parentheses to ignore newline significance
-    bool has_error;          // whether an error occurred during tokenization
+    char* source;                         // the entire source code string
+    size_t source_length;                 // cached length of source to avoid repeated strlen calls
+    char* filename;                       // source file name for error reporting
+    int pos;                              // current position in the source
+    int line;                             // current line number
+    int column;                           // current column number
+    Token* tokens;                        // dynamically growing array of tokens
+    int token_count;                      // number of tokens collected so far
+    int token_capacity;                   // allocated capacity of the tokens array
+    int indent_stack[INDENT_STACK_SIZE];  // stack for tracking indentation levels
+    int indent_depth;                     // current indentation depth index
+    int pending_newline;                  // flag to defer newline emission after indentation
+    int paren_depth;                      // depth of parentheses to ignore newline significance
+    bool has_error;                       // whether an error occurred during tokenization
 } Tokenizer;
 
 // creates a tokenizer instance for the given source string and filename

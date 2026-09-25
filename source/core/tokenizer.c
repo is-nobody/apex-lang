@@ -411,6 +411,29 @@ Token* tokenizer_tokenize(Tokenizer* tokenizer, int* out_count) {
                     snprintf(msg, sizeof(msg), "Expected indentation of %d spaces, got %d", expected_indent, current_indent);
                     tokenizer_error(tokenizer, current_indent > 0 ? current_indent : 1, msg);     // report wrong indentation
                 }
+
+                // enforce global nesting depth cap: indent_depth == 1 is top-level
+                if (tokenizer->indent_depth > MAX_NESTING_DEPTH) {
+                    if (!tokenizer->has_error) {                       // report only the first overflow
+                        char msg[128];
+                        snprintf(msg, sizeof(msg),
+                                "Maximum nesting depth of %d levels exceeded",
+                                MAX_NESTING_DEPTH);
+                        tokenizer_error(tokenizer, current_indent > 0 ? current_indent : 1, msg);
+                    }
+                    // still emit the INDENT token and keep pushing so DEDENTs stay balanced
+                }
+
+                // hard safety net against indent_stack overflow
+                if (tokenizer->indent_depth >= INDENT_STACK_SIZE) {
+                    if (!tokenizer->has_error) {
+                        tokenizer_error(tokenizer, 1,
+                            "Indentation stack overflow (internal limit reached)");   // internal limit, not user error
+                    }
+                    add_token(tokenizer, TOKEN_INDENT, " ", tokenizer->line, tokenizer->column);  // emit indent token anyway
+                    continue;                                          // skip push, avoid buffer overrun
+                }
+
                 add_token(tokenizer, TOKEN_INDENT, " ", tokenizer->line, tokenizer->column);      // emit indent token
                 tokenizer->indent_stack[tokenizer->indent_depth++] = current_indent;              // push new indentation level
             } else if (current_indent < prev_indent) {
