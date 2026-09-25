@@ -148,6 +148,21 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     for (int i = 0; i < range_size; i++) label_off[i] = -1;      // no label emitted yet
     int fixup_count = 0;                                         // pending jumps count
 
+    // dead-store elimination below assumes straight-line code; a backward jump
+    // makes earlier pcs reachable from later ones, breaking the forward scan
+    bool func_has_backward_jump = false;
+    for (int pc = start; pc < end; pc++) {
+        Opcode op = chunk->code[pc].opcode;
+        if (op == OP_JUMP ||
+            (op >= OP_JUMP_IF_FALSE && op <= OP_JUMP_IF_GTE) ||
+            (op >= OP_JUMP_IF_EQ_IMM && op <= OP_JUMP_IF_GTE_IMM) ||
+            op == OP_JUMP_MATCH_NUM || op == OP_JUMP_MATCH_STR ||
+            op == OP_JUMP_MATCH_BOOL || op == OP_JUMP_MATCH_NONE) {
+            int target = chunk->code[pc].operands[0];
+            if (target <= pc && target >= start) { func_has_backward_jump = true; break; }
+        }
+    }
+
     size_t rip_fixup_at[64];                                     // rip-relative disp32 offsets
     int    rip_fixup_imm[64];                                    // imm index per fixup
     int    rip_fixup_count = 0;                                  // pending rip fixups
@@ -204,7 +219,8 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         bool did_flush = false;                                  // cache flushed this step
 
         // dead xmm write: pure op writing to a slot never read before its next overwrite
-        if (op_writes_dest(op) &&
+        if (!func_has_backward_jump &&
+            op_writes_dest(op) &&
             (op == OP_MOVE || op == OP_LOAD_NUM_IMM || op == OP_LOAD_NUM ||
              op == OP_LOAD_BOOL || op == OP_LOAD_NONE ||
              op == OP_ADD || op == OP_SUB || op == OP_MUL || op == OP_DIV ||
