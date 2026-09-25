@@ -143,31 +143,23 @@ if(APEX_JIT_AVAILABLE)
 endif()
 
 # baseline warnings and posix compatibility
-set(BASE_FLAGS 
-    -Wall -Wextra
-    -D_DEFAULT_SOURCE
-)
-
-# performance flags for gcc/clang (linux/macos/mingw)
-set(HIGH_PERF_FLAGS
-    -O3
-    -flto
-)
-
-# native cpu flags only when NOT cross-compiling
-if(NOT CMAKE_CROSSCOMPILING)
-    list(APPEND HIGH_PERF_FLAGS -march=native -mtune=native)
-endif()
+set(BASE_FLAGS -Wall -Wextra -D_DEFAULT_SOURCE)
 
 # applies gcc/clang-specific performance and base flags
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(apex PRIVATE ${BASE_FLAGS} ${HIGH_PERF_FLAGS})
-    
-    if(CMAKE_BUILD_TYPE STREQUAL "Release")
-        target_link_options(apex PRIVATE -flto)
+    target_compile_options(apex PRIVATE
+        ${BASE_FLAGS}
+        $<$<CONFIG:Release>:-O3>
+    )
+
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT APEX_IPO_OK OUTPUT APEX_IPO_ERR)
+    if(APEX_IPO_OK)
+        set_property(TARGET apex PROPERTY
+            INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+    else()
+        message(WARNING "IPO/LTO not supported: ${APEX_IPO_ERR}")
     endif()
-else()
-    target_compile_options(apex PRIVATE ${BASE_FLAGS} -O2)
 endif()
 
 # windows-specific defines to suppress deprecation warnings
@@ -181,9 +173,6 @@ if(WIN32)
     )
 endif()
 
-# generates compile_commands.json for ide support
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
 # threading support for background i/o workers
 find_package(Threads REQUIRED)
 target_link_libraries(apex PRIVATE Threads::Threads)
@@ -191,8 +180,6 @@ target_link_libraries(apex PRIVATE Threads::Threads)
 # os-specific library linking
 if(WIN32)
     target_link_libraries(apex PRIVATE shlwapi ws2_32)
-elseif(APPLE)
-    target_link_libraries(apex PRIVATE m z dl)
 else()
     target_link_libraries(apex PRIVATE m z dl)
 endif()
@@ -201,7 +188,6 @@ endif()
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     add_custom_command(TARGET apex POST_BUILD
         COMMAND ${CMAKE_STRIP} $<TARGET_FILE:apex>
-        COMMENT "Stripping debug symbols..."
     )
 endif()
 
