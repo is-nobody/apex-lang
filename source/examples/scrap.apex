@@ -76,7 +76,9 @@ chunks = []
 function flush()
     if state["chunk_count"] == 0
         return none
-    os.append(state["output_name"], string.join(chunks, ""))
+    n = state["chunk_count"]
+    for i = 1, n
+        os.append(state["output_name"], chunks[i])
     table.clear(chunks)
     state["chunk_count"] = 0
     return none
@@ -136,6 +138,11 @@ function process_file(full_path, rel_path)
     if should_ignore_file(filename) == true
         return none
 
+    // reject by size - real source is never this big
+    size = os.size(full_path)
+    if size == none or size > 1000000
+        return none
+
     content = os.read(full_path)
     if content == none
         return none
@@ -146,7 +153,7 @@ function process_file(full_path, rel_path)
     // ensure file body ends with a newline before the closing fence
     n = string.length(content)
     if n > 0
-        last = string.slice(content, n, n)
+        last = string.slice(content, n, n + 1)
         if last != "\n"
             emit("\n")
 
