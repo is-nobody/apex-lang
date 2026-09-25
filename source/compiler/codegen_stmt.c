@@ -135,12 +135,15 @@ static void codegen_var_decl(CodeGenerator* cg, ASTNode* node) {
                 cg->next_register--;                                         // reclaim it
             }
 
-            if (x_slot >= 0) {                                               // inherit type flags
-                cg->locals.is_number[y_slot]  = cg->locals.is_number[x_slot];
-                cg->locals.is_integer[y_slot] = cg->locals.is_integer[x_slot];
+            if (x_slot >= 0) {                                               // inherit all tracked flags
+                cg->locals.is_number[y_slot]   = cg->locals.is_number[x_slot];
+                cg->locals.is_integer[y_slot]  = cg->locals.is_integer[x_slot];
+                cg->locals.const_known[y_slot] = cg->locals.const_known[x_slot];
+                cg->locals.const_value[y_slot] = cg->locals.const_value[x_slot];
             } else {
-                cg->locals.is_number[y_slot]  = false;
-                cg->locals.is_integer[y_slot] = false;
+                cg->locals.is_number[y_slot]   = false;
+                cg->locals.is_integer[y_slot]  = false;
+                cg->locals.const_known[y_slot] = false;
             }
 
             bool need_global = (cg->current_module != NULL) ||               // mirror the normal path

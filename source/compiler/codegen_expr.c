@@ -973,7 +973,6 @@ int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint) {
             ASTNode* false_expr = node->ternary.false_expr;                       // false branch
 
             int dest_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);       // result destination
-            int cond_reg = codegen_expression(cg, condition);                     // evaluate condition
 
             LocalNumSnap pre = snap_numbers(cg);                                  // snapshot at branch point
 
@@ -981,8 +980,12 @@ int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint) {
             int saved_num_count = cg->num_cache.count;
             int saved_str_count = cg->str_cache.count;
 
-            int jump_to_false = emit(cg, INST(OP_JUMP_IF_FALSE, 0, cond_reg, 0), node->line);
-            free_register(cg, cond_reg);                                          // free condition
+            int jump_to_false = codegen_optimized_condition(cg, condition, node->line);
+            if (jump_to_false < 0) {                                              // not a fusable comparison
+                int cond_reg = codegen_expression(cg, condition);                 // evaluate condition
+                jump_to_false = emit(cg, INST(OP_JUMP_IF_FALSE, 0, cond_reg, 0), node->line);
+                free_register(cg, cond_reg);                                      // free condition
+            }
 
             codegen_expression_into(cg, true_expr, dest_reg);                     // write true into dest
             LocalNumSnap true_snap = snap_numbers(cg);                            // snapshot after true
