@@ -619,6 +619,36 @@ int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint) {
                 }
             }
 
+            // strength reduction: x / 2^k  ->  x * (1/2^k)
+            {
+                double divisor;
+                if (node->binary.op == TOKEN_SLASH &&
+                    try_fold_number(cg, node->binary.right, &divisor)) {
+                    long long iv = (long long)divisor;
+                    if (divisor == (double)iv &&
+                        iv >= 2 && iv <= (1LL << 52) &&
+                        (iv & (iv - 1)) == 0) {
+                        double recip = 1.0 / divisor;
+                        int left_reg = codegen_expression(cg, node->binary.left);
+                        int recip_reg = num_cache_lookup(cg, recip);
+                        if (recip_reg < 0) {
+                            recip_reg = alloc_register(cg);
+                            int const_idx =
+                                bytecode_add_number_constant(cg->chunk, recip);
+                            emit(cg, INST(OP_LOAD_NUM, recip_reg, const_idx, 0),
+                                 node->line);
+                            num_cache_add(cg, recip, recip_reg);
+                        }
+                        int result_reg = dest_hint >= 0 ? dest_hint
+                                                        : alloc_register(cg);
+                        emit(cg, INST(OP_MUL, result_reg, left_reg, recip_reg),
+                             node->line);
+                        free_register(cg, left_reg);
+                        return result_reg;
+                    }
+                }
+            }
+
             // try IMM-optimized arithmetic when the right operand folds to a numeric constant
             // that fits the immediate field (integer 0..65535); the fold covers literals,
             // negative literals via unary minus, and nested constant arithmetic like (1 + 1)
