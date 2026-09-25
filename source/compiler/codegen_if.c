@@ -137,7 +137,7 @@ void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
         while (elif) {
             restore_numbers(cg, entry);                                      // reset for this elif body
             cg->num_cache.count = saved_num_count;                           // discard previous branch's numeric cache
-            cg->str_cache.count = saved_str_count;                           // discard previous branch's string cache
+            str_cache_truncate(cg, saved_str_count);                         // discard previous branch's string cache
 
             int elif_cond_reg = codegen_expression(cg, elif->if_stmt.condition);
             int jump_to_next = bytecode_current_offset(cg->chunk);
@@ -168,7 +168,7 @@ void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
     if (else_branch) {                                                       // has else
         restore_numbers(cg, entry);                                          // reset before else
         cg->num_cache.count = saved_num_count;                               // discard previous branch's numeric cache
-        cg->str_cache.count = saved_str_count;                               // discard previous branch's string cache
+        str_cache_truncate(cg, saved_str_count);                             // discard previous branch's string cache
         codegen_block(cg, else_branch);                                      // emit else
         LocalNumSnap after_else = snap_numbers(cg);
         merge_numbers(cg, merged, after_else);                               // intersect else into merged
@@ -188,7 +188,7 @@ void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
 
     // after the if/else chain, register contents depend on which path ran
     cg->num_cache.count = saved_num_count;
-    cg->str_cache.count = saved_str_count;
+    str_cache_truncate(cg, saved_str_count);
 
     int end_addr = bytecode_current_offset(cg->chunk);                       // end address
     for (int i = 0; i < end_jump_count; i++) {                               // patch all jumps

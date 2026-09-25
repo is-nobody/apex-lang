@@ -125,7 +125,7 @@ static void emit_unswitched_for(CodeGenerator* cg, ASTNode* node, int if_idx) {
     PATCH_JUMP(cg, jump_false, bytecode_current_offset(cg->chunk));
 
     cg->num_cache.count = saved_num;                            // else path: drop then-side caches
-    cg->str_cache.count = saved_str;
+    str_cache_truncate(cg, saved_str);
     restore_numbers(cg, pre);
 
     body->block.statements = else_stmts;                        // temporary body swap

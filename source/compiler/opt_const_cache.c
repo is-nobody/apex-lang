@@ -73,3 +73,13 @@ void str_cache_invalidate(CodeGenerator* cg, int written_reg) {
         }
     }
 }
+
+// frees str_cache entries at indices >= new_count
+void str_cache_truncate(CodeGenerator* cg, int new_count) {
+    for (int i = new_count; i < cg->str_cache.count; i++) {
+        free(cg->str_cache.values[i]);
+        cg->str_cache.values[i] = NULL;
+        cg->str_cache.regs[i]   = -1;
+    }
+    if (new_count < cg->str_cache.count) cg->str_cache.count = new_count;
+}

@@ -574,9 +574,13 @@ nested_sparse()
 mixed_numeric_and_string_keys()
 negative_zero_hash()
 negative_zero_key_equal()
+
 intern_table_cleanup()
+
 intern_table_collisions()
+
 pooled_table_capacity_reset()
+
 pooled_table_reuse()
 nan_key_behavior()
 infinity_key_behavior()

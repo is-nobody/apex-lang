@@ -995,7 +995,7 @@ int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint) {
 
             restore_numbers(cg, pre);                                             // reset to branch point for false
             cg->num_cache.count = saved_num_count;                                // discard then-branch numeric cache
-            cg->str_cache.count = saved_str_count;                                // discard then-branch string cache
+            str_cache_truncate(cg, saved_str_count);                              // discard then-branch string cache
 
             int false_addr = bytecode_current_offset(cg->chunk);                  // false address
             PATCH_JUMP(cg, jump_to_false, false_addr);                            // patch jump
@@ -1010,7 +1010,7 @@ int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint) {
 
             // after the ternary, register contents depend on which branch ran
             cg->num_cache.count = saved_num_count;
-            cg->str_cache.count = saved_str_count;
+            str_cache_truncate(cg, saved_str_count);
 
             int end_addr = bytecode_current_offset(cg->chunk);                    // end address
             PATCH_JUMP(cg, jump_to_end, end_addr);                                // patch jump

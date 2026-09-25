@@ -84,6 +84,7 @@ void num_cache_add(CodeGenerator* cg, double value, int reg);
 int  str_cache_lookup(CodeGenerator* cg, const char* value);
 void str_cache_add(CodeGenerator* cg, const char* value, int reg);
 void str_cache_invalidate(CodeGenerator* cg, int written_reg);
+void str_cache_truncate(CodeGenerator* cg, int new_count);
 
 // opt_lvn.c
 int  imm_lvn_lookup(CodeGenerator* cg, Opcode op, int left_reg, int right_reg, int imm);
