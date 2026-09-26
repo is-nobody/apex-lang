@@ -148,7 +148,8 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     for (int i = 0; i <= range_size; i++) label_off[i] = -1;     // incl. the pc==end sentinel
     int fixup_count = 0;                                         // pending jumps count
 
-    // dead-store elimination below assumes straight-line code
+    // dead-store elimination below assumes straight-line code: disable it
+    // whenever the function contains any jump (forward OR backward)
     bool func_has_backward_jump = false;
     for (int pc = start; pc < end; pc++) {
         Opcode op = chunk->code[pc].opcode;
@@ -157,8 +158,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             (op >= OP_JUMP_IF_EQ_IMM && op <= OP_JUMP_IF_GTE_IMM) ||
             op == OP_JUMP_MATCH_NUM || op == OP_JUMP_MATCH_STR ||
             op == OP_JUMP_MATCH_BOOL || op == OP_JUMP_MATCH_NONE) {
-            int target = chunk->code[pc].operands[0];
-            if (target <= pc && target >= start) { func_has_backward_jump = true; break; }
+            func_has_backward_jump = true; break;
         }
     }
 

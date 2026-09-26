@@ -117,6 +117,7 @@ JITContext* jit_create(BytecodeChunk* chunk) {
 
     for (int i = 0; i < n; i++) {                                // emit each pure function
         if (!ctx->pure[i]) continue;                             // skip non-pure
+        size_t before = cb.len;
         if (!be->emit_function(ctx, &cb, i, &ctx->func_table[i])) {
             ctx->func_table[i] = NULL;                           // clear partial slot
             continue;                                            // emit failed, move on
@@ -147,35 +148,43 @@ JITContext* jit_create(BytecodeChunk* chunk) {
             bool want_neg = (info->step_sign <= 0);              // 0 or -1
             void* fn_pos = NULL;
             void* fn_neg = NULL;
+            size_t before;
 
-            if (want_pos && be->emit_loop(ctx, &cb, info, +1, &fn_pos)) {
-                info->native_fn = (void (*)(uint64_t*, uint64_t*))fn_pos;   // positive-step entry
-                any = true;
+            if (want_pos) {
+                before = cb.len;
+                if (be->emit_loop(ctx, &cb, info, +1, &fn_pos)) {
+                    info->native_fn = (void (*)(uint64_t*, uint64_t*))fn_pos;   // positive-step entry
+                    any = true;
 #if defined(APEX_JIT_TRACE_BUILD) && APEX_JIT_TRACE_BUILD
-                if (jit_trace_enabled()) {
-                    char lbl[96];
-                    snprintf(lbl, sizeof(lbl),
-                             "; === loop %d @pc=%d kind=numeric-for step=+1 ===",
-                             i, info->entry_pc);
-                    jit_disasm_dump(lbl, ctx->code + before, cb.len - before);
-                }
+                    if (jit_trace_enabled()) {
+                        char lbl[96];
+                        snprintf(lbl, sizeof(lbl),
+                                 "; === loop %d @pc=%d kind=numeric-for step=+1 ===",
+                                 i, info->entry_pc);
+                        jit_disasm_dump(lbl, ctx->code + before, cb.len - before);
+                    }
 #endif
+                }
             }
-            if (want_neg && be->emit_loop(ctx, &cb, info, -1, &fn_neg)) {
-                info->native_fn_neg = (void (*)(uint64_t*, uint64_t*))fn_neg;  // negative-step entry
-                any = true;
+            if (want_neg) {
+                before = cb.len;
+                if (be->emit_loop(ctx, &cb, info, -1, &fn_neg)) {
+                    info->native_fn_neg = (void (*)(uint64_t*, uint64_t*))fn_neg;  // negative-step entry
+                    any = true;
 #if defined(APEX_JIT_TRACE_BUILD) && APEX_JIT_TRACE_BUILD
-                if (jit_trace_enabled()) {
-                    char lbl[96];
-                    snprintf(lbl, sizeof(lbl),
-                             "; === loop %d @pc=%d kind=numeric-for step=-1 ===",
-                             i, info->entry_pc);
-                    jit_disasm_dump(lbl, ctx->code + before, cb.len - before);
-                }
+                    if (jit_trace_enabled()) {
+                        char lbl[96];
+                        snprintf(lbl, sizeof(lbl),
+                                 "; === loop %d @pc=%d kind=numeric-for step=-1 ===",
+                                 i, info->entry_pc);
+                        jit_disasm_dump(lbl, ctx->code + before, cb.len - before);
+                    }
 #endif
+                }
             }
         } else {
             void* fn = NULL;
+            size_t before = cb.len;
             if (be->emit_loop(ctx, &cb, info, 0, &fn)) {
                 info->native_fn = (void (*)(uint64_t*, uint64_t*))fn;       // single variant
                 any = true;
