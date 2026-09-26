@@ -100,6 +100,7 @@ bool inst_reads_reg(Instruction* inst, int reg);
 
 // opt_bc_dce.c
 int  dce_local_range(CodeGenerator* cg, int from_pc, int to_pc);
+void dce_functions_and_globals(CodeGenerator* cg);
 void compact_bytecode(CodeGenerator* cg);
 bool op_has_pc_in_op0(Opcode op);
 

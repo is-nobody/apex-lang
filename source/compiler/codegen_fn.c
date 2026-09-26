@@ -128,11 +128,13 @@ void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
         cg->fn_cache.returns_bool = (int8_t*)realloc(cg->fn_cache.returns_bool, new_cap);
         cg->fn_cache.inlinable    = (int8_t*)realloc(cg->fn_cache.inlinable,    new_cap);
         cg->fn_cache.node_count   = (int*)   realloc(cg->fn_cache.node_count,   sizeof(int) * new_cap);
+        cg->fn_cache.end_pc       = (int*)   realloc(cg->fn_cache.end_pc,       sizeof(int) * new_cap);
         for (int i = old_cap; i < new_cap; i++) {                            // zero new cache slots
             cg->fn_cache.memoizable[i]   = -1;                               // -1 unknown
             cg->fn_cache.returns_bool[i] = -1;                               // -1 unknown
             cg->fn_cache.inlinable[i]    = -1;                               // -1 unknown
             cg->fn_cache.node_count[i]   = -1;                               // -1 unknown
+            cg->fn_cache.end_pc[i]       = -1;                               // -1 unknown
         }
         cg->fn_cache.capacity = new_cap;                                     // record new capacity
         cg->fn_decls_cap = new_cap;                                          // record new capacity
@@ -311,7 +313,11 @@ void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     // the nested function's body sits behind an op_jump in the instruction stream
     cg->imm_lvn.count = 0;
 
-    PATCH_JUMP(cg, jump_over, bytecode_current_offset(cg->chunk));           // patch jump
+    int fn_body_end = bytecode_current_offset(cg->chunk);                    // first pc after fn body
+    if (func_idx >= 0 && func_idx < cg->fn_cache.capacity) {                 // guard against odd cases
+        cg->fn_cache.end_pc[func_idx] = fn_body_end;                         // record for dce pass
+    }
+    PATCH_JUMP(cg, jump_over, fn_body_end);                                  // patch jump
 
     int func_const_idx = bytecode_add_constant(cg->chunk,                    // add function constant
         (Constant){.type = CONST_FUNCTION, .function_index = func_idx});

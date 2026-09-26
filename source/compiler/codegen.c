@@ -72,6 +72,7 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->fn_cache.returns_bool = NULL;                                      // no cached predicates yet
     cg->fn_cache.inlinable    = NULL;                                      // no cached predicates yet
     cg->fn_cache.node_count   = NULL;                                      // no cached costs yet
+    cg->fn_cache.end_pc       = NULL;                                      // no body-end positions yet
     cg->fn_cache.capacity     = 0;                                         // zero capacity
     cg->register_floor = 0;                                                // no floor at top level
     cg->cache_floor    = 0;                                                // no cache pins yet
@@ -170,6 +171,7 @@ void codegen_destroy(CodeGenerator* cg) {
     free(cg->fn_cache.returns_bool);                                       // release per-func predicate cache
     free(cg->fn_cache.inlinable);                                          // release per-func predicate cache
     free(cg->fn_cache.node_count);                                         // release per-func cost cache
+    free(cg->fn_cache.end_pc);                                             // release per-func body-end cache
     free(cg->fn_decls);                                                    // ASTs are owned by the parser; only the table is ours
     free(cg->rec_memo.entries);                                            // release compile-time memo
     free(cg->inline_exits);                                                // release inline-exit list
@@ -197,6 +199,7 @@ bool codegen_generate(CodeGenerator* cg, ASTNode* ast) {
     cg->chunk->functions[0].max_registers = entry_max;                       // store padded entry max regs
 
     emit(cg, INST(OP_HALT, 0, 0, 0), 0);                                     // halt instruction
+    dce_functions_and_globals(cg);                                           // drop unused fns + globals
     thread_jumps(cg);                                                        // skip chains of JUMPs
     compact_bytecode(cg);                                                    // drop no-ops, remap pcs
     return true;                                                             // success

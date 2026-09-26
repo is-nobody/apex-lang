@@ -145,7 +145,8 @@ typedef struct {
         int8_t* returns_bool;      // per-func: -1 unknown, 0 no, 1 yes
         int8_t* inlinable;         // per-func: -1 unknown, 0 no, 1 yes
         int*    node_count;        // per-func: ast_node_count(body), -1 unknown
-        int     capacity;          // allocated size of the four arrays above
+        int*    end_pc;            // per-func: first pc after the body, -1 unknown
+        int     capacity;          // allocated size of the five arrays above
     } fn_cache;                    // memoized per-function predicates, filled lazily
 
     ASTNode*  ast_root;            // whole-program AST, exposed for pre-passes

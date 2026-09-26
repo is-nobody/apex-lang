@@ -73,8 +73,7 @@ bool ast_references_local(ASTNode* node, const char* name) {
     }
 }
 
-// statement-level variant of ast_references_local: returns true if the statement
-// reads or writes the named local, recursing into nested blocks
+// statement-level variant of ast_references_local
 bool stmt_references_local(ASTNode* node, const char* name) {
     if (!node || !name) return false;
     switch (node->type) {
@@ -127,10 +126,7 @@ bool stmt_references_local(ASTNode* node, const char* name) {
     }
 }
 
-// true if `name` is never referenced (read or written) in any statement
-// after the current position, walking up through enclosing blocks.
-// returns false inside loops because the same code runs on later iterations
-// and earlier statements in the same loop body are not visible here.
+// true if `name` is never referenced (read or written) in any statement after the current position
 bool is_local_dead_after_current_stmt(CodeGenerator* cg, const char* name) {
     if (!name || cg->loop_depth > 0) return false;
     int limit = cg->block_depth < 32 ? cg->block_depth : 32;
@@ -151,14 +147,14 @@ bool ast_unsafe_direct_assign(ASTNode* node, const char* name) {
         case AST_STRING_INTERP:                                                    // check later parts only
             for (int i = 1; i < node->string_interp.parts->count; i++) {
                 if (ast_references_local(node->string_interp.parts->nodes[i], name))
-                    return true;                                               // later part reads name
+                    return true;                                                   // later part reads name
             }
             return false;                                                          // safe to write directly
 
         case AST_TABLE_LITERAL:                                                    // check items and key-values
             for (int i = 0; i < node->table_literal.items->count; i++) {
                 if (ast_references_local(node->table_literal.items->nodes[i], name))
-                    return true;                                               // sequential item reads name
+                    return true;                                                   // sequential item reads name
             }
             for (int i = 0; i < node->table_literal.key_values->count; i++) {
                 ASTNode* kv = node->table_literal.key_values->nodes[i];
@@ -172,8 +168,7 @@ bool ast_unsafe_direct_assign(ASTNode* node, const char* name) {
     }
 }
 
-// true when evaluating `node` can have an observable effect (call, await,
-// nested assignment). Pure allocations and reads do not count.
+// true when evaluating `node` can have an observable effect (call, await, nested assignment)
 bool codegen_expr_has_side_effect(ASTNode* node) {
     if (!node) return false;
     switch (node->type) {
@@ -207,6 +202,6 @@ bool codegen_expr_has_side_effect(ASTNode* node) {
                    codegen_expr_has_side_effect(node->ternary.true_expr) ||
                    codegen_expr_has_side_effect(node->ternary.false_expr);
         default:
-            return false;                                    // identifiers, literals: pure
+            return false;  // identifiers, literals: pure
     }
 }
