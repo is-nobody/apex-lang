@@ -81,6 +81,7 @@ bool ast_same_expr(ASTNode* a, ASTNode* b);
 // opt_const_cache.c
 int  num_cache_lookup(CodeGenerator* cg, double value);
 void num_cache_add(CodeGenerator* cg, double value, int reg);
+void num_cache_invalidate(CodeGenerator* cg, int written_reg);
 int  str_cache_lookup(CodeGenerator* cg, const char* value);
 void str_cache_add(CodeGenerator* cg, const char* value, int reg);
 void str_cache_invalidate(CodeGenerator* cg, int written_reg);

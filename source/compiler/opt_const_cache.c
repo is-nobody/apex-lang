@@ -33,6 +33,20 @@ void num_cache_add(CodeGenerator* cg, double value, int reg) {
     if (cg->cache_floor <= reg) cg->cache_floor = reg + 1;       // pin above cache floor
 }
 
+// drops every numeric-cache entry whose register has just been overwritten
+void num_cache_invalidate(CodeGenerator* cg, int written_reg) {
+    for (int i = 0; i < cg->num_cache.count; i++) {
+        if (cg->num_cache.regs[i] == written_reg) {
+            cg->num_cache.count--;
+            cg->num_cache.values[i] = cg->num_cache.values[cg->num_cache.count];
+            cg->num_cache.regs[i]   = cg->num_cache.regs[cg->num_cache.count];
+            cg->num_cache.values[cg->num_cache.count] = 0.0;
+            cg->num_cache.regs[cg->num_cache.count]   = -1;
+            i--;
+        }
+    }
+}
+
 // looks up a string literal in the per-function cache, returns register or -1
 int str_cache_lookup(CodeGenerator* cg, const char* value) {
     for (int i = 0; i < cg->str_cache.count; i++) {              // scan cached entries

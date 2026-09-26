@@ -17,6 +17,7 @@ int emit(CodeGenerator* cg, Instruction inst, int line) {
         imm_lvn_on_emit(cg, fused);
         if (op_writes_dest_reg(fused->opcode)) {
             str_cache_invalidate(cg, fused->operands[0]);
+            num_cache_invalidate(cg, fused->operands[0]);
         }
         return fused_idx;
     }
@@ -43,6 +44,7 @@ int emit(CodeGenerator* cg, Instruction inst, int line) {
         imm_lvn_on_emit(cg, &inst);
         if (op_writes_dest_reg(inst.opcode)) {
             str_cache_invalidate(cg, inst.operands[0]);
+            num_cache_invalidate(cg, inst.operands[0]);
         }
     }
     return bytecode_emit_line(cg->chunk, inst, line);
