@@ -32,18 +32,25 @@
     "strings": {
       "patterns": [
         {
-          "name": "string.quoted.double.apex",
           "begin": "\"",
           "end": "\"",
+          "beginCaptures": {
+            "0": { "name": "string.quoted.double.apex" }
+          },
+          "endCaptures": {
+            "0": { "name": "string.quoted.double.apex" }
+          },
+          "contentName": "meta.istring.apex",
           "patterns": [
             {
               "name": "constant.character.escape.apex",
               "match": "\\\\."
             },
             {
-              "name": "constant.character.interpolation.apex",
-              "match": "\\{[a-zA-Z_][a-zA-Z0-9_\\s\\+\\-\\*\\/]*\\}"
-            }
+              "name": "string.quoted.double.apex",
+              "match": "[^\"\\\\{]+"
+            },
+            { "include": "#interpolation" }
           ]
         },
         {
@@ -56,6 +63,39 @@
               "match": "\\\\."
             }
           ]
+        }
+      ]
+    },
+    "interpolation": {
+      "begin": "\\{",
+      "beginCaptures": {
+        "0": { "name": "constant.character.format.placeholder.other.apex" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "constant.character.format.placeholder.other.apex" }
+      },
+      "patterns": [
+        { "include": "#punctuation-brackets" },
+        { "include": "#strings" },
+        { "include": "#numbers" },
+        { "include": "#keywords" },
+        { "include": "#constants" },
+        { "include": "#operators" },
+        { "include": "#function-call" },
+        { "include": "#library-call" },
+        { "include": "#variable" }
+      ]
+    },
+    "punctuation-brackets": {
+      "patterns": [
+        {
+          "name": "punctuation.definition.arguments.begin.apex",
+          "match": "[\\[\\(]"
+        },
+        {
+          "name": "punctuation.definition.arguments.end.apex",
+          "match": "[\\]\\)]"
         }
       ]
     },
