@@ -568,6 +568,15 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         return true;                                              // builtin handled
     }
 
+    if (strcmp(name, "os.print") == 0) {                          // print to stdout without a trailing newline
+        if (arg_count >= 1) {                                     // require a value argument
+            vm_print_value(args[0]);                              // print value exactly as-is
+            fflush(stdout);                                       // flush so output appears immediately
+        }
+        *result = MAKE_NONE();                                    // return none
+        return true;                                              // builtin handled
+    }
+
     if (strcmp(name, "os.input") == 0) {                          // read from stdin
         OsArgs* a = os_args_new();                                // pack argument struct
         a->content = strdup(arg_count >= 1 && IS_STRING(args[0])

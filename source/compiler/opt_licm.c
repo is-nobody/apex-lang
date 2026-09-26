@@ -24,6 +24,7 @@ bool builtin_is_pure(const char* name) {
     if (strcmp(name, "string.trim") == 0) return true;             // -> string
     if (strcmp(name, "string.find") == 0) return true;             // -> number
     if (strcmp(name, "string.replace") == 0) return true;          // -> string
+    if (strcmp(name, "string.repeat") == 0) return true;           // -> string
     // string.split: returns a fresh table, excluded
 
     if (strncmp(name, "math.", 5) == 0) return true;               // math.*: number, string, or table?

@@ -450,6 +450,50 @@ bool string_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         sb_free(&sb);                                                             // release builder
         return true;                                                              // builtin handled
     }
+
+    if (strcmp(name, "string.repeat") == 0) {                     // repeat a string n times
+        if (arg_count < 2 || !IS_STRING(args[0]) || !IS_NUMBER(args[1])) {  // validate args
+            *result = MAKE_NONE();                                // invalid, return none
+            return true;                                          // builtin handled
+        }
+        double n_d = AS_NUMBER(args[1]);                          // raw repeat count
+        if (n_d < 0.0 || n_d > 1.0e9) {                           // negative or absurdly large
+            *result = MAKE_NONE();                                // invalid, return none
+            return true;                                          // builtin handled
+        }
+        int n = (int)n_d;                                         // integer repeat count
+        if ((double)n != n_d) {                                   // fractional count is an error
+            *result = MAKE_NONE();                                // invalid, return none
+            return true;                                          // builtin handled
+        }
+
+        const char* str = AS_STRING(args[0])->chars;              // source string
+        int str_len = AS_STRING(args[0])->length;                 // source byte length
+
+        if (str_len == 0 || n == 0) {                             // nothing to repeat
+            *result = make_string_val(vm, "");                    // return empty string
+            return true;                                          // builtin handled
+        }
+
+        // repeat results can be large (e.g. padding buffers)
+        size_t total = (size_t)str_len * (size_t)n;               // total byte length
+        char* buf = (char*)malloc(total + 1);                     // allocate result buffer
+        if (!buf) {                                               // allocation failed
+            *result = MAKE_NONE();                                // return none
+            return true;                                          // builtin handled
+        }
+
+        char* dest = buf;                                         // write cursor
+        for (int i = 0; i < n; i++) {                             // copy source n times
+            memcpy(dest, str, str_len);                           // copy one copy
+            dest += str_len;                                      // advance cursor
+        }
+        buf[total] = '\0';                                        // null terminate
+
+        *result = MAKE_STRING(string_create(buf, (int)total));    // fresh refcounted string
+        free(buf);                                                // free temporary
+        return true;                                              // builtin handled
+    }
     
     return false;                               // not a recognized builtin
 }

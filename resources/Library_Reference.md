@@ -14,6 +14,18 @@ import os
 os.output("Hello, Friend!")  // Hello, Friend!
 ```
 
+### os.print(value)
+Prints a value to the terminal without a trailing newline. Always returns `none`.
+
+```apex
+import os
+os.print("Loading")
+os.print(".")
+os.print(".")
+os.print(".")
+os.print("\n")  // Loading...\n
+```
+
 ### os.input(prompt)
 Prints `prompt`, then waits for the user to type something and press Enter. Returns what they typed as a string, or an empty string on EOF.
 
@@ -903,6 +915,15 @@ result = string.replace("Hello World Hello", "Hello", "Apex")
 
 if result != none
     os.output(result)  // "Apex World Apex"
+```
+
+### string.repeat(s, n)
+Returns `s` repeated `n` times. `n` must be a non-negative whole number. Returns `none` on error.
+
+```apex
+import os
+import string
+os.output(string.repeat("=", 20))  // "===================="
 ```
 
 ## Table Library (table)
