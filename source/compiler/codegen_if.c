@@ -186,14 +186,20 @@ void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
     free_snap(entry);                                                        // release entry snapshot
     free_snap(before);                                                       // release outer snapshot
 
-    // after the if/else chain, register contents depend on which path ran
-    cg->num_cache.count = saved_num_count;
-    str_cache_truncate(cg, saved_str_count);
+    // when every branch exits and there is no else
+    bool guard_only = !has_elif && !else_branch &&
+                      stmt_always_exits(node->if_stmt.then_branch);
+    if (!guard_only) {
+        cg->num_cache.count = saved_num_count;
+        str_cache_truncate(cg, saved_str_count);
+    }
 
     int end_addr = bytecode_current_offset(cg->chunk);                       // end address
     for (int i = 0; i < end_jump_count; i++) {                               // patch all jumps
         PATCH_JUMP(cg, end_jumps[i], end_addr);
     }
 
-    cg->imm_lvn.count = 0;                                                   // end is a merge point
+    if (!guard_only) {
+        cg->imm_lvn.count = 0;                                               // end is a merge point
+    }
 }

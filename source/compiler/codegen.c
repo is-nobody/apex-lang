@@ -33,7 +33,11 @@ int emit(CodeGenerator* cg, Instruction inst, int line) {
         mark_jump_target(cg, inst.operands[0]);
     }
 
-    if (is_jump) {
+    // unconditional jumps and backward jumps break lvn
+    bool is_backward = is_jump && inst.operands[0] != 0;
+    bool breaks_lvn = is_jump && (inst.opcode == OP_JUMP || is_backward);
+
+    if (breaks_lvn) {
         cg->imm_lvn.count = 0;
     } else {
         imm_lvn_on_emit(cg, &inst);
