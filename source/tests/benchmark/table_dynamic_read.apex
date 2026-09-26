@@ -4,14 +4,14 @@
 // MIT license
 
 import os
-import sys
+import datetime
 
 // benchmark: reads 10M elements via dynamic loop-counter key
 function table_dynamic_read()
     n = 10000000
     t = []
 
-    start = sys.time()
+    start = datetime.timestamp()
 
     // build phase
     for i = 1, n
@@ -22,7 +22,7 @@ function table_dynamic_read()
     // read phase
     for i = 1, n
         sum = sum + t[i]
-    elapsed = sys.time() - start
+    elapsed = datetime.timestamp() - start
 
     os.output("Dynamic read: {sum}, elapsed {elapsed}")
 

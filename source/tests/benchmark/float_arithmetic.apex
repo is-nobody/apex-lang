@@ -4,11 +4,11 @@
 // MIT license
 
 import os
-import sys
+import datetime
 
 // benchmark: 50M iterations of a tiny dependent arithmetic chain
 function float_arithmetic()
-    start = sys.time()
+    start = datetime.timestamp()
     x = 1.0
     y = 0.0000001
     z = 0.0
@@ -16,7 +16,7 @@ function float_arithmetic()
         z = z + x * y
         x = x + 0.0000001
         y = y * 1.0000001
-    elapsed = sys.time() - start
+    elapsed = datetime.timestamp() - start
     os.output("Float arithmetic: {z}, elapsed {elapsed}")
 
 // execute benchmark

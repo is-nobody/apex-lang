@@ -4,17 +4,17 @@
 // MIT license
 
 import os
-import sys
+import datetime
 
 // benchmark: 100 million iterations using condition-based for loop
 function for_condition_100m()
-    start = sys.time()
+    start = datetime.timestamp()
     x = 0
     i = 1
     for i < 100000001
         x = x + i
         i = i + 1
-    elapsed = sys.time() - start
+    elapsed = datetime.timestamp() - start
     os.output("100000000 iterations for condition: {x}, elapsed {elapsed}")
 
 // execute benchmark

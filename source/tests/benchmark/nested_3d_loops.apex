@@ -4,11 +4,11 @@
 // MIT license
 
 import os
-import sys
+import datetime
 
 // benchmark: builds and sums a 100x100x100 3D table (1 million elements)
 function nested_3d_loops()
-    start = sys.time()
+    start = datetime.timestamp()
     root = []
     
     // allocate and populate 3D table
@@ -26,7 +26,7 @@ function nested_3d_loops()
             for k = 1, 100
                 sum = sum + root[i][j][k]
     
-    elapsed = sys.time() - start
+    elapsed = datetime.timestamp() - start
     os.output("Nested 3D loops: {sum}, elapsed {elapsed}")
 
 // execute benchmark

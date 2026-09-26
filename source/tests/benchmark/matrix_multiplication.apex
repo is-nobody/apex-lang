@@ -4,11 +4,11 @@
 // MIT license
 
 import os
-import sys
+import datetime
 
 // benchmark: 250x250 matrix multiplication (~15.6 million operations)
 function matrix_multiplication()
-    start = sys.time()
+    start = datetime.timestamp()
     n = 250
     a = []
     b = []
@@ -33,7 +33,7 @@ function matrix_multiplication()
             c[i][j] = sum
     
     v50 = c[250][250]
-    elapsed = sys.time() - start
+    elapsed = datetime.timestamp() - start
     os.output("Matrix multiplication: C[250][250]={v50}, elapsed {elapsed}")
 
 // execute benchmark

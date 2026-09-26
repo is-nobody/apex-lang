@@ -4,11 +4,11 @@
 // MIT license
 
 import os
-import sys
+import datetime
 
 // benchmark: inserts 500k key-value pairs, then sums all values
 function hashtable_large()
-    start = sys.time()
+    start = datetime.timestamp()
     t = []
     
     // insert 500k entries with string keys
@@ -20,7 +20,7 @@ function hashtable_large()
     for i = 1, 500000
         sum = sum + t["item_{i}"]
     
-    elapsed = sys.time() - start
+    elapsed = datetime.timestamp() - start
     os.output("Hashtable large: {sum}, elapsed {elapsed}")
 
 // execute benchmark

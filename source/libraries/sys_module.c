@@ -302,52 +302,5 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         return true;                                 // builtin handled
     }
 
-    if (strcmp(name, "sys.time") == 0) {                                            // get current time
-#ifdef _WIN32
-        struct _timeb tb;                                                           // windows time struct
-        _ftime(&tb);                                                                // get time
-        *result = MAKE_NUMBER((double)tb.time + (double)tb.millitm / 1000.0);       // seconds with milliseconds
-#else
-        struct timeval tv;                                                          // posix time struct
-        gettimeofday(&tv, NULL);                                                    // get time
-        *result = MAKE_NUMBER((double)tv.tv_sec + (double)tv.tv_usec / 1000000.0);  // seconds with microseconds
-#endif
-        return true;                                                                // builtin handled
-    }
-
-    if (strcmp(name, "sys.datetime") == 0) {                                        // get current date/time
-        Table* t = table_create(16);                                            // create result table
-        *result = MAKE_TABLE(t);                                                // box table as result
-#ifdef _WIN32
-        SYSTEMTIME st;                                                          // windows system time
-        GetSystemTime(&st);                                                     // get system time
-        
-        table_set(t, make_string_val(vm, "year"), MAKE_NUMBER(st.wYear));       // store year
-        table_set(t, make_string_val(vm, "month"), MAKE_NUMBER(st.wMonth));     // store month
-        table_set(t, make_string_val(vm, "week"), MAKE_NUMBER(st.wDayOfWeek));  // store day of week
-        table_set(t, make_string_val(vm, "day"), MAKE_NUMBER(st.wDay));         // store day
-        table_set(t, make_string_val(vm, "hour"), MAKE_NUMBER(st.wHour));       // store hour
-        table_set(t, make_string_val(vm, "minute"), MAKE_NUMBER(st.wMinute));   // store minute
-        table_set(t, make_string_val(vm, "second"), MAKE_NUMBER(st.wSecond));   // store second
-        table_set(t, make_string_val(vm, "millisecond"), MAKE_NUMBER(st.wMilliseconds));  // store millisecond
-#else
-        struct timeval tv;                        // posix time
-        gettimeofday(&tv, NULL);                  // get time
-        struct tm* tm_info = gmtime(&tv.tv_sec);  // convert to gmt struct
-        
-        if (tm_info) {                            // check conversion
-                table_set(t, make_string_val(vm, "year"), MAKE_NUMBER(tm_info->tm_year + 1900));   // store year
-                table_set(t, make_string_val(vm, "month"), MAKE_NUMBER(tm_info->tm_mon + 1));      // store month
-                table_set(t, make_string_val(vm, "week"), MAKE_NUMBER(tm_info->tm_wday));          // store day of week
-                table_set(t, make_string_val(vm, "day"), MAKE_NUMBER(tm_info->tm_mday));           // store day
-                table_set(t, make_string_val(vm, "hour"), MAKE_NUMBER(tm_info->tm_hour));          // store hour
-                table_set(t, make_string_val(vm, "minute"), MAKE_NUMBER(tm_info->tm_min));         // store minute
-                table_set(t, make_string_val(vm, "second"), MAKE_NUMBER(tm_info->tm_sec));         // store second
-                table_set(t, make_string_val(vm, "millisecond"), MAKE_NUMBER(tv.tv_usec / 1000));  // store millisecond
-        }
-#endif
-        return true;   // builtin handled
-    }
-
     return false;      // not a recognized builtin
 }

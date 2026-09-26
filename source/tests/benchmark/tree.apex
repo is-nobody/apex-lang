@@ -4,7 +4,7 @@
 // MIT license
 
 import os
-import sys
+import datetime
 
 // recursively builds and sums a binary tree of depth n
 // each node returns 1 + sum(left) + sum(right)
@@ -15,9 +15,9 @@ function tree_sum(n)
 
 // benchmark: tree(25) - evaluates 2^26 - 1 = 67 million recursive calls
 function tree25()
-    start = sys.time()
+    start = datetime.timestamp()
     result = tree_sum(25)
-    elapsed = sys.time() - start
+    elapsed = datetime.timestamp() - start
     os.output("tree(25) = {result}, elapsed {elapsed}")
 
 // execute benchmark

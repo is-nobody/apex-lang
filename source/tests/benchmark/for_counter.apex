@@ -4,15 +4,15 @@
 // MIT license
 
 import os
-import sys
+import datetime
 
 // benchmark: 100 million iterations using counter-based for loop
 function for_counter_100m()
-    start = sys.time()
+    start = datetime.timestamp()
     x = 0
     for i = 1, 100000000
         x = x + i
-    elapsed = sys.time() - start
+    elapsed = datetime.timestamp() - start
     os.output("100000000 iterations for counter: {x}, elapsed {elapsed}")
 
 // execute benchmark

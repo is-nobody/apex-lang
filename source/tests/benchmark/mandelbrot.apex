@@ -4,7 +4,7 @@
 // MIT license
 
 import os
-import sys
+import datetime
 
 // benchmark: 1000x1000 mandelbrot with 100-iteration cap - tests nested loops and float math
 function mandelbrot()
@@ -14,7 +14,7 @@ function mandelbrot()
 
     count = 0
 
-    start = sys.time()
+    start = datetime.timestamp()
 
     for py = 0, height - 1
         y0 = (py / height) * 3 - 2
@@ -35,7 +35,7 @@ function mandelbrot()
             if iteration == maxIterations
                 count = count + 1
 
-    elapsed = sys.time() - start
+    elapsed = datetime.timestamp() - start
     os.output("Mandelbrot ({width}x{height}): points in set = {count}, elapsed {elapsed}")
 
 // execute benchmark

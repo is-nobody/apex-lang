@@ -4,11 +4,11 @@
 // MIT license
 
 import os
-import sys
+import datetime
 
 // benchmark: tests direct array part access with integer index [1]
 function table_int_index()
-    start = sys.time()
+    start = datetime.timestamp()
     t = [10, 20, 30, 40, 50]
     sum = 0
     
@@ -20,7 +20,7 @@ function table_int_index()
     for i = 1, 10000000
         t[1] = i
     
-    elapsed = sys.time() - start
+    elapsed = datetime.timestamp() - start
     os.output("Table int index: {sum}, elapsed {elapsed}")
 
 // execute benchmark

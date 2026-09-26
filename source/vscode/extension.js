@@ -19,7 +19,8 @@ const libDocs = {
     'base': 'Base encoding/decoding library.',
     'regex': 'Regular expressions library.',
     'crypto': 'Cryptography library.',
-    'zip': 'ZIP archive compression/decompression library.'
+    'zip': 'ZIP archive compression/decompression library.',
+    'datetime': 'Date and time library.'
 };
 
 // extension activation entry point
@@ -139,7 +140,6 @@ function activate(context) {
                 'sys.executable', 'sys.environment',
                 'sys.disk',              'sys.temp',
                 'sys.is_terminal', 'sys.process_id',
-                'sys.time',          'sys.datetime',
 
                 'math.abs',     'math.round_down',
                 'math.round_up',     'math.round',
@@ -205,6 +205,12 @@ function activate(context) {
                 'crypto.random_integer',    'crypto.random_float',
 
                 'zip.pack', 'zip.unpack',
+
+                'datetime.now',                   'datetime.local',
+                'datetime.timestamp',    'datetime.from_timestamp',
+                'datetime.to_timestamp',          'datetime.parse',
+                'datetime.format',                  'datetime.add',
+                'datetime.diff',
 
                 'number', 'string', 'type'
             ];

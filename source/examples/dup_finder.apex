@@ -3,12 +3,12 @@
 // https://github.com/is-nobody/apex-lang
 // MIT license
 
-import os      // recursive directory listing, file read, size
-import sys     // elapsed time for the final report
-import math    // round() for sizes and seconds
-import crypto  // sha256 content hashing
-import table   // grouping paths by hash, size, membership
-import string  // slice() for hex prefixes
+import os        // recursive directory listing, file read, size
+import datetime  // elapsed time for the final report
+import math      // round() for sizes and seconds
+import crypto    // sha256 content hashing
+import table     // grouping paths by hash, size, membership
+import string    // slice() for hex prefixes
 
 // ansi color codes via octal escapes (\033 = ESC)
 constant C_RESET = "\033[0m"     // clears all styling
@@ -57,7 +57,7 @@ if os.exists(arg) == false
     os.output("{C_ERROR}No such path: {arg}{C_RESET}")
     os.exit(1)
 
-t0 = sys.time()
+t0 = datetime.timestamp()
 
 files = []
 collect_files(arg, files)
@@ -101,7 +101,7 @@ for h in table.keys(by_hash)
 
     total_saved = total_saved + size * (n - 1)
 
-elapsed = sys.time() - t0
+elapsed = datetime.timestamp() - t0
 os.output("")
 
 if total_dupes == 0

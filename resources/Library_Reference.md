@@ -325,48 +325,6 @@ else
 ## System Library (sys)
 The System library provides static or rarely changing system information. Import it with `import sys`.
 
-### sys.time()
-Returns the current time as a number — seconds since January 1, 1970 (with microsecond precision). Always succeeds.
-
-```apex
-import os
-import sys
-
-start = sys.time()
-
-for i = 1, 100000
-    i = i + 1
-
-end = sys.time()
-
-os.output("Took {end - start} seconds")
-```
-
-### sys.datetime()
-Returns the current UTC date and time as a table. All values are numbers. The table contains the following keys:
-
-- `year` — The current year (e.g., 2026)
-- `month` — The month as a number (1-12)
-- `week` — The day of the week as a number (0 = Sunday, 6 = Saturday)
-- `day` — The day of the month (1-31)
-- `hour` — The hour in 24-hour format (0-23)
-- `minute` — The minute (0-59)
-- `second` — The second (0-59)
-- `millisecond` — The millisecond (0-999)
-
-```apex
-import os
-import sys
-
-now = sys.datetime()
-
-os.output("Year: {now['year']}")
-os.output("Month: {now['month']}")
-os.output("Day: {now['day']}")
-os.output("Hour: {now['hour']}")
-os.output("Minute: {now['minute']}")
-```
-
 ### sys.platform()
 Returns a string identifying your operating system, such as `"Windows"`, `"macOS"`, `"iOS"`, `"tvOS"`, `"watchOS"`, `"Android"`, `"Linux"`, `"FreeBSD"`, `"OpenBSD"`, `"NetBSD"`, `"QNX"`, or `"Unix"`. Returns `none` if the platform cannot be detected.
 
@@ -2054,4 +2012,150 @@ if result == none
     os.output("Failed to unpack archive")
 else
     os.output("Extracted successfully")
+```
+
+## Datetime Library (datetime)
+The Datetime library provides date and time handling. Import it with `import datetime`.
+
+All functions work with a **datetime table** — a plain table with these keys:
+
+- `year` — 1 to 9999
+- `month` — 1 to 12
+- `day` — 1 to 31
+- `hour` — 0 to 23
+- `minute` — 0 to 59
+- `second` — 0 to 59
+- `millisecond` — 0 to 999
+- `weekday` — 0 (Sunday) to 6 (Saturday)
+
+There is no `epoch` key inside the table. Use `datetime.to_timestamp()` to convert.
+
+### datetime.now()
+Returns the current moment in UTC as a datetime table. Always succeeds.
+
+```apex
+import os
+import datetime
+
+d = datetime.now()
+os.output(d["year"])     // current UTC year
+os.output(d["hour"])     // current UTC hour
+os.output(d["weekday"])  // 0 (Sunday) .. 6 (Saturday)
+```
+
+### datetime.local()
+Returns the current moment in the system's local time zone. Same shape as `datetime.now()`.
+
+```apex
+import os
+import datetime
+
+d = datetime.local()
+os.output("Local time: {d['hour']}:{d['minute']}")
+```
+
+### datetime.timestamp()
+Returns the current time as a number — seconds since 1970-01-01 UTC, with microsecond precision. Never allocates a table, so it is cheap in tight loops.
+
+```apex
+import os
+import datetime
+
+t0 = datetime.timestamp()
+for i = 1, 1000000
+    i = i + 1
+t1 = datetime.timestamp()
+os.output("Took {t1 - t0} seconds")
+```
+
+### datetime.from_timestamp(secs)
+Converts seconds since 1970-01-01 UTC into a datetime table. Returns `none` if the argument is not a number.
+
+```apex
+import os
+import datetime
+
+d = datetime.from_timestamp(1798761600)  // 2027-01-01 00:00:00 UTC
+os.output("{d['year']}-{d['month']}-{d['day']}")  // 2027-1-1
+os.output(d["weekday"])                            // 5 (Friday)
+```
+
+### datetime.to_timestamp(dt)
+Converts a datetime table back to seconds since 1970-01-01 UTC. Returns `none` if required fields (`year`, `month`, `day`) are missing. Time fields default to `0`.
+
+```apex
+import os
+import datetime
+
+d = ["year" = 2027, "month" = 1, "day" = 1]
+os.output(datetime.to_timestamp(d))  // 1798761600
+```
+
+### datetime.parse(str)
+Parses an ISO-8601 datetime string into a datetime table. Accepts `YYYY-MM-DD`, optionally followed by `T` or a space and `HH:MM`, `HH:MM:SS`, or `HH:MM:SS.fff`. Returns `none` on any syntax error, out-of-range field, or impossible date (like `2023-02-29`).
+
+```apex
+import os
+import datetime
+
+d1 = datetime.parse("2027-01-01")
+d2 = datetime.parse("2027-01-01 14:30:45.250")
+
+os.output(d1["weekday"])      // 5 (Friday)
+os.output(d2["millisecond"])  // 250
+```
+
+### datetime.format(dt, fmt)
+Renders a datetime table to a string using a strftime-like template. Returns `none` if `dt` is missing required fields.
+
+Supported tokens:
+
+| Token | Meaning              | Example    |
+|-------|----------------------|------------|
+| `%Y`  | Year, 4 digits       | `2027`     |
+| `%m`  | Month, 2 digits      | `01`       |
+| `%d`  | Day, 2 digits        | `01`       |
+| `%H`  | Hour 24h, 2 digits   | `14`       |
+| `%M`  | Minute, 2 digits     | `30`       |
+| `%S`  | Second, 2 digits     | `45`       |
+| `%f`  | Millisecond, 3 digits| `250`      |
+| `%a`  | Short weekday        | `Fri`      |
+| `%A`  | Full weekday         | `Friday`   |
+| `%b`  | Short month          | `Jan`      |
+| `%B`  | Full month           | `January`  |
+| `%j`  | Day of year, 3 digits| `001`      |
+| `%%`  | Literal `%`          | `%`        |
+
+```apex
+import os
+import datetime
+
+d = datetime.parse("2027-01-01 14:30:45")
+os.output(datetime.format(d, "%Y-%m-%d %H:%M:%S"))
+// 2027-01-01 14:30:45
+```
+
+### datetime.add(dt, n, unit)
+Returns a new datetime table shifted by `n` units. `unit` is one of: `"year"`, `"month"`, `"day"`, `"hour"`, `"minute"`, `"second"`, `"millisecond"`, `"week"`. Year and month use calendar arithmetic with day clamping (`2027-01-31 + 1 month = 2027-02-28`). Other units shift by fixed-length seconds. Returns `none` on unknown unit or invalid table.
+
+```apex
+import os
+import datetime
+
+d = datetime.parse("2027-01-31")
+m = datetime.add(d, 1, "month")
+os.output("{m['year']}-{m['month']}-{m['day']}")  // 2027-2-28
+```
+
+### datetime.diff(a, b, unit)
+Returns `a - b` as a number in the given unit. `unit` is one of: `"second"`, `"minute"`, `"hour"`, `"day"`, `"week"`. `"month"` and `"year"` are **not** accepted — their lengths vary and there is no single correct answer. Returns `none` on unknown unit or invalid table.
+
+```apex
+import os
+import datetime
+
+a = datetime.parse("2027-01-01")
+b = datetime.parse("2026-12-25")
+os.output(datetime.diff(a, b, "day"))   // 7
+os.output(datetime.diff(a, b, "week"))  // 1
 ```

@@ -5,11 +5,11 @@
 
 import os
 import table
-import sys
+import datetime
 
 // benchmark: insert, sum lookup, and remove operations on string keys (500k entries)
 function string_key_operations()
-    start = sys.time()
+    start = datetime.timestamp()
     t = []
     
     // insert 500k string-keyed entries
@@ -28,7 +28,7 @@ function string_key_operations()
     has1 = table.has(t, "key_1")
     has3 = table.has(t, "key_3")
     
-    elapsed = sys.time() - start
+    elapsed = datetime.timestamp() - start
     os.output("String keys: {sum}, Table size: {table.size(t)}, elapsed {elapsed}")
 
 // execute benchmark

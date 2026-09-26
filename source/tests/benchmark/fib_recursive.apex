@@ -4,7 +4,7 @@
 // MIT license
 
 import os
-import sys
+import datetime
 
 // recursive fibonacci - tests function call overhead and recursion depth
 function fib(n)
@@ -14,9 +14,9 @@ function fib(n)
 
 // benchmark: fib(35) - classic recursive performance test
 function fib35()
-    start = sys.time()
+    start = datetime.timestamp()
     result = fib(35)
-    elapsed = sys.time() - start
+    elapsed = datetime.timestamp() - start
     os.output("fib(35) recursive = {result}, elapsed {elapsed}")
 
 // execute benchmark

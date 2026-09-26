@@ -23,7 +23,7 @@ Full syntax highlighting for:
 Smart suggestions for:
 
 - **Keywords**: Control flow and logical operators.
-- **14 Standard Libraries**: `os`, `sys`, `math`, `string`, `table`, `random`, `json`, `xml`, `csv`, `base`, `regex`, `crypto`, `zip`.
+- **14 Standard Libraries**: `os`, `sys`, `math`, `string`, `table`, `random`, `json`, `xml`, `csv`, `base`, `regex`, `crypto`, `zip`, `datetime`.
 - **Library Functions**: Auto-complete for hundreds of functions like `os.read()`, `sys.platform`, `random.integer()`, `json.encode()`, etc.
 
 ### Run Code
@@ -34,7 +34,7 @@ Execute your current Apex file directly from VS Code:
 - **Terminal**: Runs the file in a dedicated "Apex" terminal instance.
 
 ### Language Configuration
-- **Auto-closing**: Supports automatic closing of parentheses `()`, brackets `[]`, and quotes `""`.
+- **Auto-closing**: Supports automatic closing of parentheses `()`, brackets `[]`, and quotes `""` & `''`.
 - **Indentation Rules**: Smart indentation for blocks following `function`, `if`, `else if`, `else`, and `for`.
 
 ## Installation

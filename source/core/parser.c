@@ -234,8 +234,8 @@ static const BuiltinSig BUILTINS[] = {
     {"sys.executable", 0, 0, TYPE_ANY}, {"sys.disk",         0, 0, TYPE_STRING},
     {"sys.temp",       0, 0, TYPE_ANY}, {"sys.is_terminal",     0, 0, TYPE_ANY},
     {"sys.process_id", 0, 0, TYPE_ANY}, {"sys.environment",     0, 0, TYPE_ANY},
-    {"sys.time",       0, 0, TYPE_ANY}, {"sys.datetime",        0, 0, TYPE_ANY},
 
+    
     {"math.abs",             1, 1, TYPE_NUMBER}, { "math.round_down", 1, 1, TYPE_NUMBER},
     {"math.round_up",        1, 1, TYPE_NUMBER}, {"math.round",       1, 2, TYPE_NUMBER},
     {"math.sqrt",            1, 1, TYPE_NUMBER}, {"math.exponent",    1, 1, TYPE_NUMBER},
@@ -300,6 +300,12 @@ static const BuiltinSig BUILTINS[] = {
     {"crypto.random_integer", 1, 1, TYPE_NUMBER}, {"crypto.random_float",       0, 0, TYPE_ANY},
 
     {"zip.pack", 1, 1, TYPE_STRING}, {"zip.unpack", 1, 1, TYPE_STRING},
+
+    {"datetime.now",            0, 0, TYPE_ANY},   {"datetime.local",          0, 0, TYPE_ANY},
+    {"datetime.timestamp",      0, 0, TYPE_ANY},   {"datetime.from_timestamp", 1, 1, TYPE_NUMBER},
+    {"datetime.to_timestamp",   1, 1, TYPE_TABLE}, {"datetime.parse",          1, 1, TYPE_STRING},
+    {"datetime.format",         2, 2, TYPE_TABLE}, {"datetime.add",            3, 3, TYPE_TABLE},
+    {"datetime.diff",           3, 3, TYPE_TABLE},
 
     {"number", 1, 1, TYPE_ANY}, {"string", 1, 1, TYPE_ANY}, {"type", 1, 1, TYPE_ANY}
 };
@@ -595,6 +601,8 @@ static bool is_known_builtin_module(const char* name) {
             return strcmp(name, "base") == 0;      // base module
         case 'z':
             return strcmp(name, "zip") == 0;       // zip module
+        case 'd':
+            return strcmp(name, "datetime") == 0;  // datetime module
         default:
             return false;                          // no builtin module matches
     }

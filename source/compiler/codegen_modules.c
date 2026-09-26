@@ -33,6 +33,8 @@ bool is_known_builtin_module(const char* name) {
             return strcmp(name, "base") == 0;      // base module
         case 'z':
             return strcmp(name, "zip") == 0;       // zip module
+        case 'd':
+            return strcmp(name, "datetime") == 0;  // datetime module
         default:
             return false;                          // no builtin module matches
     }

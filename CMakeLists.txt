@@ -83,6 +83,7 @@ set(SOURCES
     source/libraries/regex_module.c
     source/libraries/crypto_module.c
     source/libraries/zip_module.c
+    source/libraries/datetime_module.c
 
     source/utils/execute.c
     source/utils/error.c

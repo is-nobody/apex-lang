@@ -4,18 +4,18 @@
 // MIT license
 
 import os
-import sys
+import datetime
 
 // benchmark: creates 1 million temporary tables (10 entries each) and sums their 5th element
 function temp_tables()
-    start = sys.time()
+    start = datetime.timestamp()
     sum = 0
     for i = 1, 1000000
         temp = []
         for j = 1, 10
             temp[j] = i * j
         sum = sum + temp[5]
-    elapsed = sys.time() - start
+    elapsed = datetime.timestamp() - start
     os.output("Temporary tables: {sum}, elapsed {elapsed}")
 
 // execute benchmark

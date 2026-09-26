@@ -5,15 +5,15 @@
 
 import os
 import string
-import sys
+import datetime
 
 // benchmark: appends 'a' 1m times using string interpolation
 function string_building()
-    start = sys.time()
+    start = datetime.timestamp()
     s = "start"
     for i = 1, 1000000
         s = "{s}a"
-    elapsed = sys.time() - start
+    elapsed = datetime.timestamp() - start
     os.output("String len (1000000): {string.length(s)}, elapsed {elapsed}")
 
 // execute benchmark

@@ -4,11 +4,11 @@
 // MIT license
 
 import os
-import sys
+import datetime
 
 // benchmark: nested table access with 1000*100*10 = 1 million elements
 function table_nested_access()
-    start = sys.time()
+    start = datetime.timestamp()
     root = []
     
     // build 3D nested table structure
@@ -26,7 +26,7 @@ function table_nested_access()
             for k = 1, 10
                 sum = sum + root[i][j][k]
     
-    elapsed = sys.time() - start
+    elapsed = datetime.timestamp() - start
     os.output("Table nested access: {sum}, elapsed {elapsed}")
 
 // execute benchmark
