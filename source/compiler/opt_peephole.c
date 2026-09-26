@@ -390,6 +390,33 @@ int try_peephole_fuse(CodeGenerator* cg, Instruction* inst) {
         return cg->chunk->code_count - 1;
     }
 
+    // MOVE d,a + TABLE_SET* reading d as the value -> TABLE_SET* with value=a
+    if (prev->opcode == OP_MOVE &&
+        prev->operands[0] != prev->operands[1] &&
+        !peephole_is_local_reg(cg, prev->operands[0])) {
+        int mv_d = prev->operands[0];
+        int mv_a = prev->operands[1];
+        int slot = -1;                                            // operand slot holding the value
+        switch (inst->opcode) {
+            case OP_TABLE_SET: case OP_TABLE_SET_INT:
+            case OP_TABLE_SET_NUM: case OP_TABLE_SET_CONST:
+                slot = 2;                                         // obj, key, value
+                break;
+            case OP_TABLE_SET_KEY_STR:
+                slot = 1;                                         // obj, value, packed
+                break;
+            default: break;
+        }
+        if (slot >= 0 && inst->operands[slot] == mv_d) {
+            prev->opcode = inst->opcode;
+            prev->operands[0] = inst->operands[0];
+            prev->operands[1] = inst->operands[1];
+            prev->operands[2] = inst->operands[2];
+            prev->operands[slot] = mv_a;
+            return cg->chunk->code_count - 1;
+        }
+    }
+
     // MOVE a,b + MOVE b,a -> MOVE a,b
     if (prev->opcode == OP_MOVE && inst->opcode == OP_MOVE &&
         prev->operands[0] == inst->operands[1] &&
