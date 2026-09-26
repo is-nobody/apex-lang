@@ -97,7 +97,7 @@ static int execute_embedded_bytecode(int argc, char** argv) {
     fseek(f, file_size - 24, SEEK_SET);             // seek to payload size field (4 bytes before marker)
     uint32_t payload_size = read_u32_from_file(f);  // read payload size
     
-    if (payload_size == 0 || payload_size > 100 * 1024 * 1024) {  // sanity check (max 100MB)
+    if (payload_size == 0 || (uint64_t)payload_size > (uint64_t)(file_size - 24)) {
         fclose(f);
         return -1;
     }
