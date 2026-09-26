@@ -584,8 +584,16 @@ void codegen_block(CodeGenerator* cg, ASTNode* node) {
         int reset_to = locals_high_water(cg);                                // keep locals + pinned
         if (reset_to < cg->register_floor) reset_to = cg->register_floor;    // respect floor
         if (reset_to < cg->cache_floor) reset_to = cg->cache_floor;          // respect cache pins
-        if (cg->next_register > reset_to) {                                  // drop temps only
-            cg->next_register = reset_to;                                    // reclaim for next stmt
+        if (cg->next_register > reset_to) {
+            cg->next_register = reset_to;
+
+            // any lvm entry whose result_reg is now available for reuse must be dropped
+            for (int i = 0; i < cg->imm_lvn.count; i++) {
+                if (cg->imm_lvn.entries[i].result_reg >= reset_to) {
+                    cg->imm_lvn.entries[i] = cg->imm_lvn.entries[--cg->imm_lvn.count];
+                    i--;
+                }
+            }
         }
     }
     cg->block_depth--;
