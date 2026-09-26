@@ -162,8 +162,8 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         }
     }
 
-    size_t rip_fixup_at[64];                                     // rip-relative disp32 offsets
-    int    rip_fixup_imm[64];                                    // imm index per fixup
+    size_t rip_fixup_at[256];                                    // rip-relative disp32 offsets
+    int    rip_fixup_imm[256];                                   // imm index per fixup
     int    rip_fixup_count = 0;                                  // pending rip fixups
 
     size_t tab_fixup_at[256];                                    // inline dispatch tables: 8-byte slots
