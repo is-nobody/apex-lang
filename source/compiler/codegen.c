@@ -180,7 +180,6 @@ void codegen_destroy(CodeGenerator* cg) {
         free(cg->emitted_modules[i]);                                      // free owned copy
     }
     free(cg->emitted_modules);                                             // free name array
-
     free(cg->fn_cache.memoizable);                                         // release per-func predicate cache
     free(cg->fn_cache.returns_bool);                                       // release per-func predicate cache
     free(cg->fn_cache.inlinable);                                          // release per-func predicate cache

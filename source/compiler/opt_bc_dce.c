@@ -210,7 +210,18 @@ static void compact_functions_and_constants(CodeGenerator* cg, uint8_t* used_fun
         }
         int w = 0;                                                // compact in place
         for (int f = 0; f < nf; f++) {
-            if (!used_func[f]) continue;
+            if (!used_func[f]) {                                  // dropped function: free its owned memory
+                free(cg->chunk->functions[f].name);               // strdup'd in bytecode_add_function
+                cg->chunk->functions[f].name = NULL;
+                if (cg->chunk->functions[f].local_names) {        // malloc'd in codegen_function_decl
+                    for (int k = 0; k < cg->chunk->functions[f].local_count; k++) {
+                        free(cg->chunk->functions[f].local_names[k]);  // each strdup'd name
+                    }
+                    free(cg->chunk->functions[f].local_names);
+                    cg->chunk->functions[f].local_names = NULL;
+                }
+                continue;
+            }
             if (w != f) cg->chunk->functions[w] = cg->chunk->functions[f];
             w++;
         }
