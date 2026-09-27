@@ -69,6 +69,7 @@ bool try_rewrite_recursive_fn(CodeGenerator* cg, int func_idx);
 
 // codegen_modules.c
 bool is_known_builtin_module(const char* name);
+bool is_known_builtin_function(const char* name);
 void add_module_global(CodeGenerator* cg, const char* full_name);
 
 // opt_const_fold.c

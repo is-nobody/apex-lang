@@ -71,6 +71,9 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->module_capacity = 0;                                               // no capacity
     cg->module_globals = NULL;                                             // no module globals
     cg->module_globals_count = 0;                                          // zero module globals
+    cg->emitted_modules          = NULL;                                   // no emitted modules yet
+    cg->emitted_modules_count    = 0;                                      // zero counter
+    cg->emitted_modules_capacity = 0;                                      // zero capacity
     cg->module_globals_capacity = 0;                                       // no capacity
     cg->fn_decls     = NULL;                                               // no per-function ASTs yet
     cg->fn_decls_cap = 0;                                                  // zero capacity
@@ -172,6 +175,11 @@ void codegen_destroy(CodeGenerator* cg) {
         free(cg->module_globals[i]);
     }
     free(cg->module_globals);                                              // free globals array
+
+    for (int i = 0; i < cg->emitted_modules_count; i++) {                  // each module name
+        free(cg->emitted_modules[i]);                                      // free owned copy
+    }
+    free(cg->emitted_modules);                                             // free name array
 
     free(cg->fn_cache.memoizable);                                         // release per-func predicate cache
     free(cg->fn_cache.returns_bool);                                       // release per-func predicate cache

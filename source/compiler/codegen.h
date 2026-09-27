@@ -133,6 +133,9 @@ typedef struct {
     char** imported_modules;       // list of imported module names for name resolution
     int module_count;              // number of imported modules
     int module_capacity;           // allocated capacity of imported_modules array
+    char** emitted_modules;        // module names whose bodies were already emitted
+    int    emitted_modules_count;  // number of deduped module names
+    int    emitted_modules_capacity; // allocated capacity of emitted_modules
     char** module_globals;         // global variables specific to the current module
     int module_globals_count;      // number of module-specific globals
     int module_globals_capacity;   // allocated capacity of module_globals array
@@ -143,7 +146,7 @@ typedef struct {
     struct {
         int8_t* memoizable;        // per-func: -1 unknown, 0 no, 1 yes
         int8_t* returns_bool;      // per-func: -1 unknown, 0 no, 1 yes
-        int8_t* inlinable;         // per-func: -1 unknown, 0 no, 1 yes
+        int8_t* inlinable;         // per-func: -1 unknown, 0 no, 1 leaf, 2 self-recursive
         int*    node_count;        // per-func: ast_node_count(body), -1 unknown
         int*    end_pc;            // per-func: first pc after the body, -1 unknown
         int     capacity;          // allocated size of the five arrays above

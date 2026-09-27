@@ -19,7 +19,7 @@ int num_cache_lookup(CodeGenerator* cg, double value) {
 
 // records a numeric constant and pins its register for the rest of the function
 void num_cache_add(CodeGenerator* cg, double value, int reg) {
-    if (cg->num_cache.count >= 16) return;                       // cap to limit register pressure
+    if (cg->num_cache.count >= 8) return;                        // was 16; lower pressure
     if (cg->num_cache.count >= cg->num_cache.capacity) {         // need more space
         cg->num_cache.capacity = cg->num_cache.capacity == 0 ? 8 : cg->num_cache.capacity * 2;
         cg->num_cache.values = (double*)realloc(cg->num_cache.values,
@@ -59,7 +59,7 @@ int str_cache_lookup(CodeGenerator* cg, const char* value) {
 
 // records a string literal and pins its register for the rest of the function
 void str_cache_add(CodeGenerator* cg, const char* value, int reg) {
-    if (cg->str_cache.count >= 16) return;                       // cap to limit register pressure
+    if (cg->str_cache.count >= 8) return;                        // was 16; lower pressure
     if (cg->str_cache.count >= cg->str_cache.capacity) {         // need more space
         cg->str_cache.capacity = cg->str_cache.capacity == 0 ? 8 : cg->str_cache.capacity * 2;
         cg->str_cache.values = (char**)realloc(cg->str_cache.values,

@@ -200,28 +200,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node, int dest_hint) {
         }
     }
 
-    bool is_builtin = false;  // check if this is a known builtin
-
-    if (strcmp(func_name, "number") == 0 ||
-        strcmp(func_name, "string") == 0 ||
-        strcmp(func_name, "type") == 0) {
-        is_builtin = true;
-    }
-    else if (strncmp(func_name, "os.", 3) == 0 ||
-             strncmp(func_name, "sys.", 4) == 0 ||
-             strncmp(func_name, "math.", 5) == 0 ||
-             strncmp(func_name, "string.", 7) == 0 ||
-             strncmp(func_name, "table.", 6) == 0 ||
-             strncmp(func_name, "random.", 7) == 0 ||
-             strncmp(func_name, "json.", 5) == 0 ||
-             strncmp(func_name, "xml.", 4) == 0 ||
-             strncmp(func_name, "csv.", 4) == 0 ||
-             strncmp(func_name, "base.", 5) == 0 ||
-             strncmp(func_name, "regex.", 6) == 0 ||
-             strncmp(func_name, "crypto.", 7) == 0 ||
-             strncmp(func_name, "zip.", 4) == 0) {
-        is_builtin = true;
-    }
+    bool is_builtin = is_known_builtin_function(func_name);   // single source of truth
 
     if (is_builtin) {                                                         // built-in function
         for (int i = 0; i < arg_count; i++) {                                 // push args

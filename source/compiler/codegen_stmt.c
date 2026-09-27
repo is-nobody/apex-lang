@@ -517,18 +517,38 @@ void codegen_statement(CodeGenerator* cg, ASTNode* node) {
         case AST_EXPR_STMT:       codegen_expr_statement(cg, node); break;   // expr stmt
         case AST_BLOCK:           codegen_block(cg, node); break;            // block
         case AST_MODULE_BLOCK: {                                             // module block
-            if (cg->module_count >= cg->module_capacity) {                   // need space
+            const char* mod_name = node->module_block.module_name;          // module name
+
+            bool already_emitted = false;                                   // dedup flag
+            for (int i = 0; i < cg->emitted_modules_count; i++) {           // scan emitted set
+                if (strcmp(cg->emitted_modules[i], mod_name) == 0) {        // same module?
+                    already_emitted = true;                                 // mark seen
+                    break;
+                }
+            }
+            if (already_emitted) break;                                     // emit body once only
+
+            if (cg->emitted_modules_count >= cg->emitted_modules_capacity) { // need space
+                cg->emitted_modules_capacity = cg->emitted_modules_capacity == 0
+                    ? 16 : cg->emitted_modules_capacity * 2;                // double
+                cg->emitted_modules = (char**)realloc(cg->emitted_modules,
+                    sizeof(char*) * cg->emitted_modules_capacity);          // grow array
+            }
+            cg->emitted_modules[cg->emitted_modules_count++] =              // record name
+                strdup(mod_name);
+
+            if (cg->module_count >= cg->module_capacity) {                  // import table space
                 cg->module_capacity = cg->module_capacity == 0 ? 8 : cg->module_capacity * 2;
                 cg->imported_modules = (char**)realloc(cg->imported_modules,
                                                        sizeof(char*) * cg->module_capacity);
             }
-            cg->imported_modules[cg->module_count++] =                       // add module
-                strdup(node->module_block.module_name);
+            cg->imported_modules[cg->module_count++] =                      // register import
+                strdup(mod_name);
 
-            char* prev_module = cg->current_module;                          // save current module
-            cg->current_module = node->module_block.module_name;             // set current module
-            codegen_block(cg, node->module_block.body);                      // emit module body
-            cg->current_module = prev_module;                                // restore module
+            char* prev_module = cg->current_module;                         // save module ctx
+            cg->current_module = node->module_block.module_name;            // set module ctx
+            codegen_block(cg, node->module_block.body);                     // emit body once
+            cg->current_module = prev_module;                               // restore ctx
             break;
         }
         default: break;                                                      // ignore

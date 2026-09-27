@@ -6,6 +6,7 @@
 #include "codegen_internal.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 // true when an expression is safe to duplicate at an inline site
 static bool inline_expr_ok(ASTNode* node, const char** names, int name_count) {
@@ -214,10 +215,10 @@ static int ast_node_count(ASTNode* node) {
 bool function_is_inlinable(CodeGenerator* cg, int func_idx) {
     if (func_idx < 0 || func_idx >= cg->fn_decls_cap) return false;
     if (cg->fn_cache.inlinable[func_idx] >= 0)                     // already decided: O(1)
-        return cg->fn_cache.inlinable[func_idx] == 1;
+        return cg->fn_cache.inlinable[func_idx] != 0;              // 1=leaf, 2=self-recursive, both yes
 
     ASTNode* fn_decl = cg->fn_decls[func_idx];                     // cached AST slot
-    bool ok = false;
+    int cls = 0;                                                    // 0=no, 1=leaf, 2=self-recursive
     if (fn_decl && fn_decl->type == AST_FUNCTION_DECL &&
         !fn_decl->function_decl.is_async) {
         ASTNodeList* params = fn_decl->function_decl.params;
@@ -229,22 +230,23 @@ bool function_is_inlinable(CodeGenerator* cg, int func_idx) {
             int name_count = 0;
             for (int i = 0; i < params->count && name_count < 24; i++)
                 names[name_count++] = params->nodes[i]->param.name;
-            int budget = 24;
-            if (inline_body_ok(body, names, &name_count, &budget)) {
-                int nc = ast_node_count(body);                     // compute cost once
-                if (nc <= 60) {
-                    cg->fn_cache.node_count[func_idx] = nc;        // stash for try_inline_function
-                    ok = true;
+            int budget = 24;                                                    // stmt budget
+            if (inline_body_ok(body, names, &name_count, &budget)) {            // passes shape check
+                int nc = ast_node_count(body);                                  // cost
+                if (nc <= 40) {                                                 // tighter cap
+                    cls = 1;                                                    // size-only rule, no call-graph filter
+                    cg->fn_cache.node_count[func_idx] = nc;                     // stash cost
                 }
             }
         }
     }
-    cg->fn_cache.inlinable[func_idx] = ok ? 1 : 0;                 // memoize decision
-    return ok;
+    cg->fn_cache.inlinable[func_idx] = cls;                         // 0, 1, or 2
+    return cls != 0;
 }
 
-// total AST-node budget for a single top-level inline operation
-#define INLINE_TOTAL_BUDGET 128
+#define INLINE_TOTAL_BUDGET 64  // leaf budget, single top-level
+#define REC_INLINE_BUDGET  256  // recursive budget, ~4 levels of fib
+#define REC_INLINE_DEPTH     4  // max nesting for self-recursive inline
 
 // inlines a function body at the call site: params are rebound to the caller's arg registers
 bool try_inline_function(CodeGenerator* cg, int func_idx,
@@ -252,7 +254,9 @@ bool try_inline_function(CodeGenerator* cg, int func_idx,
                          int* arg_regs, int arg_count,
                          int result_reg, int line) {
     (void)arg_nodes;                                               // kept for api stability; args already live in arg_regs
-    if (cg->inline_depth >= 3) return false;                       // bound nesting depth
+    int cls = cg->fn_cache.inlinable[func_idx];                    // inline class: 1=leaf, 2=recursive
+    int max_depth = (cls == 2) ? REC_INLINE_DEPTH : 1;             // recursive gets a deeper cap
+    if (cg->inline_depth >= max_depth) return false;               // depth gate
 
     ASTNode* fn_decl = cg->fn_decls[func_idx];
     ASTNodeList* params = fn_decl->function_decl.params;
@@ -261,7 +265,8 @@ bool try_inline_function(CodeGenerator* cg, int func_idx,
     ASTNode* body = fn_decl->function_decl.body;
 
     // cumulative budget: reset only at the top-level inline, then let each nested inline decrement it
-    if (cg->inline_depth == 0) cg->inline_budget = INLINE_TOTAL_BUDGET;
+    if (cg->inline_depth == 0)                                     // reset on top-level inline
+        cg->inline_budget = (cls == 2) ? REC_INLINE_BUDGET : INLINE_TOTAL_BUDGET;
     int cost = cg->fn_cache.node_count[func_idx] >= 0              // reuse cached cost
              ? cg->fn_cache.node_count[func_idx]
              : ast_node_count(body);

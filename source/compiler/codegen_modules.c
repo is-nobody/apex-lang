@@ -40,6 +40,22 @@ bool is_known_builtin_module(const char* name) {
     }
 }
 
+bool is_known_builtin_function(const char* name) {                       // shared builtin whitelist
+    if (!name || !name[0]) return false;                                  // null / empty guard
+    if (!strcmp(name, "number") ||                                        // number(x) builtin
+        !strcmp(name, "string") ||                                        // string(x) builtin
+        !strcmp(name, "type"))   return true;                             // type(x) builtin
+    static const char* prefixes[] = {                                     // module prefixes
+        "os.", "sys.", "math.", "string.", "table.", "random.",
+        "json.", "xml.", "csv.", "base.", "regex.", "crypto.", "zip."
+    };
+    for (size_t i = 0; i < sizeof(prefixes) / sizeof(*prefixes); i++) {   // scan prefix table
+        size_t n = strlen(prefixes[i]);                                   // prefix length
+        if (!strncmp(name, prefixes[i], n)) return true;                  // match -> builtin
+    }
+    return false;                                                          // not a builtin
+}
+
 // registers a module-scoped global variable for name resolution
 void add_module_global(CodeGenerator* cg, const char* full_name) {
     for (int i = 0; i < cg->module_globals_count; i++) {                          // check existing
