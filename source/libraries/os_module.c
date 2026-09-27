@@ -44,6 +44,7 @@
 #include <sys/time.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <termios.h>
 #endif
 
 // normalize path separators for windows filesystem
@@ -384,6 +385,60 @@ static Value os_input_sync(void* p) {
     return make_owned_string(buffer, (int)strlen(buffer));  // fresh non-interned string
 }
 
+// reads a line from stdin without echoing the typed characters
+static Value os_input_hidden_sync(void* p) {
+    OsArgs* a = (OsArgs*)p;                             // unpack argument struct
+    ensure_stdin_mutex();                               // one-time init of the stdin mutex
+    APEX_MUTEX_LOCK(&g_stdin_mutex);                    // serialize stdin access across workers
+    printf("%s", a->content ? a->content : "");         // print prompt
+    fflush(stdout);                                     // flush output
+
+    char buffer[4096];                                  // input buffer
+    buffer[0] = '\0';                                   // default to empty (EOF path)
+    bool echo_disabled = false;                         // track whether we must restore
+
+#ifdef _WIN32
+    HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);     // stdin handle
+    DWORD old_mode = 0;                                 // saved console mode
+    if (hStdin != INVALID_HANDLE_VALUE && GetConsoleMode(hStdin, &old_mode)) {
+        DWORD new_mode = old_mode & ~(DWORD)ENABLE_ECHO_INPUT;  // clear echo bit only
+        if (SetConsoleMode(hStdin, new_mode)) {
+            echo_disabled = true;                       // echo successfully disabled
+        }
+    }
+#else
+    struct termios old_term, new_term;                  // terminal state
+    int fd_in = fileno(stdin);                          // stdin file descriptor
+    bool is_tty = isatty(fd_in);                        // only touch a real terminal
+    if (is_tty && tcgetattr(fd_in, &old_term) == 0) {
+        new_term = old_term;                            // copy current settings
+        new_term.c_lflag &= ~(tcflag_t)ECHO;            // disable echo
+        if (tcsetattr(fd_in, TCSAFLUSH, &new_term) == 0) {
+            echo_disabled = true;                       // echo successfully disabled
+        }
+    }
+#endif
+
+    if (fgets(buffer, sizeof(buffer), stdin)) {         // read line
+        buffer[strcspn(buffer, "\r\n")] = 0;            // strip newline
+    } else {
+        buffer[0] = '\0';                               // empty on eof (matches os.input)
+    }
+
+    if (echo_disabled) {                                // restore terminal echo
+#ifdef _WIN32
+        SetConsoleMode(hStdin, old_mode);               // restore console mode
+#else
+        tcsetattr(fd_in, TCSAFLUSH, &old_term);         // restore terminal settings
+#endif
+        printf("\n");                                   // Enter was not echoed, emit newline
+        fflush(stdout);                                 // flush newline
+    }
+
+    APEX_MUTEX_UNLOCK(&g_stdin_mutex);                  // release stdin mutex
+    return make_owned_string(buffer, (int)strlen(buffer));  // fresh non-interned string
+}
+
 // returns file or recursive directory size in bytes
 static Value os_size_sync(void* p) {
     OsArgs* a = (OsArgs*)p;                             // unpack argument struct
@@ -588,6 +643,19 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         *result = os_input_sync(a);                               // synchronous read
         os_args_free(a);                                          // release argument struct
         return true;                                              // builtin handled
+    }
+
+    if (strcmp(name, "os.input_hidden") == 0) {                    // read from stdin without echo
+        OsArgs* a = os_args_new();                                 // pack argument struct
+        a->content = strdup(arg_count >= 1 && IS_STRING(args[0])
+                            ? AS_STRING(args[0])->chars
+                            : "");                                 // copy prompt text
+
+        // stdin is inherently blocking and shared with the main thread:
+        // never offload to a worker, always read synchronously
+        *result = os_input_hidden_sync(a);                         // synchronous read
+        os_args_free(a);                                           // release argument struct
+        return true;                                               // builtin handled
     }
 
     if (strcmp(name, "os.wait") == 0) {                               // sleep for seconds

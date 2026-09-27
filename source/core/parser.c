@@ -214,9 +214,9 @@ typedef struct {
 } BuiltinSig;
 
 static const BuiltinSig BUILTINS[] = {
-    {"os.output",         1, 1, TYPE_ANY},    {"os.input",            1, 1, TYPE_ANY},
+    {"os.output",            1, 1, TYPE_ANY}, {"os.input",            1, 1, TYPE_ANY},
     {"os.wait",           1, 1, TYPE_NUMBER}, {"os.exit",          1, 1, TYPE_NUMBER},
-    {"os.current_folder", 0, 0, TYPE_ANY},    {"os.change_folder", 1, 1, TYPE_STRING},
+    {"os.current_folder",    0, 0, TYPE_ANY}, {"os.change_folder", 1, 1, TYPE_STRING},
     {"os.terminate",      1, 1, TYPE_NUMBER}, {"os.execute",       1, 1, TYPE_STRING},
     {"os.read",           1, 1, TYPE_STRING}, {"os.write",         2, 2, TYPE_STRING},
     {"os.append",         2, 2, TYPE_STRING}, {"os.exists",        1, 1, TYPE_STRING},
@@ -226,7 +226,8 @@ static const BuiltinSig BUILTINS[] = {
     {"os.rename",         2, 2, TYPE_STRING}, {"os.move",          2, 2, TYPE_STRING},
     {"os.copy",           2, 2, TYPE_STRING}, {"os.list_folder",   0, 1, TYPE_STRING},
     {"os.parent_folder",  1, 1, TYPE_STRING}, {"os.access",        2, 2, TYPE_STRING},
-    {"os.args",           0, 0, TYPE_ANY},    {"os.print",            1, 1, TYPE_ANY},
+    {"os.args",              0, 0, TYPE_ANY}, {"os.print",            1, 1, TYPE_ANY},
+    {"os.input_hidden",      1, 1, TYPE_ANY},
 
     {"sys.platform",   0, 0, TYPE_ANY}, {"sys.architecture",    0, 0, TYPE_ANY},
     {"sys.host",       0, 0, TYPE_ANY}, {"sys.user",            0, 0, TYPE_ANY},
@@ -261,9 +262,9 @@ static const BuiltinSig BUILTINS[] = {
     {"table.values", 1, 1, TYPE_TABLE}, {"table.clear", 1, 1, TYPE_TABLE},
     {"table.copy",   1, 1, TYPE_TABLE}, {"table.merge", 2, 2, TYPE_TABLE},
 
-    {"random.float",       0, 0, TYPE_ANY},    {"random.integer",     2, 2, TYPE_NUMBER},
-    {"random.choice",      1, 1, TYPE_TABLE},  {"random.shuffle",      1, 1, TYPE_TABLE},
-    {"random.sample",      2, 2, TYPE_TABLE},  {"random.normal",      2, 2, TYPE_NUMBER},
+    {"random.float",          0, 0, TYPE_ANY}, {"random.integer",     2, 2, TYPE_NUMBER},
+    {"random.choice",       1, 1, TYPE_TABLE}, {"random.shuffle",      1, 1, TYPE_TABLE},
+    {"random.sample",       2, 2, TYPE_TABLE}, {"random.normal",      2, 2, TYPE_NUMBER},
     {"random.seed",        0, 1, TYPE_NUMBER}, {"random.triangular",  0, 3, TYPE_NUMBER},
     {"random.expovariate", 1, 1, TYPE_NUMBER}, {"random.betavariate", 2, 2, TYPE_NUMBER},
 
@@ -301,8 +302,8 @@ static const BuiltinSig BUILTINS[] = {
 
     {"zip.pack", 1, 1, TYPE_STRING}, {"zip.unpack", 1, 1, TYPE_STRING},
 
-    {"datetime.now",            0, 0, TYPE_ANY},   {"datetime.local",          0, 0, TYPE_ANY},
-    {"datetime.timestamp",      0, 0, TYPE_ANY},   {"datetime.from_timestamp", 1, 1, TYPE_NUMBER},
+    {"datetime.now",              0, 0, TYPE_ANY}, {"datetime.local",          0, 0, TYPE_ANY},
+    {"datetime.timestamp",        0, 0, TYPE_ANY}, {"datetime.from_timestamp", 1, 1, TYPE_NUMBER},
     {"datetime.to_timestamp",   1, 1, TYPE_TABLE}, {"datetime.parse",          1, 1, TYPE_STRING},
     {"datetime.format",         2, 2, TYPE_TABLE}, {"datetime.add",            3, 3, TYPE_TABLE},
     {"datetime.diff",           3, 3, TYPE_TABLE},

@@ -35,6 +35,18 @@ name = os.input("What is your name? ")
 os.output("Hello, {name}")
 ```
 
+### os.input_hidden(prompt)
+
+Works like `os.input`, but does not echo what the user types. Use it for passwords, tokens, and other secrets.
+
+Prints `prompt`, reads a line with echo turned off, then prints a newline. Returns the typed string, or an empty string on EOF. If stdin is not a terminal (pipe, redirect, CI), falls back to normal visible input.
+
+```apex
+import os
+password = os.input_hidden("Password: ")
+os.output("Received {password}")
+```
+
 ### os.wait(seconds)
 Pauses the program for the given number of seconds. You can use decimals for fractions of a second. Negative values are treated as `0`. Always returns `none`.
 

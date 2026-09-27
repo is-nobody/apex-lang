@@ -132,7 +132,7 @@ function activate(context) {
                 'os.append',              'os.exists',
                 'os.is_file',          'os.is_folder',
                 'os.rename',                'os.move',
-                'os.print',
+                'os.print',         'os.input_hidden',
 
                 'sys.platform',  'sys.architecture',
                 'sys.host',              'sys.user',
