@@ -3483,8 +3483,77 @@ static ASTNode* parse_block(Parser* parser, bool require_indent, const char* aft
     return ast_create_block(statements);           // return block node
 }
 
+// pre-scan pass that registers top-level function and constant names before the main parse
+static void prescan_declarations(Parser* parser) {
+    int saved_pos = parser->current;               // save parse position to restore afterward
+    int depth = 0;                                 // indent depth tracked via INDENT/DEDENT tokens
+
+    while (parser->current < parser->count) {
+        Token* token = &parser->tokens[parser->current];
+
+        if (token->type == TOKEN_EOF) break;       // end of token stream
+
+        if (token->type == TOKEN_INDENT) {         // entering nested block
+            depth++;
+            parser->current++;
+            continue;
+        }
+        if (token->type == TOKEN_DEDENT) {         // leaving nested block
+            if (depth > 0) depth--;
+            parser->current++;
+            continue;
+        }
+
+        if (depth == 0 && token->type == TOKEN_FUNCTION) {  // top-level function declaration
+            int j = parser->current + 1;
+            if (j < parser->count && parser->tokens[j].type == TOKEN_IDENTIFIER) {
+                Token* name_tok = &parser->tokens[j];        // function name token
+                int param_count = 0;                          // parameter counter
+                j++;
+                if (j < parser->count && parser->tokens[j].type == TOKEN_LPAREN) {
+                    j++;
+                    bool expect_param = true;                 // expecting a parameter name next
+                    while (j < parser->count &&
+                           parser->tokens[j].type != TOKEN_RPAREN &&
+                           parser->tokens[j].type != TOKEN_EOF) {
+                        if (parser->tokens[j].type == TOKEN_IDENTIFIER && expect_param) {
+                            param_count++;                    // count parameter name
+                            expect_param = false;
+                        } else if (parser->tokens[j].type == TOKEN_COMMA) {
+                            expect_param = true;              // next identifier is a parameter
+                        }
+                        j++;
+                    }
+                }
+
+                if (symbol_index_in_scope(parser, name_tok->value, 0) < 0) {
+                    parser_declare_symbol(parser, name_tok->value, PARSER_SYM_FUNCTION,
+                                          TYPE_FUNCTION, param_count,
+                                          name_tok->line, name_tok->column);  // pre-register function
+                }
+            }
+        } else if (depth == 0 && token->type == TOKEN_CONSTANT) {  // top-level constant declaration
+            int j = parser->current + 1;
+            if (j < parser->count && parser->tokens[j].type == TOKEN_IDENTIFIER) {
+                Token* name_tok = &parser->tokens[j];  // constant name token
+                if (symbol_index_in_scope(parser, name_tok->value, 0) < 0) {
+                    parser_declare_symbol(parser, name_tok->value, PARSER_SYM_CONSTANT,
+                                          TYPE_ANY, 0,
+                                          name_tok->line, name_tok->column);  // pre-register constant
+                }
+            }
+        }
+
+        parser->current++;
+    }
+
+    parser->current = saved_pos;                   // restore parse position
+}
+
 // parses the entire program as a sequence of statements
 ASTNode* parse_program(Parser* parser) {
+    prescan_declarations(parser);                  // first pass: register forward declarations
+
     ASTNodeList* statements = ast_list_create();   // program statements
     
     int prev_pos = -1;                              // prevent infinite loops

@@ -88,8 +88,8 @@ function hypot()
 // test: positive infinity constant
 function inf()
     result = math.inf()
-    is_inf = math.is_inf(result)
-    assert_equal(is_inf, true, "math.inf() is infinite")
+    isinf = math.is_inf(result)
+    assert_equal(isinf, true, "math.inf() is infinite")
 
 // test: check if value is infinite
 function is_inf()
