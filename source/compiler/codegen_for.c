@@ -644,9 +644,15 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             int iter_next_instr = bytecode_current_offset(cg->chunk);              // iter instruction
             emit(cg, INST(OP_TABLE_ITER_NEXT, var_reg, 0, 0), node->line);         // get next item
 
+            int saved_num_cache = cg->num_cache.count;                             // snapshot caches at loop entry
+            int saved_str_cache = cg->str_cache.count;
+
             cg->imm_lvn.count = 0;                                                 // body: back-edge merge point
             codegen_block(cg, node->for_stmt.body);                                // emit body
             restore_numbers(cg, table_entry);                                      // body may reassign: reset flags
+
+            cg->num_cache.count = saved_num_cache;                                 // loop may not have run: discard body-added entries
+            str_cache_truncate(cg, saved_str_cache);
 
             emit(cg, INST(OP_JUMP, loop_start, 0, 0), node->line);                 // jump back
 
@@ -836,6 +842,8 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
                     cg->locals.is_integer[loop_var_slot] = true;                   // whole-number loop var
                 }
             }
+            int saved_num_cache = cg->num_cache.count;                              // snapshot caches at loop entry
+            int saved_str_cache = cg->str_cache.count;
 
             LocalNumSnap loop_entry = snap_numbers(cg);                             // snapshot before body
 
@@ -908,7 +916,10 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             free_snap(loop_exit);
 
             // loop-inverted back edge: jumps to body_start on success, falls through on exit
-            emit(cg, INST(OP_FOR_NEXT_LOOP, var_reg, body_start, 0), node->line);
+            emit(cg, INST(OP_FOR_NEXT_LOOP, var_reg, body_start, 0), node->line);   // back-edge
+
+            cg->num_cache.count = saved_num_cache;                                  // loop may not have run: discard body-added entries
+            str_cache_truncate(cg, saved_str_cache);
 
             int exit_addr = bytecode_current_offset(cg->chunk);                     // exit address
             cg->chunk->code[for_next_instr].operands[1] = exit_addr;                // patch first test's exit
@@ -1020,6 +1031,8 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             }
         }
 
+        int saved_num_cache = cg->num_cache.count;                                  // snapshot caches at loop entry
+        int saved_str_cache = cg->str_cache.count;
         LocalNumSnap loop_entry = snap_numbers(cg);                                 // snapshot before body
         int prev_floor = cg->register_floor;                                        // save floor
         if (right_hoisted) {                                                        // right_reg must survive
@@ -1047,6 +1060,9 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
 
         cg->register_floor = prev_floor;                                            // restore floor
         emit(cg, INST(OP_JUMP, loop_start, 0, 0), node->line);                      // jump back
+
+        cg->num_cache.count = saved_num_cache;                                      // loop may not have run: discard body-added entries
+        str_cache_truncate(cg, saved_str_cache);
 
         int end_addr = bytecode_current_offset(cg->chunk);                          // end address
         if (jump_to_end >= 0)                                                       // patch jump
