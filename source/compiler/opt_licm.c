@@ -301,7 +301,8 @@ static void scan_hoistable_gets(CodeGenerator* cg, ASTNode* node, ASTNode* body)
     if (!node) return;
 
     if (node->type == AST_INDEX_ACCESS &&
-        node->access.object->type == AST_IDENTIFIER) {
+        node->access.object->type == AST_IDENTIFIER &&
+        find_local(cg, node->access.object->identifier.name) < 0) {
         const char* obj = node->access.object->identifier.name;
         bool is_module = false;
         for (int i = 0; i < cg->module_count; i++) {

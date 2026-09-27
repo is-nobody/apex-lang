@@ -984,7 +984,7 @@ int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint) {
                     member_name = node->access.member->literal_string.string_value;  // get string
                 }
 
-                if (member_name) {                                                   // valid member
+                if (member_name && find_local(cg, obj_name) < 0) {                   // valid member, not shadowed
                     for (int i = 0; i < cg->module_count; i++) {                     // check imported modules
                         if (strcmp(cg->imported_modules[i], obj_name) == 0) {        // matches import
                             is_module_access = true;                                 // mark as module

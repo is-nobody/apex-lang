@@ -146,11 +146,14 @@ void mark_jump_target(CodeGenerator* cg, int pc);
 bool code_has_jump_to(CodeGenerator* cg, int target);
 void thread_jumps(CodeGenerator* cg);
 
-// wraps bytecode_patch_jump so every patched target is recorded in the bitset
+// wraps bytecode_patch_jump so every patched target is recorded in the bitset any patch point is a control-flow merge
 #define PATCH_JUMP(cg, jump_idx, target) do {                       \
     int _t = resolve_jump_target((cg), (target));                   \
     bytecode_patch_jump((cg)->chunk, (jump_idx), (_t));             \
     mark_jump_target((cg), (_t));                                   \
+    (cg)->imm_lvn.count = 0;                                        \
+    (cg)->num_cache.count = 0;                                      \
+    str_cache_truncate((cg), 0);                                    \
 } while (0)
 
 #endif // CODEGEN_INTERNAL_H

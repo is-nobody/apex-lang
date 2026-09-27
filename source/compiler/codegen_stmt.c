@@ -14,7 +14,8 @@ static int codegen_index_assign(CodeGenerator* cg, ASTNode* node, int dest_hint)
 
     if (access->type == AST_INDEX_ACCESS &&                                  // simple module assignment
         access->access.object->type == AST_IDENTIFIER &&
-        access->access.member->type == AST_IDENTIFIER) {
+        access->access.member->type == AST_IDENTIFIER &&
+        find_local(cg, access->access.object->identifier.name) < 0) {        // not shadowed by a local
         const char* obj_name = access->access.object->identifier.name;       // object name
         bool is_module = false;                                              // module flag
         for (int i = 0; i < cg->module_count; i++) {                         // check imports
