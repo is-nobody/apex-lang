@@ -398,13 +398,13 @@ if home != none
 ```
 
 ### sys.is_terminal(fd)
-Checks if the file descriptor goes to a terminal. By default checks stdout (fd 1). Pass a number to check a different file descriptor: `0` for stdin, `2` for stderr. Returns `true` if the output goes to a terminal, `false` if it's redirected to a file or pipe. Always succeeds.
+Checks if the given file descriptor goes to a terminal. The `fd` argument is required and must be a number: `0` for stdin, `1` for stdout, `2` for stderr. Returns `true` if that stream goes to a terminal, `false` if it's redirected to a file or pipe. Always succeeds.
 
 ```apex
 import os
 import sys
 
-if sys.is_terminal() == true
+if sys.is_terminal(1) == true
     os.output("Output is a terminal")
 else
     os.output("Output is not a terminal")

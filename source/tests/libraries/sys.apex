@@ -80,7 +80,7 @@ function hostname()
 
 // test: checks if running in terminal
 function isterminal()
-    isterm = sys.is_terminal()
+    isterm = sys.is_terminal(1)
     assert_equal(isterm, true, "isterminal returns true")
 
 // test: returns platform identifier string
