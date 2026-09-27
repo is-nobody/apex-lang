@@ -270,6 +270,7 @@ typedef struct {
     struct {
         int return_address;        // instruction pointer to resume after call returns
         int base_iterator_depth;   // saved loop iterator depth for nested loops
+        int base_table_iter_depth; // saved table iterator depth for nested loops
         int frame_index;           // frame index for restoring registers
         int dest_reg;              // destination register for the return value
         Value* caller_registers;   // cached pointer to caller's registers

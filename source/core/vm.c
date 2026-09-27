@@ -3110,6 +3110,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         vm->call_stack[vm->call_depth].dest_reg       = dest_reg;                 // save dest register
         vm->call_stack[vm->call_depth].frame_index    = vm->current_frame;        // save current frame index
         vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;  // save iterator depth
+        vm->call_stack[vm->call_depth].base_table_iter_depth = vm->table_iter_depth; // save table iterator depth
         vm->call_stack[vm->call_depth].caller_registers    = regs;                // cache caller's register frame base
         vm->call_depth++;                         // push call frame
         vm->current_frame++;                      // advance to next register frame
@@ -3191,6 +3192,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         vm->call_stack[vm->call_depth].dest_reg = dest_reg;                          // save dest register
         vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save current frame index
         vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;     // save iterator depth
+        vm->call_stack[vm->call_depth].base_table_iter_depth = vm->table_iter_depth; // save table iterator depth
         vm->call_stack[vm->call_depth].caller_registers = regs;   // cache caller's register frame base
         vm->call_depth++;                            // push call frame
         vm->current_frame++;                         // advance to next register frame
@@ -3238,6 +3240,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         vm->call_stack[vm->call_depth].dest_reg = dest_reg;                          // save dest register
         vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save current frame index
         vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;     // save iterator depth
+        vm->call_stack[vm->call_depth].base_table_iter_depth = vm->table_iter_depth; // save table iterator depth
         vm->call_stack[vm->call_depth].caller_registers = regs;   // cache caller's register frame base
 
         Value _arg = regs[arg_reg];                  // read arg from caller frame while regs still points there
@@ -3294,6 +3297,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         vm->call_stack[vm->call_depth].dest_reg = dest_reg;                          // save dest register
         vm->call_stack[vm->call_depth].frame_index = vm->current_frame;              // save current frame index
         vm->call_stack[vm->call_depth].base_iterator_depth = vm->iterator_depth;     // save iterator depth
+        vm->call_stack[vm->call_depth].base_table_iter_depth = vm->table_iter_depth; // save table iterator depth
         vm->call_stack[vm->call_depth].caller_registers = regs;   // cache caller's register frame base
         
         Value _a1 = regs[arg1_reg];                  // read first arg from caller frame before switching
@@ -3345,6 +3349,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             regs = vm->call_stack[vm->call_depth].caller_registers;  // restore cached caller register frame base
             vm->registers = regs;                // update local regs pointer
             vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
+            vm->table_iter_depth = vm->call_stack[vm->call_depth].base_table_iter_depth;  // restore table iterator depth
             int dest_reg = vm->call_stack[vm->call_depth].dest_reg;                   // dest register for return value
             if (unlikely((regs[dest_reg] & QNAN) == QNAN)) {  // old value is heap object (rare)
                 value_decref(regs[dest_reg]);    // release old value in dest
@@ -3377,6 +3382,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             regs = vm->call_stack[vm->call_depth].caller_registers;  // restore cached caller register frame base
             vm->registers = regs;                // update local regs pointer
             vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
+            vm->table_iter_depth = vm->call_stack[vm->call_depth].base_table_iter_depth;  // restore table iterator depth
             regs[dest_reg] = ret_val;            // store return value in caller's dest reg (no incref, unboxed number)
             ip = &vm->code[return_addr];         // jump to return address
             goto *dispatch_table[ip->opcode];    // dispatch next instruction
@@ -3401,6 +3407,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             regs = vm->call_stack[vm->call_depth].caller_registers;  // restore cached caller register frame base
             vm->registers = regs;                // update local regs pointer
             vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
+            vm->table_iter_depth = vm->call_stack[vm->call_depth].base_table_iter_depth;  // restore table iterator depth
             regs[dest_reg] = ret_val;            // store number in caller's dest reg (unboxed, no incref)
             ip = &vm->code[return_addr];         // jump to return address
             goto *dispatch_table[ip->opcode];    // dispatch next instruction
@@ -3426,6 +3433,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             regs = vm->call_stack[vm->call_depth].caller_registers;  // restore cached caller register frame base
             vm->registers = regs;                // update local regs pointer
             vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
+            vm->table_iter_depth = vm->call_stack[vm->call_depth].base_table_iter_depth;  // restore table iterator depth
             regs[dest_reg] = ret_val;            // store return value in caller's dest reg (unboxed bool, no incref)
             ip = &vm->code[return_addr];         // jump to return address
             goto *dispatch_table[ip->opcode];    // dispatch next instruction
@@ -3449,6 +3457,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             regs = vm->call_stack[vm->call_depth].caller_registers;  // restore cached caller register frame base
             vm->registers = regs;                   // update local regs pointer
             vm->iterator_depth = vm->call_stack[vm->call_depth].base_iterator_depth;  // restore iterator depth
+            vm->table_iter_depth = vm->call_stack[vm->call_depth].base_table_iter_depth;  // restore table iterator depth
             if (unlikely((regs[dest_reg] & QNAN) == QNAN)) {  // old value is heap object (rare)
                 value_decref(regs[dest_reg]);       // release old value in dest
             }
