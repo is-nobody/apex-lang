@@ -47,7 +47,7 @@ bool is_known_builtin_function(const char* name) {                       // shar
         !strcmp(name, "type"))   return true;                             // type(x) builtin
     static const char* prefixes[] = {                                     // module prefixes
         "os.", "sys.", "math.", "string.", "table.", "random.",
-        "json.", "xml.", "csv.", "base.", "regex.", "crypto.", "zip."
+        "json.", "xml.", "csv.", "base.", "regex.", "crypto.", "zip.", "datetime."
     };
     for (size_t i = 0; i < sizeof(prefixes) / sizeof(*prefixes); i++) {   // scan prefix table
         size_t n = strlen(prefixes[i]);                                   // prefix length
