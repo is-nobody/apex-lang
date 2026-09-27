@@ -58,6 +58,7 @@ int  emit_match_check(CodeGenerator* cg, int subject_reg, ASTNode* pattern, int 
 
 // codegen_fn.c
 void codegen_function_decl(CodeGenerator* cg, ASTNode* node);
+void preregister_functions(CodeGenerator* cg, ASTNode* node, const char* module_ctx);
 
 // opt_recursion.c
 bool try_fold_recursive_call(CodeGenerator* cg, ASTNode* call, double* out);

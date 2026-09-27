@@ -8,6 +8,71 @@
 #include <stdlib.h>
 #include <string.h>
 
+// pre-registers every function declaration into chunk->functions so forward calls
+// resolve to user functions instead of falling back to CALL_BUILTIN
+void preregister_functions(CodeGenerator* cg, ASTNode* node, const char* module_ctx) {
+    if (!node) return;                                                       // null guard
+
+    if (node->type == AST_FUNCTION_DECL) {                                   // function declaration
+        char chunk_func_name[512];                                           // qualified name buffer
+        if (module_ctx && module_ctx[0]) {                                   // inside a module
+            snprintf(chunk_func_name, sizeof(chunk_func_name), "%s.%s",      // qualify with module
+                     module_ctx, node->function_decl.name);
+        } else {                                                             // top-level code
+            strncpy(chunk_func_name, node->function_decl.name,               // use bare name
+                    sizeof(chunk_func_name) - 1);
+            chunk_func_name[sizeof(chunk_func_name) - 1] = '\0';             // ensure null termination
+        }
+
+        bool found = false;                                                  // dedup flag
+        for (int i = 0; i < cg->chunk->func_count; i++) {                    // scan existing entries
+            if (strcmp(cg->chunk->functions[i].name, chunk_func_name) == 0) {  // same name?
+                found = true;                                                // mark seen
+                break;
+            }
+        }
+        if (!found) {                                                        // not yet registered
+            int param_count = node->function_decl.params->count;             // parameter count
+            int func_idx = bytecode_add_function(cg->chunk, chunk_func_name, param_count);  // register slot
+            cg->chunk->functions[func_idx].is_async = node->function_decl.is_async;         // propagate async flag
+        }
+        preregister_functions(cg, node->function_decl.body, module_ctx);     // recurse for nested fns
+        return;
+    }
+
+    switch (node->type) {                                                    // dispatch by type
+        case AST_BLOCK:
+        case AST_PROGRAM:
+            for (int i = 0; i < node->block.statements->count; i++)          // walk each statement
+                preregister_functions(cg, node->block.statements->nodes[i], module_ctx);
+            break;
+        case AST_IF_STMT:
+            preregister_functions(cg, node->if_stmt.then_branch, module_ctx);  // walk then branch
+            preregister_functions(cg, node->if_stmt.elif_chain,  module_ctx);  // walk elif chain
+            preregister_functions(cg, node->if_stmt.else_branch, module_ctx);  // walk else branch
+            break;
+        case AST_FOR_STMT:
+            preregister_functions(cg, node->for_stmt.body, module_ctx);      // walk loop body
+            break;
+        case AST_MATCH_STMT:
+            if (node->match_stmt.cases) {                                    // walk each case
+                for (int i = 0; i < node->match_stmt.cases->count; i++)
+                    preregister_functions(cg, node->match_stmt.cases->nodes[i], module_ctx);
+            }
+            preregister_functions(cg, node->match_stmt.default_case, module_ctx);  // walk default
+            break;
+        case AST_CASE:
+            preregister_functions(cg, node->case_stmt.body, module_ctx);     // walk case body
+            break;
+        case AST_MODULE_BLOCK:
+            preregister_functions(cg, node->module_block.body,               // walk module body
+                                  node->module_block.module_name);           // with module context
+            break;
+        default:
+            break;                                                           // other nodes: nothing
+    }
+}
+
 // returns true if a subtree contains any function declaration
 static bool block_has_function_decl(ASTNode* node) {
     if (!node) return false;                                      // null guard
@@ -113,8 +178,17 @@ void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     }
 
     int param_count = node->function_decl.params->count;                     // parameter count
-    int func_idx = bytecode_add_function(cg->chunk, chunk_func_name, param_count);  // add function
-    cg->chunk->functions[func_idx].is_async = node->function_decl.is_async;         // propagate async flag
+    int func_idx = -1;                                                       // existing slot from pre-pass
+    for (int i = 0; i < cg->chunk->func_count; i++) {                        // search pre-registered entry
+        if (strcmp(cg->chunk->functions[i].name, chunk_func_name) == 0) {    // exact name match
+            func_idx = i;                                                    // reuse its index
+            break;
+        }
+    }
+    if (func_idx < 0) {                                                      // not pre-registered (should not happen)
+        func_idx = bytecode_add_function(cg->chunk, chunk_func_name, param_count);  // add function
+    }
+    cg->chunk->functions[func_idx].is_async = node->function_decl.is_async;  // propagate async flag
 
     if (func_idx >= cg->fn_decls_cap) {                                      // grow AST table on demand
         int old_cap = cg->fn_decls_cap;                                      // old size, for zeroing new slots

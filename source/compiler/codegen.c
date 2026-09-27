@@ -200,6 +200,7 @@ bool codegen_generate(CodeGenerator* cg, ASTNode* ast) {
     bytecode_add_function(cg->chunk, "__entry-apex__", 0);                   // add entry function
     cg->current_function = 0;                                                // set current function
     cg->current_function = 0;                                                // set current function
+    preregister_functions(cg, ast, NULL);                                    // pre-register all fns so forward calls resolve
 
     if (ast->type == AST_PROGRAM || ast->type == AST_BLOCK) {                // program or block
         codegen_block(cg, ast);                                              // emit block
