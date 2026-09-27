@@ -640,6 +640,7 @@ static void symbols_grow(Parser* parser) {
     s->const_values = (double*)realloc(s->const_values, sizeof(double) * s->capacity);  // grow const values
     s->is_constant = (bool*)realloc(s->is_constant, sizeof(bool) * s->capacity);  // grow is_constant flags
     s->is_async = (bool*)realloc(s->is_async, sizeof(bool) * s->capacity);        // grow is_async flags
+    s->decl_lines = (int*)realloc(s->decl_lines, sizeof(int) * s->capacity);      // grow decl_lines array
 }
 
 // finds a symbol index in a specific scope using hash table for O(1) lookup
@@ -704,6 +705,7 @@ void parser_exit_scope(Parser* parser) {
                 parser->symbols.const_values[write] = parser->symbols.const_values[read];
                 parser->symbols.is_constant[write] = parser->symbols.is_constant[read];
                 parser->symbols.is_async[write] = parser->symbols.is_async[read];
+                parser->symbols.decl_lines[write] = parser->symbols.decl_lines[read];
             }
             write++;                               // advance write index
         }
@@ -725,7 +727,6 @@ void parser_exit_scope(Parser* parser) {
 // declares a new symbol in the current scope
 bool parser_declare_symbol(Parser* parser, const char* name, ParserSymbolKind kind,
                            ValueType type, int param_count, int line, int column) {
-    (void)line;                                    // unused
     (void)column;                                  // unused
     
     int existing = symbol_index_in_scope(parser, name, parser->symbols.current_scope);
@@ -744,6 +745,7 @@ bool parser_declare_symbol(Parser* parser, const char* name, ParserSymbolKind ki
     parser->symbols.const_values[i] = 0.0;         // default value
     parser->symbols.is_constant[i] = (kind == PARSER_SYM_CONSTANT);  // mark constants
     parser->symbols.is_async[i] = false;           // not async until marked
+    parser->symbols.decl_lines[i] = line;          // remember declaration line for duplicate check
     unsigned int h = hash_string_parser(name) & (parser->symbols.hash_size - 1);  // compute bucket
     SymbolHashEntry* entry = pool_alloc(parser);   // allocate from pool
     entry->name = parser->symbols.names[i];
@@ -780,6 +782,7 @@ Parser* parser_create(Token* tokens, int count, const char* filename, const char
     parser->symbols.current_scope = 0;             // global scope
     parser->symbols.is_constant = NULL;            // is_constant flags
     parser->symbols.is_async = NULL;               // is_async flags
+    parser->symbols.decl_lines = NULL;             // decl_lines array
     parser->symbols.hash_size = 64;                // hash table size
     parser->symbols.hash_table = (SymbolHashEntry**)calloc(parser->symbols.hash_size, sizeof(SymbolHashEntry*));  // allocate hash table
     arena_init(&parser->symbols.name_arena);       // initialize name arena
@@ -823,6 +826,7 @@ void parser_destroy(Parser* parser) {
         free(parser->symbols.const_values);        // free const values
         free(parser->symbols.is_constant);         // free is_constant flags
         free(parser->symbols.is_async);            // free is_async flags
+        free(parser->symbols.decl_lines);          // free decl_lines array
 
         pool_destroy(parser->symbols.entry_pool);  // free all hash entry pools
         free(parser->symbols.hash_table);          // free hash table buckets
@@ -2485,8 +2489,18 @@ static ASTNode* parse_function(Parser* parser) {
     }
     consume(parser, TOKEN_RPAREN, "Expected ')' after parameters");  // ')'
 
+    // reject duplicate function declarations in the same scope
+    int existing = symbol_index_in_scope(parser, name->value, parser->symbols.current_scope);
+    if (existing >= 0 &&
+        parser->symbols.kinds[existing] == PARSER_SYM_FUNCTION &&
+        parser->symbols.decl_lines[existing] != name->line) {
+        parser_error_at(parser, name->line, name->column,
+                       (int)utf8_char_len(name->value),
+                       "Duplicate function '%s'", name->value);    // report duplicate
+    }
+
     parser_declare_symbol(parser, name->value, PARSER_SYM_FUNCTION,
-                          TYPE_FUNCTION, params->count, name->line, name->column);  // declare function
+                          TYPE_FUNCTION, params->count, name->line, name->column);  // declare function (no-op on duplicate)
 
     int func_sym_idx = symbol_index_in_scope(parser, name->value, parser->symbols.current_scope);  // resolve just-declared symbol in current scope
     if (func_sym_idx >= 0) parser_symbol_set_async(parser, func_sym_idx, parser->pending_async);  // mark async

@@ -273,16 +273,6 @@ function base16_odd_characters()
     result2 = base.decode_16(single_input)
     assert_equal(type(result2), "none", "base16 decode single char returns none")
 
-// test: base16 decode handles empty input
-function base16_empty_input()
-    empty_str = ""
-    result = base.decode_16(empty_str)
-    assert_equal(result, "", "base16 decode empty string returns empty")
-    
-    whitespace_only = "   \t\n  "
-    result2 = base.decode_16(whitespace_only)
-    assert_equal(result2, "", "base16 decode only whitespace returns empty")
-
 // test: base16 decode rejects invalid characters
 function base16_invalid_characters()
     invalid_input = "48GG65"  // G is invalid hex

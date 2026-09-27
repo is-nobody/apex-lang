@@ -64,12 +64,12 @@ function variable_none()
     assert_equal(x != none, false, "x != none")
 
 // helper: function that explicitly returns none
-function return_none()
+function return_nothing()
     return none
 
 // test: function returning none is correctly identified
 function return_none()
-    result = return_none()
+    result = return_nothing()
     assert_equal(result, none, "function returns none")
 
 // execute all none comparison test cases
