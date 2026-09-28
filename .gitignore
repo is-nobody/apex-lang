@@ -9,3 +9,8 @@ build/
 
 # cache folder
 .cache/
+
+# vscode extension folder
+node_modules/
+source/vscode/package-lock.json
+source/vscode/extension.js

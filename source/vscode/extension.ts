@@ -1,12 +1,12 @@
-// source/vscode/extension.js
+// source/vscode/extension.ts
 // Implementation of VS Code extension for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
 
-const vscode = require('vscode');  // import vscode extension api: `npx @vscode/vsce package` for build .vsix
+import * as vscode from 'vscode';  // `npx @vscode/vsce package` for build .vsix
 
 // documentation strings for standard library modules
-const libDocs = {
+const libDocs: Record<string, string> = {
     'os': 'OS library.',
     'sys': 'System information library.',
     'math': 'Mathematics library.',
@@ -24,9 +24,9 @@ const libDocs = {
 };
 
 // extension activation entry point
-function activate(context) {
+export function activate(context: vscode.ExtensionContext): void {
     // run current file using an integrated terminal
-    const runFile = vscode.commands.registerCommand('apex.runFile', async () => {
+    const runFile = vscode.commands.registerCommand('apex.runFile', async (): Promise<void> => {
         const editor = vscode.window.activeTextEditor;                // get active editor
         if (!editor || editor.document.languageId !== 'apex') {       // check if apex file is open
             vscode.window.showErrorMessage('No Apex file is open');   // show error message
@@ -36,7 +36,7 @@ function activate(context) {
         const filePath = editor.document.uri.fsPath;          // get absolute file path
         await editor.document.save();                         // save document before running
 
-        let terminal = vscode.window.terminals.find(t => t.name === 'Apex');   // find existing apex terminal
+        let terminal = vscode.window.terminals.find((t: vscode.Terminal) => t.name === 'Apex');   // find existing apex terminal
         if (!terminal) {                                      // terminal doesn't exist yet
             terminal = vscode.window.createTerminal('Apex');  // create new terminal named Apex
         }
@@ -47,14 +47,15 @@ function activate(context) {
 
     // hover provider for documentation and type hints
     const hover = vscode.languages.registerHoverProvider('apex', {
-        provideHover(document, position) {                            // called when user hovers over text
+        provideHover(document: vscode.TextDocument, position: vscode.Position): vscode.Hover | null {   // called when user hovers over text
             const range = document.getWordRangeAtPosition(position);  // get simple word range at cursor
             const fullRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_.]+/);  // get extended range with dots
+            if (!fullRange) return null;                          // no word under cursor
             const word = document.getText(fullRange);                 // full word including dots (e.g., "os.output")
-            const simpleWord = document.getText(range);               // simple word without dots
+            const simpleWord = range ? document.getText(range) : '';  // simple word without dots
 
             // documentation dictionary for keywords and language constructs
-            const docs = {
+            const docs: Record<string, string> = {
                 'function': 'Declares a function.\n\n```apex\nfunction name(params)\n    // code\n    return value\n```',
                 'if': 'Conditional statement.\n\n```apex\nif condition\n    // code\nelse if other_condition\n    // code\nelse\n    // code\n```',
                 'else': 'Default branch in conditional statements.',
@@ -96,30 +97,30 @@ function activate(context) {
     });
 
     const completion = vscode.languages.registerCompletionItemProvider('apex', {
-        provideCompletionItems() {         // called when user triggers autocomplete
-            const keywords = [             // apex language keywords
+        provideCompletionItems(): vscode.CompletionItem[] {   // called when user triggers autocomplete
+            const keywords: string[] = [             // apex language keywords
                 'function', 'if', 'else', 'for', 'in', 'break',
                 'continue', 'return', 'import', 'constant', 'and', 'or', 'not',
                 'match', 'case',
                 'true', 'false', 'none'
             ];
 
-            const libs = Object.entries(libDocs).map(([label, detail]) => ({ label, detail }));  // convert lib docs to completion items
+            const libs: Array<{ label: string; detail: string }> = Object.entries(libDocs).map(([label, detail]) => ({ label, detail }));  // convert lib docs to completion items
 
-            const items = [];              // array to hold completion items
+            const items: vscode.CompletionItem[] = [];   // array to hold completion items
 
-            keywords.forEach(kw => {       // add each keyword as completion item
+            keywords.forEach((kw: string) => {       // add each keyword as completion item
                 items.push(new vscode.CompletionItem(kw, vscode.CompletionItemKind.Keyword));
             });
 
-            libs.forEach(lib => {          // add each library as module completion item
+            libs.forEach((lib: { label: string; detail: string }) => {   // add each library as module completion item
                 const item = new vscode.CompletionItem(lib.label, vscode.CompletionItemKind.Module);
                 item.detail = lib.detail;  // attach library description
                 items.push(item);
             });
 
             // list of standard library functions
-            const libFuncs = [
+            const libFuncs: string[] = [
                 'os.output',               'os.input',
                 'os.wait',                  'os.exit',
                 'os.change_folder',       'os.access',
@@ -215,7 +216,7 @@ function activate(context) {
                 'number', 'string', 'type'
             ];
 
-            libFuncs.forEach(func => {  // add each library function as completion item
+            libFuncs.forEach((func: string) => {  // add each library function as completion item
                 const item = new vscode.CompletionItem(func, vscode.CompletionItemKind.Function);
                 items.push(item);
             });
@@ -226,12 +227,12 @@ function activate(context) {
 
     // document symbols for outline view
     const symbols = vscode.languages.registerDocumentSymbolProvider('apex', {
-        provideDocumentSymbols(document) {                     // called to build outline view
-            const result = [];                                 // array to hold symbol items
+        provideDocumentSymbols(document: vscode.TextDocument): vscode.DocumentSymbol[] {   // called to build outline view
+            const result: vscode.DocumentSymbol[] = [];        // array to hold symbol items
             const text = document.getText();                   // get entire document text
 
             const funcRegex = /function\s+([a-zA-Z_][a-zA-Z0-9_]*)/g;  // regex to find function definitions
-            let match;                                         // match result variable
+            let match: RegExpExecArray | null;                 // match result variable
             while ((match = funcRegex.exec(text)) !== null) {  // iterate over all function matches
                 const pos = document.positionAt(match.index);  // get position of match
                 result.push(new vscode.DocumentSymbol(         // create symbol for outline
@@ -250,6 +251,4 @@ function activate(context) {
     context.subscriptions.push(runFile, hover, completion, symbols);  // register all providers
 }
 
-function deactivate() {}                    // extension deactivation (no cleanup needed)
-
-module.exports = { activate, deactivate };  // export extension entry points
+export function deactivate(): void {}                    // extension deactivation (no cleanup needed)
