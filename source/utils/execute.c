@@ -35,7 +35,7 @@ void cleanup_all(Tokenizer* tok, Parser* par, ASTNode* ast,
     if (vm) vm_destroy(vm);                              // destroy virtual machine
     if (cg) codegen_destroy(cg);                         // destroy code generator
     if (chunk) bytecode_destroy(chunk);                  // destroy bytecode chunk
-    if (ast) ast_free(ast);                              // free ast tree
+    if (ast) ast_free_node(ast);                         // free ast tree
     if (par) parser_destroy(par);                        // destroy parser
     if (tok) tokenizer_destroy(tok);                     // destroy tokenizer
     if (source) free(source);                            // free source copy

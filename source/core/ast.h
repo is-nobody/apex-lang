@@ -308,7 +308,4 @@ void ast_list_free(ASTNodeList* list);
 // recursively frees an AST node and all its children, handling each type specifically
 void ast_free_node(ASTNode* node);
 
-// public entry point to free the whole AST program tree
-void ast_free(ASTNode* program);
-
 #endif // AST_H

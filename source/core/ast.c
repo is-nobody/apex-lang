@@ -372,8 +372,3 @@ void ast_free_node(ASTNode* node) {
     }
     free(node);                    // free the node itself
 }
-
-// public entry point to free the whole ast program tree
-void ast_free(ASTNode* program) {
-    ast_free_node(program);        // recursively free entire tree
-}
