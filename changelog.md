@@ -41,9 +41,9 @@
 ## Operators
 - **Arithmetic:** `+`, `-`, `*`, `/`, `%`
 - **Comparison:** `==`, `!=`, `<`, `>`, `<=`, `>=`
-- **Logical:** `and`, `or`, `not`
+- **Logical:** `and`, `or`
 - **IEEE 754 behavior** for division by zero: `inf`, `-inf`, `nan`, `-nan`
-- **Operator precedence:** `()` > `*`/`/`/`%` > `+`/`-` > comparisons > `==`/`!=` > `not` > `and` > `or`
+- **Operator precedence:** `()` > `*`/`/`/`%` > `+`/`-` > comparisons > `==`/`!=` > `and` > `or`
 
 ## Built-in Modules
 `os`, `sys`, `math`, `string`, `table`, `random`, `json`, `xml`, `csv`, `base`, `regex`, `crypto`, `zip`, `datetime`.

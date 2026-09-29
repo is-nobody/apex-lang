@@ -149,11 +149,6 @@ static bool rec_interp_expr(CodeGenerator* cg, ASTNode* n, RecEnv* env, double* 
                 if (!rec_interp_expr(cg, n->unary.operand, env, &v)) return false;
                 *out = -v; return true;
             }
-            if (n->unary.op == TOKEN_NOT) {
-                double v;
-                if (!rec_interp_expr(cg, n->unary.operand, env, &v)) return false;
-                *out = (v == 0.0) ? 1.0 : 0.0; return true;
-            }
             return false;
         case AST_BINARY: {
             double a, b;
@@ -299,7 +294,6 @@ bool try_fold_recursive_call(CodeGenerator* cg, ASTNode* call, double* out) {
 static bool rec_expr_is_bool(ASTNode* v) {
     if (!v) return false;
     if (v->type == AST_LITERAL_BOOL) return true;
-    if (v->type == AST_UNARY && v->unary.op == TOKEN_NOT) return true;
     if (v->type == AST_BINARY) {
         ApexTokenType op = v->binary.op;
         return op == TOKEN_EQUAL_EQUAL || op == TOKEN_NOT_EQUAL ||

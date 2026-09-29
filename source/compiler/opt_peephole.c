@@ -18,7 +18,7 @@ bool op_is_pure(Opcode op) {
         case OP_CMP_EQ: case OP_CMP_NEQ:
         case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
         case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
-        case OP_AND: case OP_OR: case OP_NOT:
+        case OP_AND: case OP_OR:
         case OP_TABLE_GET: case OP_TABLE_GET_CONST: case OP_TABLE_GET_INT:
         case OP_CONCAT: case OP_NEW_TABLE: case OP_LOAD_TABLE:
             return true;

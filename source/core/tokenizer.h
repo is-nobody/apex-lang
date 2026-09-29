@@ -34,7 +34,6 @@ typedef enum {
     TOKEN_AWAIT,         // 'await' keyword for awaiting future values
     TOKEN_AND,           // logical 'and' operator
     TOKEN_OR,            // logical 'or' operator
-    TOKEN_NOT,           // logical 'not' operator
 
     TOKEN_NONE,          // 'none' value
     TOKEN_TRUE,          // boolean literal 'true'

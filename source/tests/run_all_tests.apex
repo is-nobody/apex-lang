@@ -25,7 +25,6 @@ run("apex source/tests/conditionals/comparisons/boolean.apex")
 
 // conditionals - logical operators
 run("apex source/tests/conditionals/logical/and.apex")
-run("apex source/tests/conditionals/logical/not.apex")
 run("apex source/tests/conditionals/logical/or.apex")
 
 // loops - all iteration constructs

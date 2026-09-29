@@ -89,7 +89,6 @@ typedef enum {
 
     OP_AND,                // logical and: rdst = rleft && rright
     OP_OR,                 // logical or: rdst = rleft || rright
-    OP_NOT,                // logical not: rdst = !rsrc
 
     OP_PUSH_ARG,           // pushes an argument onto the call stack
     OP_CALL,               // calls a function at address, result goes to rdst

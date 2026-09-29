@@ -34,7 +34,7 @@ bool try_fold_number(CodeGenerator* cg, ASTNode* node, double* out) {
                 *out = -v;                                             // negate operand
                 return true;
             }
-            return false;                                              // not: operand may be non-number
+            return false;                                              // other unary ops: never a number
         case AST_BINARY: {
             double l, r;
             if (!try_fold_number(cg, node->binary.left,  &l)) return false;  // left must fold
@@ -71,12 +71,6 @@ bool try_fold_bool(CodeGenerator* cg, ASTNode* node, bool* out) {
             *out = node->literal_bool.bool_value;                      // literal value
             return true;
         case AST_UNARY:
-            if (node->unary.op == TOKEN_NOT) {                         // logical not
-                bool v;
-                if (!try_fold_bool(cg, node->unary.operand, &v)) return false;
-                *out = !v;                                             // invert operand
-                return true;
-            }
             return false;                                              // unary minus is not a bool
         case AST_BINARY: {
             ApexTokenType op = node->binary.op;

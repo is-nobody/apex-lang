@@ -13,10 +13,10 @@ This extension adds support for the Apex language to VS Code.
 ### Syntax Highlighting
 Full syntax highlighting for:
 
-- **Keywords**: `function`, `if`, `else`, `for`, `in`, `import`, `constant`, `and`, `or`, `not`, `break`, `continue`, `return`.
+- **Keywords**: `function`, `if`, `else`, `for`, `in`, `import`, `constant`, `and`, `or`, `break`, `continue`, `return`.
 - **Literals**: Numbers (including scientific notation), strings, booleans (`true`, `false`), `none`.
 - **Comments**: Line comments (`//`).
-- **Operators**: Arithmetic (`+`, `-`, `*`, `/`, `%`), Comparison (`==`, `!=`, `<`, `>`, `<=`, `>=`), Logical (`not`, `and`, `or`).
+- **Operators**: Arithmetic (`+`, `-`, `*`, `/`, `%`), Comparison (`==`, `!=`, `<`, `>`, `<=`, `>=`), Logical (`and`, `or`).
 - **Structures**: Function definitions, table literals `[]`, string interpolation `"{}"`.
 
 ### Advanced IntelliSense & Autocompletion

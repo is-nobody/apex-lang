@@ -107,7 +107,7 @@ bool op_writes_dest_reg(Opcode op) {
         case OP_LOAD_GLOBAL: case OP_TABLE_GET: case OP_TABLE_GET_CONST:
         case OP_TABLE_GET_INT: case OP_NEW_TABLE: case OP_LOAD_TABLE:
         case OP_CONCAT:
-        case OP_AND: case OP_OR: case OP_NOT:
+        case OP_AND: case OP_OR:
         case OP_AWAIT:
             return true;                                             // these write operands[0]
         default:

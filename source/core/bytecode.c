@@ -98,7 +98,6 @@ static const char* opcode_names[] = {
 
     [OP_AND]                = "AND",
     [OP_OR]                 = "OR",
-    [OP_NOT]                = "NOT",
 
     [OP_PUSH_ARG]           = "PUSH_ARG",
     [OP_CALL]               = "CALL",

@@ -60,15 +60,15 @@ function or_equality_inequality()
     result = (name == "Alice") or (age == 30) or (age > 20)
     assert_equal(result, true, "mixed equality inequality with or")
 
-// test: OR with NOT operator
-function or_with_not()
-    result = (not (5 > 10)) or (not (3 == 3)) or (10 < 1)
-    assert_equal(result, true, "or with not operators")
+// test: OR with negated comparisons
+function or_with_negation()
+    result = (5 <= 10) or (3 != 3) or (10 < 1)
+    assert_equal(result, true, "or with negated comparisons")
 
-// test: OR returns false when all NOT conditions make true comparisons false
-function or_not_all_false()
-    result = (not (5 > 1)) or (not (10 > 5)) or (not (20 > 15))
-    assert_equal(result, false, "or with not all false")
+// test: OR returns false when all negated comparisons are false
+function or_negation_all_false()
+    result = (5 <= 1) or (10 <= 5) or (20 <= 15)
+    assert_equal(result, false, "or with all false")
 
 // test: OR with nested logical expressions
 function or_nested_expressions()
@@ -131,8 +131,8 @@ or_multiple_middle_true()
 or_multiple_last_true()
 or_arithmetic_comparisons()
 or_equality_inequality()
-or_with_not()
-or_not_all_false()
+or_with_negation()
+or_negation_all_false()
 or_nested_expressions()
 or_nested_mixed()
 or_string_comparisons()

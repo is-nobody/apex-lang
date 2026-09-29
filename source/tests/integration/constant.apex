@@ -202,8 +202,8 @@ function constant_logical()
     constant FALSE_VAL = false
     assert_equal(TRUE_VAL == true and TRUE_VAL == true, true, "true and true")
     assert_equal(TRUE_VAL == true or FALSE_VAL == true, true, "true or false")
-    assert_equal(not FALSE_VAL, true, "not false")
-    assert_equal(not TRUE_VAL, false, "not true")
+    assert_equal(FALSE_VAL == false, true, "false == false")
+    assert_equal(TRUE_VAL == false, false, "true == false")
 
 // test: constant used in array index
 function constant_array_index()

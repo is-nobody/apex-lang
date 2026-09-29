@@ -1799,7 +1799,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
 
         [OP_AND]                = &&OP_AND_LABEL,
         [OP_OR]                 = &&OP_OR_LABEL,
-        [OP_NOT]                = &&OP_NOT_LABEL,
         
         [OP_PUSH_ARG]           = &&OP_PUSH_ARG_LABEL,
         [OP_CALL]               = &&OP_CALL_LABEL,
@@ -3070,11 +3069,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     OP_OR_LABEL: {
         int dest = ip->operands[0];              // dest register index
         regs[dest] = MAKE_BOOL(AS_BOOL(regs[ip->operands[1]]) || AS_BOOL(regs[ip->operands[2]]));  // logical or
-        ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
-    }
-    OP_NOT_LABEL: {
-        int dest = ip->operands[0];              // dest register index
-        regs[dest] = MAKE_BOOL(!AS_BOOL(regs[ip->operands[1]]));  // logical not
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
 

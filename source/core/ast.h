@@ -26,7 +26,7 @@ typedef enum {
     AST_EXPR_STMT,         // expression used as a statement, e.g. a function call on its own
     
     AST_BINARY,            // a + b, a == b, etc. — combines two expressions with an operator
-    AST_UNARY,             // -a, not a — applies a unary operator to a single expression
+    AST_UNARY,             // -a — applies a unary operator to a single expression
     AST_AWAIT,             // await expr — unwraps a future into its resolved value
     AST_LITERAL_NUMBER,    // 42, 3.14 — numeric constant
     AST_LITERAL_STRING,    // "hello" — string constant
@@ -87,7 +87,7 @@ struct ASTNode {
         
         // unary operation with an operator and a single operand
         struct {
-            ApexTokenType op;        // operator token (MINUS, NOT)
+            ApexTokenType op;    // operator token (MINUS)
             ASTNode* operand;    // operand expression
         } unary;
         

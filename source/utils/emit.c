@@ -368,7 +368,6 @@ static void emit_instruction(BytecodeChunk* chunk, int offset, FILE* out) {  // 
 
         case OP_AND: REG(a); fputs(" <- ", out); REG(b); fputs(" and ", out); REG(c); break;  // dst <- a and b
         case OP_OR:  REG(a); fputs(" <- ", out); REG(b); fputs(" or ", out);  REG(c); break;  // dst <- a or b
-        case OP_NOT: REG(a); fputs(" <- not ", out); REG(b); break;                           // dst <- not a
 
         case OP_PUSH_ARG:                                         // push call argument
             REG(a);                                               // argument register

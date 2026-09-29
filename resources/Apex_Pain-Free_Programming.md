@@ -80,10 +80,9 @@
   - [Operator Precedence](#operator-precedence)
   - [Chaining Comparisons](#chaining-comparisons)
 - [Logical Operators](#logical-operators)
-  - [The Three Logical Operators](#the-three-logical-operators)
+  - [The Two Logical Operators](#the-two-logical-operators)
   - [The AND Operator](#the-and-operator)
   - [The OR Operator](#the-or-operator)
-  - [The NOT Operator](#the-not-operator)
   - [Combining Logical Operators](#combining-logical-operators)
 
 ### If Statements
@@ -1891,14 +1890,13 @@ Comparison operators let you ask single questions: "Is this age greater than 18?
 
 Logical operators are the tools that combine booleans into more complex conditions. They take boolean values as input and produce a boolean value as output. Since comparisons produce booleans, you can combine comparisons with logical operators to build up rich, nuanced conditions.
 
-### The Three Logical Operators
-Apex provides three logical operators:
+### The Two Logical Operators
+Apex provides two logical operators:
 
 | Operator | What It Does                   | Example                |
 |----------|--------------------------------|------------------------|
 | `and`    | Both sides must be true        | `(5 < 10) and (2 > 1)` |
 | `or`     | At least one side must be true | `(2 > 1) or (2 < 1)`   |
-| `not`    | Reverses the value             | `not true`             |
 
 Let's explore each one.
 
@@ -1988,63 +1986,15 @@ can_relax = (day == "Saturday") or (is_holiday == true)    // false
 
 Now both sides are `false`: it's not Saturday, and it's not a holiday. So `false or false` gives `false`. No relaxing today.
 
-### The NOT Operator
-The `not` operator is different from `and` and `or`. It takes **one** boolean value — not two — and flips it. If the value is `true`, `not` makes it `false`. If it's `false`, `not` makes it `true`.
-
-Here's the truth table for `not`:
-
-| Value   | Result  |
-|---------|---------|
-| `true`  | `false` |
-| `false` | `true`  |
-
-```apex
-not true   // false
-not false  // true
-```
-
-Think of `not` as the word "isn't" or "doesn't." If `is_raining` is `true`, then `not is_raining` is `false` — because it's not the case that it isn't raining.
-
-**Using `not` with comparisons:**
-```apex
-is_raining = false
-can_walk = not is_raining    // true — it's not raining, so we can walk
-```
-
-Here, `is_raining` is `false`, so `not is_raining` is `true`. The variable `can_walk` becomes `true`.
-
-```apex
-is_raining = true
-can_walk = not is_raining    // false — it's raining, so we can't walk
-```
-
-Now `is_raining` is `true`, so `not is_raining` is `false`. `can_walk` is `false`.
-
-**A common use of `not`:**
-`not` is often used to check that something is *not* the case:
-
-```apex
-user = none
-has_user = not (user == none)  // false — user is none, so it's not the case that user exists
-```
-
-Wait, let's trace this carefully:
-
-1. `user == none` evaluates to `true` (the user variable holds `none`)
-2. `not true` evaluates to `false`
-
-So `has_user` becomes `false`, which makes sense: if `user` is `none`, then there is no user, so `has_user` should be false.
-
 ### Combining Logical Operators
-You can combine `and`, `or`, and `not` to build complex conditions. Just like with arithmetic, logical operators have a precedence order that determines how expressions are evaluated.
+You can combine `and` and `or` to build complex conditions. Just like with arithmetic, logical operators have a precedence order that determines how expressions are evaluated.
 
 The precedence from highest to lowest is:
 
-1. `not` — happens first
-2. `and` — happens second
-3. `or` — happens last
+1. `and` — happens first
+2. `or` — happens last
 
-This means `not` binds most tightly, `and` next, `or` least tightly. Consider this expression:
+This means `and` binds more tightly than `or`. Consider this expression:
 
 ```apex
 true or false and false
@@ -2083,9 +2033,8 @@ The full precedence order — including the operators from earlier sections — 
 3. `+`, `-` — addition, subtraction
 4. `<`, `>`, `<=`, `>=` — ordering comparisons
 5. `==`, `!=` — equality comparisons
-6. `not` — logical NOT
-7. `and` — logical AND
-8. `or` — logical OR
+6. `and` — logical AND
+7. `or` — logical OR
 
 When in doubt, use parentheses. They cost nothing and make your intention obvious.
 
@@ -2225,14 +2174,14 @@ if day == "Saturday" or is_holiday == true
 
 Here, if either condition is true, the block runs. Since `day == "Saturday"` is true (and `is_holiday == true` is false), the block runs anyway, and `can_relax` becomes `true`.
 
-And you can combine `and`, `or`, and `not`:
+And you can combine `and` and `or`:
 
 ```apex
 is_weekend = true
 has_work = false
 can_relax = false
 
-if (is_weekend == true or has_work == false) and not (has_work == true)
+if (is_weekend == true or has_work == false) and (has_work == false)
     can_relax = true
 ```
 
@@ -3437,7 +3386,7 @@ Notice that `counter` is declared **before** the loop. The loop body modifies it
 Always make sure something inside the loop body changes the condition. Common patterns are incrementing a counter, decrementing a counter, or reading new input each time.
 
 #### The Condition Can Be Any Boolean Expression
-The condition can be any boolean expression, including comparisons with `and`, `or`, and `not`. For example:
+The condition can be any boolean expression, including comparisons with `and` and `or`. For example:
 
 ```apex
 x = 1

@@ -591,12 +591,11 @@ Logical operators combine boolean values (`true` or `false`) to create more comp
 |----------|--------------------------------|------------------------|
 | `and`    | Both sides must be true        | `(5 < 10) and (2 > 1)` |
 | `or`     | At least one side must be true | `(2 > 1) or (2 < 1)`   |
-| `not`    | Reverses the value             | `not true`             |
 
-> Logical operators `and` & `or` requires explicit boolean condition. `not` also requires boolean variable.
+> Logical operators `and` & `or` requires explicit boolean condition.
 
 ### Operator Precedence
-Logical operators have their own order. `not` happens first, then `and`, then `or`.
+Logical operators have their own order: `and` happens first, then `or`.
 
 Full precedence order (highest to lowest):
 
@@ -605,9 +604,8 @@ Full precedence order (highest to lowest):
 3. `+`, `-` — addition, subtraction
 4. `<`, `>`, `<=`, `>=` — comparisons
 5. `==`, `!=` — equality
-6. `not` — logical NOT
-7. `and` — logical AND
-8. `or` — logical OR
+6. `and` — logical AND
+7. `or` — logical OR
 
 # 3. If Statements
 If statements are how you tell Apex to make decisions.
@@ -676,7 +674,7 @@ if x > 5  // correct because comparison returns boolean
     os.output("Hello")
 ```
 
-Always use comparison operators (`==`, `!=`, `<`, `>`, etc.) to create boolean values, then combine them with logical operators (`and`, `or`, `not`) if needed.
+Always use comparison operators (`==`, `!=`, `<`, `>`, etc.) to create boolean values, then combine them with logical operators (`and`, `or`) if needed.
 
 ## 3.1 If Statement
 ```apex

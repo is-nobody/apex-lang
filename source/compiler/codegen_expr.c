@@ -659,10 +659,10 @@ int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint) {
                 if (node->binary.op == TOKEN_AND) {                                  // AND
                     jump_idx = emit(cg, INST(OP_JUMP_IF_FALSE, 0, result_reg, -1), node->line);  // if false skip
                 } else {                                                             // OR
-                    int not_reg = alloc_register(cg);                                // inverted left register
-                    emit(cg, INST(OP_NOT, not_reg, result_reg, 0), node->line);      // not left
-                    jump_idx = emit(cg, INST(OP_JUMP_IF_FALSE, 0, not_reg, -1), node->line);  // if truthy skip
-                    free_register(cg, not_reg);                                      // free inverted
+                    int false_reg = alloc_register(cg);                              // false literal register
+                    emit(cg, INST(OP_LOAD_BOOL, false_reg, 0, 0), node->line);       // load false
+                    jump_idx = emit(cg, INST(OP_JUMP_IF_NEQ, 0, result_reg, false_reg), node->line);  // if left is true, skip
+                    free_register(cg, false_reg);                                    // free false register
                 }
 
                 int right_reg = codegen_expression_into(cg, node->binary.right, result_reg);  // evaluate right into dest
@@ -918,9 +918,6 @@ int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint) {
             switch (node->unary.op) {                                                // map operator
                 case TOKEN_MINUS:                                                    // negation
                     emit(cg, INST(OP_NEG, result_reg, operand_reg, 0), node->line);
-                    break;
-                case TOKEN_NOT:                                                      // logical not
-                    emit(cg, INST(OP_NOT, result_reg, operand_reg, 0), node->line);
                     break;
                 default: break;                                                      // unknown
             }

@@ -169,7 +169,7 @@ static int get_node_len(ASTNode* node) {
             return left_len + (int)utf8_char_len(op_str) + right_len + 2;  // left + op + right + spaces
         }
         case AST_UNARY:
-            return get_node_len(node->unary.operand) + (node->unary.op == TOKEN_NOT ? 4 : 1);  // op + operand
+            return get_node_len(node->unary.operand) + 1;  // minus + operand
         case AST_AWAIT:
             return get_node_len(node->await_expr.expression) + 6;  // "await " + operand
         case AST_CALL:
@@ -909,10 +909,6 @@ static bool is_explicit_condition(ASTNode* node) {
         return false;                              // other binary ops not conditions
     }
     
-    if (node->type == AST_UNARY && node->unary.op == TOKEN_NOT) {
-        return is_explicit_condition(node->unary.operand);  // check operand
-    }
-    
     return false;                                  // not a condition
 }
 
@@ -1034,7 +1030,6 @@ static ValueType infer_unary_type(Parser* parser, ASTNode* node) {
     ValueType operand_type = infer_expression_type(parser, node->unary.operand);
     if (operand_type == TYPE_ANY) {
         if (node->unary.op == TOKEN_MINUS) return TYPE_NUMBER;  // minus any -> number
-        if (node->unary.op == TOKEN_NOT) return TYPE_BOOLEAN;   // not any -> boolean
     }
     if (operand_type == TYPE_UNKNOWN) return TYPE_UNKNOWN;  // unknown
 
@@ -1046,13 +1041,6 @@ static ValueType infer_unary_type(Parser* parser, ASTNode* node) {
                 return TYPE_ERROR;                 // non-number operand
             }
             return TYPE_NUMBER;                    // -number -> number
-        case TOKEN_NOT:
-            if (operand_type != TYPE_BOOLEAN) {
-                parser_error_at(parser, node->unary.operand->line, node->unary.operand->column, get_node_len(node->unary.operand),
-                                "Logical not requires boolean operand, got %s", type_name(operand_type));
-                return TYPE_ERROR;                 // non-boolean operand
-            }
-            return TYPE_BOOLEAN;                   // not boolean -> boolean
         default:
             return TYPE_ERROR;                     // unknown operator
     }
@@ -1979,15 +1967,6 @@ static ASTNode* parse_prefix(Parser* parser) {
             }
             return ast_create_unary(TOKEN_MINUS, operand);
         }
-        case TOKEN_NOT: {
-            advance(parser);                           // consume 'not'
-            ASTNode* operand = parse_precedence(parser, PREC_UNARY);  // parse operand
-            if (!operand) {
-                parser_error(parser, "Expected expression after 'not'");
-                return NULL;
-            }
-            return ast_create_unary(TOKEN_NOT, operand);
-        }
         case TOKEN_AWAIT: {
             Token* await_kw = advance(parser);                          // consume 'await'
             if (parser->semantic_checks && parser->async_depth == 0 &&
@@ -2236,7 +2215,6 @@ static bool is_valid_expr_start(ApexTokenType type) {
            type == TOKEN_LPAREN ||
            type == TOKEN_LBRACKET ||
            type == TOKEN_MINUS ||
-           type == TOKEN_NOT ||
            type == TOKEN_AWAIT;
 }
 

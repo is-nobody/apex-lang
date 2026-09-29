@@ -73,7 +73,6 @@ export function activate(context: vscode.ExtensionContext): void {
                 'await': 'Runs an async function body (if not started yet) and gives the result. Works inside `async function` or at top level.\n\n```apex\nresult = await add(2, 3)  // 5\nvalue = await 42          // 42\n```',
                 'and': 'Logical AND operator.',
                 'or': 'Logical OR operator.',
-                'not': 'Logical NOT operator.',
                 'none': 'Represents the absence of a value.',
                 'true': 'Boolean literal — true.',
                 'false': 'Boolean literal — false.',
@@ -100,7 +99,7 @@ export function activate(context: vscode.ExtensionContext): void {
         provideCompletionItems(): vscode.CompletionItem[] {   // called when user triggers autocomplete
             const keywords: string[] = [             // apex language keywords
                 'function', 'if', 'else', 'for', 'in', 'break',
-                'continue', 'return', 'import', 'constant', 'and', 'or', 'not',
+                'continue', 'return', 'import', 'constant', 'and', 'or',
                 'match', 'case',
                 'true', 'false', 'none'
             ];

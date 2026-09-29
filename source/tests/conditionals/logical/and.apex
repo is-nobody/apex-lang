@@ -60,15 +60,15 @@ function and_equality_inequality()
     result = (name == "Alice") and (age != 25) and (age > 18)
     assert_equal(result, true, "mixed equality inequality with and")
 
-// test: AND with NOT operator
-function and_with_not()
-    result = (not (5 > 10)) and (not (3 == 4)) and (10 > 1)
-    assert_equal(result, true, "and with not operators")
+// test: AND with negated comparisons
+function and_with_negation()
+    result = (5 <= 10) and (3 != 4) and (10 > 1)
+    assert_equal(result, true, "and with negated comparisons")
 
-// test: AND returns false when NOT makes first condition false
-function and_not_makes_false()
-    result = (not (5 > 1)) and (10 > 1)
-    assert_equal(result, false, "and with not false first")
+// test: AND returns false when negated first condition is false
+function and_negation_makes_false()
+    result = (5 <= 1) and (10 > 1)
+    assert_equal(result, false, "and with false first")
 
 // test: AND with nested logical expressions
 function and_nested_expressions()
@@ -112,8 +112,8 @@ and_multiple_middle_false()
 and_multiple_last_false()
 and_arithmetic_comparisons()
 and_equality_inequality()
-and_with_not()
-and_not_makes_false()
+and_with_negation()
+and_negation_makes_false()
 and_nested_expressions()
 and_string_comparisons()
 and_type_checks()

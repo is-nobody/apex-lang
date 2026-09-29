@@ -454,7 +454,6 @@ static void codegen_return(CodeGenerator* cg, ASTNode* node) {
             }
         } else if (val->type == AST_UNARY) {                                 // unary op
             if (val->unary.op == TOKEN_MINUS) is_number = true;              // unary minus → number
-            else if (val->unary.op == TOKEN_NOT) is_bool = true;             // not → bool
         } else if (val->type == AST_IDENTIFIER && !is_bool) {                // tracked local?
             int slot = find_local_slot(cg, val->identifier.name);
             if (slot >= 0) {
