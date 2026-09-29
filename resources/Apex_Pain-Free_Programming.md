@@ -1,13 +1,13 @@
 # Apex: Pain-Free Programming
 ## Table of Contents
 ### Introduction
-- [Preface](#section)
-- [What is a "programming language"?](#section)
-- [A bit of history about Apex](#section)
-- [Preparation for development](#section)
-  - [Installing the Apex Language](#section)
-  - [Installing the Apex Code](#section)
-- [First Program](#section)
+- [Preface](#preface)
+- [What is a "programming language"?](#what-is-a-programming-language)
+- [A bit of history about Apex](#a-bit-of-history-about-apex)
+- [Preparation for development](#preparation-for-development)
+  - [Installing the Apex Language](#installing-the-apex-language)
+  - [Installing the Apex Code](#installing-the-apex-code)
+- [First Program](#first-program)
 
 ### Variables & Data Types
 - [Numbers](#numbers)
@@ -236,6 +236,214 @@
 
 ### Conclusion
 - [Conclusion](#conclusion)
+
+## Introduction
+### Preface
+Programming doesn't have to be painful.
+
+That might sound like an odd way to start a book about a programming language. After all, many people who try to learn programming find it frustrating, confusing, and just plain hard. They wrestle with strange symbols, cryptic error messages, and rules that seem designed to trip them up. They spend more time fighting the language than solving problems.
+
+Apex was created to change that.
+
+This book is for anyone who wants to learn to program, whether you've never written a line of code in your life or you've used other languages and walked away feeling exhausted.
+
+The philosophy of Apex is simple: **programming should feel natural**. The language should work the way you think, not the other way around. It should be readable, predictable, and forgiving. It should let you express your ideas clearly without forcing you to memorize arcane rules.
+
+Throughout this book, you'll notice a recurring theme: we'll explain not just *how* to do something in Apex, but *why* it works that way. Understanding the reasoning behind a design choice makes it easier to remember and apply. You won't just be memorizing syntax—you'll be building a mental model of how programs work.
+
+This book assumes no prior programming experience. Every concept is introduced from scratch, with plenty of examples and explanations. If you already know another language, you'll find that Apex's simplicity makes it easy to pick up, and the explanations of *why* things work the way they do will deepen your understanding of programming in general.
+
+Let's begin.
+
+### What is a "programming language"?
+Before we dive into Apex specifically, let's take a step back and answer a more fundamental question: what exactly is a programming language?
+
+At its core, a **programming language** is a way to give instructions to a computer. It's a formal system of symbols and rules that lets you describe what you want the computer to do. When you write a program, you're essentially writing a detailed set of directions—like a recipe—that the computer will follow step by step.
+
+But why do we need special languages for this? Why can't we just tell the computer in plain English what we want?
+
+The answer is that computers are incredibly literal and incredibly fast, but they're also incredibly dumb. They can only do a handful of very simple things: add numbers, compare values, move data around, and make basic decisions. They have no intuition, no common sense, and no ability to guess what you meant if you're ambiguous. If you told a computer to "make me a sandwich," it would have no idea where to start.
+
+A programming language bridges this gap. It provides a structured way to express your intentions that's precise enough for the computer to understand, but also readable enough for humans to work with. It's a compromise between the rigid binary that the machine actually executes (ones and zeros) and the flexible, ambiguous language we use with each other.
+
+Here's a useful analogy: think of a programming language as a set of LEGO bricks. Each brick is a simple, well-defined piece. On its own, a single brick doesn't do much. But when you combine bricks in the right way, you can build anything—a house, a car, a spaceship. The bricks give you structure and predictability, but they also give you freedom to create.
+
+Different programming languages provide different sets of bricks. Some give you thousands of specialized pieces and expect you to learn them all. Others give you a few basic pieces and let you combine them in creative ways. Apex falls into the second category. It gives you a small, focused set of tools and trusts you to use them well.
+
+Every programming language has two audiences:
+
+1. **The computer**, which needs precise, unambiguous instructions it can execute.
+2. **The programmer** (you), who needs to read, write, and modify those instructions.
+
+A well-designed language serves both audiences. It's precise enough for the machine, but clear enough for humans. This is sometimes called the "readability" of a language, and it's one of the most important qualities a language can have. After all, you'll spend far more time *reading* code than writing it—your own code from last week, your teammate's code, code from an open-source project. A language that's hard to read is a language that's hard to maintain.
+
+Apex was designed with both audiences in mind. It's simple enough to learn quickly, but powerful enough to build real software. It's precise enough for the computer, but readable enough that you can come back to your code months later and still understand what it does.
+
+### A bit of history about Apex
+Apex began with a simple frustration: programming languages had become too complicated.
+
+The creator of Apex had worked with many languages over the years—languages that promised power and flexibility but delivered complexity and confusion. Languages that required pages of configuration before you could write a single line of code. Languages that had dozens of ways to do the same thing, none of them obviously better than the others. Languages where simple ideas were expressed in obscure syntax, and where the rules seemed designed to catch you off guard.
+
+The breaking point came when trying to teach someone to program. The person was smart and motivated, but every step of the way, the language itself got in the way. They'd write something that seemed perfectly reasonable, only to be told it was wrong for a reason that made no sense. They'd spend hours debugging a missing semicolon or a mismatched bracket. They'd ask "why does it work this way?" and the only answer was "because that's how it's always been."
+
+That's when the idea for Apex was born: what if a programming language was actually designed to be *helpful*? What if it was designed around the way humans think, rather than the way machines work? What if it eliminated all the unnecessary complexity and kept only what was essential?
+
+Apex is the result of that idea. It's a language built on a few core principles:
+
+1. **Simplicity**: The language should be small enough to learn completely. There should be one obvious way to do things, not five.
+
+2. **Clarity**: Code should read like a description of what it does. If you have to puzzle over what a line of code means, the language has failed.
+
+3. **Predictability**: The same code should always do the same thing. There should be no hidden behavior, no magic, no surprises.
+
+4. **Performance**: Simplicity shouldn't come at the cost of speed. A language that's easy to write but too slow to use isn't helpful—it's just a different kind of painful.
+
+The language has been in development for several months, refined through use and feedback. It's not the work of a large corporation or a committee—it's the work of people who genuinely care about making programming accessible and enjoyable. Every design decision has been made with the user in mind, asking "does this make programming easier or harder?" and choosing the path that makes it easier.
+
+### Preparation for development
+Before you can start writing Apex programs, you need to set up your development environment. Don't worry—this is much simpler than it sounds. You need two things:
+
+1. The Apex interpreter, which reads your code and runs it.
+2. A place to write your code (a text editor or IDE).
+
+Let's take care of both.
+
+#### Installing the Apex Language
+The Apex interpreter is the program that reads your Apex code and executes it. You can't run Apex programs without it, so this is the first thing we need to install.
+
+**Step 1: Download the interpreter.**
+Go to the Apex releases page on GitHub: [https://github.com/is-nobody/apex-lang/releases](https://github.com/is-nobody/apex-lang/releases)
+
+You'll see a list of releases. Find the most recent one and download the file that matches your operating system:
+
+- **Windows**: Look for a file ending in `.exe`
+- **macOS**: Look for a file with `macos` in the name
+- **Linux**: Look for a file with `linux` in the name
+
+**Step 2: Place the interpreter somewhere convenient.**
+Once you've downloaded the file, move it to a location where you can easily access it from the command line. On Windows, you might create a folder like `C:\apex\` and put the file there. On macOS or Linux, you might put it in `/usr/local/bin/` or `~/bin/`.
+
+**Step 3: Add Apex to your system's PATH (optional but recommended).**
+If you want to be able to run `apex` from any directory without typing the full path, you need to add its location to your system's PATH environment variable. The exact steps depend on your operating system:
+
+- **Windows**: Search for "Environment Variables" in the Start menu, edit the `Path` variable, and add the folder where you put the Apex interpreter.
+- **macOS/Linux**: Edit your shell configuration file (like `.bashrc` or `.zshrc`) and add a line like `export PATH="$PATH:/path/to/apex/folder"`.
+
+If you're not sure how to do this, don't worry—you can always run Apex by typing the full path to the interpreter.
+
+**Step 4: Verify the installation.**
+Open a terminal (Command Prompt on Windows, Terminal on macOS/Linux) and type:
+
+```
+apex version
+```
+
+If everything is set up correctly, you should see output like:
+
+```
+Apex 26.09 [GCC 15.2.0] on Linux x86-64
+```
+
+The exact details will vary depending on your system, but if you see "Apex" followed by a version number, you're good to go.
+
+If you see an error message like "command not found" or "apex is not recognized," it means the interpreter isn't in your PATH. Either add it to your PATH as described above, or use the full path to the interpreter when running commands.
+
+#### Installing the Apex Code
+Now that you have the interpreter installed, you need a place to write your code. Technically, you could use any text editor—even Notepad on Windows or TextEdit on macOS. But a good code editor will make your life much easier by providing features like syntax highlighting, auto-completion, and error detection.
+
+For this book, we'll assume you're using VS Code, since it's the most beginner-friendly option. Here's how to set it up:
+
+**Step 1: Download and install VS Code.**
+Go to [https://code.visualstudio.com/](https://code.visualstudio.com/) and download the version for your operating system. Follow the installation instructions.
+
+**Step 2: Install the Apex extension.**
+Open VS Code and click on the Extensions icon in the sidebar (it looks like a square puzzle piece). In the search box, type `apex-lang` and download the extension published by `is-nobody`. Click **Install**.
+
+Alternatively, launch VS Code Quick Open (`Ctrl+P`), paste the following command, and press Enter:
+
+```
+ext install is-nobody.apex-lang
+```
+
+This extension provides:
+- Syntax highlighting (your code will be colored to make it easier to read)
+- Auto-completion (the editor will suggest what to type next)
+- Hover documentation (hover over a function to see what it does)
+- A command to run your code directly from the editor
+
+**Step 3: Create a workspace.**
+Create a folder somewhere on your computer where you'll keep your Apex projects. For example, you might create a folder called `apex-projects` in your home directory. Open this folder in VS Code using File > Open Folder.
+
+That's it! You're ready to start writing Apex code.
+
+### First Program
+Now for the moment you've been waiting for: writing your first Apex program.
+
+By tradition, the first program in any language is "Hello, World!"—a program that simply prints those words to the screen. It's a simple task, but it introduces several fundamental concepts: how to write a program, how to run it, and how to see output.
+
+Let's create the program step by step.
+
+**Step 1: Create a new file.**
+In VS Code, create a new file by clicking File > New File. Then save it with the name `hello.apex`. The `.apex` extension tells VS Code that this is an Apex file, so it will apply the right syntax highlighting.
+
+**Step 2: Write the program.**
+Type the following code into the file:
+
+```apex
+import os
+
+os.output("Hello, World!")
+```
+
+That's it—two lines of code. Let's break down what each line does.
+
+The first line, `import os`, tells Apex that we want to use the `os` module. A **module** is a collection of related functions and values. The `os` module contains functions for interacting with the operating system—reading files, writing to the screen, getting the current directory, and so on.
+
+The second line, `os.output("Hello, World!")`, calls the `output` function from the `os` module. This function takes a value (in this case, the string `"Hello, World!"`) and prints it to the screen, followed by a newline.
+
+Notice the syntax:
+- `os.output` is the function's name. The dot `.` separates the module name (`os`) from the function name (`output`).
+- The parentheses `()` contain the **arguments**—the values we're passing to the function. In this case, there's one argument: the string `"Hello, World!"`.
+- The quotes `""` around `Hello, World!` indicate that it's a string—a piece of text.
+
+**Step 3: Run the program.**
+There are two ways to run your program:
+
+**Option A: From the terminal.**
+Open a terminal in VS Code by clicking Terminal > New Terminal. Then type:
+
+```
+apex hello.apex
+```
+
+You should see:
+
+```
+Hello, World!
+```
+
+Congratulations—you've just run your first Apex program!
+
+**Option B: From VS Code.**
+If you installed the Apex extension, you can run the program by pressing `F5` or by opening the Command Palette (Ctrl+Shift+P on Windows/Linux, Cmd+Shift+P on macOS), typing "Apex: Run Current File," and pressing Enter.
+
+**Step 4: Experiment.**
+Now that you have a working program, try changing it. Here are some ideas:
+
+- Change the message to say something else: `os.output("Apex is awesome!")`
+- Print multiple lines:
+  ```apex
+  import os
+  os.output("Hello, World!")
+  os.output("This is my first program.")
+  os.output("I'm learning Apex!")
+  ```
+
+The important thing is that you've written and run your first program. You've taken the first step on a journey that will change how you think about computers and problem-solving.
+
+Every expert programmer started exactly where you are now. The only difference between you and them is practice. So keep experimenting, keep asking questions, and don't be afraid to make mistakes. Mistakes are how we learn.
+
+Welcome to Apex.
 
 ## Variables & Data Types
 Every program you will ever write is, at its core, about doing things with information. That information might be a username, a price, a list of high scores, or whether a button has been clicked. But before your program can do anything useful, it needs a way to hold onto that information and know what kind of information it is. That's where variables and data types come in.
