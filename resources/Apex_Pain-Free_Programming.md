@@ -135,10 +135,34 @@
 
 ### For Loops
 - [For Counter](#for-counter)
+  - [Counting Down with a Step](#counting-down-with-a-step)
+  - [The Loop Variable Is a Number](#the-loop-variable-is-a-number)
+  - [Using a Decimal Start or End](#using-a-decimal-start-or-end)
+  - [The Loop Variable Cannot Be Modified Inside the Loop](#the-loop-variable-cannot-be-modified-inside-the-loop)
+  - [Nested Counter Loops](#nested-counter-loops)
 - [For Table Iteration](#for-table-iteration)
+  - [Iterating Over Key-Value Tables](#iterating-over-key-value-tables)
+  - [Iterating Over Mixed Tables](#iterating-over-mixed-tables)
+  - [Iterating Over an Empty Table](#iterating-over-an-empty-table)
+  - [The Loop Variable Holds a Reference](#the-loop-variable-holds-a-reference)
+  - [You Cannot Iterate Over Strings](#you-cannot-iterate-over-strings)
 - [For Condition](#for-condition)
+  - [The Condition Can Be Any Boolean Expression](#the-condition-can-be-any-boolean-expression)
+  - [The Condition Is Re-Evaluated Before Each Iteration](#the-condition-is-re-evaluated-before-each-iteration)
+  - [Counting Down](#counting-down)
+  - [A Warning About Infinite Loops](#a-warning-about-infinite-loops)
+  - [The Condition Must Be Boolean](#the-condition-must-be-boolean)
+  - [Zero Iterations](#zero-iterations)
 - [Break](#break)
+  - [Break in Counter Loops](#break-in-counter-loops)
+  - [Break in Condition Loops](#break-in-condition-loops)
+  - [Break Only Exits the Innermost Loop](#break-only-exits-the-innermost-loop)
 - [Continue](#continue)
+  - [Continue in Table Iteration](#continue-in-table-iteration)
+  - [Continue Only Affects the Innermost Loop](#continue-only-affects-the-innermost-loop)
+  - [Continue vs. Break](#continue-vs-break)
+  - [A Common Pattern: Filtering](#a-common-pattern-filtering)
+  - [When to Use Continue](#when-to-use-continue)
 
 ### Functions
 - [Why Functions Exist](#why-functions-exist)
@@ -2904,7 +2928,7 @@ for i = 5, 1
 
 Here, `i` starts at 5, which is already greater than the end value 1. The loop never runs. `result` stays `""`. This is not an error — it's just a loop with zero iterations.
 
-#### Stepping by More Than One
+#### Counting Down with a Step
 By default, the counter increases by 1 each time. But you can add a third number — the **step** — to control how much it changes.
 
 Syntax:
@@ -2933,11 +2957,142 @@ for i = 5, 1, -1
 
 Here, `result` becomes `"54321"`. `i` takes 5, 4, 3, 2, 1, then would become 0, which is less than 1, so the loop stops.
 
-If you use a negative step, the start value should be greater than the end value for the loop to run at all. If you swap them and still use a negative step, the loop won't run.
+If you use a negative step, the start value should be greater than the end value for the loop to run at all. If you swap them and still use a negative step, the loop won't run:
+
+```apex
+result = ""
+for i = 1, 5, -1     // start 1, end 5, step -1
+    result = "{result}{i}"
+```
+
+The step is negative, so the loop counts downward. But the start value (1) is less than the end value (5). Counting down from 1 never reaches 5 — it goes further and further away. So the loop doesn't run. `result` stays `""`.
 
 **The step cannot be zero.** If you write `for i = 1, 10, 0`, Apex will report an error. A step of zero would mean the loop variable never changes, so the loop would never end — that's not allowed.
 
-You can also use decimals as steps, but be careful. Floating-point arithmetic can introduce tiny rounding errors. For most counting tasks, whole-number steps are what you want.
+You can also use decimals as steps, but be careful. Floating-point arithmetic can introduce tiny rounding errors. For example:
+
+```apex
+result = ""
+for i = 0, 2, 0.5
+    result = "{result}{i} "
+```
+
+After this, `result` is `"0 0.5 1 1.5 2 "`. The loop counts from 0 by half-steps. But if you tried to use `0.1` as a step, you might find that accumulated rounding errors make the loop either run one extra time or one time too few. For most counting tasks, whole-number steps are what you want.
+
+#### The Loop Variable Is a Number
+The loop variable in a counter loop is always a number. You can use it in arithmetic, compare it, print it — anything you'd do with a number.
+
+```apex
+sum = 0
+for i = 1, 5
+    sum = sum + i
+```
+
+After this, `sum` is 15 (because 1+2+3+4+5 = 15). The loop variable `i` was used as a number in the expression `sum + i`.
+
+If you wanted to compute the factorial of a number with a loop, you could do:
+
+```apex
+function factorial(n)
+    result = 1
+    for i = 1, n
+        result = result * i
+    return result
+```
+
+Calling `factorial(5)` returns 120.
+
+#### Using a Decimal Start or End
+The start and end values don't have to be whole numbers. You can use decimals:
+
+```apex
+result = ""
+for i = 0.5, 2.5, 0.5
+    result = "{result}{i} "
+```
+
+After this, `result` is `"0.5 1 1.5 2 2.5 "`. The loop runs for each value from 0.5 to 2.5, stepping by 0.5.
+
+The start and end values are evaluated once, at the beginning of the loop. They are not re-evaluated on each iteration. So if you write:
+
+```apex
+end = 10
+result = ""
+for i = 1, end
+    end = 100
+    result = "{result}{i}"
+```
+
+The loop still stops at 10, because that's the value `end` had when the loop began. Changing `end` inside the loop has no effect on the loop's stop condition.
+
+This is important. The `end` value is captured once, and the loop runs according to that captured value. Same for the step:
+
+```apex
+step = 1
+result = ""
+for i = 1, 5, step
+    step = 2
+    result = "{result}{i}"
+```
+
+The loop runs 1, 2, 3, 4, 5 (step 1), not 1, 3, 5. The step is captured once at the start.
+
+#### The Loop Variable Cannot Be Modified Inside the Loop
+You might wonder: what happens if I assign a new value to the loop variable inside the loop?
+
+```apex
+result = ""
+for i = 1, 5
+    i = 100
+    result = "{result}{i}"
+```
+
+This doesn't work the way you might think. The loop variable `i` is controlled by the loop machinery. Assigning to it inside the body is confusing and can lead to undefined behavior. Apex manages the loop variable itself. Don't write code that assigns to the loop variable — it's a bug waiting to happen.
+
+If you need a variable that you can modify, use a different name:
+
+```apex
+result = ""
+for i = 1, 5
+    temp = i * 2
+    result = "{result}{temp}"
+```
+
+Now `temp` is a normal variable that you can modify freely. `i` stays under the loop's control.
+
+#### Nested Counter Loops
+You can put a loop inside another loop. This is called **nesting**. When you do, each loop has its own variable and its own scope.
+
+```apex
+result = ""
+for i = 1, 2
+    for j = 1, 2
+        result = "{result}{i}{j} "
+```
+
+After this, `result` is `"11122122 "`. Let's trace through:
+- `i` is 1. Inner loop runs with `j` from 1 to 2:
+  - `j = 1`: result += "11 "
+  - `j = 2`: result += "12 "
+- `i` is 2. Inner loop runs again with `j` from 1 to 2:
+  - `j = 1`: result += "21 "
+  - `j = 2`: result += "22 "
+
+The total is `"11122122 "`.
+
+Notice that the inner loop runs completely for each iteration of the outer loop. This is the key idea of nesting. The outer loop controls the inner loop.
+
+Nested loops are useful for working with grids, matrices, and any data that has multiple dimensions. For example, a chessboard is an 8×8 grid:
+
+```apex
+for row = 1, 8
+    for col = 1, 8
+        // process cell at (row, col)
+```
+
+Each cell gets its own processing. This pattern is extremely common.
+
+But be careful with nesting. If you nest too many loops, the number of iterations grows fast. Two nested loops with 100 iterations each means 10,000 total iterations. Three nested loops with 100 iterations each means 1,000,000. The computer is fast, but it's not infinitely fast. If your nested loops take too long, look for ways to flatten them or reduce the range.
 
 ### For Table Iteration
 Tables hold many values. Often you want to do something with each one — print it, add it to a total, check if it matches some condition. The table iteration form of `for` lets you visit every value in a table, one at a time.
@@ -2974,6 +3129,7 @@ for n in numbers
 
 After this, `total` is `100`. The loop adds each number to the running total.
 
+#### Iterating Over Key-Value Tables
 Now consider a key-value table:
 
 ```apex
@@ -2983,9 +3139,62 @@ for value in user
     result = "{result}{value} "
 ```
 
-Here, `result` becomes `"30 Dubai Alice "` (or some other order — key-value tables do not guarantee the order in which values are visited). The loop visits the values `"Alice"`, `30`, and `"Dubai"`, but the order depends on the internal layout of the table. If you need a specific order, you should sort or restructure your data first.
+Here, `result` becomes `"30 Dubai Alice "` (or some other order — key-value tables do not guarantee the order in which values are visited). The loop visits the values `"Alice"`, `30`, and `"Dubai"`, but the order depends on the internal layout of the table.
+
+This is important: **key-value tables do not preserve insertion order.** If you insert `"name"` first and `"age"` second, you might get `"age"` before `"name"` when iterating. If you need a specific order, you should sort or restructure your data first.
 
 The key thing to remember: **for table iteration gives you the values, not the keys**. If you want the keys, Apex provides ways to get them, but that's a topic for later.
+
+#### Iterating Over Mixed Tables
+If a table has both positional values and key-value pairs, iteration visits all of them. But the order is not guaranteed for the key-value part.
+
+```apex
+mixed = ["first", "second", "name" = "Alice"]
+result = ""
+for v in mixed
+    result = "{result}{v} "
+```
+
+After this, `result` might be `"first second Alice "` — the positional values come first, and then the key-value values. Or it might not, depending on the implementation. In practice, positional values are visited in order, and then key-value values are visited in their own internal order.
+
+The takeaway: don't rely on the order of iteration for key-value tables. If order matters, use a table that contains only positional values, or sort the keys first.
+
+#### Iterating Over an Empty Table
+What happens if the table is empty?
+
+```apex
+empty = []
+count = 0
+for v in empty
+    count = count + 1
+```
+
+The loop runs zero times. `count` stays 0. This is not an error — it's just a loop that doesn't execute. The same is true if the table has no values (like a key-value table with only keys but no values, which is unusual but possible).
+
+#### The Loop Variable Holds a Reference
+When you iterate over a table, the loop variable holds a **reference** to each value. For numbers and strings, this doesn't matter much — they're immutable anyway. But for tables, the loop variable points to the same table that's inside the container.
+
+```apex
+outer = [[1, 2], [3, 4]]
+for inner in outer
+    // inner is a reference to each inner table
+    inner[1] = inner[1] * 10
+```
+
+After this, `outer` is `[[10, 2], [30, 4]]`. Because `inner` is a reference to the actual table inside `outer`, modifying `inner` modifies the original table.
+
+If you wanted to modify a copy instead, you'd have to make the copy yourself. But usually, modifying in place is what you want.
+
+#### You Cannot Iterate Over Strings
+If you want to iterate over the characters of a string, `for value in string` won't work. Strings are not tables.
+
+```apex
+text = "hello"
+for c in text     // ERROR — text is a string, not a table
+    // ...
+```
+
+Apex requires the iterable to be a table. If you need to process characters one by one, you can split the string into a table of characters first, or use a counter loop over the string's length.
 
 ### For Condition
 Sometimes you don't know in advance how many times you'll need to repeat something. You just know that you want to keep going as long as some condition is true. That's what the condition form of `for` is for.
@@ -3019,18 +3228,7 @@ Notice that `counter` is declared **before** the loop. The loop body modifies it
 
 Always make sure something inside the loop body changes the condition. Common patterns are incrementing a counter, decrementing a counter, or reading new input each time.
 
-Here's an example that counts down:
-
-```apex
-counter = 5
-result = ""
-for counter >= 1
-    result = "{result}{counter}"
-    counter = counter - 1
-```
-
-After this, `result` is `"54321"`.
-
+#### The Condition Can Be Any Boolean Expression
 The condition can be any boolean expression, including comparisons with `and`, `or`, and `not`. For example:
 
 ```apex
@@ -3044,6 +3242,73 @@ for x < y and y > 5
 ```
 
 This loop continues as long as `x < y` **and** `y > 5`. Each iteration, `x` increases by 2 and `y` decreases by 1. The condition is re-checked before each iteration.
+
+#### The Condition Is Re-Evaluated Before Each Iteration
+Unlike a counter loop, where the start and end values are captured once, the condition in a condition loop is re-evaluated before every iteration. That's the whole point — the condition can change based on what happens in the body.
+
+```apex
+i = 0
+for i < 5
+    i = i + 1
+```
+
+Before each run, `i < 5` is checked with the current value of `i`. When `i` becomes 5, the condition is false, and the loop stops.
+
+This means you can write conditions that depend on the state of many variables, and the loop will adapt as those variables change. The loop keeps running as long as the condition is true, no matter how many iterations that takes.
+
+#### Counting Down
+Here's an example that counts down:
+
+```apex
+counter = 5
+result = ""
+for counter >= 1
+    result = "{result}{counter}"
+    counter = counter - 1
+```
+
+After this, `result` is `"54321"`. The loop runs while `counter >= 1`. Each iteration, `counter` decreases by 1. When `counter` reaches 0, the condition is false, and the loop stops.
+
+#### A Warning About Infinite Loops
+An infinite loop is a loop that never stops. It runs forever, or until the program is killed. This can happen accidentally if you forget to update the condition variable.
+
+```apex
+counter = 1
+for counter <= 5
+    result = "{result}{counter}"
+    // forgot to increment counter!
+```
+
+Here, `counter` is always 1. The condition `1 <= 5` is always true. The loop runs forever, printing `"1"` each time. The program will hang until you interrupt it (usually with Ctrl+C).
+
+Always double-check that your loop body changes the state that the condition depends on. If the condition doesn't change, the loop never stops.
+
+#### The Condition Must Be Boolean
+As with everything in Apex, the condition must be a boolean expression. You cannot write `for x` and expect it to mean "while x is not zero." You must write a comparison or a boolean variable.
+
+```apex
+x = 5
+for x > 0          // OK — comparison
+    // ...
+
+y = true
+for y == true      // OK — explicit boolean comparison
+    // ...
+```
+
+If you write `for x` where `x` is a number, Apex will report an error. Always be explicit.
+
+#### Zero Iterations
+If the condition is false from the start, the loop never runs. This is not an error — it's just a loop with zero iterations.
+
+```apex
+x = 10
+result = ""
+for x < 5
+    result = "{result}{x}"
+```
+
+Here, `x < 5` is false initially (10 is not less than 5). The loop body never runs. `result` stays `""`.
 
 ### Break
 Sometimes you want to leave a loop early. Maybe you found what you were looking for and there's no point continuing. Or maybe an error occurred and you need to stop. The `break` statement exits the loop immediately.
@@ -3065,9 +3330,58 @@ After this, `found` is `true`. The loop visits 10, then 20, then 30. When `n` is
 
 Without `break`, the loop would continue to the end, but `found` would already be `true` — the extra iterations would just be wasted work. `break` saves time when you know there's nothing more to do.
 
-`break` only exits the **innermost** loop. If you have a loop inside another loop, `break` inside the inner loop exits only that inner loop. The outer loop continues. To exit the outer loop too, you'd need a `break` in the outer loop, or some other mechanism. But nested loops are a topic for later — for now, just remember that `break` exits the loop it appears in.
+#### Break in Counter Loops
+You can use `break` with any form of `for`. Here's an example with a counter loop:
 
-You can use `break` with any form of `for`. It's especially common with condition loops, where you're looping until something happens, and then you break when it does.
+```apex
+result = ""
+for i = 1, 10
+    if i == 5
+        break
+    result = "{result}{i}"
+```
+
+After this, `result` is `"1234"`. The loop runs `i` from 1 to 10, but when `i` reaches 5, `break` exits the loop. So the body only runs for `i` = 1, 2, 3, 4.
+
+#### Break in Condition Loops
+`break` is especially common with condition loops, where you're looping until something happens, and then you break when it does.
+
+```apex
+import os
+
+for true == true       // infinite loop
+    input = os.input("Enter a number (or 'quit'): ")
+    if input == "quit"
+        break
+    n = number(input)
+    if n == none
+        os.output("Not a number")
+    else
+        os.output("Doubled: {n * 2}")
+```
+
+This loop runs forever, prompting the user for input. If the user types `"quit"`, `break` exits the loop. Otherwise, the input is processed and the loop repeats.
+
+Using `for true == true` to write an infinite loop is a common pattern when you don't know how many iterations you'll need, but you know when to stop. Always make sure there's a `break` somewhere that will eventually be reached.
+
+#### Break Only Exits the Innermost Loop
+`break` only exits the **innermost** loop. If you have a loop inside another loop, `break` inside the inner loop exits only that inner loop. The outer loop continues.
+
+```apex
+result = ""
+for i = 1, 3
+    for j = 1, 5
+        if j == 3
+            break
+        result = "{result}{i}{j} "
+```
+
+After this, `result` is `"111221223132 "`. Let's trace:
+- `i = 1`: inner loop runs `j` from 1 to 5. When `j == 3`, break. So `j` runs 1, 2. `result` gets `"11 12 "`.
+- `i = 2`: inner loop again runs `j` from 1, breaks at 3. `result` gets `"21 22 "`.
+- `i = 3`: same thing. `result` gets `"31 32 "`.
+
+The `break` only exits the inner loop. The outer loop continues. This is important — if you want to break out of both loops at once, you'd need some other mechanism (like a flag variable or a helper function with a `return`).
 
 ### Continue
 Sometimes you don't want to exit the loop entirely — you just want to skip the rest of the current iteration and move on to the next one. That's what `continue` does.
@@ -3095,9 +3409,90 @@ After this, `result` is `"135"`. Let's trace through:
 
 The loop visited all six numbers, but the even ones were skipped. `continue` is useful when you want to ignore certain cases but still process the rest.
 
+#### Continue in Table Iteration
+`continue` works in table iteration loops too:
+
+```apex
+values = [1, 2, 3, 4, 5]
+result = ""
+for v in values
+    if v % 2 == 0
+        continue
+    result = "{result}{v}"
+```
+
+After this, `result` is `"135"`. The loop skips the even numbers.
+
+#### Continue Only Affects the Innermost Loop
 Like `break`, `continue` affects only the innermost loop. In nested loops, `continue` skips to the next iteration of the inner loop, not the outer one.
 
-`continue` can be used with any form of `for`. It's a clean way to say "I'm done with this item, move on to the next."
+```apex
+result = ""
+for i = 1, 2
+    for j = 1, 3
+        if j == 2
+            continue
+        result = "{result}{i}{j} "
+```
+
+After this, `result` is `"11132123 "`. Let's trace:
+- `i = 1`:
+  - `j = 1`: no continue. `result` gets `"11 "`.
+  - `j = 2`: continue — skip. `result` not changed.
+  - `j = 3`: no continue. `result` gets `"13 "`.
+- `i = 2`:
+  - `j = 1`: no continue. `result` gets `"21 "`.
+  - `j = 2`: continue — skip.
+  - `j = 3`: no continue. `result` gets `"23 "`.
+
+The `continue` only skipped the inner loop's iterations. The outer loop ran all its iterations.
+
+#### Continue vs. Break
+These two statements look similar but do very different things:
+
+| Statement | Effect |
+|-----------|--------|
+| `break` | Exits the loop entirely. |
+| `continue` | Skips the rest of the current iteration and moves on to the next one. |
+
+`break` says "I'm done with this loop." `continue` says "I'm done with this iteration."
+
+Use `break` when you want to stop looping entirely. Use `continue` when you want to skip the current item but keep looping.
+
+#### A Common Pattern: Filtering
+A common use of `continue` is filtering — you want to process some items but skip others.
+
+```apex
+import os
+
+numbers = [1, -2, 3, -4, 5]
+total = 0
+for n in numbers
+    if n < 0
+        continue
+    total = total + n
+os.output(total)   // 9 (1 + 3 + 5)
+```
+
+Here, the loop skips negative numbers and adds only the positive ones. The result is 9.
+
+Without `continue`, you'd need an `if` that wraps the entire rest of the loop body:
+
+```apex
+for n in numbers
+    if n >= 0
+        total = total + n
+```
+
+This is also valid, but when the loop body is long, `continue` at the top is cleaner. It lets you say "skip negative numbers" early, and then the rest of the body doesn't need to be indented.
+
+#### When to Use Continue
+Use `continue` when:
+- You want to skip the current item entirely.
+- The skip condition is simple and can be checked early in the loop.
+- The rest of the loop body would be deeply indented otherwise.
+
+Don't overuse it. If your loop body has many `continue` statements, it might be a sign that you should restructure your logic. But used sparingly, `continue` keeps loops clean.
 
 ## Functions
 ### Why Functions Exist
