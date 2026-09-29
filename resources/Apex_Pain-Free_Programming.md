@@ -87,10 +87,10 @@
   - [Combining Logical Operators](#combining-logical-operators)
 
 ### If Statements
-- [If Statement](#section)
-- [Else-If Statement](#section)
-- [Else Statement](#section)
-- [Ternary Statement](#section)
+- [If Statement](#if-statement)
+- [Else-If Statement](#else-if-statement)
+- [Else Statement](#else-statement)
+- [Ternary Expression](#ternary-expression)
 
 ### For Loops
 - [For Counter](#section)
@@ -1753,3 +1753,213 @@ The full precedence order — including the operators from earlier sections — 
 8. `or` — logical OR
 
 When in doubt, use parentheses. They cost nothing and make your intention obvious.
+
+### If Statements
+So far, every line of code you've written has run from top to bottom, one after another. That's fine for simple calculations, but real programs need to make decisions. They need to do one thing if a condition is true, and another thing if it's false. That's where if statements come in.
+
+Think of an if statement like a fork in the road. You stand at the fork, and you ask a yes-or-no question. If the answer is yes, you take the left path. If the answer is no, you take the right path (or just stay put). The question you ask is called a condition, and it must be something that can be answered with a boolean: either true or false.
+
+In Apex, an if statement looks like this:
+
+```apex
+if condition
+    // do something
+```
+
+The condition is an expression that evaluates to a boolean. It could be a comparison, like `age > 18`, or a logical combination. It cannot be a number or a string. Apex requires you to be explicit: you must write a comparison or a boolean variable compared to `true` or `false`. You cannot write `if x` and expect it to mean "if x is not zero" or "if x is not none". That's not allowed. You must write `if x > 0` or `if x != none` or whatever makes sense.
+
+After the condition, you put an indented block of code. That block runs only if the condition is true. The indentation is four spaces. Apex uses indentation to know which lines belong to the if block.
+
+Let's look at a simple example:
+
+```apex
+can_vote = none
+age = 20
+if age >= 18
+    can_vote = true
+```
+
+After this code runs, `can_vote` is `true`. If `age` were 16, the condition `age >= 18` would be false, and the indented block would be skipped. `can_vote` would remain `none`.
+
+Notice that the condition `age >= 18` is a comparison. It produces a boolean. That's exactly what Apex wants.
+
+Now let's explore the different forms of if statements.
+
+## If Statement
+The simplest if statement has just one branch: the code that runs when the condition is true. If the condition is false, nothing happens.
+
+Syntax:
+```apex
+if condition
+    // code to run if condition is true
+```
+
+You can have as many lines as you want inside the block, as long as they are all indented by four spaces. For example:
+
+```apex
+temperature = 30
+message = ""
+advice = ""
+if temperature > 25
+    message = "It's hot outside"
+    advice = "Drink plenty of water"
+```
+
+After this, `message` is `"It's hot outside"` and `advice` is `"Drink plenty of water"`. Both lines ran because the condition was true. If the condition were false, neither line would run.
+
+Remember: the condition must be a boolean expression. You cannot write `if temperature` because `temperature` is a number, not a boolean. You must write a comparison. You also cannot write `if is_ready` if `is_ready` is a boolean variable. You must write `if is_ready == true` or `if is_ready == false`. Apex does not have truthy or falsy values.
+
+Let's see an example with a boolean variable:
+
+```apex
+is_raining = true
+action = ""
+if is_raining == true
+    action = "Take an umbrella"
+```
+
+Here, `is_raining == true` is a comparison that yields `true`. The block runs, and `action` becomes `"Take an umbrella"`. If `is_raining` were `false`, the block would be skipped.
+
+You can also use logical operators to combine conditions. For example:
+
+```apex
+age = 25
+has_license = true
+can_drive = false
+if age >= 18 and has_license == true
+    can_drive = true
+```
+
+Here, both conditions must be true for the block to run. Since `age >= 18` is true and `has_license == true` is true, `can_drive` becomes `true`.
+
+## Else-If Statement
+Sometimes you have more than two possibilities. You want to check a second condition if the first one is false, and a third condition if the second is false, and so on. That's what `else if` is for.
+
+Syntax:
+```apex
+if condition1
+    // code if condition1 is true
+else if condition2
+    // code if condition1 is false and condition2 is true
+else if condition3
+    // code if condition1 and condition2 are false, and condition3 is true
+```
+
+You can have as many `else if` blocks as you need. Each one is checked in order, from top to bottom. As soon as one condition is true, its block runs, and all the remaining `else if` and `else` blocks are skipped.
+
+Let's look at an example that assigns a grade based on a score:
+
+```apex
+score = 85
+grade = none
+
+if score >= 90
+    grade = "A"
+else if score >= 80
+    grade = "B"
+else if score >= 70
+    grade = "C"
+```
+
+After this code runs, `grade` is `"B"`. Let's trace through:
+- `score >= 90` is false (85 is not >= 90), so we skip the first block.
+- `score >= 80` is true, so we run that block and set `grade = "B"`.
+- The remaining `else if` blocks are skipped.
+
+If `score` were 95, `grade` would be `"A"`. If `score` were 75, `grade` would be `"C"`. If `score` were 65, none of the conditions would be true, and `grade` would remain `none`.
+
+Notice that each `else if` is on the same indentation level as the original `if`. The blocks are indented four spaces. This indentation tells Apex which code belongs to which branch.
+
+Important: The conditions are checked in order. Once a condition is true, the rest are ignored. So you should order your conditions from most specific to least specific, or from highest to lowest, as in the grade example.
+
+## Else Statement
+The `else` block runs when none of the previous conditions were true. It's the catch-all. You can have at most one `else`, and it must be the last branch.
+
+Syntax:
+```apex
+if condition
+    // code if condition is true
+else
+    // code if condition is false
+```
+
+You can combine `else if` and `else`:
+
+```apex
+if condition1
+    // code if condition1 is true
+else if condition2
+    // code if condition1 is false and condition2 is true
+else
+    // code if all conditions are false
+```
+
+Let's extend the grade example with an `else`:
+
+```apex
+score = 65
+grade = none
+
+if score >= 90
+    grade = "A"
+else if score >= 80
+    grade = "B"
+else if score >= 70
+    grade = "C"
+else
+    grade = "F"
+```
+
+Now, if `score` is 65, none of the `if` or `else if` conditions are true, so the `else` block runs and `grade` becomes `"F"`. If `score` were 75, `grade` would be `"C"` and the `else` would be skipped.
+
+The `else` block has no condition. It simply runs when all previous conditions were false. It's a good way to handle the "everything else" case.
+
+## Ternary Exptession
+The ternary expression is a shorthand for a simple if-else that chooses between two values. It's an expression, so it produces a value. You can use it anywhere you can use a value, such as on the right side of an assignment.
+
+The syntax is a bit different from some other languages. In Apex, you write:
+
+```apex
+value_if_true if condition else value_if_false
+```
+
+Notice the order: first the value for when the condition is true, then the word `if`, then the condition, then the word `else`, then the value for when the condition is false.
+
+For example:
+
+```apex
+age = 20
+status = "adult" if age >= 18 else "minor"
+```
+
+After this, `status` is `"adult"`. If `age` were 16, `status` would be `"minor"`.
+
+You can use the ternary anywhere you need to choose between two values. For example:
+
+```apex
+price = 100
+discount = 20
+final_price = price - discount if discount > 0 else price
+```
+
+Here, `final_price` becomes 80 because `discount > 0` is true, so the expression before `if` is used (`price - discount`). If `discount` were 0, `final_price` would be `price`.
+
+The condition in a ternary must be a boolean expression, just like in a regular if statement. The two values can be of any type, but they should be compatible for the context.
+
+Important: The ternary is meant for simple two-way choices. You cannot chain them or use more than one condition. If you need to check more than one condition, use a regular `if`/`else if`/`else` statement. The ternary is a convenience, not a replacement for full if statements.
+
+Let's summarize the ternary with an example that uses a boolean variable:
+
+```apex
+is_member = true
+price = 100
+final_price = price * 0.9 if is_member == true else price
+```
+
+Here, if `is_member` is `true`, `final_price` is 90. If `is_member` is `false`, `final_price` is 100.
+
+Remember: you must write `is_member == true`, not just `is_member`. Apex requires explicit boolean comparisons.
+
+That's the ternary. It's a compact way to write a simple if-else that returns a value.
+
+Now you know how to make your programs decide! Use `if` for a single condition, `else if` for multiple conditions, `else` for the default case, and the ternary for simple two-way choices. All conditions must be boolean, and indentation defines the blocks. In the next section, we'll learn how to repeat code with loops.
