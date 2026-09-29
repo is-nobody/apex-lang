@@ -88,9 +88,21 @@
 
 ### If Statements
 - [If Statement](#if-statement)
+  - [A Note on the Block](#a-note-on-the-block)
+  - [Multiple Conditions](#multiple-conditions)
 - [Else-If Statement](#else-if-statement)
+  - [Order Matters](#order-matters)
+  - [Each Branch Is Its Own Scope](#each-branch-is-its-own-scope)
 - [Else Statement](#else-statement)
+  - [When to Use Else](#when-to-use-else)
+  - [A Common Pattern: Validation](#a-common-pattern-validation)
+  - [No Else Needed for Simple Cases](#no-else-needed-for-simple-cases)
 - [Ternary Expression](#ternary-expression)
+  - [Ternary vs. If Statement](#ternary-vs-if-statement)
+  - [Cannot Chain Ternaries](#cannot-chain-ternaries)
+  - [A Word on Apex's Ternary Order](#a-word-on-apexs-ternary-order)
+  - [Boolean Conditions Need Explicit Comparison](#boolean-conditions-need-explicit-comparison)
+  - [A Practical Example](#a-practical-example)
 
 ### Match / Case
 - [Match Statement](#match-statement)
@@ -1900,6 +1912,77 @@ if age >= 18 and has_license == true
 
 Here, both conditions must be true for the block to run. Since `age >= 18` is true and `has_license == true` is true, `can_drive` becomes `true`.
 
+#### A Note on the Block
+The block after an `if` is a **scope** — just like the body of a function or a loop. Variables you declare inside the block live only inside the block. When the block ends, they're gone.
+
+```apex
+import os
+
+x = 5
+if x < 10
+    y = 42
+    os.output(y)  // 42
+
+os.output(y)  // ERROR — y is not defined here
+```
+
+The variable `y` is created inside the if block. It's visible only there. Once the if statement finishes, `y` no longer exists. This is a general rule in Apex: **indentation defines scope**. Every time you indent, you enter a new scope.
+
+If you need a variable to survive past the if statement, declare it before the `if`:
+
+```apex
+import os
+
+x = 5
+y = 0
+if x < 10
+    y = 42
+os.output(y)  // 42 — y survives
+```
+
+Now `y` is declared outside, and the assignment inside the block modifies the outer `y`. The value survives.
+
+#### Multiple Conditions
+You can combine any number of comparisons with logical operators. For example:
+
+```apex
+age = 25
+has_license = true
+is_sober = true
+can_drive = false
+
+if age >= 18 and has_license == true and is_sober == true
+    can_drive = true
+```
+
+All three conditions must be true. If any one of them is false, the block is skipped. The `and` operator chains them together, and the whole expression is a boolean.
+
+You can use `or` to allow alternatives:
+
+```apex
+day = "Saturday"
+is_holiday = false
+can_relax = false
+
+if day == "Saturday" or is_holiday == true
+    can_relax = true
+```
+
+Here, if either condition is true, the block runs. Since `day == "Saturday"` is true (and `is_holiday == true` is false), the block runs anyway, and `can_relax` becomes `true`.
+
+And you can combine `and`, `or`, and `not`:
+
+```apex
+is_weekend = true
+has_work = false
+can_relax = false
+
+if (is_weekend == true or has_work == false) and not (has_work == true)
+    can_relax = true
+```
+
+Don't worry too much about this last example — it's just to show that you can combine as much as you need. Use parentheses when the logic gets complex; they cost nothing and make your intention obvious.
+
 ### Else-If Statement
 Sometimes you have more than two possibilities. You want to check a second condition if the first one is false, and a third condition if the second is false, and so on. That's what `else if` is for.
 
@@ -1938,7 +2021,51 @@ If `score` were 95, `grade` would be `"A"`. If `score` were 75, `grade` would be
 
 Notice that each `else if` is on the same indentation level as the original `if`. The blocks are indented four spaces. This indentation tells Apex which code belongs to which branch.
 
-Important: The conditions are checked in order. Once a condition is true, the rest are ignored. So you should order your conditions from most specific to least specific, or from highest to lowest, as in the grade example.
+**Important:** The conditions are checked in order. Once a condition is true, the rest are ignored. So you should order your conditions from most specific to least specific, or from highest to lowest, as in the grade example.
+
+#### Order Matters
+Here's an example where the wrong order causes a bug:
+
+```apex
+score = 85
+grade = none
+
+if score >= 70
+    grade = "C"
+else if score >= 80
+    grade = "B"
+else if score >= 90
+    grade = "A"
+```
+
+If you run this with `score = 85`, the first condition `score >= 70` is true (85 is at least 70). So `grade` becomes `"C"`. The remaining `else if` blocks are skipped, and the fact that 85 is also >= 80 never gets a chance. The result is wrong.
+
+The problem is that the conditions aren't specific enough. The first one catches too many cases. By ordering from highest to lowest — `>= 90` first, then `>= 80`, then `>= 70` — you make sure each score lands in the correct bracket.
+
+Always think about the ordering when you write an `else if` chain. Ask yourself: "Could an earlier condition steal a case meant for a later one?"
+
+#### Each Branch Is Its Own Scope
+Just like with a plain `if`, each branch in an `else if` chain creates its own scope. Variables declared inside a branch are local to that branch. You can even reuse the same variable name in different branches, and they won't conflict.
+
+```apex
+import os
+
+score = 85
+
+if score >= 90
+    grade = "A"
+    os.output(grade)
+else if score >= 80
+    grade = "B"
+    os.output(grade)
+else
+    grade = "C"
+    os.output(grade)
+
+os.output(grade)  // ERROR — grade is not defined here
+```
+
+The variable `grade` is declared inside each branch. Each branch has its own `grade`. None of them are visible after the entire chain is finished. If you want `grade` to survive, declare it outside the chain.
 
 ### Else Statement
 The `else` block runs when none of the previous conditions were true. It's the catch-all. You can have at most one `else`, and it must be the last branch.
@@ -1982,7 +2109,49 @@ Now, if `score` is 65, none of the `if` or `else if` conditions are true, so the
 
 The `else` block has no condition. It simply runs when all previous conditions were false. It's a good way to handle the "everything else" case.
 
-### Ternary Exptession
+#### When to Use Else
+Not every `if` chain needs an `else`. If there's nothing meaningful to do when all conditions fail, you can leave it out. Execution just continues with the code after the chain.
+
+Use `else` when:
+- You want to handle the "everything else" case explicitly.
+- You want to make sure at least one branch always runs.
+- You want the reader to see that all possibilities are covered.
+
+If you don't need it, skip it. Simpler code is usually better.
+
+#### A Common Pattern: Validation
+A common pattern is to use `if`/`else if`/`else` for validation — checking a series of conditions and reporting the first one that fails.
+
+```apex
+import os
+
+username = "ab"
+
+if string.length(username) < 3
+    os.output("Username too short")
+else if string.length(username) > 20
+    os.output("Username too long")
+else
+    os.output("Username is valid")
+```
+
+Here, the first condition fails (length is 2, which is < 3), so the first branch runs and prints `"Username too short"`. The remaining branches are skipped. If the username were longer than 3 and shorter than 20, the `else` branch would run.
+
+This pattern — checking each rule in turn and reporting the first failure — is very common. It's clear, easy to read, and easy to extend.
+
+#### No Else Needed for Simple Cases
+If you have a single `if` and nothing needs to happen when the condition is false, don't add an `else`. Just let the code continue.
+
+```apex
+balance = 100
+if balance < 0
+    balance = 0
+os.output(balance)
+```
+
+Here, if `balance` is negative, we clamp it to zero. If it's already non-negative, nothing changes. There's no need for an `else` — the "do nothing" case is handled by simply not running the block.
+
+### Ternary Expression
 The ternary expression is a shorthand for a simple if-else that chooses between two values. It's an expression, so it produces a value. You can use it anywhere you can use a value, such as on the right side of an assignment.
 
 The syntax is a bit different from some other languages. In Apex, you write:
@@ -2014,23 +2183,98 @@ Here, `final_price` becomes 80 because `discount > 0` is true, so the expression
 
 The condition in a ternary must be a boolean expression, just like in a regular if statement. The two values can be of any type, but they should be compatible for the context.
 
-Important: The ternary is meant for simple two-way choices. You cannot chain them or use more than one condition. If you need to check more than one condition, use a regular `if`/`else if`/`else` statement. The ternary is a convenience, not a replacement for full if statements.
+#### Ternary vs. If Statement
+The ternary is not a replacement for an `if` statement. It's a tool for a specific situation: choosing between two values. It cannot contain multiple statements, and it cannot be used when you need to do different things (rather than produce different values).
 
-Let's summarize the ternary with an example that uses a boolean variable:
+Use a ternary when:
+- You need to pick one of two values based on a condition.
+- The condition is short and simple.
+- Both branches are simple expressions, not multi-statement blocks.
+
+Use an `if` statement when:
+- You need to run multiple statements in one or both branches.
+- The logic requires more than two branches.
+- The condition is complex enough that it deserves its own line.
+
+#### Cannot Chain Ternaries
+You cannot chain ternary expressions. This is not allowed:
 
 ```apex
-is_member = true
-price = 100
-final_price = price * 0.9 if is_member == true else price
+// NOT ALLOWED
+grade = "A" if score >= 90 else "B" if score >= 80 else "C"
 ```
 
-Here, if `is_member` is `true`, `final_price` is 90. If `is_member` is `false`, `final_price` is 100.
+Apex requires you to use a regular `if`/`else if`/`else` statement for cases that involve more than two possibilities. The ternary is strictly a two-way choice.
 
-Remember: you must write `is_member == true`, not just `is_member`. Apex requires explicit boolean comparisons.
+```apex
+// CORRECT WAY
+if score >= 90
+    grade = "A"
+else if score >= 80
+    grade = "B"
+else
+    grade = "C"
+```
 
-That's the ternary. It's a compact way to write a simple if-else that returns a value.
+This restriction is deliberate. The ternary is meant to be short and readable. Chaining them turns them into a hard-to-read puzzle. If you have more than two branches, use the statement form.
 
-Now you know how to make your programs decide! Use `if` for a single condition, `else if` for multiple conditions, `else` for the default case, and the ternary for simple two-way choices. All conditions must be boolean, and indentation defines the blocks. In the next section, we'll learn how to repeat code with loops.
+#### A Word on Apex's Ternary Order
+If you're coming from another language, you might be used to writing the condition first: `condition ? value_if_true : value_if_false`. Apex flips this around. The value comes first, then the condition, then the alternative.
+
+```apex
+// Apex
+status = "adult" if age >= 18 else "minor"
+```
+
+Read it out loud: "adult if age is at least 18, else minor." That reads naturally, like English. The order is a design choice to make the expression easier to read aloud. Once you get used to it, you may find it clearer than the traditional form.
+
+#### Boolean Conditions Need Explicit Comparison
+As with all conditions in Apex, the ternary condition must be an explicit boolean. You cannot write:
+
+```apex
+status = "yes" if is_active else "no"  // ERROR — is_active is a boolean, but not a comparison
+```
+
+You must write:
+
+```apex
+status = "yes" if is_active == true else "no"
+```
+
+This is consistent with the rest of the language. Apex never treats a bare boolean as a condition; it always requires a comparison (`== true`, `== false`, `!= none`, etc.).
+
+#### A Practical Example
+Here's an example that puts everything together. A function that returns a friendly greeting based on the time of day:
+
+```apex
+import os
+
+function greeting(hour)
+    time_of_day = "morning" if hour < 12 else "afternoon" if hour < 18 else "evening"
+    return "Good {time_of_day}"
+```
+
+Wait — that example chains ternaries, which Apex doesn't allow. Let's rewrite it with an if statement:
+
+```apex
+import os
+
+function greeting(hour)
+    time_of_day = ""
+    if hour < 12
+        time_of_day = "morning"
+    else if hour < 18
+        time_of_day = "afternoon"
+    else
+        time_of_day = "evening"
+    return "Good {time_of_day}"
+
+os.output(greeting(10))  // Good morning
+os.output(greeting(15))  // Good afternoon
+os.output(greeting(20))  // Good evening
+```
+
+This is the correct way to handle three or more possibilities. The ternary works for two; the if statement works for any number.
 
 ## Match / Case
 Sometimes you have a single value that you need to compare against many different possibilities. You could write a long chain of `if` and `else if` statements, but that gets messy quickly. Apex gives you a cleaner tool for this exact situation: the `match` statement.
