@@ -125,9 +125,17 @@
 - [Running in the Background](#running-in-the-background)
 
 ### Imports
-- [Importing an Entire File](#section)
-- [Importing from Sub-folders](#section)
-- [Importing from One Sub-folder into Another](#section)
+- [Why Imports Exist](#why-imports-exist)
+- [Importing an Entire File](#importing-an-entire-file)
+- [What Gets Imported](#what-gets-imported)
+- [Importing from Sub-folders](#importing-from-sub-folders)
+- [Importing from One Sub-folder into Another](#importing-from-one-sub-folder-into-another)
+- [Aliasing](#aliasing)
+- [Built-in Modules Are Different](#built-in-modules-are-different)
+- [Rules and Restrictions](#rules-and-restrictions)
+
+### Conclusion
+- [Conclusion](#conclusion)
 
 ## Variables & Data Types
 Every program you will ever write is, at its core, about doing things with information. That information might be a username, a price, a list of high scores, or whether a button has been clicked. But before your program can do anything useful, it needs a way to hold onto that information and know what kind of information it is. That's where variables and data types come in.
@@ -3128,3 +3136,450 @@ Under the hood, Apex has a **scheduler**. The scheduler is the part of the runti
 Every time a function suspends, the scheduler keeps track of where it was and what it's waiting for. When the awaited operation finishes, the scheduler resumes the function.
 
 You don't need to know the details of the scheduler to use `await`. But it's good to know it exists, because it explains why `await` doesn't block everything and why some functions can pause and resume.
+
+## Imports
+### Why Imports Exist
+So far, every program you've written has lived in a single file. That's fine for small scripts — a hundred lines, maybe a few hundred. But real programs grow. They get bigger. A task tracker might have functions for storing tasks, functions for displaying them, functions for formatting dates, functions for reading and writing files, and hundreds of lines of logic connecting everything together.
+
+If you put all of that in one file, the file becomes a maze. You scroll forever to find the function you need. You lose track of what belongs with what. You can't hand a piece of the program to a teammate without also handing them everything else.
+
+The solution is to split your code into multiple files. Each file holds a related group of functions and variables — a **module**. One file might handle math utilities, another might handle string formatting, another might hold configuration. You work on each file separately, keeping it small and focused.
+
+But files can't be completely isolated. Sometimes the math file needs a helper from the string file. Sometimes the main program needs to call functions from both. That's what **imports** are for. An import tells Apex: "This file needs to use things from that other file. Go load it and make its contents available."
+
+Think of imports like borrowing tools from a friend's workshop. Instead of buying your own drill, you go next door and say "I need your drill for this job." The drill lives in your friend's workshop, but you can use it in yours. That's an import.
+
+In Apex, imports are simple. There's one keyword: `import`. You write it, name the file or library you want, and Apex handles the rest.
+
+### Importing an Entire File
+The most basic form of import brings in an entire file. You use the `import` keyword, followed by the file path.
+
+Syntax for a file in the same folder:
+```apex
+import database.apex
+```
+
+This tells Apex: "Load the file `database.apex` from the same folder as this one, and make everything it defines available to me."
+
+Wait — but a moment ago I said a file is a module. When you import a file, you don't get its contents dumped into your current scope with no structure. You get access to them **under the file's name**. So if `database.apex` defines a function called `connect`, you would call it like this:
+
+```apex
+import database.apex
+
+database.connect()
+```
+
+The prefix `database.` tells Apex: "Look in the database module for the `connect` function." This is how you know, when you're reading code, where each function comes from. If you see `string.length(...)`, you know it's from the string module. If you see `database.connect()`, you know it's from your database file.
+
+Here's a concrete example. Suppose you have a file called `math_utils.apex`:
+
+```apex
+// math_utils.apex
+
+function square(x)
+    return x * x
+
+function cube(x)
+    return x * x * x
+
+pi = 3.14159
+```
+
+And a main file called `main.apex` in the same folder:
+
+```apex
+// main.apex
+
+import math_utils.apex
+
+import os
+
+result = math_utils.square(5)
+os.output(result)  // prints 25
+
+area = math_utils.pi * math_utils.square(3)
+os.output(area)    // prints 28.27431
+```
+
+Notice how the imported functions are called with the module prefix: `math_utils.square(5)`. The variable `pi` from `math_utils` is also accessed through the prefix: `math_utils.pi`.
+
+This prefixing is deliberate. Without it, imagine if two files both define a function called `square` — one for numbers and one for matrices. If imports dumped everything into one flat namespace, one would overwrite the other, and calling `square` would be ambiguous. With prefixes, `math_utils.square` and `matrix_utils.square` are distinct. The prefix is the file's name, and it's how Apex keeps things organized.
+
+Notice that we also imported `os` in the example. `os` is a built-in module — we'll cover that distinction later. For now, focus on the file import.
+
+#### The `.apex` Extension Is Required
+For user files, you must include the `.apex` extension in the import. If you write `import math_utils` without the extension, Apex won't know whether you mean a file, a folder, or something else. So always write `import math_utils.apex`.
+
+Actually, let me correct that — the rule is: the import path must end with `.apex`. If you write `import math_utils`, Apex will report an error saying the path must end with `.apex`. This is a hard rule. Built-in modules (like `os`, `math`, `json`) are the exception, because they don't correspond to files on disk; they're part of the interpreter itself. We'll discuss that more in a bit.
+
+#### Where Does Apex Look for the File?
+All user file imports are resolved relative to the **main file** — the file you actually ran with `apex main.apex`. Not the file that contains the import, but the main file. This is important because it makes all your imports consistent. No matter how deep in your folder structure a file is, when it imports something, that import path is written as if it were being written from the main file's folder.
+
+Let's look at an example of why this matters. Suppose your project looks like this:
+
+```
+my_project/
+├── main.apex
+├── database.apex
+└── utils/
+    └── string_utils.apex
+```
+
+If `main.apex` wants to use `string_utils.apex`, it writes:
+
+```apex
+import utils/string_utils.apex
+```
+
+Now suppose `database.apex` also wants to use `string_utils.apex`. It writes the same thing:
+
+```apex
+import utils/string_utils.apex
+```
+
+Even though `database.apex` is in the project root, and `string_utils.apex` is in `utils/`, the import path is still `utils/string_utils.apex` because it's written as if from the main file. This is deliberate — it keeps imports consistent. You never have to think about "where is this file relative to this other file?" You just write it once from the main file's perspective, and it works everywhere.
+
+We'll come back to this rule when we talk about sub-folders.
+
+### What Gets Imported
+When you import a file, what exactly do you get access to? This is a question you might be asking.
+
+The answer: **all globals** defined in the imported file. That means:
+
+- **Functions.** Every `function` declared at the top level of the imported file.
+- **Variables.** Every variable declared at the top level.
+- **Constants.** Every `constant` declared at the top level.
+
+What does **not** get imported:
+
+- Local variables inside functions. Those are private to their functions and always will be.
+- Anything that's inside a nested scope (like a variable declared inside an `if` block at the top level). Only the top-level definitions are shared.
+
+Here's an example to make this clear. Suppose `helpers.apex` looks like this:
+
+```apex
+// helpers.apex
+
+greeting = "Hello"
+
+function greet(name)
+    return "{greeting}, {name}!"
+
+function mystery()
+    secret = "I am local"
+    return secret
+```
+
+When you import `helpers.apex`, you get access to `helpers.greeting` and `helpers.greet`. You do **not** get access to `secret`, because it's inside the `mystery` function.
+
+You also get access to `helpers.mystery`, because `mystery` itself is a top-level function. Its body is not visible, but the function is.
+
+#### Modules Run Once
+A subtle but important point: when Apex imports a file, the top-level code in that file runs exactly once. Even if two different files import the same module, the module's body runs a single time. This is important because it means any initialization code (like setting up a global variable based on the environment) only runs once, no matter how many places use the module.
+
+```apex
+// config.apex
+
+import os
+import sys
+
+host = sys.host()
+started_at = datetime.timestamp()
+```
+
+If `config.apex` is imported from three different files, `sys.host()` and `datetime.timestamp()` are only called once. The module remembers its state from that single execution.
+
+This is good news for both performance and consistency. You don't get three different values for `started_at`. You get the same value everywhere, because the module ran once.
+
+### Importing from Sub-folders
+Big projects rarely keep all files in one folder. They organize them into sub-folders — one for utilities, one for network code, one for tests. Apex supports this with a simple rule: use forward slashes `/` in your import paths to walk into folders.
+
+Suppose your project looks like this:
+
+```
+my_project/
+├── main.apex
+└── utils/
+    ├── math.apex
+    └── string.apex
+```
+
+To import `math.apex`, you write:
+
+```apex
+import utils/math.apex
+```
+
+The `/` in `utils/math.apex` tells Apex: "Look in the folder `utils`, then in the file `math.apex`." You can nest deeper, too:
+
+```
+my_project/
+├── main.apex
+└── utils/
+    └── internal/
+        └── helpers.apex
+```
+
+```apex
+import utils/internal/helpers.apex
+```
+
+Each `/` represents one level of descent.
+
+You can use as many levels as you want, but if you go more than a few levels deep, consider whether your project structure is trying to tell you something. Deep folder structures can be hard to navigate. Most projects stay within two or three levels.
+
+Once imported, you access things using the module name — which is the file's name without the `.apex` extension, not including the folders. So `utils/math.apex` becomes just `math` when used:
+
+```apex
+import utils/math.apex
+
+result = math.square(5)
+```
+
+Notice that we write `math.square(5)`, not `utils.math.square(5)`. The folder structure is part of the import path, but the module name is just the file name.
+
+#### A Caution About Names
+Because the module name is the file name, two files with the same name in different folders will both be called the same thing inside your program. For example, if you have both `utils/math.apex` and `helpers/math.apex`, importing both gives you two modules both named `math`. This is confusing and probably a bug in your project structure.
+
+Apex won't stop you from doing this, but you should avoid it. Pick unique file names for your modules. If you must have two files with the same name — for example, a `math.apex` for testing and a `math.apex` for production — use aliasing to give one of them a different name. We'll cover aliasing shortly.
+
+### Importing from One Sub-folder into Another
+Here's the tricky case. You have two files, each in its own sub-folder. One file wants to use something from the other. How do you write the import?
+
+Remember the rule: **every import path is written relative to the main file**. Not relative to the importing file, not relative to the current working directory, but relative to the main file.
+
+Let's look at the example structure from the Apex Express Course:
+
+```
+my_project/
+├── main.apex
+├── helpers/
+│   └── math.apex
+└── features/
+    └── calculator.apex
+```
+
+Now, `calculator.apex` wants to use the `power` function from `helpers/math.apex`. How does it write the import? Even though `calculator.apex` is inside `features/`, and `math.apex` is inside `helpers/`, and both are siblings under `my_project/`, you do **not** write something like `../helpers/math.apex`. Apex does not support `..` paths.
+
+Instead, you write:
+
+```apex
+import helpers/math.apex
+```
+
+That's it. This looks like `calculator.apex` is at the project root, not inside `features/`. And that's exactly the point: **all imports are written as if from the main file's location**. Since `main.apex` is at the project root, it would import `math.apex` as `helpers/math.apex`. So `calculator.apex` does the same thing, even though it's not at the project root.
+
+This rule is unusual at first — many other languages use relative paths like `../`. But once you get used to it, it's actually simpler. You never have to count how many `..` you need. Every path is written the same way. Every import in every file reads like it was written from the top of your project.
+
+Let's trace through a complete example to make sure it's clear.
+
+**File: `my_project/main.apex`**
+
+```apex
+import features/calculator.apex
+
+result = calculator.add(5, 3)
+os.output(result)
+```
+
+**File: `my_project/features/calculator.apex`**
+
+```apex
+import helpers/math.apex
+
+function add(a, b)
+    return a + b
+
+function power_add(a, b, exp)
+    return math.power(a, exp) + b
+```
+
+**File: `my_project/helpers/math.apex`**
+
+```apex
+function power(base, exp)
+    result = 1
+    for i = 1, exp
+        result = result * base
+    return result
+```
+
+Here's what happens:
+1. Apex runs `main.apex`. It sees `import features/calculator.apex`.
+2. It loads `calculator.apex`. Inside, there's `import helpers/math.apex`.
+3. Apex loads `helpers/math.apex` relative to the main file (`my_project/`), finding it at `my_project/helpers/math.apex`.
+4. Everything resolves, and `main.apex` can call `calculator.add(5, 3)`.
+
+The import path `helpers/math.apex` inside `calculator.apex` is written exactly as `main.apex` would have written it. Both files use the same path. This consistency is the whole point of the rule.
+
+### Aliasing
+Sometimes a module name is long, or awkward, or you just want a shorter name to type. Apex lets you give a module an **alias** — a shorter name you can use instead.
+
+Syntax:
+```apex
+import utils/calculator.apex as calc
+```
+
+Now, everywhere in your file, you can refer to the module as `calc` instead of `calculator`:
+
+```apex
+result = calc.add(2, 3)
+calc.print_result(result)
+```
+
+The `as` keyword introduces the alias. It comes after the file path, and the alias must be a valid name — letters, digits, and underscores, not starting with a digit.
+
+Aliases are purely a convenience. They change nothing about the module itself. They just give you a shorter way to refer to it. Use them when the original name is verbose, or when it clashes with something else.
+
+#### Aliases Must Be Unique
+Each alias in a single file must be different from every other alias and from every other module name. If you import two modules and give them the same alias, Apex will report an error.
+
+```apex
+import utils/calculator.apex as calc
+import utils/statistics.apex as calc  // ERROR: alias 'calc' already used
+```
+
+This is enforced because a duplicate alias would make it ambiguous which module you meant. Always choose aliases that don't clash.
+
+#### Aliases Are Only for User Modules
+Here's a rule that trips people up: you **cannot** alias a built-in module. If you try to write `import os as system`, Apex will report an error: "Cannot use 'as' alias with built-in module 'os'."
+
+Why? Because built-in modules have canonical names that every Apex programmer knows. `os` is always `os`. `math` is always `math`. If you could alias them, code that uses `os.output` in one file might use `system.output` in another, and suddenly reading code becomes guesswork. Apex keeps built-in names fixed so that anyone reading your code knows exactly where each built-in function comes from.
+
+User modules, on the other hand, are yours. You can name them whatever makes sense in your project, and you can alias them to whatever is convenient. So aliasing exists only for user modules.
+
+### Built-in Modules Are Different
+We've been talking about importing files — files that live on disk, written by you or your teammates. But Apex also ships with a set of **built-in modules**: `os`, `sys`, `math`, `string`, `table`, `random`, `json`, `xml`, `csv`, `base`, `regex`, `crypto`, `zip`, `datetime`.
+
+These are not files. They're part of the interpreter itself, written in C. They're always available. But — and this is the catch — they still require an `import` to use.
+
+```apex
+import os
+os.output("Hello")
+```
+
+You might wonder: why do built-in modules need an import if they're already part of the interpreter? Why not just make `os.output` available everywhere?
+
+The answer is **clarity**. If every built-in function were available without an import, then reading any piece of code would require you to know the entire standard library by heart. You'd see `output(...)` and have to remember: is that from `os`? From `sys`? From some other module? With explicit imports, you always know where a function came from. You see `os.output` and you know it's the output function from the `os` module. You see `import os` at the top of the file and you know the file uses `os`.
+
+This also makes it obvious when you're using features you didn't intend to. If you're reading a file that imports `crypto`, you know immediately that the file does something cryptographic. If there were no imports, you'd have to scan the whole file to discover that.
+
+So the rule is simple: **to use a built-in module, you must import it by name**. No file path, no `.apex` extension. Just the name:
+
+```apex
+import os
+import math
+import string
+import json
+```
+
+#### Built-in Modules Do Not End with `.apex`
+This follows from the previous point. A user file is a file on disk, and its import path ends with `.apex`. A built-in module isn't a file, so its import is just the module name with no extension.
+
+```apex
+import os            // built-in, no extension
+import math          // built-in, no extension
+import utils/math.apex  // user file, ends with .apex
+```
+
+These are two very different kinds of import, and Apex distinguishes them by whether the path ends with `.apex`. If it does, it's a file. If it doesn't, it must be a built-in module name.
+
+If you accidentally write `import os.apex`, Apex will try to find a file called `os.apex` on disk and fail. If you accidentally write `import math` when you meant the file `math.apex`, Apex will try to load the built-in `math` module — and probably succeed, which could be confusing. Be careful to include the `.apex` extension for user files and omit it for built-in modules.
+
+#### Accessing Built-in Contents
+Once imported, a built-in module's contents are accessed the same way as a user module's — with the module name as a prefix.
+
+```apex
+import math
+result = math.sqrt(16)  // 4
+```
+
+```apex
+import string
+length = string.length("hello")  // 5
+```
+
+The prefix is always the module's name, exactly as you wrote it in the import.
+
+#### One Built-in Module at a Time
+You can import as many built-in modules as you want, but each needs its own `import` line:
+
+```apex
+import os
+import math
+import string
+import json
+```
+
+You cannot write `import os, math` — Apex doesn't support that syntax. One import per line.
+
+### Rules and Restrictions
+Imports are powerful, but they come with rules. Here are the ones you need to remember.
+
+#### 1. Import at the Top
+Imports must appear at the top of the file, before any other code. You cannot import a module halfway through a function. The reason is simple: when Apex loads your file, it needs to know what modules are available before it can resolve any names. If imports were scattered throughout, the compiler would have to make multiple passes to figure everything out.
+
+```apex
+import os
+import math
+
+// rest of your code
+```
+
+If you put an import after some other code, Apex will report an error.
+
+#### 2. Import Paths Are Relative to the Main File
+We already covered this, but it's important enough to repeat. **Every import path in every file is written as if from the main file's location.** Not from the importing file's location, not from your current working directory. Just from the main file. This rule makes all imports consistent and predictable.
+
+```apex
+// Even in a deeply nested file, you write imports
+// as if you were at the project root.
+import helpers/math.apex
+```
+
+#### 3. `.apex` for User Files, Nothing for Built-in Modules
+User file imports must end with `.apex`. Built-in module imports must not. This is the syntax that tells Apex which kind of import you mean.
+
+```apex
+import os                 // built-in
+import utils/math.apex    // user file
+```
+
+#### 4. No Aliasing Built-in Modules
+You cannot write `import os as system`. Built-in modules keep their canonical names. Aliases are only for user file imports.
+
+#### 5. Aliases Must Be Unique and Valid
+An alias must be a valid identifier — letters, digits, underscores, not starting with a digit. And it must not clash with any other alias or module name in the same file.
+
+```apex
+import utils/calc.apex as calc
+import utils/stat.apex as stats  // fine, different alias
+```
+
+#### 6. No Multiple Modules Per Import
+Each `import` line brings in exactly one module. You cannot write `import os, math`. Use two lines.
+
+#### 7. Only Top-Level Definitions Are Imported
+When you import a file, you get access to its top-level functions, variables, and constants. You do **not** get access to anything declared inside nested scopes — inside functions, inside `if` blocks, and so on.
+
+#### 8. Module Names Come from File Names
+The name you use to access a module's contents is the file's name without the `.apex` extension. The folders in the path are not part of the module's name. So `utils/math.apex` is accessed as `math`, not `utils.math`.
+
+#### 9. Files Must Exist and Be Readable
+If Apex can't find an imported file, it reports an error. The path must exist relative to the main file's folder, and the file must be readable.
+
+#### 10. Built-in Modules Must Be Imported Before Use
+Even though `os`, `math`, and the rest are built into the interpreter, you still must import them before using their contents. Without the import, `os.output("Hello")` would be reported as an undefined name.
+
+## Conclusion
+And that's it — you now know the entire Apex language. Every keyword, every data type, every operator, every control structure, every way to define and use functions, every rule about async, every detail of imports. There is no hidden syntax waiting for you later. What you have learned is the complete language. Everything else from here on out is not new syntax — it's the standard library, which is just a very large collection of functions you already know how to call.
+
+The best next step is to open the **[Library Reference](resources/Library_Reference.md)**. It lists every built-in module — `os`, `sys`, `math`, `string`, `table`, `random`, `json`, `xml`, `csv`, `base`, `regex`, `crypto`, `zip`, `datetime` — and every function inside them, with short examples for each. You will recognize the pattern immediately: `import` the module at the top of your file, then call its functions with the module name as a prefix. Nothing new to learn — just a lot of useful tools to discover.
+
+Don't try to memorize the Library Reference. Nobody does. Skim it once so you know what's available, then come back to it whenever you need something specific. "How do I read a file?" — check `os.read`. "How do I round a number?" — check `math.round`. "How do I sort a table?" — look in `table`. That's how everyone uses it, and that's how you should too.
+
+**Remember:**
+
+> *Apex is designed to be simple, but it's powerful with libraries.*
+
+**Happy coding in Apex!**
