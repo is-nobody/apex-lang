@@ -1,7 +1,5 @@
 <div align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="resources/logo.png">
-    <source media="(prefers-color-scheme: light)" srcset="resources/logo-dark.png">
     <img alt="Apex" src="resources/logo.png" width="75%">
   </picture>
 </div>
