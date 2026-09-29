@@ -92,7 +92,7 @@
 - [Else Statement](#else-statement)
 - [Ternary Expression](#ternary-expression)
 
-### Match
+### Match / Case
 - [Match Statement](#match-statement)
 - [Case Patterns](#case-patterns)
 - [Default Case](#default-case)
@@ -106,10 +106,14 @@
 - [Continue](#continue)
 
 ### Functions
-- [Function Statement](#section)
-- [Parameters](#section)
-- [Return Value](#section)
-- [Call](#section)
+- [Why Functions Exist](#why-functions-exist)
+- [Function Statement](#function-statement)
+- [Parameters](#parameters)
+- [Return Value](#return-value)
+- [Call](#call)
+- [Scope and Blocks](#scope-and-blocks)
+- [Early Return](#early-return)
+- [Recursion](#recursion)
 
 ### Imports
 - [Importing an Entire File](#section)
@@ -1760,7 +1764,7 @@ The full precedence order — including the operators from earlier sections — 
 
 When in doubt, use parentheses. They cost nothing and make your intention obvious.
 
-### If Statements
+## If Statements
 So far, every line of code you've written has run from top to bottom, one after another. That's fine for simple calculations, but real programs need to make decisions. They need to do one thing if a condition is true, and another thing if it's false. That's where if statements come in.
 
 Think of an if statement like a fork in the road. You stand at the fork, and you ask a yes-or-no question. If the answer is yes, you take the left path. If the answer is no, you take the right path (or just stay put). The question you ask is called a condition, and it must be something that can be answered with a boolean: either true or false.
@@ -1791,7 +1795,7 @@ Notice that the condition `age >= 18` is a comparison. It produces a boolean. Th
 
 Now let's explore the different forms of if statements.
 
-## If Statement
+### If Statement
 The simplest if statement has just one branch: the code that runs when the condition is true. If the condition is false, nothing happens.
 
 Syntax:
@@ -1838,7 +1842,7 @@ if age >= 18 and has_license == true
 
 Here, both conditions must be true for the block to run. Since `age >= 18` is true and `has_license == true` is true, `can_drive` becomes `true`.
 
-## Else-If Statement
+### Else-If Statement
 Sometimes you have more than two possibilities. You want to check a second condition if the first one is false, and a third condition if the second is false, and so on. That's what `else if` is for.
 
 Syntax:
@@ -1878,7 +1882,7 @@ Notice that each `else if` is on the same indentation level as the original `if`
 
 Important: The conditions are checked in order. Once a condition is true, the rest are ignored. So you should order your conditions from most specific to least specific, or from highest to lowest, as in the grade example.
 
-## Else Statement
+### Else Statement
 The `else` block runs when none of the previous conditions were true. It's the catch-all. You can have at most one `else`, and it must be the last branch.
 
 Syntax:
@@ -1920,7 +1924,7 @@ Now, if `score` is 65, none of the `if` or `else if` conditions are true, so the
 
 The `else` block has no condition. It simply runs when all previous conditions were false. It's a good way to handle the "everything else" case.
 
-## Ternary Exptession
+### Ternary Exptession
 The ternary expression is a shorthand for a simple if-else that chooses between two values. It's an expression, so it produces a value. You can use it anywhere you can use a value, such as on the right side of an assignment.
 
 The syntax is a bit different from some other languages. In Apex, you write:
@@ -1970,14 +1974,14 @@ That's the ternary. It's a compact way to write a simple if-else that returns a 
 
 Now you know how to make your programs decide! Use `if` for a single condition, `else if` for multiple conditions, `else` for the default case, and the ternary for simple two-way choices. All conditions must be boolean, and indentation defines the blocks. In the next section, we'll learn how to repeat code with loops.
 
-### Match
+## Match / Case
 Sometimes you have a single value that you need to compare against many different possibilities. You could write a long chain of `if` and `else if` statements, but that gets messy quickly. Apex gives you a cleaner tool for this exact situation: the `match` statement.
 
 Think of `match` as a specialized decision-maker. You give it one value—the subject—and then you list a series of constant patterns. Apex checks the subject against each pattern in order. As soon as it finds a match, it runs the corresponding block of code and then skips the rest of the `match`. It’s like a multi-way fork in the road, but much more readable than a pile of `else if`s.
 
 `match` is not an expression. It doesn’t produce a value you can assign. It’s a statement, just like `if`. You use it when you want to *do* different things based on a value, not when you want to compute a result.
 
-## Match Statement
+### Match Statement
 The `match` keyword is followed by the value you want to check—the subject. Then you write an indented block containing `case` branches. Each `case` has a constant pattern, and below it (indented further) is the code that runs when the subject equals that pattern.
 
 Syntax:
@@ -2017,7 +2021,7 @@ Notice the indentation. The `match` line is at the current indentation. The `cas
 
 You can have as many `case` branches as you need. They are checked from top to bottom. The first one that matches wins, and the rest are ignored.
 
-## Case Patterns
+### Case Patterns
 A pattern is the value you compare against. It must be a **constant**—something that never changes. You cannot use a variable as a pattern, because the whole point of `match` is to compare against fixed, known values.
 
 The allowed constant patterns are:
@@ -2092,7 +2096,7 @@ Here, `feeling` becomes `"Very cold"`.
 
 The type of the pattern must match the type of the subject. You cannot match a number against a string pattern. If you try, Apex will warn you that the case can never match. So if your subject is a number, all patterns must be numbers. If it’s a string, all patterns must be strings, and so on.
 
-## Default Case
+### Default Case
 What if none of the patterns match? You can provide a default case that runs when nothing else matches. A default case is written as `case` with no value after it. It’s like the `else` in an if-else chain.
 
 The default case must be the **last** case in the `match`. You can only have one default case.
@@ -2118,7 +2122,7 @@ If you omit the default case and no pattern matches, then the `match` statement 
 
 The default case must come last. If you put any case after it, Apex will report an error. That’s because once you have a default, any case below it would be unreachable—the default would always run first.
 
-## Rules and Restrictions
+### Rules and Restrictions
 To use `match` correctly, keep these rules in mind:
 
 1. **Subject type**: The subject must be a `number`, `string`, `boolean`, or `none`. You cannot match against a table or any other complex type. If you try, Apex will tell you it’s not allowed.
@@ -2141,7 +2145,7 @@ To use `match` correctly, keep these rules in mind:
 
 Now you have another tool in your decision-making toolkit. In the next section, we’ll learn how to repeat code with loops.
 
-### For Loops
+## For Loops
 Programs often need to repeat the same action many times. You might want to count from one to ten, process every item in a table, or keep asking for input until the user types the right thing. Writing the same code over and over is not an option — it would be tedious and error-prone. That's where loops come in.
 
 A loop is a way to tell Apex: "Do this block of code again and again, according to these rules." Apex gives you a single keyword — `for` — with three different forms, each suited to a different kind of repetition:
@@ -2156,7 +2160,7 @@ Before we look at each form, one important rule: **a loop creates its own scope*
 
 Let's start with the most common form: the counter.
 
-## For Counter
+### For Counter
 The counter form is for when you want to count. You give the loop a variable, a starting number, and an ending number. Apex runs the body once for each number in that range, including the end value.
 
 Syntax:
@@ -2195,7 +2199,7 @@ for i = 5, 1
 
 Here, `i` starts at 5, which is already greater than the end value 1. The loop never runs. `result` stays `""`. This is not an error — it's just a loop with zero iterations.
 
-### Stepping by More Than One
+#### Stepping by More Than One
 By default, the counter increases by 1 each time. But you can add a third number — the **step** — to control how much it changes.
 
 Syntax:
@@ -2230,7 +2234,7 @@ If you use a negative step, the start value should be greater than the end value
 
 You can also use decimals as steps, but be careful. Floating-point arithmetic can introduce tiny rounding errors. For most counting tasks, whole-number steps are what you want.
 
-## For Table Iteration
+### For Table Iteration
 Tables hold many values. Often you want to do something with each one — print it, add it to a total, check if it matches some condition. The table iteration form of `for` lets you visit every value in a table, one at a time.
 
 Syntax:
@@ -2278,7 +2282,7 @@ Here, `result` becomes `"30 Dubai Alice "` (or some other order — key-value ta
 
 The key thing to remember: **for table iteration gives you the values, not the keys**. If you want the keys, Apex provides ways to get them, but that's a topic for later.
 
-## For Condition
+### For Condition
 Sometimes you don't know in advance how many times you'll need to repeat something. You just know that you want to keep going as long as some condition is true. That's what the condition form of `for` is for.
 
 Syntax:
@@ -2336,7 +2340,7 @@ for x < y and y > 5
 
 This loop continues as long as `x < y` **and** `y > 5`. Each iteration, `x` increases by 2 and `y` decreases by 1. The condition is re-checked before each iteration.
 
-## Break
+### Break
 Sometimes you want to leave a loop early. Maybe you found what you were looking for and there's no point continuing. Or maybe an error occurred and you need to stop. The `break` statement exits the loop immediately.
 
 When Apex sees `break`, it jumps out of the innermost loop, skipping any remaining iterations. Execution continues with the code after the loop.
@@ -2360,7 +2364,7 @@ Without `break`, the loop would continue to the end, but `found` would already b
 
 You can use `break` with any form of `for`. It's especially common with condition loops, where you're looping until something happens, and then you break when it does.
 
-## Continue
+### Continue
 Sometimes you don't want to exit the loop entirely — you just want to skip the rest of the current iteration and move on to the next one. That's what `continue` does.
 
 When Apex sees `continue`, it stops executing the current iteration and jumps to the next one. The loop itself continues; only the current pass is cut short.
@@ -2389,3 +2393,413 @@ The loop visited all six numbers, but the even ones were skipped. `continue` is 
 Like `break`, `continue` affects only the innermost loop. In nested loops, `continue` skips to the next iteration of the inner loop, not the outer one.
 
 `continue` can be used with any form of `for`. It's a clean way to say "I'm done with this item, move on to the next."
+
+## Functions
+### Why Functions Exist
+Imagine you're writing a program that calculates the area of a circle. You write the formula once, and it works. Now imagine your program needs to calculate the area of ten different circles at ten different points. Would you write the same formula ten times? Of course not. That would be tedious, and if you ever needed to change the formula, you'd have to change it in ten places. Miss one, and your program is inconsistent.
+
+This is the problem functions solve. A **function** is a named block of code that you can run whenever you want, as many times as you want, without writing it out again. You write the code once, give it a name, and then **call** that name whenever you need the code to run.
+
+Think of a function like a recipe. A recipe has a name (like "Pancakes"), it might need ingredients (flour, milk, eggs), and it produces a result (a stack of pancakes). You don't rewrite the recipe every time you want pancakes. You just follow the recipe again. The recipe is the function. The ingredients are the **parameters**. The pancakes are the **return value**. And "making pancakes" is **calling** the function.
+
+Functions give you three big benefits:
+
+1. **Reusability.** Write once, use many times.
+2. **Clarity.** A well-named function tells you what it does without you needing to read the code inside.
+3. **Organization.** Complex programs become a collection of small, understandable pieces instead of one giant blob.
+
+Every programming language has functions in some form. In Apex, they are simple, predictable, and pure. Let's learn how to write them.
+
+### Function Statement
+To create a function, you use the `function` keyword. Then you write the function's name. Then a pair of parentheses `()`. Then an indented block of code — the function body.
+
+Syntax:
+```apex
+function name()
+    // code that runs when the function is called
+```
+
+Here's a simple example:
+
+```apex
+import os
+
+function say_hello()
+    os.output("Hello!")
+```
+
+This defines a function called `say_hello`. The body contains one line: it prints `"Hello!"` to the terminal. Defining the function does not run it. It just tells Apex: "When I say `say_hello()`, run this code."
+
+To actually run the code, you have to **call** the function. We'll cover calling in a moment. For now, just notice the shape: keyword `function`, then a name, then `()`, then an indented block.
+
+#### Naming Functions
+Function names follow the same rules as variable names. They can contain letters, digits, and underscores. They cannot start with a digit. They are case-sensitive: `say_hello` and `Say_Hello` are different names.
+
+By convention, Apex uses `snake_case` for function names — all lowercase, with underscores between words. So `say_hello`, `calculate_area`, `find_user_by_id`. This makes names easy to read.
+
+A good function name describes **what the function does**, not how it does it. `calculate_total` is better than `loop_and_add`. `is_valid` is better than `check_stuff`. When someone reads your code, the name should tell them what to expect.
+
+#### Functions Are Values
+When you define a function, Apex stores it as a **function value** — just like numbers, strings, and tables. You can assign it to a variable, pass it around, and store it in tables. But for now, we'll keep it simple and focus on the basics.
+
+### Parameters
+A function that always does the same thing is useful, but limited. Most functions need **input** — information to work with. That's what parameters are for.
+
+A parameter is a named slot that the function expects to receive when it's called. You list parameters inside the parentheses, separated by commas.
+
+Syntax:
+```apex
+function name(param1, param2, param3)
+    // code can use param1, param2, and param3
+```
+
+Here's a function with one parameter:
+
+```apex
+import os
+
+function greet(name)
+    os.output("Hello, {name}!")
+```
+
+This function is called `greet`. It takes one parameter called `name`. Inside the body, `name` is used in a string interpolation. When someone calls `greet("Alice")`, the parameter `name` becomes `"Alice"`, and the function prints `"Hello, Alice!"`.
+
+The parameter `name` is a variable. It exists only inside the function. It's created when the function is called, and it disappears when the function finishes. You can use it anywhere inside the body, just like any other variable.
+
+Here's a function with two parameters:
+
+```apex
+import os
+
+function add(a, b)
+    result = a + b
+    os.output("{a} + {b} = {result}")
+```
+
+When you call `add(5, 3)`, the parameter `a` becomes `5`, `b` becomes `3`, and the function prints `"5 + 3 = 8"`.
+
+The order matters. The first value you pass goes into the first parameter, the second value goes into the second parameter, and so on. So `add(5, 3)` and `add(3, 5)` both work, but they set the parameters differently.
+
+#### Parameters Are Local
+A parameter is just a local variable. It exists inside the function and nowhere else. If you have a variable with the same name outside the function, they are different variables. The parameter shadows the outer one inside the function body.
+
+For example:
+
+```apex
+import os
+
+name = "Outer"
+
+function greet(name)
+    os.output("Hello, {name}!")
+
+greet("Alice")
+os.output("Outside: {name}")
+```
+
+This prints:
+```text
+Hello, Alice!
+Outside: Outer
+```
+
+Inside `greet`, the parameter `name` is `"Alice"`. Outside, the variable `name` is still `"Outer"`. They don't interfere.
+
+#### Parameters Must Be Provided
+Apex does not have default parameter values. If a function declares two parameters, you must call it with exactly two arguments. Not one. Not three. Exactly two.
+
+If you try to call `add(5)` when `add` expects two parameters, Apex will report an error. If you call `add(5, 3, 1)`, Apex will also report an error. This strictness is deliberate: functions should be predictable, and part of predictability is knowing exactly what input they expect.
+
+#### Parameters Are Copies
+When you pass a value to a function, the parameter receives a **copy** of that value. If you change the parameter inside the function, the original value outside is not affected.
+
+For numbers, strings, booleans, and none, this is straightforward. They are **immutable** — you can't change them anyway. You can only reassign the variable to point to a new value.
+
+For tables, the story is different. A table is a **reference type**. When you pass a table to a function, the parameter points to the same table. If you modify the table inside the function — by setting a key or appending an item — those changes are visible outside. But if you reassign the parameter to a completely new table, the outer variable still points to the original.
+
+This distinction is important, but it's a subtle one. For now, just remember: numbers, strings, booleans, and none are copied. Tables are shared. We'll revisit this when we talk about tables more deeply.
+
+### Return Value
+A function can do work, but often you want it to **give you back a result**. That's what return values are for. When a function returns a value, the call to that function **evaluates** to that value. You can assign it to a variable, use it in an expression, or pass it to another function.
+
+To return a value, use the `return` keyword followed by an expression:
+
+```apex
+function add(a, b)
+    return a + b
+```
+
+This function takes two parameters and returns their sum. When you call `add(5, 3)`, the function runs, computes `5 + 3`, and returns `8`. The call `add(5, 3)` becomes `8` — as if you'd written the number `8` directly.
+
+You can use the return value like this:
+
+```apex
+import os
+
+function add(a, b)
+    return a + b
+
+result = add(5, 3)
+os.output(result)  // prints 8
+```
+
+Here, `result` receives the value `8`, which came from the function. Then `os.output` prints it.
+
+You can also use the return value directly:
+
+```apex
+os.output(add(10, 20))  // prints 30
+```
+
+The function returns `30`, and `os.output` prints it.
+
+#### Returning Early
+The `return` statement does two things: it gives a value back to the caller, and it **immediately exits the function**. Nothing after `return` runs.
+
+```apex
+function check_positive(n)
+    if n > 0
+        return "positive"
+    return "not positive"
+```
+
+If `n` is `5`, the condition `n > 0` is true, so `return "positive"` runs, and the function exits immediately. The final `return "not positive"` is never reached.
+
+If `n` is `-3`, the condition is false, so the first `return` is skipped. The function continues to `return "not positive"`, which runs and exits the function.
+
+This pattern — checking a condition and returning early — is very common. It keeps your code flat and easy to read, avoiding deeply nested `if` statements.
+
+#### Functions Without a Return
+Not every function needs to return a value. Some functions just do something — print a message, write a file, modify a table. If a function has no `return`, it returns `none` automatically when it reaches the end.
+
+```apex
+import os
+
+function say_hello()
+    os.output("Hello!")
+
+result = say_hello()
+os.output(result)  // prints none
+```
+
+Here, `say_hello` prints `"Hello!"`, then reaches the end of the function. Since there's no `return`, it returns `none`. The variable `result` gets `none`.
+
+You can also write `return none` explicitly if you want to be clear that the function returns nothing meaningful. But it's not required.
+
+#### Return Ends the Function
+Once `return` runs, the function is done. Nothing after it runs, not even if there's more code in the body.
+
+```apex
+function example()
+    return 42
+    os.output("This never runs")  // unreachable
+```
+
+Apex will actually warn you that the line after `return` is unreachable. It's dead code, and dead code is usually a mistake.
+
+#### A Function Returns Exactly One Value
+Apex functions return exactly one value. That value can be a number, a string, a boolean, none, or a table. But it's always exactly one thing.
+
+You cannot write `return a, b` to return two values. If you need to return multiple pieces of information, you can put them in a table and return the table.
+
+```apex
+function min_max(numbers)
+    // ... compute minimum and maximum ...
+    return ["min" = min_value, "max" = max_value]
+```
+
+Then the caller receives a table and can access its parts. This is the idiomatic way to return multiple values in Apex.
+
+### Call
+Defining a function doesn't run it. To run it, you **call** it. Calling a function means writing its name followed by parentheses, with any arguments inside the parentheses if the function expects parameters.
+
+Syntax:
+```apex
+name(arg1, arg2, ...)
+```
+
+If the function has no parameters, the parentheses are empty:
+
+```apex
+say_hello()
+```
+
+If the function has parameters, you list the values inside:
+
+```apex
+greet("Alice")
+add(5, 3)
+```
+
+The values you pass are called **arguments**. The names inside the function definition are called **parameters**. They're often used interchangeably, but the distinction is useful: parameters are the slots, arguments are the values you put in them.
+
+When Apex sees a function call, it:
+1. Evaluates each argument to get its value.
+2. Creates a new scope for the function.
+3. Binds each parameter to the corresponding argument value.
+4. Runs the function body.
+5. If a `return` is reached, that value becomes the result of the call.
+6. If the end of the body is reached without a `return`, the result is `none`.
+7. Destroys the function's scope, including all parameters and local variables.
+8. The call expression evaluates to the returned value.
+
+You can use a function call anywhere you can use a value. That means you can:
+
+- Assign it to a variable: `result = add(5, 3)`
+- Use it in an expression: `total = add(5, 3) * 2`
+- Pass it to another function: `os.output(add(5, 3))`
+- Use it in a condition: `if is_valid(x) == true`
+
+And because functions can call other functions, you can build up complex behavior from simple pieces.
+
+### Scope and Blocks
+Every function creates a new **scope**. A scope is a region of code where a variable exists. Variables declared inside a function — including its parameters — are **local** to that function. They are created when the function is called, and they are destroyed when the function returns.
+
+This means:
+
+1. You cannot access a function's local variables from outside.
+2. Two different functions can use the same variable name without conflict.
+3. A function can read variables from outer scopes, but it cannot assign to them in a way that affects the outer scope (for numbers, strings, booleans, and none).
+
+Let's look at an example:
+
+```apex
+import os
+
+x = "outer"
+
+function test()
+    y = "inner"
+    os.output(x)  // reads outer variable
+    os.output(y)  // reads local variable
+
+test()
+os.output(y)  // ERROR: y is not defined here
+```
+
+Inside `test`, the variable `x` is visible because it was declared outside. But `y` is local to `test`. After `test` returns, `y` is gone. Trying to use it outside causes an error.
+
+The function can read `x`, but it cannot change `x` in a way that affects the outside. If it assigns to `x`, it creates a new local variable that shadows the outer one.
+
+```apex
+import os
+
+x = "outer"
+
+function test()
+    x = "inner"  // creates a new local x
+    os.output(x)  // prints "inner"
+
+test()
+os.output(x)  // prints "outer"
+```
+
+Inside `test`, `x = "inner"` creates a new local variable `x`. The outer `x` is untouched. When `test` returns, the local `x` disappears, and the outer `x` is still `"outer"`.
+
+#### Functions Inside Functions
+You can define a function inside another function. The inner function can read the outer function's variables, but the outer function cannot read the inner function's variables.
+
+```apex
+import os
+
+function outer()
+    message = "Hello from outer"
+    
+    function inner()
+        os.output(message)  // reads outer's message
+    
+    inner()
+
+outer()
+```
+
+Here, `inner` is defined inside `outer`. It can read `message` because `message` is in an enclosing scope. When `outer` calls `inner`, the message is printed.
+
+Nested functions are useful for organization, but they should be used sparingly. Most of the time, a flat structure with well-named functions at the top level is clearer.
+
+#### Blocks Inside Functions
+You already know that `if` and `for` create their own blocks and scopes. The same is true inside functions. A variable declared inside an `if` block is local to that block. It does not exist after the block.
+
+```apex
+function example()
+    if true == true
+        temp = "inside if"
+        // temp exists here
+    // temp does not exist here
+```
+
+This rule is consistent throughout Apex: **indentation defines scope**. Wherever you indent, you create a new scope. Variables live and die within their scope.
+
+### Early Return
+The `return` statement can appear anywhere in a function, not just at the end. When it runs, the function exits immediately, and no further code in that function runs.
+
+This is called **early return**, and it's a powerful way to keep your functions readable.
+
+Consider a function that validates a username:
+
+```apex
+function is_valid_username(name)
+    if name == none
+        return false
+    if string.length(name) < 3
+        return false
+    if string.length(name) > 20
+        return false
+    return true
+```
+
+This function checks several conditions. If any of them fail, it returns `false` immediately. Only if all conditions pass does it return `true`. The logic is flat and easy to follow.
+
+Without early return, you'd need to nest everything:
+
+```apex
+function is_valid_username(name)
+    if name != none
+        if string.length(name) >= 3
+            if string.length(name) <= 20
+                return true
+            else
+                return false
+        else
+            return false
+    else
+        return false
+```
+
+This is harder to read. The nesting obscures the logic. Early return flattens it out.
+
+Use early return when:
+- You're validating input and want to bail out on the first problem.
+- You've found what you're looking for and don't need to continue.
+- You're handling error cases and want to get them out of the way.
+
+Functions can have multiple `return` statements, but only one of them will actually run on any given call. The first one reached is the one that exits.
+
+### Recursion
+A function can call itself. This is called **recursion**, and it's a powerful technique for solving problems that have a naturally repetitive structure.
+
+The classic example is factorial. The factorial of a number `n` is the product of all positive integers from 1 to `n`. For example, `5! = 5 × 4 × 3 × 2 × 1 = 120`.
+
+You can define factorial recursively: `n! = n × (n-1)!`, with the base case `0! = 1`.
+
+```apex
+function factorial(n)
+    if n <= 1
+        return 1
+    return n * factorial(n - 1)
+```
+
+Let's trace `factorial(4)`:
+- `n` is 4. Not `<= 1`. So return `4 * factorial(3)`.
+- `n` is 3. Not `<= 1`. So return `3 * factorial(2)`.
+- `n` is 2. Not `<= 1`. So return `2 * factorial(1)`.
+- `n` is 1. `1 <= 1` is true. Return `1`.
+- So `factorial(2)` returns `2 * 1 = 2`.
+- `factorial(3)` returns `3 * 2 = 6`.
+- `factorial(4)` returns `4 * 6 = 24`.
+
+Recursion works because each call to `factorial` creates a new scope with its own `n`. They don't interfere with each other. The calls stack up until the base case is reached, then the results unwind back.
+
+Every recursive function needs a **base case** — a condition where it returns without calling itself. Without a base case, the function would call itself forever, and Apex would eventually report a stack overflow.
+
+Apex has a maximum call depth of 1024 frames. If your recursion goes deeper than that, the program stops with an error. Most recursive algorithms stay well under this limit, but deeply recursive ones might need to be rewritten as loops.
