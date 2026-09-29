@@ -106,9 +106,32 @@
 
 ### Match / Case
 - [Match Statement](#match-statement)
+  - [A Note on the Block](#a-note-on-the-block)
+  - [Cases Are Checked from Top to Bottom](#cases-are-checked-from-top-to-bottom)
 - [Case Patterns](#case-patterns)
+  - [Patterns Must Match the Subject's Type](#patterns-must-match-the-subjects-type)
+  - [Constants Only, No Variables or Expressions](#constants-only-no-variables-or-expressions)
+  - [Empty String and Zero Are Valid Patterns](#empty-string-and-zero-are-valid-patterns)
 - [Default Case](#default-case)
+  - [The Default Case Must Be Last](#the-default-case-must-be-last)
+  - [Only One Default Case](#only-one-default-case)
+  - [When to Use a Default Case](#when-to-use-a-default-case)
 - [Rules and Restrictions](#rules-and-restrictions)
+  - [1. Subject Type](#1-subject-type)
+  - [2. Pattern Type](#2-pattern-type)
+  - [3. Constants Only](#3-constants-only)
+  - [4. Order Matters](#4-order-matters)
+  - [5. Default Case](#5-default-case)
+  - [6. Scope](#6-scope)
+  - [7. Not an Expression](#7-not-an-expression)
+  - [8. No Tables](#8-no-tables)
+  - [9. No Range Patterns](#9-no-range-patterns)
+  - [10. No Compound Patterns](#10-no-compound-patterns)
+  - [11. No Fallthrough](#11-no-fallthrough)
+  - [12. Empty Case Bodies Are Allowed](#12-empty-case-bodies-are-allowed)
+- [Putting It Together](#putting-it-together)
+  - [When to Use Match vs. If](#when-to-use-match-vs-if)
+  - [A Reminder About Comparison Semantics](#a-reminder-about-comparison-semantics)
 
 ### For Loops
 - [For Counter](#for-counter)
@@ -2279,12 +2302,12 @@ This is the correct way to handle three or more possibilities. The ternary works
 ## Match / Case
 Sometimes you have a single value that you need to compare against many different possibilities. You could write a long chain of `if` and `else if` statements, but that gets messy quickly. Apex gives you a cleaner tool for this exact situation: the `match` statement.
 
-Think of `match` as a specialized decision-maker. You give it one value—the subject—and then you list a series of constant patterns. Apex checks the subject against each pattern in order. As soon as it finds a match, it runs the corresponding block of code and then skips the rest of the `match`. It’s like a multi-way fork in the road, but much more readable than a pile of `else if`s.
+Think of `match` as a specialized decision-maker. You give it one value — the subject — and then you list a series of constant patterns. Apex checks the subject against each pattern in order. As soon as it finds a match, it runs the corresponding block of code and then skips the rest of the `match`. It's like a multi-way fork in the road, but much more readable than a pile of `else if`s.
 
-`match` is not an expression. It doesn’t produce a value you can assign. It’s a statement, just like `if`. You use it when you want to *do* different things based on a value, not when you want to compute a result.
+`match` is not an expression. It doesn't produce a value you can assign. It's a statement, just like `if`. You use it when you want to *do* different things based on a value, not when you want to compute a result.
 
 ### Match Statement
-The `match` keyword is followed by the value you want to check—the subject. Then you write an indented block containing `case` branches. Each `case` has a constant pattern, and below it (indented further) is the code that runs when the subject equals that pattern.
+The `match` keyword is followed by the value you want to check — the subject. Then you write an indented block containing `case` branches. Each `case` has a constant pattern, and below it (indented further) is the code that runs when the subject equals that pattern.
 
 Syntax:
 ```apex
@@ -2296,7 +2319,7 @@ match subject
     // ... more cases ...
 ```
 
-Let’s look at a simple example. Suppose you have a numeric status code and you want to set a message based on it.
+Let's look at a simple example. Suppose you have a numeric status code and you want to set a message based on it.
 
 ```apex
 status = 404
@@ -2311,11 +2334,11 @@ match status
         message = "Server Error"
 ```
 
-After this runs, `message` is `"Not Found"`. Here’s what happens:
+After this runs, `message` is `"Not Found"`. Here's what happens:
 - Apex looks at `status`, which is `404`.
 - It checks `case 200`: 404 is not 200, so it moves on.
 - It checks `case 404`: 404 equals 404, so it runs the block `message = "Not Found"`.
-- It then skips the remaining cases (there’s only `case 500` left, which is ignored).
+- It then skips the remaining cases (there's only `case 500` left, which is ignored).
 
 If `status` were `200`, `message` would be `"OK"`. If `status` were `500`, `message` would be `"Server Error"`. If `status` were something else, like `302`, none of the cases would match, and `message` would stay `""`.
 
@@ -2323,8 +2346,70 @@ Notice the indentation. The `match` line is at the current indentation. The `cas
 
 You can have as many `case` branches as you need. They are checked from top to bottom. The first one that matches wins, and the rest are ignored.
 
+#### A Note on the Block
+Just like with `if`, each `case` body is its own **scope**. Variables declared inside a case live only inside that case. When the case ends, they're gone.
+
+```apex
+import os
+
+code = 200
+
+match code
+    case 200
+        message = "OK"
+        os.output(message)
+    case 404
+        message = "Not Found"  // same name, different case — OK
+        os.output(message)
+
+os.output(message)  // ERROR — message is not defined here
+```
+
+The variable `message` is declared inside each case. Each case has its own `message`. None of them are visible after the `match` is finished. If you want a variable to survive past the match, declare it before the `match`.
+
+```apex
+import os
+
+code = 200
+message = ""
+
+match code
+    case 200
+        message = "OK"
+    case 404
+        message = "Not Found"
+
+os.output(message)  // OK — message was declared outside
+```
+
+Now `message` is declared outside the `match`, so the assignment inside the case modifies the outer variable. The value survives.
+
+This is consistent with the rest of Apex: **indentation defines scope**. Every time you indent, you enter a new scope. Every time you dedent, you leave it.
+
+#### Cases Are Checked from Top to Bottom
+The order of cases matters. Apex checks them one at a time, starting from the top. As soon as one matches, its block runs, and the rest are skipped.
+
+This means that if two patterns could match the same subject, only the first one will ever run. Consider this:
+
+```apex
+grade = 85
+result = ""
+
+match grade
+    case 85
+        result = "exact"
+    case 85
+        result = "duplicate"
+```
+
+The subject is `85`. The first case matches, and `result` becomes `"exact"`. The second case is never reached. It's not an error to have duplicate patterns, but it's pointless — the second one is dead code.
+
+More commonly, the order matters when patterns overlap in *meaning*, not in literal value. For instance, if you're matching against status codes and you have a case for `200` and a case for `200`, the second one is unreachable. But if you're matching against strings and you have a case for `"hello"` and a case for `"hello world"`, they're different patterns, and both can match. Which one runs depends on which one appears first.
+
+Apex will actually warn you when a case can never match. If your patterns are mutually exclusive (as they should be for clean code), you won't see any warnings.
+
 ### Case Patterns
-A pattern is the value you compare against. It must be a **constant**—something that never changes. You cannot use a variable as a pattern, because the whole point of `match` is to compare against fixed, known values.
+A pattern is the value you compare against. It must be a **constant** — something that never changes. You cannot use a variable as a pattern, because the whole point of `match` is to compare against fixed, known values.
 
 The allowed constant patterns are:
 - **Number literals**: like `42`, `3.14`, or negative numbers like `-1`.
@@ -2332,7 +2417,7 @@ The allowed constant patterns are:
 - **Boolean literals**: `true` or `false`.
 - **None**: the special value `none`.
 
-Here’s an example with string patterns:
+Here's an example with string patterns:
 
 ```apex
 command = "quit"
@@ -2396,10 +2481,71 @@ match temperature
 
 Here, `feeling` becomes `"Very cold"`.
 
-The type of the pattern must match the type of the subject. You cannot match a number against a string pattern. If you try, Apex will warn you that the case can never match. So if your subject is a number, all patterns must be numbers. If it’s a string, all patterns must be strings, and so on.
+#### Patterns Must Match the Subject's Type
+The type of the pattern must match the type of the subject. You cannot match a number against a string pattern. If you try, Apex will warn you that the case can never match.
+
+```apex
+value = 42
+result = ""
+
+match value
+    case "42"           // WARNING — string pattern, number subject
+        result = "string"
+    case 42
+        result = "number"
+```
+
+The first case can never match, because the subject is a number and `"42"` is a string. Apex will tell you this. The second case works fine.
+
+So if your subject is a number, all patterns must be numbers. If it's a string, all patterns must be strings. If it's a boolean, all patterns must be booleans. And so on.
+
+#### Constants Only, No Variables or Expressions
+Patterns must be literal constants. You cannot use a variable, a function call, or any expression as a pattern.
+
+```apex
+key = 42
+value = 10
+result = ""
+
+match value
+    case key            // ERROR — key is a variable, not a constant
+        result = "matched key"
+    case 10
+        result = "matched ten"
+```
+
+The `case key` line is not allowed. Apex requires the pattern to be a known value at the time the program is compiled. A variable could change at runtime, and that would make the match unpredictable.
+
+Similarly, you cannot use an expression:
+
+```apex
+match value
+    case 40 + 2         // ERROR — expression, not a constant literal
+        result = "matched 42"
+```
+
+You could write `case 42` directly, but not `case 40 + 2`.
+
+#### Empty String and Zero Are Valid Patterns
+An empty string `""` is a valid string pattern. Zero is a valid number pattern. They are not the same as `none`.
+
+```apex
+text = ""
+result = ""
+
+match text
+    case ""
+        result = "empty string"
+    case none
+        result = "none"
+```
+
+Since `text` is `""` (a string with zero characters), the first case matches, and `result` becomes `"empty string"`. If `text` were `none`, the second case would match instead.
+
+This is a useful distinction to keep in mind. An empty string is still a string. `none` is not a string at all.
 
 ### Default Case
-What if none of the patterns match? You can provide a default case that runs when nothing else matches. A default case is written as `case` with no value after it. It’s like the `else` in an if-else chain.
+What if none of the patterns match? You can provide a default case that runs when nothing else matches. A default case is written as `case` with no value after it. It's like the `else` in an if-else chain.
 
 The default case must be the **last** case in the `match`. You can only have one default case.
 
@@ -2418,34 +2564,291 @@ match code
         description = "Unknown status"
 ```
 
-After this, `description` is `"Unknown status"` because `302` didn’t match `200` or `404`, so the default case ran.
+After this, `description` is `"Unknown status"` because `302` didn't match `200` or `404`, so the default case ran.
 
-If you omit the default case and no pattern matches, then the `match` statement simply does nothing. Execution continues with the code after the `match`. That might be fine if you only care about specific values. But if you want to handle “everything else,” use a default case.
+If you omit the default case and no pattern matches, then the `match` statement simply does nothing. Execution continues with the code after the `match`. That might be fine if you only care about specific values. But if you want to handle "everything else," use a default case.
 
-The default case must come last. If you put any case after it, Apex will report an error. That’s because once you have a default, any case below it would be unreachable—the default would always run first.
+```apex
+code = 302
+description = "initial"
+
+match code
+    case 200
+        description = "OK"
+    case 404
+        description = "Not Found"
+
+// No default. Nothing matches 302, so description stays "initial"
+```
+
+Here, since no case matched and there's no default, `description` remains `"initial"`. The `match` simply did nothing.
+
+#### The Default Case Must Be Last
+The default case must come last. If you put any case after it, Apex will report an error. That's because once you have a default, any case below it would be unreachable — the default would always run first.
+
+```apex
+match value
+    case 1
+        // ...
+    case                 // default
+        // ...
+    case 2               // ERROR — case after default
+        // ...
+```
+
+This rule exists to prevent mistakes. If you could put cases after the default, you might accidentally think they're reachable when they're not. Apex stops you before that happens.
+
+#### Only One Default Case
+You can have at most one default case. Two defaults would be ambiguous — which one should run when nothing matches? So Apex allows only one.
+
+```apex
+match value
+    case 1
+        // ...
+    case                 // default
+        // ...
+    case                 // ERROR — second default
+        // ...
+```
+
+If you have two defaults, Apex will report an error on the second one.
+
+#### When to Use a Default Case
+Use a default case when you want to handle the "everything else" scenario. This is common when the subject can take on many values and you only care about a few specific ones.
+
+For example, if you're processing commands and you handle a few known ones, the default catches typos or unsupported commands:
+
+```apex
+import os
+
+command = "restart"
+handled = true
+
+match command
+    case "start"
+        os.output("Starting...")
+    case "stop"
+        os.output("Stopping...")
+    case
+        handled = false
+        os.output("Unknown command")
+```
+
+Since `"restart"` isn't `"start"` or `"stop"`, the default runs, and `handled` becomes `false`.
+
+You don't always need a default. If your cases cover every possible value (for a boolean subject, for instance), a default is redundant. If you're fine with "do nothing" when nothing matches, skip the default.
 
 ### Rules and Restrictions
 To use `match` correctly, keep these rules in mind:
 
-1. **Subject type**: The subject must be a `number`, `string`, `boolean`, or `none`. You cannot match against a table or any other complex type. If you try, Apex will tell you it’s not allowed.
+#### 1. Subject Type
+The subject must be a `number`, `string`, `boolean`, or `none`. You cannot match against a table or any other complex type.
 
-2. **Pattern type**: Each pattern must be a constant of the same type as the subject. You cannot mix types. For example, if the subject is a number, you cannot use a string pattern. Apex will warn you that the pattern can never match.
+```apex
+t = [1, 2, 3]
 
-3. **Constants only**: Patterns must be literal constants. You cannot use variables, expressions, or function calls as patterns. For instance, `case x` where `x` is a variable is not allowed.
+match t              // ERROR — table subject not allowed
+    case 1
+        // ...
+```
 
-4. **Order matters**: Cases are checked from top to bottom. The first matching case wins. Once a case runs, the rest of the `match` is skipped. There is no “fall-through” like in some other languages’ switch statements.
+Apex will report an error saying the subject must be a number, string, boolean, or none. Tables and functions are not allowed as subjects.
 
-5. **Default case**: You may have at most one default case, written as `case` with no value. It must be the last case. If no case matches and there is no default, the `match` does nothing.
+#### 2. Pattern Type
+Each pattern must be a constant of the same type as the subject. You cannot mix types.
 
-6. **Scope**: Each `case` body has its own scope. Variables declared inside a case are local to that case and are not visible after the `match`. You can reuse the same variable name in different cases without conflict.
+```apex
+value = 42
 
-7. **Not an expression**: `match` is a statement, not an expression. It does not produce a value. You cannot write `x = match ...` or use it inside another expression. Use it only when you want to execute different blocks of code based on a value.
+match value
+    case "42"        // WARNING — string pattern, number subject
+        // ...
+    case 42
+        // ...
+```
 
-8. **No tables**: Tables cannot be used as subjects or patterns. Only the four simple types are allowed.
+Apex will warn you that the first case can never match. It's not a hard error, but it's a bug in your code, and Apex helps you see it.
 
-`match` is a powerful way to keep your code clean when you have many fixed options to check. It’s especially handy for things like status codes, command strings, or simple state machines. Just remember to keep your patterns constant, your types consistent, and your default case (if you need one) at the end.
+#### 3. Constants Only
+Patterns must be literal constants. You cannot use variables, expressions, or function calls.
 
-Now you have another tool in your decision-making toolkit. In the next section, we’ll learn how to repeat code with loops.
+```apex
+x = 42
+
+match 10
+    case x           // ERROR — x is a variable
+        // ...
+    case 10
+        // ...
+```
+
+The `case x` line is not allowed. Use only literal values.
+
+#### 4. Order Matters
+Cases are checked from top to bottom. The first matching case wins. Once a case runs, the rest of the `match` is skipped. There is no fall-through like in some other languages' switch statements.
+
+#### 5. Default Case
+You may have at most one default case, written as `case` with no value. It must be the last case. If no case matches and there is no default, the `match` does nothing.
+
+#### 6. Scope
+Each `case` body has its own scope. Variables declared inside a case are local to that case and are not visible after the `match`. You can reuse the same variable name in different cases without conflict.
+
+#### 7. Not an Expression
+`match` is a statement, not an expression. It does not produce a value. You cannot write `x = match ...` or use it inside another expression.
+
+```apex
+// NOT ALLOWED
+result = match value
+    case 1
+        // ...
+```
+
+If you need to compute a value based on a set of cases, use an if-else chain instead. The ternary won't help either — it only handles two branches. For multiple branches that produce a value, the if/else if/else statement is the right tool.
+
+#### 8. No Tables
+Tables cannot be used as subjects or patterns. Only the four simple types are allowed. If you need to branch based on a table, you'd have to extract a value from the table first, then match on that value.
+
+#### 9. No Range Patterns
+Apex `match` does not support range patterns like `case 1..10`. Each pattern is a single, exact value.
+
+```apex
+score = 85
+
+match score
+    case 90              // exact value only
+        // ...
+    case 1..89           // ERROR — ranges not supported
+        // ...
+```
+
+If you need range checks, use an if-else chain with comparison operators.
+
+```apex
+score = 85
+grade = ""
+
+if score >= 90
+    grade = "A"
+else if score >= 80
+    grade = "B"
+else
+    grade = "C"
+```
+
+This is the right tool for ranges. `match` is for exact values.
+
+#### 10. No Compound Patterns
+Apex `match` does not support compound patterns like `case 1, 2, 3` or `case 1 or 2`. Each case handles exactly one value.
+
+```apex
+value = 2
+
+match value
+    case 1, 2, 3         // ERROR — compound patterns not supported
+        // ...
+```
+
+If you want to match several values to the same block, you would need to write each case separately, or use an if-else chain.
+
+```apex
+// Alternative: use if-else if you need to group values
+if value == 1 or value == 2 or value == 3
+    // ...
+```
+
+#### 11. No Fallthrough
+Unlike C's `switch`, Apex's `match` has no fallthrough. Once a case matches, its block runs, and the `match` ends. You don't need a `break` statement.
+
+```apex
+match value
+    case 1
+        // only this block runs
+    case 2
+        // this is skipped if case 1 matched
+```
+
+There's no way to accidentally fall through from one case to the next. This is one of the reasons `match` is cleaner than `switch` in many other languages.
+
+#### 12. Empty Case Bodies Are Allowed
+A case body can be empty. If the subject matches and the case has no code, nothing happens. This is unusual but not an error.
+
+```apex
+match value
+    case 1
+    case 2
+        // code for case 2
+```
+
+Here, if `value` is 1, the first case matches, its empty body runs (nothing happens), and the `match` ends. The second case is never reached. So this is different from C's `switch` fallthrough — Apex stops at the first match, empty or not.
+
+If you actually want "do nothing for 1, do something for 2," you'd write:
+
+```apex
+match value
+    case 1
+        none                // explicitly do nothing (a single expression statement)
+    case 2
+        // code for case 2
+```
+
+Or, more commonly, you'd just include the "do nothing" case in a grouped if statement.
+
+### Putting It Together
+`match` is a powerful way to keep your code clean when you have many fixed options to check. It's especially handy for things like status codes, command strings, or simple state machines.
+
+Here's a complete example that puts everything together:
+
+```apex
+import os
+
+function describe_day(day)
+    description = ""
+    match day
+        case "Monday"
+            description = "Start of the work week"
+        case "Friday"
+            description = "Almost the weekend"
+        case "Saturday"
+            description = "Weekend!"
+        case "Sunday"
+            description = "Rest day"
+        case
+            description = "Just a regular day"
+    return description
+
+os.output(describe_day("Saturday"))   // Weekend!
+os.output(describe_day("Wednesday"))  // Just a regular day
+os.output(describe_day(""))           // Just a regular day (empty string doesn't match)
+```
+
+The function takes a day name. It matches against four known days and falls through to a default for anything else. The result is a short description.
+
+#### When to Use Match vs. If
+Use `match` when:
+- You're comparing one value against many fixed possibilities.
+- Each possibility is a constant (number, string, boolean, or none).
+- You want the code to be clean and readable.
+
+Use `if`/`else if`/`else` when:
+- You need ranges or comparisons (like `score >= 90`).
+- Your conditions involve different subjects (like `age > 18 and has_license == true`).
+- You need complex boolean logic.
+
+Both tools have their place. `match` is not better than `if` — it's just more specialized. For the specific case of "one value, many constants," `match` is clearer. For everything else, `if` is the right choice.
+
+#### A Reminder About Comparison Semantics
+When `match` compares the subject to a pattern, it uses the same comparison rules as `==`. That means:
+
+- Numbers are compared by value: `42` matches `42`.
+- Strings are compared by content: `"hello"` matches `"hello"`, not `"Hello"` (case matters).
+- Booleans are compared by value: `true` matches `true`, `false` matches `false`.
+- `none` matches `none`.
+- Different types never match: `42` never matches `"42"`.
+- Tables and functions cannot be used at all.
+
+So if you're ever unsure whether a pattern will match, think about what `subject == pattern` would produce. If `==` gives `true`, the case matches. If `==` gives `false`, it doesn't.
+
+Now you have another tool in your decision-making toolkit. In the next section, we'll learn how to repeat code with loops.
 
 ## For Loops
 Programs often need to repeat the same action many times. You might want to count from one to ten, process every item in a table, or keep asking for input until the user types the right thing. Writing the same code over and over is not an option — it would be tedious and error-prone. That's where loops come in.
