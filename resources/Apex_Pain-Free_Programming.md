@@ -115,6 +115,15 @@
 - [Early Return](#early-return)
 - [Recursion](#recursion)
 
+### Async / Await
+- [Why Async Exists](#why-async-exists)
+- [What Is a Future](#what-is-a-future)
+- [Async Function](#async-function)
+- [Await](#await)
+- [Where Await Can Be Used](#where-await-can-be-used)
+- [What Can Be Awaited](#what-can-be-awaited)
+- [Running in the Background](#running-in-the-background)
+
 ### Imports
 - [Importing an Entire File](#section)
 - [Importing from Sub-folders](#section)
@@ -2803,3 +2812,319 @@ Recursion works because each call to `factorial` creates a new scope with its ow
 Every recursive function needs a **base case** — a condition where it returns without calling itself. Without a base case, the function would call itself forever, and Apex would eventually report a stack overflow.
 
 Apex has a maximum call depth of 1024 frames. If your recursion goes deeper than that, the program stops with an error. Most recursive algorithms stay well under this limit, but deeply recursive ones might need to be rewritten as loops.
+
+## Async / Await
+### Why Async Exists
+Imagine you're writing a program that needs to read a large file from disk. Reading a file is not instant. It takes time — maybe a few milliseconds, maybe a few seconds. While the computer is fetching that data, what should your program do? Should it freeze and wait, doing nothing until the file is ready? Or should it keep doing other useful work in the meantime?
+
+In most simple programs, the answer is "just wait." You ask for the file, and your program pauses until the file arrives. This is called **blocking**. It's simple and predictable. For small scripts, it's perfectly fine.
+
+But imagine your program has more to do. Maybe it needs to read ten files, or wait for a network response, or sleep for a second between steps. If each of those operations blocks the whole program, you're wasting time. While waiting for one thing, you can't do anything else.
+
+This is where **async** and **await** come in. They let you say: "Start this slow operation, but don't stop the whole program while you wait. Let me do other things. When the result is ready, I'll come back for it."
+
+The idea is simple, but the mechanics take a moment to get used to. Let's build up from the ground.
+
+### What Is a Future
+A **future** is a value that represents a result you don't have yet — but will have later. It's like a claim ticket at a coat check. You hand over your coat, and you get a ticket. The ticket isn't the coat. It's a promise that says: "Your coat will be ready when you come back with this ticket."
+
+You can hold onto the ticket, put it in your pocket, or hand it to a friend. You don't have to wait at the counter. You can go do other things. When you're ready to get your coat, you show the ticket, and if the coat is ready, you receive it. If it's not ready yet, you wait a little longer.
+
+In Apex, a future is a real value — just like a number, string, or table. You can store it in a variable, put it in a table, pass it to a function. It represents a result that will be available at some point.
+
+You create a future by calling an **async function**. Calling a normal function runs its body immediately and gives you the result. Calling an async function does something different: it **starts** the function's body in the background, and immediately returns a future. You get the ticket right away. The result comes later.
+
+### Async Function
+To create an async function, you put the word `async` before the word `function`.
+
+Syntax:
+```apex
+async function name(params)
+    // body
+```
+
+Everything else stays the same. You still list parameters, you still use `return`, you still call it with parentheses. The only difference is that calling it does not run the body to completion and give you the return value directly. Instead, it returns a **future**.
+
+Here's a simple async function:
+
+```apex
+async function add(a, b)
+    return a + b
+```
+
+This function adds two numbers and returns the sum. The body is trivial. But because it's marked `async`, calling `add(2, 3)` does not give you `5`. It gives you a **future** that will eventually hold `5`.
+
+```apex
+future = add(2, 3)
+// future is a future, not 5
+```
+
+To get the actual value out of a future, you need `await`. We'll get there in a moment.
+
+#### Why Mark a Function Async?
+For a function as simple as `add`, there's no reason to make it async. The body is instantaneous. The whole point of async is to run slow work in the background without blocking. So async functions usually do things like:
+
+- Read a file with `os.read`.
+- Wait for a timer with `os.wait`.
+- Perform a network request.
+- Run a long computation.
+
+Here's an example of an async function that waits:
+
+```apex
+import os
+
+async function delayed_greeting(name)
+    await os.wait(1)  // wait one second in the background
+    return "Hello, {name}!"
+```
+
+When you call `delayed_greeting("Alice")`, the function starts running in the background. It immediately hits `await os.wait(1)`, which schedules a one-second timer and suspends the function. The caller gets a future back right away. After a second passes, the function resumes, builds the greeting string, and the future resolves to `"Hello, Alice!"`.
+
+The caller was never blocked. If the caller had other work to do, it could do that work during the one-second wait.
+
+#### Async Functions Return Futures
+Every async function, no matter how simple, returns a future. Even `async function add(a, b) return a + b` returns a future, not a number.
+
+This is the crucial rule to internalize: **calling an async function gives you a future, not the result**. The result arrives later, and you retrieve it with `await`.
+
+### Await
+The word `await` means: "I want the result of this future. If it's ready, give it to me now. If it's not ready yet, wait until it is."
+
+You use `await` before a call to an async function. The call is what produces the future; `await` unwraps it.
+
+Syntax:
+```apex
+result = await async_function(args)
+```
+
+The `await` keyword tells Apex: "Call this async function, start its body in the background if it hasn't already started, and give me the value when it's ready."
+
+Here's a complete example:
+
+```apex
+import os
+
+async function add(a, b)
+    return a + b
+
+async function main()
+    result = await add(2, 3)
+    os.output(result)  // prints 5
+
+await main()
+```
+
+Let's trace through this:
+- `main` is called with `await`. It's async, so its body starts running.
+- Inside `main`, `add(2, 3)` is called with `await`. This starts `add`'s body in the background.
+- `add` returns `5` almost instantly. `await` receives `5` and assigns it to `result`.
+- `os.output(result)` prints `5`.
+- `main` finishes, and the top-level `await main()` completes.
+
+The `await` in front of `add(2, 3)` is what turns the future into the actual number.
+
+#### Await Does Not Block Everything
+The word "wait" might make you think `await` freezes the whole program. It doesn't. When `await` encounters a future that isn't ready yet, it **suspends the current function** and lets the rest of the program continue. Other functions, other coroutines, and the scheduler keep running. Only the current function pauses.
+
+Think of it like this: you're in a restaurant, and you've ordered food. Instead of standing at the counter staring at the kitchen, you go back to your table and chat with friends. When the waiter brings your food, you eat. You didn't block anyone; you just paused your own waiting until the food arrived.
+
+`await` works the same way. It pauses the function that called it, but the rest of the program keeps going. When the future resolves, the function resumes right where it left off.
+
+#### Await Always Gives a Value
+The result of `await` is the resolved value of the future. If the async function returned `5`, `await` gives you `5`. If it returned a string, you get the string. If it returned a table, you get the table. If it returned `none`, you get `none`.
+
+You can use that value like any other:
+
+```apex
+async function main()
+    x = await get_number()
+    y = await get_number()
+    sum = x + y
+    os.output("Sum: {sum}")
+```
+
+Each `await` retrieves one value. The values are ordinary Apex values.
+
+### Where Await Can Be Used
+`await` has strict rules about where it can appear. It can only be used in two places:
+
+1. **Inside an async function.**
+2. **At the top level of the program.**
+
+That's it. You cannot use `await` inside a normal (non-async) function. You cannot use it inside an `if` at the top level unless that `if` is itself at the top level.
+
+The reason is that `await` requires the scheduler to be able to pause and resume the surrounding function. Only async functions (and the top-level program) are set up to support that. A regular function must run from start to finish without interruption.
+
+If you try to use `await` inside a normal function, Apex will report an error: `'await' outside of async function`.
+
+#### Top-Level Await
+At the top level of your program — that is, in the code that runs immediately when the program starts — you can use `await` directly. This is convenient for small scripts that need to await one or two things.
+
+```apex
+import os
+
+async function fetch_name()
+    await os.wait(0.5)
+    return "Alice"
+
+name = await fetch_name()
+os.output(name)  // prints "Alice" after a half-second pause
+```
+
+Here, `await fetch_name()` is at the top level. It's allowed. The program runs `fetch_name` in the background, waits for it to finish, gets `"Alice"`, and prints it.
+
+#### Await Inside Async Functions
+You can also use `await` inside any async function. This is how you compose async operations: one async function awaits another, which awaits another, and so on.
+
+```apex
+import os
+
+async function read_two_files(path1, path2)
+    content1 = await os.read(path1)
+    content2 = await os.read(path2)
+    return content1 + content2
+```
+
+Here, `read_two_files` awaits `os.read` twice. Each call runs in the background. The function suspends while waiting, then resumes when each file is ready.
+
+You can also await user-defined async functions:
+
+```apex
+async function outer()
+    result = await inner()
+    return result * 2
+
+async function inner()
+    return 42
+
+final = await outer()  // 84
+```
+
+The nesting can go as deep as you need. Each level of `await` unwraps one layer of future.
+
+### What Can Be Awaited
+Not everything can be awaited. The operand of `await` must be either:
+
+1. **A call to an async function.**
+2. **A call to a builtin that supports async.**
+
+You cannot await a number. You cannot await a string. You cannot await a normal function call. You cannot await a variable that holds a future — you can only await the **call** that produces the future.
+
+Wait — that last one needs clarification. The rule is that `await` must be followed by a function call. You write:
+
+```apex
+result = await async_function()
+```
+
+You cannot write:
+
+```apex
+fut = async_function()
+result = await fut  // ERROR: 'await' requires a call
+```
+
+The future stored in `fut` is real, but Apex requires the await to see the call directly. This is a design choice that keeps the scheduler simple and predictable. If you need to store an async call's future for later, you would typically structure your code so the await happens immediately, or you would restructure so the async function does the work internally.
+
+In practice, this restriction is rarely a problem. You usually call an async function and await it right away.
+
+#### Awaiting Builtins
+Many built-in functions in Apex support the async protocol. When you put `await` before a call to one of these builtins, the work is offloaded to a background worker thread, and the caller continues without blocking. The future resolves when the worker is done.
+
+Builtins that can be awaited include:
+
+- `os.read` — reading a file.
+- `os.write` — writing a file.
+- `os.append` — appending to a file.
+- `os.execute` — running a shell command.
+- `os.wait` — sleeping for a duration.
+- `os.copy`, `os.move`, `os.rename`, `os.delete`, `os.create_file`, `os.create_folder`, `os.list_folder`, `os.size`, `os.exists`, `os.is_file`, `os.is_folder`, `os.parent_folder`, `os.access`, `os.terminate` — various filesystem and process operations.
+- `json.decode`, `json.encode` — JSON processing.
+- `xml.decode`, `xml.encode` — XML processing.
+- `csv.decode`, `csv.encode` — CSV processing.
+- `base.encode_*`, `base.decode_*` — base encoding.
+- `regex.find_all`, `regex.replace`, `regex.split`, `regex.search` — regex operations.
+- `zip.pack`, `zip.unpack` — ZIP archives.
+
+When you call these with `await`, the operation runs off the main thread. The current function suspends. When the operation completes, the function resumes with the result.
+
+```apex
+import os
+import json
+
+async function load_config(path)
+    text = await os.read(path)
+    if text == none
+        return none
+    return json.decode(text)
+
+config = await load_config("config.json")
+```
+
+Here, `await os.read(path)` reads the file in the background. Then `await load_config(...)` (at the top level) runs the whole function as a background coroutine. The result is the parsed config or `none`.
+
+#### Awaiting Without Awaiting
+It's worth noting: if you call one of these builtins without `await`, it runs synchronously — that is, it blocks the current thread until it's done.
+
+```apex
+text = os.read(path)  // blocks until the file is read
+```
+
+This is fine for simple scripts. The async versions are for when you want to keep the program responsive while doing slow work.
+
+#### When You Don't Need to Await
+You don't have to await everything. If you're at the top level and you just need a value, you can call async functions and use the result... but wait, that's not true. Calling an async function gives you a future, not the value. So you do need to await.
+
+The exceptions are the synchronous builtins — the ones you call without `await`. Those are fine.
+
+The rule is simple: **if it's an async function, you must await it to get its value.** If it's a normal function or a synchronous builtin, you get the value directly.
+
+### Running in the Background
+When you write `await some_function()`, the body of `some_function` starts running in the background. This is important: it's not "run later" or "queue for some future time." It starts now.
+
+What happens next depends on whether `some_function` reaches an `await` of its own:
+
+- If `some_function` runs to completion without ever suspending, its future resolves almost immediately. The `await` in the caller retrieves the value right away.
+- If `some_function` suspends (because it awaits something), the caller's `await` also suspends. The scheduler pauses both functions and continues with other work. When the inner operation completes, `some_function` resumes, and eventually its future resolves, waking up the caller.
+
+This means that awaiting an async function that internally awaits other things chains the suspensions together. The scheduler manages the whole chain, resuming functions in the right order.
+
+#### Example: A Chain of Awaits
+```apex
+import os
+
+async function level_three()
+    await os.wait(0.1)
+    return "three"
+
+async function level_two()
+    result = await level_three()
+    return "two + {result}"
+
+async function level_one()
+    result = await level_two()
+    return "one + {result}"
+
+final = await level_one()
+os.output(final)  // prints "one + two + three"
+```
+
+Let's trace:
+- Top-level `await level_one()` starts `level_one` in the background.
+- `level_one` calls `await level_two()`, which starts `level_two` in the background.
+- `level_two` calls `await level_three()`, which starts `level_three` in the background.
+- `level_three` hits `await os.wait(0.1)`, which schedules a 0.1-second timer and suspends.
+- All four functions — top-level, `level_one`, `level_two`, `level_three` — are now suspended.
+- After 0.1 seconds, the timer fires. `level_three` resumes, returns `"three"`.
+- `level_two` resumes with `"three"`, builds `"two + three"`, returns it.
+- `level_one` resumes with `"two + three"`, builds `"one + two + three"`, returns it.
+- Top-level resumes with the final string, prints it.
+
+All of this happens without blocking the program. If there were other coroutines running, they would have continued during the 0.1-second pause.
+
+#### The Scheduler
+Under the hood, Apex has a **scheduler**. The scheduler is the part of the runtime that manages all the suspended functions and decides which one runs next. You don't interact with the scheduler directly. It works invisibly when you use `await`.
+
+Every time a function suspends, the scheduler keeps track of where it was and what it's waiting for. When the awaited operation finishes, the scheduler resumes the function.
+
+You don't need to know the details of the scheduler to use `await`. But it's good to know it exists, because it explains why `await` doesn't block everything and why some functions can pause and resume.
