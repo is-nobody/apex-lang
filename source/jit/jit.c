@@ -456,3 +456,13 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs,
         default:                    return JIT_LOOP_RAN_NORMAL;     // plain conditional loop
     }
 }
+
+// returns true when pc is a registered native-loop entry with compiled code
+bool jit_loop_at(JITContext* ctx, int pc) {
+    if (!ctx || !ctx->pc_to_loop) return false;                   // no loops compiled
+    if (pc < 0 || pc >= ctx->chunk->code_count) return false;     // out of range
+    int li = ctx->pc_to_loop[pc];
+    if (li < 0) return false;                                     // pc is not a loop entry
+    JitLoopInfo* info = &ctx->loops[li];
+    return info->native_fn != NULL || info->native_fn_neg != NULL; // has native code
+}

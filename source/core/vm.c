@@ -1826,22 +1826,24 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         do { \
             if (unlikely(apex_jit_runtime_enabled && vm->jit != NULL)) { \
                 int _cur = (int)(ip - vm->code); \
-                int _exit; \
-                JitLoopResult _r = jit_try_native_loop(vm->jit, _cur, (uint64_t*)regs, \
-                                                       frame_cap[vm->current_frame], &_exit); \
-                if (_r == JIT_LOOP_RAN_NORMAL) { \
-                    ip = &vm->code[_exit]; \
-                    goto *dispatch_table[ip->opcode]; \
-                } \
-                if (_r == JIT_LOOP_RAN_FOR_NEXT) { \
-                    vm->iterator_depth--; \
-                    ip = &vm->code[_exit]; \
-                    goto *dispatch_table[ip->opcode]; \
-                } \
-                if (_r == JIT_LOOP_RAN_TABLE_ITER) { \
-                    vm->table_iter_depth--; \
-                    ip = &vm->code[_exit]; \
-                    goto *dispatch_table[ip->opcode]; \
+                if (likely(jit_loop_at(vm->jit, _cur))) { \
+                    int _exit; \
+                    JitLoopResult _r = jit_try_native_loop(vm->jit, _cur, (uint64_t*)regs, \
+                                                        frame_cap[vm->current_frame], &_exit); \
+                    if (_r == JIT_LOOP_RAN_NORMAL) { \
+                        ip = &vm->code[_exit]; \
+                        goto *dispatch_table[ip->opcode]; \
+                    } \
+                    if (_r == JIT_LOOP_RAN_FOR_NEXT) { \
+                        vm->iterator_depth--; \
+                        ip = &vm->code[_exit]; \
+                        goto *dispatch_table[ip->opcode]; \
+                    } \
+                    if (_r == JIT_LOOP_RAN_TABLE_ITER) { \
+                        vm->table_iter_depth--; \
+                        ip = &vm->code[_exit]; \
+                        goto *dispatch_table[ip->opcode]; \
+                    } \
                 } \
             } \
         } while (0)

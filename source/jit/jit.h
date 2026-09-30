@@ -59,4 +59,7 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs,
 // sets a back-pointer to the owning VM; used for numeric-for reseed
 void jit_set_vm(JITContext* ctx, void* vm);
 
+// returns true when pc is a registered native-loop entry with compiled code
+bool jit_loop_at(JITContext* ctx, int pc);
+
 #endif
