@@ -10,9 +10,6 @@
 [![Apex Version](https://img.shields.io/badge/Apex-26.09-blue)](https://github.com/is-nobody/apex-lang)
 ![Available](https://img.shields.io/badge/Available-Windows%20%7C%20macOS%20%7C%20Linux-red)
 
-> [!IMPORTANT]
-> Apex language is currently in **Open Beta (26.09)** and is being actively developed.
-
 This is the official repository for [Apex](https://github.com/is-nobody/apex-lang) language.
 
 ## Why Apex?
