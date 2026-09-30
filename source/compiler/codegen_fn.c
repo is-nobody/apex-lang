@@ -334,6 +334,13 @@ void codegen_function_decl(CodeGenerator* cg, ASTNode* node) {
     int fn_max = cg->max_registers;                                          // computed max regs
     if (fn_max < REGISTER_INITIAL_SIZE) fn_max = REGISTER_INITIAL_SIZE;      // enforce pool minimum
     cg->chunk->functions[func_idx].max_registers = fn_max;                   // store padded max regs
+    if (cg->chunk->functions[func_idx].local_names) {                        // free previous copy if any
+        for (int i = 0; i < cg->chunk->functions[func_idx].local_count; i++) {
+            free(cg->chunk->functions[func_idx].local_names[i]);
+        }
+        free(cg->chunk->functions[func_idx].local_names);
+        cg->chunk->functions[func_idx].local_names = NULL;
+    }
     if (cg->locals.count > 0) {                                              // has locals
         cg->chunk->functions[func_idx].local_names = (char**)malloc(sizeof(char*) * cg->locals.count);  // allocate
         for (int i = 0; i < cg->locals.count; i++) {                         // copy names
