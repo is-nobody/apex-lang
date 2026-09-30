@@ -1715,6 +1715,37 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
             fixups[nfix].target_pc = tgt;                    // exit vs internal decided at patch time
             nfix++;
             emit_i32(cb, 0);
+        } else if (inst->opcode == OP_JUMP_IF_EQ || inst->opcode == OP_JUMP_IF_NEQ ||
+                   inst->opcode == OP_JUMP_IF_EQ_NUM || inst->opcode == OP_JUMP_IF_NEQ_NUM ||
+                   inst->opcode == OP_JUMP_IF_LT || inst->opcode == OP_JUMP_IF_GT ||
+                   inst->opcode == OP_JUMP_IF_LTE || inst->opcode == OP_JUMP_IF_GTE ||
+                   inst->opcode == OP_JUMP_IF_EQ_IMM || inst->opcode == OP_JUMP_IF_NEQ_IMM ||
+                   inst->opcode == OP_JUMP_IF_LT_IMM || inst->opcode == OP_JUMP_IF_GT_IMM ||
+                   inst->opcode == OP_JUMP_IF_LTE_IMM || inst->opcode == OP_JUMP_IF_GTE_IMM) {
+            int tgt = inst->operands[0];
+            int a   = inst->operands[1];
+            int b   = inst->operands[2];
+            bool is_imm = (inst->opcode >= OP_JUMP_IF_EQ_IMM &&
+                           inst->opcode <= OP_JUMP_IF_GTE_IMM);
+            int xa = x86_cache_load(&cache, cb, a);
+            if (xa < 0) JIT_FATAL("cache full: cond-enter JUMP_IF cond a=%d (pc=%d)", a, pc);
+            if (is_imm) {
+                x86_emit_load_double_imm(cb, XMM_SCRATCH, b);
+                x86_emit_ucomisd_rr(cb, xa, XMM_SCRATCH);
+            } else {
+                int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);
+                if (xb < 0) JIT_FATAL("cache full: cond-enter JUMP_IF cond b=%d (pc=%d)", b, pc);
+                x86_emit_ucomisd_rr(cb, xa, xb);
+            }
+            x86_cache_flush(&cache, cb);
+            uint8_t jcc = jcc_for_entry_op(inst->opcode);
+            emit_u8(cb, 0x0F); emit_u8(cb, jcc);
+            if (nfix >= range_size)
+                JIT_FATAL("fixup overflow in cond-enter loop at pc=%d", entry);
+            fixups[nfix].patch_at  = cb->len;
+            fixups[nfix].target_pc = tgt;
+            nfix++;
+            emit_i32(cb, 0);
         } else {
             emit_loop_body_instr(abi, ctx, cb, &cache, pc, const_slot, save_slot, info);
         }

@@ -579,7 +579,10 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
         } else if (loop_op == OP_JUMP && entry_op != OP_JUMP_IF_FALSE) {
             int found_exit = -1;
             for (int i = entry + 1; i <= pc; i++) {
-                if (chunk->code[i].opcode != OP_JUMP_IF_FALSE) continue;
+                Opcode op = chunk->code[i].opcode;
+                bool is_cond = (op == OP_JUMP_IF_FALSE) ||
+                               (op >= OP_JUMP_IF_EQ && op <= OP_JUMP_IF_GTE_IMM);
+                if (!is_cond) continue;
                 int tgt = chunk->code[i].operands[0];
                 if (tgt <= pc) continue;                         // internal skip, not an exit
                 if (found_exit < 0) found_exit = tgt;
@@ -589,15 +592,26 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
             exit_pc = found_exit;
             kind = JIT_LOOP_COND_ENTER;
         } else {
-            continue;                                            // not a supported pattern
+            continue;
         }
 
         if (exit_pc != pc + 1) continue;                         // exit must be right after back edge
 
+        // reclassify: if the back-edge target is a plain op but the very next instruction
+        if (kind == JIT_LOOP_COND_ENTER && entry + 1 < pc) {
+            Opcode e1 = chunk->code[entry + 1].opcode;
+            if (e1 >= OP_JUMP_IF_EQ && e1 <= OP_JUMP_IF_GTE_IMM &&
+                chunk->code[entry + 1].operands[0] == exit_pc) {
+                entry += 1;
+                kind  = JIT_LOOP_CONDITION;
+            }
+        }
+
         bool ok = true;
         for (int i = entry + 1; i < pc && ok; i++) {             // internal branch scan
             Opcode op = chunk->code[i].opcode;
-            if (op == OP_JUMP_IF_FALSE) {
+            if (op == OP_JUMP_IF_FALSE ||
+                (op >= OP_JUMP_IF_EQ && op <= OP_JUMP_IF_GTE_IMM)) {
                 if (kind != JIT_LOOP_COND_ENTER) { ok = false; break; }
                 int tgt = chunk->code[i].operands[0];
                 if (tgt >= entry && tgt <= pc) continue;         // internal forward skip
@@ -606,7 +620,6 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
             }
             if (op == OP_JUMP || op == OP_FOR_NEXT ||            // unconditional or nested for
                 op == OP_TABLE_ITER_NEXT ||                      // nested table iter
-                (op >= OP_JUMP_IF_EQ && op <= OP_JUMP_IF_GTE_IMM) ||  // other conds, incl. IMM
                 op == OP_JUMP_MATCH_NUM || op == OP_JUMP_MATCH_STR ||
                 op == OP_JUMP_MATCH_BOOL || op == OP_JUMP_MATCH_NONE) {
                 ok = false;                                      // nested loop or internal branch
