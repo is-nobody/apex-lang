@@ -1,4 +1,4 @@
-# Apex 26.09 (30 September, 2026)
+# Apex 26.09 (September 30, 2026)
 **Initial public release of the Apex programming language.**
 
 ## Language
@@ -134,6 +134,3 @@
 - Hover documentation for keywords and libraries
 - Outline view for functions
 - `Apex: Run Current File` command and `F5` shortcut
-
-## License
-- MIT
