@@ -41,8 +41,10 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     if (range_size <= 0) return false;                           // empty body
 
     if (cb->len + (size_t)range_size * 256 + 512 > cb->cap)
-        JIT_FATAL("code buffer too small for function %d (need≈%zu, cap=%zu)",
-                func_idx, cb->len + (size_t)range_size * 256 + 512, cb->cap);
+        JIT_FATAL("code buffer too small for function %d (need ~%llu, cap=%llu)",
+                func_idx,
+                (unsigned long long)(cb->len + (size_t)range_size * 256 + 512),
+                (unsigned long long)cb->cap);
 
     // precompute distinct immediates used in this function
     int32_t func_imms[8];
