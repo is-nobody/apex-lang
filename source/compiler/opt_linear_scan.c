@@ -17,7 +17,25 @@ void liveness_walk(CodeGenerator* cg, ASTNode* node, int* stmt_idx,
                 liveness_walk(cg, node->block.statements->nodes[i], stmt_idx, first, last);
             return;
         case AST_FUNCTION_DECL:
-            return;                              // nested function has its own locals
+            return;
+
+        case AST_IF_STMT: {
+            (*stmt_idx)++;
+            int idx = *stmt_idx;
+            for (int i = 0; i < cg->locals.count; i++) {
+                if (ast_references_local(node->if_stmt.condition, cg->locals.names[i])) {
+                    if (first[i] < 0) first[i] = idx;
+                    last[i] = idx;
+                }
+            }
+            liveness_walk(cg, node->if_stmt.then_branch, stmt_idx, first, last);
+            if (node->if_stmt.elif_chain)
+                liveness_walk(cg, node->if_stmt.elif_chain, stmt_idx, first, last);
+            if (node->if_stmt.else_branch)
+                liveness_walk(cg, node->if_stmt.else_branch, stmt_idx, first, last);
+            return;
+        }
+
         default: {
             (*stmt_idx)++;
             int idx = *stmt_idx;

@@ -118,8 +118,8 @@ static bool try_match_jump_table(CodeGenerator* cg, int subject_reg,
     for (int i = 0; i < case_count; i++) {                       // emit case bodies
         ASTNode* case_node = cases->nodes[i];
         restore_numbers(cg, match_before);
-        cg->num_cache.count = saved_num_count;
-        str_cache_truncate(cg, saved_str_count);
+            num_cache_truncate(cg, saved_num_count);             // discard then-branch numeric cache
+            str_cache_truncate(cg, saved_str_count);             // discard then-branch string cache
         int body_start = bytecode_current_offset(cg->chunk);
         case_addrs[i] = body_start;
         codegen_block(cg, case_node->case_stmt.body);
@@ -131,8 +131,8 @@ static bool try_match_jump_table(CodeGenerator* cg, int subject_reg,
     int default_addr = -1;
     if (default_case) {                                          // optional default body
         restore_numbers(cg, match_before);
-        cg->num_cache.count = saved_num_count;
-        str_cache_truncate(cg, saved_str_count);
+            num_cache_truncate(cg, saved_num_count);             // discard then-branch numeric cache
+            str_cache_truncate(cg, saved_str_count);             // discard then-branch string cache
         default_addr = bytecode_current_offset(cg->chunk);
         codegen_block(cg, default_case->case_stmt.body);
         if (!stmt_always_exits(default_case->case_stmt.body)) {
@@ -149,8 +149,8 @@ static bool try_match_jump_table(CodeGenerator* cg, int subject_reg,
     if (default_case) {
         invalidate_consts_for_body(cg, default_case->case_stmt.body);
     }
-    cg->num_cache.count = saved_num_count;
-    str_cache_truncate(cg, saved_str_count);
+            num_cache_truncate(cg, saved_num_count);             // discard then-branch numeric cache
+            str_cache_truncate(cg, saved_str_count);             // discard then-branch string cache
 
     int end_addr = bytecode_current_offset(cg->chunk);
     int fallback = (default_addr >= 0) ? default_addr : end_addr;
@@ -217,8 +217,8 @@ void codegen_match_statement(CodeGenerator* cg, ASTNode* node) {
     for (int i = 0; i < case_count; i++) {                               // emit each case body
         ASTNode* case_node = cases->nodes[i];
         restore_numbers(cg, match_before);                               // reset flags before each case body
-        cg->num_cache.count = saved_num_count;                           // discard previous case's numeric cache
-        str_cache_truncate(cg, saved_str_count);                         // discard previous case's string cache
+            num_cache_truncate(cg, saved_num_count);                     // discard then-branch numeric cache
+            str_cache_truncate(cg, saved_str_count);                     // discard then-branch string cache
         int body_start = bytecode_current_offset(cg->chunk);             // body start address
         PATCH_JUMP(cg, match_jumps[i], body_start);                      // patch match jump
         codegen_block(cg, case_node->case_stmt.body);                    // emit body block
@@ -227,8 +227,8 @@ void codegen_match_statement(CodeGenerator* cg, ASTNode* node) {
 
     if (default_case) {                                                  // emit default body
         restore_numbers(cg, match_before);                               // reset flags before default body
-        cg->num_cache.count = saved_num_count;                           // discard previous case's numeric cache
-        str_cache_truncate(cg, saved_str_count);                         // discard previous case's string cache
+            num_cache_truncate(cg, saved_num_count);                     // discard then-branch numeric cache
+            str_cache_truncate(cg, saved_str_count);                     // discard then-branch string cache
         int default_start = bytecode_current_offset(cg->chunk);          // default body start
         PATCH_JUMP(cg, no_match_jump, default_start);                    // patch no-match jump
         codegen_block(cg, default_case->case_stmt.body);                 // emit default body
@@ -246,8 +246,8 @@ void codegen_match_statement(CodeGenerator* cg, ASTNode* node) {
     }
 
     // after the match, register contents depend on which case ran
-    cg->num_cache.count = saved_num_count;
-    str_cache_truncate(cg, saved_str_count);
+            num_cache_truncate(cg, saved_num_count);                     // discard then-branch numeric cache
+            str_cache_truncate(cg, saved_str_count);                     // discard then-branch string cache
 
     int end_addr = bytecode_current_offset(cg->chunk);                   // match end address
     if (!default_case) {

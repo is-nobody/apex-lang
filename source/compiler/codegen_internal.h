@@ -84,6 +84,7 @@ bool ast_same_expr(ASTNode* a, ASTNode* b);
 int  num_cache_lookup(CodeGenerator* cg, double value);
 void num_cache_add(CodeGenerator* cg, double value, int reg);
 void num_cache_invalidate(CodeGenerator* cg, int written_reg);
+void num_cache_truncate(CodeGenerator* cg, int new_count);
 int  str_cache_lookup(CodeGenerator* cg, const char* value);
 void str_cache_add(CodeGenerator* cg, const char* value, int reg);
 void str_cache_invalidate(CodeGenerator* cg, int written_reg);
@@ -154,7 +155,7 @@ void thread_jumps(CodeGenerator* cg);
     bytecode_patch_jump((cg)->chunk, (jump_idx), (_t));             \
     mark_jump_target((cg), (_t));                                   \
     (cg)->imm_lvn.count = 0;                                        \
-    (cg)->num_cache.count = 0;                                      \
+    num_cache_truncate((cg), 0);                                    \
     str_cache_truncate((cg), 0);                                    \
 } while (0)
 

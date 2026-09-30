@@ -124,7 +124,7 @@ static void emit_unswitched_for(CodeGenerator* cg, ASTNode* node, int if_idx) {
 
     PATCH_JUMP(cg, jump_false, bytecode_current_offset(cg->chunk));
 
-    cg->num_cache.count = saved_num;                            // else path: drop then-side caches
+    num_cache_truncate(cg, saved_num);                          // else path: drop then-side caches
     str_cache_truncate(cg, saved_str);
     restore_numbers(cg, pre);
 
@@ -651,7 +651,7 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             codegen_block(cg, node->for_stmt.body);                                // emit body
             restore_numbers(cg, table_entry);                                      // body may reassign: reset flags
 
-            cg->num_cache.count = saved_num_cache;                                 // loop may not have run: discard body-added entries
+            num_cache_truncate(cg, saved_num_cache);                               // loop may not have run: discard body-added entries
             str_cache_truncate(cg, saved_str_cache);
 
             emit(cg, INST(OP_JUMP, loop_start, 0, 0), node->line);                 // jump back
@@ -918,7 +918,7 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             // loop-inverted back edge: jumps to body_start on success, falls through on exit
             emit(cg, INST(OP_FOR_NEXT_LOOP, var_reg, body_start, 0), node->line);   // back-edge
 
-            cg->num_cache.count = saved_num_cache;                                  // loop may not have run: discard body-added entries
+            num_cache_truncate(cg, saved_num_cache);                                // loop may not have run: discard body-added entries
             str_cache_truncate(cg, saved_str_cache);
 
             int exit_addr = bytecode_current_offset(cg->chunk);                     // exit address
@@ -1061,7 +1061,7 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
         cg->register_floor = prev_floor;                                            // restore floor
         emit(cg, INST(OP_JUMP, loop_start, 0, 0), node->line);                      // jump back
 
-        cg->num_cache.count = saved_num_cache;                                      // loop may not have run: discard body-added entries
+        num_cache_truncate(cg, saved_num_cache);                                    // loop may not have run: discard body-added entries
         str_cache_truncate(cg, saved_str_cache);
 
         int end_addr = bytecode_current_offset(cg->chunk);                          // end address
