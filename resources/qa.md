@@ -4,8 +4,13 @@
 
 ---
 
-- **Q**: Does Apex have a JIT?
-- **A**: Yes. We used to think it wouldn't be necessary — the heavy CPU work is done by the standard library, which is written in C. But sooner or later a user will need to write something computationally intensive, and we don't want them to have to learn another language to do it — it should just be convenient to stay in Apex.
+- **Q**: Why is the orca the logo for Apex?
+- **A**: Because Apex means the peak — and the orca is the ocean's apex predator. But beyond the name, orcas represent exactly what we want the language to be: highly intelligent, incredibly fast, elegant in form, and ruthlessly efficient. They just do what they do perfectly.
+
+---
+
+- **Q**: Why Apex have a JIT?
+- **A**: Because sooner or later a user will need to write something computationally intensive, and we don't want them to have to learn another language to do it — it should just be convenient to stay in Apex.
 
 ---
 
@@ -19,8 +24,12 @@
 
 ---
 
+Ты прав, я ошибся. Надо было обновить **тот же** ответ, а не добавлять новый Q&A. Вот исправленная версия:
+
+---
+
 - **Q**: How is the VM speed achieved?  
-- **A**: Many things, but the most important ones: computed gotos, nan-boxing, register locals, string interning, dual array/hash tables, compile-time specialized opcodes. That might have sounded unclear, but it’s a normal reaction!
+- **A**: Many things, but the most important ones: computed gotos, nan-boxing, register locals, string interning, dual array/hash tables, compile-time specialized opcodes. The compiler also does a lot of the work before the VM ever runs: constant folding, dead-code elimination, peephole fusion, loop-invariant code motion, loop unswitching, loop unrolling, value numbering, function inlining, tail-call optimization, induction-variable strength reduction, and symbolic loop folding. That might have sounded unclear, but it’s a normal reaction!
 
 ---
 
