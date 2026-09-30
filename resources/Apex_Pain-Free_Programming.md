@@ -1,4 +1,4 @@
-# Apex: Pain-Free Programming
+# Apex: Pain-Free Programming (26.09)
 ## Table of Contents
 ### Introduction
 - [Preface](#preface)
@@ -2329,19 +2329,21 @@ A common pattern is to use `if`/`else if`/`else` for validation — checking a s
 ```apex
 import os
 
-username = "ab"
+x = 10
 
-if string.length(username) < 3
-    os.output("Username too short")
-else if string.length(username) > 20
-    os.output("Username too long")
+if x < 10
+    os.output("x is less than 10")
+else if x > 10
+    os.output("x is greater than 10")
 else
-    os.output("Username is valid")
+    os.output("x is exactly 10")
 ```
 
-Here, the first condition fails (length is 2, which is < 3), so the first branch runs and prints `"Username too short"`. The remaining branches are skipped. If the username were longer than 3 and shorter than 20, the `else` branch would run.
+Here, the first condition `x < 10` is false (10 is not less than 10), so we skip the first branch. The second condition `x > 10` is also false (10 is not greater than 10), so we skip that too. The `else` branch runs, and prints `"x is exactly 10"`.
 
-This pattern — checking each rule in turn and reporting the first failure — is very common. It's clear, easy to read, and easy to extend.
+If `x` were 5, the first condition would be true, and `"x is less than 10"` would be printed. If `x` were 15, the second condition would be true, and `"x is greater than 10"` would be printed.
+
+This pattern — checking each condition in turn and running the first one that matches — is very common. It's clear, easy to read, and easy to extend.
 
 #### No Else Needed for Simple Cases
 If you have a single `if` and nothing needs to happen when the condition is false, don't add an `else`. Just let the code continue.
@@ -3992,15 +3994,15 @@ The `return` statement can appear anywhere in a function, not just at the end. W
 
 This is called **early return**, and it's a powerful way to keep your functions readable.
 
-Consider a function that validates a username:
+Consider a function that validates a score:
 
 ```apex
-function is_valid_username(name)
-    if name == none
+function is_valid_score(score)
+    if score == none
         return false
-    if string.length(name) < 3
+    if score < 0
         return false
-    if string.length(name) > 20
+    if score > 100
         return false
     return true
 ```
@@ -4010,10 +4012,10 @@ This function checks several conditions. If any of them fail, it returns `false`
 Without early return, you'd need to nest everything:
 
 ```apex
-function is_valid_username(name)
-    if name != none
-        if string.length(name) >= 3
-            if string.length(name) <= 20
+function is_valid_score(score)
+    if score != none
+        if score >= 0
+            if score <= 100
                 return true
             else
                 return false
@@ -4298,18 +4300,18 @@ When you call these with `await`, the operation runs off the main thread. The cu
 
 ```apex
 import os
-import json
 
 async function load_config(path)
     text = await os.read(path)
     if text == none
-        return none
-    return json.decode(text)
+        return "Config not found"
+    return text
 
 config = await load_config("config.json")
+os.output(config)
 ```
 
-Here, `await os.read(path)` reads the file in the background. Then `await load_config(...)` (at the top level) runs the whole function as a background coroutine. The result is the parsed config or `none`.
+Here, `await os.read(path)` reads the file in the background. Then `await load_config(...)` (at the top level) runs the whole function as a background coroutine. The result is the file contents or `"Config not found"`.
 
 #### Awaiting Without Awaiting
 It's worth noting: if you call one of these builtins without `await`, it runs synchronously — that is, it blocks the current thread until it's done.
@@ -4521,13 +4523,11 @@ A subtle but important point: when Apex imports a file, the top-level code in th
 // config.apex
 
 import os
-import sys
-
-host = sys.host()
-started_at = datetime.timestamp()
+host = "localhost"
+started_at = 0
 ```
 
-If `config.apex` is imported from three different files, `sys.host()` and `datetime.timestamp()` are only called once. The module remembers its state from that single execution.
+If `config.apex` is imported from three different files, these assignments are only executed once. The module remembers its state from that single execution.
 
 This is good news for both performance and consistency. You don't get three different values for `started_at`. You get the same value everywhere, because the module ran once.
 
@@ -4708,9 +4708,6 @@ So the rule is simple: **to use a built-in module, you must import it by name**.
 
 ```apex
 import os
-import math
-import string
-import json
 ```
 
 #### Built-in Modules Do Not End with `.apex`
@@ -4718,7 +4715,6 @@ This follows from the previous point. A user file is a file on disk, and its imp
 
 ```apex
 import os            // built-in, no extension
-import math          // built-in, no extension
 import utils/math.apex  // user file, ends with .apex
 ```
 
@@ -4730,13 +4726,8 @@ If you accidentally write `import os.apex`, Apex will try to find a file called 
 Once imported, a built-in module's contents are accessed the same way as a user module's — with the module name as a prefix.
 
 ```apex
-import math
-result = math.sqrt(16)  // 4
-```
-
-```apex
-import string
-length = string.length("hello")  // 5
+import os
+os.output("Hello")  // prints Hello
 ```
 
 The prefix is always the module's name, exactly as you wrote it in the import.
@@ -4748,7 +4739,6 @@ You can import as many built-in modules as you want, but each needs its own `imp
 import os
 import math
 import string
-import json
 ```
 
 You cannot write `import os, math` — Apex doesn't support that syntax. One import per line.
@@ -4761,7 +4751,6 @@ Imports must appear at the top of the file, before any other code. You cannot im
 
 ```apex
 import os
-import math
 
 // rest of your code
 ```

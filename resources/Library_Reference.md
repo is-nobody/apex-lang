@@ -1,4 +1,4 @@
-# Apex Library Reference
+# Apex Library Reference (26.09)
 Apex comes with several built-in libraries. These are ready-to-use tools that solve common tasks: you don't need to write everything from scratch — just import the library you need and use it.
 
 **Important:** Most functions return `none` on error. However, some functions may return `false` as a valid value (e.g., when a table contains `false`).
