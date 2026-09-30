@@ -118,6 +118,7 @@ JITContext* jit_create(BytecodeChunk* chunk) {
     for (int i = 0; i < n; i++) {                                // emit each pure function
         if (!ctx->pure[i]) continue;                             // skip non-pure
         size_t before = cb.len;
+        (void)before;                                            // only read by trace build
         if (!be->emit_function(ctx, &cb, i, &ctx->func_table[i])) {
             ctx->func_table[i] = NULL;                           // clear partial slot
             continue;                                            // emit failed, move on
@@ -150,6 +151,7 @@ JITContext* jit_create(BytecodeChunk* chunk) {
             void* fn_neg = NULL;
             size_t before;
 
+            (void)before;                                        // only read by trace build
             if (want_pos) {
                 before = cb.len;
                 if (be->emit_loop(ctx, &cb, info, +1, &fn_pos)) {
@@ -185,6 +187,7 @@ JITContext* jit_create(BytecodeChunk* chunk) {
         } else {
             void* fn = NULL;
             size_t before = cb.len;
+            (void)before;                                        // only read by trace build
             if (be->emit_loop(ctx, &cb, info, 0, &fn)) {
                 info->native_fn = (void (*)(uint64_t*, uint64_t*))fn;       // single variant
                 any = true;

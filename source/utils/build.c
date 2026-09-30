@@ -176,9 +176,21 @@ int build_command(int argc, char** argv) {
     if (dot2) *dot2 = '\0';                                        // strip extension
 
     char final_output[4096];                                       // output filename
-    snprintf(final_output, sizeof(final_output), "%s_%s_%s", base_name, target.arch, target.os);  // format output
+    int fo_len = snprintf(final_output, sizeof(final_output),
+                          "%s_%s_%s", base_name, target.arch, target.os);  // format output
+    if (fo_len < 0 || (size_t)fo_len >= sizeof(final_output)) {    // detect truncation
+        fprintf(stderr, "\033[31mError: Output filename too long.\033[0m\n");
+        free(bytecode_data);                                       // free bytecode
+        return 1;                                                  // error
+    }
     if (strcmp(target.os, "windows") == 0) {                       // check if windows
-        strcat(final_output, ".exe");                              // add .exe extension
+        size_t cur = (size_t)fo_len;                               // current length
+        if (cur + 4 >= sizeof(final_output)) {                     // room for ".exe\0"?
+            fprintf(stderr, "\033[31mError: Output filename too long.\033[0m\n");
+            free(bytecode_data);                                   // free bytecode
+            return 1;                                              // error
+        }
+        memcpy(final_output + cur, ".exe", 5);                     // add .exe extension with null
     }
 
     // Step 4: Read stub executable
@@ -214,7 +226,13 @@ int build_command(int argc, char** argv) {
         if (last_slash) *last_slash = '\0';                            // strip filename
         else strcpy(exe_dir, ".");                                     // fallback to current dir
 
-        snprintf(source_to_read, sizeof(source_to_read), "%s/%s", exe_dir, stub_filename);  // build stub path
+        int sr_len = snprintf(source_to_read, sizeof(source_to_read),
+                              "%s/%s", exe_dir, stub_filename);    // build stub path
+        if (sr_len < 0 || (size_t)sr_len >= sizeof(source_to_read)) {  // detect truncation
+            fprintf(stderr, "\033[31mError: Stub path too long.\033[0m\n");
+            free(bytecode_data);                                   // free bytecode
+            return 1;                                              // error
+        }
         self_code = read_file(source_to_read, &self_size);         // read stub
         if (!self_code) {                                          // read failed
             fprintf(stderr, "\033[31mError: Cannot read stub '%s'. Ensure it is compiled and placed next to the apex binary.\033[0m\n", source_to_read);
