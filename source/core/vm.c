@@ -1936,241 +1936,271 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
 
     OP_ADD_LABEL: {
         int dest = ip->operands[0];              // dest register index
-        du64 a = {.u = regs[ip->operands[1]]};   // left operand as double
-        du64 b = {.u = regs[ip->operands[2]]};   // right operand as double
+        uint64_t av = regs[ip->operands[1]];     // left operand bits
+        uint64_t bv = regs[ip->operands[2]];     // right operand bits
+        du64 a = {.u = av};                      // left as double
+        du64 b = {.u = bv};                      // right as double
         double r = a.d + b.d;                    // perform addition
-        uint64_t old = regs[dest];               // save old value for decref
+        uint64_t old = regs[dest];               // old dest value
 
-        if (unlikely(r != r)) {                  // nan result (rare)
-            value_decref(old);                   // release heap object if any
-            regs[dest] = MAKE_NONE();            // store none
-        } else {
-            if (unlikely((old & QNAN) == QNAN)) {  // fast check: old is nan-boxed
-                value_decref(old);               // release heap object
-            }
-            regs[dest] = MAKE_NUMBER(r);         // store number
+        if (likely(r == r)) {                    // normal result: value, inf, -inf
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store result as number
+        } else if (((av | bv) & QNAN) != QNAN) { // real IEEE 754 NaN (both operands plain)
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store NaN result
+        } else {                                 // at least one operand is not a number
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NONE();            // non-number operand: yield none
         }
-        
+
         ip++; goto *dispatch_table[ip->opcode];  // next instruction
     }
     OP_SUB_LABEL: {
         int dest = ip->operands[0];              // dest register index
-        du64 a = {.u = regs[ip->operands[1]]};   // left operand as double
-        du64 b = {.u = regs[ip->operands[2]]};   // right operand as double
+        uint64_t av = regs[ip->operands[1]];     // left operand bits
+        uint64_t bv = regs[ip->operands[2]];     // right operand bits
+        du64 a = {.u = av};                      // left as double
+        du64 b = {.u = bv};                      // right as double
         double r = a.d - b.d;                    // perform subtraction
-        uint64_t old = regs[dest];               // save old value for decref
+        uint64_t old = regs[dest];               // old dest value
 
-        if (unlikely(r != r)) {                  // nan result (rare)
-            value_decref(old);                   // release heap object if any
-            regs[dest] = MAKE_NONE();            // store none
-        } else {
-            if (unlikely((old & QNAN) == QNAN)) {  // fast check: old is nan-boxed
-                value_decref(old);               // release heap object
-            }
-            regs[dest] = MAKE_NUMBER(r);         // store number
+        if (likely(r == r)) {                    // normal result: value, inf, -inf
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store result as number
+        } else if (((av | bv) & QNAN) != QNAN) { // real IEEE 754 NaN (both operands plain)
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store NaN result
+        } else {                                 // at least one operand is not a number
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NONE();            // non-number operand: yield none
         }
-        
+
         ip++; goto *dispatch_table[ip->opcode];  // next instruction
     }
     OP_MUL_LABEL: {
         int dest = ip->operands[0];              // dest register index
-        du64 a = {.u = regs[ip->operands[1]]};   // left operand as double
-        du64 b = {.u = regs[ip->operands[2]]};   // right operand as double
+        uint64_t av = regs[ip->operands[1]];     // left operand bits
+        uint64_t bv = regs[ip->operands[2]];     // right operand bits
+        du64 a = {.u = av};                      // left as double
+        du64 b = {.u = bv};                      // right as double
         double r = a.d * b.d;                    // perform multiplication
-        uint64_t old = regs[dest];               // save old value for decref
+        uint64_t old = regs[dest];               // old dest value
 
-        if (unlikely(r != r)) {                  // nan result (rare)
-            value_decref(old);                   // release heap object if any
-            regs[dest] = MAKE_NONE();            // store none
-        } else {
-            if (unlikely((old & QNAN) == QNAN)) {  // fast check: old is nan-boxed
-                value_decref(old);               // release heap object
-            }
-            regs[dest] = MAKE_NUMBER(r);         // store number
+        if (likely(r == r)) {                    // normal result: value, inf, -inf
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store result as number
+        } else if (((av | bv) & QNAN) != QNAN) { // real IEEE 754 NaN (both operands plain)
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store NaN result
+        } else {                                 // at least one operand is not a number
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NONE();            // non-number operand: yield none
         }
-        
+
         ip++; goto *dispatch_table[ip->opcode];  // next instruction
     }
     OP_DIV_LABEL: {
         int dest = ip->operands[0];              // dest register index
-        du64 a = {.u = regs[ip->operands[1]]};   // left operand as double
-        du64 b = {.u = regs[ip->operands[2]]};   // right operand as double
-        double r = a.d / b.d;                    // perform division
-        uint64_t old = regs[dest];               // save old value for decref
+        uint64_t av = regs[ip->operands[1]];     // left operand bits
+        uint64_t bv = regs[ip->operands[2]];     // right operand bits
+        du64 a = {.u = av};                      // left as double
+        du64 b = {.u = bv};                      // right as double
+        double r = a.d / b.d;                    // IEEE 754 decides inf, -inf, nan
+        uint64_t old = regs[dest];               // old dest value
 
-        if (unlikely(r != r)) {                  // nan result (rare)
-            value_decref(old);                   // release heap object if any
-            regs[dest] = MAKE_NONE();            // store none
-        } else {
-            if (unlikely((old & QNAN) == QNAN)) {  // fast check: old is nan-boxed
-                value_decref(old);               // release heap object
-            }
-            regs[dest] = MAKE_NUMBER(r);         // store number
+        if (likely(r == r)) {                    // normal result: value, inf, -inf
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store result as number
+        } else if (((av | bv) & QNAN) != QNAN) { // real IEEE 754 NaN (both operands plain)
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store NaN result
+        } else {                                 // at least one operand is not a number
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NONE();            // non-number operand: yield none
         }
-        
+
         ip++; goto *dispatch_table[ip->opcode];  // next instruction
     }
     OP_MOD_LABEL: {
         int dest = ip->operands[0];              // dest register index
-        du64 a = {.u = regs[ip->operands[1]]};   // left operand as double
-        du64 b = {.u = regs[ip->operands[2]]};   // right operand as double
+        uint64_t av = regs[ip->operands[1]];     // left operand bits
+        uint64_t bv = regs[ip->operands[2]];     // right operand bits
+        du64 a = {.u = av};                      // left as double
+        du64 b = {.u = bv};                      // right as double
         double r = fmod(a.d, b.d);               // perform modulo
-        uint64_t old = regs[dest];               // save old value for decref
+        uint64_t old = regs[dest];               // old dest value
 
-        if (unlikely(r != r)) {                  // nan result (rare)
-            value_decref(old);                   // release heap object if any
-            regs[dest] = MAKE_NONE();            // store none
-        } else {
-            if (unlikely((old & QNAN) == QNAN)) {  // fast check: old is nan-boxed
-                value_decref(old);               // release heap object
-            }
-            regs[dest] = MAKE_NUMBER(r);         // store number
+        if (likely(r == r)) {                    // normal result: value, inf, -inf
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store result as number
+        } else if (((av | bv) & QNAN) != QNAN) { // real IEEE 754 NaN (both operands plain)
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store NaN result
+        } else {                                 // at least one operand is not a number
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NONE();            // non-number operand: yield none
         }
-        
+
         ip++; goto *dispatch_table[ip->opcode];  // next instruction
     }
     OP_ADD_IMM_LABEL: {
         int dest = ip->operands[0];              // dest register index
         int left_reg = ip->operands[1];          // left operand register
         int imm = ip->operands[2];               // immediate integer right operand (0-65535)
-        du64 a = {.u = regs[left_reg]};          // left operand as double
-        double r = a.d + (double)imm;            // perform addition with immediate
-        uint64_t old = regs[dest];               // save old value for decref
+        uint64_t av = regs[left_reg];            // left operand bits
+        du64 a = {.u = av};                      // left as double
+        double r = a.d + (double)imm;            // add immediate
+        uint64_t old = regs[dest];               // old dest value
 
-        if (unlikely(r != r)) {                  // nan result (rare)
-            value_decref(old);                   // release heap object if any
-            regs[dest] = MAKE_NONE();            // store none
-        } else {
-            if (unlikely((old & QNAN) == QNAN)) {  // fast check: old is nan-boxed
-                value_decref(old);               // release heap object
-            }
-            regs[dest] = MAKE_NUMBER(r);         // store number
+        if (likely(r == r)) {                    // normal result: value, inf, -inf
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store result as number
+        } else if (IS_PLAIN(av)) {               // real IEEE 754 NaN (left was plain)
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store NaN result
+        } else {                                 // left operand is not a number
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NONE();            // non-number operand: yield none
         }
-        
+
         ip++; goto *dispatch_table[ip->opcode];  // next instruction
     }
     OP_SUB_IMM_LABEL: {
         int dest = ip->operands[0];              // dest register index
         int left_reg = ip->operands[1];          // left operand register
         int imm = ip->operands[2];               // immediate integer right operand (0-65535)
-        du64 a = {.u = regs[left_reg]};          // left operand as double
-        double r = a.d - (double)imm;            // perform subtraction with immediate
-        uint64_t old = regs[dest];               // save old value for decref
+        uint64_t av = regs[left_reg];            // left operand bits
+        du64 a = {.u = av};                      // left as double
+        double r = a.d - (double)imm;            // subtract immediate
+        uint64_t old = regs[dest];               // old dest value
 
-        if (unlikely(r != r)) {                  // nan result (rare)
-            value_decref(old);                   // release heap object if any
-            regs[dest] = MAKE_NONE();            // store none
-        } else {
-            if (unlikely((old & QNAN) == QNAN)) {  // fast check: old is nan-boxed
-                value_decref(old);               // release heap object
-            }
-            regs[dest] = MAKE_NUMBER(r);         // store number
+        if (likely(r == r)) {                    // normal result: value, inf, -inf
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store result as number
+        } else if (IS_PLAIN(av)) {               // real IEEE 754 NaN (left was plain)
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store NaN result
+        } else {                                 // left operand is not a number
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NONE();            // non-number operand: yield none
         }
-        
+
         ip++; goto *dispatch_table[ip->opcode];  // next instruction
     }
     OP_MUL_IMM_LABEL: {
         int dest = ip->operands[0];              // dest register index
         int left_reg = ip->operands[1];          // left operand register
         int imm = ip->operands[2];               // immediate integer right operand (0-65535)
-        du64 a = {.u = regs[left_reg]};          // left operand as double
-        double r = a.d * (double)imm;            // perform multiplication with immediate
-        uint64_t old = regs[dest];               // save old value for decref
+        uint64_t av = regs[left_reg];            // left operand bits
+        du64 a = {.u = av};                      // left as double
+        double r = a.d * (double)imm;            // multiply by immediate
+        uint64_t old = regs[dest];               // old dest value
 
-        if (unlikely(r != r)) {                  // nan result (rare)
-            value_decref(old);                   // release heap object if any
-            regs[dest] = MAKE_NONE();            // store none
-        } else {
-            if (unlikely((old & QNAN) == QNAN)) {  // fast check: old is nan-boxed
-                value_decref(old);               // release heap object
-            }
-            regs[dest] = MAKE_NUMBER(r);         // store number
+        if (likely(r == r)) {                    // normal result: value, inf, -inf
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store result as number
+        } else if (IS_PLAIN(av)) {               // real IEEE 754 NaN (left was plain)
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store NaN result
+        } else {                                 // left operand is not a number
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NONE();            // non-number operand: yield none
         }
-        
+
         ip++; goto *dispatch_table[ip->opcode];  // next instruction
     }
     OP_DIV_IMM_LABEL: {
         int dest = ip->operands[0];              // dest register index
         int left_reg = ip->operands[1];          // left operand register
         int imm = ip->operands[2];               // immediate integer right operand (0-65535)
-        du64 a = {.u = regs[left_reg]};          // left operand as double
-        double r = a.d / (double)imm;            // perform division with immediate
-        uint64_t old = regs[dest];               // save old value for decref
+        uint64_t av = regs[left_reg];            // left operand bits
+        du64 a = {.u = av};                      // left as double
+        double r = a.d / (double)imm;            // IEEE 754 decides inf, -inf, nan
+        uint64_t old = regs[dest];               // old dest value
 
-        if (unlikely(r != r)) {                  // nan result (rare)
-            value_decref(old);                   // release heap object if any
-            regs[dest] = MAKE_NONE();            // store none
-        } else {
-            if (unlikely((old & QNAN) == QNAN)) {  // fast check: old is nan-boxed
-                value_decref(old);               // release heap object
-            }
-            regs[dest] = MAKE_NUMBER(r);         // store number
+        if (likely(r == r)) {                    // normal result: value, inf, -inf
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store result as number
+        } else if (IS_PLAIN(av)) {               // real IEEE 754 NaN (left was plain)
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store NaN result
+        } else {                                 // left operand is not a number
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NONE();            // non-number operand: yield none
         }
-        
+
         ip++; goto *dispatch_table[ip->opcode];  // next instruction
     }
     OP_MOD_IMM_LABEL: {
         int dest = ip->operands[0];              // dest register index
         int left_reg = ip->operands[1];          // left operand register
         int imm = ip->operands[2];               // immediate integer right operand (0-65535)
-        du64 a = {.u = regs[left_reg]};          // left operand as double
+        uint64_t av = regs[left_reg];            // left operand bits
+        du64 a = {.u = av};                      // left as double
         double r = fmod(a.d, (double)imm);       // perform modulo with immediate
-        uint64_t old = regs[dest];               // save old value for decref
+        uint64_t old = regs[dest];               // old dest value
 
-        if (unlikely(r != r)) {                  // nan result (rare)
-            value_decref(old);                   // release heap object if any
-            regs[dest] = MAKE_NONE();            // store none
-        } else {
-            if (unlikely((old & QNAN) == QNAN)) {  // fast check: old is nan-boxed
-                value_decref(old);               // release heap object
-            }
-            regs[dest] = MAKE_NUMBER(r);         // store number
+        if (likely(r == r)) {                    // normal result: value, inf, -inf
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store result as number
+        } else if (IS_PLAIN(av)) {               // real IEEE 754 NaN (left was plain)
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store NaN result
+        } else {                                 // left operand is not a number
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NONE();            // non-number operand: yield none
         }
-        
+
         ip++; goto *dispatch_table[ip->opcode];  // next instruction
     }
     OP_NEG_LABEL: {
-        int dest = ip->operands[0];                                   // dest register index
-        uint64_t old = regs[dest];                                    // save old value for decref
-        if (unlikely((old & QNAN) == QNAN)) {                         // fast check: old is nan-boxed
-            value_decref(old);                                        // release heap object
+        int dest = ip->operands[0];              // dest register index
+        uint64_t av = regs[ip->operands[1]];     // operand bits
+        du64 a = {.u = av};                      // operand as double
+        double r = -a.d;                         // negate
+        uint64_t old = regs[dest];               // old dest value
+
+        if (likely(r == r)) {                    // normal result
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store negated value
+        } else if (IS_PLAIN(av)) {               // real IEEE 754 NaN
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NUMBER(r);         // store NaN result
+        } else {                                 // operand is not a number
+            if (unlikely((old & QNAN) == QNAN)) value_decref(old);  // release old heap object
+            regs[dest] = MAKE_NONE();            // non-number operand: yield none
         }
-        regs[dest] = MAKE_NUMBER(-AS_NUMBER(regs[ip->operands[1]]));  // negate and store as unboxed number
-        ip++; goto *dispatch_table[ip->opcode];                       // advance to next instruction
+
+        ip++; goto *dispatch_table[ip->opcode];  // next instruction
     }
     OP_INC_LABEL: {
-        int reg_idx = ip->operands[0];               // register index to increment
-        du64 a = {.u = regs[reg_idx]};               // reinterpret current value as double via union
-        double r = a.d + 1.0;                        // increment by 1 (NaN for non-numbers)
-        uint64_t old = regs[reg_idx];                // save old value for decref
-        
-        if (unlikely(r != r)) {                      // nan result (non-number input)
-            value_decref(old);                       // release heap object if any
-            regs[reg_idx] = MAKE_NONE();             // store none
-        } else {
-            if (unlikely((old & QNAN) == QNAN)) {    // old is nan-boxed heap object
-                value_decref(old);                   // release heap object
-            }
-            regs[reg_idx] = MAKE_NUMBER(r);          // store incremented number
+        int reg_idx = ip->operands[0];           // register index to increment
+        uint64_t av = regs[reg_idx];             // current value bits
+
+        if (likely(IS_PLAIN(av))) {              // current value is a plain number
+            du64 a = {.u = av};                  // operand as double
+            regs[reg_idx] = MAKE_NUMBER(a.d + 1.0);  // store incremented number
+        } else {                                 // current value is not a number
+            value_decref(av);                    // release old heap object
+            regs[reg_idx] = MAKE_NONE();         // non-number: yield none
         }
-        ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
+
+        ip++; goto *dispatch_table[ip->opcode];  // next instruction
     }
     OP_DEC_LABEL: {
-        int reg_idx = ip->operands[0];               // register index to decrement
-        du64 a = {.u = regs[reg_idx]};               // reinterpret current value as double via union
-        double r = a.d - 1.0;                        // decrement by 1 (NaN for non-numbers)
-        uint64_t old = regs[reg_idx];                // save old value for decref
-        
-        if (unlikely(r != r)) {                      // nan result (non-number input)
-            value_decref(old);                       // release heap object if any
-            regs[reg_idx] = MAKE_NONE();             // store none
-        } else {
-            if (unlikely((old & QNAN) == QNAN)) {    // old is nan-boxed heap object
-                value_decref(old);                   // release heap object
-            }
-            regs[reg_idx] = MAKE_NUMBER(r);          // store decremented number
+        int reg_idx = ip->operands[0];           // register index to decrement
+        uint64_t av = regs[reg_idx];             // current value bits
+
+        if (likely(IS_PLAIN(av))) {              // current value is a plain number
+            du64 a = {.u = av};                  // operand as double
+            regs[reg_idx] = MAKE_NUMBER(a.d - 1.0);  // store decremented number
+        } else {                                 // current value is not a number
+            value_decref(av);                    // release old heap object
+            regs[reg_idx] = MAKE_NONE();         // non-number: yield none
         }
-        ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
+
+        ip++; goto *dispatch_table[ip->opcode];  // next instruction
     }
 
     OP_JUMP_LABEL:

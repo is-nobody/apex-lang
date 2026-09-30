@@ -130,6 +130,9 @@ extern bool apex_jit_runtime_enabled;
 #define IS_FUNCTION(v)       (((v) & (QNAN | (TAG_MASK << TAG_SHIFT))) == MAKE_QNAN(TAG_FUNCTION))
 #define IS_FUTURE(v)         (((v) & (QNAN | (TAG_MASK << TAG_SHIFT))) == MAKE_QNAN(TAG_FUTURE))
 
+// true when v holds a plain IEEE 754 double (not a nan-box tag)
+#define IS_PLAIN(v) (((v) & QNAN) != QNAN)
+
 // value is a single 64-bit integer using nan boxing
 typedef uint64_t Value;
 
