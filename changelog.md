@@ -1,3 +1,10 @@
+# Apex 26.10 (October 31, 2026)
+## Tooling
+- **Embedding C API:** Updated the C API for embedding Apex in host applications.
+
+## Modules & Scope
+- Fixed top-level reassignments to mirror into global slots.
+
 # Apex 26.09 (September 30, 2026)
 **Initial public release of the Apex programming language.**
 
