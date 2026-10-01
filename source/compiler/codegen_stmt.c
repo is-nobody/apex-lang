@@ -288,6 +288,23 @@ int codegen_assign_expr(CodeGenerator* cg, ASTNode* node, int dest_hint) {
                 cg->locals.const_known[slot] = false;
             }
         }
+        // mirror the global update from codegen_var_decl
+        bool need_global = (cg->current_module != NULL) ||      // inside a module: always global
+                        (cg->for_scope_depth == 0 &&            // not inside a for-scope
+                            ((cg->current_function == 0) ||     // top-level: global
+                            cg->current_function_has_nested));  // nested fn may capture
+        if (need_global) {                                      // register global slot
+            const char* var_name = node->var_assign.name;       // variable name
+            char global_name[512];                              // qualified buffer
+            if (cg->current_module) {                           // inside module
+                snprintf(global_name, sizeof(global_name), "%s.%s",
+                        cg->current_module, var_name);          // qualify with module
+                var_name = global_name;                         // use qualified name
+            }
+            int global_idx = bytecode_get_global(cg->chunk, var_name);  // lookup global
+            if (global_idx < 0) global_idx = bytecode_add_global(cg->chunk, var_name);  // add if missing
+            emit(cg, INST(OP_STORE_GLOBAL, local_reg, global_idx, 0), node->line);      // store local into global
+        }
         return local_reg;                                                    // return local
     }
 
