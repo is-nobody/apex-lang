@@ -81,6 +81,7 @@ extern bool apex_jit_runtime_enabled;
 
 // type tags stored in bits 48-50 of the nan mantissa
 #define TAG_NONE        ((uint64_t)0)
+#define TAG_LIGHTUSERDATA ((uint64_t)1)
 #define TAG_BOOL        ((uint64_t)2)
 #define TAG_STRING      ((uint64_t)3)
 #define TAG_TABLE       ((uint64_t)4)
@@ -100,6 +101,8 @@ extern bool apex_jit_runtime_enabled;
 #define MAKE_FUTURE(p)       (MAKE_QNAN(TAG_FUTURE)   | ((uint64_t)(uintptr_t)(p) & ((uint64_t)0x0000FFFFFFFFFFFFULL)))
 #define MAKE_NONE()          (MAKE_QNAN(TAG_NONE))
 #define MAKE_BOOL(b)         (MAKE_QNAN(TAG_BOOL) | ((b) ? ((uint64_t)1) : ((uint64_t)0)))
+#define MAKE_LIGHTUSERDATA(p) (MAKE_QNAN(TAG_LIGHTUSERDATA) | \
+                               ((uint64_t)(uintptr_t)(p) & ((uint64_t)0x0000FFFFFFFFFFFFULL)))
 #define MAKE_NUMBER(n) ({ \
     double _n = (n); \
     uint64_t _u; \
@@ -119,6 +122,7 @@ extern bool apex_jit_runtime_enabled;
 #define AS_FUNCTION(v)       ((int)((v) & ((uint64_t)0x00000000FFFFFFFFULL)))
 #define AS_FUTURE(v)         ((FutureObject*)(uintptr_t)((v) & ((uint64_t)0x0000FFFFFFFFFFFFULL)))
 #define AS_BOOL(v)           (((v) & 1) != 0)
+#define AS_LIGHTUSERDATA(v)  ((void*)(uintptr_t)((v) & ((uint64_t)0x0000FFFFFFFFFFFFULL)))
 
 // type check macros
 #define IS_NUMBER(v)         (((v) & QNAN) != QNAN)
@@ -129,6 +133,7 @@ extern bool apex_jit_runtime_enabled;
 #define IS_TABLE(v)          (((v) & (QNAN | (TAG_MASK << TAG_SHIFT))) == MAKE_QNAN(TAG_TABLE))
 #define IS_FUNCTION(v)       (((v) & (QNAN | (TAG_MASK << TAG_SHIFT))) == MAKE_QNAN(TAG_FUNCTION))
 #define IS_FUTURE(v)         (((v) & (QNAN | (TAG_MASK << TAG_SHIFT))) == MAKE_QNAN(TAG_FUTURE))
+#define IS_LIGHTUSERDATA(v)  (((v) & (QNAN | (TAG_MASK << TAG_SHIFT))) == MAKE_QNAN(TAG_LIGHTUSERDATA))
 
 // true when v holds a plain IEEE 754 double (not a nan-box tag)
 #define IS_PLAIN(v) (((v) & QNAN) != QNAN)
@@ -254,8 +259,10 @@ typedef struct {
 struct JITContext;   // forward declaration, only when JIT is compiled in
 #endif
 
+struct VM;           // forward declaration so the VM struct can refer to itself
+
 // main virtual machine state with registers, call stack, and execution context
-typedef struct {
+typedef struct VM {
     Value* register_pool;            // single contiguous array for all frame registers
     int* frame_offset;               // offset of each frame in register_pool
     int* frame_capacity;             // capacity of each frame
@@ -319,6 +326,12 @@ typedef struct {
     ApexCond  completion_cond;      // signalled when a worker pushes a completion
     Completion* completions;        // queue of finished background tasks
     volatile int pending_workers;   // number of live worker threads
+
+    // optional user callback consulted by vm_call_builtin
+    bool (*c_function_dispatch)(struct VM* vm, const char* name,
+                                int arg_count, Value* args, Value* result);
+    void* c_function_state;
+    bool preserve_globals;
 } VM;
 
 // returns a human-readable type name for a value

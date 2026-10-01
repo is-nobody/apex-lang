@@ -5,7 +5,6 @@
 - `\x` escape sequence support
 - Package manager
 - Language server (LSP)
-- Documentation `Apex as Embedded language`
 - Resolve Cyclic Reference problem
 
 **What's NOT on the roadmap**

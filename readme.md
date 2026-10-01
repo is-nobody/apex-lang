@@ -79,6 +79,7 @@ Each of the documents explains variables, data types, operators, control flow, f
 - **[Apex: Pain-Free Programming](resources/Apex_Pain-Free_Programming.md)** — Excellent for beginners in programming, with a detailed explanation of each topic.
 - **[Apex Express Course for Developers](resources/EC_fDevelopers.md)** — Excellent for developers, offering minimal and clear coverage of each topic.
 - **[Library Reference](resources/Library_Reference.md)** — The standard library, module by module.
+- **[Apex Embedding in C/C++](resources/Apex_Embed.md)** — Excellent for C/C++ developers, covering the embedding API, the value stack, calling Apex from C and C from Apex, and the rules and restrictions of embedding.
 
 ## Getting Help
 See [Issues](https://github.com/is-nobody/apex-lang/issues) for bug reports and feature requests.

@@ -312,6 +312,7 @@ const char* vm_value_type_name(Value value) {
     if (IS_TABLE(value)) return "table";                     // table object pointer
     if (IS_FUNCTION(value)) return "function";               // function index tag
     if (IS_FUTURE(value)) return "future";                   // future object pointer
+    if (IS_LIGHTUSERDATA(value)) return "userdata";          // tagged raw c pointer
     return "unknown";                                        // fallback for unhandled types
 }
 
@@ -1452,6 +1453,10 @@ VM* vm_create(const char* source) {
     vm->completions = NULL;                       // no pending completions
     vm->pending_workers = 0;                      // no live workers
 
+    vm->c_function_dispatch = NULL;               // no host dispatch yet
+    vm->c_function_state    = NULL;               // no host state
+    vm->preserve_globals    = false;              // vm_execute resets globals by default
+
     string_intern_table_init(&vm->intern_table);  // init string intern table
     return vm;                                    // return new vm
 }
@@ -1547,6 +1552,11 @@ void vm_destroy(VM* vm) {
 
 // dispatches built-in function calls to module-specific handlers
 static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
+    if (vm->c_function_dispatch != NULL) {
+        if (vm->c_function_dispatch(vm, name, arg_count, args, result)) {
+            return true;
+        }
+    }
     if (strncmp(name, "os.", 3) == 0) return os_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "sys.", 4) == 0) return sys_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "math.", 5) == 0) return math_call_builtin(vm, name, arg_count, args, result);
@@ -1715,9 +1725,12 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             return false;                                     // bail out
         }
 
-        for (int i = 0; i < chunk->global_count; i++) {
-            vm->globals[i] = MAKE_NONE();                     // initialise each global slot
+        if (!vm->preserve_globals) {
+            for (int i = 0; i < chunk->global_count; i++) {
+                vm->globals[i] = MAKE_NONE();                 // initialise each global slot
+            }
         }
+        vm->preserve_globals = false;                         // flag is one-shot
     }
     
     static void* dispatch_table[] = {

@@ -1202,7 +1202,7 @@ static ValueType infer_call_type(Parser* parser, ASTNode* node) {
         if (sym_idx >= 0 && parser->symbols.kinds[sym_idx] == PARSER_SYM_FUNCTION) {
             int expected = parser->symbols.param_counts[sym_idx];
             int actual = node->call.arguments->count;
-            if (expected != actual) {              // validate arg count
+            if (expected >= 0 && expected != actual) {  // validate arg count
                 int err_len = get_node_len(node->call.callee);
                 parser_error_at(parser, node->call.callee->line, node->call.callee->column, err_len > 0 ? err_len : 1,
                     "Function '%s' expected %d arguments, got %d", func_name, expected, actual);
