@@ -90,7 +90,7 @@ static int execute_code(const char* code, const char* display_name) {
 
 int repl_run(void) {
     setup_signals();                                    // setup signal handlers
-    printf("Apex 26.09 on %s. Type code, always ready.\n", platform_get_name());  // print banner
+    printf("Apex 26.10 on %s. Type code, always ready.\n", platform_get_name());  // print banner
     
     terminal_enable_raw_mode();                         // enable raw terminal mode
     

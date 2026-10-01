@@ -1,4 +1,4 @@
-# Apex Express Course for Developers (26.09)
+# Apex Express Course for Developers (26.10)
 This manual is minimalistic. Each section builds on the previous ones. For the best experience, follow the order.
 
 ## Table of Contents
@@ -109,18 +109,18 @@ apex version
 Example output:
 
 ```
-Apex 26.09 [GCC 15.2.0] on Linux x86-64
+Apex 26.10 [GCC 15.2.0] on Linux x86-64
 ```
 
 If the build includes the JIT, the word `JIT` appears after the version:
 
 ```
-Apex 26.09 JIT [GCC 15.2.0] on Linux x86-64
+Apex 26.10 JIT [GCC 15.2.0] on Linux x86-64
 ```
 
 The line shows, in order:
 
-1. Apex version (`26.09`)
+1. Apex version (`26.10`)
 2. Whether the JIT is compiled in (`JIT`)
 3. The C compiler and its version
 4. The platform and architecture
@@ -154,7 +154,7 @@ Supported values:
 | OS           | `windows`, `linux`, `macos` |
 | Architecture | `x86-64`, `arm64`           |
 
-Cross-building requires the matching **stub** binary (`apex_26.09_<arch>_<os>[.exe]`) to sit next to your `apex` executable. The stub is the apex binary itself.
+Cross-building requires the matching **stub** binary (`apex_26.10_<arch>_<os>[.exe]`) to sit next to your `apex` executable. The stub is the apex binary itself.
 
 ## `apex compile`
 Compiles a source file to Apex bytecode and saves it as `.apexc`. This is the intermediate format used by `apex build`, and you can keep it around if you want to ship bytecode instead of source.

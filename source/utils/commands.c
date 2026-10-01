@@ -76,11 +76,11 @@ int handle_commands(int argc, char** argv) {
         get_compiler_version(compiler_ver, sizeof(compiler_ver));
 
 #if APEX_JIT_ENABLED
-        printf("Apex 26.09 JIT [%s %s] on %s %s\n",
+        printf("Apex 26.10 JIT [%s %s] on %s %s\n",
             COMPILER_NAME, compiler_ver,
             platform_get_name(), get_arch_string());
 #else
-        printf("Apex 26.09 [%s %s] on %s %s\n",
+        printf("Apex 26.10 [%s %s] on %s %s\n",
             COMPILER_NAME, compiler_ver,
             platform_get_name(), get_arch_string());
 #endif
