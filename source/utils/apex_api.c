@@ -857,7 +857,7 @@ static bool apex_c_function_dispatch(VM* vm,
     ApexState* S = (ApexState*)vm->c_function_state;  // recover our state
     if (!S) return false;                             // no state attached
 
-    CFunctionEntry* e = S->c_funcs;                   // walk registered functions
+    CFunctionEntry* volatile e = S->c_funcs;          // walk registered functions; volatile survives longjmp
     while (e) {
         if (strcmp(e->name, name) == 0) {             // name matches
             int base = S->top;                        // remember pre-call stack depth

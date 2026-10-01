@@ -1135,7 +1135,13 @@ static bool ensure_register_capacity(VM* vm, int frame_idx, int needed_reg) {
         if (new_pool_cap == 0) new_pool_cap = REGISTER_INITIAL_SIZE;  // initial pool size
         while (new_pool_cap < total_needed) new_pool_cap *= 2;        // double until all frames fit
         
-        Value* old_pool = vm->register_pool;             // remember old base for rebasing cached pointers
+        // snapshot caller register offsets before realloc invalidates old_pool
+        int caller_offs[VM_MAX_CALL_FRAMES];             // per-frame offset from old pool base
+        for (int i = 0; i < vm->call_depth; i++) {
+            Value* cr = vm->call_stack[i].caller_registers;
+            caller_offs[i] = cr ? (int)(cr - vm->register_pool) : -1;  // -1 means no rebase needed
+        }
+        Value* old_pool = vm->register_pool;             // remember old base to detect movement
         Value* new_pool = (Value*)realloc(vm->register_pool, new_pool_cap * sizeof(Value));  // resize pool
         if (!new_pool) {                                 // allocation failed
             fprintf(stderr, "\033[31mRuntime Error: Failed to grow register pool to %d registers\n\033[0m",
@@ -1149,8 +1155,8 @@ static bool ensure_register_capacity(VM* vm, int frame_idx, int needed_reg) {
         vm->pool_capacity = new_pool_cap;                // update total pool capacity
         if (new_pool != old_pool) {                      // pool moved, rebase cached caller pointers
             for (int i = 0; i < vm->call_depth; i++) {
-                Value* cr = vm->call_stack[i].caller_registers;
-                if (cr) vm->call_stack[i].caller_registers = new_pool + (cr - old_pool);
+                if (caller_offs[i] >= 0)                 // skip frames that had no cached pointer
+                    vm->call_stack[i].caller_registers = new_pool + caller_offs[i];
             }
         }
     }
