@@ -1,5 +1,24 @@
 # Apex 26.10 (October 31, 2026)
+## Security
+- **Tokenizer:** Prevented heap buffer overflow in `read_number` when parsing numeric literals longer than 63 digits.
+- **Embedding C API:** `stack_grow` and `apex_check_stack` now handle `realloc` failure and signed-integer overflow safely instead of corrupting state or spinning forever.
+- **Standalone binaries:** Temp file for embedded bytecode is now created via `mkstemp`/`GetTempFileNameA`, closing the symlink and TOCTOU windows previously opened by a predictable PID-based path in `/tmp`.
+- **Crypto:** `crypto.random_*` and `crypto.random_hex` now fail closed (return `none`) when the OS CSPRNG is unavailable, instead of silently falling back to `srand(time ^ clock)`.
+
+## Runtime
+- **Table iteration:** `for value in table` now detects structural mutation mid-loop (via a per-table generation counter) and exits cleanly, eliminating a use-after-free when the body removed the entry the iterator was about to yield next.
+- **Table equality:** `==` on tables now uses pair-stack cycle detection rather than a depth-based shortcut, so structurally-different cyclic tables no longer compare equal, and diverging leaves inside a cycle are correctly detected.
+- **Scheduler:** `pending_workers` is now `_Atomic int`, removing a C11 data race with the unlocked hint reads in `wait_for_next_timer` and `vm_drive_until`.
+
+## Libraries
+- **`random`:** All `srand`/`rand` access is serialised under a process-wide `pthread_once`/`InitOnceExecuteOnce` mutex, so two `ApexState`s running in different host threads no longer race inside libc's PRNG.
+- **`os.access`:** The mode argument is now interpreted as octal digits (`755` → `rwxr-xr-x`), matching `chmod` conventions and the Library Reference. Digits `8` and `9` and negative values cause the call to return `false`.
+
+## Compiler
+- **Parser:** The built-in function hash table is now built under a one-time initializer (`pthread_once`/`InitOnceExecuteOnce`), removing a data race when two host threads parse concurrently via the embedding API.
+
 ## Tooling
+- **REPL:** Left and right arrow keys now navigate the current input line.
 - **Embedding C API:** Updated the C API for embedding Apex in host applications.
 
 ## Modules & Scope
