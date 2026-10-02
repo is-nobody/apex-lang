@@ -16,6 +16,7 @@
 
 #ifdef _WIN32
     #include <io.h>
+    #include <windows.h>   // InitOnceExecuteOnce for the builtin-hash init
     #ifndef F_OK
         #define F_OK 0
     #endif
@@ -24,6 +25,7 @@
     #endif
 #else
     #include <unistd.h>
+    #include <pthread.h>   // pthread_once for the builtin-hash init
     #ifndef PATH_MAX
         #define PATH_MAX 4096
     #endif
@@ -334,37 +336,52 @@ typedef struct BuiltinHashEntry {
 
 // static hash table initialized once for O(1) lookup
 static BuiltinHashEntry* builtin_hash_table[BUILTIN_HASH_SIZE] = {NULL};
-static bool builtin_hash_initialized = false;
 
-// initializes the builtin hash table for O(1) lookup
-static void init_builtin_hash(void) {
-    if (builtin_hash_initialized) return;          // already initialized
-    
+// fills the builtin hash table; exactly one thread runs this, via the platform once-primitive below
+static void builtin_hash_build(void) {
     for (size_t i = 0; i < sizeof(BUILTINS) / sizeof(BUILTINS[0]); i++) {
         unsigned int h = hash_string(BUILTINS[i].name) & BUILTIN_HASH_MASK;  // compute bucket
-        
+
         BuiltinHashEntry* entry = (BuiltinHashEntry*)malloc(sizeof(BuiltinHashEntry));
         entry->name = BUILTINS[i].name;
         entry->sig = &BUILTINS[i];
         entry->next = builtin_hash_table[h];        // prepend to bucket chain
         builtin_hash_table[h] = entry;
     }
-    
-    builtin_hash_initialized = true;               // mark as initialized
 }
+
+#ifdef _WIN32
+static INIT_ONCE g_builtin_hash_once = INIT_ONCE_STATIC_INIT;
+static BOOL CALLBACK builtin_hash_once_cb(PINIT_ONCE o, PVOID p, PVOID* c) {
+    (void)o; (void)p; (void)c;
+    builtin_hash_build();
+    return TRUE;
+}
+static void ensure_builtin_hash(void) {
+    InitOnceExecuteOnce(&g_builtin_hash_once, builtin_hash_once_cb, NULL, NULL);
+}
+#else
+static pthread_once_t g_builtin_hash_once = PTHREAD_ONCE_INIT;
+static void builtin_hash_once_cb(void) {
+    builtin_hash_build();
+}
+static void ensure_builtin_hash(void) {
+    pthread_once(&g_builtin_hash_once, builtin_hash_once_cb);
+}
+#endif
 
 // looks up a built-in function signature by name using hash table
 static const BuiltinSig* lookup_builtin(const char* name) {
-    init_builtin_hash();                           // ensure table is ready
-    
+    ensure_builtin_hash();                         // one-time thread-safe init
+
     unsigned int h = hash_string(name) & BUILTIN_HASH_MASK;  // compute bucket
-    
+
     for (BuiltinHashEntry* entry = builtin_hash_table[h]; entry; entry = entry->next) {
         if (strcmp(entry->name, name) == 0) {        // found matching name
             return entry->sig;
         }
     }
-    
+
     return NULL;                                     // not a builtin
 }
 
