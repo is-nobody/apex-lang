@@ -1318,7 +1318,7 @@ static bool poll_timers(VM* vm) {
 static void wait_for_next_timer(VM* vm) {
     // no timers, only workers: block on condvar until a completion arrives
     if (!vm->timers) {
-        if (vm->pending_workers > 0) {
+        if (atomic_load_explicit(&vm->pending_workers, memory_order_relaxed) > 0) {
             APEX_MUTEX_LOCK(&vm->completion_mutex);              // lock queue
             while (vm->completions == NULL && vm->pending_workers > 0) {
                 APEX_COND_WAIT(&vm->completion_cond, &vm->completion_mutex);  // sleep until signalled
@@ -1340,7 +1340,7 @@ static void wait_for_next_timer(VM* vm) {
     if (ms < 1) ms = 1;                                          // avoid zero-timeout busy spin
 
     // no workers to wake us: sleep the full duration in one shot
-    if (vm->pending_workers == 0) {
+    if (atomic_load_explicit(&vm->pending_workers, memory_order_relaxed) == 0) {
 #ifdef _WIN32
         Sleep((DWORD)ms);                                        // windows sleep
 #else
@@ -1395,7 +1395,7 @@ bool vm_drive_until(VM* vm, Value target, Value* out_result) {
 
         if (vm_drain_completions(vm) > 0) continue;     // finished workers woke futures
 
-        if (vm->timers || vm->pending_workers > 0) {    // wait on timers or workers
+        if (vm->timers || atomic_load_explicit(&vm->pending_workers, memory_order_relaxed) > 0) {
             wait_for_next_timer(vm);
             poll_timers(vm);
         } else if (!ran) {

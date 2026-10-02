@@ -10,6 +10,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <math.h>
+#include <stdatomic.h>
 
 // global runtime toggle for the JIT; false means "never call jit"
 #if APEX_JIT_ENABLED
@@ -327,7 +328,7 @@ typedef struct VM {
     ApexMutex completion_mutex;     // protects completions and pending_workers
     ApexCond  completion_cond;      // signalled when a worker pushes a completion
     Completion* completions;        // queue of finished background tasks
-    volatile int pending_workers;   // number of live worker threads
+    _Atomic int pending_workers;    // number of live worker threads (atomic: read unlocked as a hint)
 
     // optional user callback consulted by vm_call_builtin
     bool (*c_function_dispatch)(struct VM* vm, const char* name,
