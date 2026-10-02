@@ -123,6 +123,7 @@ static int execute_embedded_bytecode(int argc, char** argv) {
     fclose(f);  // done reading binary
     
     char temp_path[4096];                           // buffer for temporary file path
+    FILE* out = NULL;                               // output stream, set by the platform-specific block
 #ifdef _WIN32
     char temp_base[MAX_PATH];                       // buffer for temp directory base path
     DWORD len = GetTempPathA(MAX_PATH, temp_base);  // get system temp directory
@@ -141,18 +142,62 @@ static int execute_embedded_bytecode(int argc, char** argv) {
         }
     }
     
-    snprintf(temp_path, sizeof(temp_path), "%s\\apex_bytecode_%lu.apexc", temp_base, GetCurrentProcessId());  // unique temp file per process
-#else
-    snprintf(temp_path, sizeof(temp_path), "/tmp/apex_bytecode_%d.apexc", getpid());  // unique temp file per process on unix
-#endif
-
-    FILE* out = fopen(temp_path, "wb");     // open temp file for writing
-    if (!out) {                             // failed to create temp file
+    // GetTempFileNameA atomically reserves a unique file (retries on collision and
+    // creates it), so no attacker can pre-plant a file at the resulting path;
+    // we then reopen that exact file with CreateFileA/CREATE_ALWAYS via an
+    // exclusive handle, eliminating the TOCTOU window between reserve and open
+    char temp_file[MAX_PATH];                       // buffer for the reserved temp file path
+    if (GetTempFileNameA(temp_base, "apx", 0, temp_file) == 0) {  // atomically reserve a temp file
         free(payload);
         return -1;
     }
-    
-    fwrite(payload, 1, payload_size, out);  // write payload to temp file
+    snprintf(temp_path, sizeof(temp_path), "%s", temp_file);  // copy the reserved path
+
+    HANDLE h = CreateFileA(temp_path, GENERIC_WRITE, 0, NULL,  // open the reserved file exclusively
+                           CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) {                // failed to open the reserved file
+        DeleteFileA(temp_path);
+        free(payload);
+        return -1;
+    }
+    int fd = _open_osfhandle((intptr_t)h, _O_WRONLY | _O_BINARY);  // wrap the handle as a C fd
+    if (fd == -1) {                                 // fd conversion failed
+        CloseHandle(h);
+        DeleteFileA(temp_path);
+        free(payload);
+        return -1;
+    }
+    out = _fdopen(fd, "wb");                        // wrap the fd as a FILE*
+    if (!out) {                                     // _fdopen failed
+        _close(fd);                                 // closes the underlying handle too
+        DeleteFileA(temp_path);
+        free(payload);
+        return -1;
+    }
+#else
+    // mkstemp atomically creates the file with mode 0600 and a random suffix,
+    // so no other process can pre-plant a symlink at the resulting path
+    snprintf(temp_path, sizeof(temp_path), "/tmp/apex_bytecode_XXXXXX");  // template for mkstemp
+    int fd = mkstemp(temp_path);                    // atomically create and open the temp file
+    if (fd == -1) {                                 // failed to create the temp file
+        free(payload);
+        return -1;
+    }
+    out = fdopen(fd, "wb");                         // wrap the fd as a FILE*
+    if (!out) {                                     // fdopen failed
+        close(fd);
+        unlink(temp_path);
+        free(payload);
+        return -1;
+    }
+#endif
+
+    if (fwrite(payload, 1, payload_size, out) != payload_size) {  // write payload to temp file
+        fclose(out);                                // close temp file on write failure
+        remove(temp_path);                          // delete partial temp file
+        free(payload);                              // release payload memory
+        return -1;
+    }
     fclose(out);                            // close temp file
     free(payload);                          // release payload memory
     
