@@ -13,28 +13,21 @@
 #include <string.h>
 #include <time.h>
 
-// fills a buffer with cryptographically secure random bytes
-static void get_secure_bytes(unsigned char* buffer, size_t length) {
+// fills a buffer with cryptographically secure random bytes; returns false on failure
+static bool get_secure_bytes(unsigned char* buffer, size_t length) {
 #if defined(_WIN32)
     for (size_t i = 0; i < length; i++) {         // iterate over buffer
         unsigned int val;                         // random value
-        rand_s(&val);                             // get secure random
+        if (rand_s(&val) != 0) return false;      // OS CSPRNG failed: refuse to produce a token
         buffer[i] = (unsigned char)(val & 0xFF);  // store low byte
     }
+    return true;                                  // buffer fully filled
 #else
     FILE* f = fopen("/dev/urandom", "rb");                        // open urandom
-    if (f) {                                                      // opened successfully
-        size_t read_count = fread(buffer, 1, length, f);          // read random bytes
-        fclose(f);                                                // close file
-        if (read_count == length) return;                         // success
-    }
-    static int seeded = 0;                                        // seed flag
-    if (!seeded) {                                                // not seeded
-        srand((unsigned int)time(NULL) ^ (unsigned int)clock());  // seed from time
-        seeded = 1;                                               // mark seeded
-    }
-    for (size_t i = 0; i < length; i++)                           // fallback to rand
-        buffer[i] = (unsigned char)(rand() % 256);                // fill with rand
+    if (!f) return false;                                         // no secure source: refuse to produce a token
+    size_t read_count = fread(buffer, 1, length, f);              // read random bytes
+    fclose(f);                                                    // close file
+    return read_count == length;                                  // success only when fully filled
 #endif
 }
 
@@ -1812,7 +1805,11 @@ bool crypto_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             *result = MAKE_NONE();
             return true;
         }
-        get_secure_bytes(buffer, nbytes);                            // fill with secure bytes
+        if (!get_secure_bytes(buffer, nbytes)) {                     // secure source unavailable
+            free(buffer);                                            // release buffer
+            *result = MAKE_NONE();                                   // refuse to produce a weak token
+            return true;
+        }
         char* hex_str = (char*)malloc(nbytes * 2 + 1);               // allocate hex string
         if (!hex_str) {                                              // allocation failed
             free(buffer);                                            // free buffer
@@ -1837,7 +1834,10 @@ bool crypto_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             return true;
         }
         unsigned char rb;                                  // random byte
-        get_secure_bytes(&rb, 1);                          // get secure byte
+        if (!get_secure_bytes(&rb, 1)) {                   // secure source unavailable
+            *result = MAKE_NONE();                         // refuse to produce a weak value
+            return true;                                   // builtin handled
+        }
         *result = MAKE_NUMBER((double)(rb % n));           // reduce modulo n
         return true;                                       // builtin handled
     }
@@ -1848,7 +1848,10 @@ bool crypto_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             return true;
         }
         unsigned char bytes[8];                          // 8 bytes for double precision
-        get_secure_bytes(bytes, 8);                      // fill with secure random bytes
+        if (!get_secure_bytes(bytes, 8)) {               // secure source unavailable
+            *result = MAKE_NONE();                       // refuse to produce a weak value
+            return true;                                 // builtin handled
+        }
         
         uint64_t mantissa = 0;
         for (int i = 0; i < 7; i++) {                    // use 7 bytes (56 bits)
