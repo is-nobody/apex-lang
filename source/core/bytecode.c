@@ -159,7 +159,9 @@ BytecodeChunk* bytecode_create() {
     
     chunk->string_pool.hash_size = 64;                                                         // hash table size (power of 2 for fast modulo)
     chunk->string_pool.hash_table = (StringHashEntry**)calloc(chunk->string_pool.hash_size, sizeof(StringHashEntry*));  // allocate hash table buckets
-    
+
+    chunk->last_global_index = -1;                                                             // empty one-entry global cache
+
     return chunk;                                                                              // return initialized chunk
 }
 
@@ -404,22 +406,19 @@ int bytecode_add_global(BytecodeChunk* chunk, const char* name) {
     return index;                                                   // return index of new global
 }
 
-// cached last global lookup for fast repeated access to the same global
-static int last_global_index = -1;           // cached index of last found global
-static const char* last_global_name = NULL;  // cached name pointer of last found global
-
-// looks up a global variable by name, using a one-entry cache for repeated lookups
+// looks up a global variable by name, using a per-chunk one-entry cache
 int bytecode_get_global(BytecodeChunk* chunk, const char* name) {
-    if (last_global_name == name && last_global_index >= 0 &&      // fast path: check cached entry first
-        last_global_index < chunk->global_count &&
-        strcmp(chunk->globals[last_global_index].name, name) == 0) {
-        return last_global_index;                                  // return cached index if name matches
+    if (!chunk || !name) return -1;                                // null guard
+
+    int cached = chunk->last_global_index;                         // one-entry cache probe
+    if (cached >= 0 && cached < chunk->global_count &&
+        strcmp(chunk->globals[cached].name, name) == 0) {
+        return cached;                                             // cache hit: single strcmp
     }
-    
+
     for (int i = 0; i < chunk->global_count; i++) {                // linear scan of global variables
         if (strcmp(chunk->globals[i].name, name) == 0) {           // compare global names
-            last_global_index = i;                                 // cache index for next lookup
-            last_global_name = name;                               // cache name pointer for next lookup
+            chunk->last_global_index = i;                          // cache index for next lookup
             return i;                                              // return found global index
         }
     }
