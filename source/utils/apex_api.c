@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <setjmp.h>
+#include <limits.h>
 
 // one registered c function, stored in a singly linked list per state
 typedef struct CFunctionEntry {
@@ -60,18 +61,28 @@ static bool apex_c_function_dispatch(VM* vm,
                                      Value* args,
                                      Value* result);
 
-// grows the stack array to hold at least min_cap elements
-static void stack_grow(ApexState* S, int min_cap) {
-    if (S->capacity >= min_cap) return;             // already large enough
+// grows the stack array to hold at least min_cap elements; returns false on OOM or overflow
+static bool stack_grow(ApexState* S, int min_cap) {
+    if (min_cap < 0) return false;                      // reject negative requests
+    if (S->capacity >= min_cap) return true;            // already large enough
     int new_cap = S->capacity == 0 ? 32 : S->capacity;  // start from a small default
-    while (new_cap < min_cap) new_cap *= 2;         // double until it fits
-    S->stack = (Value*)realloc(S->stack, sizeof(Value) * new_cap);  // resize the buffer
-    S->capacity = new_cap;                          // update capacity
+    while (new_cap < min_cap) {                         // double until it fits
+        if (new_cap > INT_MAX / 2) return false;        // prevent signed int overflow
+        new_cap *= 2;
+    }
+    Value* new_stack = (Value*)realloc(S->stack, sizeof(Value) * new_cap);  // resize buffer
+    if (!new_stack) return false;                       // allocation failed: keep old stack intact
+    S->stack = new_stack;                               // install only on success
+    S->capacity = new_cap;                              // update capacity
+    return true;
 }
 
 // pushes a value, taking a new reference on heap-allocated values
 static void stack_push(ApexState* S, Value v) {
-    stack_grow(S, S->top + 1);                      // ensure room for one more element
+    if (!stack_grow(S, S->top + 1)) {               // ensure room for one more element
+        apex_raise(S, "value stack overflow");      // report; longjmp if a protected context is active
+        return;                                     // do not write to a NULL stack
+    }
     if ((v & QNAN) == QNAN) value_incref(v);        // bump refcount for heap values
     S->stack[S->top++] = v;                         // store and advance top
 }
@@ -257,7 +268,7 @@ void apex_set_top(ApexState* S, int index) {
         }
         S->top = abs;                               // publish new top
     } else if (abs > S->top) {                      // growing: pad with none
-        stack_grow(S, abs);                         // ensure capacity
+        if (!stack_grow(S, abs)) return;            // allocation failed: leave state unchanged
         while (S->top < abs) S->stack[S->top++] = MAKE_NONE();  // fill with none
     }
 }
@@ -275,8 +286,9 @@ void apex_pop(ApexState* S, int n) {
 // ensures the stack has room for at least extra more elements
 int apex_check_stack(ApexState* S, int extra) {
     if (!S) return 0;                               // null guard
-    stack_grow(S, S->top + extra);                  // grow to fit
-    return 1;                                       // stack grows on demand so always succeeds
+    if (extra < 0) return 0;                        // reject negative requests
+    if (S->top > INT_MAX - extra) return 0;         // prevent top+extra overflow
+    return stack_grow(S, S->top + extra) ? 1 : 0;   // grow to fit; report failure
 }
 
 // pushes a copy of the value at the given stack index
