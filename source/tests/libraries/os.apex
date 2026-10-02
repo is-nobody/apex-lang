@@ -134,9 +134,9 @@ function get_current_folder()
 // test: check file access permissions
 function access()
     os.write("access.txt", "test")
-    result = os.access("access.txt", 438)
+    result = os.access("access.txt", 666)
     assert_equal(result, true, "access returns true")
-    result = os.access("no_file.txt", 438)
+    result = os.access("no_file.txt", 666)
     assert_equal(result, false, "access nonexistent returns false")
     os.delete("access.txt")
 

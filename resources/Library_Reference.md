@@ -487,7 +487,11 @@ if parent != none
 ```
 
 ### os.access(path, mode)
-Changes file permissions. The `mode` is a number (e.g., `755` for rwxr-xr-x on Unix). Returns `true` on success, `false` on failure.
+Changes file permissions. Returns `true` on success, `false` on failure.
+
+The `mode` argument is written as an **octal-style number without a leading zero**: the decimal digits you type are interpreted as octal digits, exactly as with `chmod` on Unix. For example, `755` means `rwxr-xr-x`, `644` means `rw-r--r--`, `600` means `rw-------`. Digits `8` and `9` are invalid in a mode and cause the call to return `false`.
+
+On Windows only the owner read / owner write bits are honoured (`_S_IREAD`, `_S_IWRITE`); the group and other bits are ignored, matching the platform's file permission model.
 
 ```apex
 import os

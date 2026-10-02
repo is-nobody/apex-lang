@@ -587,17 +587,35 @@ static Value os_terminate_sync(void* p) {
     return MAKE_BOOL(success);                          // return status
 }
 
+// interprets the decimal digits of `dec` as if they were octal digits.
+// 755 -> 0o755 (rwxr-xr-x), 644 -> 0o644 (rw-r--r--).
+// returns -1 when any digit is 8 or 9, or when dec is negative.
+static int decimal_as_octal(int dec) {
+    if (dec < 0) return -1;                 // reject negative modes
+    int result = 0;                         // accumulated octal value
+    int place  = 1;                         // current place value (1, 8, 64, 512, ...)
+    while (dec > 0) {
+        int digit = dec % 10;               // next decimal digit
+        if (digit > 7) return -1;           // 8 and 9 cannot appear in an octal mode
+        result += digit * place;            // add digit at its octal place
+        place *= 8;                         // advance to next octal place
+        dec /= 10;                          // drop the digit
+    }
+    return result;                          // returns the octal value
+}
+
 // changes permissions on a file
 static Value os_access_sync(void* p) {
     OsArgs* a = (OsArgs*)p;                             // unpack argument struct
+    int unix_mode = decimal_as_octal(a->int_val);       // 755 -> 0o755, 644 -> 0o644
+    if (unix_mode < 0) return MAKE_BOOL(false);         // invalid digit (8 or 9) or negative
 #ifdef _WIN32
-    int unix_mode = a->int_val;                         // extract unix mode bits
     int win_mode = 0;                                   // windows mode flags
-    if (unix_mode & 4) win_mode |= _S_IREAD;            // unix read -> windows read
-    if (unix_mode & 2) win_mode |= _S_IWRITE;           // unix write -> windows write
+    if (unix_mode & 0400) win_mode |= _S_IREAD;         // owner read  -> windows read
+    if (unix_mode & 0200) win_mode |= _S_IWRITE;        // owner write -> windows write
     return MAKE_BOOL(_chmod(a->path, win_mode) == 0);   // chmod on windows
 #else
-    return MAKE_BOOL(chmod(a->path, (mode_t)a->int_val) == 0);  // chmod on unix
+    return MAKE_BOOL(chmod(a->path, (mode_t)unix_mode) == 0);  // chmod on unix
 #endif
 }
 
