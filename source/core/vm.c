@@ -900,13 +900,28 @@ Value* table_keys(Table* table, int* out_count) {
     return keys;                                          // return caller-owned keys array
 }
 
-// recursively compares two tables for deep equality
-static bool table_equal(Table* a, Table* b, int depth) {
+// recursion-stack cap for table_equal; must exceed the parser's 16-level
+// table-literal nesting limit so any purely syntactic nesting fits
+#define TABLE_EQ_MAX_STACK 128
+
+// one pair of tables currently being compared
+typedef struct { Table* a; Table* b; } TablePair;
+
+// recursively compares two tables for deep equality with cycle detection
+static bool table_equal_rec(Table* a, Table* b, TablePair* stack, int depth) {
     if (a == b) return true;                           // same pointer, definitely equal
     if (!a || !b) return false;                        // one is null, not equal
     if (table_size(a) != table_size(b)) return false;  // different sizes, not equal
-    
-    if (depth > 100) return true;                      // assume equal to break cycles
+
+    for (int i = 0; i < depth; i++) {                  // if (a, b) is already on the
+        if (stack[i].a == a && stack[i].b == b)        // comparison stack, we arrived here
+            return true;                               // via a cycle without diverging
+    }
+
+    if (depth >= TABLE_EQ_MAX_STACK) return false;     // too deep: fail closed, never assume equal
+
+    stack[depth].a = a;                                // push the current pair
+    stack[depth].b = b;
 
     int key_count;
     Value* keys = table_keys(a, &key_count);           // get all keys from first table
@@ -924,44 +939,36 @@ static bool table_equal(Table* a, Table* b, int depth) {
 
         // recursively compare values by type
         if (IS_NUMBER(val_a) && IS_NUMBER(val_b)) {
-            if (AS_NUMBER(val_a) != AS_NUMBER(val_b)) {
-                result = false;  // numbers differ
-                value_decref(key);
-                break;
-            }
+            if (AS_NUMBER(val_a) != AS_NUMBER(val_b)) result = false;  // numbers differ
         } else if (IS_STRING(val_a) && IS_STRING(val_b)) {
-            if (!string_equal(AS_STRING(val_a), AS_STRING(val_b))) {
-                result = false;  // strings differ
-                value_decref(key);
-                break;
-            }
+            if (!string_equal(AS_STRING(val_a), AS_STRING(val_b))) result = false;  // strings differ
         } else if (IS_BOOL(val_a) && IS_BOOL(val_b)) {
-            if (AS_BOOL(val_a) != AS_BOOL(val_b)) {
-                result = false;  // booleans differ
-                value_decref(key);
-                break;
-            }
+            if (AS_BOOL(val_a) != AS_BOOL(val_b)) result = false;      // booleans differ
         } else if (IS_TABLE(val_a) && IS_TABLE(val_b)) {
-            if (!table_equal(AS_TABLE(val_a), AS_TABLE(val_b), depth + 1)) {
-                result = false;  // nested tables differ
-                value_decref(key);
-                break;
-            }
+            if (!table_equal_rec(AS_TABLE(val_a), AS_TABLE(val_b), stack, depth + 1))
+                result = false;                                        // nested tables differ
         } else if (IS_NONE(val_a) && IS_NONE(val_b)) {
             // both none, equal
         } else {
             result = false;     // different types, not equal
-            value_decref(key);
-            break;
         }
-        
+
         value_decref(val_a);    // release value references from table_get
         value_decref(val_b);
         value_decref(key);      // release key reference
+
+        if (!result) break;
     }
 
     free(keys);                 // free keys array
     return result;              // return comparison result
+}
+
+// public entry: seeds the recursion stack
+static bool table_equal(Table* a, Table* b, int depth) {
+    (void)depth;                                       // depth arg kept for source compat with callers
+    TablePair stack[TABLE_EQ_MAX_STACK];
+    return table_equal_rec(a, b, stack, 0);
 }
 
 // appends a future to the ready queue, taking a reference
