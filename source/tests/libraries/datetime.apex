@@ -261,6 +261,33 @@ function test_roundtrip()
     assert_equal(back["month"], 6,    "roundtrip month")
     assert_equal(back["day"],   8,    "roundtrip day")
 
+// test: non-numeric optional fields cause the whole table to be rejected
+function test_optional_field_wrong_type()
+    // hour as a string
+    bad1 = ["year" = 2024, "month" = 6, "day" = 15, "hour" = "eight"]
+    assert_equal(datetime.to_timestamp(bad1), none, "string hour rejected")
+    assert_equal(datetime.format(bad1, "%H"), none, "string hour rejected by format")
+
+    // minute as a boolean
+    bad2 = ["year" = 2024, "month" = 6, "day" = 15, "minute" = true]
+    assert_equal(datetime.to_timestamp(bad2), none, "boolean minute rejected")
+
+    // second as a table
+    bad3 = ["year" = 2024, "month" = 6, "day" = 15, "second" = [1, 2, 3]]
+    assert_equal(datetime.to_timestamp(bad3), none, "table second rejected")
+
+    // millisecond as none
+    bad4 = ["year" = 2024, "month" = 6, "day" = 15, "millisecond" = none]
+    assert_equal(datetime.to_timestamp(bad4), none, "none millisecond rejected")
+
+    // missing optional fields still default to 0
+    good = ["year" = 2024, "month" = 6, "day" = 15]
+    assert_equal(datetime.to_timestamp(good), 1718409600, "missing optional fields default to 0")
+
+    // valid numeric optional fields still work
+    also_good = ["year" = 2024, "month" = 6, "day" = 15, "hour" = 14, "minute" = 30]
+    assert_equal(datetime.format(also_good, "%H:%M"), "14:30", "numeric optional fields accepted")
+
 // execute all datetime test cases
 test_now()
 test_local()
@@ -272,6 +299,7 @@ test_format()
 test_add()
 test_diff()
 test_roundtrip()
+test_optional_field_wrong_type()
 
 // report completion of datetime library tests
 os.output("[PASS] libraries/datetime.apex")

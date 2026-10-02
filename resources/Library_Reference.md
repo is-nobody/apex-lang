@@ -2228,6 +2228,8 @@ All functions work with a **datetime table** — a plain table with these keys:
 
 There is no `epoch` key inside the table. Use `datetime.to_timestamp()` to convert.
 
+`year`, `month`, and `day` are **required** and must be numbers. `hour`, `minute`, `second`, and `millisecond` are **optional** — omitting them defaults to `0`. When any field is present, it must hold a number: a string, boolean, table, or `none` in any of these positions makes the whole table invalid, and every datetime function returns `none` for it rather than silently substituting a default.
+
 ### datetime.now()
 Returns the current moment in UTC as a datetime table. Always succeeds.
 

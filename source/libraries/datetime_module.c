@@ -172,17 +172,23 @@ static Value build_dt_table(VM* vm, long long y, int mo, int d,
     return MAKE_TABLE(t);                                                           // box table as value
 }
 
-// read a numeric field; fall back to default when the key is missing or not a number
-static double read_field(VM* vm, Table* t, const char* key, double default_val) {
+// reads an optional numeric field. Missing key sets *out to default_val and returns true
+static bool read_field(VM* vm, Table* t, const char* key,
+                       double default_val, double* out) {
     Value k = make_string_val(vm, key);                     // interned lookup key
     Value v;
-    double result = default_val;                            // default if not found
+    *out = default_val;                                     // default when key is missing
+    bool ok = true;                                         // missing key is fine
     if (table_get(t, k, &v)) {                              // key exists
-        if (IS_NUMBER(v)) result = AS_NUMBER(v);            // extract numeric value
+        if (IS_NUMBER(v)) {
+            *out = AS_NUMBER(v);                            // accept numeric value
+        } else {
+            ok = false;                                     // present but wrong type
+        }
         value_decref(v);                                    // release value reference
     }
     value_decref(k);                                        // release key reference
-    return result;                                          // return resolved value
+    return ok;                                              // caller decides what to do
 }
 
 // strict read: key must exist and hold a number
@@ -209,10 +215,11 @@ static bool read_dt(VM* vm, Value v, long long* y, int* mo, int* d,
     if (!read_field_strict(vm, t, "month", &vmo)) return false;
     if (!read_field_strict(vm, t, "day",   &vd))  return false;
 
-    double vh  = read_field(vm, t, "hour",        0);       // optional fields default to 0
-    double vmi = read_field(vm, t, "minute",      0);
-    double vs  = read_field(vm, t, "second",      0);
-    double vms = read_field(vm, t, "millisecond", 0);
+    double vh, vmi, vs, vms;                                // optional numeric fields
+    if (!read_field(vm, t, "hour",        0, &vh))  return false;  // must be numeric if present
+    if (!read_field(vm, t, "minute",      0, &vmi)) return false;
+    if (!read_field(vm, t, "second",      0, &vs))  return false;
+    if (!read_field(vm, t, "millisecond", 0, &vms)) return false;
 
     if (vmo < 1 || vmo > 12) return false;                  // month range
     if (vd  < 1 || vd  > 31) return false;                  // day range
