@@ -54,6 +54,41 @@ static int count_chars(const char* s, int byte_len) {
     return chars;                                   // return character count
 }
 
+// reads an ansi arrow key sequence after esc
+// returns 1 for right, -1 for left, 0 for unknown or non-arrow
+static int read_arrow_key(void) {
+    if (!terminal_has_input()) return 0;            // no more input
+
+    char c;                                         // first byte after esc
+    if (terminal_read_blocking(&c) <= 0) return 0;  // read failed
+
+    if (c == 'O') {                                 // ss3 sequence
+        if (!terminal_has_input()) return 0;        // no more input
+        char c2;                                    // second byte
+        if (terminal_read_blocking(&c2) <= 0) return 0;  // read failed
+        if (c2 == 'C') return 1;                    // right arrow
+        if (c2 == 'D') return -1;                   // left arrow
+        return 0;                                   // unknown
+    }
+
+    if (c == '[') {                                 // csi sequence
+        char final = 0;                             // final byte
+        while (terminal_has_input()) {              // consume until final
+            char ch;                                // current byte
+            if (terminal_read_blocking(&ch) <= 0) break;  // read failed
+            if (ch >= 0x40 && ch <= 0x7E) {         // final byte range
+                final = ch;                         // save final byte
+                break;                              // stop reading
+            }
+        }
+        if (final == 'C') return 1;                 // right arrow
+        if (final == 'D') return -1;                // left arrow
+        return 0;                                   // unknown
+    }
+
+    return 0;                                       // not an arrow sequence
+}
+
 // redraws the current input line - cursor_pos is in CHARACTERS
 static void redraw_line(const char* line, int cursor_pos) {
     int line_chars = count_chars(line, strlen(line));   // total characters in line
@@ -122,14 +157,45 @@ int repl_run(void) {
             break;                                                   // exit repl
         }
         
+        // Escape sequences: left/right arrows are ESC [ D and ESC [ C
+        if (c == 27) {                                               // esc
+            int dir = read_arrow_key();                              // read arrow key
+
+            if (dir < 0) {                                           // left arrow
+                if (byte_pos > 0) {                                  // something to move over
+                    int start = byte_pos - 1;                        // start of previous char
+                    while (start > 0 &&
+                           ((unsigned char)line[start] & 0xC0) == 0x80) {  // skip continuation bytes
+                        start--;                                     // move to start of char
+                    }
+                    byte_pos = start;                                // update byte position
+                    char_pos = count_chars(line, byte_pos);          // update char position
+                    redraw_line(line, char_pos);                     // redraw updated line
+                }
+            } else if (dir > 0) {                                    // right arrow
+                int len = (int)strlen(line);                         // current line length
+                if (byte_pos < len) {                                // not at end
+                    int next = byte_pos +
+                               utf8_char_bytes((unsigned char)line[byte_pos]);  // next char start
+                    if (next > len) next = len;                      // clamp to line length
+                    byte_pos = next;                                 // update byte position
+                    char_pos = count_chars(line, byte_pos);          // update char position
+                    redraw_line(line, char_pos);                     // redraw updated line
+                }
+            }
+
+            continue;                                                // continue loop
+        }
+        
         // Enter
         if (c == '\r' || c == '\n') {                                // newline
+            int line_len = (int)strlen(line);                        // full line length, not cursor
             printf("\r\n");                                          // print newline
-            line[byte_pos] = '\0';                                   // null terminate line
-            if (byte_pos > 0) {                                      // non-empty line
-                if (total_len + byte_pos + 2 < MAX_INPUT) {          // check buffer space
-                    memcpy(full_input + total_len, line, byte_pos);  // copy line to input
-                    total_len += byte_pos;                           // update total length
+            line[line_len] = '\0';                                   // ensure null terminated
+            if (line_len > 0) {                                      // non-empty line
+                if (total_len + line_len + 2 < MAX_INPUT) {          // check buffer space
+                    memcpy(full_input + total_len, line, line_len);  // copy whole line to input
+                    total_len += line_len;                           // update total length
                     full_input[total_len++] = '\n';                  // add newline
                     full_input[total_len] = '\0';                    // null terminate
                 }
@@ -162,10 +228,9 @@ int repl_run(void) {
                 while (start > 0 && ((unsigned char)line[start] & 0xC0) == 0x80) {  // skip continuation bytes
                     start--;                                                        // move to start of char
                 }
-                memmove(&line[start], &line[byte_pos], MAX_LINE - byte_pos);        // shift line left
+                memmove(&line[start], &line[byte_pos], strlen(line) - byte_pos + 1);  // shift tail left with terminator
                 byte_pos = start;                        // update byte position
                 char_pos = count_chars(line, byte_pos);  // update char position
-                line[byte_pos] = '\0';                   // null terminate
                 redraw_line(line, char_pos);             // redraw updated line
             }
             continue;                                    // continue loop
@@ -173,9 +238,8 @@ int repl_run(void) {
         
         // printable characters
         if (c >= 32 && byte_pos < MAX_LINE - 4) {    // printable char and space
-            memmove(&line[byte_pos + 1], &line[byte_pos], MAX_LINE - byte_pos - 1);  // make room
-            line[byte_pos++] = c;                    // insert character
-            line[byte_pos] = '\0';                   // null terminate
+            memmove(&line[byte_pos + 1], &line[byte_pos], strlen(line) - byte_pos + 1);  // shift tail right with terminator
+            line[byte_pos++] = c;                    // insert character (terminator already moved)
             char_pos = count_chars(line, byte_pos);  // update char position
             redraw_line(line, char_pos);             // redraw updated line
             continue;                                // continue loop
