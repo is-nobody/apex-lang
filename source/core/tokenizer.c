@@ -286,19 +286,34 @@ static char* read_string(Tokenizer* tokenizer) {
 
 // reads a numeric literal including integer, float, and scientific notation
 static char* read_number(Tokenizer* tokenizer) {
-    char* buffer = (char*)malloc(64);                       // allocate buffer for number string (max 64 chars)
+    int buf_size = 64;                                      // track buffer capacity
+    char* buffer = (char*)malloc(buf_size);                 // allocate initial buffer
+    if (!buffer) return NULL;                               // allocation failed
     int buf_pos = 0;                                        // current write position in buffer
     char c = peek(tokenizer, 0);                            // peek at first character
-    
+
+    // grows the buffer when there is no room for one more byte plus the null terminator
+    #define ENSURE_ROOM() do { \
+        if (buf_pos + 2 > buf_size) { \
+            buf_size *= 2; \
+            char* _nb = (char*)realloc(buffer, buf_size); \
+            if (!_nb) { free(buffer); return NULL; } \
+            buffer = _nb; \
+        } \
+    } while (0)
+
     while (isdigit(c)) {
+        ENSURE_ROOM();                                      // ensure room for digit + null
         buffer[buf_pos++] = advance(tokenizer);             // consume integer digits
         c = peek(tokenizer, 0);                             // peek at next character
     }
 
     if (c == '.' && isdigit(peek(tokenizer, 1))) {
+        ENSURE_ROOM();                                      // ensure room for '.' + null
         buffer[buf_pos++] = advance(tokenizer);             // consume decimal point
         c = peek(tokenizer, 0);                             // peek at next character
         while (isdigit(c)) {
+            ENSURE_ROOM();                                  // ensure room for digit + null
             buffer[buf_pos++] = advance(tokenizer);         // consume fractional digits
             c = peek(tokenizer, 0);                         // peek at next character
         }
@@ -307,20 +322,25 @@ static char* read_number(Tokenizer* tokenizer) {
     if (c == 'e' || c == 'E') {
         char next = peek(tokenizer, 1);                     // peek at character after 'e'
         if (isdigit(next) || ((next == '+' || next == '-') && isdigit(peek(tokenizer, 2)))) {
+            ENSURE_ROOM();                                  // ensure room for 'e' + null
             buffer[buf_pos++] = advance(tokenizer);         // consume 'e' or 'E'
             c = peek(tokenizer, 0);                         // peek at next character
             if (c == '+' || c == '-') {
+                ENSURE_ROOM();                              // ensure room for sign + null
                 buffer[buf_pos++] = advance(tokenizer);     // consume exponent sign
                 c = peek(tokenizer, 0);                     // peek at next character
             }
             while (isdigit(c)) {
+                ENSURE_ROOM();                              // ensure room for digit + null
                 buffer[buf_pos++] = advance(tokenizer);     // consume exponent digits
                 c = peek(tokenizer, 0);                     // peek at next character
             }
         }
     }
 
+    ENSURE_ROOM();                                          // ensure room for the null terminator
     buffer[buf_pos] = '\0';                                 // null-terminate the number string
+    #undef ENSURE_ROOM
     return buffer;                                          // return allocated number string
 }
 
