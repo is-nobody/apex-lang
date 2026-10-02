@@ -184,6 +184,7 @@ typedef struct Table {
     Value* array_part;       // dense array for integer keys starting from 1
     int array_capacity;      // allocated size of array_part
     int array_count;         // number of valid entries in array part
+    uint32_t generation;     // bumped on every structural mutation (insert/remove/rehash)
 } Table;
 
 // state for "for value in table" iteration, walks array_part then hash buckets
@@ -192,6 +193,7 @@ typedef struct {
     int array_index;           // current position in array_part
     int bucket_index;          // current bucket in hash entries
     TableEntry* current_entry; // current node in bucket chain
+    uint32_t start_generation; // table->generation captured at TABLE_ITER_INIT
 } TableIterState;
 
 // state for a numeric for-loop, saved across coroutine suspension

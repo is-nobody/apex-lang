@@ -535,6 +535,7 @@ Table* table_create(int capacity) {
     table->array_capacity = 0;                      // array part not yet allocated (lazy)
     table->array_part = NULL;                       // no array part yet
     table->array_count = 0;                         // no array elements yet
+    table->generation = 0;                          // no mutations yet
     return table;                                   // return new table
 }
 
@@ -665,6 +666,7 @@ bool table_set_concat_key(Table* t, StringObject* prefix,
             }
         }
         free(old_entries);                                       // release old bucket array
+        t->generation++;                                         // structural change: invalidate iterators
     }
 
     int total = prefix->length + tail_len;                       // combined key length
@@ -753,6 +755,7 @@ bool table_set(Table* table, Value key, Value value) {
             }
         }
         free(old_entries);                            // free old bucket array
+        table->generation++;                          // structural change: invalidate iterators
     }
     uint32_t hash = hash_value_key(key);              // compute hash for key
     uint32_t index = hash % table->capacity;          // get bucket index
@@ -846,6 +849,7 @@ void table_remove(Table* table, Value key) {
             value_decref(entry->value);                // release value
             free(entry);                               // free entry struct
             table->hash_count--;                       // decrement hash entry count
+            table->generation++;                       // invalidate active iterators
             return;                                    // done
         }
         prev = entry;                                  // advance prev
@@ -2653,6 +2657,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             iter->array_index = 0;               // start at first array element
             iter->bucket_index = 0;              // start at first hash bucket
             iter->current_entry = NULL;          // no current entry yet
+            iter->start_generation = iter->table->generation;  // record generation at init
         }
         ip++;                                    // advance to next instruction
         goto *dispatch_table[ip->opcode];        // dispatch next instruction
@@ -2664,6 +2669,12 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         TableIterState* iter = &vm->table_iters[vm->table_iter_depth];  // get current iterator state
         Table* t = iter->table;                  // fetch table pointer
         if (t == NULL) {                         // empty or invalid table
+            vm->table_iter_depth--;              // pop iterator frame
+            ip = &vm->code[exit_addr];           // jump to exit
+            goto *dispatch_table[ip->opcode];    // dispatch next instruction
+        }
+        if (t->generation != iter->start_generation) {
+            // table mutated during iteration: bail out cleanly instead of dereferencing a freed iter->current_entry
             vm->table_iter_depth--;              // pop iterator frame
             ip = &vm->code[exit_addr];           // jump to exit
             goto *dispatch_table[ip->opcode];    // dispatch next instruction

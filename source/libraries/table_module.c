@@ -128,6 +128,7 @@ bool table_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Va
                 table->array_capacity = 0;                         // reset capacity
                 table->array_count = 0;                            // reset count
             }
+            table->generation++;                                   // structural change: invalidate iterators
         }
         *result = MAKE_BOOL(true);                                 // return true
         return true;                                               // builtin handled
