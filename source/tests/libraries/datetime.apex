@@ -288,6 +288,34 @@ function test_optional_field_wrong_type()
     also_good = ["year" = 2024, "month" = 6, "day" = 15, "hour" = 14, "minute" = 30]
     assert_equal(datetime.format(also_good, "%H:%M"), "14:30", "numeric optional fields accepted")
 
+// test: non-integer fields and out-of-range offsets are rejected
+function test_strict_fields_and_ranges()
+    // fractional fields are rejected
+    frac_y = ["year" = 2024.5, "month" = 6, "day" = 15]
+    assert_equal(datetime.to_timestamp(frac_y), none, "fractional year rejected")
+
+    frac_h = ["year" = 2024, "month" = 6, "day" = 15, "hour" = 14.5]
+    assert_equal(datetime.to_timestamp(frac_h), none, "fractional hour rejected")
+
+    frac_m = ["year" = 2024, "month" = 6.5, "day" = 15]
+    assert_equal(datetime.to_timestamp(frac_m), none, "fractional month rejected")
+
+    // huge add offsets are rejected
+    base = ["year" = 2024, "month" = 6, "day" = 15]
+    assert_equal(datetime.add(base, 1.5e300, "second"), none, "huge second offset rejected")
+    assert_equal(datetime.add(base, 1.5, "year"),         none, "fractional year offset rejected")
+
+    // add that would leave the year range is rejected
+    end_of_range = ["year" = 9999, "month" = 12, "day" = 31]
+    assert_equal(datetime.add(end_of_range, 1, "day"),    none, "day overflow rejected")
+
+    // from_timestamp outside the year range is rejected
+    assert_equal(datetime.from_timestamp(1.0e20),  none, "huge positive timestamp rejected")
+    assert_equal(datetime.from_timestamp(-1.0e20), none, "huge negative timestamp rejected")
+
+    // parse rejects year 0000
+    assert_equal(datetime.parse("0000-01-01"), none, "year 0000 rejected")
+
 // execute all datetime test cases
 test_now()
 test_local()
@@ -300,6 +328,7 @@ test_add()
 test_diff()
 test_roundtrip()
 test_optional_field_wrong_type()
+test_strict_fields_and_ranges()
 
 // report completion of datetime library tests
 os.output("[PASS] libraries/datetime.apex")

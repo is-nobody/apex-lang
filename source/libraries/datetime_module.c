@@ -204,6 +204,12 @@ static bool read_field_strict(VM* vm, Table* t, const char* key, double* out) {
     return ok;                                              // caller decides how to react
 }
 
+// validates a numeric field: must be a whole number in [lo, hi]
+static bool field_in_range(double v, int lo, int hi) {
+    if (!(v >= (double)lo && v <= (double)hi)) return false;
+    return v == (double)(int)v;
+}
+
 // read a datetime table into individual fields; false on missing/invalid fields
 static bool read_dt(VM* vm, Value v, long long* y, int* mo, int* d,
                     int* h, int* mi, int* s, int* ms) {
@@ -221,14 +227,13 @@ static bool read_dt(VM* vm, Value v, long long* y, int* mo, int* d,
     if (!read_field(vm, t, "second",      0, &vs))  return false;
     if (!read_field(vm, t, "millisecond", 0, &vms)) return false;
 
-    // nan and inf both fail this check because all comparisons with nan are false
-    if (!(vy  >= 1.0 && vy  <= 9999.0)) return false;       // year range [1, 9999] (documented)
-    if (vmo < 1 || vmo > 12) return false;                  // month range
-    if (vd  < 1 || vd  > 31) return false;                  // day range
-    if (vh  < 0 || vh  > 23) return false;                  // hour range
-    if (vmi < 0 || vmi > 59) return false;                  // minute range
-    if (vs  < 0 || vs  > 60) return false;                  // second range (leap second allowed)
-    if (vms < 0 || vms > 999) return false;                 // millisecond range
+    if (!field_in_range(vy,  1, 9999)) return false;        // year: [1, 9999], whole number
+    if (!field_in_range(vmo, 1, 12))   return false;        // month: [1, 12], whole number
+    if (!field_in_range(vd,  1, 31))   return false;        // day: [1, 31], whole number
+    if (!field_in_range(vh,  0, 23))   return false;        // hour: [0, 23], whole number
+    if (!field_in_range(vmi, 0, 59))   return false;        // minute: [0, 59], whole number
+    if (!field_in_range(vs,  0, 60))   return false;        // second: [0, 60], whole number (leap second)
+    if (!field_in_range(vms, 0, 999))  return false;        // millisecond: [0, 999], whole number
 
     *y  = (long long)vy;                                    // commit fields (safe: 1..9999 fits)
     *mo = (int)vmo;
@@ -259,6 +264,7 @@ static bool parse_iso(const char* str, long long* y, int* mo, int* d,
     const char* p = str;                                    // cursor over input
     int yr, mr, dr;
     if (!read_digits(&p, 4, &yr)) return false;             // year
+    if (yr < 1 || yr > 9999) return false;                  // year range [1, 9999]
     if (*p++ != '-')             return false;              // separator
     if (!read_digits(&p, 2, &mr)) return false;             // month
     if (*p++ != '-')             return false;              // separator
@@ -413,6 +419,10 @@ bool datetime_call_builtin(VM* vm, const char* name, int arg_count, Value* args,
         }
         long long y; int mo, d, h, mi, s, ms, wd;
         seconds_to_dt(AS_NUMBER(args[0]), &y, &mo, &d, &h, &mi, &s, &ms, &wd);
+        if (y < 1 || y > 9999) {                                    // out of documented range
+            *result = MAKE_NONE();
+            return true;
+        }
         *result = build_dt_table(vm, y, mo, d, h, mi, s, ms, wd);   // pack into a table
         return true;                                                // builtin handled
     }
@@ -482,13 +492,26 @@ bool datetime_call_builtin(VM* vm, const char* name, int arg_count, Value* args,
         double n = AS_NUMBER(args[1]);                              // amount
         const char* unit = AS_STRING(args[2])->chars;               // unit name
 
+        // bound |n| before any (long long) cast. 1e10 is ~10000x the largest
+        // offset that can still land inside [1, 9999]
+        #define APEX_DT_OFFSET_MAX 1.0e10
+        if (!(n >= -APEX_DT_OFFSET_MAX && n <= APEX_DT_OFFSET_MAX)) {
+            *result = MAKE_NONE();
+            return true;
+        }
+
         if (strcmp(unit, "year") == 0) {                            // calendar year with day clamp
+            // non-integer offsets are rejected because "add 1.5 years" has no defined calendar meaning 
+            if (n != (double)(long long)n) { *result = MAKE_NONE(); return true; }
             y += (long long)n;
+            if (y < 1 || y > 9999) { *result = MAKE_NONE(); return true; }
             int maxd = days_in_month(y, mo);                        // clamp: 2024-01-31 not valid in feb
             if (d > maxd) d = maxd;
         } else if (strcmp(unit, "month") == 0) {                    // calendar month with day clamp
+            if (n != (double)(long long)n) { *result = MAKE_NONE(); return true; }
             long long total = (long long)mo - 1 + (long long)n;     // month index relative to jan
             long long dy = y + total / 12;                          // carry into years
+            if (dy < 1 || dy > 9999) { *result = MAKE_NONE(); return true; }
             int dm = (int)(((total % 12) + 12) % 12) + 1;           // normalise to 1..12
             y = dy; mo = dm;                                        // commit
             int maxd = days_in_month(y, mo);                        // clamp day to month length
@@ -506,9 +529,11 @@ bool datetime_call_builtin(VM* vm, const char* name, int arg_count, Value* args,
             secs += delta;                                          // apply delta
             int wd;                                                 // recomputed weekday
             seconds_to_dt(secs, &y, &mo, &d, &h, &mi, &s, &ms, &wd);
+            if (y < 1 || y > 9999) { *result = MAKE_NONE(); return true; }   // result out of range
             *result = build_dt_table(vm, y, mo, d, h, mi, s, ms, wd);
             return true;                                            // builtin handled
         }
+        #undef APEX_DT_OFFSET_MAX
         // year/month path landed here: recompute weekday from the adjusted y/m/d
         long long days = days_from_civil(y, mo, d);
         long long w = (4 + days) % 7;
