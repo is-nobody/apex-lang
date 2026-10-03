@@ -449,6 +449,25 @@ function json_large_integer_roundtrip()
     // 2^53 - 1 is still exact
     assert_equal(json.decode(json.encode(9007199254740991)), 9007199254740991, "2^53-1 roundtrip")
 
+// test: deeply nested input is rejected instead of crashing
+function json_depth_limit()
+    n = 500                                        // well above JSON_MAX_DEPTH (256)
+    s = ""
+    for i = 1, n
+        s = "{s}["
+    for i = 1, n
+        s = "{s}]"
+    assert_none(json.decode(s), "deep nested array rejected")
+
+    s2 = ""
+    for i = 1, n
+        s2 = "{s2}\{\"a\":"
+    for i = 1, n
+        s2 = "{s2}1"
+    for i = 1, n
+        s2 = "{s2}\}"
+    assert_none(json.decode(s2), "deep nested object rejected")
+
 // execute all json library test cases
 json_primitives()
 json_numbers()
@@ -489,6 +508,7 @@ json_multi_level_arrays()
 json_decimal_roundtrip()
 json_number_types()
 json_empty_container_ws()
+json_depth_limit()
 
 // report completion of json library tests
 os.output("[PASS] libraries/json.apex")

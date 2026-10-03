@@ -16,6 +16,9 @@
 #include <windows.h>
 #endif
 
+// recursion limit for parsing, encoding, and snapshotting
+#define JSON_MAX_DEPTH 256
+
 // dynamic string builder for efficient text assembly
 typedef struct {
     char* buffer;                                                                 // dynamic buffer
@@ -193,8 +196,9 @@ static bool parse_number(const char** s, Value* out_value) {
     return true;                                                                  // success
 }
 
-// recursive json parser that builds vm values; VM-agnostic so it can run on a worker
-static bool json_parse_value(const char** json_str, Value* out_value) {
+// recursive json parser that builds vm values
+static bool json_parse_value(const char** json_str, Value* out_value, int depth) {
+    if (depth > JSON_MAX_DEPTH) return false;                                     // pathological nesting
     skip_ws(json_str);                                                            // skip whitespace
     if (!**json_str) return false;                                                // unexpected end
     
@@ -238,7 +242,7 @@ static bool json_parse_value(const char** json_str, Value* out_value) {
         if (**json_str != ']') {                                                  // non-empty array
             while (1) {                                                           // parse elements
                 Value item;                                                       // element value
-                if (!json_parse_value(json_str, &item)) {                         // parse element
+                if (!json_parse_value(json_str, &item, depth + 1)) {              // parse element
                     value_decref(*out_value);                                     // release table
                     return false;                                                 // parse failed
                 }
@@ -287,7 +291,7 @@ static bool json_parse_value(const char** json_str, Value* out_value) {
                 }
                 (*json_str)++;                                                    // skip colon
                 Value val;                                                        // value
-                if (!json_parse_value(json_str, &val)) {                          // parse value
+                if (!json_parse_value(json_str, &val, depth + 1)) {               // parse value
                     free(key_str);                                                // free key
                     value_decref(*out_value);                                     // release table
                     return false;                                                 // parse failed
@@ -371,7 +375,8 @@ static void key_to_cstr(Value key, char* buf, int bufsz) {
 }
 
 // recursively encodes a vm value to json; VM-agnostic so it can run on a worker
-static void json_encode_value(Value value, StringBuilder* sb) {
+static bool json_encode_value(Value value, StringBuilder* sb, int depth) {
+    if (depth > JSON_MAX_DEPTH) return false;                                     // pathological nesting
     if (IS_NUMBER(value)) {                                                       // number value
         char buf[64];                                                             // buffer for number
         double num = AS_NUMBER(value);                                            // extract number
@@ -393,7 +398,7 @@ static void json_encode_value(Value value, StringBuilder* sb) {
         Table* t = AS_TABLE(value);                                               // unwrap table
         if (TABLE_TOTAL_COUNT(t) == 0) {                                          // empty table
             sb_append(sb, "{}", 2);                                               // empty object
-            return;
+            return true;                                                          // success
         }
         
         bool is_array = (t->array_count > 0 && t->hash_count == 0);              // check if array
@@ -402,7 +407,7 @@ static void json_encode_value(Value value, StringBuilder* sb) {
             sb_append(sb, "[", 1);                                                // opening bracket
             for (int i = 0; i < t->array_count; i++) {                            // iterate elements
                 if (i > 0) sb_append(sb, ", ", 2);                                // comma separator
-                json_encode_value(t->array_part[i], sb);                          // encode element
+                if (!json_encode_value(t->array_part[i], sb, depth + 1)) return false;  // encode element
             }
             sb_append(sb, "]", 1);                                                // closing bracket
         } else {                                                                  // object
@@ -416,7 +421,7 @@ static void json_encode_value(Value value, StringBuilder* sb) {
                 snprintf(key, sizeof(key), "%d", i + 1);                          // 1-based index
                 append_escaped(sb, key);                                          // append key
                 sb_append(sb, ": ", 2);                                           // colon separator
-                json_encode_value(t->array_part[i], sb);                          // encode value
+                if (!json_encode_value(t->array_part[i], sb, depth + 1)) return false;  // encode value
             }
             
             for (int i = 0; i < t->capacity; i++) {                               // hash part
@@ -432,7 +437,7 @@ static void json_encode_value(Value value, StringBuilder* sb) {
                         append_escaped(sb, key_buf);                              // append converted key
                     }
                     sb_append(sb, ": ", 2);                                       // colon separator
-                    json_encode_value(entry->value, sb);                          // encode value
+                    if (!json_encode_value(entry->value, sb, depth + 1)) return false;  // encode value
                     entry = entry->next;                                          // advance
                 }
             }
@@ -441,13 +446,14 @@ static void json_encode_value(Value value, StringBuilder* sb) {
     } else {
         sb_append(sb, "null", 4);                                                 // null
     }
+    return true;                                                                  // success
 }
 
 // parses a json string into a vm value; runs on the caller's thread or a worker
 static Value json_decode_impl(const char* str) {
     const char* p = str;                                                          // cursor over input
     Value result;                                                                 // parsed result
-    if (!json_parse_value(&p, &result)) {                                         // parse failed
+    if (!json_parse_value(&p, &result, 0)) {                                      // parse failed or too deep
         return MAKE_NONE();                                                       // return none
     }
     skip_ws(&p);                                                                  // allow trailing whitespace
@@ -462,45 +468,54 @@ static Value json_decode_impl(const char* str) {
 static Value json_encode_impl(Value value) {
     StringBuilder sb;                                                             // string builder
     sb_init(&sb, 256);                                                            // init builder
-    json_encode_value(value, &sb);                                                // encode value
+    if (!json_encode_value(value, &sb, 0)) {                                      // encode value
+        sb_free(&sb);                                                             // fail closed on depth limit
+        return MAKE_NONE();
+    }
     const char* buf = sb.buffer ? sb.buffer : "";                                 // guard against OOM
     Value out = MAKE_STRING(string_create(buf, sb.length));                       // fresh refcounted string
     sb_free(&sb);                                                                 // free builder
     return out;                                                                   // return encoded json
 }
 
-// forward declaration for the recursive snapshot helper; must precede any
-// caller because json_snapshot_value recurses into it
-static Table* json_snapshot_table(Table* src);
+// forward declaration for the recursive snapshot helper
+static bool json_snapshot_table(Table* src, Table** out, int depth);
 
-// copy a value for the worker's private view: interned strings are shared
-// because their refcount is immortal and never written, non-interned strings
-// are duplicated so the worker never races the main thread on their
-// refcounts, and tables are deep-copied because json.encode recurses through
-// arbitrarily nested structures
-static Value json_snapshot_value(Value v) {
+// copy a value for the worker's private view
+static bool json_snapshot_value(Value v, Value* out, int depth) {
+    if (depth > JSON_MAX_DEPTH) return false;                    // pathological nesting
     if (IS_STRING(v)) {                                          // string: interned shared, others copied
         StringObject* s = AS_STRING(v);
-        if (s->header.ref_count == INT_MAX) return v;            // interned: immortal, no refcount mutation
-        return MAKE_STRING(string_create(s->chars, s->length));  // fresh copy, worker-owned
+        if (s->header.ref_count == INT_MAX) *out = v;            // interned: immortal, no refcount mutation
+        else *out = MAKE_STRING(string_create(s->chars, s->length));  // fresh copy, worker-owned
+        return true;
     }
     if (IS_TABLE(v)) {                                           // table: recurse into a worker-owned copy
-        return MAKE_TABLE(json_snapshot_table(AS_TABLE(v)));
+        Table* copy = NULL;
+        if (!json_snapshot_table(AS_TABLE(v), &copy, depth + 1)) return false;
+        *out = MAKE_TABLE(copy);
+        return true;
     }
-    return v;                                                    // number, bool, none: no refcount handling
+    *out = v;                                                    // number, bool, none: no refcount handling
+    return true;
 }
 
-// duplicate a table's structure (buckets, chains, array part) for a worker,
-// deep-copying every string and nested table reachable from it
-static Table* json_snapshot_table(Table* src) {
-    if (!src) return NULL;                                       // guard against null
+// duplicate a table's structure (buckets, chains, array part) for a worker
+static bool json_snapshot_table(Table* src, Table** out, int depth) {
+    if (!src) { *out = NULL; return true; }                      // guard against null
+    if (depth > JSON_MAX_DEPTH) return false;                    // pathological nesting
+
     Table* dst = table_create(src->capacity);                    // fresh table, same bucket count
 
     if (src->array_part != NULL) {                               // copy occupied array slots
         for (int i = 0; i < src->array_count; i++) {
             Value v = src->array_part[i];
             if (!IS_NONE(v)) {
-                Value cv = json_snapshot_value(v);
+                Value cv;
+                if (!json_snapshot_value(v, &cv, depth + 1)) {   // depth limit or OOM
+                    value_decref(MAKE_TABLE(dst));
+                    return false;
+                }
                 table_set_int(dst, i, cv);                       // table_set_int increfs the value
                 value_decref(cv);                                // release our temporary reference
             }
@@ -511,8 +526,12 @@ static Table* json_snapshot_table(Table* src) {
         for (int i = 0; i < src->capacity; i++) {
             TableEntry* e = src->entries[i];
             while (e) {
-                Value ck = json_snapshot_value(e->key);
-                Value cv = json_snapshot_value(e->value);
+                Value ck, cv;
+                if (!json_snapshot_value(e->key, &ck, depth + 1) ||
+                    !json_snapshot_value(e->value, &cv, depth + 1)) {
+                    value_decref(MAKE_TABLE(dst));
+                    return false;
+                }
                 table_set(dst, ck, cv);                          // table_set increfs key and value
                 value_decref(ck);                                // release our temporary references
                 value_decref(cv);
@@ -520,7 +539,8 @@ static Table* json_snapshot_table(Table* src) {
             }
         }
     }
-    return dst;                                                  // return worker-owned copy
+    *out = dst;                                                  // return worker-owned copy
+    return true;
 }
 
 // create a leaf future ready to be resolved by a background worker
@@ -692,10 +712,14 @@ bool json_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
             return true;                                                          // builtin handled
         }
 
-        if (vm->builtin_async) {                                           // inside coroutine: snapshot and offload
+        if (vm->builtin_async) {                                          // inside coroutine: snapshot and offload
             JsonEncodeArgs* a = (JsonEncodeArgs*)malloc(sizeof(JsonEncodeArgs));  // pack argument struct
             if (!a) { *result = MAKE_NONE(); return true; }                       // allocation failed
-            a->snapshot = json_snapshot_value(args[0]);                           // worker-owned structural copy
+            if (!json_snapshot_value(args[0], &a->snapshot, 0)) {                 // depth limit or OOM
+                free(a);
+                *result = MAKE_NONE();
+                return true;
+            }
             return json_run_async_or_sync(vm, json_encode_kernel,
                                           json_encode_args_free, a, result);
         }

@@ -59,11 +59,23 @@ function xml_nested_structure()
         assert_equal(result["__tag"], "root", "xml_decode nested root tag")
         assert_equal(result[1]["__tag"], "items", "xml_decode nested items tag")
 
+// test: deeply nested input is rejected instead of crashing
+function xml_depth_limit()
+    n = 500                                        // well above XML_MAX_DEPTH (256)
+    s = ""
+    for i = 1, n
+        s = "{s}<a>"
+    for i = 1, n
+        s = "{s}</a>"
+    result = xml.decode(s)
+    assert_equal(result, none, "deep nested xml rejected")
+
 // execute all xml library test cases
 xml_decode()
 xml_encode()
 xml_invalid_input()
 xml_nested_structure()
+xml_depth_limit()
 
 // report completion of xml library tests
 os.output("[PASS] libraries/xml.apex")

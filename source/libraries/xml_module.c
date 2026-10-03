@@ -15,6 +15,9 @@
 #include <windows.h>
 #endif
 
+// recursion limit for parsing, encoding, and snapshotting
+#define XML_MAX_DEPTH 256
+
 // dynamic string builder for efficient text assembly
 typedef struct {
     char* buffer;                                                                 // dynamic buffer
@@ -114,7 +117,8 @@ static void xml_parse_attrs(XmlParser* xp, Table* t) {
 }
 
 // parses a single xml element recursively; VM-agnostic so it can run on a worker
-static Value xml_parse_element(XmlParser* xp) {
+static Value xml_parse_element(XmlParser* xp, int depth) {
+    if (depth > XML_MAX_DEPTH) return MAKE_NONE();                              // pathological nesting
     xml_skip_ws(xp);                                                            // skip whitespace
     if (*xp->p != '<') return MAKE_NONE();                                      // not an element
     xp->p++;                                                                    // skip opening '<'
@@ -167,8 +171,8 @@ static Value xml_parse_element(XmlParser* xp) {
                     if (*xp->p == '>') xp->p++;                                 // skip '>'
                     return elem;                                                // done
                 } else {                                                        // child element
-                    Value child = xml_parse_element(xp);                        // parse child
-                    if (IS_NONE(child)) {                                       // parse failed
+                    Value child = xml_parse_element(xp, depth + 1);             // parse child
+                    if (IS_NONE(child)) {                                       // parse failed or too deep
                         value_decref(elem);                                     // release element
                         return MAKE_NONE();                                     // error
                     }
@@ -205,9 +209,10 @@ static Value xml_parse_element(XmlParser* xp) {
     return MAKE_NONE();                                                         // error
 }
 
-// recursively writes an xml node from a vm table; VM-agnostic so it can run on a worker
-static void xml_encode_node(Value v, int depth, StringBuilder* sb) {
-    if (!IS_TABLE(v)) return;                                                  // not a table
+// recursively writes an xml node from a vm table
+static bool xml_encode_node(Value v, int depth, StringBuilder* sb) {
+    if (depth > XML_MAX_DEPTH) return false;                                   // pathological nesting
+    if (!IS_TABLE(v)) return true;                                             // not a table: nothing to write
     
     Table* table = AS_TABLE(v);                                                // unwrap table
     
@@ -215,7 +220,7 @@ static void xml_encode_node(Value v, int depth, StringBuilder* sb) {
     Value tag_val;                                                             // tag value
     if (!table_get(table, k_tag, &tag_val) || !IS_STRING(tag_val)) {           // missing tag
         value_decref(k_tag);                                                   // release key
-        return;
+        return true;                                                           // no element here, nothing to write
     }
     value_decref(k_tag);                                                       // release key
     
@@ -306,7 +311,10 @@ static void xml_encode_node(Value v, int depth, StringBuilder* sb) {
             Value child_val;                                                   // child value
             if (table_get(table, k, &child_val)) {                             // child found
                 value_decref(k);                                               // release key
-                xml_encode_node(child_val, depth + 1, sb);                     // recursively write child
+                if (!xml_encode_node(child_val, depth + 1, sb)) {              // recursively write child
+                    value_decref(child_val);                                   // release child value
+                    return false;
+                }
                 value_decref(child_val);                                       // release child value
             } else {
                 value_decref(k);                                               // release key
@@ -330,7 +338,9 @@ static void xml_encode_node(Value v, int depth, StringBuilder* sb) {
                             }
                         }
                         if (is_numeric_key && key_str->length > 0) {           // numeric string key
-                            xml_encode_node(e->value, depth + 1, sb);          // recursively write child
+                            if (!xml_encode_node(e->value, depth + 1, sb)) {   // recursively write child
+                                return false;
+                            }
                         }
                     }
                 }
@@ -358,13 +368,14 @@ static void xml_encode_node(Value v, int depth, StringBuilder* sb) {
     } else {
         sb_append(sb, "/>\n", 3);                                              // self-closing tag
     }
+    return true;                                                               // success
 }
 
 // parse xml text into a vm value; runs on the caller's thread or a worker
 static Value xml_decode_impl(const char* str) {
     XmlParser xp;                                                              // xml parser
     xp.p = str;                                                                // set pointer
-    Value root = xml_parse_element(&xp);                                       // parse root
+    Value root = xml_parse_element(&xp, 0);                                    // parse root
     if (IS_TABLE(root)) return root;                                           // valid root
     value_decref(root);                                                        // release invalid
     return MAKE_NONE();                                                        // return none
@@ -374,7 +385,10 @@ static Value xml_decode_impl(const char* str) {
 static Value xml_encode_impl(Value value) {
     StringBuilder sb;                                                          // string builder
     sb_init(&sb, 256);                                                         // init builder
-    xml_encode_node(value, 0, &sb);                                            // write xml
+    if (!xml_encode_node(value, 0, &sb)) {                                     // write xml
+        sb_free(&sb);                                                          // fail closed on depth limit
+        return MAKE_NONE();
+    }
     if (sb.length == 0) {                                                      // empty output
         sb_free(&sb);                                                          // free builder
         return MAKE_NONE();                                                    // return none
@@ -386,36 +400,43 @@ static Value xml_encode_impl(Value value) {
 
 // forward declaration for the recursive snapshot helper; must precede any
 // caller because xml_snapshot_value recurses into it
-static Table* xml_snapshot_table(Table* src);
+static bool xml_snapshot_table(Table* src, Table** out, int depth);
 
-// copy a value for the worker's private view: interned strings are shared
-// because their refcount is immortal and never written, non-interned strings
-// are duplicated so the worker never races the main thread on their
-// refcounts, and tables are deep-copied because xml.encode recurses through
-// arbitrarily nested structures
-static Value xml_snapshot_value(Value v) {
+// copy a value for the worker's private view
+static bool xml_snapshot_value(Value v, Value* out, int depth) {
+    if (depth > XML_MAX_DEPTH) return false;                     // pathological nesting
     if (IS_STRING(v)) {                                          // string: interned shared, others copied
         StringObject* s = AS_STRING(v);
-        if (s->header.ref_count == INT_MAX) return v;            // interned: immortal, no refcount mutation
-        return MAKE_STRING(string_create(s->chars, s->length));  // fresh copy, worker-owned
+        if (s->header.ref_count == INT_MAX) *out = v;            // interned: immortal, no refcount mutation
+        else *out = MAKE_STRING(string_create(s->chars, s->length));  // fresh copy, worker-owned
+        return true;
     }
     if (IS_TABLE(v)) {                                           // table: recurse into a worker-owned copy
-        return MAKE_TABLE(xml_snapshot_table(AS_TABLE(v)));
+        Table* copy = NULL;
+        if (!xml_snapshot_table(AS_TABLE(v), &copy, depth + 1)) return false;
+        *out = MAKE_TABLE(copy);
+        return true;
     }
-    return v;                                                    // number, bool, none: no refcount handling
+    *out = v;                                                    // number, bool, none: no refcount handling
+    return true;
 }
 
-// duplicate a table's structure (buckets, chains, array part) for a worker,
-// deep-copying every string and nested table reachable from it
-static Table* xml_snapshot_table(Table* src) {
-    if (!src) return NULL;                                       // guard against null
+// duplicate a table's structure (buckets, chains, array part) for a worker
+static bool xml_snapshot_table(Table* src, Table** out, int depth) {
+    if (!src) { *out = NULL; return true; }                      // guard against null
+    if (depth > XML_MAX_DEPTH) return false;                     // pathological nesting
+
     Table* dst = table_create(src->capacity);                    // fresh table, same bucket count
 
     if (src->array_part != NULL) {                               // copy occupied array slots
         for (int i = 0; i < src->array_count; i++) {
             Value v = src->array_part[i];
             if (!IS_NONE(v)) {
-                Value cv = xml_snapshot_value(v);
+                Value cv;
+                if (!xml_snapshot_value(v, &cv, depth + 1)) {    // depth limit or OOM
+                    value_decref(MAKE_TABLE(dst));
+                    return false;
+                }
                 table_set_int(dst, i, cv);                       // table_set_int increfs the value
                 value_decref(cv);                                // release our temporary reference
             }
@@ -426,8 +447,12 @@ static Table* xml_snapshot_table(Table* src) {
         for (int i = 0; i < src->capacity; i++) {
             TableEntry* e = src->entries[i];
             while (e) {
-                Value ck = xml_snapshot_value(e->key);
-                Value cv = xml_snapshot_value(e->value);
+                Value ck, cv;
+                if (!xml_snapshot_value(e->key, &ck, depth + 1) ||
+                    !xml_snapshot_value(e->value, &cv, depth + 1)) {
+                    value_decref(MAKE_TABLE(dst));
+                    return false;
+                }
                 table_set(dst, ck, cv);                          // table_set increfs key and value
                 value_decref(ck);                                // release our temporary references
                 value_decref(cv);
@@ -435,7 +460,8 @@ static Table* xml_snapshot_table(Table* src) {
             }
         }
     }
-    return dst;                                                  // return worker-owned copy
+    *out = dst;                                                  // return worker-owned copy
+    return true;
 }
 
 // create a leaf future ready to be resolved by a background worker
@@ -610,7 +636,11 @@ bool xml_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         if (vm->builtin_async) {                                      // inside coroutine: snapshot and offload
             XmlEncodeArgs* a = (XmlEncodeArgs*)malloc(sizeof(XmlEncodeArgs));  // pack argument struct
             if (!a) { *result = MAKE_NONE(); return true; }                  // allocation failed
-            a->snapshot = xml_snapshot_value(args[0]);                       // worker-owned structural copy
+            if (!xml_snapshot_value(args[0], &a->snapshot, 0)) {             // depth limit or OOM
+                free(a);
+                *result = MAKE_NONE();
+                return true;
+            }
             return xml_run_async_or_sync(vm, xml_encode_kernel,
                                          xml_encode_args_free, a, result);
         }
