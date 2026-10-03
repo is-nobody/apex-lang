@@ -45,6 +45,15 @@ static uint64_t read_u64(FILE* f) {
            ((uint64_t)buf[7] << 56);
 }
 
+// returns true when `count` items of `item_bytes` each still fit before the end of the file
+static bool fits_in_file(FILE* f, long file_size, uint64_t count, uint64_t item_bytes) {
+    long pos = ftell(f);
+    if (pos < 0 || file_size < pos) return false;
+    uint64_t remaining = (uint64_t)(file_size - pos);
+    if (item_bytes != 0 && count > remaining / item_bytes) return false;
+    return true;
+}
+
 // reads a string prefixed with its length, returns empty string for length 0
 static char* read_string(FILE* f) {
     uint32_t len = read_u32(f);          // read length prefix
@@ -76,8 +85,8 @@ static Instruction read_instruction(FILE* f) {
     return inst;
 }
 
-// reads a constant pool entry from file
-static Constant read_constant(FILE* f) {
+// reads a constant pool entry from file. file_size is used to reject forged
+static Constant read_constant(FILE* f, long file_size) {
     Constant c;
     memset(&c, 0, sizeof(c));                     // clear all fields including cached_str
     c.type = (ConstantType)read_u32(f);           // read type discriminator
@@ -105,10 +114,20 @@ static Constant read_constant(FILE* f) {
         }
         case CONST_JUMP_TABLE: {
             uint32_t count = read_u32(f);                       // slot count
+            if (!fits_in_file(f, file_size, count, 4)) {        // 4 bytes per target pc
+                c.type = CONST_NONE;                            // forged or truncated: reject
+                break;
+            }
             c.jump_table.count = (int)count;
-            c.jump_table.addresses = count
-                ? (int*)malloc(sizeof(int) * count)             // target pc array
-                : NULL;
+            c.jump_table.addresses = NULL;
+            if (count > 0) {
+                c.jump_table.addresses = (int*)malloc(sizeof(int) * count);   // target pc array
+                if (!c.jump_table.addresses) {                  // OOM: reject
+                    c.type = CONST_NONE;
+                    c.jump_table.count = 0;
+                    break;
+                }
+            }
             for (uint32_t i = 0; i < count; i++) {
                 c.jump_table.addresses[i] = (int)read_u32(f);   // each target pc
             }
@@ -118,20 +137,53 @@ static Constant read_constant(FILE* f) {
             uint32_t n_arr = read_u32(f);                       // positional count
             uint32_t n_kv  = read_u32(f);                       // kv count
             uint32_t cap   = read_u32(f);                       // growth hint
+
+            // total indices read = n_kv keys + (n_arr + n_kv) values, 4 bytes each.
+            // use uint64 to detect an n_arr + n_kv wrap before touching the file.
+            uint64_t total_values = (uint64_t)n_arr + (uint64_t)n_kv;    // detect wrap
+            if (total_values > 0xFFFFFFFFULL) {                          // wrapped sum: reject
+                c.type = CONST_NONE;
+                break;
+            }
+            uint64_t total_reads = (uint64_t)n_kv + total_values;        // key + value indices
+            if (!fits_in_file(f, file_size, total_reads, 4)) {           // 4 bytes each
+                c.type = CONST_NONE;
+                break;
+            }
+
             c.table.array_count    = (int)n_arr;
             c.table.hash_count     = (int)n_kv;
             c.table.array_capacity = (int)cap;
-            c.table.key_indices    = n_kv
-                ? (int*)malloc(sizeof(int) * n_kv)              // kv key pool indices
-                : NULL;
-            c.table.value_indices  = (n_arr + n_kv)
-                ? (int*)malloc(sizeof(int) * (n_arr + n_kv))    // value pool indices
-                : NULL;
-            for (uint32_t i = 0; i < n_kv; i++) {
-                c.table.key_indices[i] = (int)read_u32(f);      // each key pool index
+            c.table.key_indices    = NULL;
+            c.table.value_indices  = NULL;
+
+            if (n_kv > 0) {
+                c.table.key_indices = (int*)malloc(sizeof(int) * n_kv);  // kv key pool indices
+                if (!c.table.key_indices) {                              // OOM: reject
+                    c.type = CONST_NONE;
+                    c.table.array_count = 0;
+                    c.table.hash_count  = 0;
+                    c.table.array_capacity = 0;
+                    break;
+                }
             }
-            for (uint32_t i = 0; i < n_arr + n_kv; i++) {
-                c.table.value_indices[i] = (int)read_u32(f);    // each value pool index
+            if (total_values > 0) {
+                c.table.value_indices = (int*)malloc(sizeof(int) * (size_t)total_values);  // value pool indices
+                if (!c.table.value_indices) {                            // OOM: free + reject
+                    free(c.table.key_indices);
+                    c.table.key_indices = NULL;
+                    c.type = CONST_NONE;
+                    c.table.array_count = 0;
+                    c.table.hash_count  = 0;
+                    c.table.array_capacity = 0;
+                    break;
+                }
+            }
+            for (uint32_t i = 0; i < n_kv; i++) {
+                c.table.key_indices[i] = (int)read_u32(f);              // each key pool index
+            }
+            for (uint32_t i = 0; i < total_values; i++) {
+                c.table.value_indices[i] = (int)read_u32(f);            // each value pool index
             }
             break;
         }
@@ -150,7 +202,19 @@ BytecodeChunk* bytecode_load(const char* path) {
         print_error("Cannot open bytecode file '%s'", path);
         return NULL;
     }
-    
+
+    // capture the total file size once; every section count is validated
+    // against what remains, so forged or truncated counts are rejected
+    // before any allocation or loop runs
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
+    long file_size = ftell(f);
+    if (file_size < 8) {                                        // need at least magic + one count
+        print_error("Invalid bytecode file: too short");
+        fclose(f);
+        return NULL;
+    }
+    if (fseek(f, 0, SEEK_SET) != 0) { fclose(f); return NULL; }
+
     // verify header: magic number must match
     uint32_t magic = read_u32(f);                               // read magic number
     if (magic != APEXC_MAGIC) {                                 // verify "APEX"
@@ -167,6 +231,12 @@ BytecodeChunk* bytecode_load(const char* path) {
     
     // load code section: all instructions
     uint32_t code_count = read_u32(f);                          // read instruction count
+    if (!fits_in_file(f, file_size, code_count, 16)) {          // 16 bytes per instruction
+        print_error("Invalid bytecode: code section exceeds file size");
+        bytecode_destroy(chunk);
+        fclose(f);
+        return NULL;
+    }
     for (uint32_t i = 0; i < code_count; i++) {
         Instruction inst = read_instruction(f);                 // read each instruction
         bytecode_emit(chunk, inst);                             // add to chunk
@@ -174,13 +244,31 @@ BytecodeChunk* bytecode_load(const char* path) {
     
     // load constants section: all constants from the pool
     uint32_t const_count = read_u32(f);                         // read constant count
+    if (!fits_in_file(f, file_size, const_count, 4)) {          // 4 bytes minimum per constant
+        print_error("Invalid bytecode: constant section exceeds file size");
+        bytecode_destroy(chunk);
+        fclose(f);
+        return NULL;
+    }
     for (uint32_t i = 0; i < const_count; i++) {
-        Constant c = read_constant(f);                          // read each constant
+        Constant c = read_constant(f, file_size);               // read each constant (bounds-checked)
         bytecode_add_constant(chunk, c);                        // add to chunk
     }
     
     // load globals section: all global variables
     uint32_t global_count = read_u32(f);                        // read global count
+    if (global_count > VM_MAX_GLOBALS) {                        // hard cap: matches vm globals array
+        print_error("Invalid bytecode: too many globals (%u > %d)", global_count, VM_MAX_GLOBALS);
+        bytecode_destroy(chunk);
+        fclose(f);
+        return NULL;
+    }
+    if (!fits_in_file(f, file_size, global_count, 8)) {         // min 4-byte length + 4-byte index
+        print_error("Invalid bytecode: globals section exceeds file size");
+        bytecode_destroy(chunk);
+        fclose(f);
+        return NULL;
+    }
     for (uint32_t i = 0; i < global_count; i++) {
         char* name = read_string(f);                            // read global name
         if (name) {
@@ -192,6 +280,12 @@ BytecodeChunk* bytecode_load(const char* path) {
     
     // load functions section: all function metadata
     uint32_t func_count = read_u32(f);                          // read function count
+    if (!fits_in_file(f, file_size, func_count, 24)) {          // name-len + 5 * u32 = 24 bytes minimum
+        print_error("Invalid bytecode: functions section exceeds file size");
+        bytecode_destroy(chunk);
+        fclose(f);
+        return NULL;
+    }
     for (uint32_t i = 0; i < func_count; i++) {
         char* name = read_string(f);                            // read function name
         uint32_t address = read_u32(f);                         // read entry address
@@ -211,6 +305,12 @@ BytecodeChunk* bytecode_load(const char* path) {
     
     // load string pool: interned strings for deduplication
     uint32_t string_count = read_u32(f);                        // read string pool count
+    if (!fits_in_file(f, file_size, string_count, 4)) {         // 4 bytes for each length prefix
+        print_error("Invalid bytecode: string pool section exceeds file size");
+        bytecode_destroy(chunk);
+        fclose(f);
+        return NULL;
+    }
     for (uint32_t i = 0; i < string_count; i++) {
         char* str = read_string(f);                             // read pooled string
         if (str) {
