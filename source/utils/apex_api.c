@@ -78,13 +78,23 @@ static bool stack_grow(ApexState* S, int min_cap) {
 }
 
 // pushes a value, taking a new reference on heap-allocated values
-static void stack_push(ApexState* S, Value v) {
+static bool stack_push(ApexState* S, Value v) {
     if (!stack_grow(S, S->top + 1)) {               // ensure room for one more element
-        apex_raise(S, "value stack overflow");      // report; longjmp if a protected context is active
-        return;                                     // do not write to a NULL stack
+        return false;                               // caller decides how to report
     }
     if ((v & QNAN) == QNAN) value_incref(v);        // bump refcount for heap values
     S->stack[S->top++] = v;                         // store and advance top
+    return true;                                    // success
+}
+
+// records a pending error without longjmp
+static void stack_note_error(ApexState* S, const char* msg) {
+    if (!S) return;
+    if (!S->error_active) {                         // keep the first error
+        snprintf(S->error_message, sizeof(S->error_message), "%s", msg);
+    }
+    S->error_active = 1;
+    if (S->jmp_active) longjmp(S->error_jmp, 1);    // still unwind if protected
 }
 
 // pops one value and transfers ownership of one reference to the caller
@@ -183,6 +193,18 @@ int apex_raise(ApexState* S, const char* fmt, ...) {
 const char* apex_last_error(ApexState* S) {
     if (!S) return "";                              // null guard
     return S->error_message;                        // return stored message
+}
+
+// returns 1 if the state has a pending error, 0 otherwise
+int apex_had_error(ApexState* S) {
+    return S ? S->error_active : 0;
+}
+
+// clears the pending error flag and message
+void apex_clear_error(ApexState* S) {
+    if (!S) return;
+    S->error_active = 0;
+    S->error_message[0] = '\0';
 }
 
 // creates a new apex state with a fresh vm, returns null on failure
@@ -293,10 +315,10 @@ int apex_check_stack(ApexState* S, int extra) {
 
 // pushes a copy of the value at the given stack index
 void apex_push_value(ApexState* S, int index) {
-    if (!S) return;                                 // null guard
+    if (!S) return;
     Value* v = stack_at(S, index);                  // resolve source slot
     Value copy = v ? *v : MAKE_NONE();              // copy value or none if out of range
-    stack_push(S, copy);                            // push the copy
+    if (!stack_push(S, copy)) stack_note_error(S, "value stack overflow");
 }
 
 // removes the element at the given index, shifting down elements above it
@@ -337,63 +359,72 @@ void apex_replace(ApexState* S, int index) {
 
 // pushes none onto the stack
 void apex_push_none(ApexState* S) {
-    if (S) stack_push(S, MAKE_NONE());              // push and guard for null
+    if (!S) return;
+    if (!stack_push(S, MAKE_NONE())) stack_note_error(S, "value stack overflow");
 }
 
 // pushes a boolean, any non-zero value becomes true
 void apex_push_boolean(ApexState* S, int b) {
-    if (S) stack_push(S, MAKE_BOOL(b != 0));        // normalize to 0 or 1
+    if (!S) return;
+    if (!stack_push(S, MAKE_BOOL(b != 0))) stack_note_error(S, "value stack overflow");
 }
 
 // pushes an integer as a number value
 void apex_push_integer(ApexState* S, long long n) {
-    if (S) stack_push(S, MAKE_NUMBER((double)n));   // convert to double and box
+    if (!S) return;
+    if (!stack_push(S, MAKE_NUMBER((double)n))) stack_note_error(S, "value stack overflow");
 }
 
 // pushes a floating-point number
 void apex_push_number(ApexState* S, double n) {
-    if (S) stack_push(S, MAKE_NUMBER(n));           // box the double
+    if (!S) return;
+    if (!stack_push(S, MAKE_NUMBER(n))) stack_note_error(S, "value stack overflow");
 }
 
 // pushes a null-terminated string as an owned, non-interned value
 void apex_push_string(ApexState* S, const char* s) {
-    if (!S) return;                                 // null guard
-    if (!s) { stack_push(S, MAKE_NONE()); return; } // null string becomes none
+    if (!S) return;
+    if (!s) { apex_push_none(S); return; }          // null string becomes none
     StringObject* str = string_create(s, (int)strlen(s));  // allocate a fresh string
-    stack_push(S, MAKE_STRING(str));                // push the string value
-    value_decref(MAKE_STRING(str));                 // stack_push took its own ref
+    bool ok = stack_push(S, MAKE_STRING(str));      // push the string value
+    value_decref(MAKE_STRING(str));                 // always release our reference
+    if (!ok) stack_note_error(S, "value stack overflow");
 }
 
 // pushes a string of a given length, may contain embedded zeros
 void apex_push_lstring(ApexState* S, const char* s, size_t len) {
-    if (!S) return;                                 // null guard
-    if (!s) { stack_push(S, MAKE_NONE()); return; } // null string becomes none
+    if (!S) return;
+    if (!s) { apex_push_none(S); return; }          // null string becomes none
     StringObject* str = string_create(s, (int)len); // allocate a fresh string
-    stack_push(S, MAKE_STRING(str));                // push the string value
-    value_decref(MAKE_STRING(str));                 // stack_push took its own ref
+    bool ok = stack_push(S, MAKE_STRING(str));      // push the string value
+    value_decref(MAKE_STRING(str));                 // always release our reference
+    if (!ok) stack_note_error(S, "value stack overflow");
 }
 
 // pushes a light userdata value wrapping an opaque c pointer
 void apex_push_light_userdata(ApexState* S, void* p) {
-    if (S) stack_push(S, MAKE_LIGHTUSERDATA(p));    // box the pointer
+    if (!S) return;
+    if (!stack_push(S, MAKE_LIGHTUSERDATA(p))) stack_note_error(S, "value stack overflow");
 }
 
 // creates a new empty table and pushes it onto the stack
 void apex_new_table(ApexState* S) {
-    if (!S) return;                                 // null guard
+    if (!S) return;
     Table* t = table_create(8);                     // new table with default capacity
-    stack_push(S, MAKE_TABLE(t));                   // push the table value
-    value_decref(MAKE_TABLE(t));                    // stack holds the live reference
+    bool ok = stack_push(S, MAKE_TABLE(t));         // push the table value
+    value_decref(MAKE_TABLE(t));                    // always release our reference
+    if (!ok) stack_note_error(S, "value stack overflow");
 }
 
 // creates a new empty table with pre-sized array and hash parts
 void apex_new_table_sized(ApexState* S, int narr, int nrec) {
-    if (!S) return;                                 // null guard
+    if (!S) return;
     int cap = narr > nrec ? narr : nrec;            // use the larger of the two hints
     if (cap < 8) cap = 8;                           // enforce a small minimum
     Table* t = table_create(cap);                   // new table with requested capacity
-    stack_push(S, MAKE_TABLE(t));                   // push the table value
-    value_decref(MAKE_TABLE(t));                    // stack holds the live reference
+    bool ok = stack_push(S, MAKE_TABLE(t));         // push the table value
+    value_decref(MAKE_TABLE(t));                    // always release our reference
+    if (!ok) stack_note_error(S, "value stack overflow");
 }
 
 // returns the type tag of the value at the given index
@@ -600,17 +631,18 @@ void apex_raw_get(ApexState* S, int index) {
 
 // pushes the value stored under the given string key (none on miss)
 void apex_get_field(ApexState* S, int index, const char* k) {
-    if (!S || !k) return;                           // null guard
+    if (!S || !k) return;
     Value key = make_key_string(S, k);              // intern the key string
     Value* tbl_slot = stack_at(S, index);           // resolve table slot
     if (!tbl_slot || !IS_TABLE(*tbl_slot)) {        // not a table: push none
-        stack_push(S, MAKE_NONE());
+        if (!stack_push(S, MAKE_NONE())) stack_note_error(S, "value stack overflow");
         return;
     }
     Value out = MAKE_NONE();                        // default result
     table_get(AS_TABLE(*tbl_slot), key, &out);      // actual lookup
-    stack_push(S, out);                             // push on stack
-    if ((out & QNAN) == QNAN) value_decref(out);    // stack_push took its own ref
+    bool ok = stack_push(S, out);                   // push on stack
+    if ((out & QNAN) == QNAN) value_decref(out);    // always release our reference
+    if (!ok) stack_note_error(S, "value stack overflow");
 }
 
 // raw variant kept for api parity with lua, same semantics as above today
@@ -699,11 +731,15 @@ long long apex_table_size(ApexState* S, int index) {
 
 // pushes the value of a global, returns 1 if found and 0 otherwise
 int apex_get_global(ApexState* S, const char* name) {
-    int idx = bytecode_get_global(S->active_chunk, name);  // lookup global index
-    if (idx < 0 || idx >= S->vm->global_count) return 0;   // not found or out of range
-    Value v = S->vm->globals[idx];                  // read from vm global table
-    stack_push(S, v);                               // push on stack
-    return 1;                                       // report success
+    if (!S || !name || !S->active_chunk) return 0;
+    int idx = bytecode_get_global(S->active_chunk, name);
+    if (idx < 0 || idx >= S->vm->global_count) return 0;
+    Value v = S->vm->globals[idx];
+    if (!stack_push(S, v)) {                        // push on stack; on failure report
+        stack_note_error(S, "value stack overflow");
+        return 0;
+    }
+    return 1;
 }
 
 // pops a value and stores it in the named global
@@ -738,9 +774,11 @@ void apex_set_global(ApexState* S, const char* name) {
 int apex_run_string(ApexState* S, const char* code, const char* chunkname) {
     if (!S || !code) return 1;                      // null guard
 
+    if (S->error_active) {                          // sticky error from a prior failed push
+        return 1;                                   // refuse until apex_clear_error
+    }
+
     const char* name = chunkname ? chunkname : "<string>";  // default chunk name
-    S->error_message[0] = '\0';                     // clear previous error
-    S->error_active = 0;                            // reset error flag
 
     Tokenizer* tok = tokenizer_create(code, name);  // create tokenizer
     int tcount = 0;                                 // token count output
@@ -892,8 +930,23 @@ static bool apex_c_function_dispatch(VM* vm,
         if (strcmp(e->name, name) == 0) {             // name matches
             int base = S->top;                        // remember pre-call stack depth
 
-            for (int i = 0; i < arg_count; i++)       // push every argument
-                stack_push(S, args[i]);               // so the c function can read them
+            // push every argument
+            bool args_ok = true;
+            for (int i = 0; i < arg_count; i++) {
+                if (!stack_push(S, args[i])) { args_ok = false; break; }
+            }
+            if (!args_ok) {
+                while (S->top > base) {               // unwind any partially pushed args
+                    Value v = S->stack[--S->top];
+                    if ((v & QNAN) == QNAN) value_decref(v);
+                }
+                vm->had_error = true;
+                *result = MAKE_NONE();
+                snprintf(S->error_message, sizeof(S->error_message),
+                         "value stack overflow");
+                S->error_active = 1;
+                return true;                          // handled: error reported
+            }
 
             S->error_active = 0;                      // clear pending error
 

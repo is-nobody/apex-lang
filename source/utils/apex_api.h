@@ -203,6 +203,14 @@ int apex_run_file(ApexState* S, const char* path);
 // by that name like any other function, registrations are per-state
 void apex_register_function(ApexState* S, const char* name, ApexCFunction f);
 
+// returns 1 if the state has a pending error (set by a failed push, a
+// raised error, or a failed run), 0 otherwise
+int apex_had_error(ApexState* S);
+
+// clears the pending error flag and message. the host calls this after
+// inspecting apex_last_error, before attempting further operations
+void apex_clear_error(ApexState* S);
+
 // returns the underlying vm pointer, provided for advanced use only
 struct VM* apex_get_vm(ApexState* S);
 
