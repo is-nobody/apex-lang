@@ -328,15 +328,55 @@ static Value os_read_sync(void* p) {
     OsArgs* a = (OsArgs*)p;                             // unpack argument struct
     FILE* f = fopen(a->path, "rb");                     // open file binary
     if (!f) return MAKE_NONE();                         // file not found
-    fseek(f, 0, SEEK_END);                              // seek end
-    long size = ftell(f);                               // get size
-    fseek(f, 0, SEEK_SET);                              // seek start
-    char* buffer = (char*)malloc(size + 1);             // allocate buffer
-    if (!buffer) { fclose(f); return MAKE_NONE(); }     // allocation failed
-    size_t n = fread(buffer, 1, size, f);               // read content
-    buffer[n] = '\0';                                   // null terminate
+
+    // fast path: only trust ftell when it reports a positive size AND the
+    // stream can be rewound to the start. anything else falls through.
+    long size = -1;
+    if (fseek(f, 0, SEEK_END) == 0) {
+        size = ftell(f);
+        if (size <= 0) size = -1;                       // zero and negative both mean "unknown"
+        if (fseek(f, 0, SEEK_SET) != 0) size = -1;      // rewind failed: fall back
+    }
+
+    char* buffer = NULL;                                // result buffer, owned below
+    size_t len = 0;                                     // bytes actually read
+
+    if (size > 0) {
+        buffer = (char*)malloc((size_t)size + 1);       // +1 for null terminator
+        if (buffer) {
+            len = fread(buffer, 1, (size_t)size, f);    // reads 0..size bytes
+        }
+    }
+
+    if (!buffer) {
+        // fallback: rewind best-effort, then read in doubling chunks. this is
+        // the only path taken for pipes, /proc, empty files, and on OOM above.
+        fseek(f, 0, SEEK_SET);                          // idempotent if already at start
+        size_t cap = 4096;                              // initial capacity
+        buffer = (char*)malloc(cap + 1);
+        if (!buffer) { fclose(f); return MAKE_NONE(); }
+        size_t n;
+        while ((n = fread(buffer + len, 1, cap - len, f)) > 0) {
+            len += n;
+            if (len == cap) {                           // buffer full: grow
+                size_t new_cap = cap * 2;
+                char* nb = (char*)realloc(buffer, new_cap + 1);
+                if (!nb) { free(buffer); fclose(f); return MAKE_NONE(); }
+                buffer = nb;
+                cap = new_cap;
+            }
+        }
+    }
+
+    if (ferror(f)) {                                    // read error mid-stream
+        free(buffer);
+        fclose(f);
+        return MAKE_NONE();
+    }
     fclose(f);                                          // close file
-    StringObject* str = string_create(buffer, (int)n);  // fresh non-interned string
+
+    buffer[len] = '\0';                                 // null terminate
+    StringObject* str = string_create(buffer, (int)len);  // fresh non-interned string
     free(buffer);                                       // free temp buffer
     return MAKE_STRING(str);                            // return boxed string
 }
