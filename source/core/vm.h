@@ -57,7 +57,8 @@ extern bool apex_jit_runtime_enabled;
 // call stack limits
 #define VM_MAX_CALL_FRAMES 1024
 #define VM_MAX_FRAMES VM_MAX_CALL_FRAMES
-#define VM_MAX_GLOBALS 512
+#define VM_INITIAL_GLOBALS 64        // initial globals array capacity (grows on demand)
+#define VM_MAX_GLOBALS (1 << 24)     // hard upper bound (16M); sanity cap against pathological chunks
 #define VM_MAX_ARGS_STACK 64
 
 // register frame configuration
@@ -274,8 +275,9 @@ typedef struct VM {
     Value* registers;                // hot pointer to current frame's registers
     int current_frame;               // index of the currently active frame
 
-    Value globals[VM_MAX_GLOBALS];   // global variable storage (persistent across frames)
+    Value* globals;                  // heap-allocated global storage (grows on demand)
     int global_count;                // number of initialized globals
+    int global_capacity;             // allocated capacity of the globals array
 
     Value args_stack[VM_MAX_ARGS_STACK]; // stack for passing arguments to functions
     int args_top;                        // top index of the arguments stack
@@ -390,6 +392,9 @@ bool table_get_concat_key(Table* t, StringObject* prefix,
                           const char* tail, int tail_len, Value* out);
 bool table_set_concat_key(Table* t, StringObject* prefix,
                           const char* tail, int tail_len, Value value);
+
+// grows the globals array to hold at least `needed` entries
+bool vm_ensure_globals(VM* vm, int needed);
 
 // creates a new vm instance with the given source code
 VM* vm_create(const char* source);

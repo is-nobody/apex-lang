@@ -98,8 +98,7 @@ typedef struct {
     struct { int32_t value; int slot; } imms[JIT_MAX_IMMS];  // value -> frame slot mapping
     bool imm_opt_ok;                              // all body immediates were precomputed
 
-    uint64_t globals_used;  // bitmask of globals (0..63) read or written in the loop body
-    int      globals_count; // popcount of globals_used
+    bool     uses_globals;  // true if the loop body reads or writes any global variable
 
     uint64_t str_slots;     // bitmask of slots the loop body writes string Values into
 

@@ -361,11 +361,11 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
                 break;
             case OP_LOAD_GLOBAL:                                 // d = dest, a = global idx
                 if (d >= 0 && d < 64) pc_writes |= 1ULL << d;
-                if (a >= 0 && a < 64) info->globals_used |= 1ULL << a;
+                info->uses_globals = true;
                 break;
             case OP_STORE_GLOBAL:                                // d = src, a = global idx
                 if (d >= 0 && d < 64) pc_reads |= 1ULL << d;
-                if (a >= 0 && a < 64) info->globals_used |= 1ULL << a;
+                info->uses_globals = true;
                 break;
             case OP_TABLE_GET_KEY_STR:                           // d = tbl["prefix" .. num]
                 if (d >= 0 && d < 64) {
@@ -461,7 +461,6 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
     }
     info->live_in  = live_in_mask;                               // slots read before first write
     info->live_out = written_mask;                               // slots produced inside the loop
-    info->globals_count = __builtin_popcountll(info->globals_used);  // count globals touched
 }
 
 // registers a loop and runs the slot analysis on its body

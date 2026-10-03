@@ -347,7 +347,7 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs,
     if (li < 0) return JIT_LOOP_NOT_APPLICABLE;                     // pc is not a loop entry
     JitLoopInfo* info = &ctx->loops[li];
     if (!info->native_fn && !info->native_fn_neg) return JIT_LOOP_NOT_APPLICABLE;  // emit failed, no native code
-    if (info->globals_count > 0 && !ctx->vm) return JIT_LOOP_NOT_APPLICABLE;       // globals need the vm base pointer
+    if (info->uses_globals && !ctx->vm) return JIT_LOOP_NOT_APPLICABLE;            // globals need the vm base pointer
 
     // counter-indexed writes grow the array themselves; the table slot's
     // live_in check would otherwise reject fresh / undersized arrays

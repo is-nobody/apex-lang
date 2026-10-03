@@ -874,7 +874,7 @@ bool loop_is_safe_to_emit(JITContext* ctx, JitLoopInfo* info) {
     int entry     = info->entry_pc;                          // first body pc
     int back_edge = info->back_edge_pc;                      // jump back to entry
 
-    if (info->table.used && info->globals_count > 0) return false;
+    if (info->table.used && info->uses_globals) return false;
 
     if (info->kind == JIT_LOOP_NUMERIC_FOR) {
         for (int pc = entry + 1; pc < back_edge; pc++) {     // scan body for writes
@@ -1040,7 +1040,7 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
     }
 
     bool need_rbx_save = (info->table.used && info->table.slot >= 0) ||
-                         info->globals_count > 0;
+                         info->uses_globals;
     int rbx_save_slot = -1;
     if (need_rbx_save) {
         rbx_save_slot = frame_slots;                         // rbx lives inside the frame, above shadow space
@@ -1140,7 +1140,7 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
         x86_emit_load_r64_base(cb, X86_RAX, abi->frame_reg, info->table.slot * 8);  // rax = regs[slot]
         x86_emit_clear_high16_rax(cb);                       // strip nan-box tag
         x86_emit_load_r64_base(cb, X86_RBX, X86_RAX, (int32_t)offsetof(Table, array_part));  // rbx = array_part
-    } else if (info->globals_count > 0) {
+    } else if (info->uses_globals) {
         x86_emit_store_r64_rbp(cb, X86_RBX, x86_slot_disp(rbx_save_slot));  // save caller's rbx
         emit_u8(cb, 0x48); emit_u8(cb, 0x89);                // mov rbx, abi->globals_reg
         emit_u8(cb, 0xC0 | (abi->globals_reg << 3) | X86_RBX);
@@ -1548,7 +1548,7 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
     }
 
     bool need_rbx_save = (info->table.used && info->table.slot >= 0) ||
-                         info->globals_count > 0;
+                         info->uses_globals;
     int rbx_save_slot = -1;
     if (need_rbx_save) {
         rbx_save_slot = frame_slots;                         // rbx lives inside the frame, above shadow space
@@ -1574,13 +1574,13 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
 
     // save rbx if we touch tables or globals, and preload the relevant base
     if (info->table.used && info->table.slot >= 0) {
-        x86_emit_store_r64_rbp(cb, X86_RBX, x86_slot_disp(rbx_save_slot));
-        x86_emit_load_r64_base(cb, X86_RAX, abi->frame_reg, info->table.slot * 8);
-        x86_emit_clear_high16_rax(cb);
-        x86_emit_load_r64_base(cb, X86_RBX, X86_RAX, (int32_t)offsetof(Table, array_part));
-    } else if (info->globals_count > 0) {
-        x86_emit_store_r64_rbp(cb, X86_RBX, x86_slot_disp(rbx_save_slot));
-        emit_u8(cb, 0x48); emit_u8(cb, 0x89);
+        x86_emit_store_r64_rbp(cb, X86_RBX, x86_slot_disp(rbx_save_slot));  // save caller's rbx
+        x86_emit_load_r64_base(cb, X86_RAX, abi->frame_reg, info->table.slot * 8);  // rax = regs[slot]
+        x86_emit_clear_high16_rax(cb);                       // strip nan-box tag
+        x86_emit_load_r64_base(cb, X86_RBX, X86_RAX, (int32_t)offsetof(Table, array_part));  // rbx = array_part
+    } else if (info->uses_globals) {
+        x86_emit_store_r64_rbp(cb, X86_RBX, x86_slot_disp(rbx_save_slot));  // save caller's rbx
+        emit_u8(cb, 0x48); emit_u8(cb, 0x89);                // mov rbx, abi->globals_reg
         emit_u8(cb, 0xC0 | (abi->globals_reg << 3) | X86_RBX);
     }
     for (int i = 0; i < info->n_cached_tables; i++) {        // preload cached table array_parts

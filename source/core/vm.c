@@ -1417,6 +1417,29 @@ bool vm_drive_until(VM* vm, Value target, Value* out_result) {
     return false;
 }
 
+// grows the globals array to hold at least `needed` entries
+bool vm_ensure_globals(VM* vm, int needed) {
+    if (!vm || needed < 0) return false;
+    if (needed <= vm->global_capacity) return true;
+
+    if (needed > VM_MAX_GLOBALS) return false;               // hard upper bound
+
+    int new_cap = vm->global_capacity > 0 ? vm->global_capacity : VM_INITIAL_GLOBALS;
+    while (new_cap < needed) {
+        if (new_cap > VM_MAX_GLOBALS / 2) { new_cap = VM_MAX_GLOBALS; break; }
+        new_cap *= 2;
+    }
+    if (new_cap < needed) return false;                       // belt-and-suspenders
+
+    Value* ng = (Value*)realloc(vm->globals, sizeof(Value) * (size_t)new_cap);
+    if (!ng) return false;
+
+    for (int i = vm->global_capacity; i < new_cap; i++) ng[i] = MAKE_NONE();
+    vm->globals = ng;
+    vm->global_capacity = new_cap;
+    return true;
+}
+
 // creates a new vm instance with the given source code
 VM* vm_create(const char* source) {
     VM* vm = (VM*)calloc(1, sizeof(VM));           // allocate and zero vm struct
@@ -1473,6 +1496,21 @@ VM* vm_create(const char* source) {
     vm->c_function_dispatch = NULL;               // no host dispatch yet
     vm->c_function_state    = NULL;               // no host state
     vm->preserve_globals    = false;              // vm_execute resets globals by default
+
+    vm->globals = NULL;                           // no globals yet
+    vm->global_count = 0;
+    vm->global_capacity = 0;
+    if (!vm_ensure_globals(vm, VM_INITIAL_GLOBALS)) {   // allocate the initial globals array
+        APEX_MUTEX_DESTROY(&vm->completion_mutex);
+        APEX_COND_DESTROY(&vm->completion_cond);
+        string_intern_table_free(&vm->intern_table);
+        free(vm->frame_offset);
+        free(vm->frame_capacity);
+        free(vm->frame_used);
+        free(vm->register_pool);
+        free(vm);
+        return NULL;
+    }
 
     string_intern_table_init(&vm->intern_table);  // init string intern table
     return vm;                                    // return new vm
@@ -1554,6 +1592,10 @@ void vm_destroy(VM* vm) {
     for (int i = 0; i < vm->global_count; i++) {
         value_decref(vm->globals[i]);             // release each global
     }
+    free(vm->globals);                            // free the globals array
+    vm->globals = NULL;
+    vm->global_count = 0;
+    vm->global_capacity = 0;
     for (int i = 0; i < vm->args_top; i++) {
         value_decref(vm->args_stack[i]);          // release any remaining args
     }
@@ -1712,6 +1754,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     vm->had_error = false;                                // reset error flag
     bool top_level = (vm->current_task == NULL);          // entering top-level or resuming a coroutine
     if (top_level) {                                      // top-level-only setup
+        if (!vm_ensure_globals(vm, chunk->global_count)) {  // grow globals array for this chunk
+            vm->had_error = true;                           // allocation failed or too many globals
+            vm->running = false;
+            return false;
+        }
         vm->global_count = chunk->global_count;           // number of globals to initialise
 
         for (int i = 0; i < chunk->const_count; i++) {               // pre-intern string constants first

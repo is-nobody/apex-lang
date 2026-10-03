@@ -699,9 +699,8 @@ long long apex_table_size(ApexState* S, int index) {
 
 // pushes the value of a global, returns 1 if found and 0 otherwise
 int apex_get_global(ApexState* S, const char* name) {
-    if (!S || !name || !S->active_chunk) return 0;  // null guard and no chunk loaded
     int idx = bytecode_get_global(S->active_chunk, name);  // lookup global index
-    if (idx < 0) return 0;                          // not found
+    if (idx < 0 || idx >= S->vm->global_count) return 0;   // not found or out of range
     Value v = S->vm->globals[idx];                  // read from vm global table
     stack_push(S, v);                               // push on stack
     return 1;                                       // report success
@@ -724,7 +723,7 @@ void apex_set_global(ApexState* S, const char* name) {
 
     if (S->active_chunk) {                          // if a chunk is loaded
         int idx = bytecode_get_global(S->active_chunk, name);
-        if (idx >= 0) {                             // and the global exists in it
+        if (idx >= 0 && idx < S->vm->global_count) {  // and the global exists and is in range
             Value old = S->vm->globals[idx];        // save old for release
             S->vm->globals[idx] = v;                // install new value
             if ((v & QNAN) == QNAN) value_incref(v);  // vm holds a reference
@@ -787,15 +786,27 @@ int apex_run_string(ApexState* S, const char* code, const char* chunkname) {
     if (S->active_chunk) bytecode_destroy(S->active_chunk);  // free old chunk
     S->active_chunk = chunk;                        // install new chunk
 
+    // grow the vm's globals array before installing anything into it
+    if (!vm_ensure_globals(S->vm, chunk->global_count)) {
+        cleanup_compile(tok, par, ast, cg);
+        bytecode_destroy(chunk);
+        S->active_chunk = NULL;
+        return 1;
+    }
+
     // install every pending global into the chunk's global table and pre-load the value into vm->globals
     for (PendingGlobal* p = S->pending_globals; p; p = p->next) {
         int idx = bytecode_add_global(chunk, p->name);
-        if (idx >= 0 && idx < VM_MAX_GLOBALS) {
-            Value old = S->vm->globals[idx];        // save for release
-            S->vm->globals[idx] = p->value;         // install the pending value
-            if ((p->value & QNAN) == QNAN) value_incref(p->value);
-            if ((old & QNAN) == QNAN) value_decref(old);
+        if (idx < 0 || idx >= S->vm->global_capacity) {   // defensive: never fires with a valid chunk
+            cleanup_compile(tok, par, ast, cg);
+            bytecode_destroy(chunk);
+            S->active_chunk = NULL;
+            return 1;
         }
+        Value old = S->vm->globals[idx];        // save for release
+        S->vm->globals[idx] = p->value;         // install the pending value
+        if ((p->value & QNAN) == QNAN) value_incref(p->value);
+        if ((old & QNAN) == QNAN) value_decref(old);
     }
     S->vm->preserve_globals = true;                 // tell vm_execute to keep them
 
