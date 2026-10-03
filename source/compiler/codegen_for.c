@@ -110,6 +110,7 @@ static void emit_unswitched_for(CodeGenerator* cg, ASTNode* node, int if_idx) {
     codegen_for_statement(cg, node);
     cg->unswitch_depth--;
     body->block.statements = orig;                              // restore
+    ast_list_free(then_stmts);                                  // free the transient list container
 
     if (else_is_empty) {                                        // no else: fall through
         PATCH_JUMP(cg, jump_false, bytecode_current_offset(cg->chunk));
@@ -133,6 +134,7 @@ static void emit_unswitched_for(CodeGenerator* cg, ASTNode* node, int if_idx) {
     codegen_for_statement(cg, node);
     cg->unswitch_depth--;
     body->block.statements = orig;
+    ast_list_free(else_stmts);                                  // free the transient list container
 
     PATCH_JUMP(cg, jump_end, bytecode_current_offset(cg->chunk));
 
