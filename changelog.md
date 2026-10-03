@@ -1,25 +1,30 @@
 # Apex 26.10 (October 31, 2026)
 ## Security
-- **Tokenizer:** Prevented heap buffer overflow in `read_number` when parsing numeric literals longer than 63 digits.
-- **Embedding C API:** `stack_grow` and `apex_check_stack` now handle `realloc` failure and signed-integer overflow safely instead of corrupting state or spinning forever.
-- **Standalone binaries:** Temp file for embedded bytecode is now created via `mkstemp`/`GetTempFileNameA`, closing the symlink and TOCTOU windows previously opened by a predictable PID-based path in `/tmp`.
-- **Crypto:** `crypto.random_*` and `crypto.random_hex` now fail closed (return `none`) when the OS CSPRNG is unavailable, instead of silently falling back to `srand(time ^ clock)`.
+- **Tokenizer:** Prevented heap buffer overflow in `read_number` on numeric literals longer than 63 digits.
+- **`.apexc` loader:** Bounds-checked every section count and `malloc` result so malformed or truncated bytecode is rejected instead of corrupting memory.
+- **Standalone binaries:** Embedded bytecode temp file is now claimed atomically (`mkstemp` on POSIX, `CreateFileA(CREATE_NEW)` with `FILE_FLAG_OPEN_REPARSE_POINT` on Windows), closing the symlink and TOCTOU windows opened by the previous predictable PID-based path.
+- **`os.read`:** Non-seekable and zero-size streams (pipes, `/proc`) are now read in chunks instead of trusting `ftell`, eliminating a heap overflow on `-1`/`0`.
+- **`crypto`:** `compare_strings` folds the length difference into the accumulator so mismatched lengths no longer leak through timing, and every secure random primitive fails closed (`none`) when the OS CSPRNG is unavailable instead of falling back to `srand(time ^ clock)`.
+- **`regex` / `json` / `xml`:** Recursive walks now enforce a step budget and depth limit, so adversarial patterns and deeply nested inputs return `none` instead of hanging a worker or overflowing the C stack.
+- **`datetime`:** Year range is enforced before any `(long long)` cast, non-integer fields are rejected, `add` offsets and `from_timestamp` inputs are bounded, and out-of-range results return `none`.
 
 ## Runtime
-- **Table iteration:** `for value in table` now detects structural mutation mid-loop (via a per-table generation counter) and exits cleanly, eliminating a use-after-free when the body removed the entry the iterator was about to yield next.
-- **Table equality:** `==` on tables now uses pair-stack cycle detection rather than a depth-based shortcut, so structurally-different cyclic tables no longer compare equal, and diverging leaves inside a cycle are correctly detected.
-- **Scheduler:** `pending_workers` is now `_Atomic int`, removing a C11 data race with the unlocked hint reads in `wait_for_next_timer` and `vm_drive_until`.
-
-## Libraries
-- **`random`:** All `srand`/`rand` access is serialised under a process-wide `pthread_once`/`InitOnceExecuteOnce` mutex, so two `ApexState`s running in different host threads no longer race inside libc's PRNG.
-- **`os.access`:** The mode argument is now interpreted as octal digits (`755` → `rwxr-xr-x`), matching `chmod` conventions and the Library Reference. Digits `8` and `9` and negative values cause the call to return `false`.
+- **Table correctness:** `for value in table` detects structural mutation mid-loop via a per-table generation counter and exits cleanly (fixes a use-after-free), and `==` on tables uses pair-stack cycle detection so structurally-different cyclic tables no longer compare equal.
+- **Globals:** The VM's globals array is now dynamically sized (up to a 16M sanity ceiling) instead of a fixed 512-slot inline array, and every slot is reset to `none` before each `apex_run_string`, so large projects and repeated runs no longer corrupt or leak state.
+- **JIT:** Loops touching globals with index ≥ 64 are correctly guarded by a per-loop `uses_globals` flag, fixing a silent miscompile.
+- **Scheduler:** `pending_workers` is now `_Atomic int`, removing a C11 data race with the unlocked hint reads in the timer wait path.
 
 ## Compiler
-- **Parser:** The built-in function hash table is now built under a one-time initializer (`pthread_once`/`InitOnceExecuteOnce`), removing a data race when two host threads parse concurrently via the embedding API.
+- **Parser:** The builtin function hash table is now built under a one-time initializer (`pthread_once`/`InitOnceExecuteOnce`), removing a data race when two host threads parse concurrently.
+- **Codegen:** Transient statement lists built by `emit_unswitched_for` are freed after each use, removing a per-loop leak.
+
+## Libraries
+- **`random`:** All `srand`/`rand` access is serialised under a process-wide once-initialised mutex, so two `ApexState`s in different host threads no longer race inside libc's PRNG.
+- **`os.access`:** The mode argument is now interpreted as octal digits (`755` → `rwxr-xr-x`), matching `chmod` conventions. Digits `8`/`9` and negatives return `false`.
 
 ## Tooling
-- **REPL:** Left and right arrow keys now navigate the current input line.
-- **Embedding C API:** Updated the C API for embedding Apex in host applications.
+- **REPL:** Left and right arrow keys navigate the current input line.
+- **Embedding C API:** Hardened for multi-state host applications. `stack_grow` and `apex_check_stack` now handle OOM and integer overflow safely; every public push function surfaces failure through the new `apex_had_error`/`apex_clear_error` accessors instead of silently dropping values; `apex_run_string` resets VM globals before each run so state cannot leak between runs; and the builtin hash table is built exactly once process-wide. Also updated the C API for embedding Apex in host applications.
 
 ## Modules & Scope
 - Fixed top-level reassignments to mirror into global slots.
