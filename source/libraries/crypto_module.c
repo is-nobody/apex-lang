@@ -43,13 +43,28 @@ static void bytes_to_hex(const unsigned char* bytes, size_t len, char* out) {
 
 // constant-time comparison to prevent timing attacks
 static bool constant_time_compare(const char* a, const char* b, size_t len_a, size_t len_b) {
-    if (len_a != len_b) return false;                         // different lengths
-    volatile unsigned char result = 0;                        // accumulator
-    for (size_t i = 0; i < len_a; i++) {                      // iterate over bytes
-        result |= (unsigned char)a[i] ^ (unsigned char)b[i];  // xor and accumulate
+    volatile unsigned char diff = 0;                          // accumulator, forced to memory
+
+    // fold the length difference, one byte of size_t at a time, without branching
+    size_t len_diff = len_a ^ len_b;                          // zero iff lengths are equal
+    for (size_t i = 0; i < sizeof(size_t); i++) {
+        diff |= (unsigned char)(len_diff & 0xFF);             // low byte of remaining difference
+        len_diff >>= 8;                                       // shift to next byte
     }
-    return result == 0;                                       // all bytes matched
+
+    // xor the common prefix; n is min(len_a, len_b)
+    size_t n = len_a < len_b ? len_a : len_b;
+    for (size_t i = 0; i < n; i++) {
+        diff |= (unsigned char)a[i] ^ (unsigned char)b[i];
+    }
+
+#if defined(__GNUC__) || defined(__clang__)
+    __asm__ __volatile__("" ::: "memory");                    // hard compiler barrier
+#endif
+
+    return diff == 0;                                         // zero iff lengths and bytes match
 }
+
 
 // hex string to bytes conversion
 static int hex_to_bytes(const char* hex, unsigned char* bytes, int max_len) {
