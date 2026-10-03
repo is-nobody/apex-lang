@@ -25,6 +25,16 @@ typedef struct {
 // maximum number of capture groups supported
 #define MAX_GROUPS 32
 
+// per-operation backtracking budgets
+#define MATCH_STEP_BUDGET 1000000
+#define MATCH_DEPTH_LIMIT 256
+
+// shared state for one top-level regex operation
+typedef struct {
+    int  steps_remaining;   // decremented at every match_pattern entry
+    bool exhausted;         // set when a budget is hit; propagates as failure
+} MatchCtx;
+
 // match result structure for pattern matching
 typedef struct {
     int end_pos;                        // end position of match in text
@@ -32,7 +42,8 @@ typedef struct {
     int group_count;                    // number of groups in pattern
 } MatchResult;
 
-static MatchResult match_pattern(const char* text, int text_len, int text_pos,
+static MatchResult match_pattern(MatchCtx* ctx, int depth,
+                                  const char* text, int text_len, int text_pos,
                                   const char* pattern, int pattern_len, int pattern_pos,
                                   bool case_insensitive, bool dot_matches_newline);
 
@@ -194,7 +205,8 @@ static void merge_groups(MatchResult* parent, const MatchResult* child) {
 }
 
 // match escape sequence with quantifier support
-static MatchResult match_escape(const char* text, int text_len, int text_pos,
+static MatchResult match_escape(MatchCtx* ctx, int depth,
+                                const char* text, int text_len, int text_pos,
                                 const char* pattern, int pattern_len, int pattern_pos,
                                 bool ci, bool dotnl) {
     if (pattern_pos + 1 >= pattern_len) return init_match_result(-1, 0);     // incomplete escape
@@ -206,7 +218,8 @@ static MatchResult match_escape(const char* text, int text_len, int text_pos,
             int max_end = text_pos;                                          // maximum end
             while (max_end < text_len && esc_match(esc, text[max_end])) max_end++;  // find max match
             for (int i = max_end; i >= text_pos; i--) {                      // backtrack
-                MatchResult r = match_pattern(text, text_len, i, pattern, pattern_len, next_pos + 1, ci, dotnl);
+                MatchResult r = match_pattern(ctx, depth + 1, text, text_len, i, pattern, pattern_len, next_pos + 1, ci, dotnl);
+                if (ctx->exhausted) return init_match_result(-1, 0);
                 if (r.end_pos >= 0) return r;                                // found match
             }
             return init_match_result(-1, 0);                                 // no match
@@ -216,25 +229,28 @@ static MatchResult match_escape(const char* text, int text_len, int text_pos,
             int max_end = text_pos + 1;                                      // start after one
             while (max_end < text_len && esc_match(esc, text[max_end])) max_end++;  // find max match
             for (int i = max_end; i > text_pos; i--) {                       // backtrack
-                MatchResult r = match_pattern(text, text_len, i, pattern, pattern_len, next_pos + 1, ci, dotnl);
+                MatchResult r = match_pattern(ctx, depth + 1, text, text_len, i, pattern, pattern_len, next_pos + 1, ci, dotnl);
+                if (ctx->exhausted) return init_match_result(-1, 0);
                 if (r.end_pos >= 0) return r;                                // found match
             }
             return init_match_result(-1, 0);                                 // no match
         }
         if (pattern[next_pos] == '?') {                                      // zero or one
-            MatchResult r = match_pattern(text, text_len, text_pos, pattern, pattern_len, next_pos + 1, ci, dotnl);  // try zero
+            MatchResult r = match_pattern(ctx, depth + 1, text, text_len, text_pos, pattern, pattern_len, next_pos + 1, ci, dotnl);  // try zero
+            if (ctx->exhausted) return init_match_result(-1, 0);
             if (r.end_pos >= 0) return r;                                    // found match
             if (text_pos >= text_len || !esc_match(esc, text[text_pos])) return init_match_result(-1, 0);  // need char for one
-            return match_pattern(text, text_len, text_pos + 1, pattern, pattern_len, next_pos + 1, ci, dotnl);  // try one
+            return match_pattern(ctx, depth + 1, text, text_len, text_pos + 1, pattern, pattern_len, next_pos + 1, ci, dotnl);  // try one
         }
     }
     
     if (text_pos >= text_len || !esc_match(esc, text[text_pos])) return init_match_result(-1, 0);  // must match one
-    return match_pattern(text, text_len, text_pos + 1, pattern, pattern_len, next_pos, ci, dotnl);  // continue
+    return match_pattern(ctx, depth + 1, text, text_len, text_pos + 1, pattern, pattern_len, next_pos, ci, dotnl);  // continue
 }
 
 // match character class with quantifier support
-static MatchResult match_charclass(const char* text, int text_len, int text_pos,
+static MatchResult match_charclass(MatchCtx* ctx, int depth,
+                                   const char* text, int text_len, int text_pos,
                                    const char* pattern, int pattern_len, int pattern_pos,
                                    bool ci, bool dotnl) {
     int class_end;                                                           // end of class
@@ -249,7 +265,8 @@ static MatchResult match_charclass(const char* text, int text_len, int text_pos,
             int max_end = text_pos;                                          // maximum end
             while (max_end < text_len && charclass_match_single(text[max_end], pattern, pattern_pos, NULL, ci)) max_end++;  // find max
             for (int i = max_end; i >= text_pos; i--) {                      // backtrack
-                MatchResult r = match_pattern(text, text_len, i, pattern, pattern_len, next_pos + 1, ci, dotnl);
+                MatchResult r = match_pattern(ctx, depth + 1, text, text_len, i, pattern, pattern_len, next_pos + 1, ci, dotnl);
+                if (ctx->exhausted) return init_match_result(-1, 0);
                 if (r.end_pos >= 0) return r;                                // found match
             }
             return init_match_result(-1, 0);                                 // no match
@@ -259,24 +276,27 @@ static MatchResult match_charclass(const char* text, int text_len, int text_pos,
             int max_end = text_pos + 1;                                      // start after one
             while (max_end < text_len && charclass_match_single(text[max_end], pattern, pattern_pos, NULL, ci)) max_end++;  // find max
             for (int i = max_end; i > text_pos; i--) {                       // backtrack
-                MatchResult r = match_pattern(text, text_len, i, pattern, pattern_len, next_pos + 1, ci, dotnl);
+                MatchResult r = match_pattern(ctx, depth + 1, text, text_len, i, pattern, pattern_len, next_pos + 1, ci, dotnl);
+                if (ctx->exhausted) return init_match_result(-1, 0);
                 if (r.end_pos >= 0) return r;                                // found match
             }
             return init_match_result(-1, 0);                                 // no match
         }
         if (pattern[next_pos] == '?') {                                      // zero or one
-            MatchResult r = match_pattern(text, text_len, text_pos, pattern, pattern_len, next_pos + 1, ci, dotnl);  // try zero
+            MatchResult r = match_pattern(ctx, depth + 1, text, text_len, text_pos, pattern, pattern_len, next_pos + 1, ci, dotnl);  // try zero
+            if (ctx->exhausted) return init_match_result(-1, 0);
             if (r.end_pos >= 0) return r;                                    // found match
             if (text_pos >= text_len || !charclass_match_single(text[text_pos], pattern, pattern_pos, NULL, ci)) return init_match_result(-1, 0);  // need char
-            return match_pattern(text, text_len, text_pos + 1, pattern, pattern_len, next_pos + 1, ci, dotnl);  // try one
+            return match_pattern(ctx, depth + 1, text, text_len, text_pos + 1, pattern, pattern_len, next_pos + 1, ci, dotnl);  // try one
         }
     }
     
-    return match_pattern(text, text_len, text_pos + 1, pattern, pattern_len, next_pos, ci, dotnl);  // continue
+    return match_pattern(ctx, depth + 1, text, text_len, text_pos + 1, pattern, pattern_len, next_pos, ci, dotnl);  // continue
 }
 
 // match star quantifier for literal char or dot
-static MatchResult match_star(const char* text, int text_len, int text_pos,
+static MatchResult match_star(MatchCtx* ctx, int depth,
+                              const char* text, int text_len, int text_pos,
                               const char* pattern, int pattern_len, int pattern_pos,
                               char pc, bool ci, bool dotnl) {
     int max_end = text_pos;                                                  // maximum end
@@ -289,14 +309,16 @@ static MatchResult match_star(const char* text, int text_len, int text_pos,
         max_end++;                                                           // advance
     }
     for (int i = max_end; i >= text_pos; i--) {                              // backtrack
-        MatchResult r = match_pattern(text, text_len, i, pattern, pattern_len, pattern_pos + 2, ci, dotnl);
+        MatchResult r = match_pattern(ctx, depth + 1, text, text_len, i, pattern, pattern_len, pattern_pos + 2, ci, dotnl);
+        if (ctx->exhausted) return init_match_result(-1, 0);
         if (r.end_pos >= 0) return r;                                        // found match
     }
     return init_match_result(-1, 0);                                         // no match
 }
 
 // match plus quantifier for literal char or dot
-static MatchResult match_plus(const char* text, int text_len, int text_pos,
+static MatchResult match_plus(MatchCtx* ctx, int depth,
+                              const char* text, int text_len, int text_pos,
                               const char* pattern, int pattern_len, int pattern_pos,
                               char pc, bool ci, bool dotnl) {
     if (text_pos >= text_len) return init_match_result(-1, 0);               // need at least one char
@@ -315,22 +337,25 @@ static MatchResult match_plus(const char* text, int text_len, int text_pos,
         max_end++;                                                           // advance
     }
     for (int i = max_end; i > text_pos; i--) {                               // backtrack (must match at least one)
-        MatchResult r = match_pattern(text, text_len, i, pattern, pattern_len, pattern_pos + 2, ci, dotnl);
+        MatchResult r = match_pattern(ctx, depth + 1, text, text_len, i, pattern, pattern_len, pattern_pos + 2, ci, dotnl);
+        if (ctx->exhausted) return init_match_result(-1, 0);
         if (r.end_pos >= 0) return r;                                        // found match
     }
     return init_match_result(-1, 0);                                         // no match
 }
 
 // match question quantifier for literal char or dot
-static MatchResult match_question(const char* text, int text_len, int text_pos,
+static MatchResult match_question(MatchCtx* ctx, int depth,
+                                  const char* text, int text_len, int text_pos,
                                   const char* pattern, int pattern_len, int pattern_pos,
                                   char pc, bool ci, bool dotnl) {
-    MatchResult r = match_pattern(text, text_len, text_pos, pattern, pattern_len, pattern_pos + 2, ci, dotnl);  // try zero
+    MatchResult r = match_pattern(ctx, depth + 1, text, text_len, text_pos, pattern, pattern_len, pattern_pos + 2, ci, dotnl);  // try zero
+    if (ctx->exhausted) return init_match_result(-1, 0);
     if (r.end_pos >= 0) return r;                                            // found match
     if (text_pos >= text_len) return init_match_result(-1, 0);               // need char for one
     if (pc == '.' && !dotnl && text[text_pos] == '\n') return init_match_result(-1, 0);  // newline without dotall
     if (pc != '.' && !match_char(text[text_pos], pc, ci)) return init_match_result(-1, 0);  // must match char
-    return match_pattern(text, text_len, text_pos + 1, pattern, pattern_len, pattern_pos + 2, ci, dotnl);  // try one
+    return match_pattern(ctx, depth + 1, text, text_len, text_pos + 1, pattern, pattern_len, pattern_pos + 2, ci, dotnl);  // try one
 }
 
 // find end of alternation scope starting at pattern_pos
@@ -381,12 +406,13 @@ static int find_scope_end(const char* pattern, int pattern_len, int pattern_pos)
 }
 
 // match alternation at pattern position
-static MatchResult match_alternation(const char* text, int text_len, int text_pos,
+static MatchResult match_alternation(MatchCtx* ctx, int depth,
+                                     const char* text, int text_len, int text_pos,
                                      const char* pattern, int pattern_len, int pattern_pos,
                                      int scope_end, bool ci, bool dotnl) {
     int alt_start = pattern_pos;                                             // start of first alternative
     int pos = pattern_pos;                                                   // current scan position
-    int depth = 0;                                                           // nesting depth
+    int nest = 0;                                                            // nesting depth
     bool in_class = false;                                                   // char class flag
     
     while (pos <= scope_end) {                                               // iterate alternatives
@@ -405,27 +431,29 @@ static MatchResult match_alternation(const char* text, int text_len, int text_po
             continue;
         }
         if (pos < scope_end && pattern[pos] == '(' && !in_class) {           // nested group
-            depth++;
+            nest++;
             pos++;
             continue;
         }
         if (pos < scope_end && pattern[pos] == ')' && !in_class) {           // close nested group
-            if (depth > 0) depth--;
+            if (nest > 0) nest--;
             pos++;
             continue;
         }
         
-        if (!in_class && depth == 0 && (pos == scope_end || pattern[pos] == '|')) {  // found alternation separator or end
+        if (!in_class && nest == 0 && (pos == scope_end || pattern[pos] == '|')) {  // found alternation separator or end
             int alt_end = pos;                                               // end of current alternative
             
             if (alt_end >= alt_start) {                                      // allow empty alternative
-                MatchResult result = match_pattern(text, text_len, text_pos,
+                MatchResult result = match_pattern(ctx, depth + 1, text, text_len, text_pos,
                                                    pattern, alt_end, alt_start,
                                                    ci, dotnl);
+                if (ctx->exhausted) return init_match_result(-1, 0);
                 if (result.end_pos >= 0) {                                   // alternative matched
-                    MatchResult rest = match_pattern(text, text_len, result.end_pos,
+                    MatchResult rest = match_pattern(ctx, depth + 1, text, text_len, result.end_pos,
                                                      pattern, pattern_len, scope_end + 1,
                                                      ci, dotnl);
+                    if (ctx->exhausted) return init_match_result(-1, 0);
                     if (rest.end_pos >= 0) {                                 // rest matched
                         merge_groups(&rest, &result);                        // merge captures
                         rest.end_pos = result.end_pos;                       // fix end position
@@ -444,7 +472,8 @@ static MatchResult match_alternation(const char* text, int text_len, int text_po
 }
 
 // match group at pattern position (pattern[pattern_pos] == '(')
-static MatchResult match_group(const char* text, int text_len, int text_pos,
+static MatchResult match_group(MatchCtx* ctx, int depth,
+                               const char* text, int text_len, int text_pos,
                                const char* pattern, int pattern_len, int pattern_pos,
                                bool ci, bool dotnl) {
     int close_pos = find_group_end(pattern, pattern_len, pattern_pos);       // find matching close paren
@@ -471,17 +500,19 @@ static MatchResult match_group(const char* text, int text_len, int text_pos,
     // helper: match group content once
     #define MATCH_GROUP_ONCE(pos) \
         (group_start >= close_pos ? init_match_result((pos), 0) : \
-         match_pattern(text, text_len, (pos), pattern, close_pos, group_start, ci, dotnl))
+         match_pattern(ctx, depth + 1, text, text_len, (pos), pattern, close_pos, group_start, ci, dotnl))
     
     if (quant == '\0') {                                                     // no quantifier on group
         MatchResult inner = MATCH_GROUP_ONCE(text_pos);
+        if (ctx->exhausted) return init_match_result(-1, 0);
         if (inner.end_pos < 0) return inner;                                 // group failed
         
         MatchResult best = init_match_result(-1, 0);                         // best result
         int best_group2_len = -1;                                            // track length of group 2 for greedy selection
         
         for (int end = inner.end_pos; end >= text_pos; end--) {              // backtrack from longest to shortest
-            MatchResult rest = match_pattern(text, text_len, end, pattern, pattern_len, close_pos + 1, ci, dotnl);
+            MatchResult rest = match_pattern(ctx, depth + 1, text, text_len, end, pattern, pattern_len, close_pos + 1, ci, dotnl);
+            if (ctx->exhausted) return init_match_result(-1, 0);
             if (rest.end_pos >= 0) {                                         // rest matched
                 if (is_capturing && group_index >= 0) {
                     set_group_capture(&rest, group_index, text_pos, end);    // capture outer group
@@ -521,10 +552,12 @@ static MatchResult match_group(const char* text, int text_len, int text_pos,
     }
     
     if (quant == '?') {                                                      // zero or one group
-        MatchResult zero = match_pattern(text, text_len, text_pos, pattern, pattern_len, next_pos + 1, ci, dotnl);
+        MatchResult zero = match_pattern(ctx, depth + 1, text, text_len, text_pos, pattern, pattern_len, next_pos + 1, ci, dotnl);
+        if (ctx->exhausted) return init_match_result(-1, 0);
         if (zero.end_pos >= 0) return zero;                                  // try zero
         
         MatchResult one = MATCH_GROUP_ONCE(text_pos);
+        if (ctx->exhausted) return init_match_result(-1, 0);
         if (one.end_pos < 0) return one;                                     // try one
         
         if (is_capturing && group_index >= 0) {
@@ -532,20 +565,23 @@ static MatchResult match_group(const char* text, int text_len, int text_pos,
             if (one.group_count < group_index + 1) one.group_count = group_index + 1;
         }
         
-        MatchResult rest = match_pattern(text, text_len, one.end_pos, pattern, pattern_len, next_pos + 1, ci, dotnl);
+        MatchResult rest = match_pattern(ctx, depth + 1, text, text_len, one.end_pos, pattern, pattern_len, next_pos + 1, ci, dotnl);
+        if (ctx->exhausted) return init_match_result(-1, 0);
         if (rest.end_pos < 0) return init_match_result(-1, 0);               // rest failed
         merge_groups(&rest, &one);                                           // merge captures
         return rest;
     }
     
     if (quant == '*') {                                                      // zero or more group
-        MatchResult zero = match_pattern(text, text_len, text_pos, pattern, pattern_len, next_pos + 1, ci, dotnl);
+        MatchResult zero = match_pattern(ctx, depth + 1, text, text_len, text_pos, pattern, pattern_len, next_pos + 1, ci, dotnl);
+        if (ctx->exhausted) return init_match_result(-1, 0);
         if (zero.end_pos >= 0) return zero;                                  // try zero
         
         int max_reps = 0;                                                    // maximum repetitions
         int pos = text_pos;
         while (pos <= text_len) {                                            // find max repetitions
             MatchResult inner = MATCH_GROUP_ONCE(pos);
+            if (ctx->exhausted) return init_match_result(-1, 0);
             if (inner.end_pos < 0) break;
             pos = inner.end_pos;
             max_reps++;
@@ -559,6 +595,7 @@ static MatchResult match_group(const char* text, int text_len, int text_pos,
             for (int i = 0; i < r; i++) {                                    // build combined result
                 last_start = cur;
                 MatchResult inner = MATCH_GROUP_ONCE(cur);
+                if (ctx->exhausted) return init_match_result(-1, 0);
                 if (inner.end_pos < 0) break;
                 cur = inner.end_pos;
                 merge_groups(&combined, &inner);
@@ -569,7 +606,8 @@ static MatchResult match_group(const char* text, int text_len, int text_pos,
                 if (combined.group_count < group_index + 1) combined.group_count = group_index + 1;
             }
             
-            MatchResult rest = match_pattern(text, text_len, cur, pattern, pattern_len, next_pos + 1, ci, dotnl);
+            MatchResult rest = match_pattern(ctx, depth + 1, text, text_len, cur, pattern, pattern_len, next_pos + 1, ci, dotnl);
+            if (ctx->exhausted) return init_match_result(-1, 0);
             if (rest.end_pos >= 0) {                                         // rest matched
                 merge_groups(&rest, &combined);
                 return rest;
@@ -580,12 +618,14 @@ static MatchResult match_group(const char* text, int text_len, int text_pos,
     
     if (quant == '+') {                                                      // one or more group
         MatchResult first = MATCH_GROUP_ONCE(text_pos);
+        if (ctx->exhausted) return init_match_result(-1, 0);
         if (first.end_pos < 0) return first;                                 // need at least one
         
         int pos = first.end_pos;
         int max_reps = 1;                                                    // already matched one
         while (pos <= text_len) {                                            // find max repetitions
             MatchResult inner = MATCH_GROUP_ONCE(pos);
+            if (ctx->exhausted) return init_match_result(-1, 0);
             if (inner.end_pos < 0) break;
             pos = inner.end_pos;
             max_reps++;
@@ -599,6 +639,7 @@ static MatchResult match_group(const char* text, int text_len, int text_pos,
             for (int i = 0; i < r; i++) {                                    // build combined result
                 last_start = cur;
                 MatchResult inner = MATCH_GROUP_ONCE(cur);
+                if (ctx->exhausted) return init_match_result(-1, 0);
                 if (inner.end_pos < 0) break;
                 cur = inner.end_pos;
                 merge_groups(&combined, &inner);
@@ -609,7 +650,8 @@ static MatchResult match_group(const char* text, int text_len, int text_pos,
                 if (combined.group_count < group_index + 1) combined.group_count = group_index + 1;
             }
             
-            MatchResult rest = match_pattern(text, text_len, cur, pattern, pattern_len, next_pos + 1, ci, dotnl);
+            MatchResult rest = match_pattern(ctx, depth + 1, text, text_len, cur, pattern, pattern_len, next_pos + 1, ci, dotnl);
+            if (ctx->exhausted) return init_match_result(-1, 0);
             if (rest.end_pos >= 0) {                                         // rest matched
                 merge_groups(&rest, &combined);
                 return rest;
@@ -622,109 +664,107 @@ static MatchResult match_group(const char* text, int text_len, int text_pos,
 }
 
 // main pattern matching function
-static MatchResult match_pattern(const char* text, int text_len, int text_pos,
+static MatchResult match_pattern(MatchCtx* ctx, int depth,
+                                 const char* text, int text_len, int text_pos,
                                  const char* pattern, int pattern_len, int pattern_pos,
                                  bool case_insensitive, bool dot_matches_newline) {
-    if (pattern_pos >= pattern_len) {
-        return init_match_result(text_pos, 0);                               // end of pattern, success
-    }
-    
-    if (text_pos > text_len) {
-        return init_match_result(-1, 0);                                     // past end of text
-    }
-    
-    if (text_pos == text_len) {                                              // at end of text
-        if (pattern[pattern_pos] == '$') {                                   // end anchor
-            return match_pattern(text, text_len, text_pos, pattern, pattern_len, 
-                               pattern_pos + 1, case_insensitive, dot_matches_newline);
+    if (ctx->exhausted) return init_match_result(-1, 0);                     // already bailed
+    if (depth > MATCH_DEPTH_LIMIT) { ctx->exhausted = true; return init_match_result(-1, 0); }
+
+    for (;;) {
+        if (ctx->steps_remaining <= 0) {                                     // budget spent
+            ctx->exhausted = true;
+            return init_match_result(-1, 0);
         }
-        if (pattern[pattern_pos] == '(') {                                   // try group at end (empty groups)
-            MatchResult r = match_group(text, text_len, text_pos, pattern, pattern_len,
-                                       pattern_pos, case_insensitive, dot_matches_newline);
-            if (r.end_pos >= 0) return r;
+        ctx->steps_remaining--;
+
+        if (pattern_pos >= pattern_len) return init_match_result(text_pos, 0);  // pattern done, success
+        if (text_pos > text_len) return init_match_result(-1, 0);              // past end (safety)
+
+        char pc = pattern[pattern_pos];                                      // current pattern char
+
+        // alternation takes priority over everything else at this position
+        int alt_pos = find_alternation_end(pattern, pattern_len, pattern_pos);
+        if (alt_pos < pattern_len && pattern[alt_pos] == '|') {
+            int scope_end = find_scope_end(pattern, pattern_len, pattern_pos);
+            return match_alternation(ctx, depth + 1, text, text_len, text_pos,
+                                     pattern, pattern_len, pattern_pos, scope_end,
+                                     case_insensitive, dot_matches_newline);
         }
-        int alt_pos2 = find_alternation_end(pattern, pattern_len, pattern_pos);  // try alternation at end
-        if (alt_pos2 < pattern_len && pattern[alt_pos2] == '|') {
-            int scope_end2 = find_scope_end(pattern, pattern_len, pattern_pos);
-            MatchResult r = match_alternation(text, text_len, text_pos, pattern, pattern_len,
-                                             pattern_pos, scope_end2, case_insensitive, dot_matches_newline);
-            if (r.end_pos >= 0) return r;
+
+        // recursion points: any pattern construct that is not a single literal
+        if (pc == '\\') {
+            return match_escape(ctx, depth + 1, text, text_len, text_pos,
+                                pattern, pattern_len, pattern_pos,
+                                case_insensitive, dot_matches_newline);
         }
-        return init_match_result(-1, 0);                                     // no more text to match
+        if (pc == '[') {
+            return match_charclass(ctx, depth + 1, text, text_len, text_pos,
+                                   pattern, pattern_len, pattern_pos,
+                                   case_insensitive, dot_matches_newline);
+        }
+        if (pc == '(') {
+            return match_group(ctx, depth + 1, text, text_len, text_pos,
+                               pattern, pattern_len, pattern_pos,
+                               case_insensitive, dot_matches_newline);
+        }
+        if (pattern_pos + 1 < pattern_len) {
+            char next = pattern[pattern_pos + 1];
+            if (next == '*') return match_star(ctx, depth + 1, text, text_len, text_pos,
+                                               pattern, pattern_len, pattern_pos, pc,
+                                               case_insensitive, dot_matches_newline);
+            if (next == '+') return match_plus(ctx, depth + 1, text, text_len, text_pos,
+                                               pattern, pattern_len, pattern_pos, pc,
+                                               case_insensitive, dot_matches_newline);
+            if (next == '?') return match_question(ctx, depth + 1, text, text_len, text_pos,
+                                                   pattern, pattern_len, pattern_pos, pc,
+                                                   case_insensitive, dot_matches_newline);
+        }
+
+        // iterative fast path: anchors and single-character matches
+        if (pc == '^') {
+            if (text_pos != 0) return init_match_result(-1, 0);              // start anchor must be at 0
+            pattern_pos++;
+            continue;
+        }
+        if (pc == '$') {
+            if (text_pos != text_len) return init_match_result(-1, 0);       // end anchor must be at end
+            return init_match_result(text_pos, 0);                           // success
+        }
+        if (pc == '.') {
+            if (text_pos >= text_len) return init_match_result(-1, 0);       // need a char
+            if (!dot_matches_newline && text[text_pos] == '\n') return init_match_result(-1, 0);
+            text_pos++; pattern_pos++;
+            continue;
+        }
+        if (text_pos >= text_len) return init_match_result(-1, 0);           // need a char for literal
+        if (!match_char(text[text_pos], pc, case_insensitive)) return init_match_result(-1, 0);
+        text_pos++; pattern_pos++;
+        continue;
     }
-    
-    char pc = pattern[pattern_pos];                                          // current pattern char
-    
-    int alt_pos = find_alternation_end(pattern, pattern_len, pattern_pos);   // check alternation before everything
-    if (alt_pos < pattern_len && pattern[alt_pos] == '|') {
-        int scope_end = find_scope_end(pattern, pattern_len, pattern_pos);
-        return match_alternation(text, text_len, text_pos, pattern, pattern_len, 
-                                pattern_pos, scope_end, case_insensitive, dot_matches_newline);
-    }
-    
-    if (pc == '\\') {                                                        // escape sequence
-        return match_escape(text, text_len, text_pos, pattern, pattern_len, 
-                          pattern_pos, case_insensitive, dot_matches_newline);
-    }
-    
-    if (pc == '[') {                                                         // character class
-        return match_charclass(text, text_len, text_pos, pattern, pattern_len, 
-                             pattern_pos, case_insensitive, dot_matches_newline);
-    }
-    
-    if (pc == '^') {                                                         // start anchor
-        if (text_pos != 0) return init_match_result(-1, 0);                  // must be at start
-        return match_pattern(text, text_len, text_pos, pattern, pattern_len, 
-                           pattern_pos + 1, case_insensitive, dot_matches_newline);
-    }
-    
-    if (pc == '$') {                                                         // end anchor
-        if (text_pos != text_len) return init_match_result(-1, 0);           // must be at end
-        return init_match_result(text_pos, 0);                               // success
-    }
-    
-    if (pc == '(') {                                                         // group
-        return match_group(text, text_len, text_pos, pattern, pattern_len, 
-                         pattern_pos, case_insensitive, dot_matches_newline);
-    }
-    
-    if (pattern_pos + 1 < pattern_len) {                                     // check for quantifier
-        char next = pattern[pattern_pos + 1];
-        if (next == '*') return match_star(text, text_len, text_pos, pattern, pattern_len, 
-                                          pattern_pos, pc, case_insensitive, dot_matches_newline);
-        if (next == '+') return match_plus(text, text_len, text_pos, pattern, pattern_len, 
-                                          pattern_pos, pc, case_insensitive, dot_matches_newline);
-        if (next == '?') return match_question(text, text_len, text_pos, pattern, pattern_len, 
-                                              pattern_pos, pc, case_insensitive, dot_matches_newline);
-    }
-    
-    if (pc == '.') {                                                         // dot character
-        if (!dot_matches_newline && text[text_pos] == '\n') return init_match_result(-1, 0);  // newline without dotall
-        return match_pattern(text, text_len, text_pos + 1, pattern, pattern_len, 
-                           pattern_pos + 1, case_insensitive, dot_matches_newline);
-    }
-    
-    if (!match_char(text[text_pos], pc, case_insensitive)) return init_match_result(-1, 0);  // literal char match
-    return match_pattern(text, text_len, text_pos + 1, pattern, pattern_len, 
-                       pattern_pos + 1, case_insensitive, dot_matches_newline);  // continue
 }
 
 // find all matches in text; VM-agnostic so it can run on a worker
 static Table* find_all_matches(const char* text, const char* pattern, bool ci, bool dotnl) {
     if (!text || !pattern) return NULL;                                      // validate inputs
-    
+
     Table* result = table_create(8);                                         // create result table
     if (!result) return NULL;                                                // allocation failed
-    
+
     int text_len = (int)strlen(text);                                        // text length
     int pattern_len = (int)strlen(pattern);                                  // pattern length
-    
+
     if (text_len == 0 || pattern_len == 0) return result;                    // empty input
-    
+
+    MatchCtx ctx = { .steps_remaining = MATCH_STEP_BUDGET, .exhausted = false };
     int match_count = 0;                                                     // match counter
-    
+
     for (int start = 0; start <= text_len; start++) {                        // iterate over text positions
-        MatchResult match = match_pattern(text, text_len, start, pattern, pattern_len, 0, ci, dotnl);
+        MatchResult match = match_pattern(&ctx, 0, text, text_len, start, pattern, pattern_len, 0, ci, dotnl);
+        if (ctx.exhausted) {                                                 // budget hit: whole operation fails
+            table_destroy(result);
+            return NULL;
+        }
         if (match.end_pos > start) {                                         // found non-empty match
             int match_len = match.end_pos - start;                           // match length
             char* match_str = (char*)malloc(match_len + 1);                  // allocate match string
@@ -734,45 +774,50 @@ static Table* find_all_matches(const char* text, const char* pattern, bool ci, b
             }
             memcpy(match_str, text + start, match_len);                      // copy match
             match_str[match_len] = '\0';                                     // null terminate
-            
+
             Value key = MAKE_NUMBER((double)(match_count + 1));              // index key
             Value val = make_string_val(match_str);                          // string value
             table_set(result, key, val);                                     // store in table
             value_decref(key);                                               // release key
             value_decref(val);                                               // release value
             free(match_str);                                                 // free temporary
-            
+
             match_count++;                                                   // increment counter
             start = match.end_pos - 1;                                       // continue after match
         }
     }
-    
+
     return result;                                                           // return result table
 }
 
 // substitute pattern matches in text
 static char* substitute_pattern(const char* text, const char* pattern, const char* replacement, bool ci, bool dotnl) {
     if (!text || !pattern || !replacement) return NULL;                      // validate inputs
-    
+
     int text_len = (int)strlen(text);                                        // text length
     int pattern_len = (int)strlen(pattern);                                  // pattern length
     int repl_len = (int)strlen(replacement);                                 // replacement length
-    
+
     if (text_len == 0 || pattern_len == 0) {                                 // empty input
         char* result = (char*)malloc(text_len + 1);                          // allocate result
         if (result) strcpy(result, text);                                    // copy text
         return result;
     }
-    
+
     int result_capacity = text_len + 256;                                    // initial capacity
     char* result = (char*)malloc(result_capacity);                           // allocate result buffer
     if (!result) return NULL;                                                // allocation failed
-    
+
+    MatchCtx ctx = { .steps_remaining = MATCH_STEP_BUDGET, .exhausted = false };
     int result_pos = 0;                                                      // current position in result
     int text_pos = 0;                                                        // current position in text
-    
+
     while (text_pos <= text_len) {                                           // process entire text
-        MatchResult match = match_pattern(text, text_len, text_pos, pattern, pattern_len, 0, ci, dotnl);
+        MatchResult match = match_pattern(&ctx, 0, text, text_len, text_pos, pattern, pattern_len, 0, ci, dotnl);
+        if (ctx.exhausted) {                                                 // budget hit: whole operation fails
+            free(result);
+            return NULL;
+        }
         if (match.end_pos > text_pos) {                                      // found match
             while (result_pos + repl_len + 1 > result_capacity) {            // ensure capacity
                 result_capacity *= 2;
@@ -803,7 +848,7 @@ static char* substitute_pattern(const char* text, const char* pattern, const cha
             }
         }
     }
-    
+
     result[result_pos] = '\0';                                               // null terminate
     return result;                                                           // return substituted string
 }
@@ -811,13 +856,13 @@ static char* substitute_pattern(const char* text, const char* pattern, const cha
 // split text by pattern; VM-agnostic so it can run on a worker
 static Table* split_by_pattern(const char* text, const char* pattern, bool ci, bool dotnl) {
     if (!text || !pattern) return NULL;                                      // validate inputs
-    
+
     Table* result = table_create(8);                                         // create result table
     if (!result) return NULL;                                                // allocation failed
-    
+
     int text_len = (int)strlen(text);                                        // text length
     int pattern_len = (int)strlen(pattern);                                  // pattern length
-    
+
     if (text_len == 0 || pattern_len == 0) {                                 // empty input
         if (text_len > 0) {                                                  // text but no pattern
             Value key = MAKE_NUMBER(1.0);                                    // key for first element
@@ -828,15 +873,20 @@ static Table* split_by_pattern(const char* text, const char* pattern, bool ci, b
         }
         return result;                                                       // return table
     }
-    
+
+    MatchCtx ctx = { .steps_remaining = MATCH_STEP_BUDGET, .exhausted = false };
     int split_count = 0;                                                     // split counter
     int segment_start = 0;                                                   // start of current segment
-    
+
     for (int pos = 0; pos <= text_len; pos++) {                              // iterate over text
-        MatchResult match = match_pattern(text, text_len, pos, pattern, pattern_len, 0, ci, dotnl);
+        MatchResult match = match_pattern(&ctx, 0, text, text_len, pos, pattern, pattern_len, 0, ci, dotnl);
+        if (ctx.exhausted) {                                                 // budget hit: whole operation fails
+            table_destroy(result);
+            return NULL;
+        }
         if (match.end_pos > pos) {                                           // found delimiter
             int seg_len = pos - segment_start;                               // segment length
-            
+
             if (seg_len == 0) {                                              // skip empty segments
                 // skip this empty segment
             } else {
@@ -851,7 +901,7 @@ static Table* split_by_pattern(const char* text, const char* pattern, bool ci, b
                 } else {
                     seg_str[0] = '\0';                                       // empty string
                 }
-                
+
                 Value key = MAKE_NUMBER((double)(split_count + 1));          // index key
                 Value val = make_string_val(seg_str);                        // string value
                 table_set(result, key, val);                                 // store in table
@@ -860,19 +910,19 @@ static Table* split_by_pattern(const char* text, const char* pattern, bool ci, b
                 free(seg_str);                                               // free temporary
                 split_count++;                                               // increment counter
             }
-            
+
             pos = match.end_pos - 1;                                         // skip delimiter
             segment_start = match.end_pos;                                   // start new segment
         }
     }
-    
+
     if (segment_start <= text_len) {                                         // handle last segment
         int seg_len = text_len - segment_start;                              // remaining length
-        
+
         if (seg_len == 0 && split_count > 0) {
             return result;                                                   // don't add empty trailing segment
         }
-        
+
         char* seg_str = (char*)malloc(seg_len > 0 ? seg_len + 1 : 1);        // allocate segment
         if (!seg_str) {                                                      // allocation failed
             table_destroy(result);
@@ -884,7 +934,7 @@ static Table* split_by_pattern(const char* text, const char* pattern, bool ci, b
         } else {
             seg_str[0] = '\0';                                               // empty string
         }
-        
+
         Value key = MAKE_NUMBER((double)(split_count + 1));                  // index key
         Value val = make_string_val(seg_str);                                // string value
         table_set(result, key, val);                                         // store in table
@@ -892,7 +942,7 @@ static Table* split_by_pattern(const char* text, const char* pattern, bool ci, b
         value_decref(val);                                                   // release value
         free(seg_str);                                                       // free temporary
     }
-    
+
     return result;                                                           // return result table
 }
 
@@ -908,8 +958,14 @@ static Value regex_search_impl(const char* pattern, const char* text, bool ci, b
         return MAKE_TABLE(search_result);                                    // return empty table
     }
 
+    MatchCtx ctx = { .steps_remaining = MATCH_STEP_BUDGET, .exhausted = false };
+
     for (int start = 0; start <= text_len; start++) {                        // search all positions
-        MatchResult match = match_pattern(text, text_len, start, pattern, pattern_len, 0, ci, dotnl);
+        MatchResult match = match_pattern(&ctx, 0, text, text_len, start, pattern, pattern_len, 0, ci, dotnl);
+        if (ctx.exhausted) {                                                 // budget hit: whole operation fails
+            table_destroy(search_result);
+            return MAKE_NONE();
+        }
         if (match.end_pos >= start && pattern_len > 0) {                     // found match (including empty)
             int match_len = match.end_pos - start;                           // match length
             char* match_str = (char*)malloc(match_len + 1);                  // allocate match string
@@ -1138,7 +1194,7 @@ static bool regex_run_async_or_sync(VM* vm, Value (*fn)(void*),
 static Value regex_find_all_kernel(void* p) {
     RegexArgs* a = (RegexArgs*)p;                                   // unpack argument struct
     Table* t = find_all_matches(a->text, a->pattern, a->ci, a->dotnl);  // run matcher
-    if (!t) return MAKE_NONE();                                     // allocation failure
+    if (!t) return MAKE_NONE();                                     // allocation failure or budget hit
     return MAKE_TABLE(t);                                           // return result table
 }
 
@@ -1146,7 +1202,7 @@ static Value regex_find_all_kernel(void* p) {
 static Value regex_replace_kernel(void* p) {
     RegexArgs* a = (RegexArgs*)p;                                   // unpack argument struct
     char* s = substitute_pattern(a->text, a->pattern, a->replacement, a->ci, a->dotnl);  // substitute
-    if (!s) return MAKE_NONE();                                     // allocation failure
+    if (!s) return MAKE_NONE();                                     // allocation failure or budget hit
     Value v = make_string_val(s);                                   // fresh refcounted string
     free(s);                                                        // release temporary
     return v;                                                       // return substituted string
@@ -1156,7 +1212,7 @@ static Value regex_replace_kernel(void* p) {
 static Value regex_split_kernel(void* p) {
     RegexArgs* a = (RegexArgs*)p;                                   // unpack argument struct
     Table* t = split_by_pattern(a->text, a->pattern, a->ci, a->dotnl);  // split
-    if (!t) return MAKE_NONE();                                     // allocation failure
+    if (!t) return MAKE_NONE();                                     // allocation failure or budget hit
     return MAKE_TABLE(t);                                           // return result table
 }
 
