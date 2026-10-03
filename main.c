@@ -127,7 +127,7 @@ static int execute_embedded_bytecode(int argc, char** argv) {
 #ifdef _WIN32
     char temp_base[MAX_PATH];                       // buffer for temp directory base path
     DWORD len = GetTempPathA(MAX_PATH, temp_base);  // get system temp directory
-    
+
     if (len == 0 || GetFileAttributesA(temp_base) == INVALID_FILE_ATTRIBUTES) {  // temp path invalid or unavailable
         const char* userprofile = getenv("USERPROFILE");  // fallback to user profile directory
         if (userprofile) {
@@ -141,22 +141,30 @@ static int execute_embedded_bytecode(int argc, char** argv) {
             CreateDirectoryA(temp_base, NULL);            // ensure directory exists
         }
     }
-    
-    // GetTempFileNameA atomically reserves a unique file (retries on collision and
-    // creates it), so no attacker can pre-plant a file at the resulting path;
-    // we then reopen that exact file with CreateFileA/CREATE_ALWAYS via an
-    // exclusive handle, eliminating the TOCTOU window between reserve and open
-    char temp_file[MAX_PATH];                       // buffer for the reserved temp file path
-    if (GetTempFileNameA(temp_base, "apx", 0, temp_file) == 0) {  // atomically reserve a temp file
-        free(payload);
-        return -1;
-    }
-    snprintf(temp_path, sizeof(temp_path), "%s", temp_file);  // copy the reserved path
 
-    HANDLE h = CreateFileA(temp_path, GENERIC_WRITE, 0, NULL,  // open the reserved file exclusively
-                           CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (h == INVALID_HANDLE_VALUE) {                // failed to open the reserved file
-        DeleteFileA(temp_path);
+    // generate a name ourselves and claim it atomically with CREATE_NEW
+    HANDLE h = INVALID_HANDLE_VALUE;                        // exclusive handle to the temp file
+    for (int attempt = 0; attempt < 64; attempt++) {        // retry on name collision
+        static LONG s_apex_temp_counter = 0;                // process-wide, incremented atomically
+        LONG counter = InterlockedIncrement(&s_apex_temp_counter);
+        snprintf(temp_path, sizeof(temp_path),
+                 "%s\\apex_bytecode_%lu_%llu_%ld.apexc",
+                 temp_base,
+                 (unsigned long)GetCurrentProcessId(),
+                 (unsigned long long)GetTickCount64(),
+                 (long)counter);
+
+        h = CreateFileA(temp_path,
+                        GENERIC_WRITE,                  // write access
+                        0,                              // no sharing: blocks delete while held
+                        NULL,                           // default security
+                        CREATE_NEW,                     // atomic create-or-fail
+                        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+                        NULL);
+        if (h != INVALID_HANDLE_VALUE) break;               // claimed the name
+        if (GetLastError() != ERROR_FILE_EXISTS) break;     // non-collision failure: give up
+    }
+    if (h == INVALID_HANDLE_VALUE) {                        // 64 collisions or hard error
         free(payload);
         return -1;
     }
