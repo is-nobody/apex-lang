@@ -794,6 +794,13 @@ int apex_run_string(ApexState* S, const char* code, const char* chunkname) {
         return 1;
     }
 
+    // reset every global slot to none so the new chunk starts from a clean state
+    for (int i = 0; i < S->vm->global_capacity; i++) {
+        Value old = S->vm->globals[i];
+        if ((old & QNAN) == QNAN) value_decref(old);
+        S->vm->globals[i] = MAKE_NONE();
+    }
+
     // install every pending global into the chunk's global table and pre-load the value into vm->globals
     for (PendingGlobal* p = S->pending_globals; p; p = p->next) {
         int idx = bytecode_add_global(chunk, p->name);
