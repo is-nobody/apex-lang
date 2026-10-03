@@ -221,6 +221,8 @@ static bool read_dt(VM* vm, Value v, long long* y, int* mo, int* d,
     if (!read_field(vm, t, "second",      0, &vs))  return false;
     if (!read_field(vm, t, "millisecond", 0, &vms)) return false;
 
+    // nan and inf both fail this check because all comparisons with nan are false
+    if (!(vy  >= 1.0 && vy  <= 9999.0)) return false;       // year range [1, 9999] (documented)
     if (vmo < 1 || vmo > 12) return false;                  // month range
     if (vd  < 1 || vd  > 31) return false;                  // day range
     if (vh  < 0 || vh  > 23) return false;                  // hour range
@@ -228,7 +230,7 @@ static bool read_dt(VM* vm, Value v, long long* y, int* mo, int* d,
     if (vs  < 0 || vs  > 60) return false;                  // second range (leap second allowed)
     if (vms < 0 || vms > 999) return false;                 // millisecond range
 
-    *y  = (long long)vy;                                    // commit fields
+    *y  = (long long)vy;                                    // commit fields (safe: 1..9999 fits)
     *mo = (int)vmo;
     *d  = (int)vd;
     *h  = (int)vh;
