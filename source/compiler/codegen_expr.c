@@ -97,7 +97,9 @@ static int codegen_identifier(CodeGenerator* cg, ASTNode* node, int dest) {
 
     for (int i = 0; i < cg->module_count; i++) {                           // check imported modules
         char full_name[512];                                               // qualified name buffer
-        snprintf(full_name, sizeof(full_name), "%s.%s", cg->imported_modules[i], name);
+        int n = snprintf(full_name, sizeof(full_name), "%s.%s",            // qualify name
+                         cg->imported_modules[i], name);
+        if (n < 0 || (size_t)n >= sizeof(full_name)) continue;             // truncated: skip this module
 
         int global_idx = bytecode_get_global(cg->chunk, full_name);        // lookup global
         if (global_idx >= 0) {                                             // found in module
@@ -107,10 +109,13 @@ static int codegen_identifier(CodeGenerator* cg, ASTNode* node, int dest) {
 
     if (cg->current_module && !strchr(name, '.')) {                        // inside module and bare name
         char qualified[512];                                               // buffer for qualified name
-        snprintf(qualified, sizeof(qualified), "%s.%s", cg->current_module, name);
-        int global_idx = bytecode_get_global(cg->chunk, qualified);        // lookup qualified global
-        if (global_idx >= 0) {                                             // found qualified global
-            return load_global_cached(cg, global_idx, dest, node->line);
+        int n = snprintf(qualified, sizeof(qualified), "%s.%s",            // qualify name
+                         cg->current_module, name);
+        if (n >= 0 && (size_t)n < sizeof(qualified)) {                     // not truncated
+            int global_idx = bytecode_get_global(cg->chunk, qualified);    // lookup qualified global
+            if (global_idx >= 0) {                                         // found qualified global
+                return load_global_cached(cg, global_idx, dest, node->line);
+            }
         }
     }
 
@@ -128,16 +133,19 @@ static int codegen_identifier(CodeGenerator* cg, ASTNode* node, int dest) {
 
     if (cg->current_module && !strchr(name, '.')) {                        // inside module and bare name
         char qualified[512];                                               // buffer for qualified name
-        snprintf(qualified, sizeof(qualified), "%s.%s", cg->current_module, name);
-        global_idx = bytecode_add_global(cg->chunk, qualified);            // create qualified global slot
-        if (cg->current_function == 0) {                                   // top-level scope
-            int reg = add_local(cg, name);                                 // add as local cache
-            emit(cg, INST(OP_LOAD_GLOBAL, reg, global_idx, 0), node->line);
-            if (dest < 0 || dest == reg) return reg;                       // local is the dest
-            emit(cg, INST(OP_MOVE, dest, reg, 0), node->line);             // copy into requested dest
-            return dest;                                                   // return destination
+        int n = snprintf(qualified, sizeof(qualified), "%s.%s",            // qualify name
+                         cg->current_module, name);
+        if (n >= 0 && (size_t)n < sizeof(qualified)) {                     // not truncated
+            global_idx = bytecode_add_global(cg->chunk, qualified);        // create qualified global slot
+            if (cg->current_function == 0) {                               // top-level scope
+                int reg = add_local(cg, name);                             // add as local cache
+                emit(cg, INST(OP_LOAD_GLOBAL, reg, global_idx, 0), node->line);
+                if (dest < 0 || dest == reg) return reg;                   // local is the dest
+                emit(cg, INST(OP_MOVE, dest, reg, 0), node->line);         // copy into requested dest
+                return dest;                                               // return destination
+            }
+            return load_global_cached(cg, global_idx, dest, node->line);
         }
-        return load_global_cached(cg, global_idx, dest, node->line);
     }
 
     // fallback: create bare global (for non-module code)
