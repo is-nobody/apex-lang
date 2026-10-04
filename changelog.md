@@ -25,8 +25,8 @@
 - **JIT:** Loops touching globals with index ≥ 64 are correctly guarded, fixing a silent miscompile.
 - **JIT:** `rip_fixup_at[]` / `rip_fixup_imm[]` in the x86-64 emitter are now bounds-checked via `RIP_FIXUP_ADD`; overflow raises `JIT_FATAL` instead of corrupting the frame.
 - **Scheduler:** `pending_workers` is now `_Atomic int`, removing a C11 data race.
-- **Table iteration:** `for value in table` pins the iterated table's register across the loop body, fixing a heap-use-after-free when the body reused that register and dropped the table's last reference while the iterator still held it.
-- **Table iteration:** breaking out of a `for value in table` loop now pops the table iterator stack via the new `OP_POP_TABLE_ITER` opcode, instead of the numeric iterator stack, which previously corrupted enclosing numeric loops.
+- **Table iteration:** pins the iterated table's register across the loop body; fixes heap-use-after-free when the body reused it.
+- **Table iteration:** `break` now pops the table iterator stack via `OP_POP_TABLE_ITER`, not the numeric one.
 
 ## Compiler
 - **Parser:** Builtin hash table is built under a one-time initializer, removing a race across concurrent hosts.
@@ -34,6 +34,7 @@
 - **Codegen:** `codegen_identifier` skips qualified-name branches when `snprintf` truncates.
 - **Codegen:** `assign_registers_linear_scan` grows its arrays on overflow instead of writing past `cap`.
 - **Optimizer:** `opt_licm.c` checks `realloc` results before committing; OOM skips a hoist candidate instead of dereferencing NULL.
+- **Optimizer:** Functions reassigning a parameter are no longer inlined; callers' variables were silently overwritten.
 
 ## Libraries
 - **`random`:** All `srand`/`rand` access is serialised under a process-wide mutex.

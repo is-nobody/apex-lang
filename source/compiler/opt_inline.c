@@ -226,16 +226,28 @@ bool function_is_inlinable(CodeGenerator* cg, int func_idx) {
         if (params->count <= 8 && body && body->type == AST_BLOCK &&
             body->block.statements->count > 0 &&
             stmt_always_returns(body)) {                           // no fall-through
-            const char* names[24];
-            int name_count = 0;
-            for (int i = 0; i < params->count && name_count < 24; i++)
-                names[name_count++] = params->nodes[i]->param.name;
-            int budget = 24;                                                    // stmt budget
-            if (inline_body_ok(body, names, &name_count, &budget)) {            // passes shape check
-                int nc = ast_node_count(body);                                  // cost
-                if (nc <= 40) {                                                 // tighter cap
-                    cls = 1;                                                    // size-only rule, no call-graph filter
-                    cg->fn_cache.node_count[func_idx] = nc;                     // stash cost
+
+            // reject if any parameter is bound somewhere in the body
+            bool param_clobber = false;
+            for (int i = 0; i < params->count; i++) {
+                if (body_assigns_name(body, params->nodes[i]->param.name)) {
+                    param_clobber = true;
+                    break;
+                }
+            }
+
+            if (!param_clobber) {
+                const char* names[24];
+                int name_count = 0;
+                for (int i = 0; i < params->count && name_count < 24; i++)
+                    names[name_count++] = params->nodes[i]->param.name;
+                int budget = 24;                                                    // stmt budget
+                if (inline_body_ok(body, names, &name_count, &budget)) {            // passes shape check
+                    int nc = ast_node_count(body);                                  // cost
+                    if (nc <= 40) {                                                 // tighter cap
+                        cls = 1;                                                    // size-only rule, no call-graph filter
+                        cg->fn_cache.node_count[func_idx] = nc;                     // stash cost
+                    }
                 }
             }
         }
