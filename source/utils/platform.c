@@ -13,6 +13,7 @@
 #include <windows.h>
 #include <conio.h>
 #include <io.h>
+#include <fcntl.h>
 #include <shellapi.h>
 
 #ifdef _MSC_VER
@@ -94,26 +95,59 @@ const char* platform_get_name(void) {
 char* platform_create_temp_file(const char* data, size_t len) {
     char temp_path[MAX_PATH];                  // temp directory buffer
     char temp_file[MAX_PATH];                  // temp file buffer
-    
-    get_valid_temp_path(temp_path, MAX_PATH);  // get valid temp path
-    
-    UINT res = GetTempFileNameA(temp_path, "apx", 0, temp_file);  // create temp filename
-    if (res == 0) return NULL;                 // creation failed
 
-    FILE* f = fopen(temp_file, "wb");          // open temp file
-    if (!f) {                                  // check open
-        DeleteFileA(temp_file);                // cleanup on failure
-        return NULL;                           // return null
+    get_valid_temp_path(temp_path, MAX_PATH);  // get valid temp path
+
+    // generate our own name and claim it atomically with create_new
+    HANDLE h = INVALID_HANDLE_VALUE;           // exclusive handle to the temp file
+    for (int attempt = 0; attempt < 64; attempt++) {        // retry on name collision
+        static LONG s_apex_temp_counter = 0;                // process-wide, incremented atomically
+        LONG counter = InterlockedIncrement(&s_apex_temp_counter);
+        snprintf(temp_file, sizeof(temp_file),
+                 "%s\\apex_%lu_%llu_%ld.tmp",
+                 temp_path,
+                 (unsigned long)GetCurrentProcessId(),
+                 (unsigned long long)GetTickCount64(),
+                 (long)counter);
+
+        h = CreateFileA(temp_file,
+                        GENERIC_WRITE,                  // write access
+                        0,                              // no sharing: blocks delete while held
+                        NULL,                           // default security
+                        CREATE_NEW,                     // atomic create-or-fail
+                        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+                        NULL);
+        if (h != INVALID_HANDLE_VALUE) break;               // claimed the name
+        if (GetLastError() != ERROR_FILE_EXISTS) {          // non-collision failure: give up
+            return NULL;
+        }
     }
-    
+    if (h == INVALID_HANDLE_VALUE) {                        // 64 collisions or hard error
+        return NULL;
+    }
+
+    // wrap the handle as a file* so the rest of this function stays unchanged
+    int fd = _open_osfhandle((intptr_t)h, _O_WRONLY | _O_BINARY);
+    if (fd == -1) {                                         // fd conversion failed
+        CloseHandle(h);
+        DeleteFileA(temp_file);
+        return NULL;
+    }
+    FILE* f = _fdopen(fd, "wb");                            // wrap the fd as a FILE*
+    if (!f) {                                               // _fdopen failed
+        _close(fd);                                         // closes the underlying handle too
+        DeleteFileA(temp_file);
+        return NULL;
+    }
+
     size_t written = fwrite(data, 1, len, f);   // write data
     fclose(f);                                  // close file
-    
+
     if (written != len) {        // check write success
         DeleteFileA(temp_file);  // cleanup on failure
         return NULL;                                                            // return null
     }
-    
+
     return strdup(temp_file);    // return duplicated path
 }
 
