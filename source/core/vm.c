@@ -1382,7 +1382,7 @@ bool vm_drive_until(VM* vm, Value target, Value* out_result) {
     while (fut->state == 0) {                           // drive until resolved
         if (vm->had_error) break;                       // abort scheduler on VM error
         bool ran = false;                               // did we run a slice?
-        while (vm->ready_count > 0) {                   // drain ready queue
+        while (vm->ready_count > 0 && !vm->had_error) { // drain ready queue
             FutureObject* task = scheduler_pop(vm);     // take next task
             ran = true;                                 // mark progress
 
@@ -1753,9 +1753,11 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     vm->chunk = chunk;                                    // store bytecode chunk
     vm->code = chunk->code;                               // pointer to instruction array
     vm->code_count = chunk->code_count;                   // total instruction count
-    vm->running = true;                                   // mark vm as running
-    vm->had_error = false;                                // reset error flag
     bool top_level = (vm->current_task == NULL);          // entering top-level or resuming a coroutine
+    if (top_level) {
+        vm->had_error = false;                            // reset error flag at top level only
+    }
+    vm->running = true;                                   // mark vm as running
     if (top_level) {                                      // top-level-only setup
         if (!vm_ensure_globals(vm, chunk->global_count)) {  // grow globals array for this chunk
             vm->had_error = true;                           // allocation failed or too many globals
