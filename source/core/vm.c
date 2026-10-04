@@ -1548,6 +1548,7 @@ VM* vm_create(const char* source) {
 
 // populates vm->args_table with user command line arguments only (1-indexed)
 void vm_set_args(VM* vm, int argc, char** argv, bool skip_script_name) {
+    if (!vm) return;                                                 // null guard
     int start = skip_script_name ? 2 : 1;                            // skip interpreter+script or just binary name
     int user_argc = argc > start ? argc - start : 0;                 // count of user-supplied args
     Table* t = table_create(user_argc > 8 ? user_argc : 8);          // allocate table with sufficient capacity

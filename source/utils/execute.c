@@ -103,6 +103,11 @@ bool execute_source(const char* filepath, const char* filename, int argc, char**
     }
     
     vm = vm_create(source);                                             // create virtual machine
+    if (!vm) {                                                          // vm creation failed (OOM)
+        print_error("Failed to create VM");                             // report failure
+        cleanup_all(tokenizer, parser, ast, cg, chunk, NULL, source);   // cleanup everything except vm
+        return false;                                                   // execution failed
+    }
     vm_set_args(vm, argc, argv, skip_script_name);                      // pass cli args with correct skip mode
     bool ok = vm_execute(vm, chunk);                                    // execute bytecode
 
