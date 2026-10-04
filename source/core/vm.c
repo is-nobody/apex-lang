@@ -1262,7 +1262,10 @@ void future_start(VM* vm, FutureObject* fut) {
         free(fut->frame_offset);   fut->frame_offset   = NULL;
         free(fut->frame_capacity); fut->frame_capacity = NULL;
         free(fut->frame_used);     fut->frame_used     = NULL;
-        return;                                                     // give up quietly
+        fprintf(stderr, "\033[31mRuntime Error: Out of memory starting async coroutine\n\033[0m");
+        vm->had_error = true;                                       // propagate failure to the VM
+        future_resolve(vm, fut, MAKE_NONE());                       // wake waiters, no hang
+        return;                                                     // coroutine will not run
     }
     fut->frame_arrays_size = FUTURE_FRAME_INITIAL;      // size of the frame bookkeeping arrays
     fut->pool_capacity  = needed;                       // total capacity for this pool
