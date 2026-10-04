@@ -201,9 +201,7 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node, int dest_hint) {
                 size_t piece_len = strlen(piece);                       // its length
                 size_t need = piece_len + (used > 0 ? 1 : 0);           // + dot if not first
                 if (used + need + 1 >= sizeof(func_name)) break;        // no room: truncate safely
-                if (used > 0) {                                         // not first
-                    func_name[used++] = '.';                            // add dot separator
-                }
+                if (used > 0) func_name[used++] = '.';                  // add dot separator
                 memcpy(func_name + used, piece, piece_len);             // append segment
                 used += piece_len;                                      // advance write cursor
                 func_name[used] = '\0';                                 // null terminate

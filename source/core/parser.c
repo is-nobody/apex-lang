@@ -1898,9 +1898,9 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
         int part_count = 0;
         
         while (temp->type == AST_INDEX_ACCESS) {    // collect path parts
-            if (part_count >= 31) {                 // too deep: mark invalid and stop
-                part_count = 0;
-                break;
+            if (part_count >= 31) {                 // too deep: reserve slot for root
+                part_count = 0;                     // invalid
+                break;                              // exit loop
             }
             if (temp->access.member->type == AST_IDENTIFIER) {
                 parts[part_count++] = temp->access.member->identifier.name;
@@ -1908,12 +1908,19 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
             temp = temp->access.object;
         }
         if (part_count > 0 && temp->type == AST_IDENTIFIER) {
-            parts[part_count++] = temp->identifier.name;
+            parts[part_count++] = temp->identifier.name;   // safe: count <= 31
         }
         
-        for (int i = part_count - 1; i >= 0; i--) {  // build dotted name
-            if (strlen(full_name) > 0) strcat(full_name, ".");
-            strcat(full_name, parts[i]);
+        size_t used = 0;                                          // bytes written so far
+        for (int i = part_count - 1; i >= 0; i--) {               // build dotted name
+            const char* piece = parts[i];                         // next path segment
+            size_t piece_len = strlen(piece);                     // its length
+            size_t need = piece_len + (used > 0 ? 1 : 0);         // + dot if not first
+            if (used + need + 1 >= sizeof(full_name)) break;      // no room: truncate safely
+            if (used > 0) full_name[used++] = '.';                // add dot separator
+            memcpy(full_name + used, piece, piece_len);           // append segment
+            used += piece_len;                                    // advance write cursor
+            full_name[used] = '\0';                               // null terminate
         }
         
         const BuiltinSig* builtin = lookup_builtin(full_name);
