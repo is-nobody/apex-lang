@@ -890,10 +890,15 @@ static bool unpack_file(const char* zip_filename) {
     long zip_size;                                           // zip file size
     uint8_t* zip_data = read_file(zip_filename, &zip_size);  // read zip
     if (!zip_data) return false;                             // read failed
+
+    if (zip_size < 22) {                                // eocd record is 22 bytes minimum
+        free(zip_data);                                 // file too small to be a zip
+        return false;                                   // reject before any arithmetic
+    }
     
     bool found_eocd = false;                            // eocd found flag
     ZipEndOfCentralDir eocd;                            // eocd struct
-    size_t offset = zip_size - 22;                      // start search at end
+    size_t offset = (size_t)zip_size - 22;              // start search at end (safe: zip_size >= 22)
     
     while (offset > 0 && offset >= 22) {                // search backward
         if (read_le32(zip_data + offset) == ZIP_END_OF_CENTRAL_DIR_SIG) {  // found signature
