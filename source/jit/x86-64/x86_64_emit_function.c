@@ -168,6 +168,14 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     int    rip_fixup_imm[256];                                   // imm index per fixup
     int    rip_fixup_count = 0;                                  // pending rip fixups
 
+    #define RIP_FIXUP_ADD(at_val, imm_val) do {                  \
+        if (rip_fixup_count >= 256)                              \
+            JIT_FATAL("rip fixup overflow in function %d", func_idx); \
+        rip_fixup_at[rip_fixup_count]  = (at_val);               \
+        rip_fixup_imm[rip_fixup_count] = (imm_val);              \
+        rip_fixup_count++;                                       \
+    } while (0)
+
     size_t tab_fixup_at[256];                                    // inline dispatch tables: 8-byte slots
     int    tab_fixup_pc[256];                                    // bytecode pc each slot must point at
     int    tab_fixup_count = 0;                                  // number of pending table slots
@@ -316,9 +324,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                     if (func_imms[i] == a) { imm_idx = i; break; }
                 if (imm_idx >= 0) {
                     size_t at = x86_emit_movsd_load_rip(cb, x);  // movsd xmm, [rip+disp32]
-                    rip_fixup_at[rip_fixup_count] = at;
-                    rip_fixup_imm[rip_fixup_count] = imm_idx;
-                    rip_fixup_count++;
+                    RIP_FIXUP_ADD(at, imm_idx);
                 } else {
                     x86_emit_load_double_imm(cb, x, a);
                 }
@@ -413,17 +419,13 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                         if (xd >= 0) {
                             x86_emit_sse66_rr(cb, 0x28, xd, xa);
                             size_t at = x86_emit_sse_arith_rip(cb, arith_op, xd);
-                            rip_fixup_at[rip_fixup_count] = at;
-                            rip_fixup_imm[rip_fixup_count] = imm_idx;
-                            rip_fixup_count++;
+                            RIP_FIXUP_ADD(at, imm_idx);
                             x86_cache_put(&cache, xd, d);
                             break;
                         }
                     }
                     size_t at = x86_emit_sse_arith_rip(cb, arith_op, xa);
-                    rip_fixup_at[rip_fixup_count] = at;
-                    rip_fixup_imm[rip_fixup_count] = imm_idx;
-                    rip_fixup_count++;
+                    RIP_FIXUP_ADD(at, imm_idx);
                     x86_cache_put(&cache, xa, d);
                     break;
                 }
@@ -759,9 +761,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                     if (func_imms[i] == b) { imm_idx = i; break; }
                 if (imm_idx >= 0) {
                     size_t at = x86_emit_ucomisd_rip(cb, xa);    // ucomisd xa, [rip+disp32]
-                    rip_fixup_at[rip_fixup_count] = at;
-                    rip_fixup_imm[rip_fixup_count] = imm_idx;
-                    rip_fixup_count++;
+                    RIP_FIXUP_ADD(at, imm_idx);
                 } else {
                     x86_emit_load_double_imm(cb, XMM_SCRATCH, b);
                     x86_emit_ucomisd_rr(cb, xa, XMM_SCRATCH);
@@ -1064,9 +1064,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                     if (func_imms[i] == a) { imm_idx = i; break; }
                 if (imm_idx >= 0) {
                     size_t at = x86_emit_movsd_load_rip(cb, 0);  // movsd xmm0, [rip+disp32]
-                    rip_fixup_at[rip_fixup_count] = at;
-                    rip_fixup_imm[rip_fixup_count] = imm_idx;
-                    rip_fixup_count++;
+                    RIP_FIXUP_ADD(at, imm_idx);
                 } else {
                     x86_emit_load_double_imm(cb, 0, a);
                 }
