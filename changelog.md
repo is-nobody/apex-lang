@@ -29,6 +29,7 @@
 - **Table iteration:** `break` now pops the table iterator stack via `OP_POP_TABLE_ITER`, not the numeric one.
 - **Async:** `vm_execute` only clears `had_error` at top level, so a coroutine's error is no longer wiped by the next coroutine's slice.
 - **Runtime:** String intern table init and resize, and `string_create`, now check allocation results.
+- **Runtime:** `table_to_string` caps recursion at 128 levels and emits `...` past the cut-off, instead of overflowing the C stack on deeply nested tables.
 
 ## Compiler
 - **Parser:** Builtin hash table is built under a one-time initializer, removing a race across concurrent hosts.

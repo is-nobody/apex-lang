@@ -65,6 +65,15 @@ typedef struct {
     TableIterState* table_iters;// active table iterator storage
 } SavedVMContext;
 
+// recursion-stack cap for table_equal
+#define TABLE_EQ_MAX_STACK 128
+
+// recursion-stack cap for table_to_string_builder
+#define TABLE_TO_STRING_MAX_DEPTH 128
+
+// one pair of tables currently being compared
+typedef struct { Table* a; Table* b; } TablePair;
+
 // forward declarations
 static char* table_to_string(Table* table);
 static void table_to_string_builder(Table* table, StringBuilder* sb, int indent_level);
@@ -438,6 +447,10 @@ static char* table_to_string(Table* table) {
 }
 
 static void table_to_string_builder(Table* table, StringBuilder* sb, int indent_level) {
+    if (indent_level >= TABLE_TO_STRING_MAX_DEPTH) {   // guard: runtime-built tables can nest
+        sb_append(sb, "...", 3);                       // arbitrarily deep; truncate instead of
+        return;                                        // overflowing the C stack
+    }
     for (int i = 0; i < indent_level; i++) sb_append(sb, "    ", 4);
     sb_append(sb, "[\n", 2);
     
@@ -910,13 +923,6 @@ Value* table_keys(Table* table, int* out_count) {
     *out_count = idx;                                     // store total key count
     return keys;                                          // return caller-owned keys array
 }
-
-// recursion-stack cap for table_equal; must exceed the parser's 16-level
-// table-literal nesting limit so any purely syntactic nesting fits
-#define TABLE_EQ_MAX_STACK 128
-
-// one pair of tables currently being compared
-typedef struct { Table* a; Table* b; } TablePair;
 
 // recursively compares two tables for deep equality with cycle detection
 static bool table_equal_rec(Table* a, Table* b, TablePair* stack, int depth) {
