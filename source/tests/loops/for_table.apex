@@ -71,6 +71,16 @@ function for_table_nested()
             result = "{result}{value}"
     assert_equal(result, "1234", "nested table iteration")
 
+// test: `break` inside a `for value in table` nested in a numeric `for`
+function for_table_break_inside_numeric()
+    result = ""
+    for i = 1, 3
+        for value in [10, 20, 30, 40, 50]
+            if value == 30
+                break
+            result = "{result}{i}:{value} "
+    assert_equal(result, "1:10 1:20 2:10 2:20 3:10 3:20 ", "table break inside numeric for")
+
 // execute all table for loop test cases
 for_table_basic()
 for_table_keys()
@@ -79,6 +89,7 @@ for_table_with_break()
 for_table_with_continue()
 for_table_sum()
 for_table_nested()
+for_table_break_inside_numeric()
 
 // report completion of table for loop tests
 os.output("[PASS] loops/for_table.apex")

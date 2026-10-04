@@ -1860,6 +1860,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_TABLE_ITER_INIT]    = &&OP_TABLE_ITER_INIT_LABEL,
         [OP_TABLE_ITER_NEXT]    = &&OP_TABLE_ITER_NEXT_LABEL,
         [OP_POP_ITER]           = &&OP_POP_ITER_LABEL,
+        [OP_POP_TABLE_ITER]     = &&OP_POP_TABLE_ITER_LABEL,
 
         [OP_TABLE_GET]          = &&OP_TABLE_GET_LABEL,
         [OP_TABLE_GET_CONST]    = &&OP_TABLE_GET_CONST_LABEL,
@@ -2769,7 +2770,12 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         goto *dispatch_table[ip->opcode];    // dispatch next instruction
     }
     OP_POP_ITER_LABEL:
-        if (vm->iterator_depth >= 0) vm->iterator_depth--;  // pop iterator frame if any exist
+        if (vm->iterator_depth >= 0) vm->iterator_depth--;  // pop numeric iterator frame if any exist
+        ip++;                              // advance to next instruction
+        goto *dispatch_table[ip->opcode];  // dispatch next instruction
+
+    OP_POP_TABLE_ITER_LABEL:
+        if (vm->table_iter_depth >= 0) vm->table_iter_depth--;  // pop table iterator frame if any exist
         ip++;                              // advance to next instruction
         goto *dispatch_table[ip->opcode];  // dispatch next instruction
 

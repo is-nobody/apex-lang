@@ -64,6 +64,7 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
 
     cg->loop_stack.break_capacity = 16;                                    // initial break capacity
     cg->loop_stack.break_jumps = (int*)malloc(sizeof(int) * cg->loop_stack.break_capacity);  // allocate breaks
+    cg->loop_stack.is_table_iter = false;                                  // outermost scope: not a table loop
 
     cg->current_module = NULL;                                             // no current module
     cg->imported_modules = NULL;                                           // no imports

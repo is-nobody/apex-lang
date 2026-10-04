@@ -79,6 +79,7 @@ static const char* opcode_names[] = {
     [OP_TABLE_ITER_INIT]    = "TABLE_ITER_INIT",
     [OP_TABLE_ITER_NEXT]    = "TABLE_ITER_NEXT",
     [OP_POP_ITER]           = "POP_ITER",
+    [OP_POP_TABLE_ITER]     = "POP_TABLE_ITER",
 
     [OP_TABLE_GET]          = "TABLE_GET",
     [OP_TABLE_GET_CONST]    = "TABLE_GET_CONST",

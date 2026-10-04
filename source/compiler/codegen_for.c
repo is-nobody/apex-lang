@@ -624,14 +624,17 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
     int prev_break_count = cg->loop_stack.break_count;
     int prev_continue_addr = cg->loop_stack.continue_addr;                         // save continue addr
     bool prev_is_fast = cg->loop_stack.is_fast;                                    // save fast flag
+    bool prev_is_table_iter = cg->loop_stack.is_table_iter;                        // save table-iter flag
     cg->loop_depth++;                                                              // disable copy propagation inside loops
 
     cg->loop_stack.is_fast = (node->for_stmt.var_name != NULL);                    // set fast flag
+    cg->loop_stack.is_table_iter = false;                                          // default: not a table loop
 
     if (node->for_stmt.var_name) {                                                 // named variable loop
         if (node->for_stmt.end == NULL && !node->for_stmt.condition) {             // table iteration
             int saved_locals_count = cg->locals.count;                              // capture for-scope boundary
             int saved_next_register = cg->next_register;
+            int prev_loop_floor = cg->register_floor;                              // save outer floor
             cg->for_scope_depth++;                                                  // enter for-scope
 
             LocalNumSnap table_entry = snap_numbers(cg);                           // snapshot before body
@@ -639,6 +642,12 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             int var_reg = add_local(cg, node->for_stmt.var_name);                  // add loop variable
 
             emit(cg, INST(OP_TABLE_ITER_INIT, table_reg, 0, 0), node->line);       // init iterator
+
+            // pin table_reg across the body
+            int pin_floor = table_reg + 1;
+            if (pin_floor < var_reg + 1) pin_floor = var_reg + 1;
+            if (pin_floor < prev_loop_floor) pin_floor = prev_loop_floor;
+            cg->register_floor = pin_floor;
 
             int loop_start = bytecode_current_offset(cg->chunk);                   // loop start
             cg->loop_stack.continue_addr = loop_start;                             // set continue
@@ -651,6 +660,7 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
 
             cg->imm_lvn.count = 0;                                                 // body: back-edge merge point
             codegen_block(cg, node->for_stmt.body);                                // emit body
+            cg->register_floor = prev_loop_floor;                                  // restore outer floor
             restore_numbers(cg, table_entry);                                      // body may reassign: reset flags
 
             num_cache_truncate(cg, saved_num_cache);                               // loop may not have run: discard body-added entries
@@ -1077,6 +1087,7 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
     cg->loop_stack.break_count = prev_break_count;                                  // restore break count
     cg->loop_stack.continue_addr = prev_continue_addr;                              // restore continue
     cg->loop_stack.is_fast = prev_is_fast;                                          // restore fast flag
+    cg->loop_stack.is_table_iter = prev_is_table_iter;                              // restore table-iter flag
     cg->loop_depth--;                                                               // re-enable copy propagation
 
     cg->imm_lvn.count = 0;                                                          // loop exit is a merge point

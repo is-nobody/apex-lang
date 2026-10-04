@@ -494,8 +494,10 @@ static void codegen_return(CodeGenerator* cg, ASTNode* node) {
 // emits a break statement, patching jumps to loop exit later
 static void codegen_break(CodeGenerator* cg, ASTNode* node) {
     if (cg->loop_stack.break_count < cg->loop_stack.break_capacity) {        // space available
-        if (cg->loop_stack.is_fast) {                                        // fast loop
-            emit(cg, INST(OP_POP_ITER, 0, 0, 0), node->line);                // pop iterator
+        if (cg->loop_stack.is_table_iter) {                                  // table loop
+            emit(cg, INST(OP_POP_TABLE_ITER, 0, 0, 0), node->line);          // pop table iterator
+        } else if (cg->loop_stack.is_fast) {                                 // numeric fast loop
+            emit(cg, INST(OP_POP_ITER, 0, 0, 0), node->line);                // pop numeric iterator
         }
 
         int jump_offset = bytecode_current_offset(cg->chunk);                // jump position

@@ -300,6 +300,8 @@ static void emit_instruction(BytecodeChunk* chunk, int offset, FILE* out) {  // 
             break;
         case OP_POP_ITER:                                         // pop iterator on break
             break;
+        case OP_POP_TABLE_ITER:                                   // pop iterator table on break
+            break;
 
         case OP_TABLE_GET:                                        // table[key]
             REG(a); fputs(" <- ", out); REG(b); fputc('[', out); REG(c); fputc(']', out);  // dst <- tbl[key]

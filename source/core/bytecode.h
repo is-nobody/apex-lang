@@ -69,7 +69,8 @@ typedef enum {
     OP_FOR_NEXT_LOOP,      // loop-inverted variant: jumps back to body on success, falls through to exit on fail
     OP_TABLE_ITER_INIT,    // initialize table iterator for "for value in table" loops
     OP_TABLE_ITER_NEXT,    // advance table iterator, yield next key into register
-    OP_POP_ITER,           // cleans up iterator state when leaving a loop
+    OP_POP_ITER,           // cleans up numeric iterator state when leaving a loop
+    OP_POP_TABLE_ITER,     // cleans up table iterator state when leaving a for-value-in-table loop
 
     OP_TABLE_GET,          // rdst = table[key_reg]
     OP_TABLE_GET_CONST,    // rdst = table[constant_key]

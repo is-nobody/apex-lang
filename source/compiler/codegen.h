@@ -86,6 +86,7 @@ typedef struct {
         int break_capacity;        // allocated capacity of break_jumps array
         int continue_addr;         // instruction offset for continue statements to jump to
         bool is_fast;              // whether the current loop uses fast range optimization
+        bool is_table_iter;        // true while the innermost loop is a for-value-in-table loop
     } loop_stack;                  // stack of active loops for break/continue resolution
 
     int next_register;             // next free register index for allocation
