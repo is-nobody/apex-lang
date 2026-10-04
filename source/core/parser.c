@@ -31,7 +31,8 @@
     #endif
 #endif
 
-#define MAX_EXPR_DEPTH 256  // cap on expression nesting to prevent stack exhaustion
+#define MAX_EXPR_DEPTH 256   // cap on expression nesting to prevent stack exhaustion
+#define MAX_CHAIN_DEPTH 512  // cap on single-level operator and else-if chains
 
 static Token* current_token(Parser* parser);                         // get current token without consuming
 static ASTNode* parse_statement(Parser* parser);                     // parse a single statement
@@ -815,6 +816,7 @@ Parser* parser_create(Token* tokens, int count, const char* filename, const char
     parser->semantic_checks = true;                // perform semantic checks by default
     parser->expecting_indented_block = false;      // not expecting indent
     parser->expr_depth = 0;                        // no expression nesting yet
+    parser->chain_depth = 0;                       // no operator/else-if chain yet
     parser->source = source;                       // store source pointer
     parser->source_dir = NULL;                     // will be set below
     parser_set_source_dir(parser, filename);       // set source directory
@@ -1533,6 +1535,7 @@ static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, in
     Parser* temp_parser = parser_create(temp_tokens, temp_count, "<interpolation>", parser->source);
     temp_parser->semantic_checks = false;          // disable type checking
     temp_parser->expr_depth = parser->expr_depth;  // inherit parent depth: caps total nesting
+    temp_parser->chain_depth = parser->chain_depth;// inherit parent chain budget
 
     free(temp_parser->source_dir);
     temp_parser->source_dir = strdup(parser->source_dir);  // inherit source dir
@@ -2233,7 +2236,17 @@ static ASTNode* parse_precedence(Parser* parser, Precedence precedence) {
             break;                                  // stuck, exit
         }
         prev_pos = parser->current;
-        
+
+        if (++parser->chain_depth > MAX_CHAIN_DEPTH) {   // DoS guard: 1+1+1+... or a.b.c...
+            Token* tk = current_token(parser);
+            parser_error_at(parser, tk->line, tk->column,
+                            tk->value ? (int)utf8_char_len(tk->value) : 1,
+                            "Operator chain too long (max %d)", MAX_CHAIN_DEPTH);
+            parser->chain_depth = 0;
+            parser->expr_depth--;
+            return left;                            // keep partial tree linked in
+        }
+
         Token* token = current_token(parser);
         Precedence current_prec = get_precedence(token->type);
         if (token->type == TOKEN_LPAREN || token->type == TOKEN_LBRACKET || token->type == TOKEN_DOT) {
@@ -2250,6 +2263,7 @@ static ASTNode* parse_precedence(Parser* parser, Precedence precedence) {
         
         left = new_left;                            // continue with new left
     }
+    parser->chain_depth = 0;                        // reset for sibling expressions
     parser->expr_depth--;                           // leave Pratt level
     return left;
 }
@@ -2600,6 +2614,13 @@ static ASTNode* parse_if_statement(Parser* parser) {
     ASTNode* elif_tail = NULL;
     
     while (match(parser, TOKEN_ELSE)) {            // check for else
+        Token* else_kw_token = &parser->tokens[parser->current - 1];  // the 'else' token
+        if (++parser->chain_depth > MAX_CHAIN_DEPTH) {   // DoS guard: if/else if/else if/...
+            parser_error_at(parser, else_kw_token->line, else_kw_token->column, 4,
+                            "Else-if chain too long (max %d)", MAX_CHAIN_DEPTH);
+            parser->chain_depth = 0;
+            break;
+        }
         if (match(parser, TOKEN_IF)) {             // this is else if on same line
             Token* else_if_token = &parser->tokens[parser->current - 1];  // the if token
             
@@ -2660,6 +2681,8 @@ static ASTNode* parse_if_statement(Parser* parser) {
         }
     }
     
+    parser->chain_depth = 0;                       // reset for sibling statements
+
     if (elif_chain) {
         return ast_create_if(condition, then_branch, elif_chain, NULL);  // else branch on last elif
     } else {
