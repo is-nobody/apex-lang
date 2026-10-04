@@ -3585,6 +3585,20 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int arg_count = ip->operands[2];             // number of arguments on the args stack
 
         FutureObject* fut = (FutureObject*)malloc(sizeof(FutureObject));  // allocate pending future
+        if (unlikely(!fut)) {                        // oom: report and halt
+            fprintf(stderr, "\033[31mRuntime Error: Out of memory allocating async future\n\033[0m");
+            vm->had_error = true;                    // mark failure
+            vm->running = false;                     // stop execution
+            goto OP_HALT_LABEL;                      // unwind through halt
+        }
+        fut->args = arg_count > 0 ? (Value*)malloc(sizeof(Value) * arg_count) : NULL;  // capture buffer
+        if (unlikely(arg_count > 0 && !fut->args)) { // oom: report and halt
+            fprintf(stderr, "\033[31mRuntime Error: Out of memory allocating async future args\n\033[0m");
+            free(fut);                               // release partial future
+            vm->had_error = true;                    // mark failure
+            vm->running = false;                     // stop execution
+            goto OP_HALT_LABEL;                      // unwind through halt
+        }
         fut->header.ref_count = 1;                   // fresh object refcount
         fut->header.type = VAL_FUTURE;               // mark type as future
         fut->result = MAKE_NONE();                   // filled in when awaited
@@ -3608,7 +3622,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         fut->waiter_capacity = 0;                    // no capacity
         fut->saved_iter_depth = -1;                  // no active loops
         fut->saved_table_iter_depth = -1;            // no active table iterators
-        fut->args = arg_count > 0 ? (Value*)malloc(sizeof(Value) * arg_count) : NULL;  // capture buffer
         for (int i = 0; i < arg_count; i++) {        // capture args from args stack
             Value a = vm->args_stack[vm->args_top - arg_count + i];
             if ((a & QNAN) == QNAN) value_incref(a); // keep a reference in the future
