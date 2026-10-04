@@ -31,6 +31,8 @@
     #endif
 #endif
 
+#define MAX_EXPR_DEPTH 256  // cap on expression nesting to prevent stack exhaustion
+
 static Token* current_token(Parser* parser);                         // get current token without consuming
 static ASTNode* parse_statement(Parser* parser);                     // parse a single statement
 static ASTNode* parse_expression(Parser* parser);                    // parse expression using Pratt
@@ -812,6 +814,7 @@ Parser* parser_create(Token* tokens, int count, const char* filename, const char
     parser->pending_async = false;                 // no pending async marker
     parser->semantic_checks = true;                // perform semantic checks by default
     parser->expecting_indented_block = false;      // not expecting indent
+    parser->expr_depth = 0;                        // no expression nesting yet
     parser->source = source;                       // store source pointer
     parser->source_dir = NULL;                     // will be set below
     parser_set_source_dir(parser, filename);       // set source directory
@@ -1497,6 +1500,11 @@ static const char* find_closing_brace(const char* str) {
 }
 // parses a string expression with interpolation support
 static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, int line, int column) {
+    if (parser->expr_depth >= MAX_EXPR_DEPTH) {     // dos guard: nested string interpolation
+        parser_error_at(parser, line, column, 1,
+                        "Expression nesting too deep (max %d)", MAX_EXPR_DEPTH);
+        return NULL;
+    }
     Tokenizer* temp_tokenizer = tokenizer_create(expr_str, "<interpolation>");  // create temp tokenizer
 
     int temp_count = 0;
@@ -1524,6 +1532,7 @@ static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, in
 
     Parser* temp_parser = parser_create(temp_tokens, temp_count, "<interpolation>", parser->source);
     temp_parser->semantic_checks = false;          // disable type checking
+    temp_parser->expr_depth = parser->expr_depth;  // inherit parent depth: caps total nesting
 
     free(temp_parser->source_dir);
     temp_parser->source_dir = strdup(parser->source_dir);  // inherit source dir
@@ -2199,37 +2208,49 @@ static ASTNode* parse_infix(Parser* parser, ASTNode* left) {
     }
 }
 
-// core Pratt parser that handles precedence climbing
+// core pratt parser that handles precedence climbing
 static ASTNode* parse_precedence(Parser* parser, Precedence precedence) {
+    if (parser->expr_depth >= MAX_EXPR_DEPTH) {     // dos guard: nested parens/tables/unary
+        Token* tok = current_token(parser);
+        parser_error_at(parser, tok->line, tok->column,
+                        tok->value ? (int)utf8_char_len(tok->value) : 1,
+                        "Expression nesting too deep (max %d)", MAX_EXPR_DEPTH);
+        return NULL;
+    }
+    parser->expr_depth++;                           // enter one Pratt level
+
     ASTNode* left = parse_prefix(parser);           // parse prefix expression
     
     if (!left) {
-        return NULL;                                 // no expression
+        parser->expr_depth--;                       // unwind before early return
+        return NULL;                                // no expression
     }
     
     int prev_pos = -1;                              // prevent infinite loops
     
     while (true) {
         if (parser->current == prev_pos) {
-            break;                                   // stuck, exit
+            break;                                  // stuck, exit
         }
         prev_pos = parser->current;
         
         Token* token = current_token(parser);
         Precedence current_prec = get_precedence(token->type);
         if (token->type == TOKEN_LPAREN || token->type == TOKEN_LBRACKET || token->type == TOKEN_DOT) {
-            current_prec = PREC_CALL;                // call precedence
+            current_prec = PREC_CALL;               // call precedence
         }
-        if (current_prec <= precedence) break;       // stop if lower precedence
+        if (current_prec <= precedence) break;      // stop if lower precedence
         
         ASTNode* new_left = parse_infix(parser, left);  // parse infix
         
         if (!new_left) {
-            return left;                             // no more infix
+            parser->expr_depth--;                   // unwind before early return
+            return left;                            // no more infix
         }
         
         left = new_left;                            // continue with new left
     }
+    parser->expr_depth--;                           // leave Pratt level
     return left;
 }
 

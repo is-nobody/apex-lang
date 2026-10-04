@@ -103,6 +103,7 @@ struct Parser {
     bool pending_async;             // true while parsing the body of an async function
     bool semantic_checks;           // whether to perform type checking and constant folding
     bool expecting_indented_block;  // true if previous statement opened a block (if/else if/else/for/function)
+    int expr_depth;                 // current expression nesting depth (DoS guard)
 
     int last_error_line;            // most recent error position for duplicate detection
     int last_error_column;          // most recent error column for duplicate detection
