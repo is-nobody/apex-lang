@@ -134,9 +134,15 @@ static char advance(Tokenizer* tokenizer) {
 // adds a new token to the dynamic array, resizing if necessary
 static void add_token(Tokenizer* tokenizer, ApexTokenType type, const char* value, int line, int column) {
     if (tokenizer->token_count >= tokenizer->token_capacity) {
-        tokenizer->token_capacity *= 2;                         // double capacity when full
-        tokenizer->tokens = (Token*)realloc(tokenizer->tokens, 
-                                           sizeof(Token) * tokenizer->token_capacity); // resize token array
+        int new_cap = tokenizer->token_capacity * 2;            // double capacity when full
+        Token* new_tokens = (Token*)realloc(tokenizer->tokens,  // resize token array
+                                            sizeof(Token) * new_cap);
+        if (!new_tokens) {                                      // OOM: report and drop this token
+            tokenizer->has_error = true;
+            return;
+        }
+        tokenizer->tokens = new_tokens;                         // commit new buffer
+        tokenizer->token_capacity = new_cap;                    // publish new capacity
     }
     tokenizer->tokens[tokenizer->token_count].type = type;      // set token type
     tokenizer->tokens[tokenizer->token_count].value = strdup(value);  // duplicate token value string
@@ -208,8 +214,15 @@ static char* read_string(Tokenizer* tokenizer) {
             
             if (next_c == '{' || next_c == '}') {
                 if (buf_pos + 2 >= buf_size) {
-                    buf_size *= 2;                              // double buffer capacity
-                    buffer = (char*)realloc(buffer, buf_size);  // resize buffer
+                    int new_size = buf_size * 2;                              // double buffer capacity
+                    char* new_buffer = (char*)realloc(buffer, new_size);      // resize buffer
+                    if (!new_buffer) {                                        // OOM: report and abort
+                        tokenizer_error(tokenizer, 1, "Out of memory while reading string");
+                        free(buffer);
+                        return NULL;
+                    }
+                    buffer = new_buffer;                                      // commit new buffer
+                    buf_size = new_size;                                      // publish new size
                 }
                 buffer[buf_pos++] = '\\';                    // preserve backslash in output
                 buffer[buf_pos++] = next_c;                  // preserve brace character in output
@@ -256,9 +269,16 @@ static char* read_string(Tokenizer* tokenizer) {
                 continue;                                    // continue reading string (error recovery)
             }
             
-            if (buf_pos + 1 >= buf_size) {                   // ensure space for 1 char
-                buf_size *= 2;                               // double buffer capacity
-                buffer = (char*)realloc(buffer, buf_size);   // resize buffer
+            if (buf_pos + 1 >= buf_size) {                                 // ensure space for 1 char
+                int new_size = buf_size * 2;                               // double buffer capacity
+                char* new_buffer = (char*)realloc(buffer, new_size);       // resize buffer
+                if (!new_buffer) {                                         // oom: report and abort
+                    tokenizer_error(tokenizer, 1, "Out of memory while reading string");
+                    free(buffer);
+                    return NULL;
+                }
+                buffer = new_buffer;                                       // commit new buffer
+                buf_size = new_size;                                       // publish new size
             }
             buffer[buf_pos++] = char_to_add;                 // store interpreted escape character
             advance(tokenizer);                              // consume the first char after backslash
@@ -274,8 +294,15 @@ static char* read_string(Tokenizer* tokenizer) {
         }
         
         if (buf_pos + 1 >= buf_size) {
-            buf_size *= 2;                                   // double buffer capacity
-            buffer = (char*)realloc(buffer, buf_size);       // resize buffer
+            int new_size = buf_size * 2;                              // double buffer capacity
+            char* new_buffer = (char*)realloc(buffer, new_size);      // resize buffer
+            if (!new_buffer) {                                        // OOM: report and abort
+                tokenizer_error(tokenizer, 1, "Out of memory while reading string");
+                free(buffer);
+                return NULL;
+            }
+            buffer = new_buffer;                                      // commit new buffer
+            buf_size = new_size;                                      // publish new size
         }
         buffer[buf_pos++] = advance(tokenizer);              // store regular character
     }
@@ -355,8 +382,15 @@ static char* read_identifier(Tokenizer* tokenizer) {
         unsigned char uc = (unsigned char)c;
         if (isalnum(c) || c == '_' || uc >= 0x80) {
             if (buf_pos + 4 >= buf_size) {
-                buf_size *= 2;                              // double buffer capacity
-                buffer = (char*)realloc(buffer, buf_size);  // resize buffer
+                int new_size = buf_size * 2;                              // double buffer capacity
+                char* new_buffer = (char*)realloc(buffer, new_size);      // resize buffer
+                if (!new_buffer) {                                        // OOM: report and return NULL
+                    tokenizer_error(tokenizer, 1, "Out of memory while reading identifier");
+                    free(buffer);
+                    return NULL;
+                }
+                buffer = new_buffer;                                      // commit new buffer
+                buf_size = new_size;                                      // publish new size
             }
             buffer[buf_pos++] = advance(tokenizer);         // consume identifier character
             c = peek(tokenizer, 0);                         // peek at next character
