@@ -42,6 +42,7 @@
 - **`random`:** All `srand`/`rand` access is serialised under a process-wide mutex.
 - **`os.access`:** Mode is interpreted as octal (`755` → `rwxr-xr-x`), matching `chmod`.
 - **`json.encode`:** Strings are escaped by length, so embedded NUL bytes round-trip instead of truncating at the first NUL.
+- **`os.write` / `os.append`:** writes are length-aware; embedded NULs no longer truncate output. Short writes report `false`.
 
 ## Tooling
 - **REPL:** Left/right arrow keys navigate the input line.

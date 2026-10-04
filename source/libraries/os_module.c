@@ -220,6 +220,7 @@ typedef struct {
     char* path;              // primary path, command, or prompt text
     char* path2;             // secondary path (copy/rename/move target)
     char* content;           // string content for write/append operations
+    int content_len;         // byte length of content; may exceed strlen(content)
     int int_val;             // integer argument (pid)
     double num_val;          // numeric argument (mode bits)
 } OsArgs;
@@ -386,8 +387,10 @@ static Value os_write_sync(void* p) {
     OsArgs* a = (OsArgs*)p;                             // unpack argument struct
     FILE* f = fopen(a->path, "wb");                     // open file binary write
     if (!f) return MAKE_BOOL(false);                    // open failed
-    fputs(a->content, f);                               // write content
+    size_t n = fwrite(a->content, 1, (size_t)a->content_len, f);  // write all bytes
+    int err = ferror(f);                                // capture error before close
     fclose(f);                                          // close file
+    if (err || n != (size_t)a->content_len) return MAKE_BOOL(false);  // short write or error
     return MAKE_BOOL(true);                             // success
 }
 
@@ -396,8 +399,10 @@ static Value os_append_sync(void* p) {
     OsArgs* a = (OsArgs*)p;                             // unpack argument struct
     FILE* f = fopen(a->path, "ab");                     // open file binary append
     if (!f) return MAKE_BOOL(false);                    // open failed
-    fputs(a->content, f);                               // append content
+    size_t n = fwrite(a->content, 1, (size_t)a->content_len, f);  // append all bytes
+    int err = ferror(f);                                // capture error before close
     fclose(f);                                          // close file
+    if (err || n != (size_t)a->content_len) return MAKE_BOOL(false);  // short write or error
     return MAKE_BOOL(true);                             // success
 }
 
@@ -810,7 +815,12 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             snprintf(path, sizeof(path), "%s", AS_STRING(args[0])->chars); // copy path
             normalize_path(path);                                          // normalize separators
             a->path = strdup(path);                                        // store normalized path
-            a->content = strdup(AS_STRING(args[1])->chars);                // copy content
+            StringObject* cs = AS_STRING(args[1]);                         // content string object
+            a->content_len = cs->length;                                   // preserve embedded NULs
+            a->content = (char*)malloc((size_t)cs->length + 1);            // length-aware copy
+            if (!a->content) { os_args_free(a); *result = MAKE_BOOL(false); return true; }
+            memcpy(a->content, cs->chars, (size_t)cs->length);             // copy raw bytes
+            a->content[cs->length] = '\0';                                 // null terminate for safety
             return os_run_async_or_sync(vm, os_write_sync, os_args_free, a, result);
         }
         *result = MAKE_BOOL(false);                                        // invalid argument
@@ -824,7 +834,12 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
             snprintf(path, sizeof(path), "%s", AS_STRING(args[0])->chars); // copy path
             normalize_path(path);                                          // normalize separators
             a->path = strdup(path);                                        // store normalized path
-            a->content = strdup(AS_STRING(args[1])->chars);                // copy content
+            StringObject* cs = AS_STRING(args[1]);                         // content string object
+            a->content_len = cs->length;                                   // preserve embedded NULs
+            a->content = (char*)malloc((size_t)cs->length + 1);            // length-aware copy
+            if (!a->content) { os_args_free(a); *result = MAKE_BOOL(false); return true; }
+            memcpy(a->content, cs->chars, (size_t)cs->length);             // copy raw bytes
+            a->content[cs->length] = '\0';                                 // null terminate for safety
             return os_run_async_or_sync(vm, os_append_sync, os_args_free, a, result);
         }
         *result = MAKE_BOOL(false);                                        // invalid argument
