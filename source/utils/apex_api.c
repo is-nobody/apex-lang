@@ -207,6 +207,23 @@ void apex_clear_error(ApexState* S) {
     S->error_message[0] = '\0';
 }
 
+// returns 1 if the most recent run requested an exit via os.exit, 0 otherwise
+int apex_exit_requested(ApexState* S) {
+    return (S && S->vm) ? (S->vm->exit_requested ? 1 : 0) : 0;
+}
+
+// returns the exit code passed to os.exit, or 0 if no exit was requested
+int apex_exit_code(ApexState* S) {
+    return (S && S->vm) ? S->vm->exit_code : 0;
+}
+
+// clears the pending exit request and code
+void apex_clear_exit(ApexState* S) {
+    if (!S || !S->vm) return;
+    S->vm->exit_requested = false;
+    S->vm->exit_code = 0;
+}
+
 // creates a new apex state with a fresh vm, returns null on failure
 ApexState* apex_open(void) {
     ApexState* S = (ApexState*)calloc(1, sizeof(ApexState));  // allocate zeroed state
@@ -854,6 +871,9 @@ int apex_run_string(ApexState* S, const char* code, const char* chunkname) {
         if ((old & QNAN) == QNAN) value_decref(old);
     }
     S->vm->preserve_globals = true;                 // tell vm_execute to keep them
+
+    S->vm->exit_requested = false;                  // clear any stale exit request
+    S->vm->exit_code = 0;                           // and its code before running
 
     vm_execute(S->vm, chunk);                       // run the program to completion
 

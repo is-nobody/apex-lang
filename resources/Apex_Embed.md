@@ -1,4 +1,4 @@
-# Apex Embedding in C/C++ (26.09)
+# Apex Embedding in C/C++ (26.10)
 This manual is minimalistic. Each section builds on the previous ones. For the best experience, follow the order.
 
 ## Table of Contents
@@ -59,11 +59,13 @@ This manual is minimalistic. Each section builds on the previous ones. For the b
 - [The Error Model](#the-error-model)
 - [Reading the Last Error](#reading-the-last-error)
 - [Raising from C](#raising-from-c)
+- [Exit Requests](#exit-requests)
 
 ### Complete Examples
 - [A Calculator Host](#a-calculator-host)
 - [Exposing a C Struct](#exposing-a-c-struct)
 - [A Config Reader](#a-config-reader)
+- [Honouring `os.exit`](#honouring-osexit)
 
 ### Rules and Restrictions
 - [1. No Closures](#1-no-closures)
@@ -294,16 +296,23 @@ int rc = apex_run_string(S,
 
 if (rc != 0) {
     fprintf(stderr, "%s\n", apex_last_error(S));
+} else if (apex_exit_requested(S)) {
+    return apex_exit_code(S);          // script called os.exit(n)
 }
 ```
 
 The chunk name is what appears in error messages and what the import resolver uses to look up files. Use a real path if the script imports files. Use `"<string>"` if it doesn't.
+
+If the script calls `os.exit(n)`, `apex_run_string` still returns `0` — an exit is not an error. To distinguish a normal completion from a script-requested exit, call `apex_exit_requested(S)` after a successful return, and read the code with `apex_exit_code(S)`. See [Exit Requests](#exit-requests).
 
 ## From a File
 `apex_run_file` reads the whole file into memory and runs it:
 
 ```c
 int rc = apex_run_file(S, "scripts/startup.apex");
+if (rc == 0 && apex_exit_requested(S)) {
+    return apex_exit_code(S);
+}
 ```
 
 Imports inside that file will be resolved relative to the file's directory, exactly as if the file had been run from the command line.
@@ -633,6 +642,8 @@ The embedding API reports errors through three mechanisms:
 2. `apex_last_error(S)` returns a human-readable message.
 3. C functions can raise an error with `apex_raise`, which longjmps back to a protected context set up by the API's dispatcher.
 
+An **exit request** is a distinct outcome: a script that calls `os.exit(n)` terminates cleanly, so the run returns `0`, and the host must query `apex_exit_requested` / `apex_exit_code` to honour it. See [Exit Requests](#exit-requests).
+
 ## Reading the Last Error
 After a failed run:
 
@@ -662,6 +673,33 @@ static int host_open(ApexState* S) {
 ```
 
 `apex_raise` marks the error on the state and longjmps back to the API's dispatcher, which propagates the failure to `vm->had_error`. The next `apex_run_string` call will see it as a failure.
+
+## Exit Requests
+A script that calls `os.exit(n)` stops the VM the same way a normal top-level `return` does. The run is **not** a failure — `apex_run_string` and `apex_run_file` still return `0`, and `apex_had_error(S)` still returns `0`. Instead, the VM records the request, and the host must inspect it explicitly:
+
+```c
+int rc = apex_run_string(S, code, "script.apex");
+if (rc != 0) {
+    fprintf(stderr, "error: %s\n", apex_last_error(S));
+    return 1;
+}
+if (apex_exit_requested(S)) {
+    return apex_exit_code(S);          // honour os.exit(n)
+}
+return 0;                              // normal completion
+```
+
+Three accessors cover the lifecycle:
+
+| Function                 | What It Does                                                          |
+|--------------------------|-----------------------------------------------------------------------|
+| `apex_exit_requested(S)` | Returns `1` if the most recent run called `os.exit`, `0` otherwise    |
+| `apex_exit_code(S)`      | Returns the code passed to `os.exit`, or `0` if no exit was requested |
+| `apex_clear_exit(S)`     | Clears the pending exit request and its code                          |
+
+`apex_run_string` clears any stale exit state at the start of every run, so a script that exits followed by a script that does not will report `apex_exit_requested(S) == 0` after the second run. You only need `apex_clear_exit` if you want to reset the flag *without* running another script — for example, after logging the exit code and before handing the state to a different code path.
+
+An exit request does not suppress errors: if the script both raises an error and calls `os.exit`, the error wins. Check `rc` first, then `apex_exit_requested`.
 
 # Complete Examples
 ## A Calculator Host
@@ -816,6 +854,37 @@ int main(void) {
     return 0;
 }
 ```
+
+## Honouring `os.exit`
+A host that runs a user-supplied script and returns the script's exit code to the operating system:
+
+```c
+#include "apex_api.h"
+#include <stdio.h>
+
+int main(int argc, char** argv) {
+    if (argc < 2) {
+        fprintf(stderr, "usage: %s <script.apex>\n", argv[0]);
+        return 2;
+    }
+
+    ApexState* S = apex_open();
+    if (!S) return 2;
+
+    int rc = apex_run_file(S, argv[1]);
+    if (rc != 0) {
+        fprintf(stderr, "apex: %s\n", apex_last_error(S));
+        apex_close(S);
+        return 1;
+    }
+
+    int code = apex_exit_requested(S) ? apex_exit_code(S) : 0;
+    apex_close(S);
+    return code;
+}
+```
+
+If the script does not call `os.exit`, the host returns `0`. If it calls `os.exit(42)`, the host returns `42`. A compile or runtime error returns `1`, distinct from both.
 
 # Rules and Restrictions
 ## 1. No Closures

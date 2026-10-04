@@ -211,6 +211,20 @@ int apex_had_error(ApexState* S);
 // inspecting apex_last_error, before attempting further operations
 void apex_clear_error(ApexState* S);
 
+// returns 1 if the most recent run requested an exit via os.exit, 0 otherwise.
+// checked after apex_run_string returns without error; the return value of
+// apex_run_string is unaffected by an exit request (it is not an error)
+int apex_exit_requested(ApexState* S);
+
+// returns the exit code passed to os.exit, or 0 if no exit was requested.
+// only meaningful when apex_exit_requested returns 1
+int apex_exit_code(ApexState* S);
+
+// clears the pending exit request and code, allowing further runs to start
+// clean. apex_run_string also clears them at entry, so this is only needed
+// when a host wants to inspect and reset in one step
+void apex_clear_exit(ApexState* S);
+
 // returns the underlying vm pointer, provided for advanced use only
 struct VM* apex_get_vm(ApexState* S);
 
