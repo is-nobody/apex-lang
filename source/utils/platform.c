@@ -42,16 +42,6 @@ static void get_valid_temp_path(char* out_path, size_t size) {
     CreateDirectoryA(out_path, NULL);                                           // create if missing
 }
 
-// recursively deletes a directory using shell operations
-static void delete_directory_recursive(const char* path) {
-    SHFILEOPSTRUCT file_op = {                            // shell operation struct
-        NULL, FO_DELETE, path, "",                        // delete operation
-        FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI,  // silent flags
-        FALSE, NULL, NULL
-    };
-    SHFileOperation(&file_op);                            // execute delete
-}
-
 // initializes windows console handles for raw input
 void platform_init(void) {
     hStdin = GetStdHandle(STD_INPUT_HANDLE);              // get stdin handle
@@ -154,9 +144,7 @@ char* platform_create_temp_file(const char* data, size_t len) {
 // deletes a temporary file or directory
 void platform_delete_temp_file(const char* path) {
     if (!path) return;                     // guard against null
-    if (!DeleteFileA(path)) {              // try to delete file
-        delete_directory_recursive(path);  // if fails, delete directory recursively
-    }
+    DeleteFileA(path);                     // remove file; failure is not an error
 }
 
 #else
@@ -166,14 +154,6 @@ void platform_delete_temp_file(const char* path) {
 #include <errno.h>
 #include <ftw.h>
 #include <unistd.h>
-
-// callback for nftw to recursively delete files and directories
-static int unlink_cb(const char *fpath, const struct stat *sb, int typeflag, struct FTW *ftwbuf) {
-    (void)sb;              // unused parameter
-    (void)typeflag;        // unused parameter
-    (void)ftwbuf;          // unused parameter
-    return remove(fpath);  // delete file/directory
-}
 
 static struct termios orig_termios;                                             // original terminal settings
 
@@ -264,9 +244,7 @@ char* platform_create_temp_file(const char* data, size_t len) {
 
 // deletes a temporary file or directory recursively
 void platform_delete_temp_file(const char* path) {
-    if (!path) return;                                    // guard against null
-    if (unlink(path) != 0) {                              // try to delete file
-        nftw(path, unlink_cb, 64, FTW_DEPTH | FTW_PHYS);  // recursively delete directory
-    }
+    if (!path) return;                     // guard against null
+    unlink(path);                          // remove file; failure is not an error
 }
 #endif
