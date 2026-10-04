@@ -100,7 +100,27 @@ void assign_registers_linear_scan(CodeGenerator* cg, int n_params,
         for (int r = n_params; r < cap; r++) {                     // lowest free
             if (holder[r] < 0) { assigned = r; break; }
         }
-        if (assigned < 0) assigned = cap++;                        // safety, should not hit
+        if (assigned < 0) {                                        // safety: grow arrays
+            int new_cap = cap * 2;                                 // double capacity
+            int* nh = (int*)realloc(holder,  sizeof(int) * new_cap);
+            int* nr = (int*)realloc(release, sizeof(int) * new_cap);
+            if (!nh || !nr) {                                      // OOM: bail out cleanly
+                if (nh) holder  = nh;                              // commit whichever grew
+                if (nr) release = nr;
+                free(order);
+                free(holder);
+                free(release);
+                return;                                            // skip further allocation
+            }
+            holder  = nh;
+            release = nr;
+            for (int r = cap; r < new_cap; r++) {                  // init new tail
+                holder[r]  = -1;
+                release[r] = -1;
+            }
+            assigned = cap;                                        // next free slot is old cap
+            cap = new_cap;                                         // publish new capacity
+        }
         holder[assigned]  = slot;
         release[assigned] = last[slot];
         cg->locals.registers[slot] = assigned;
