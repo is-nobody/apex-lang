@@ -354,11 +354,11 @@ void value_decref(Value v);
 // creates a new string object (not interned, caller owns the reference)
 StringObject* string_create(const char* chars, int length);
 
-// interns a string, returns a canonical StringObject pointer
+// interns a string, returns a canonical stringobject pointer
 StringObject* string_intern(StringInternTable* it, const char* chars, int length);
 
-// initializes the string intern table
-void string_intern_table_init(StringInternTable* it);
+// initializes the string intern table; returns false on allocation failure
+bool string_intern_table_init(StringInternTable* it);
 
 // frees the string intern table
 void string_intern_table_free(StringInternTable* it);

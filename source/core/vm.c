@@ -99,10 +99,15 @@ static unsigned int intern_hash(const char* chars, int length) {
 }
 
 // initializes the string intern table with a fixed size
-void string_intern_table_init(StringInternTable* it) {
+bool string_intern_table_init(StringInternTable* it) {
     it->capacity = INTERN_INITIAL_SIZE;          // set initial bucket count
     it->count = 0;                               // no entries yet
     it->buckets = calloc(INTERN_INITIAL_SIZE, sizeof(StringObject*));  // allocate zeroed bucket array
+    if (!it->buckets) {                          // allocation failed
+        it->capacity = 0;                        // leave the table unusable but consistent
+        return false;                            // caller must abort
+    }
+    return true;                                 // ready for use
 }
 
 // frees all interned strings and the table itself
@@ -119,10 +124,12 @@ void string_intern_table_free(StringInternTable* it) {
 }
 
 // resizes the intern table when load factor exceeds the threshold
-static void intern_table_resize(StringInternTable* it, int new_capacity) {
+static bool intern_table_resize(StringInternTable* it, int new_capacity) {
     StringObject** old_buckets = it->buckets;    // save old bucket array
     int old_capacity = it->capacity;             // save old capacity
-    it->buckets = calloc(new_capacity, sizeof(StringObject*));  // allocate new zeroed bucket array
+    StringObject** new_buckets = calloc(new_capacity, sizeof(StringObject*));  // allocate new zeroed bucket array
+    if (!new_buckets) return false;              // allocation failed: keep old table intact
+    it->buckets = new_buckets;                   // install only on success
     it->capacity = new_capacity;                 // update capacity
     it->count = 0;                               // reset count, will recount during rehash
     for (int i = 0; i < old_capacity; i++) {
@@ -137,13 +144,15 @@ static void intern_table_resize(StringInternTable* it, int new_capacity) {
         }
     }
     free(old_buckets);                           // free old bucket array
+    return true;                                 // resize succeeded
 }
 
 // interns a string, returning a canonical object with linear probing
 StringObject* string_intern(StringInternTable* it, const char* chars, int length) {
     if (!it || !chars) return NULL;                  // guard against null params
+    if (it->buckets == NULL) return NULL;            // table never initialised: report failure
     if ((double)it->count / it->capacity > INTERN_MAX_LOAD) {      // check load factor
-        intern_table_resize(it, it->capacity * 2);   // double capacity and rehash
+        if (!intern_table_resize(it, it->capacity * 2)) return NULL;  // resize failed
     }
     unsigned int hash = intern_hash(chars, length);  // compute hash of input string
     unsigned int idx = hash % it->capacity;          // initial bucket index
@@ -152,6 +161,7 @@ StringObject* string_intern(StringInternTable* it, const char* chars, int length
         StringObject* existing = it->buckets[probe_idx];           // fetch existing string at slot
         if (existing == NULL) {                      // empty slot, insert new string
             StringObject* new_str = string_create(chars, length);  // allocate new string object
+            if (!new_str) return NULL;               // allocation failed
             new_str->hash = hash;                    // store precomputed hash
             new_str->hash_computed = true;           // mark hash as computed
             new_str->header.ref_count = INT_MAX;     // interned strings are immortal
@@ -170,6 +180,7 @@ StringObject* string_intern(StringInternTable* it, const char* chars, int length
 // allocates a new string object with refcount and flexible array
 StringObject* string_create(const char* chars, int length) {
     StringObject* str = (StringObject*)malloc(sizeof(StringObject) + length + 1);  // alloc struct + chars + null
+    if (!str) return NULL;                       // allocation failed
     str->header.ref_count = 1;                   // fresh object starts with refcount 1
     str->header.type = VAL_STRING;               // mark type as string
     str->length = length;                        // store length
@@ -1515,7 +1526,17 @@ VM* vm_create(const char* source) {
         return NULL;
     }
 
-    string_intern_table_init(&vm->intern_table);  // init string intern table
+    if (!string_intern_table_init(&vm->intern_table)) {  // init string intern table
+        APEX_MUTEX_DESTROY(&vm->completion_mutex);       // unwind what we already built
+        APEX_COND_DESTROY(&vm->completion_cond);
+        free(vm->globals);
+        free(vm->frame_offset);
+        free(vm->frame_capacity);
+        free(vm->frame_used);
+        free(vm->register_pool);
+        free(vm);
+        return NULL;
+    }
     return vm;                                    // return new vm
 }
 

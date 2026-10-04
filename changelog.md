@@ -28,6 +28,7 @@
 - **Table iteration:** pins the iterated table's register across the loop body; fixes heap-use-after-free when the body reused it.
 - **Table iteration:** `break` now pops the table iterator stack via `OP_POP_TABLE_ITER`, not the numeric one.
 - **Async:** `vm_execute` only clears `had_error` at top level, so a coroutine's error is no longer wiped by the next coroutine's slice.
+- **Runtime:** String intern table init and resize, and `string_create`, now check allocation results.
 
 ## Compiler
 - **Parser:** Builtin hash table is built under a one-time initializer, removing a race across concurrent hosts.
