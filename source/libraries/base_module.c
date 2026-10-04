@@ -563,6 +563,62 @@ static bool base85_decode(const char* str, unsigned char* out, int* out_len) {
     return true;                                                 // success
 }
 
+// base85 decoder with the snprintf-style size-retry protocol
+static int base85_decode_sized(const char* str, unsigned char* out, size_t* out_cap) {
+    if (!str || !out || !out_cap) return -2;                   // null guard
+    int len = (int)strlen(str);                                // input length
+    if (len == 0) { *out_cap = 0; return 0; }                  // empty input
+
+    // first pass: compute exact required size and validate input
+    size_t required = 0;                                       // required bytes
+    int i = 0;                                                 // scan position
+    while (i < len) {
+        if (str[i] == 'z') { required += 4; i++; continue; }   // 'z' -> 4 zero bytes
+        int count = 0;                                         // chars in this group
+        while (count < 5 && i < len && str[i] != 'z') {
+            if (base85_decode_char(str[i]) < 0) return -2;     // invalid char
+            count++;
+            i++;
+        }
+        if (count == 0) break;                                 // no progress
+        required += (size_t)(count - 1);                       // count-1 bytes per group
+    }
+
+    if (*out_cap < required) {                                 // buffer too small
+        *out_cap = required;                                   // report required size
+        return -1;                                             // caller retries
+    }
+
+    // second pass: decode (validated already, no checks needed)
+    size_t written = 0;                                        // bytes written
+    i = 0;                                                     // reset scan position
+    while (i < len) {
+        if (str[i] == 'z') {                                   // zero shorthand
+            out[written++] = 0;
+            out[written++] = 0;
+            out[written++] = 0;
+            out[written++] = 0;
+            i++;
+            continue;
+        }
+        int chars[5];                                          // group of up to 5 values
+        int count = 0;
+        while (count < 5 && i < len && str[i] != 'z') {
+            chars[count++] = base85_decode_char(str[i]);
+            i++;
+        }
+        if (count == 0) break;
+        for (int k = count; k < 5; k++) chars[k] = 84;         // pad with 'u'
+        uint32_t value = 0;                                    // packed 32-bit value
+        for (int k = 0; k < 5; k++) value = value * 85 + chars[k];
+        for (int k = 0; k < count - 1; k++) {                  // emit count-1 bytes
+            out[written++] = (value >> (24 - k * 8)) & 0xFF;
+        }
+    }
+    *out_cap = written;                                        // report actual size
+    return (int)written;                                       // success
+}
+
 // packed arguments for the base encode/decode worker
 typedef struct {
     unsigned char* input;    // copied input bytes (may contain NUL for encode)
@@ -659,7 +715,25 @@ static Value base_worker(void* p) {
         free(out);                               // release temp buffer
         return MAKE_STRING(s);                   // return boxed string
     }
-    unsigned char* out = (unsigned char*)malloc(a->input_len * 2 + 1);  // decode output buffer
+    if (a->decode_fn == base85_decode) {         // base85: use sized decoder
+        size_t cap = (size_t)a->input_len * 2 + 1;   // initial guess
+        unsigned char* out = (unsigned char*)malloc(cap);
+        if (!out) return MAKE_NONE();                // allocation failed
+
+        int n = base85_decode_sized((const char*)a->input, out, &cap);  // try
+        if (n == -1) {                               // retry with exact size
+            unsigned char* new_out = (unsigned char*)realloc(out, cap);
+            if (!new_out) { free(out); return MAKE_NONE(); }
+            out = new_out;
+            n = base85_decode_sized((const char*)a->input, out, &cap);
+        }
+        if (n < 0) { free(out); return MAKE_NONE(); }// invalid input
+        StringObject* s = string_create((char*)out, n);
+        free(out);
+        return MAKE_STRING(s);
+    }
+
+    unsigned char* out = (unsigned char*)malloc(a->input_len * 2 + 1);
     if (!out) return MAKE_NONE();                // allocation failed
     int out_len = 0;                             // decoded length
     if (!a->decode_fn((const char*)a->input, out, &out_len)) {  // run decoder
@@ -781,17 +855,39 @@ static bool dispatch_decode(VM* vm, int arg_count, Value* args, Value* result,
         return base_dispatch_decode_async(vm, input_str, decode_func, result);
     }
     
-    unsigned char* out = (unsigned char*)malloc(input_len * 2 + 1);         // allocate output
-    if (!out) { *result = MAKE_NONE(); return true; }                       // allocation failed
-    
-    int out_len = 0;                                                         // output length
-    if (decode_func(input_str->chars, out, &out_len)) {                     // decode
-        *result = MAKE_STRING(string_create((char*)out, out_len));           // fresh refcounted string
-    } else {
-        *result = MAKE_NONE();                                               // decode failed
+    // base85 output can be up to 4 bytes per input byte ('z' expands to 4 zero bytes)
+    if (decode_func == base85_decode) {
+        size_t cap = (size_t)input_len * 2 + 1;                      // initial guess
+        unsigned char* out = (unsigned char*)malloc(cap);
+        if (!out) { *result = MAKE_NONE(); return true; }            // OOM
+
+        int n = base85_decode_sized(input_str->chars, out, &cap);    // try
+        if (n == -1) {                                               // retry
+            unsigned char* new_out = (unsigned char*)realloc(out, cap);
+            if (!new_out) { free(out); *result = MAKE_NONE(); return true; }
+            out = new_out;
+            n = base85_decode_sized(input_str->chars, out, &cap);    // exact size
+        }
+        if (n < 0) {                                                 // invalid input
+            *result = MAKE_NONE();
+        } else {                                                     // success
+            *result = MAKE_STRING(string_create((char*)out, n));
+        }
+        free(out);
+        return true;
     }
-    free(out);                                                               // free output
-    return true;                                                             // builtin handled
+
+    unsigned char* out = (unsigned char*)malloc(input_len * 2 + 1);
+    if (!out) { *result = MAKE_NONE(); return true; }
+    
+    int out_len = 0;
+    if (decode_func(input_str->chars, out, &out_len)) {
+        *result = MAKE_STRING(string_create((char*)out, out_len));
+    } else {
+        *result = MAKE_NONE();
+    }
+    free(out);
+    return true;
 }
 
 // size calculation functions
