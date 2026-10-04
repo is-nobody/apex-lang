@@ -320,11 +320,11 @@ static bool json_parse_value(const char** json_str, Value* out_value, int depth)
     return false;                                                                 // unknown token
 }
 
-// appends a json-escaped string to the builder
-static void append_escaped(StringBuilder* sb, const char* str) {
+// appends a json-escaped string of explicit length to the builder
+static void append_escaped(StringBuilder* sb, const char* str, int len) {
     sb_append(sb, "\"", 1);                                                       // opening quote
-    while (*str) {                                                                // iterate over string
-        unsigned char c = *str;                                                   // current char
+    for (int i = 0; i < len; i++) {                                               // iterate over length
+        unsigned char c = (unsigned char)str[i];                                  // current char
         switch (c) {                                                              // handle escapes
             case '"': sb_append(sb, "\\\"", 2); break;                            // quote
             case '\\': sb_append(sb, "\\\\", 2); break;                           // backslash
@@ -344,7 +344,6 @@ static void append_escaped(StringBuilder* sb, const char* str) {
                 }
                 break;
         }
-        str++;                                                                    // advance
     }
     sb_append(sb, "\"", 1);                                                       // closing quote
 }
@@ -393,7 +392,8 @@ static bool json_encode_value(Value value, StringBuilder* sb, int depth) {
     } else if (IS_BOOL(value)) {                                                  // boolean value
         sb_append(sb, AS_BOOL(value) ? "true" : "false", AS_BOOL(value) ? 4 : 5); // append bool
     } else if (IS_STRING(value)) {                                                // string value
-        append_escaped(sb, AS_STRING(value)->chars);                              // append escaped string
+        StringObject* s = AS_STRING(value);                                       // unwrap once
+        append_escaped(sb, s->chars, s->length);                                  // append escaped string
     } else if (IS_TABLE(value)) {                                                 // table value
         Table* t = AS_TABLE(value);                                               // unwrap table
         if (TABLE_TOTAL_COUNT(t) == 0) {                                          // empty table
@@ -419,7 +419,7 @@ static bool json_encode_value(Value value, StringBuilder* sb, int depth) {
                 first = false;                                                    // not first anymore
                 char key[32];                                                     // numeric key buffer
                 snprintf(key, sizeof(key), "%d", i + 1);                          // 1-based index
-                append_escaped(sb, key);                                          // append key
+                append_escaped(sb, key, (int)strlen(key));                        // append key
                 sb_append(sb, ": ", 2);                                           // colon separator
                 if (!json_encode_value(t->array_part[i], sb, depth + 1)) return false;  // encode value
             }
@@ -430,11 +430,12 @@ static bool json_encode_value(Value value, StringBuilder* sb, int depth) {
                     if (!first) sb_append(sb, ", ", 2);                           // comma separator
                     first = false;                                                // not first anymore
                     if (IS_STRING(entry->key)) {                                  // string key
-                        append_escaped(sb, AS_STRING(entry->key)->chars);         // append key directly
+                        StringObject* k = AS_STRING(entry->key);                  // unwrap once
+                        append_escaped(sb, k->chars, k->length);                  // append key directly
                     } else {                                                      // any other key type
                         char key_buf[64];                                         // scratch for converted key
                         key_to_cstr(entry->key, key_buf, sizeof(key_buf));        // stringify key
-                        append_escaped(sb, key_buf);                              // append converted key
+                        append_escaped(sb, key_buf, (int)strlen(key_buf));        // append converted key
                     }
                     sb_append(sb, ": ", 2);                                       // colon separator
                     if (!json_encode_value(entry->value, sb, depth + 1)) return false;  // encode value
