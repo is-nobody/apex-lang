@@ -167,17 +167,21 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node, int dest_hint) {
             arg_regs[i] = codegen_expression(cg, args_list->nodes[i]);  // store register
         }
     }
-
     char func_name[256] = "";                                           // function name buffer
     ASTNode* callee = node->call.callee;                                // callee expression
     if (callee->type == AST_IDENTIFIER) {                               // simple identifier
-        strcpy(func_name, callee->identifier.name);                     // copy name
+        snprintf(func_name, sizeof(func_name), "%s",                   // bounded copy
+                 callee->identifier.name);
     } else if (callee->type == AST_INDEX_ACCESS) {                      // dotted access
         ASTNode* parts[32];                                             // path parts
         int part_count = 0;                                             // number of parts
         ASTNode* current = callee;                                      // current node
 
         while (current->type == AST_INDEX_ACCESS) {                     // traverse access chain
+            if (part_count >= 31) {                                     // too deep: reserve slot for root
+                part_count = 0;                                         // invalid
+                break;                                                  // exit loop
+            }
             if (current->access.member->type == AST_IDENTIFIER) {       // valid member
                 parts[part_count++] = current->access.member;           // add part
             } else {
@@ -188,14 +192,21 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node, int dest_hint) {
         }
 
         if (part_count > 0 && current->type == AST_IDENTIFIER) {        // valid path
-            parts[part_count++] = current;                              // add last part
+            parts[part_count++] = current;                              // add last part (safe: <= 31)
 
             func_name[0] = '\0';                                        // clear name
+            size_t used = 0;                                            // bytes written so far
             for (int i = part_count - 1; i >= 0; i--) {                 // build from right
-                if (i < part_count - 1) {                               // not first
-                    strcat(func_name, ".");                             // add dot separator
+                const char* piece = parts[i]->identifier.name;          // next path segment
+                size_t piece_len = strlen(piece);                       // its length
+                size_t need = piece_len + (used > 0 ? 1 : 0);           // + dot if not first
+                if (used + need + 1 >= sizeof(func_name)) break;        // no room: truncate safely
+                if (used > 0) {                                         // not first
+                    func_name[used++] = '.';                            // add dot separator
                 }
-                strcat(func_name, parts[i]->identifier.name);           // add part name
+                memcpy(func_name + used, piece, piece_len);             // append segment
+                used += piece_len;                                      // advance write cursor
+                func_name[used] = '\0';                                 // null terminate
             }
         }
     }

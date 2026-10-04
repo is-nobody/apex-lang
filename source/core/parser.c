@@ -1073,19 +1073,20 @@ static const char* resolve_call_name(ASTNode* callee, char* buffer, size_t bufle
         int count = 0;
         ASTNode* current = callee;
         
-        while (current->type == AST_INDEX_ACCESS) {  // traverse chain
+        while (current->type == AST_INDEX_ACCESS) {
+            if (count >= 31) return NULL;                        // too deep: reserve slot for root
             if (current->access.member->type == AST_IDENTIFIER) {
-                parts[count++] = current->access.member;  // add member
+                parts[count++] = current->access.member;
             } else {
-                return NULL;                       // non-identifier member
+                return NULL;
             }
-            current = current->access.object;      // move to parent
+            current = current->access.object;
         }
         
         if (current->type == AST_IDENTIFIER) {
-            parts[count++] = current;              // add root
+            parts[count++] = current;                            // safe: count <= 31 after loop
         } else {
-            return NULL;                           // non-identifier root
+            return NULL;
         }
         
         buffer[0] = '\0';                          // clear buffer
@@ -1897,12 +1898,16 @@ static ASTNode* parse_member_access(Parser* parser, ASTNode* object) {
         int part_count = 0;
         
         while (temp->type == AST_INDEX_ACCESS) {    // collect path parts
+            if (part_count >= 31) {                 // too deep: mark invalid and stop
+                part_count = 0;
+                break;
+            }
             if (temp->access.member->type == AST_IDENTIFIER) {
                 parts[part_count++] = temp->access.member->identifier.name;
             }
             temp = temp->access.object;
         }
-        if (temp->type == AST_IDENTIFIER) {
+        if (part_count > 0 && temp->type == AST_IDENTIFIER) {
             parts[part_count++] = temp->identifier.name;
         }
         
