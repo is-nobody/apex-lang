@@ -1,7 +1,7 @@
 # Apex for Visual Studio Code
 A Visual Studio Code extension providing syntax highlighting, code snippets, IntelliSense, and execution support for the **Apex** programming language.
 
-![Version](https://img.shields.io/badge/Version-26.09-blue)
+![Version](https://img.shields.io/badge/Version-26.10-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ## About Apex
@@ -44,5 +44,5 @@ Execute your current Apex file directly from VS Code:
 3. Open any file with the `.apex` extension.
 
 ## Release Notes
-### 26.09 (September 30, 2026)
+### 26.10 (October 31, 2026)
 - Initial Release of Apex language
