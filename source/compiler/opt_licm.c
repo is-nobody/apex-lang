@@ -186,15 +186,22 @@ void collect_hoistable_numbers(CodeGenerator* cg, ASTNode* node) {
         for (int i = 0; i < cg->hoist.count; i++) {               // dedupe by value
             if (cg->hoist.values[i] == v) return;                 // already collected
         }
-        if (cg->hoist.count >= cg->hoist.capacity) {              // grow arrays
-            cg->hoist.capacity = cg->hoist.capacity == 0 ? 8 : cg->hoist.capacity * 2;
-            cg->hoist.values = (double*)realloc(cg->hoist.values, sizeof(double) * cg->hoist.capacity);
-            cg->hoist.regs   = (int*)   realloc(cg->hoist.regs,   sizeof(int) * cg->hoist.capacity);
+        if (cg->hoist.get_count >= cg->hoist.get_capacity) {           // grow get arrays
+            int new_cap = cg->hoist.get_capacity == 0 ? 8 : cg->hoist.get_capacity * 2;  // double capacity
+            const char** new_names   = (const char**)realloc(cg->hoist.get_names,   sizeof(char*)  * new_cap);  // grow names
+            double*      new_indices = (double*)     realloc(cg->hoist.get_indices, sizeof(double) * new_cap);  // grow indices
+            int*         new_regs    = (int*)        realloc(cg->hoist.get_regs,    sizeof(int)    * new_cap);  // grow regs
+            if (!new_names || !new_indices || !new_regs) {             // OOM: degrade gracefully
+                if (new_names)   cg->hoist.get_names   = new_names;    // keep whichever grew
+                if (new_indices) cg->hoist.get_indices = new_indices;
+                if (new_regs)    cg->hoist.get_regs    = new_regs;
+                return;                                                // skip this hoist entry
+            }
+            cg->hoist.get_names    = new_names;                        // commit new names buffer
+            cg->hoist.get_indices  = new_indices;                      // commit new indices buffer
+            cg->hoist.get_regs     = new_regs;                         // commit new regs buffer
+            cg->hoist.get_capacity = new_cap;                          // publish new capacity
         }
-        cg->hoist.values[cg->hoist.count] = v;                    // record value
-        cg->hoist.regs[cg->hoist.count] = -1;                     // register assigned later
-        cg->hoist.count++;
-        return;                                                   // do not descend: subtree is fully constant
     }
 
     switch (node->type) {                                         // descend into non-constant subtrees
