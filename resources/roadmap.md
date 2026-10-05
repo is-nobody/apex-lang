@@ -5,7 +5,6 @@
 - `\x` escape sequence support
 - Package manager
 - Language server (LSP)
-- Resolve Cyclic Reference problem
 
 **What's NOT on the roadmap**
 - GC due to uncontrolled pauses

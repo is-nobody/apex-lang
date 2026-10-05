@@ -186,7 +186,9 @@ typedef struct Table {
     Value* array_part;       // dense array for integer keys starting from 1
     int array_capacity;      // allocated size of array_part
     int array_count;         // number of valid entries in array part
-    uint32_t generation;     // bumped on every structural mutation (insert/remove/rehash)
+    uint32_t generation;         // bumped on every structural mutation (insert/remove/rehash)
+    struct VM* cycle_owner;      // vm tracking this table, or null on a worker thread
+    struct Table* cycle_next;    // next table in the vm's all-tables list
 } Table;
 
 // state for "for value in table" iteration, walks array_part then hash buckets
@@ -338,6 +340,9 @@ typedef struct VM {
                                 int arg_count, Value* args, Value* result);
     void* c_function_state;
     bool preserve_globals;
+
+    Table* cycle_head;              // head of the all-tables list, tracked for teardown sweep
+    ApexMutex cycle_lock;           // protects cycle_head across the main and worker threads
 } VM;
 
 // returns a human-readable type name for a value

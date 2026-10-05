@@ -72,6 +72,9 @@ typedef struct {
 // recursion-stack cap for table_to_string_builder
 #define TABLE_TO_STRING_MAX_DEPTH 128
 
+// thread-local current vm, set by vm_create
+static __thread VM* tls_cycle_vm = NULL;
+
 // one pair of tables currently being compared
 typedef struct { Table* a; Table* b; } TablePair;
 
@@ -561,12 +564,39 @@ Table* table_create(int capacity) {
     table->array_part = NULL;                       // no array part yet
     table->array_count = 0;                         // no array elements yet
     table->generation = 0;                          // no mutations yet
+    VM* vm = tls_cycle_vm;                          // thread's active vm, if any
+    if (vm) {                                       // main thread: track for the teardown sweep
+        table->cycle_owner = vm;                    // remember the tracking vm
+        APEX_MUTEX_LOCK(&vm->cycle_lock);           // protect list mutation
+        table->cycle_next = vm->cycle_head;         // link at head
+        vm->cycle_head = table;                     // publish new head
+        APEX_MUTEX_UNLOCK(&vm->cycle_lock);         // release list lock
+    } else {                                        // worker thread: never tracked
+        table->cycle_owner = NULL;                  // no owner
+        table->cycle_next = NULL;                   // no next
+    }
     return table;                                   // return new table
 }
 
 // destroys a table and all its entries
 void table_destroy(Table* table) {
     if (!table) return;                          // guard against null
+
+    // unlink from the cycle detector's all-tables list
+    if (table->cycle_owner) {                    // null on worker-thread tables
+        VM* vm = table->cycle_owner;             // owner captured at create time
+        APEX_MUTEX_LOCK(&vm->cycle_lock);        // protect list mutation
+        Table** pp = &vm->cycle_head;            // walk from list head
+        while (*pp) {
+            if (*pp == table) {                  // found this table's entry
+                *pp = table->cycle_next;         // splice it out
+                break;                           // done
+            }
+            pp = &(*pp)->cycle_next;             // advance to next node
+        }
+        APEX_MUTEX_UNLOCK(&vm->cycle_lock);      // release list lock
+    }
+
     if (table->entries) {
         for (int i = 0; i < table->capacity; i++) {
             TableEntry* entry = table->entries[i];   // get head of bucket chain
@@ -587,6 +617,50 @@ void table_destroy(Table* table) {
         free(table->array_part);                 // free array part
     }
     free(table);                                 // free table struct
+}
+
+// frees every table still on the vm's tracked list
+static void cycle_sweep(VM* vm) {
+    APEX_MUTEX_LOCK(&vm->cycle_lock);             // detach the list under lock
+    Table* list = vm->cycle_head;                 // snapshot head
+    vm->cycle_head = NULL;                        // publish empty list
+    APEX_MUTEX_UNLOCK(&vm->cycle_lock);           // release list lock
+
+    if (!list) return;                            // nothing to collect
+
+    // inflate refcounts so freeing a table cannot cascade into another
+    for (Table* t = list; t; t = t->cycle_next) { // first pass
+        t->header.ref_count = 0x7FFFFFFF;         // overflow-safe "still alive" sentinel
+        t->cycle_owner = NULL;                    // suppress nested unlink attempts
+    }
+
+    Table* t = list;                              // second pass: free each table
+    while (t) {
+        Table* next = t->cycle_next;              // save next before freeing t
+
+        if (t->entries) {                         // free hash part
+            for (int i = 0; i < t->capacity; i++) {
+                TableEntry* e = t->entries[i];
+                while (e) {
+                    TableEntry* en = e->next;
+                    if (!IS_TABLE(e->key)   && (e->key   & QNAN) == QNAN) value_decref(e->key);
+                    if (!IS_TABLE(e->value) && (e->value & QNAN) == QNAN) value_decref(e->value);
+                    free(e);
+                    e = en;
+                }
+            }
+            free(t->entries);
+        }
+        if (t->array_part) {                      // free array part
+            for (int i = 0; i < t->array_count; i++) {
+                Value v = t->array_part[i];
+                if (!IS_TABLE(v) && (v & QNAN) == QNAN) value_decref(v);
+            }
+            free(t->array_part);
+        }
+        free(t);                                  // free the table struct itself
+        t = next;                                 // advance
+    }
 }
 
 // grow array part to fit needed_index, doubling until large enough
@@ -1505,6 +1579,9 @@ VM* vm_create(const char* source) {
     vm->args_top = 0;                             // empty args stack
     vm->args_table = MAKE_NONE();                 // default to none until set
     vm->source = source;                          // store source pointer
+    vm->cycle_head = NULL;                        // no tracked tables yet
+    APEX_MUTEX_INIT(&vm->cycle_lock);             // init tracker's list lock
+    tls_cycle_vm = vm;                            // register as the tls tracker target
     vm->builtin_async = false;                    // not inside an async builtin
     vm->ready = NULL;                             // no ready queue yet
     vm->ready_count = 0;                          // empty queue
@@ -1635,10 +1712,12 @@ void vm_destroy(VM* vm) {
     for (int i = 0; i < vm->args_top; i++) {
         value_decref(vm->args_stack[i]);          // release any remaining args
     }
-
+    cycle_sweep(vm);                              // free tracked tables the decref pass left behind
+    APEX_MUTEX_DESTROY(&vm->cycle_lock);          // destroy tracker list lock
     APEX_MUTEX_DESTROY(&vm->completion_mutex);    // destroy lock
     APEX_COND_DESTROY(&vm->completion_cond);      // destroy condvar
     string_intern_table_free(&vm->intern_table);  // free interned strings
+    if (tls_cycle_vm == vm) tls_cycle_vm = NULL;  // clear the thread-local target
 #if APEX_JIT_ENABLED
     jit_destroy(vm->jit);                         // release JIT and its code page
 #endif
