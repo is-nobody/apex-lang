@@ -63,6 +63,7 @@ typedef struct {
     int current_frame;      // active frame index
     ForIter* iterator_stack;// active numeric for-loop storage
     TableIterState* table_iters;// active table iterator storage
+    int call_depth;         // call stack depth at save time
 } SavedVMContext;
 
 // recursion-stack cap for table_equal
@@ -1213,6 +1214,7 @@ static void vm_context_save(VM* vm, SavedVMContext* s) {
     s->current_frame  = vm->current_frame;
     s->iterator_stack = vm->iterator_stack;
     s->table_iters    = vm->table_iters;
+    s->call_depth     = vm->call_depth;
 }
 
 // restores a previously saved pool context into the vm's active slot
@@ -1225,6 +1227,7 @@ static void vm_context_restore(VM* vm, SavedVMContext* s) {
     vm->current_frame  = s->current_frame;
     vm->iterator_stack = s->iterator_stack;
     vm->table_iters    = s->table_iters;
+    vm->call_depth     = s->call_depth;
     vm->registers      = &vm->register_pool[vm->frame_offset[vm->current_frame]];
 }
 
@@ -1239,7 +1242,7 @@ static void vm_context_enter(VM* vm, FutureObject* task) {
     vm->registers      = &vm->register_pool[vm->frame_offset[vm->current_frame]];
 
     vm->current_task   = task;                         // enter coroutine mode
-    vm->call_depth     = 0;                            // coroutine body starts at depth 0
+    vm->call_depth     = task->saved_call_depth;       // restore saved call depth
     vm->iterator_stack = task->saved_iters;            // point at coroutine's numeric loop storage
     vm->iterator_depth = task->saved_iter_depth;       // restore numeric loop depth
     vm->table_iters    = task->saved_table_iters;      // point at coroutine's table iterator storage
@@ -1256,6 +1259,7 @@ static void vm_context_capture(VM* vm, FutureObject* task) {
     task->current_frame  = vm->current_frame;
     task->saved_iter_depth = vm->iterator_depth;       // save numeric loop depth
     task->saved_table_iter_depth = vm->table_iter_depth;  // save table iterator depth
+    task->saved_call_depth = vm->call_depth;           // save call depth
     vm->iterator_stack = vm->top_level_iter_storage;   // restore top-level numeric loop storage
     vm->table_iters    = vm->top_level_table_iter_storage;  // restore top-level table iterator storage
     vm->current_task = NULL;                           // leave coroutine mode
@@ -1301,6 +1305,7 @@ void future_start(VM* vm, FutureObject* fut) {
     fut->saved_dest_reg = -1;                           // no pending await
     fut->saved_iter_depth = -1;                         // no active loops
     fut->saved_table_iter_depth = -1;
+    fut->saved_call_depth = 0;                          // fresh coroutine starts at depth 0
     scheduler_push(vm, fut);                            // make it ready
 }
 
@@ -3661,6 +3666,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         fut->waiter_capacity = 0;                    // no capacity
         fut->saved_iter_depth = -1;                  // no active loops
         fut->saved_table_iter_depth = -1;            // no active table iterators
+        fut->saved_call_depth = 0;                   // fresh coroutine starts at depth 0
         for (int i = 0; i < arg_count; i++) {        // capture args from args stack
             Value a = vm->args_stack[vm->args_top - arg_count + i];
             if ((a & QNAN) == QNAN) value_incref(a); // keep a reference in the future
@@ -3733,6 +3739,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
                 value_incref(v);                     // keep reference
                 cur->saved_iter_depth = vm->iterator_depth;               // save loop depth
                 cur->saved_table_iter_depth = vm->table_iter_depth;       // save table iterator depth
+                cur->saved_call_depth = vm->call_depth;                   // save call depth
                 future_add_waiter(fut, cur);         // register as waiter
                 if (fut->register_pool == NULL) future_start(vm, fut);  // launch awaited body if pending
                 vm->current_task = NULL;             // leave coroutine mode

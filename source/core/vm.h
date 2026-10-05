@@ -236,6 +236,7 @@ typedef struct FutureObject {
     int saved_iter_depth;      // depth of the numeric iterator stack
     TableIterState saved_table_iters[16];  // saved table iterators across suspension
     int saved_table_iter_depth;// depth of the table iterator stack
+    int saved_call_depth;      // call stack depth at suspension
 } FutureObject;
 
 // a finished background task waiting to be handed back to the scheduler
