@@ -60,6 +60,28 @@ typedef struct HashEntryPool {
     struct HashEntryPool* next;                    // next pool chunk
 } HashEntryPool;
 
+// one symbol exported by a parsed module (raw name, no module prefix)
+typedef struct CachedModuleSymbol {
+    char* name;                          // symbol name as declared inside the module
+    ParserSymbolKind kind;               // variable, function, constant, module
+    ValueType type;                      // inferred type
+    int param_count;                     // for functions: arity
+    struct CachedModuleSymbol* next;     // linked list
+} CachedModuleSymbol;
+
+// one file registered in the shared import cache
+typedef struct CachedModule {
+    char* canonical_path;                // resolved path, dedup key
+    int state;                           // 0 = currently parsing, 1 = parsed
+    CachedModuleSymbol* symbols;         // exports captured so far
+    struct CachedModule* next;           // linked list
+} CachedModule;
+
+// shared import registry, created by the outermost parse_program call
+typedef struct ModuleCache {
+    CachedModule* head;                  // linked list of entries
+} ModuleCache;
+
 // symbol table entry with name, scope, kind, type, and constant folding data
 typedef struct {
     char** names;            // symbol names (dynamically allocated)
@@ -112,6 +134,10 @@ struct Parser {
     int last_error_lines[ERROR_HISTORY_SIZE];    // circular buffer of recent error lines
     int last_error_columns[ERROR_HISTORY_SIZE];  // circular buffer of recent error columns
     int last_error_idx;             // current index into the error history buffer
+
+    ModuleCache* module_cache;      // shared import cache, NULL until parse_program
+    CachedModule* current_module;   // entry for the file this parser is parsing
+    bool owns_module_cache;         // true only for the parser that allocated it
 };
 
 // creates a parser instance for the given token stream and source info

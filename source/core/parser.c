@@ -131,6 +131,61 @@ static void pool_destroy(HashEntryPool* pool) {
     }
 }
 
+// resolves a path to its canonical absolute form so two spellings of the same file
+static void canonicalize_module_path(const char* in, char* out, size_t out_size) {
+    if (!out || out_size == 0) return;
+#ifdef _WIN32
+    if (_fullpath(out, in, out_size) != NULL) return;
+#else
+    if (realpath(in, out) != NULL) return;
+#endif
+    strncpy(out, in, out_size - 1);
+    out[out_size - 1] = '\0';
+}
+
+// frees a module cache and every entry inside it
+static void module_cache_destroy(ModuleCache* cache) {
+    if (!cache) return;
+    CachedModule* m = cache->head;
+    while (m) {
+        CachedModule* next_m = m->next;
+        CachedModuleSymbol* s = m->symbols;
+        while (s) {
+            CachedModuleSymbol* next_s = s->next;
+            free(s->name);
+            free(s);
+            s = next_s;
+        }
+        free(m->canonical_path);
+        free(m);
+        m = next_m;
+    }
+    free(cache);
+}
+
+// finds a module entry by canonical path, or NULL
+static CachedModule* module_cache_find(ModuleCache* cache, const char* canonical) {
+    if (!cache || !canonical) return NULL;
+    for (CachedModule* m = cache->head; m; m = m->next) {
+        if (strcmp(m->canonical_path, canonical) == 0) return m;
+    }
+    return NULL;
+}
+
+// inserts a fresh in-progress entry, returns it (or NULL on OOM)
+static CachedModule* module_cache_insert(ModuleCache* cache, const char* canonical) {
+    if (!cache) return NULL;
+    CachedModule* m = (CachedModule*)calloc(1, sizeof(CachedModule));
+    if (!m) return NULL;
+    m->canonical_path = strdup(canonical);
+    if (!m->canonical_path) { free(m); return NULL; }
+    m->state = 0;                                  // in progress
+    m->symbols = NULL;
+    m->next = cache->head;
+    cache->head = m;
+    return m;
+}
+
 // helper for counting utf-8 characters in a string
 static size_t utf8_char_len(const char* s) {
     if (!s) return 0;                              // null string, zero length
@@ -829,6 +884,10 @@ Parser* parser_create(Token* tokens, int count, const char* filename, const char
     parser->last_error_line = -1;                  // no last error
     parser->last_error_column = -1;                // no last error
 
+    parser->module_cache = NULL;                   // created lazily by parse_program
+    parser->current_module = NULL;                 // set by caller for nested parsers
+    parser->owns_module_cache = false;
+
     return parser;                                 // return new parser
 }
 
@@ -852,6 +911,13 @@ void parser_destroy(Parser* parser) {
 
         pool_destroy(parser->symbols.entry_pool);  // free all hash entry pools
         free(parser->symbols.hash_table);          // free hash table buckets
+
+        if (parser->owns_module_cache && parser->module_cache) {
+            module_cache_destroy(parser->module_cache);   // free shared import registry
+        }
+        parser->module_cache = NULL;
+        parser->current_module = NULL;
+
         free(parser);                              // free parser itself
     }
 }
@@ -3153,6 +3219,24 @@ static ASTNode* parse_import_statement(Parser* parser) {
     char full_path[PATH_MAX];
     snprintf(full_path, sizeof(full_path), "%s/%s", parser->source_dir, module_path);  // build full path
 
+    // dedupe by canonical path: a file already parsed earlier is reused
+    char canonical[PATH_MAX];
+    canonicalize_module_path(full_path, canonical, sizeof(canonical));
+    CachedModule* cached = module_cache_find(parser->module_cache, canonical);
+    if (cached) {                                    // hit: state 0 (cycle) or 1 (done)
+        for (CachedModuleSymbol* s = cached->symbols; s; s = s->next) {
+            char full_name[1024];
+            snprintf(full_name, sizeof(full_name), "%s.%s", dot_name, s->name);
+            if (symbol_index_recursive(parser, full_name) < 0) {
+                parser_declare_symbol(parser, full_name, s->kind, s->type,
+                                      s->param_count, import_kw->line, import_kw->column);
+            }
+        }
+        free(module_path);
+        free(dot_name);
+        return import_node;                          // placeholder; body already emitted elsewhere
+    }
+
     FILE* f = fopen(full_path, "rb");               // try to open file
     if (!f) {
         parser_error_at(parser, first->line, first->column, (int)utf8_char_len(module_path),
@@ -3174,8 +3258,14 @@ static ASTNode* parse_import_statement(Parser* parser) {
     int mod_count;
     Token* mod_tokens = tokenizer_tokenize(mod_tok, &mod_count);
 
+    // register this file as in-progress before parsing its body
+    CachedModule* new_entry = module_cache_insert(parser->module_cache, canonical);
+
     Parser* mod_parser = parser_create(mod_tokens, mod_count, full_path, source);
     mod_parser->semantic_checks = parser->semantic_checks;  // inherit semantic checks
+    mod_parser->module_cache = parser->module_cache;         // share the import cache
+    mod_parser->current_module = new_entry;                  // publish exports into this entry
+    mod_parser->owns_module_cache = false;                   // borrowed, not owned
     free(mod_parser->source_dir);
     mod_parser->source_dir = strdup(parser->source_dir);  // inherit source dir
 
@@ -3617,7 +3707,36 @@ static void prescan_declarations(Parser* parser) {
 
 // parses the entire program as a sequence of statements
 ASTNode* parse_program(Parser* parser) {
-    prescan_declarations(parser);                  // first pass: register forward declarations
+    // the outermost parse_program owns the shared import cache
+    if (!parser->module_cache) {
+        parser->module_cache = (ModuleCache*)calloc(1, sizeof(ModuleCache));
+        parser->owns_module_cache = true;
+    }
+
+    // a top-level parse (no current_module yet)
+    if (!parser->current_module && parser->filename && parser->filename[0] != '\0' &&
+        parser->filename[0] != '<') {
+        char canonical[PATH_MAX];
+        canonicalize_module_path(parser->filename, canonical, sizeof(canonical));
+        parser->current_module = module_cache_insert(parser->module_cache, canonical);
+    }
+
+    prescan_declarations(parser);  // first pass: register forward declarations
+
+    // publish pre-scan declarations into the cache
+    if (parser->current_module) {
+        for (int i = 0; i < parser->symbols.count; i++) {
+            if (parser->symbols.scope_levels[i] != 0) continue;
+            CachedModuleSymbol* s = (CachedModuleSymbol*)calloc(1, sizeof(CachedModuleSymbol));
+            if (!s) continue;
+            s->name = strdup(parser->symbols.names[i]);
+            s->kind = parser->symbols.kinds[i];
+            s->type = parser->symbols.types[i];
+            s->param_count = parser->symbols.param_counts[i];
+            s->next = parser->current_module->symbols;
+            parser->current_module->symbols = s;
+        }
+    }
 
     ASTNodeList* statements = ast_list_create();   // program statements
     
@@ -3636,7 +3755,12 @@ ASTNode* parse_program(Parser* parser) {
         
         skip_newlines(parser);
     }
-    
+
+    // mark fully parsed so future imports replay symbols instead of reparsing
+    if (parser->current_module) {
+        parser->current_module->state = 1;
+    }
+
     ASTNode* program = ast_create_block(statements);
     program->type = AST_PROGRAM;                    // mark as program root
     return program;
