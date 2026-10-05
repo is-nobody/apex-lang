@@ -413,6 +413,31 @@ static Value os_exec_sync(void* p) {
     return MAKE_NUMBER((double)code);                   // return exit code
 }
 
+// reads one line from stdin into a heap buffer, growing as needed
+static char* read_stdin_line(size_t* out_len) {
+    size_t cap = 4096;                       // initial capacity, matches previous stack size
+    size_t len = 0;                          // bytes read so far
+    char* buf = (char*)malloc(cap);          // heap buffer, grows as needed
+    if (!buf) { *out_len = 0; return NULL; } // OOM: caller reports
+
+    int c;                                   // current character
+    while ((c = fgetc(stdin)) != EOF) {      // read until EOF
+        if (c == '\n') break;                // end of line
+        if (len + 1 >= cap) {                // need room for c plus nul
+            size_t new_cap = cap * 2;        // double capacity
+            char* nb = (char*)realloc(buf, new_cap);
+            if (!nb) { free(buf); *out_len = 0; return NULL; }  // OOM: give up
+            buf = nb;
+            cap = new_cap;
+        }
+        buf[len++] = (char)c;                // store byte
+    }
+    if (len > 0 && buf[len - 1] == '\r') len--;  // strip trailing CR from CRLF input
+    buf[len] = '\0';                         // null terminate
+    *out_len = len;                          // report byte count (may contain NULs)
+    return buf;                              // caller owns the buffer
+}
+
 // reads a line from stdin under a global mutex so prompts never interleave
 static Value os_input_sync(void* p) {
     OsArgs* a = (OsArgs*)p;                             // unpack argument struct
@@ -420,14 +445,13 @@ static Value os_input_sync(void* p) {
     APEX_MUTEX_LOCK(&g_stdin_mutex);                    // serialize stdin access across workers
     printf("%s", a->content ? a->content : "");         // print prompt
     fflush(stdout);                                     // flush output
-    char buffer[4096];                                  // input buffer
-    if (fgets(buffer, sizeof(buffer), stdin)) {         // read line
-        buffer[strcspn(buffer, "\r\n")] = 0;            // strip newline
-    } else {
-        buffer[0] = '\0';                               // empty on eof
-    }
+    size_t len = 0;                                     // line length
+    char* buffer = read_stdin_line(&len);               // read the whole line (never truncated)
     APEX_MUTEX_UNLOCK(&g_stdin_mutex);                  // release stdin mutex
-    return make_owned_string(buffer, (int)strlen(buffer));  // fresh non-interned string
+    if (!buffer) return MAKE_NONE();                    // OOM: report as none
+    Value v = make_owned_string(buffer, (int)len);      // length-aware, preserves embedded NULs
+    free(buffer);                                       // release the temp buffer
+    return v;                                           // return the string value
 }
 
 // reads a line from stdin without echoing the typed characters
@@ -438,8 +462,6 @@ static Value os_input_hidden_sync(void* p) {
     printf("%s", a->content ? a->content : "");         // print prompt
     fflush(stdout);                                     // flush output
 
-    char buffer[4096];                                  // input buffer
-    buffer[0] = '\0';                                   // default to empty (EOF path)
     bool echo_disabled = false;                         // track whether we must restore
 
 #ifdef _WIN32
@@ -464,11 +486,8 @@ static Value os_input_hidden_sync(void* p) {
     }
 #endif
 
-    if (fgets(buffer, sizeof(buffer), stdin)) {         // read line
-        buffer[strcspn(buffer, "\r\n")] = 0;            // strip newline
-    } else {
-        buffer[0] = '\0';                               // empty on eof (matches os.input)
-    }
+    size_t len = 0;                                     // line length
+    char* buffer = read_stdin_line(&len);               // read the whole line (never truncated)
 
     if (echo_disabled) {                                // restore terminal echo
 #ifdef _WIN32
@@ -481,7 +500,10 @@ static Value os_input_hidden_sync(void* p) {
     }
 
     APEX_MUTEX_UNLOCK(&g_stdin_mutex);                  // release stdin mutex
-    return make_owned_string(buffer, (int)strlen(buffer));  // fresh non-interned string
+    if (!buffer) return MAKE_NONE();                    // OOM: report as none
+    Value v = make_owned_string(buffer, (int)len);      // length-aware
+    free(buffer);                                       // release the temp buffer
+    return v;                                           // return the string value
 }
 
 // returns file or recursive directory size in bytes
