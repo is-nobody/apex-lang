@@ -434,7 +434,7 @@ third_color = colors[3]      // "blue"
 ```
 
 ### Key-Value Pairs
-When you want to label each value with a name, use keys. Keys and values are connected with `=`. You can't use numbers as keys, because numbers are reserved and using for calling items without keys.
+When you want to label each value with a name, use keys. Keys and values are connected with `=`. You can use numbers as keys.
 
 ```apex
 user = [
@@ -582,7 +582,7 @@ Comparison operators compare two values and give you a boolean result: either `t
 | `<=`     | Less than or equal    | `3 <= 3` |
 | `>=`     | Greater than or equal | `5 >= 5` |
 
-Comparison operators `<`, `>`, `<=`, `>=` work only with numbers. Using them with strings, booleans, tables, or none will result in a parse-time error. To check equality or inequality of any type, use `==` and `!=`.
+Comparison operators `<`, `>`, `<=`, `>=` work only with numbers. Using them with strings, booleans, tables, or none will result in a parse-time error, or — if it happens at runtime — you will get `none`. To check equality or inequality of any type, use `==` and `!=`.
 
 ## 2.3 Logical Operators
 Logical operators combine boolean values (`true` or `false`) to create more complex conditions.
