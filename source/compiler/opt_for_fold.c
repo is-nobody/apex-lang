@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <stdio.h>
 
 // symbolic value: v(i) = P(i) + Q(i) * r^i, P,Q poly of degree <= SV_MAX_DEG
 #define SV_MAX_DEG 3
@@ -354,6 +355,25 @@ static bool analyze_cond_loop(CodeGenerator* cg, ASTNode* node, const char** out
     return true;
 }
 
+// mirrors a variable to its global slot when the codegen needs it
+static void mirror_to_global(CodeGenerator* cg, const char* name, int reg, int line) {
+    bool need_global = (cg->current_module != NULL) ||
+                       (cg->current_function == 0) ||
+                       cg->current_function_has_nested;
+    if (!need_global) return;
+
+    const char* gname = name;
+    char qualified[512];
+    if (cg->current_module) {
+        snprintf(qualified, sizeof(qualified), "%s.%s", cg->current_module, name);
+        gname = qualified;
+        add_module_global(cg, qualified);
+    }
+    int gidx = bytecode_get_global(cg->chunk, gname);
+    if (gidx < 0) gidx = bytecode_add_global(cg->chunk, gname);
+    emit(cg, INST(OP_STORE_GLOBAL, reg, gidx, 0), line);
+}
+
 // folds a constant range loop or bare condition loop with straight-line arithmetic
 bool try_emit_symbolic_loop(CodeGenerator* cg, ASTNode* node) {
     const char* var = NULL;
@@ -489,6 +509,7 @@ bool try_emit_symbolic_loop(CodeGenerator* cg, ASTNode* node) {
             int ci = bytecode_add_number_constant(cg->chunk, v);
             emit(cg, INST(OP_LOAD_NUM, reg, ci, 0), node->line);
         }
+        mirror_to_global(cg, vars[i].name, reg, node->line);    // mirror folded value
         cg->locals.const_known[slot] = true;
         cg->locals.const_value[slot] = v;
     }
@@ -503,6 +524,7 @@ bool try_emit_symbolic_loop(CodeGenerator* cg, ASTNode* node) {
             int ci = bytecode_add_number_constant(cg->chunk, vfin);
             emit(cg, INST(OP_LOAD_NUM, reg, ci, 0), node->line);
         }
+        mirror_to_global(cg, var, reg, node->line);             // mirror post-loop value
         cg->locals.const_known[vs] = true;
         cg->locals.const_value[vs] = vfin;
     }

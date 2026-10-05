@@ -148,9 +148,8 @@ static void codegen_var_decl(CodeGenerator* cg, ASTNode* node) {
             }
 
             bool need_global = (cg->current_module != NULL) ||               // mirror the normal path
-                               (cg->for_scope_depth == 0 &&
-                                ((cg->current_function == 0) ||
-                                 cg->current_function_has_nested));
+                               (cg->current_function == 0) ||                // top-level: a global
+                               cg->current_function_has_nested;              // nested fn may capture
             if (need_global) {
                 const char* var_name = node->var_assign.name;
                 char global_name[512];
@@ -202,9 +201,8 @@ static void codegen_var_decl(CodeGenerator* cg, ASTNode* node) {
     }
 
     bool need_global = (cg->current_module != NULL) ||                       // module scope: global
-                       (cg->for_scope_depth == 0 &&                          // not inside a for-scope
-                        ((cg->current_function == 0) ||                      // top-level: global
-                         cg->current_function_has_nested));                  // nested fn may capture
+                       (cg->current_function == 0) ||                        // top-level: a global
+                       cg->current_function_has_nested;                      // nested fn may capture
 
     if (need_global) {                                                       // register global slot
         const char* var_name = node->var_assign.name;                        // variable name
@@ -290,9 +288,8 @@ int codegen_assign_expr(CodeGenerator* cg, ASTNode* node, int dest_hint) {
         }
         // mirror the global update from codegen_var_decl
         bool need_global = (cg->current_module != NULL) ||      // inside a module: always global
-                        (cg->for_scope_depth == 0 &&            // not inside a for-scope
-                            ((cg->current_function == 0) ||     // top-level: global
-                            cg->current_function_has_nested));  // nested fn may capture
+                        (cg->current_function == 0) ||          // top-level: a global
+                        cg->current_function_has_nested;        // nested fn may capture
         if (need_global) {                                      // register global slot
             const char* var_name = node->var_assign.name;       // variable name
             char global_name[512];                              // qualified buffer
