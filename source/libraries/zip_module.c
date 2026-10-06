@@ -210,25 +210,28 @@ static uint8_t* read_file(const char* filename, long* size) {
     if (!file) return NULL;                             // open failed
     
     *size = get_file_size(file);                        // get file size
-    if (*size <= 0) {                                   // empty file
-        fclose(file);                                   // close file
+    if (*size < 0) {                                    // ftell error, not an empty file
+        fclose(file);
         return NULL;
     }
     
-    uint8_t* data = (uint8_t*)malloc(*size);            // allocate buffer
+    // allocate at least one byte so an empty file still gets a valid pointer
+    uint8_t* data = (uint8_t*)malloc(*size > 0 ? (size_t)*size : 1);
     if (!data) {                                        // allocation failed
-        fclose(file);                                   // close file
+        fclose(file);
         return NULL;
     }
     
-    size_t read = fread(data, 1, *size, file);          // read file
+    if (*size > 0) {                                    // only read when there is data
+        size_t read = fread(data, 1, *size, file);      // read file
+        if (read != (size_t)*size) {                    // read error
+            fclose(file);
+            free(data);
+            return NULL;
+        }
+    }
+    
     fclose(file);                                       // close file
-    
-    if (read != (size_t)*size) {                        // read error
-        free(data);                                     // free buffer
-        return NULL;
-    }
-    
     return data;                                        // return data
 }
 
@@ -798,8 +801,19 @@ static bool pack_directory(const char* input_path) {
     
     ZipEntry* entry = entries;                          // start at head
     while (entry) {                                     // iterate entries
-        if (entry->file_size > 0) {                     // is a file
-            long file_size = entry->file_size;          // file size
+        size_t name_len = strlen(entry->archive_name); // distinguish dirs from empty files
+        bool is_dir = (name_len > 0 && entry->archive_name[name_len - 1] == '/');
+
+        if (is_dir) {
+            // emit a zero-length local header so the central directory offset points at a real header
+            if (!write_local_entry(zip_file, entry, (const uint8_t*)"", 0)) {
+                fclose(zip_file);
+                free(zip_filename);
+                free_entries(entries);
+                return false;
+            }
+        } else {
+            long file_size = entry->file_size;          // file size (may be 0)
             uint8_t* file_data = read_file(entry->filename, &file_size);  // read file
             if (!file_data) {                           // read failed
                 fclose(zip_file);                       // close file
