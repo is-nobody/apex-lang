@@ -320,6 +320,14 @@ void value_decref(Value v) {
             free(fut->args);                           // free args array
             value_decref(fut->result);                 // release result value
             value_decref(fut->awaiting);               // release awaited future
+            // release each waiter reference added by future_add_waiter
+            for (int i = 0; i < fut->waiter_count; i++) {
+                FutureObject* w = fut->waiters[i];
+                if (IS_FUTURE(w->awaiting) && AS_FUTURE(w->awaiting) == fut) {
+                    w->awaiting = MAKE_NONE();         // break back-reference, no decref
+                }
+                value_decref(MAKE_FUTURE(w));          // release fut's reference on w
+            }
             free(fut->waiters);                        // free waiter list
             future_free_pool(fut);                     // free private register pool
             free(fut);                                 // free future struct
