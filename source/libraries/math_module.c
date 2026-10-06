@@ -266,10 +266,17 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     
     if (strcmp(name, "math.gcd") == 0) {                                   // greatest common divisor
         if (arg_count >= 2 && IS_NUMBER(args[0]) && IS_NUMBER(args[1])) {  // validate two numbers
-            long a = (long)fabs(AS_NUMBER(args[0]));                       // absolute value first
-            long b = (long)fabs(AS_NUMBER(args[1]));                       // absolute value second
+            double a_d = fabs(AS_NUMBER(args[0]));                         // absolute value first
+            double b_d = fabs(AS_NUMBER(args[1]));                         // absolute value second
+            if (!(a_d >= 0 && a_d <= 9007199254740992.0) ||
+                !(b_d >= 0 && b_d <= 9007199254740992.0)) {                // reject nan/inf/huge
+                *result = MAKE_NONE();
+                return true;
+            }
+            long long a = (long long)a_d;                                  // safe: fits in long long
+            long long b = (long long)b_d;
             while (b != 0) {                                               // euclidean algorithm
-                long t = b;                                                // store b
+                long long t = b;                                           // store b
                 b = a % b;                                                 // compute remainder
                 a = t;                                                     // swap
             }

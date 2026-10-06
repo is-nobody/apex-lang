@@ -275,10 +275,15 @@ bool sys_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Valu
         return true;                                 // builtin handled
     }
 
-    if (strcmp(name, "sys.is_terminal") == 0) {       // check if fd is terminal
+    if (strcmp(name, "sys.is_terminal") == 0) {      // check if fd is terminal
         int fd = 1;                                  // default to stdout
         if (arg_count >= 1 && IS_NUMBER(args[0])) {  // check if fd provided
-            fd = (int)AS_NUMBER(args[0]);            // use provided fd
+            double fd_d = AS_NUMBER(args[0]);        // raw fd value
+            if (!(fd_d >= 0 && fd_d <= 2147483647.0) || fd_d != (double)(long long)fd_d) {
+                *result = MAKE_BOOL(false);          // invalid fd
+                return true;
+            }
+            fd = (int)fd_d;                          // use provided fd
         }
         *result = MAKE_BOOL(isatty(fd));             // check terminal status
         return true;                                 // builtin handled

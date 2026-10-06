@@ -1810,11 +1810,12 @@ bool crypto_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
             *result = MAKE_NONE();
             return true;
         }
-        int nbytes = (int)AS_NUMBER(args[0]);                        // number of bytes
-        if (nbytes <= 0) {                                           // invalid size
-            *result = MAKE_NONE();
+        double n_d = AS_NUMBER(args[0]);                             // raw byte count
+        if (!(n_d >= 1 && n_d <= 67108864.0) || n_d != (double)(long long)n_d) {  // 64 MiB cap
+            *result = MAKE_NONE();                                   // invalid size
             return true;
         }
+        int nbytes = (int)n_d;                                       // number of bytes
         unsigned char* buffer = (unsigned char*)malloc(nbytes);      // allocate buffer
         if (!buffer) {                                               // allocation failed
             *result = MAKE_NONE();
@@ -1838,16 +1839,17 @@ bool crypto_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                                 // builtin handled
     }
 
-    if (strcmp(name, "crypto.random_integer") == 0) {     // secure random integer
-        if (arg_count != 1 || !IS_NUMBER(args[0])) {      // validate
+    if (strcmp(name, "crypto.random_integer") == 0) {      // secure random integer
+        if (arg_count != 1 || !IS_NUMBER(args[0])) {       // validate
             *result = MAKE_NONE();
             return true;
         }
-        int n = (int)AS_NUMBER(args[0]);                  // modulo
-        if (n <= 0) {                                     // invalid
-            *result = MAKE_NONE();
+        double n_d = AS_NUMBER(args[0]);                   // raw bound
+        if (!(n_d >= 1 && n_d <= 2147483647.0) || n_d != (double)(long long)n_d) {
+            *result = MAKE_NONE();                         // invalid
             return true;
         }
+        int n = (int)n_d;                                  // modulo
         unsigned char rb;                                  // random byte
         if (!get_secure_bytes(&rb, 1)) {                   // secure source unavailable
             *result = MAKE_NONE();                         // refuse to produce a weak value

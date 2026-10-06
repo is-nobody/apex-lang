@@ -61,13 +61,21 @@ static double get_number_safe(Value v, bool* ok) {
 }
 
 // returns a random integer in [min, max] inclusive
-static int randint_range(int min, int max) {
+static long long randint_range(long long min, long long max) {
     if (min > max) {                                          // out of order
-        int temp = min;                                       // swap
-        min = max;                                            // min becomes max
-        max = temp;                                           // max becomes min
+        long long temp = min;                                 // swap
+        min = max;
+        max = temp;
     }
-    return min + (rand() % (max - min + 1));                  // random in range
+    // compute the range as unsigned so max - min + 1 cannot overflow
+    unsigned long long range = (unsigned long long)max - (unsigned long long)min + 1ULL;
+    unsigned long long r;                                     // sampled offset
+    if (range <= (unsigned long long)RAND_MAX) {              // single draw is enough
+        r = (unsigned long long)rand() % range;
+    } else {                                                  // combine two draws for a wider range
+        r = (((unsigned long long)rand() << 15) | (unsigned long long)rand()) % range;
+    }
+    return min + (long long)r;                                // return random in range
 }
 
 // generates a gamma-distributed random number (Marsaglia-Tsang method)
@@ -118,7 +126,16 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         double a = get_number_safe(args[0], &ok1);                        // get min
         double b = get_number_safe(args[1], &ok2);                        // get max
         if (!ok1 || !ok2) { APEX_MUTEX_UNLOCK(&g_rng_mutex); *result = MAKE_NONE(); return true; }  // invalid numbers
-        *result = MAKE_NUMBER((double)randint_range((int)a, (int)b));     // random integer
+        // reject nan/inf (short-circuits) and out-of-range or non-whole values before the cast
+        if (!(a >= -9007199254740992.0 && a <= 9007199254740992.0) ||
+            !(b >= -9007199254740992.0 && b <= 9007199254740992.0) ||
+            a != (double)(long long)a ||
+            b != (double)(long long)b) {
+            APEX_MUTEX_UNLOCK(&g_rng_mutex);
+            *result = MAKE_NONE();                                        // invalid argument range
+            return true;
+        }
+        *result = MAKE_NUMBER((double)randint_range((long long)a, (long long)b));
         APEX_MUTEX_UNLOCK(&g_rng_mutex);                                   // release lock
         return true;                                                      // builtin handled
     }
@@ -182,10 +199,16 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         if (arg_count != 2 || !IS_TABLE(args[0]) || !IS_NUMBER(args[1])) {      // validate args
             APEX_MUTEX_UNLOCK(&g_rng_mutex); *result = MAKE_NONE(); return true;
         }
+        double k_d = AS_NUMBER(args[1]);                                        // raw sample size
+        if (!(k_d >= 0 && k_d <= 2147483647.0) || k_d != (double)(long long)k_d) {  // reject nan/inf/out-of-range/non-whole
+            APEX_MUTEX_UNLOCK(&g_rng_mutex);
+            *result = MAKE_NONE();
+            return true;
+        }
         Table* src = AS_TABLE(args[0]);                                         // source table
-        int k = (int)AS_NUMBER(args[1]);                                        // sample size
+        int k = (int)k_d;                                                       // sample size
         int size = table_size(src);                                             // table size
-        if (k < 0 || k > size) { APEX_MUTEX_UNLOCK(&g_rng_mutex); *result = MAKE_NONE(); return true; }  // invalid sample size
+        if (k > size) { APEX_MUTEX_UNLOCK(&g_rng_mutex); *result = MAKE_NONE(); return true; }  // invalid sample size
         if (k == 0) { APEX_MUTEX_UNLOCK(&g_rng_mutex); *result = MAKE_TABLE(table_create(8)); return true; }  // empty sample
         int count;                                                              // key count
         Value* keys = table_keys(src, &count);                                  // get all keys
@@ -229,7 +252,11 @@ bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
 
     if (strcmp(name, "random.seed") == 0) {                          // seed generator
         if (arg_count == 1 && IS_NUMBER(args[0])) {                  // seed provided
-            srand((unsigned int)AS_NUMBER(args[0]));                 // set seed
+            double seed_d = AS_NUMBER(args[0]);                      // raw seed value
+            if (!(seed_d == seed_d)) seed_d = 0;                     // NaN -> 0
+            if (seed_d < 0) seed_d = -seed_d;                        // use magnitude
+            if (seed_d > 4294967295.0) seed_d = 4294967295.0;        // clamp to UINT_MAX
+            srand((unsigned int)seed_d);                             // set seed
             random_seeded = 1;                                       // mark seeded
         } else {                                                     // no seed
             srand((unsigned int)time(NULL));                         // seed from time

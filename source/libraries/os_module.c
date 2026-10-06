@@ -654,21 +654,20 @@ static Value os_terminate_sync(void* p) {
     return MAKE_BOOL(success);                          // return status
 }
 
-// interprets the decimal digits of `dec` as if they were octal digits.
-// 755 -> 0o755 (rwxr-xr-x), 644 -> 0o644 (rw-r--r--).
-// returns -1 when any digit is 8 or 9, or when dec is negative.
+// interprets the decimal digits of `dec` as if they were octal digits
 static int decimal_as_octal(int dec) {
-    if (dec < 0) return -1;                 // reject negative modes
-    int result = 0;                         // accumulated octal value
-    int place  = 1;                         // current place value (1, 8, 64, 512, ...)
+    if (dec < 0) return -1;                    // reject negative modes
+    long long result = 0;                      // accumulated octal value (wider to detect overflow)
+    long long place  = 1;                      // current place value (1, 8, 64, 512, ...)
     while (dec > 0) {
-        int digit = dec % 10;               // next decimal digit
-        if (digit > 7) return -1;           // 8 and 9 cannot appear in an octal mode
-        result += digit * place;            // add digit at its octal place
-        place *= 8;                         // advance to next octal place
-        dec /= 10;                          // drop the digit
+        int digit = dec % 10;                  // next decimal digit
+        if (digit > 7) return -1;              // 8 and 9 cannot appear in an octal mode
+        result += (long long)digit * place;    // add digit at its octal place
+        if (result > 07777) return -1;         // refuse modes that don't fit in 12 bits
+        place *= 8;                            // advance to next octal place
+        dec /= 10;                             // drop the digit
     }
-    return result;                          // returns the octal value
+    return (int)result;                        // returns the octal value
 }
 
 // changes permissions on a file
@@ -746,7 +745,8 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
     if (strcmp(name, "os.wait") == 0) {                               // sleep for seconds
         if (arg_count >= 1 && IS_NUMBER(args[0])) {                   // validate time
             double seconds = AS_NUMBER(args[0]);                      // extract seconds
-            if (seconds < 0) seconds = 0;                             // clamp negative
+            if (!(seconds >= 0.0)) seconds = 0.0;                     // clamp NaN and negatives
+            if (seconds > 86400.0) seconds = 86400.0;                 // cap at 1 day
 
             if (vm->builtin_async) {                                  // await os.wait(...)
                 FutureObject* fut = os_make_leaf_future();            // fresh pending future
@@ -797,10 +797,15 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
         return true;                                                              // builtin handled
     }
 
-    if (strcmp(name, "os.terminate") == 0) {                              // terminate process by pid
+    if (strcmp(name, "os.terminate") == 0) {                                      // terminate process by pid
         if (arg_count >= 1 && IS_NUMBER(args[0])) {                               // validate pid
+            double pid_d = AS_NUMBER(args[0]);
+            if (!(pid_d >= 0 && pid_d <= 2147483647.0) || pid_d != (double)(long long)pid_d) {
+                *result = MAKE_BOOL(false);                                       // invalid pid
+                return true;
+            }
             OsArgs* a = os_args_new();                                            // pack argument struct
-            a->int_val = (int)AS_NUMBER(args[0]);                                 // store pid
+            a->int_val = (int)pid_d;                                              // store pid
             return os_run_async_or_sync(vm, os_terminate_sync, os_args_free, a, result);
         }
         *result = MAKE_BOOL(false);                                               // invalid argument
@@ -1056,12 +1061,17 @@ bool os_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
 
     if (strcmp(name, "os.access") == 0) {                                  // change file permissions
         if (arg_count >= 2 && IS_STRING(args[0]) && IS_NUMBER(args[1])) {  // validate path and mode
+            double mode_d = AS_NUMBER(args[1]);
+            if (!(mode_d >= 0 && mode_d <= 2147483647.0) || mode_d != (double)(long long)mode_d) {
+                *result = MAKE_BOOL(false);                                // invalid mode
+                return true;
+            }
             OsArgs* a = os_args_new();                                     // pack argument struct
             char path[4096];                                               // normalized path buffer
             snprintf(path, sizeof(path), "%s", AS_STRING(args[0])->chars); // copy path
             normalize_path(path);                                          // normalize separators
             a->path = strdup(path);                                        // store normalized path
-            a->int_val = (int)AS_NUMBER(args[1]);                          // store mode bits
+            a->int_val = (int)mode_d;                                      // store mode bits
             return os_run_async_or_sync(vm, os_access_sync, os_args_free, a, result);
         }
         *result = MAKE_BOOL(false);                                        // invalid argument
