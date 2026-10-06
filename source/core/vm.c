@@ -3377,7 +3377,10 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int name_idx = ip->operands[1];              // constant pool index for builtin name
         int arg_count = ip->operands[2];             // number of arguments
         Value args[VM_MAX_ARGS_STACK];               // local args array
-        for (int i = 0; i < arg_count && i < 16; i++) {
+        for (int i = 0; i < VM_MAX_ARGS_STACK; i++) {
+            args[i] = MAKE_NONE();                   // neutralize stale slots
+        }
+        for (int i = 0; i < arg_count && i < VM_MAX_ARGS_STACK; i++) {
             args[i] = vm->args_stack[vm->args_top - arg_count + i];  // copy args from stack
         }
         Value result;                                // placeholder for return value
@@ -3764,7 +3767,10 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int name_idx = ip->operands[1];              // constant pool index for builtin name
         int arg_count = ip->operands[2];             // number of arguments
         Value args[VM_MAX_ARGS_STACK];               // local args array
-        for (int i = 0; i < arg_count && i < 16; i++) {
+        for (int i = 0; i < VM_MAX_ARGS_STACK; i++) {
+            args[i] = MAKE_NONE();                   // neutralize stale slots
+        }
+        for (int i = 0; i < arg_count && i < VM_MAX_ARGS_STACK; i++) {
             args[i] = vm->args_stack[vm->args_top - arg_count + i];  // copy args from stack
         }
         Value result;                                // placeholder for return value

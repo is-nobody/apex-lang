@@ -1420,7 +1420,7 @@ static void aes256_decrypt_block(const unsigned char* input, const unsigned char
 }
 
 // generic aes-cbc encryption: key and plaintext required, iv optional (default zero)
-static bool aes_cbc_encrypt_generic(VM* vm, Value* args, Value* result,
+static bool aes_cbc_encrypt_generic(VM* vm, Value* args, int arg_count, Value* result,
                                      int key_size, int expanded_key_size,
                                      void (*key_expansion)(const unsigned char*, unsigned char*),
                                      void (*encrypt_block)(const unsigned char*, const unsigned char*, unsigned char*)) {
@@ -1438,7 +1438,7 @@ static bool aes_cbc_encrypt_generic(VM* vm, Value* args, Value* result,
         return true;                                    // builtin handled
     }
     
-    if (IS_STRING(args[2])) {                           // iv provided
+    if (arg_count >= 3 && IS_STRING(args[2])) {         // iv provided
         if (hex_to_bytes(AS_STRING(args[2])->chars, iv, 16) != 16) {  // parse iv from hex
             *result = MAKE_NONE();                      // invalid iv
             return true;                                // builtin handled
@@ -1506,7 +1506,7 @@ static bool aes_cbc_encrypt_generic(VM* vm, Value* args, Value* result,
 }
 
 // generic aes-cbc decryption: key and ciphertext required, iv optional (default zero)
-static bool aes_cbc_decrypt_generic(VM* vm, Value* args, Value* result,
+static bool aes_cbc_decrypt_generic(VM* vm, Value* args, int arg_count, Value* result,
                                      int key_size, int expanded_key_size,
                                      void (*key_expansion)(const unsigned char*, unsigned char*),
                                      void (*decrypt_block)(const unsigned char*, const unsigned char*, unsigned char*)) {
@@ -1524,7 +1524,7 @@ static bool aes_cbc_decrypt_generic(VM* vm, Value* args, Value* result,
         return true;                                   // builtin handled
     }
     
-    if (IS_STRING(args[2])) {                          // iv provided
+    if (arg_count >= 3 && IS_STRING(args[2])) {        // iv provided
         if (hex_to_bytes(AS_STRING(args[2])->chars, iv, 16) != 16) {  // parse iv from hex
             *result = MAKE_NONE();                     // invalid iv
             return true;                               // builtin handled
@@ -1617,43 +1617,43 @@ static bool aes_cbc_decrypt_generic(VM* vm, Value* args, Value* result,
 }
 
 // aes-128-cbc encryption: key and plaintext required, iv optional (default zero)
-static bool aes128_encrypt(VM* vm, Value* args, Value* result) {
-    return aes_cbc_encrypt_generic(vm, args, result,
+static bool aes128_encrypt(VM* vm, Value* args, int arg_count, Value* result) {
+    return aes_cbc_encrypt_generic(vm, args, arg_count, result,
                                     AES128_KEY_SIZE, AES128_EXPANDED_KEY_SIZE,
                                     aes128_key_expansion, aes128_encrypt_block);
 }
 
 // aes-128-cbc decryption: key and ciphertext required, iv optional (default zero)
-static bool aes128_decrypt(VM* vm, Value* args, Value* result) {
-    return aes_cbc_decrypt_generic(vm, args, result,
+static bool aes128_decrypt(VM* vm, Value* args, int arg_count, Value* result) {
+    return aes_cbc_decrypt_generic(vm, args, arg_count, result,
                                     AES128_KEY_SIZE, AES128_EXPANDED_KEY_SIZE,
                                     aes128_key_expansion, aes128_decrypt_block);
 }
 
 // aes-192-cbc encryption: key and plaintext required, iv optional (default zero)
-static bool aes192_encrypt(VM* vm, Value* args, Value* result) {
-    return aes_cbc_encrypt_generic(vm, args, result,
+static bool aes192_encrypt(VM* vm, Value* args, int arg_count, Value* result) {
+    return aes_cbc_encrypt_generic(vm, args, arg_count, result,
                                     AES192_KEY_SIZE, AES192_EXPANDED_KEY_SIZE,
                                     aes192_key_expansion, aes192_encrypt_block);
 }
 
 // aes-192-cbc decryption: key and ciphertext required, iv optional (default zero)
-static bool aes192_decrypt(VM* vm, Value* args, Value* result) {
-    return aes_cbc_decrypt_generic(vm, args, result,
+static bool aes192_decrypt(VM* vm, Value* args, int arg_count, Value* result) {
+    return aes_cbc_decrypt_generic(vm, args, arg_count, result,
                                     AES192_KEY_SIZE, AES192_EXPANDED_KEY_SIZE,
                                     aes192_key_expansion, aes192_decrypt_block);
 }
 
 // aes-256-cbc encryption: key and plaintext required, iv optional (default zero)
-static bool aes256_encrypt(VM* vm, Value* args, Value* result) {
-    return aes_cbc_encrypt_generic(vm, args, result,
+static bool aes256_encrypt(VM* vm, Value* args, int arg_count, Value* result) {
+    return aes_cbc_encrypt_generic(vm, args, arg_count, result,
                                     AES256_KEY_SIZE, AES256_EXPANDED_KEY_SIZE,
                                     aes256_key_expansion, aes256_encrypt_block);
 }
 
 // aes-256-cbc decryption: key and ciphertext required, iv optional (default zero)
-static bool aes256_decrypt(VM* vm, Value* args, Value* result) {
-    return aes_cbc_decrypt_generic(vm, args, result,
+static bool aes256_decrypt(VM* vm, Value* args, int arg_count, Value* result) {
+    return aes_cbc_decrypt_generic(vm, args, arg_count, result,
                                     AES256_KEY_SIZE, AES256_EXPANDED_KEY_SIZE,
                                     aes256_key_expansion, aes256_decrypt_block);
 }
@@ -1777,32 +1777,32 @@ bool crypto_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
 
     if (strcmp(name, "crypto.aes128_encrypt") == 0) {    // aes-128-cbc encrypt(key, plaintext, [iv])
         if (arg_count < 2) { *result = MAKE_NONE(); return true; }
-        return aes128_encrypt(vm, args, result);
+        return aes128_encrypt(vm, args, arg_count, result);
     }
 
     if (strcmp(name, "crypto.aes128_decrypt") == 0) {    // aes-128-cbc decrypt(key, ciphertext, [iv])
         if (arg_count < 2) { *result = MAKE_NONE(); return true; }
-        return aes128_decrypt(vm, args, result);
+        return aes128_decrypt(vm, args, arg_count, result);
     }
 
     if (strcmp(name, "crypto.aes192_encrypt") == 0) {    // aes-192-cbc encrypt(key, plaintext, [iv])
         if (arg_count < 2) { *result = MAKE_NONE(); return true; }
-        return aes192_encrypt(vm, args, result);
+        return aes192_encrypt(vm, args, arg_count, result);
     }
 
     if (strcmp(name, "crypto.aes192_decrypt") == 0) {    // aes-192-cbc decrypt(key, ciphertext, [iv])
         if (arg_count < 2) { *result = MAKE_NONE(); return true; }
-        return aes192_decrypt(vm, args, result);
+        return aes192_decrypt(vm, args, arg_count, result);
     }
 
     if (strcmp(name, "crypto.aes256_encrypt") == 0) {    // aes-256-cbc encrypt(key, plaintext, [iv])
         if (arg_count < 2) { *result = MAKE_NONE(); return true; }
-        return aes256_encrypt(vm, args, result);
+        return aes256_encrypt(vm, args, arg_count, result);
     }
 
     if (strcmp(name, "crypto.aes256_decrypt") == 0) {    // aes-256-cbc decrypt(key, ciphertext, [iv])
         if (arg_count < 2) { *result = MAKE_NONE(); return true; }
-        return aes256_decrypt(vm, args, result);
+        return aes256_decrypt(vm, args, arg_count, result);
     }
 
     if (strcmp(name, "crypto.random_hex") == 0) {                     // secure hex token
