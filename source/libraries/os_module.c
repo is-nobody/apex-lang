@@ -625,7 +625,8 @@ static Value os_rename_sync(void* p) {
 static Value os_move_sync(void* p) {
     OsArgs* a = (OsArgs*)p;                             // unpack argument struct
 #ifdef _WIN32
-    return MAKE_BOOL(MoveFile(a->path, a->path2) != 0); // windows move api
+    return MAKE_BOOL(MoveFileExA(a->path, a->path2,
+                                 MOVEFILE_REPLACE_EXISTING) != 0);
 #else
     return MAKE_BOOL(rename(a->path, a->path2) == 0);   // unix rename
 #endif
