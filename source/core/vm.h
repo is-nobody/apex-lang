@@ -57,8 +57,9 @@ extern bool apex_jit_runtime_enabled;
 // call stack limits
 #define VM_MAX_CALL_FRAMES 1024
 #define VM_MAX_FRAMES VM_MAX_CALL_FRAMES
-#define VM_INITIAL_GLOBALS 64        // initial globals array capacity (grows on demand)
-#define VM_MAX_GLOBALS (1 << 24)     // hard upper bound (16M); sanity cap against pathological chunks
+#define VM_MAX_ITER_STACK VM_MAX_CALL_FRAMES
+#define VM_INITIAL_GLOBALS 64
+#define VM_MAX_GLOBALS (1 << 24)     // hard upper bound (16M)
 #define VM_MAX_ARGS_STACK 64
 
 // register frame configuration
@@ -234,10 +235,10 @@ typedef struct FutureObject {
     struct FutureObject** waiters;  // futures blocked on this one
     int waiter_count;          // number of waiters
     int waiter_capacity;       // capacity of the waiter array
-    ForIter saved_iters[16];   // saved numeric loop iterators across suspension
-    int saved_iter_depth;      // depth of the numeric iterator stack
-    TableIterState saved_table_iters[16];  // saved table iterators across suspension
-    int saved_table_iter_depth;// depth of the table iterator stack
+    ForIter* saved_iters;            // heap-allocated numeric loop stack (VM_MAX_ITER_STACK slots)
+    int saved_iter_depth;            // depth of the numeric iterator stack
+    TableIterState* saved_table_iters;  // heap-allocated table iteration stack (VM_MAX_ITER_STACK slots)
+    int saved_table_iter_depth;      // depth of the table iterator stack
     int saved_call_depth;      // call stack depth at suspension
 } FutureObject;
 
@@ -308,11 +309,11 @@ typedef struct VM {
     bool builtin_async;            // true when the current CALL_BUILTIN_ASYNC is executing
     ForIter* iterator_stack;       // active numeric for-loops
     int iterator_depth;            // nesting depth of active numeric for-loops
-    ForIter top_level_iter_storage[VM_MAX_CALL_FRAMES];  // backing storage for top-level numeric loops
+    ForIter top_level_iter_storage[VM_MAX_ITER_STACK];  // backing storage for top-level numeric loops
 
     TableIterState* table_iters;   // state for table iteration (for value in table loops)
     int table_iter_depth;          // nesting depth of active table iterators
-    TableIterState top_level_table_iter_storage[VM_MAX_CALL_FRAMES];  // backing storage for top-level table iterators
+    TableIterState top_level_table_iter_storage[VM_MAX_ITER_STACK];  // backing storage for top-level table iterators  // backing storage for top-level table iterators
 
     StringInternTable intern_table; // global string interning table for deduplication
 

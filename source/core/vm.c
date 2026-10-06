@@ -276,6 +276,10 @@ static void future_free_pool(FutureObject* fut) {
     fut->frame_offset = NULL;
     fut->frame_capacity = NULL;
     fut->frame_used = NULL;
+    free(fut->saved_iters);                              // free private numeric loop stack
+    free(fut->saved_table_iters);                        // free private table iterator stack
+    fut->saved_iters = NULL;
+    fut->saved_table_iters = NULL;
     fut->frame_arrays_size = FUTURE_FRAME_INITIAL;
     fut->pool_capacity = 0;
     fut->current_frame = 0;
@@ -1359,12 +1363,17 @@ void future_start(VM* vm, FutureObject* fut) {
     fut->frame_offset   = (int*)calloc(FUTURE_FRAME_INITIAL, sizeof(int)); // private frame offsets
     fut->frame_capacity = (int*)calloc(FUTURE_FRAME_INITIAL, sizeof(int)); // private frame capacities
     fut->frame_used     = (int*)calloc(FUTURE_FRAME_INITIAL, sizeof(int)); // private usage counters
+    fut->saved_iters       = (ForIter*)malloc(sizeof(ForIter) * VM_MAX_ITER_STACK);  // private numeric loop stack
+    fut->saved_table_iters = (TableIterState*)malloc(sizeof(TableIterState) * VM_MAX_ITER_STACK);  // private table iterator stack
     if (!fut->register_pool || !fut->frame_offset ||
-        !fut->frame_capacity || !fut->frame_used) {                 // allocation failed
-        free(fut->register_pool);  fut->register_pool  = NULL;
-        free(fut->frame_offset);   fut->frame_offset   = NULL;
-        free(fut->frame_capacity); fut->frame_capacity = NULL;
-        free(fut->frame_used);     fut->frame_used     = NULL;
+        !fut->frame_capacity || !fut->frame_used ||
+        !fut->saved_iters || !fut->saved_table_iters) {             // allocation failed
+        free(fut->register_pool);       fut->register_pool       = NULL;
+        free(fut->frame_offset);        fut->frame_offset        = NULL;
+        free(fut->frame_capacity);      fut->frame_capacity      = NULL;
+        free(fut->frame_used);          fut->frame_used          = NULL;
+        free(fut->saved_iters);         fut->saved_iters         = NULL;
+        free(fut->saved_table_iters);   fut->saved_table_iters   = NULL;
         fprintf(stderr, "\033[31mRuntime Error: Out of memory starting async coroutine\n\033[0m");
         vm->had_error = true;                                       // propagate failure to the VM
         future_resolve(vm, fut, MAKE_NONE());                       // wake waiters, no hang
@@ -2778,6 +2787,14 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int end_reg = ip->operands[1];           // end value register
         int step_reg = ip->operands[2];          // step value register
         vm->iterator_depth++;                    // push new iterator frame
+        if (unlikely(vm->iterator_depth >= VM_MAX_ITER_STACK)) {  // guard against stack overflow
+            fprintf(stderr, "\033[31mRuntime Error: Iterator stack overflow - "
+                    "maximum nested loop depth (%d) exceeded.\n\033[0m",
+                    VM_MAX_ITER_STACK);
+            vm->had_error = true;                // set error flag
+            vm->running = false;                 // stop execution
+            goto OP_HALT_LABEL;                  // unwind through halt
+        }
         vm->iterator_stack[vm->iterator_depth].index = AS_NUMBER(vm->registers[var_reg]);   // init start value
         vm->iterator_stack[vm->iterator_depth].end   = AS_NUMBER(vm->registers[end_reg]);   // init end value
         vm->iterator_stack[vm->iterator_depth].step  = AS_NUMBER(vm->registers[step_reg]);  // init step value
@@ -2826,6 +2843,14 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int table_reg = ip->operands[0];         // register holding the table to iterate
         Value tv = regs[table_reg];              // fetch table value
         vm->table_iter_depth++;                  // push new table iterator frame
+        if (unlikely(vm->table_iter_depth >= VM_MAX_ITER_STACK)) {  // guard against stack overflow
+            fprintf(stderr, "\033[31mRuntime Error: Iterator stack overflow - "
+                    "maximum nested table iteration depth (%d) exceeded.\n\033[0m",
+                    VM_MAX_ITER_STACK);
+            vm->had_error = true;                // set error flag
+            vm->running = false;                 // stop execution
+            goto OP_HALT_LABEL;                  // unwind through halt
+        }
         TableIterState* iter = &vm->table_iters[vm->table_iter_depth];  // get current iterator state
         if (!IS_TABLE(tv)) {                     // not a table, set empty iterator
             iter->table = NULL;                  // mark as invalid
