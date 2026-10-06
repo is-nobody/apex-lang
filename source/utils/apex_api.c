@@ -761,9 +761,10 @@ int apex_get_global(ApexState* S, const char* name) {
 
 // pops a value and stores it in the named global
 void apex_set_global(ApexState* S, const char* name) {
-    if (!S || !name) {                              // null guard
-        Value v = stack_pop(S);                     // still pop to keep stack balanced
-        if ((v & QNAN) == QNAN) value_decref(v);    // release the popped value
+    if (!S) return;                                 // null state: nothing to do
+    if (!name) {                                    // null name: pop to keep the stack balanced
+        Value v = stack_pop(S);                     // release the popped value
+        if ((v & QNAN) == QNAN) value_decref(v);
         return;
     }
 
