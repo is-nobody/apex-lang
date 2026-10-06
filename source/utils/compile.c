@@ -244,15 +244,22 @@ int compile_command(int argc, char** argv) {
         chunk->functions[0].max_registers = 16;   // default minimum
     }
     
-    char output_path[4096];
-    strncpy(output_path, filename, sizeof(output_path) - 1);
-    output_path[sizeof(output_path) - 1] = '\0';
-    
-    char* dot = strrchr(output_path, '.');    // find last dot
+    char base_path[4096];
+    strncpy(base_path, filename, sizeof(base_path) - 1);
+    base_path[sizeof(base_path) - 1] = '\0';
+
+    char* dot = strrchr(base_path, '.');      // find last dot
     if (dot) {
         *dot = '\0';                          // strip extension
     }
-    strcat(output_path, ".apexc");            // add .apexc extension
+
+    char output_path[4096];
+    int op_len = snprintf(output_path, sizeof(output_path), "%s.apexc", base_path);
+    if (op_len < 0 || (size_t)op_len >= sizeof(output_path)) {
+        print_error("Output filename too long: '%s.apexc'", base_path);
+        cleanup_all(tokenizer, parser, ast, cg, chunk, NULL, source);
+        return 1;
+    }
     
     printf("\033[36mCompiling %s...\033[0m\n", filename);
     
