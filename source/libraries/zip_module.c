@@ -885,6 +885,35 @@ static bool pack_file_or_dir(const char* input_path) {
     }
 }
 
+// returns true when `name` is safe to extract under the current directory
+static bool is_safe_archive_path(const char* name) {
+    if (!name || name[0] == '\0') return false;               // empty name
+
+    // absolute path: /foo on unix, \foo on windows
+    if (name[0] == '/' || name[0] == '\\') return false;
+
+    // windows drive letter: C:\foo or C:/foo
+    if (name[1] == ':') {
+        char c = name[0];
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) return false;
+    }
+
+    // walk each path segment split on / and \, reject ".."
+    const char* p = name;
+    while (*p) {
+        while (*p == '/' || *p == '\\') p++;                  // skip separators
+        if (*p == '\0') break;                                // trailing separator
+
+        const char* seg = p;
+        while (*p && *p != '/' && *p != '\\') p++;            // walk segment
+
+        size_t seg_len = (size_t)(p - seg);
+        if (seg_len == 2 && seg[0] == '.' && seg[1] == '.') return false;
+    }
+
+    return true;
+}
+
 // unpack a zip archive
 static bool unpack_file(const char* zip_filename) {
     long zip_size;                                           // zip file size
@@ -931,7 +960,35 @@ static bool unpack_file(const char* zip_filename) {
         free(zip_data);                               // free data
         return false;
     }
-    
+
+    // reject any entry whose name would escape the cwd
+    {
+        size_t scan_pos = eocd.cd_offset;                      // walk the central directory
+        for (int i = 0; i < eocd.total_entries; i++) {
+            if (scan_pos + 46 > (size_t)zip_size) { free(zip_data); return false; }
+            if (read_le32(zip_data + scan_pos) != ZIP_CENTRAL_FILE_HEADER_SIG) {
+                free(zip_data);
+                return false;
+            }
+            uint16_t fn_len = read_le16(zip_data + scan_pos + 28);
+            uint16_t ef_len = read_le16(zip_data + scan_pos + 30);
+            uint16_t fc_len = read_le16(zip_data + scan_pos + 32);
+
+            if (scan_pos + 46 + (size_t)fn_len > (size_t)zip_size) { free(zip_data); return false; }
+
+            char* name_buf = (char*)malloc(fn_len + 1);
+            if (!name_buf) { free(zip_data); return false; }
+            memcpy(name_buf, zip_data + scan_pos + 46, fn_len);
+            name_buf[fn_len] = '\0';
+
+            bool safe = is_safe_archive_path(name_buf);
+            free(name_buf);
+            if (!safe) { free(zip_data); return false; }
+
+            scan_pos += 46 + (size_t)fn_len + (size_t)ef_len + (size_t)fc_len;
+        }
+    }
+
     size_t cd_pos = eocd.cd_offset;                   // central dir position
     for (int i = 0; i < eocd.total_entries; i++) {    // iterate entries
         if (cd_pos + 46 > (size_t)zip_size) {         // out of bounds
