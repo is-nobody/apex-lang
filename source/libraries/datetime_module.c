@@ -232,7 +232,7 @@ static bool read_dt(VM* vm, Value v, long long* y, int* mo, int* d,
     if (!field_in_range(vd,  1, 31))   return false;        // day: [1, 31], whole number
     if (!field_in_range(vh,  0, 23))   return false;        // hour: [0, 23], whole number
     if (!field_in_range(vmi, 0, 59))   return false;        // minute: [0, 59], whole number
-    if (!field_in_range(vs,  0, 60))   return false;        // second: [0, 60], whole number (leap second)
+    if (!field_in_range(vs,  0, 59))   return false;        // second: [0, 59], whole number
     if (!field_in_range(vms, 0, 999))  return false;        // millisecond: [0, 999], whole number
 
     *y  = (long long)vy;                                    // commit fields (safe: 1..9999 fits)
@@ -289,7 +289,7 @@ static bool parse_iso(const char* str, long long* y, int* mo, int* d,
     if (*p == ':') {                                        // optional seconds
         p++;
         if (!read_digits(&p, 2, &sr)) return false;         // second
-        if (sr > 60) return false;                          // range (leap second allowed)
+        if (sr > 59) return false;                          // range [0, 59]; leap seconds unsupported
         if (*p == '.') {                                    // optional fractional part
             p++;
             int digits = 0;                                 // digits captured
