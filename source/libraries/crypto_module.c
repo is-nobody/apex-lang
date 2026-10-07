@@ -52,10 +52,14 @@ static bool constant_time_compare(const char* a, const char* b, size_t len_a, si
         len_diff >>= 8;                                       // shift to next byte
     }
 
-    // xor the common prefix; n is min(len_a, len_b)
-    size_t n = len_a < len_b ? len_a : len_b;
-    for (size_t i = 0; i < n; i++) {
-        diff |= (unsigned char)a[i] ^ (unsigned char)b[i];
+    // iterate over the longer length so the loop count does not depend on which input is shorter
+    size_t max_len = len_a > len_b ? len_a : len_b;
+    for (size_t i = 0; i < max_len; i++) {
+        unsigned char ba = 0;                                 // out-of-range reads yield 0
+        unsigned char bb = 0;
+        if (i < len_a) ba = (unsigned char)a[i];              // in-range read
+        if (i < len_b) bb = (unsigned char)b[i];
+        diff |= ba ^ bb;
     }
 
 #if defined(__GNUC__) || defined(__clang__)
