@@ -151,12 +151,13 @@ static void table_get_common(ApexState* S, int index) {
     Value* tbl_slot = stack_at(S, index);           // resolve target first
     Value key = stack_pop(S);                       // then pop the key
     if (!tbl_slot || !IS_TABLE(*tbl_slot)) {        // not a table: push none
-        stack_push(S, MAKE_NONE());
+        if (!stack_push(S, MAKE_NONE())) stack_note_error(S, "value stack overflow");
     } else {
         Value out = MAKE_NONE();                    // default result
         table_get(AS_TABLE(*tbl_slot), key, &out);  // actual lookup
-        stack_push(S, out);                         // push on stack
+        bool ok = stack_push(S, out);               // push on stack
         if ((out & QNAN) == QNAN) value_decref(out); // stack_push took its own ref
+        if (!ok) stack_note_error(S, "value stack overflow");
     }
     if ((key & QNAN) == QNAN) value_decref(key);    // release the local key ref
 }
@@ -683,13 +684,14 @@ void apex_get_index(ApexState* S, int index, long long n) {
     Value key = MAKE_NUMBER((double)n);             // box the numeric key
     Value* tbl_slot = stack_at(S, index);           // resolve table slot
     if (!tbl_slot || !IS_TABLE(*tbl_slot)) {        // not a table: push none
-        stack_push(S, MAKE_NONE());
+        if (!stack_push(S, MAKE_NONE())) stack_note_error(S, "value stack overflow");
         return;
     }
     Value out = MAKE_NONE();                        // default result
     table_get(AS_TABLE(*tbl_slot), key, &out);      // actual lookup
-    stack_push(S, out);                             // push on stack
+    bool ok = stack_push(S, out);                   // push on stack
     if ((out & QNAN) == QNAN) value_decref(out);    // stack_push took its own ref
+    if (!ok) stack_note_error(S, "value stack overflow");
 }
 
 // raw variant kept for api parity with lua, same semantics as above today
