@@ -346,6 +346,10 @@ typedef struct VM {
     ApexMutex cycle_lock;           // protects cycle_head across the main and worker threads
 } VM;
 
+// swaps the thread-local "current VM" pointer used by table cycle tracking
+VM* vm_tls_swap(VM* vm);
+void vm_tls_restore(VM* prev);
+
 // returns a human-readable type name for a value
 const char* vm_value_type_name(Value value);
 

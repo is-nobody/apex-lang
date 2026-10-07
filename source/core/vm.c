@@ -75,6 +75,16 @@ typedef struct {
 // thread-local current vm, set by vm_create
 static __thread VM* tls_cycle_vm = NULL;
 
+VM* vm_tls_swap(VM* vm) {
+    VM* prev = tls_cycle_vm;
+    tls_cycle_vm = vm;
+    return prev;
+}
+
+void vm_tls_restore(VM* prev) {
+    tls_cycle_vm = prev;
+}
+
 // one pair of tables currently being compared
 typedef struct { Table* a; Table* b; } TablePair;
 
@@ -1598,7 +1608,6 @@ VM* vm_create(const char* source) {
     vm->source = source;                          // store source pointer
     vm->cycle_head = NULL;                        // no tracked tables yet
     APEX_MUTEX_INIT(&vm->cycle_lock);             // init tracker's list lock
-    tls_cycle_vm = vm;                            // register as the tls tracker target
     vm->builtin_async = false;                    // not inside an async builtin
     vm->ready = NULL;                             // no ready queue yet
     vm->ready_count = 0;                          // empty queue
@@ -2066,6 +2075,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     register Value* regs = vm->registers;  // current frame registers in a register for speed
     register int* frame_cap = vm->frame_capacity;  // cached frame capacity array (stable per context)
     register int* frame_off = vm->frame_offset;    // cached frame offset array (may be rebuilt on growth)
+    VM* prev_tls_vm = vm_tls_swap(vm);     // scope the tls tracker to this vm for the duration of the run
     __builtin_prefetch(ip + 1, 0, 1);      // hint cpu to prefetch next instruction
     goto *dispatch_table[ip->opcode];      // jump to first opcode handler
 
@@ -3959,6 +3969,6 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             vm->iterator_depth = saved_iter_depth;
             vm->table_iter_depth = saved_titer;
         }
-
+        vm_tls_restore(prev_tls_vm);  // leave the TLS tracker as we found it
         return !vm->had_error;
 }

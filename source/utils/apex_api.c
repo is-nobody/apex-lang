@@ -18,6 +18,12 @@
 #include <setjmp.h>
 #include <limits.h>
 
+// scope tls_cycle_vm to s->vm for the duration of an api call that may materialize a table
+#define APEX_TLS_SCOPE(S) \
+    VM* _apex_prev_tls = vm_tls_swap((S)->vm)
+#define APEX_TLS_END() \
+    vm_tls_restore(_apex_prev_tls)
+
 // one registered c function, stored in a singly linked list per state
 typedef struct CFunctionEntry {
     char* name;                     // function name as seen from apex code
@@ -427,7 +433,9 @@ void apex_push_light_userdata(ApexState* S, void* p) {
 // creates a new empty table and pushes it onto the stack
 void apex_new_table(ApexState* S) {
     if (!S) return;
+    APEX_TLS_SCOPE(S);                              // route tracking to this state's vm
     Table* t = table_create(8);                     // new table with default capacity
+    APEX_TLS_END();                                 // cycle_owner is set; TLS can go back
     bool ok = stack_push(S, MAKE_TABLE(t));         // push the table value
     value_decref(MAKE_TABLE(t));                    // always release our reference
     if (!ok) stack_note_error(S, "value stack overflow");
@@ -438,7 +446,9 @@ void apex_new_table_sized(ApexState* S, int narr, int nrec) {
     if (!S) return;
     int cap = narr > nrec ? narr : nrec;            // use the larger of the two hints
     if (cap < 8) cap = 8;                           // enforce a small minimum
+    APEX_TLS_SCOPE(S);                              // route tracking to this state's vm
     Table* t = table_create(cap);                   // new table with requested capacity
+    APEX_TLS_END();                                 // cycle_owner is set; TLS can go back
     bool ok = stack_push(S, MAKE_TABLE(t));         // push the table value
     value_decref(MAKE_TABLE(t));                    // always release our reference
     if (!ok) stack_note_error(S, "value stack overflow");
