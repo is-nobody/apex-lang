@@ -209,6 +209,62 @@ static Value xml_parse_element(XmlParser* xp, int depth) {
     return MAKE_NONE();                                                         // error
 }
 
+// appends a string to the builder with XML text-content escaping
+static void sb_append_xml_text(StringBuilder* sb, const char* s, int len) {
+    int start = 0;
+    for (int i = 0; i < len; i++) {
+        const char* esc = NULL;
+        switch ((unsigned char)s[i]) {
+            case '&':  esc = "&amp;";  break;
+            case '<':  esc = "&lt;";   break;
+            case '>':  esc = "&gt;";   break;
+            case '\r': esc = "&#13;";  break;
+            default: continue;
+        }
+        if (i > start) sb_append(sb, s + start, i - start);
+        sb_append(sb, esc, (int)strlen(esc));
+        start = i + 1;
+    }
+    if (start < len) sb_append(sb, s + start, len - start);
+}
+
+// appends a string to the builder with XML attribute-value escaping
+static void sb_append_xml_attr(StringBuilder* sb, const char* s, int len) {
+    int start = 0;
+    for (int i = 0; i < len; i++) {
+        const char* esc = NULL;
+        switch ((unsigned char)s[i]) {
+            case '&':  esc = "&amp;";  break;
+            case '<':  esc = "&lt;";   break;
+            case '>':  esc = "&gt;";   break;
+            case '"':  esc = "&quot;"; break;
+            case '\t': esc = "&#9;";   break;
+            case '\n': esc = "&#10;";  break;
+            case '\r': esc = "&#13;";  break;
+            default: continue;
+        }
+        if (i > start) sb_append(sb, s + start, i - start);
+        sb_append(sb, esc, (int)strlen(esc));
+        start = i + 1;
+    }
+    if (start < len) sb_append(sb, s + start, len - start);
+}
+
+// conservative ASCII check for xml element and attribute names
+static bool is_valid_xml_name(const char* name, int len) {
+    if (len <= 0) return false;
+    unsigned char c0 = (unsigned char)name[0];
+    if (!((c0 >= 'A' && c0 <= 'Z') || (c0 >= 'a' && c0 <= 'z') ||
+          c0 == '_' || c0 == ':')) return false;
+    for (int i = 1; i < len; i++) {
+        unsigned char c = (unsigned char)name[i];
+        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+              (c >= '0' && c <= '9') ||
+              c == '_' || c == '-' || c == '.' || c == ':')) return false;
+    }
+    return true;
+}
+
 // recursively writes an xml node from a vm table
 static bool xml_encode_node(Value v, int depth, StringBuilder* sb) {
     if (depth > XML_MAX_DEPTH) return false;                                   // pathological nesting
@@ -225,8 +281,12 @@ static bool xml_encode_node(Value v, int depth, StringBuilder* sb) {
     value_decref(k_tag);                                                       // release key
     
     for (int i = 0; i < depth; i++) sb_append(sb, "  ", 2);                    // indent
-    sb_append(sb, "<", 1);                                                     // opening tag
     StringObject* tag_str = AS_STRING(tag_val);                                // get tag string
+    if (!is_valid_xml_name(tag_str->chars, tag_str->length)) {                 // reject bad names
+        value_decref(tag_val);                                                 // release tag value
+        return false;                                                          // caller converts to MAKE_NONE
+    }
+    sb_append(sb, "<", 1);                                                     // opening tag
     sb_append(sb, tag_str->chars, tag_str->length);                            // append tag name
     value_decref(tag_val);                                                     // release tag value
     
@@ -236,11 +296,15 @@ static bool xml_encode_node(Value v, int depth, StringBuilder* sb) {
             if (IS_STRING(e->key)) {                                           // string key
                 StringObject* key_str = AS_STRING(e->key);                     // key string
                 if (key_str->chars[0] == '@' && IS_STRING(e->value)) {         // attribute
+                    int name_len = key_str->length - 1;                        // name after the '@'
+                    if (!is_valid_xml_name(key_str->chars + 1, name_len)) {    // reject bad names
+                        return false;                                          // caller converts to MAKE_NONE
+                    }
                     sb_append(sb, " ", 1);                                     // space
-                    sb_append(sb, key_str->chars + 1, key_str->length - 1);    // attr name
+                    sb_append(sb, key_str->chars + 1, name_len);               // attr name
                     sb_append(sb, "=\"", 2);                                   // equals and quote
                     StringObject* val_str = AS_STRING(e->value);               // value string
-                    sb_append(sb, val_str->chars, val_str->length);            // append value
+                    sb_append_xml_attr(sb, val_str->chars, val_str->length);   // escaped value
                     sb_append(sb, "\"", 1);                                    // closing quote
                 }
             }
@@ -295,12 +359,12 @@ static bool xml_encode_node(Value v, int depth, StringBuilder* sb) {
         }
     }
     
-    if (has_children || has_text) {                                            // element has content
+    if (has_text || has_children) {                                            // element has content
         sb_append(sb, ">", 1);                                                 // close opening tag
         if (has_text) {                                                        // has text content
             if (IS_STRING(text_val)) {                                         // valid text
                 StringObject* text_str = AS_STRING(text_val);                  // text string
-                sb_append(sb, text_str->chars, text_str->length);              // append text
+                sb_append_xml_text(sb, text_str->chars, text_str->length);     // escaped text
             }
             value_decref(text_val);                                            // release text value
         }
