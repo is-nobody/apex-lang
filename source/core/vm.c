@@ -1699,15 +1699,7 @@ void vm_destroy(VM* vm) {
     }
     vm_drain_completions(vm);                     // final sweep
 
-    // drain ready queue before touching top-level pool
-    for (int i = 0; i < vm->ready_count; i++) {
-        value_decref(MAKE_FUTURE(vm->ready[(vm->ready_head + i) % vm->ready_capacity]));  // release each queued future
-    }
-    free(vm->ready);                              // free ready queue array
-    vm->ready = NULL;
-    vm->ready_count = 0;
-
-    // drain pending timers
+    // drain pending timers first
     SleepTimer* t = vm->timers;                   // walk timer list
     while (t) {                                   // free every remaining timer
         SleepTimer* n = t->next;                  // save next before freeing
@@ -1716,6 +1708,16 @@ void vm_destroy(VM* vm) {
         t = n;                                    // advance
     }
     vm->timers = NULL;
+
+    // drain ready queue before touching top-level pool
+    for (int i = 0; i < vm->ready_count; i++) {
+        value_decref(MAKE_FUTURE(vm->ready[(vm->ready_head + i) % vm->ready_capacity]));  // release each queued future
+    }
+    free(vm->ready);                              // free ready queue array
+    vm->ready = NULL;
+    vm->ready_count = 0;
+    vm->ready_head = 0;                           // reset head alongside the other queue fields
+    vm->ready_capacity = 0;                       // reset capacity so a stray push allocates cleanly
 
     int total_regs = 0;
     for (int f = 0; f < VM_MAX_FRAMES; f++) {
