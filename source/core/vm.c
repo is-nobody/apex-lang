@@ -238,7 +238,11 @@ static bool string_equal(StringObject* a, StringObject* b) {
 
 // converts a value to a C string for concatenation
 static const char* value_to_cstr(Value v, char* buf, int buf_size) {
-    if (IS_NUMBER(v)) {
+    if (IS_NAN(v)) {
+        const char* s = (v & 1) ? "-nan" : "nan";           // restore sign from bit 0
+        snprintf(buf, buf_size, "%s", s);
+        return buf;
+    } else if (IS_NUMBER(v)) {
         double num = AS_NUMBER(v);
         if (fabs(num) >= 1e6 || fabs(num - (long long)num) < 1e-9)
             snprintf(buf, buf_size, "%.0f", num);           // large or integer, no decimals
@@ -552,7 +556,8 @@ static void print_table_recursive(Table* table, int indent_level) {
 // prints a value to stdout with formatting
 void vm_print_value(Value value) {
     if (IS_NAN(value)) {
-        printf("nan");                                    // raw nan value
+        // bit 0 of the tagged nan carries the sign bit of the original double
+        printf("%s", (value & 1) ? "-nan" : "nan");
     } else if (IS_NUMBER(value)) {
         double num = AS_NUMBER(value);
         if (num == (long long)num && fabs(num) < 1e15)
@@ -1814,6 +1819,9 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
                 char* table_str = table_to_string(AS_TABLE(args[0]));  // convert table to string
                 *result = MAKE_STRING(string_intern(&vm->intern_table, table_str, strlen(table_str)));  // intern result
                 free(table_str);                 // free temp string
+            } else if (IS_NAN(args[0])) {
+                const char* s = (args[0] & 1) ? "-nan" : "nan";        // restore sign from bit 0
+                *result = MAKE_STRING(string_intern(&vm->intern_table, s, (int)strlen(s)));
             } else {
                 *result = MAKE_NONE();           // unsupported type, return none
             }

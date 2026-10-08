@@ -1524,7 +1524,7 @@ result = -0 / 0  // -nan — negative zero divided by positive zero
 **Why signs matter:**
 IEEE 754 tracks the sign of zero separately from its magnitude. Positive zero and negative zero are distinct values. When division produces infinity, the sign comes from combining the signs of the operands. When division produces NaN, the sign comes from whether those signs disagreed.
 
-Apex doesn't crash on any of these. It produces the special value and keeps running. But `nan` and `-nan` are not numbers you can use in normal calculations. Any arithmetic involving them spreads the `nan` further. If you see `nan` in your output, somewhere earlier a calculation produced something that isn't a number.
+Apex doesn't crash on any of these. It produces the special value and keeps running. But `nan` and `-nan` are not numbers you can use in normal calculations. Any arithmetic involving them yields `none`, since the virtual machine treats a `nan` operand as a non-number. If you see `nan` in your output, somewhere earlier a calculation produced something that isn't a number.
 
 ### Modulo
 Modulo is the one operator that might be new to you. Written as the percent sign `%`, it gives you the **remainder** after division.

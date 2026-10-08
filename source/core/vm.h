@@ -110,7 +110,9 @@ extern bool apex_jit_runtime_enabled;
     double _n = (n); \
     uint64_t _u; \
     if (isnan(_n)) { \
-        _u = MAKE_QNAN(TAG_NAN); \
+        uint64_t _raw; \
+        memcpy(&_raw, &_n, 8); \
+        _u = MAKE_QNAN(TAG_NAN) | ((_raw >> 63) & 1); \
     } else { \
         memcpy(&_u, &_n, 8); \
     } \
@@ -119,7 +121,10 @@ extern bool apex_jit_runtime_enabled;
 
 // extraction macros
 #define GET_TYPE(v)          (((v) & QNAN) == QNAN ? (ValueType_VM)(((v) >> TAG_SHIFT) & TAG_MASK) : VAL_NUMBER)
-#define AS_NUMBER(v)         (IS_NAN(v) ? NAN : ({ uint64_t _v = (v); double _d; memcpy(&_d, &_v, 8); _d; }))
+#define AS_NUMBER(v) (IS_NAN(v) ? \
+    ({ uint64_t _bits = 0x7FF8000000000000ULL | (((uint64_t)(v) & 1) << 63); \
+       double _d; memcpy(&_d, &_bits, 8); _d; }) \
+    : ({ uint64_t _v = (v); double _d; memcpy(&_d, &_v, 8); _d; }))
 #define AS_STRING(v)         ((StringObject*)(uintptr_t)((v) & ((uint64_t)0x0000FFFFFFFFFFFFULL)))
 #define AS_TABLE(v)          ((Table*)(uintptr_t)((v) & ((uint64_t)0x0000FFFFFFFFFFFFULL)))
 #define AS_FUNCTION(v)       ((int)((v) & ((uint64_t)0x00000000FFFFFFFFULL)))
