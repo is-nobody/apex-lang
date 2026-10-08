@@ -1538,7 +1538,8 @@ static bool aes_cbc_decrypt_generic(VM* vm, Value* args, int arg_count, Value* r
     StringObject* ciphertext_hex = AS_STRING(args[1]); // get ciphertext hex string
     int hex_len = ciphertext_hex->length;              // hex string length
     
-    if (hex_len % 2 != 0 || hex_len < 32) {            // must be even and at least one block
+    // even, at least one 16-byte block, and a whole number of blocks
+    if (hex_len % 2 != 0 || hex_len < 32 || (hex_len / 2) % 16 != 0) {
         *result = MAKE_NONE();                         // invalid input
         return true;                                   // builtin handled
     }
