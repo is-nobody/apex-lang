@@ -3908,13 +3908,14 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int dest = ip->operands[0];              // dest register index
         int idx = ip->operands[1];               // global variable index
         Value gv = vm->globals[idx];             // fetch global value
+        Value old = regs[dest];                  // previous value in dest
         
-        if (unlikely((gv & QNAN) == QNAN)) {     // heap object (string/table) - rare
-            value_decref(regs[dest]);            // release old value in dest
-            regs[dest] = gv;                     // store heap-allocated value
-            value_incref(regs[dest]);            // bump refcount for the new reference
-        } else {                                 // number/bool/none - common
-            regs[dest] = gv;                     // store directly without refcount
+        if (unlikely((old & QNAN) == QNAN)) {    // old value was heap-allocated
+            value_decref(old);                   // release it before overwriting
+        }
+        regs[dest] = gv;                         // store new value
+        if (unlikely((gv & QNAN) == QNAN)) {     // new value is heap-allocated
+            value_incref(gv);                    // take a reference for the register
         }
         
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
@@ -3923,13 +3924,14 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int src = ip->operands[0];               // source register index
         int idx = ip->operands[1];               // global variable index
         Value sv = regs[src];                    // fetch source value
+        Value old = vm->globals[idx];            // previous global value
         
-        if (unlikely((sv & QNAN) == QNAN)) {     // heap object (string/table) - rare
-            value_decref(vm->globals[idx]);      // release old global value
-            vm->globals[idx] = sv;               // store new value into global
-            value_incref(vm->globals[idx]);      // bump refcount for stored value
-        } else {                                 // number/bool/none - common
-            vm->globals[idx] = sv;               // store directly without refcount
+        if (unlikely((old & QNAN) == QNAN)) {    // old value was heap-allocated
+            value_decref(old);                   // release it before overwriting
+        }
+        vm->globals[idx] = sv;                   // store new value into global
+        if (unlikely((sv & QNAN) == QNAN)) {     // new value is heap-allocated
+            value_incref(sv);                    // take a reference for the global slot
         }
         
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
