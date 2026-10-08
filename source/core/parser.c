@@ -3230,6 +3230,10 @@ static ASTNode* parse_import_statement(Parser* parser) {
             if (symbol_index_recursive(parser, full_name) < 0) {
                 parser_declare_symbol(parser, full_name, s->kind, s->type,
                                       s->param_count, import_kw->line, import_kw->column);
+                if (s->is_async) {
+                    int idx = symbol_index_recursive(parser, full_name);
+                    if (idx >= 0) parser_symbol_set_async(parser, idx, true);
+                }
             }
         }
         free(module_path);
@@ -3287,6 +3291,10 @@ static ASTNode* parse_import_statement(Parser* parser) {
                                     mod_parser->symbols.types[i],
                                     mod_parser->symbols.param_counts[i],
                                     import_kw->line, import_kw->column);  // declare imported symbol
+                if (mod_parser->symbols.is_async[i]) {
+                    int idx = symbol_index_recursive(parser, full_name);
+                    if (idx >= 0) parser_symbol_set_async(parser, idx, true);
+                }
             }
             
             if (mod_parser->symbols.kinds[i] == PARSER_SYM_MODULE) {  // nested modules
@@ -3733,6 +3741,7 @@ ASTNode* parse_program(Parser* parser) {
             s->kind = parser->symbols.kinds[i];
             s->type = parser->symbols.types[i];
             s->param_count = parser->symbols.param_counts[i];
+            s->is_async = parser->symbols.is_async[i];
             s->next = parser->current_module->symbols;
             parser->current_module->symbols = s;
         }

@@ -66,6 +66,7 @@ typedef struct CachedModuleSymbol {
     ParserSymbolKind kind;               // variable, function, constant, module
     ValueType type;                      // inferred type
     int param_count;                     // for functions: arity
+    bool is_async;                       // for functions: async flag, so imports keep it
     struct CachedModuleSymbol* next;     // linked list
 } CachedModuleSymbol;
 
