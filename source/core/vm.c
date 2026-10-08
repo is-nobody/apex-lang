@@ -2441,7 +2441,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         goto *dispatch_table[ip->opcode];         // dispatch next instruction
     OP_JUMP_IF_FALSE_LABEL: {
         int cond_reg = ip->operands[1];           // register holding the condition
-        if (!AS_BOOL(vm->registers[cond_reg])) {  // if false, take the jump
+        if (!AS_BOOL(regs[cond_reg])) {           // if false, take the jump
             ip = &vm->code[ip->operands[0]];      // jump to target address
             goto *dispatch_table[ip->opcode];     // dispatch next instruction
         }
@@ -2813,9 +2813,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             vm->running = false;                 // stop execution
             goto OP_HALT_LABEL;                  // unwind through halt
         }
-        vm->iterator_stack[vm->iterator_depth].index = AS_NUMBER(vm->registers[var_reg]);   // init start value
-        vm->iterator_stack[vm->iterator_depth].end   = AS_NUMBER(vm->registers[end_reg]);   // init end value
-        vm->iterator_stack[vm->iterator_depth].step  = AS_NUMBER(vm->registers[step_reg]);  // init step value
+        vm->iterator_stack[vm->iterator_depth].index = AS_NUMBER(regs[var_reg]);   // init start value
+        vm->iterator_stack[vm->iterator_depth].end   = AS_NUMBER(regs[end_reg]);   // init end value
+        vm->iterator_stack[vm->iterator_depth].step  = AS_NUMBER(regs[step_reg]);  // init step value
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_FOR_NEXT_LABEL: {
@@ -2948,29 +2948,29 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int dest = ip->operands[0];                  // dest register index
         int table_reg = ip->operands[1];             // register holding the table
         int key_reg = ip->operands[2];               // register holding the key
-        Value table_val = vm->registers[table_reg];  // fetch table value
+        Value table_val = regs[table_reg];           // fetch table value
         if (!IS_TABLE(table_val)) {                  // not a table, return none
-            value_decref(vm->registers[dest]);       // release old dest value
-            vm->registers[dest] = MAKE_NONE();       // store none
+            value_decref(regs[dest]);                // release old dest value
+            regs[dest] = MAKE_NONE();                // store none
             ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
         }
         Table* table = AS_TABLE(table_val);      // unwrap table pointer
-        Value key = vm->registers[key_reg];      // fetch key value
+        Value key = regs[key_reg];               // fetch key value
         Value val;
         val = MAKE_NONE();                       // default to none
         table_get(table, key, &val);             // lookup key in table, writes to val
-        value_decref(vm->registers[dest]);       // release old dest value
-        vm->registers[dest] = val;               // store result (already incref'd by table_get)
+        value_decref(regs[dest]);                // release old dest value
+        regs[dest] = val;                        // store result (already incref'd by table_get)
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_TABLE_GET_CONST_LABEL: {
         int dest = ip->operands[0];                  // dest register index
         int table_reg = ip->operands[1];             // register holding the table
         int key_idx = ip->operands[2];               // constant pool index for the string key
-        Value table_val = vm->registers[table_reg];  // fetch table value
+        Value table_val = regs[table_reg];           // fetch table value
         if (!IS_TABLE(table_val)) {                  // not a table, return none
-            value_decref(vm->registers[dest]);       // release old dest value
-            vm->registers[dest] = MAKE_NONE();       // store none
+            value_decref(regs[dest]);                // release old dest value
+            regs[dest] = MAKE_NONE();                // store none
             ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
         }
         Table* table = AS_TABLE(table_val);          // unwrap table pointer
@@ -2978,8 +2978,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         Value val;
         val = MAKE_NONE();                           // default to none
         table_get(table, key, &val);                 // lookup key in table, writes to val
-        value_decref(vm->registers[dest]);           // release old dest value
-        vm->registers[dest] = val;                   // store result (already incref'd by table_get)
+        value_decref(regs[dest]);                    // release old dest value
+        regs[dest] = val;                            // store result (already incref'd by table_get)
         ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
     OP_TABLE_GET_INT_LABEL: {
@@ -3073,15 +3073,15 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int table_reg = ip->operands[0];             // register holding the table
         int key_reg = ip->operands[1];               // register holding the key
         int val_reg = ip->operands[2];               // register holding the value
-        Value table_val = vm->registers[table_reg];  // fetch table value
+        Value table_val = regs[table_reg];           // fetch table value
         if (!IS_TABLE(table_val)) {                  // not a table, error
             vm->had_error = true;                    // set error flag
             vm->running = false;                     // stop execution
             goto OP_HALT_LABEL;                      // jump to halt
         }
         Table* table = AS_TABLE(table_val);      // unwrap table pointer
-        Value key = vm->registers[key_reg];      // fetch key value
-        Value val = vm->registers[val_reg];      // fetch value to store
+        Value key = regs[key_reg];               // fetch key value
+        Value val = regs[val_reg];               // fetch value to store
         table_set(table, key, val);              // perform table set with refcount handling
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
@@ -3089,9 +3089,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int table_reg = ip->operands[0];             // register holding the table
         int key_idx = ip->operands[1];               // constant pool index for the string key
         int val_reg = ip->operands[2];               // register holding the value
-        Table* table = AS_TABLE(vm->registers[table_reg]);  // unwrap table pointer
+        Table* table = AS_TABLE(regs[table_reg]);    // unwrap table pointer
         Value key = MAKE_STRING((StringObject*)chunk->constants[key_idx].cached_str);  // use pre-interned key
-        table_set(table, key, vm->registers[val_reg]);      // perform table set with refcount handling
+        table_set(table, key, regs[val_reg]);        // perform table set with refcount handling
         ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
     OP_TABLE_SET_INT_LABEL: {
