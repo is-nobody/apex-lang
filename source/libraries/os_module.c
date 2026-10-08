@@ -522,6 +522,15 @@ static Value os_copy_sync(void* p) {
     return MAKE_BOOL(os_copy_recursive(a->path, a->path2));  // return copy status
 }
 
+// returns true when a directory entry name is the special "." or ".." entry
+static bool is_dot_entry(const char* name) {
+    if (!name) return false;
+    if (name[0] != '.') return false;
+    if (name[1] == '\0') return true;             // "."
+    if (name[1] == '.' && name[2] == '\0') return true;  // ".."
+    return false;
+}
+
 // lists a directory into a 1-indexed table of entry names
 static Value os_list_folder_sync(void* p) {
     OsArgs* a = (OsArgs*)p;                             // unpack argument struct
@@ -539,6 +548,7 @@ static Value os_list_folder_sync(void* p) {
         return MAKE_NONE();                             // no such directory
     }
     do {
+        if (is_dot_entry(fd.cFileName)) continue;       // skip "." and ".." entries
         Value k = MAKE_NUMBER((double)idx++);           // create index key
         Value v = make_owned_string(fd.cFileName, (int)strlen(fd.cFileName));  // fresh entry name
         table_set(t, k, v);                             // store item name
@@ -553,6 +563,7 @@ static Value os_list_folder_sync(void* p) {
     }
     struct dirent* entry;                               // directory entry
     while ((entry = readdir(dir)) != NULL) {            // iterate entries
+        if (is_dot_entry(entry->d_name)) continue;      // skip "." and ".." entries
         Value k = MAKE_NUMBER((double)idx++);           // create index key
         Value v = make_owned_string(entry->d_name, (int)strlen(entry->d_name));  // fresh entry name
         table_set(t, k, v);                             // store item name
