@@ -68,6 +68,10 @@ bool ast_references_local(ASTNode* node, const char* name) {
         case AST_RETURN_STMT:
             return node->return_stmt.value &&
                    ast_references_local(node->return_stmt.value, name);     // return value
+        case AST_FUNCTION_DECL:
+            // a nested function may capture name via the global mirror
+            return node->function_decl.body &&
+                   ast_references_local(node->function_decl.body, name);
         default:
             return false;                                                    // conservative
     }
@@ -116,8 +120,11 @@ bool stmt_references_local(ASTNode* node, const char* name) {
             return stmt_references_local(node->match_stmt.default_case, name);
         case AST_CASE:
             return stmt_references_local(node->case_stmt.body, name);
-        case AST_FUNCTION_DECL:    // nested bodies have their own locals; outer locals
-        case AST_BREAK_STMT:       // not visible inside
+        case AST_FUNCTION_DECL:
+            // nested functions capture enclosing locals via the global
+            // mirror emitted by codegen_var_decl / codegen_assign_expr
+            return stmt_references_local(node->function_decl.body, name);
+        case AST_BREAK_STMT:
         case AST_CONTINUE_STMT:
         case AST_IMPORT_STMT:
             return false;
