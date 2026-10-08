@@ -1635,53 +1635,54 @@ static ASTNode* parse_string_expression(Parser* parser, const char* expr_str, in
     }
 
     if (expr) {                                    // mark all nodes as in interpolation
-        ASTNode* stack[256];
-        int stack_top = 0;
-        stack[stack_top++] = expr;
-        
-        while (stack_top > 0) {
-            ASTNode* node = stack[--stack_top];
+        ASTNodeList* work = ast_list_create();
+        ast_list_add(work, expr);
+
+        while (work->count > 0) {
+            ASTNode* node = work->nodes[--work->count];
             if (!node) continue;
-            
+
             node->in_interpolation = true;         // mark for error context
-            
+
             switch (node->type) {
                 case AST_BINARY:
-                    stack[stack_top++] = node->binary.right;
-                    stack[stack_top++] = node->binary.left;
+                    ast_list_add(work, node->binary.right);
+                    ast_list_add(work, node->binary.left);
                     break;
                 case AST_UNARY:
-                    stack[stack_top++] = node->unary.operand;
+                    ast_list_add(work, node->unary.operand);
                     break;
                 case AST_CALL:
                     for (int i = 0; i < node->call.arguments->count; i++) {
-                        stack[stack_top++] = node->call.arguments->nodes[i];
+                        ast_list_add(work, node->call.arguments->nodes[i]);
                     }
-                    stack[stack_top++] = node->call.callee;
+                    ast_list_add(work, node->call.callee);
                     break;
                 case AST_INDEX_ACCESS:
-                    stack[stack_top++] = node->access.member;
-                    stack[stack_top++] = node->access.object;
+                    ast_list_add(work, node->access.member);
+                    ast_list_add(work, node->access.object);
                     break;
                 case AST_TERNARY:
-                    stack[stack_top++] = node->ternary.false_expr;
-                    stack[stack_top++] = node->ternary.true_expr;
-                    stack[stack_top++] = node->ternary.condition;
+                    ast_list_add(work, node->ternary.false_expr);
+                    ast_list_add(work, node->ternary.true_expr);
+                    ast_list_add(work, node->ternary.condition);
                     break;
                 case AST_TABLE_LITERAL:
                     for (int i = 0; i < node->table_literal.items->count; i++) {
-                        stack[stack_top++] = node->table_literal.items->nodes[i];
+                        ast_list_add(work, node->table_literal.items->nodes[i]);
                     }
                     for (int i = 0; i < node->table_literal.key_values->count; i++) {
                         ASTNode* kv = node->table_literal.key_values->nodes[i];
-                        stack[stack_top++] = kv->binary.right;
-                        stack[stack_top++] = kv->binary.left;
+                        ast_list_add(work, kv->binary.right);
+                        ast_list_add(work, kv->binary.left);
                     }
                     break;
                 default:
                     break;
             }
         }
+
+        ast_list_free(work);
     }
     
     parser_destroy(temp_parser);                   // clean up temp parser
