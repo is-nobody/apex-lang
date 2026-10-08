@@ -2959,6 +2959,9 @@ static ASTNode* parse_for_statement(Parser* parser) {
         } else {
             advance(parser);                        // consume '='
             start = parse_expression(parser);       // parse start value
+            if (start) {
+                parser_check_number_expr(parser, start, "For loop start");  // validate number
+            }
             
             if (check(parser, TOKEN_COMMA)) {
                 Token* comma_token = advance(parser);    // consume comma
