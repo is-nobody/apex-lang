@@ -1843,24 +1843,43 @@ bool crypto_call_builtin(VM* vm, const char* name, int arg_count, Value* args, V
         return true;                                                 // builtin handled
     }
 
-    if (strcmp(name, "crypto.random_integer") == 0) {      // secure random integer
-        if (arg_count != 1 || !IS_NUMBER(args[0])) {       // validate
+    if (strcmp(name, "crypto.random_integer") == 0) {     // secure random integer
+        if (arg_count != 1 || !IS_NUMBER(args[0])) {      // validate
             *result = MAKE_NONE();
             return true;
         }
-        double n_d = AS_NUMBER(args[0]);                   // raw bound
+        double n_d = AS_NUMBER(args[0]);                  // raw bound
         if (!(n_d >= 1 && n_d <= 2147483647.0) || n_d != (double)(long long)n_d) {
-            *result = MAKE_NONE();                         // invalid
+            *result = MAKE_NONE();                        // invalid
             return true;
         }
-        int n = (int)n_d;                                  // modulo
-        unsigned char rb;                                  // random byte
-        if (!get_secure_bytes(&rb, 1)) {                   // secure source unavailable
-            *result = MAKE_NONE();                         // refuse to produce a weak value
-            return true;                                   // builtin handled
+        unsigned long long n = (unsigned long long)n_d;
+
+        // smallest byte count whose range can hold n
+        int nbytes = 1;
+        while (nbytes < 4 && ((unsigned long long)1 << (nbytes * 8)) < n) {
+            nbytes++;
         }
-        *result = MAKE_NUMBER((double)(rb % n));           // reduce modulo n
-        return true;                                       // builtin handled
+
+        // rejection sampling: space = 2^(nbytes * 8)
+        unsigned long long space = (unsigned long long)1 << (nbytes * 8);
+        unsigned long long limit = space - (space % n);
+
+        unsigned long long r = 0;
+        do {
+            unsigned char buf[4];
+            if (!get_secure_bytes(buf, nbytes)) {         // secure source unavailable
+                *result = MAKE_NONE();                    // refuse to produce a weak value
+                return true;                              // builtin handled
+            }
+            r = 0;
+            for (int i = 0; i < nbytes; i++) {
+                r = (r << 8) | buf[i];                    // big-endian; direction does not affect uniformity
+            }
+        } while (r >= limit);
+
+        *result = MAKE_NUMBER((double)(r % n));
+        return true;                                      // builtin handled
     }
 
     if (strcmp(name, "crypto.random_float") == 0) {      // secure random float [0.0, 1.0)
