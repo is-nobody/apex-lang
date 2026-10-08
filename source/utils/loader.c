@@ -55,23 +55,24 @@ static bool fits_in_file(FILE* f, long file_size, uint64_t count, uint64_t item_
 }
 
 // reads a string prefixed with its length, returns empty string for length 0
-static char* read_string(FILE* f) {
-    uint32_t len = read_u32(f);          // read length prefix
-    if (len == 0) {                      // empty string
-        char* str = (char*)malloc(1);    // allocate empty string
+static char* read_string(FILE* f, long file_size) {
+    uint32_t len = read_u32(f);                  // read length prefix
+    if (len == 0) {                              // empty string
+        char* str = (char*)malloc(1);            // allocate empty string
         if (str) str[0] = '\0';
         return str;
     }
-    if (len > 65536) {                   // sanity check
+    // sanity: the declared length must not exceed the bytes left in the file
+    if (!fits_in_file(f, file_size, len, 1)) {
         return NULL;
     }
-    char* str = (char*)malloc(len + 1);  // allocate buffer
+    char* str = (char*)malloc((size_t)len + 1);  // allocate buffer
     if (!str) return NULL;
-    if (fread(str, 1, len, f) != len) {  // read string data
+    if (fread(str, 1, len, f) != len) {          // read string data
         free(str);
         return NULL;
     }
-    str[len] = '\0';                     // null terminate
+    str[len] = '\0';                             // null terminate
     return str;
 }
 
@@ -98,7 +99,7 @@ static Constant read_constant(FILE* f, long file_size) {
             break;
         }
         case CONST_STRING: {
-            c.string_value = read_string(f);      // read string with prefix
+            c.string_value = read_string(f, file_size);  // read string with prefix
             break;
         }
         case CONST_BOOL: {
@@ -270,7 +271,7 @@ BytecodeChunk* bytecode_load(const char* path) {
         return NULL;
     }
     for (uint32_t i = 0; i < global_count; i++) {
-        char* name = read_string(f);                            // read global name
+        char* name = read_string(f, file_size);                 // read global name
         if (name) {
             bytecode_add_global(chunk, name);                   // add to chunk
             free(name);                                         // free temporary name
@@ -287,7 +288,7 @@ BytecodeChunk* bytecode_load(const char* path) {
         return NULL;
     }
     for (uint32_t i = 0; i < func_count; i++) {
-        char* name = read_string(f);                            // read function name
+        char* name = read_string(f, file_size);                 // read function name
         uint32_t address = read_u32(f);                         // read entry address
         uint32_t arity = read_u32(f);                           // read parameter count
         uint32_t local_count = read_u32(f);                     // read local count
@@ -312,7 +313,7 @@ BytecodeChunk* bytecode_load(const char* path) {
         return NULL;
     }
     for (uint32_t i = 0; i < string_count; i++) {
-        char* str = read_string(f);                             // read pooled string
+        char* str = read_string(f, file_size);                  // read pooled string
         if (str) {
             bytecode_intern_string(chunk, str);                 // intern into chunk
             free(str);                                          // free temporary string
