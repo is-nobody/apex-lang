@@ -51,6 +51,9 @@ static inline void jit_trace_first_entry(JitLoopInfo* info, int pc, uint64_t* re
 }
 #endif
 
+// thread-local pointer to the innermost active jit_fatal catch frame
+__thread jmp_buf* jit_bail_jmp = NULL;
+
 // returns the backend for the compile-target architecture, or NULL
 static const JitBackend* jit_get_backend(void) {
 #if defined(__x86_64__) || defined(_M_X64)
@@ -60,6 +63,13 @@ static const JitBackend* jit_get_backend(void) {
 #else
     return NULL;
 #endif
+}
+
+// tears down a partially-built jit context and restores the previous bail frame
+static JITContext* jit_fail(JITContext* ctx, jmp_buf* prev_bail) {
+    jit_bail_jmp = prev_bail;
+    jit_destroy(ctx);
+    return NULL;
 }
 
 // compiles all numeric-pure functions and returns a jit context (or null)
@@ -91,12 +101,19 @@ JITContext* jit_create(BytecodeChunk* chunk) {
 
     if (!jit_analyze(ctx)) { jit_destroy(ctx); return NULL; }    // purity + loops
 
+    // install the outer jit_fatal catch frame
+    jmp_buf bail;
+    jmp_buf* prev_bail = jit_bail_jmp;
+    jit_bail_jmp = &bail;
+    if (setjmp(bail) != 0) {
+        return jit_fail(ctx, prev_bail);                         // OOM, sizing, or analysis mismatch
+    }
+
     // allocate executable memory via the backend (mmap / virtualalloc)
     size_t cap = (size_t)chunk->code_count * be->bytes_per_instruction + 16384;
     ctx->code = (uint8_t*)be->alloc_exec(cap);
     if (!ctx->code) {                                            // allocation failed
-        jit_destroy(ctx);                                        // cleanup
-        return NULL;
+        return jit_fail(ctx, prev_bail);                         // cleanup
     }
     ctx->code_size = cap;                                        // remember for free_exec
 
@@ -109,8 +126,7 @@ JITContext* jit_create(BytecodeChunk* chunk) {
     ctx->scratch_code_buf  = (uint8_t*)malloc(ctx->scratch_code_buf_cap);
     if (!ctx->scratch_is_target || !ctx->scratch_label_off ||    // verify scratch allocations
         !ctx->scratch_fixups || !ctx->scratch_code_buf) {
-        jit_destroy(ctx);                                        // cleanup on failure
-        return NULL;
+        return jit_fail(ctx, prev_bail);                         // cleanup on failure
     }
 
     CodeBuf cb = { ctx->code, 0, cap };                          // code emission state
@@ -210,7 +226,7 @@ JITContext* jit_create(BytecodeChunk* chunk) {
         ctx->compiled_count++;                                   // count successful
     }
 
-    if (ctx->compiled_count == 0) { jit_destroy(ctx); return NULL; }  // nothing usable
+    if (ctx->compiled_count == 0) { return jit_fail(ctx, prev_bail); }  // nothing usable
 
     // build the pc -> loop lookup used by jit_try_native_loop on each entry pc
     if (ctx->loop_count > 0) {
@@ -229,11 +245,11 @@ JITContext* jit_create(BytecodeChunk* chunk) {
 
     // flip rw -> rx through the backend (mprotect on linux, virtualprotect on windows)
     if (!be->make_exec(ctx->code, ctx->code_size)) {
-        jit_destroy(ctx);                                        // flip failed
-        return NULL;
+        return jit_fail(ctx, prev_bail);                         // flip failed
     }
     __builtin___clear_cache((char*)ctx->code, (char*)ctx->code + cb.len);  // icache flush
 
+    jit_bail_jmp = prev_bail;                                    // leave the TLS as we found it
     return ctx;                                                  // success
 }
 

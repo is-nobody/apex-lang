@@ -11,6 +11,10 @@
 #include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
+#include <setjmp.h>
+
+// innermost active jit_fatal longjmp target
+extern __thread jmp_buf* jit_bail_jmp;
 
 // upper bound on slots any backend can track
 #define JIT_MAX_SLOTS 256

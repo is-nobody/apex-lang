@@ -28,6 +28,24 @@ static void emit_gpr_pocket_restores(CodeBuf* cb, int pocket_slot_base,
 // emits native x86-64 code for a single numeric-pure function
 bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                           int func_idx, void** out_fn) {
+    // local catch frame: on jit_fatal we come back here
+    int*          pred_count  = NULL;
+    uint8_t*      needs_flush = NULL;
+    uint8_t*      use_snap    = NULL;
+    JitCacheSnap* jump_snap   = NULL;
+
+    jmp_buf local_bail;
+    jmp_buf* prev_bail = jit_bail_jmp;
+    jit_bail_jmp = &local_bail;
+    if (setjmp(local_bail) != 0) {
+        jit_bail_jmp = prev_bail;
+        free(pred_count);
+        free(needs_flush);
+        free(use_snap);
+        free(jump_snap);
+        return false;                                            // caller skips this function
+    }
+
     BytecodeChunk* chunk = ctx->chunk;
     int start = ctx->range_start[func_idx];                      // first bytecode pc
     int end   = ctx->range_end[func_idx];                        // one past last pc
@@ -90,10 +108,10 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
 
     memset(is_target, 0, range_size * sizeof(bool));             // clear jump-target marks
 
-    int*          pred_count  = (int*)         calloc(range_size, sizeof(int));
-    uint8_t*      needs_flush = (uint8_t*)     calloc(range_size, 1);
-    uint8_t*      use_snap    = (uint8_t*)     calloc(range_size, 1);
-    JitCacheSnap* jump_snap   = (JitCacheSnap*)calloc(range_size, sizeof(JitCacheSnap));
+    pred_count  = (int*)         calloc(range_size, sizeof(int));
+    needs_flush = (uint8_t*)     calloc(range_size, 1);
+    use_snap    = (uint8_t*)     calloc(range_size, 1);
+    jump_snap   = (JitCacheSnap*)calloc(range_size, sizeof(JitCacheSnap));
     if (!pred_count || !needs_flush || !use_snap || !jump_snap) {
         JIT_FATAL("scratch allocation failed for function %d (range_size=%d)", func_idx, range_size);
     }
@@ -1143,5 +1161,6 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     } else {
         *out_fn = (void*)(cb->buf + mark);                       // publish general entry
     }
+    jit_bail_jmp = prev_bail;                                    // leave the TLS as we found it
     return true;                                                 // emission successful
 }

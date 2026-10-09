@@ -14,11 +14,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+// jit_fatal reports an internal inconsistency
 #define JIT_FATAL(...) do {                                              \
-    fprintf(stderr, "\033[31mJIT fatal error (%s:%d): ", __FILE__, __LINE__); \
+    fprintf(stderr, "\033[31mJIT error (%s:%d): ", __FILE__, __LINE__);  \
     fprintf(stderr, __VA_ARGS__);                                        \
-    fprintf(stderr, "\n\033[0m");                                        \
-    exit(1);                                                             \
+    fprintf(stderr, " — falling back to interpreter\n\033[0m");          \
+    if (jit_bail_jmp) longjmp(*jit_bail_jmp, 1);                         \
+    abort();                                                             \
 } while (0)
 
 // rounds n up to the next multiple of 16
