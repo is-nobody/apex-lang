@@ -1924,11 +1924,12 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         }
 
 #if APEX_JIT_ENABLED
+        jit_destroy(vm->jit);
+        vm->jit = NULL;
+
         if (apex_jit_runtime_enabled) {
             vm->jit = jit_create(chunk);                  // compile numeric-pure functions
             if (vm->jit) jit_set_vm(vm->jit, vm);         // back-pointer for numeric-for reseed
-        } else {
-            vm->jit = NULL;                               // no JIT context at all
         }
 #endif
 
