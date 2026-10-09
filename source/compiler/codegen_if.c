@@ -115,12 +115,24 @@ void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
         else_branch = last->if_stmt.else_branch;                             // its else is the one
     }
 
-    int end_jumps[64];                                                       // end jump array
+    // end-jump list grows on demand
+    int* end_jumps = NULL;                                                   // end jump array
     int end_jump_count = 0;                                                  // end jump count
+    int end_jump_capacity = 0;                                               // allocated capacity
+
+#define PUSH_END_JUMP(off) do {                                              \
+    if (end_jump_count >= end_jump_capacity) {                               \
+        end_jump_capacity = end_jump_capacity == 0 ? 16                      \
+                                                   : end_jump_capacity * 2;  \
+        end_jumps = (int*)realloc(end_jumps,                                 \
+                                  sizeof(int) * end_jump_capacity);          \
+    }                                                                        \
+    end_jumps[end_jump_count++] = (off);                                     \
+} while (0)
 
     bool then_is_last = (node->if_stmt.elif_chain == NULL) && (else_branch == NULL);
     if (!then_is_last) {                                                     // not the trailing branch
-        end_jumps[end_jump_count++] = bytecode_current_offset(cg->chunk);    // save position
+        PUSH_END_JUMP(bytecode_current_offset(cg->chunk));                   // save position
         emit(cg, INST(OP_JUMP, 0, 0, 0), node->line);                        // jump to end
     }
 
@@ -154,7 +166,7 @@ void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
 
             bool elif_is_last = (elif->if_stmt.elif_chain == NULL) && (else_branch == NULL);
             if (!elif_is_last) {                                             // not the trailing branch
-                end_jumps[end_jump_count++] = bytecode_current_offset(cg->chunk);
+                PUSH_END_JUMP(bytecode_current_offset(cg->chunk));
                 emit(cg, INST(OP_JUMP, 0, 0, 0), elif->line);
             }
 
@@ -194,6 +206,9 @@ void codegen_if_statement(CodeGenerator* cg, ASTNode* node) {
     for (int i = 0; i < end_jump_count; i++) {                               // patch all jumps
         PATCH_JUMP(cg, end_jumps[i], end_addr);
     }
+
+    free(end_jumps);                                                         // release dynamic buffer
+#undef PUSH_END_JUMP
 
     cg->imm_lvn.count = 0;                                                   // end is a merge point
 }
