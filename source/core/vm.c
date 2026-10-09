@@ -2816,9 +2816,21 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             vm->running = false;                 // stop execution
             goto OP_HALT_LABEL;                  // unwind through halt
         }
-        vm->iterator_stack[vm->iterator_depth].index = AS_NUMBER(regs[var_reg]);   // init start value
-        vm->iterator_stack[vm->iterator_depth].end   = AS_NUMBER(regs[end_reg]);   // init end value
-        vm->iterator_stack[vm->iterator_depth].step  = AS_NUMBER(regs[step_reg]);  // init step value
+
+        Value vstart = regs[var_reg];
+        Value vend   = regs[end_reg];
+        Value vstep  = regs[step_reg];
+
+        if (likely(IS_NUMBER(vstart) && IS_NUMBER(vend) && IS_NUMBER(vstep))) {
+            vm->iterator_stack[vm->iterator_depth].index = AS_NUMBER(vstart);   // init start value
+            vm->iterator_stack[vm->iterator_depth].end   = AS_NUMBER(vend);     // init end value
+            vm->iterator_stack[vm->iterator_depth].step  = AS_NUMBER(vstep);    // init step value
+        } else {
+            vm->iterator_stack[vm->iterator_depth].index = 0.0;
+            vm->iterator_stack[vm->iterator_depth].end   = 0.0;
+            vm->iterator_stack[vm->iterator_depth].step  = 0.0;
+        }
+
         ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
     }
     OP_FOR_NEXT_LABEL: {
