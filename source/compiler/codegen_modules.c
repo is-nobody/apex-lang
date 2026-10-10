@@ -35,6 +35,8 @@ bool is_known_builtin_module(const char* name) {
             return strcmp(name, "zip") == 0;       // zip module
         case 'd':
             return strcmp(name, "datetime") == 0;  // datetime module
+        case 'u':
+            return strcmp(name, "ui") == 0;        // ui module
         default:
             return false;                          // no builtin module matches
     }
@@ -46,8 +48,8 @@ bool is_known_builtin_function(const char* name) {                       // shar
         !strcmp(name, "string") ||                                        // string(x) builtin
         !strcmp(name, "type"))   return true;                             // type(x) builtin
     static const char* prefixes[] = {                                     // module prefixes
-        "os.", "sys.", "math.", "string.", "table.", "random.",
-        "json.", "xml.", "csv.", "base.", "regex.", "crypto.", "zip.", "datetime."
+        "os.", "sys.", "math.", "string.", "table.", "random.", "json.",
+        "xml.", "csv.", "base.", "regex.", "crypto.", "zip.", "datetime.", "ui."
     };
     for (size_t i = 0; i < sizeof(prefixes) / sizeof(*prefixes); i++) {   // scan prefix table
         size_t n = strlen(prefixes[i]);                                   // prefix length

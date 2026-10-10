@@ -359,6 +359,8 @@ typedef struct VM {
 
     Table* cycle_head;              // head of the all-tables list, tracked for teardown sweep
     ApexMutex cycle_lock;           // protects cycle_head across the main and worker threads
+
+    struct UiContext* ui;           // per-vm ui state, freed on teardown
 } VM;
 
 // swaps the thread-local "current VM" pointer used by table cycle tracking

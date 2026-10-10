@@ -21,6 +21,7 @@
 #include "crypto_module.h"
 #include "zip_module.h"
 #include "datetime_module.h"
+#include "ui_module.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1773,6 +1774,8 @@ void vm_destroy(VM* vm) {
     APEX_COND_DESTROY(&vm->completion_cond);      // destroy condvar
     string_intern_table_free(&vm->intern_table);  // free interned strings
     if (tls_cycle_vm == vm) tls_cycle_vm = NULL;  // clear the thread-local target
+    ui_context_destroy(vm->ui);                   // release ui backend resources
+    vm->ui = NULL;                                // clear dangling pointer
 #if APEX_JIT_ENABLED
     jit_destroy(vm->jit);                         // release JIT and its code page
 #endif
@@ -1800,6 +1803,7 @@ static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args
     if (strncmp(name, "crypto.", 7) == 0) return crypto_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "zip.", 4) == 0) return zip_call_builtin(vm, name, arg_count, args, result);
     if (strncmp(name, "datetime.", 9) == 0) return datetime_call_builtin(vm, name, arg_count, args, result);
+    if (strncmp(name, "ui.", 3) == 0) return ui_call_builtin(vm, name, arg_count, args, result);
 
     if (strcmp(name, "number") == 0) {           // builtin: number(value) -> number
         if (arg_count >= 1) {

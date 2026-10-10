@@ -368,6 +368,36 @@ static const BuiltinSig BUILTINS[] = {
     {"datetime.format",         2, 2, TYPE_TABLE}, {"datetime.add",            3, 3, TYPE_TABLE},
     {"datetime.diff",           3, 3, TYPE_TABLE},
 
+    {"ui.init",             0, 1, TYPE_ANY},
+    {"ui.shutdown",         0, 0, TYPE_ANY},
+    {"ui.render",           1, 1, TYPE_ANY},
+    {"ui.next_event",       0, 0, TYPE_ANY},
+    {"ui.set_title",        1, 1, TYPE_STRING},
+    {"ui.window_size",      0, 0, TYPE_ANY},
+
+    {"ui.text",             1, 2, TYPE_ANY},
+    {"ui.heading",          1, 2, TYPE_ANY},
+    {"ui.button",           1, 2, TYPE_ANY},
+    {"ui.link",             1, 2, TYPE_ANY},
+    {"ui.badge",            1, 2, TYPE_ANY},
+    {"ui.image",            1, 2, TYPE_ANY},
+    {"ui.separator",        0, 1, TYPE_ANY},
+
+    {"ui.checkbox",         2, 3, TYPE_ANY},
+    {"ui.radio",            3, 4, TYPE_ANY},
+    {"ui.slider",           3, 4, TYPE_ANY},
+    {"ui.progress",         1, 2, TYPE_ANY},
+    {"ui.input_text",       1, 2, TYPE_ANY},
+    {"ui.spacer",           0, 2, TYPE_ANY},
+
+    {"ui.vbox",             1, 2, TYPE_ANY},
+    {"ui.hbox",             1, 2, TYPE_ANY},
+    {"ui.panel",            1, 2, TYPE_ANY},
+    {"ui.frame",            1, 2, TYPE_ANY},
+    {"ui.scroll",           1, 2, TYPE_ANY},
+    {"ui.hscroll",          1, 2, TYPE_ANY},
+    {"ui.grid",             1, 2, TYPE_ANY},
+
     {"number", 1, 1, TYPE_ANY}, {"string", 1, 1, TYPE_ANY}, {"type", 1, 1, TYPE_ANY}
 };
 
@@ -679,6 +709,8 @@ static bool is_known_builtin_module(const char* name) {
             return strcmp(name, "zip") == 0;       // zip module
         case 'd':
             return strcmp(name, "datetime") == 0;  // datetime module
+        case 'u':
+            return strcmp(name, "ui") == 0;        // ui module
         default:
             return false;                          // no builtin module matches
     }

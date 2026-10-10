@@ -39,6 +39,31 @@ else()
     set(APEX_JIT_AVAILABLE FALSE)
 endif()
 
+set(APEX_UI_WINDOW_SOURCES)
+set(APEX_UI_PLATFORM_LIBS)
+
+if(WIN32)
+    list(APPEND APEX_UI_WINDOW_SOURCES
+        source/libraries/ui/ui_window_windows.c)
+    list(APPEND APEX_UI_PLATFORM_LIBS shlwapi ws2_32 dwrite)
+elseif(APPLE)
+    # ui_window_macos.c is not implemented yet. When it lands, add it here.
+    list(APPEND APEX_UI_PLATFORM_LIBS
+        "-framework CoreText"
+        "-framework CoreFoundation")
+else()
+    list(APPEND APEX_UI_WINDOW_SOURCES
+        source/libraries/ui/ui_window_linux.c)
+    find_package(X11 REQUIRED)
+    find_package(Fontconfig REQUIRED)
+    list(APPEND APEX_UI_PLATFORM_LIBS
+        m z dl
+        X11::X11
+        X11::Xext
+        Fontconfig::Fontconfig)
+endif()
+
+# sources
 set(SOURCES
     main.c
     source/core/tokenizer.c
@@ -85,6 +110,13 @@ set(SOURCES
     source/libraries/zip_module.c
     source/libraries/datetime_module.c
 
+    source/libraries/ui/ui_module.c
+    source/libraries/ui/ui_core.c
+    source/libraries/ui/ui_layout.c
+    source/libraries/ui/ui_render.c
+    source/libraries/ui/ui_text.c
+    source/libraries/ui/ui_font_system.c
+
     source/utils/execute.c
     source/utils/error.c
     source/utils/emit.c
@@ -96,6 +128,9 @@ set(SOURCES
     source/utils/loader.c
     source/utils/apex_api.c
 )
+
+# platform window backend (x11; win/macos when implemented)
+list(APPEND SOURCES ${APEX_UI_WINDOW_SOURCES})
 
 if(APEX_JIT_AVAILABLE)
     list(APPEND SOURCES
@@ -130,6 +165,7 @@ target_include_directories(apex PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/source/core
     ${CMAKE_CURRENT_SOURCE_DIR}/source/compiler
     ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui
     ${CMAKE_CURRENT_SOURCE_DIR}/source/utils
     ${CMAKE_CURRENT_SOURCE_DIR}/source/jit
     ${CMAKE_CURRENT_SOURCE_DIR}/source/jit/x86-64
@@ -178,12 +214,8 @@ endif()
 find_package(Threads REQUIRED)
 target_link_libraries(apex PRIVATE Threads::Threads)
 
-# os-specific library linking
-if(WIN32)
-    target_link_libraries(apex PRIVATE shlwapi ws2_32)
-else()
-    target_link_libraries(apex PRIVATE m z dl)
-endif()
+# platform-specific libraries
+target_link_libraries(apex PRIVATE ${APEX_UI_PLATFORM_LIBS})
 
 # strips debug symbols in release builds
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
