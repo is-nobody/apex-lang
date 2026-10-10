@@ -44,16 +44,22 @@ void x86_cache_snap(JitCacheSnap* snap, const XmmCache* c);
 // rebuilds the xmm cache from a compact snapshot, clearing prior state
 void x86_cache_restore(XmmCache* c, const JitCacheSnap* snap);
 
-// helper for OP_JUMP_MATCH_STR: returns 1 if the subject is a string whose
+// helper for op_jump_match_str: returns 1 if the subject is a string whose
 int jit_match_str(Value subj, StringObject* case_str);
 
-// JIT helper: replace *dst with new_val
+// replace *dst with new_val
 void jit_store_slot(Value* dst, Value new_val);
 
-// JIT helper: tbl["prefix" .. num] with a synthetic key
+// tbl["field"] with an interned key, returns a fresh reference
+Value jit_table_get_const(Table* t, StringObject* key);
+
+// tbl["field"] = val
+void jit_table_set_const(Table* t, StringObject* key, Value val);
+
+// tbl["prefix" .. num] with a synthetic key
 Value jit_table_get_key_str(Table* t, StringObject* prefix, double num);
 
-// JIT helper: tbl["prefix" .. num] = val, hash computed once
+// tbl["prefix" .. num] = val, hash computed once
 void jit_table_set_key_str(Table* t, StringObject* prefix, double num, Value val);
 
 // emits the shared prologue then any abi-specific callee-saved register saves

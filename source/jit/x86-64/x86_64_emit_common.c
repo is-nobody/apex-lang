@@ -72,12 +72,29 @@ int jit_match_str(Value subj, StringObject* case_str) {
     return memcmp(s->chars, case_str->chars, s->length) == 0;
 }
 
-// JIT helper: replace *dst with new_val
+// replace *dst with new_val
 void jit_store_slot(Value* dst, Value new_val) {
     Value old = *dst;
     if ((new_val & QNAN) == QNAN) value_incref(new_val);
     if ((old & QNAN) == QNAN)     value_decref(old);
     *dst = new_val;
+}
+
+// tbl["field"] with an interned key
+Value jit_table_get_const(Table* t, StringObject* key) {
+    if (!t || !key) return MAKE_NONE();
+    Value k = MAKE_STRING(key);
+    Value v = MAKE_NONE();
+    table_get(t, k, &v);
+    if ((v & QNAN) == QNAN) value_decref(v);   // hand back a borrowed view
+    return v;
+}
+
+// tbl["field"] = val, doing the full insert-or-update.
+void jit_table_set_const(Table* t, StringObject* key, Value val) {
+    if (!t || !key) return;
+    Value k = MAKE_STRING(key);
+    table_set(t, k, val);
 }
 
 // two-digit lookup, eliminates one div per digit
@@ -127,7 +144,7 @@ static int jit_itoa(char* buf, long long n) {
     return jit_uitoa(buf, (unsigned long long)n);                     // non-negative fast path
 }
 
-// JIT helper: tbl["prefix" .. num] with a synthetic key
+// tbl["prefix" .. num] with a synthetic key
 Value jit_table_get_key_str(Table* t, StringObject* prefix, double num) {
     char nbuf[24];                                                    // tail buffer on the stack
     int nlen;                                                         // tail length in digits
@@ -142,7 +159,7 @@ Value jit_table_get_key_str(Table* t, StringObject* prefix, double num) {
     return val;                                                       // incref'd by the helper on hit
 }
 
-// JIT helper: tbl["prefix" .. num] = val, hash computed once
+// tbl["prefix" .. num] = val, hash computed once
 void jit_table_set_key_str(Table* t, StringObject* prefix, double num, Value val) {
     char nbuf[24];                                                    // tail buffer on the stack
     int nlen;                                                         // tail length in digits

@@ -1054,6 +1054,20 @@ int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint) {
                         return result_reg;
                     }
                 }
+            } else if (node->access.member->type == AST_LITERAL_STRING) {               // "literal" key
+                const char* key_str = node->access.member->literal_string.string_value;
+                int key_idx = bytecode_add_string_constant(cg->chunk, key_str);
+                int cached = imm_lvn_lookup(cg, OP_TABLE_GET_CONST, obj_reg, -1, key_idx);
+                if (cached >= 0) {
+                    free_register(cg, obj_reg);
+                    if (dest_hint < 0 || dest_hint == cached) return cached;
+                    emit(cg, INST(OP_MOVE, dest_hint, cached, 0), node->line);
+                    return dest_hint;
+                }
+                emit(cg, INST(OP_TABLE_GET_CONST, result_reg, obj_reg, key_idx), node->line);
+                imm_lvn_add(cg, OP_TABLE_GET_CONST, obj_reg, -1, key_idx, result_reg);
+                free_register(cg, obj_reg);
+                return result_reg;
             } else if (node->access.member->type == AST_STRING_INTERP) {                 // "prefix{expr}" key?
                 int prefix_idx = key_str_prefix_idx(cg, node->access.member);            // check without emitting
                 if (prefix_idx >= 0) {                                                   // fuse-able pattern

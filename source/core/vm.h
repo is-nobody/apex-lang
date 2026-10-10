@@ -268,6 +268,14 @@ typedef struct {
     int count;               // number of interned strings stored
 } StringInternTable;
 
+// monomorphic inline cache
+typedef struct {
+    Table*        table;       // table seen on the last successful lookup
+    StringObject* key;         // interned key seen on the last successful lookup
+    uint32_t      generation;  // table->generation when entry was cached
+    TableEntry*   entry;       // cached entry; valid only while all above match
+} TableConstIC;
+
 #if APEX_JIT_ENABLED
 struct JITContext;   // forward declaration, only when JIT is compiled in
 #endif
@@ -321,6 +329,8 @@ typedef struct VM {
     TableIterState top_level_table_iter_storage[VM_MAX_ITER_STACK];  // backing storage for top-level table iterators  // backing storage for top-level table iterators
 
     StringInternTable intern_table; // global string interning table for deduplication
+    TableConstIC* const_ic;         // per-pc ic, sized to current chunk
+    int           const_ic_capacity;// number of slots allocated in const_ic
 
     const char* source;             // source code string for error reporting
 

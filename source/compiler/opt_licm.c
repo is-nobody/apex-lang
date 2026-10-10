@@ -75,6 +75,8 @@ bool body_unsafe_for_licm(ASTNode* node) {
     switch (node->type) {
         case AST_CALL: case AST_AWAIT: case AST_FUNCTION_DECL:
             return true;
+        case AST_EXPR_STMT:
+            return body_unsafe_for_licm(node->expr_stmt.expression);
         case AST_ASSIGN:
             if (node->var_assign.access_path) return true;   // indexed assign
             return body_unsafe_for_licm(node->var_assign.value);
@@ -88,8 +90,6 @@ bool body_unsafe_for_licm(ASTNode* node) {
         case AST_INDEX_ACCESS:
             return body_unsafe_for_licm(node->access.object) ||
                    body_unsafe_for_licm(node->access.member);
-        case AST_EXPR_STMT:
-            return body_unsafe_for_licm(node->expr_stmt.expression);
         case AST_RETURN_STMT:
             return body_unsafe_for_licm(node->return_stmt.value);
         case AST_IF_STMT:
@@ -151,6 +151,8 @@ bool body_assigns_name(ASTNode* node, const char* name) {
             if (node->var_assign.access_path &&
                 body_assigns_name(node->var_assign.access_path, name)) return true;
             return false;
+        case AST_EXPR_STMT:
+            return body_assigns_name(node->expr_stmt.expression, name);
         case AST_FOR_STMT:
             if (node->for_stmt.var_name && strcmp(node->for_stmt.var_name, name) == 0)
                 return true;

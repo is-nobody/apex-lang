@@ -36,6 +36,10 @@
 // nan-boxed MAKE_BOOL base pattern (QNAN | TAG_BOOL<<48); bit 0 carries the value
 #define X86_BOOL_BITS  0x7FFA000000000000ULL
 
+// nan-box tag check for IS_TABLE: (v & X86_TAG_MASK) == X86_TABLE_BITS
+#define X86_TAG_MASK    0x7FFF000000000000ULL   // QNAN | (TAG_MASK << 48)
+#define X86_TABLE_BITS  0x7FFC000000000000ULL   // QNAN | (TAG_TABLE  << 48)
+
 // emits a rex prefix byte with rex.r set when the sse reg field needs xmm8-xmm15
 static inline void x86_rex_r(CodeBuf* b, int xmm) {
     if (xmm >= 8) emit_u8(b, 0x44);
@@ -392,6 +396,98 @@ static inline void x86_emit_cmp_box_result(CodeBuf* b, int xmm_dst, uint8_t setc
     x86_emit_movabs_r11(b, X86_BOOL_BITS);                         // r11 = QNAN|TAG_BOOL
     emit_u8(b, 0x4C); emit_u8(b, 0x09); emit_u8(b, 0xD8);          // or rax, r11
     x86_emit_movq_xmm_rax(b, xmm_dst);                             // xmm_dst = nan-boxed bool
+}
+
+// mov r/m64, r64
+static inline void x86_emit_mov_r64_r64(CodeBuf* b, int dst, int src) {
+    uint8_t rex = 0x48 | ((src >= 8) ? 0x04 : 0) | ((dst >= 8) ? 0x01 : 0);
+    emit_u8(b, rex);
+    emit_u8(b, 0x89);
+    emit_u8(b, 0xC0 | ((src & 7) << 3) | (dst & 7));
+}
+
+// and r32, r32
+static inline void x86_emit_and_r32(CodeBuf* b, int dst, int src) {
+    uint8_t rex = ((dst >= 8) ? 0x04 : 0) | ((src >= 8) ? 0x01 : 0);
+    if (rex) emit_u8(b, 0x40 | rex);
+    emit_u8(b, 0x21);
+    emit_u8(b, 0xC0 | ((src & 7) << 3) | (dst & 7));
+}
+
+// test a, bb — a is the r/m operand, bb is the reg operand
+static inline void x86_emit_test_r32(CodeBuf* b, int a, int bb) {
+    uint8_t rex = ((bb >= 8) ? 0x04 : 0) | ((a >= 8) ? 0x01 : 0);
+    if (rex) emit_u8(b, 0x40 | rex);
+    emit_u8(b, 0x85);
+    emit_u8(b, 0xC0 | ((bb & 7) << 3) | (a & 7));
+}
+
+// test a, bb — a is the r/m operand, bb is the reg operand
+static inline void x86_emit_test_r64(CodeBuf* b, int a, int bb) {
+    uint8_t rex = 0x48 | ((bb >= 8) ? 0x04 : 0) | ((a >= 8) ? 0x01 : 0);
+    emit_u8(b, rex);
+    emit_u8(b, 0x85);
+    emit_u8(b, 0xC0 | ((bb & 7) << 3) | (a & 7));
+}
+
+// cmp a, bb — a is the r/m operand, bb is the reg operand
+static inline void x86_emit_cmp_r32(CodeBuf* b, int a, int bb) {
+    uint8_t rex = ((bb >= 8) ? 0x04 : 0) | ((a >= 8) ? 0x01 : 0);
+    if (rex) emit_u8(b, 0x40 | rex);
+    emit_u8(b, 0x39);
+    emit_u8(b, 0xC0 | ((bb & 7) << 3) | (a & 7));
+}
+
+// cmp a, bb — a is the r/m operand, bb is the reg operand
+static inline void x86_emit_cmp_r64(CodeBuf* b, int a, int bb) {
+    uint8_t rex = 0x48 | ((bb >= 8) ? 0x04 : 0) | ((a >= 8) ? 0x01 : 0);
+    emit_u8(b, rex);
+    emit_u8(b, 0x39);
+    emit_u8(b, 0xC0 | ((bb & 7) << 3) | (a & 7));
+}
+
+// movzx r32, byte [base + disp32]
+static inline void x86_emit_movzx_r32_m8(CodeBuf* b, int dst, int base, int32_t disp) {
+    uint8_t rex = 0x40 | ((dst >= 8) ? 0x04 : 0) | ((base >= 8) ? 0x01 : 0);
+    emit_u8(b, rex);
+    emit_u8(b, 0x0F); emit_u8(b, 0xB6);
+    emit_u8(b, 0x80 | ((dst & 7) << 3) | (base & 7));
+    emit_i32(b, disp);
+}
+
+// mov r32, [base + disp32]
+static inline void x86_emit_load_r32_base(CodeBuf* b, int dst, int base, int32_t disp) {
+    uint8_t rex = ((dst >= 8) ? 0x04 : 0) | ((base >= 8) ? 0x01 : 0);
+    if (rex) emit_u8(b, 0x40 | rex);
+    emit_u8(b, 0x8B);
+    emit_u8(b, 0x80 | ((dst & 7) << 3) | (base & 7));
+    emit_i32(b, disp);
+}
+
+// lea r64, [base + disp32]
+static inline void x86_emit_lea_r64_base(CodeBuf* b, int dst, int base, int32_t disp) {
+    uint8_t rex = 0x48 | ((dst >= 8) ? 0x04 : 0) | ((base >= 8) ? 0x01 : 0);
+    emit_u8(b, rex);
+    emit_u8(b, 0x8D);
+    emit_u8(b, 0x80 | ((dst & 7) << 3) | (base & 7));
+    emit_i32(b, disp);
+}
+
+// mov r64, [base + index*8] — SIB scale=8, full rex extensions
+static inline void x86_emit_load_r64_idx8(CodeBuf* b, int dst, int base, int index) {
+    uint8_t rex = 0x48 | ((dst >= 8) ? 0x04 : 0)
+                       | ((index >= 8) ? 0x02 : 0)
+                       | ((base  >= 8) ? 0x01 : 0);
+    emit_u8(b, rex);
+    emit_u8(b, 0x8B);
+    emit_u8(b, ((dst & 7) << 3) | 0x04);
+    emit_u8(b, (3 << 6) | ((index & 7) << 3) | (base & 7));
+}
+
+// shl rsi, 16; shr rsi, 16 — clear high 16 bits (nan-box pointer unpack)
+static inline void x86_emit_clear_high16_rsi(CodeBuf* b) {
+    emit_u8(b, 0x48); emit_u8(b, 0xC1); emit_u8(b, 0xE6); emit_u8(b, 16);
+    emit_u8(b, 0x48); emit_u8(b, 0xC1); emit_u8(b, 0xEE); emit_u8(b, 16);
 }
 
 // returns a cache register to receive slot d's new value, preferring d's

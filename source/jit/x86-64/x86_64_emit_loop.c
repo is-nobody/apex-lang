@@ -8,6 +8,38 @@
 #include <stddef.h>
 #include <string.h>
 
+// Table-related field offsets used by the const-key fast paths.
+#define APEX_SO_HASH_COMPUTED ((int32_t)offsetof(StringObject, hash_computed))
+#define APEX_SO_HASH          ((int32_t)offsetof(StringObject, hash))
+#define APEX_TBL_CAPACITY     ((int32_t)offsetof(Table, capacity))
+#define APEX_TBL_ENTRIES      ((int32_t)offsetof(Table, entries))
+#define APEX_TE_HASH          ((int32_t)offsetof(TableEntry, hash))
+#define APEX_TE_KEY           ((int32_t)offsetof(TableEntry, key))
+#define APEX_TE_VALUE         ((int32_t)offsetof(TableEntry, value))
+#define APEX_TE_NEXT          ((int32_t)offsetof(TableEntry, next))
+
+// Emit jcc rel32 with a placeholder; returns the offset of the rel32 field.
+static size_t emit_jcc32_placeholder(CodeBuf* cb, uint8_t op2) {
+    emit_u8(cb, 0x0F); emit_u8(cb, op2);
+    size_t at = cb->len;
+    emit_i32(cb, 0);
+    return at;
+}
+
+// Emit jmp rel32 with a placeholder; returns the offset of the rel32 field.
+static size_t emit_jmp32_placeholder(CodeBuf* cb) {
+    emit_u8(cb, 0xE9);
+    size_t at = cb->len;
+    emit_i32(cb, 0);
+    return at;
+}
+
+// Patch a previously emitted rel32 placeholder to point at `target`.
+static void patch_rel32(CodeBuf* cb, size_t at, size_t target) {
+    int32_t rel = (int32_t)target - (int32_t)(at + 4);
+    memcpy(cb->buf + at, &rel, 4);
+}
+
 // hoists up to 4 loop-invariant array_part ptrs into callee-saved gprs; primary stays in rbx
 static void assign_table_caches(JITContext* ctx, JitLoopInfo* info) {
     static const int cache_gprs[4] = { X86_R12, X86_R13, X86_R14, X86_R15 };
@@ -748,6 +780,285 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             x86_emit_movsd_store_base(cb, X86_RBX, xv, (a - 1) * 8);  // array_part[a-1] = xv
             break;
         }
+        case OP_TABLE_GET_CONST: {
+            // op0=d (dest), op1=a (table reg), op2=b (key pool idx)
+            if (save_slot < 0)
+                JIT_FATAL("no save slot for TABLE_GET_CONST (pc=%d)", pc);
+            if (cb->len + 2048 > cb->cap)
+                JIT_FATAL("code buffer too small for TABLE_GET_CONST (pc=%d)", pc);
+
+            StringObject* key_str =
+                (StringObject*)ctx->chunk->constants[b].cached_str;
+
+            // tier 0: fast inline walk
+            // load tagged table value
+            int xt = cache->slot_reg[a];
+            if (xt >= 0) x86_emit_movq_rax_xmm(cb, xt);
+            else         x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(a));
+
+            // is_table check; rdx is the only scratch we touch (frame_reg safe)
+            x86_emit_movabs_r11(cb, X86_TAG_MASK);
+            x86_emit_mov_r64_r64(cb, X86_RDX, X86_RAX);
+            emit_u8(cb, 0x4C); emit_u8(cb, 0x21); emit_u8(cb, 0xDA);   // and rdx, r11
+            x86_emit_movabs_r11(cb, X86_TABLE_BITS);
+            x86_emit_cmp_r64(cb, X86_RDX, X86_R11);
+            size_t jne_not_table = emit_jcc32_placeholder(cb, 0x85);   // jne .not_table
+
+            // strip tag: rax = table*
+            x86_emit_clear_high16_rax(cb);
+
+            // r11 = key_str (interned, pointer-stable)
+            x86_emit_movabs_r11(cb, (uint64_t)(uintptr_t)key_str);
+
+            // key->hash_computed? if not, take .slow
+            x86_emit_movzx_r32_m8(cb, X86_RDX, X86_R11, APEX_SO_HASH_COMPUTED);
+            x86_emit_test_r32(cb, X86_RDX, X86_RDX);
+            size_t jz_slow_hash = emit_jcc32_placeholder(cb, 0x84);
+
+            // r8d = key->hash (the full 32-bit hash, preserved through walk)
+            x86_emit_load_r32_base(cb, X86_R8, X86_R11, APEX_SO_HASH);
+
+            // capacity power-of-two check; rsi = cap-1
+            x86_emit_load_r32_base(cb, X86_RDX, X86_RAX, APEX_TBL_CAPACITY);
+            emit_u8(cb, 0x8D); emit_u8(cb, 0x72); emit_u8(cb, 0xFF);   // lea esi, [rdx-1]
+            x86_emit_test_r32(cb, X86_RSI, X86_RDX);
+            size_t jnz_slow_cap = emit_jcc32_placeholder(cb, 0x85);
+
+            // bucket = hash & (cap-1)
+            x86_emit_mov_r64_r64(cb, X86_RDX, X86_R8);
+            x86_emit_and_r32(cb, X86_RDX, X86_RSI);
+
+            // r9 = table->entries
+            x86_emit_load_r64_base(cb, X86_R9, X86_RAX, APEX_TBL_ENTRIES);
+            x86_emit_test_r64(cb, X86_R9, X86_R9);
+            size_t jz_slow_nohash = emit_jcc32_placeholder(cb, 0x84);
+
+            // r10 = entries[bucket]
+            x86_emit_load_r64_idx8(cb, X86_R10, X86_R9, X86_RDX);
+            x86_emit_test_r64(cb, X86_R10, X86_R10);
+            size_t jz_slow_empty = emit_jcc32_placeholder(cb, 0x84);
+
+            // .walk: cmp entry->hash with full hash; on match cmp key pointer
+            size_t walk_off = cb->len;
+            x86_emit_load_r32_base(cb, X86_RDX, X86_R10, APEX_TE_HASH);
+            x86_emit_cmp_r32(cb, X86_RDX, X86_R8);
+            size_t jne_next = emit_jcc32_placeholder(cb, 0x85);
+
+            x86_emit_load_r64_base(cb, X86_RSI, X86_R10, APEX_TE_KEY);
+            x86_emit_clear_high16_rsi(cb);
+            x86_emit_cmp_r64(cb, X86_RSI, X86_R11);
+            size_t je_hit = emit_jcc32_placeholder(cb, 0x84);
+
+            // .next: advance chain, loop
+            patch_rel32(cb, jne_next, cb->len);
+            x86_emit_load_r64_base(cb, X86_R10, X86_R10, APEX_TE_NEXT);
+            x86_emit_test_r64(cb, X86_R10, X86_R10);
+            emit_u8(cb, 0x0F); emit_u8(cb, 0x85);                      // jnz .walk
+            { int32_t rel = (int32_t)walk_off - (int32_t)(cb->len + 4);
+              emit_i32(cb, rel); }
+
+            // tier 1: slow helper
+            size_t slow_off = cb->len;
+            patch_rel32(cb, jz_slow_hash,   slow_off);
+            patch_rel32(cb, jnz_slow_cap,   slow_off);
+            patch_rel32(cb, jz_slow_nohash, slow_off);
+            patch_rel32(cb, jz_slow_empty,  slow_off);
+
+            x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));
+#if defined(_WIN32) || defined(_WIN64)
+            x86_emit_mov_r64_r64(cb, X86_RCX, X86_RAX);                // rcx = table
+            x86_emit_mov_r64_r64(cb, X86_RDX, X86_R11);                // rdx = key
+#else
+            x86_emit_mov_r64_r64(cb, X86_RDI, X86_RAX);                // rdi = table
+            x86_emit_mov_r64_r64(cb, X86_RSI, X86_R11);                // rsi = key
+#endif
+            x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_table_get_const);
+            emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                      // call rax
+            x86_emit_load_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));
+            size_t jmp_store_from_slow = emit_jmp32_placeholder(cb);
+
+            // tier 2: non-table
+            size_t not_table_off = cb->len;
+            patch_rel32(cb, jne_not_table, not_table_off);
+            x86_emit_movabs_rax(cb, X86_NONE_BITS);                    // rax = none
+            size_t jmp_store_from_none = emit_jmp32_placeholder(cb);
+
+            // tier 0 hit
+            size_t hit_off = cb->len;
+            patch_rel32(cb, je_hit, hit_off);
+            x86_emit_load_r64_base(cb, X86_RAX, X86_R10, APEX_TE_VALUE);
+            // fall through to .store
+
+            // .store
+            size_t store_off = cb->len;
+            patch_rel32(cb, jmp_store_from_slow, store_off);
+            patch_rel32(cb, jmp_store_from_none, store_off);
+
+            x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));
+#if defined(_WIN32) || defined(_WIN64)
+            x86_emit_lea_r64_base(cb, X86_RCX, X86_RBP, x86_slot_disp(d));
+            x86_emit_mov_r64_r64(cb, X86_RDX, X86_RAX);                // rdx = value
+#else
+            x86_emit_lea_r64_base(cb, X86_RDI, X86_RBP, x86_slot_disp(d));
+            x86_emit_mov_r64_r64(cb, X86_RSI, X86_RAX);                // rsi = value
+#endif
+            x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_store_slot);
+            emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                      // call rax
+            x86_emit_load_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));
+
+            // drop any stale xmm cache entry for the dest slot
+            {
+                int dx = cache->slot_reg[d];
+                if (dx >= 0) {
+                    cache->reg_slot[dx] = -1;
+                    cache->slot_reg[d]  = -1;
+                    cache->slot_dirty[d] = false;
+                }
+            }
+            break;
+        }
+        case OP_TABLE_SET_CONST: {
+            // op0=d (table reg), op1=a (key pool idx), op2=b (value reg)
+            if (save_slot < 0)
+                JIT_FATAL("no save slot for TABLE_SET_CONST (pc=%d)", pc);
+            if (cb->len + 2048 > cb->cap)
+                JIT_FATAL("code buffer too small for TABLE_SET_CONST (pc=%d)", pc);
+
+            StringObject* key_str =
+                (StringObject*)ctx->chunk->constants[a].cached_str;
+
+            // tier 0: fast inline walk
+            int xt = cache->slot_reg[d];
+            if (xt >= 0) x86_emit_movq_rax_xmm(cb, xt);
+            else         x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(d));
+
+            // is_table check
+            x86_emit_movabs_r11(cb, X86_TAG_MASK);
+            x86_emit_mov_r64_r64(cb, X86_RDX, X86_RAX);
+            emit_u8(cb, 0x4C); emit_u8(cb, 0x21); emit_u8(cb, 0xDA);   // and rdx, r11
+            x86_emit_movabs_r11(cb, X86_TABLE_BITS);
+            x86_emit_cmp_r64(cb, X86_RDX, X86_R11);
+            size_t jne_not_table = emit_jcc32_placeholder(cb, 0x85);
+
+            // strip tag
+            x86_emit_clear_high16_rax(cb);
+
+            // r11 = key_str
+            x86_emit_movabs_r11(cb, (uint64_t)(uintptr_t)key_str);
+
+            // key->hash_computed?
+            x86_emit_movzx_r32_m8(cb, X86_RDX, X86_R11, APEX_SO_HASH_COMPUTED);
+            x86_emit_test_r32(cb, X86_RDX, X86_RDX);
+            size_t jz_slow_hash = emit_jcc32_placeholder(cb, 0x84);
+
+            // r8d = key->hash
+            x86_emit_load_r32_base(cb, X86_R8, X86_R11, APEX_SO_HASH);
+
+            // capacity power-of-two
+            x86_emit_load_r32_base(cb, X86_RDX, X86_RAX, APEX_TBL_CAPACITY);
+            emit_u8(cb, 0x8D); emit_u8(cb, 0x72); emit_u8(cb, 0xFF);   // lea esi, [rdx-1]
+            x86_emit_test_r32(cb, X86_RSI, X86_RDX);
+            size_t jnz_slow_cap = emit_jcc32_placeholder(cb, 0x85);
+
+            // bucket = hash & (cap-1)
+            x86_emit_mov_r64_r64(cb, X86_RDX, X86_R8);
+            x86_emit_and_r32(cb, X86_RDX, X86_RSI);
+
+            // entries pointer
+            x86_emit_load_r64_base(cb, X86_R9, X86_RAX, APEX_TBL_ENTRIES);
+            x86_emit_test_r64(cb, X86_R9, X86_R9);
+            size_t jz_slow_nohash = emit_jcc32_placeholder(cb, 0x84);
+
+            // current entry
+            x86_emit_load_r64_idx8(cb, X86_R10, X86_R9, X86_RDX);
+            x86_emit_test_r64(cb, X86_R10, X86_R10);
+            size_t jz_slow_empty = emit_jcc32_placeholder(cb, 0x84);
+
+            // walk
+            size_t walk_off = cb->len;
+            x86_emit_load_r32_base(cb, X86_RDX, X86_R10, APEX_TE_HASH);
+            x86_emit_cmp_r32(cb, X86_RDX, X86_R8);
+            size_t jne_next = emit_jcc32_placeholder(cb, 0x85);
+
+            x86_emit_load_r64_base(cb, X86_RSI, X86_R10, APEX_TE_KEY);
+            x86_emit_clear_high16_rsi(cb);
+            x86_emit_cmp_r64(cb, X86_RSI, X86_R11);
+            size_t je_hit = emit_jcc32_placeholder(cb, 0x84);
+
+            patch_rel32(cb, jne_next, cb->len);
+            x86_emit_load_r64_base(cb, X86_R10, X86_R10, APEX_TE_NEXT);
+            x86_emit_test_r64(cb, X86_R10, X86_R10);
+            emit_u8(cb, 0x0F); emit_u8(cb, 0x85);                      // jnz .walk
+            { int32_t rel = (int32_t)walk_off - (int32_t)(cb->len + 4);
+              emit_i32(cb, rel); }
+
+            // tier 1: slow helper
+            size_t slow_off = cb->len;
+            patch_rel32(cb, jz_slow_hash,   slow_off);
+            patch_rel32(cb, jnz_slow_cap,   slow_off);
+            patch_rel32(cb, jz_slow_nohash, slow_off);
+            patch_rel32(cb, jz_slow_empty,  slow_off);
+
+            x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));
+#if defined(_WIN32) || defined(_WIN64)
+            x86_emit_mov_r64_r64(cb, X86_RCX, X86_RAX);                // rcx = table
+            x86_emit_mov_r64_r64(cb, X86_RDX, X86_R11);                // rdx = key
+#else
+            x86_emit_mov_r64_r64(cb, X86_RDI, X86_RAX);                // rdi = table
+            x86_emit_mov_r64_r64(cb, X86_RSI, X86_R11);                // rsi = key
+#endif
+            {
+                int xv = cache->slot_reg[b];
+#if defined(_WIN32) || defined(_WIN64)
+                if (xv >= 0) x86_emit_movq_gpr_xmm(cb, X86_R8, xv);
+                else         x86_emit_load_r64_rbp(cb, X86_R8, x86_slot_disp(b));
+#else
+                if (xv >= 0) x86_emit_movq_gpr_xmm(cb, X86_RDX, xv);
+                else         x86_emit_load_r64_rbp(cb, X86_RDX, x86_slot_disp(b));
+#endif
+            }
+            x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_table_set_const);
+            emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                      // call rax
+            x86_emit_load_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));
+            size_t jmp_done_from_slow = emit_jmp32_placeholder(cb);
+
+            // tier 2: non-table
+            size_t not_table_off = cb->len;
+            patch_rel32(cb, jne_not_table, not_table_off);
+            size_t jmp_done_from_none = emit_jmp32_placeholder(cb);
+
+            // tier 0 hit: direct store into cached entry
+            size_t hit_off = cb->len;
+            patch_rel32(cb, je_hit, hit_off);
+
+            x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));
+#if defined(_WIN32) || defined(_WIN64)
+            x86_emit_lea_r64_base(cb, X86_RCX, X86_R10, APEX_TE_VALUE);
+#else
+            x86_emit_lea_r64_base(cb, X86_RDI, X86_R10, APEX_TE_VALUE);
+#endif
+            {
+                int xv = cache->slot_reg[b];
+#if defined(_WIN32) || defined(_WIN64)
+                if (xv >= 0) x86_emit_movq_gpr_xmm(cb, X86_RDX, xv);
+                else         x86_emit_load_r64_rbp(cb, X86_RDX, x86_slot_disp(b));
+#else
+                if (xv >= 0) x86_emit_movq_gpr_xmm(cb, X86_RSI, xv);
+                else         x86_emit_load_r64_rbp(cb, X86_RSI, x86_slot_disp(b));
+#endif
+            }
+            x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_store_slot);
+            emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                      // call rax
+            x86_emit_load_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));
+            size_t jmp_done_from_hit = emit_jmp32_placeholder(cb);
+
+            // .done
+            size_t done_off = cb->len;
+            patch_rel32(cb, jmp_done_from_slow, done_off);
+            patch_rel32(cb, jmp_done_from_none, done_off);
+            patch_rel32(cb, jmp_done_from_hit,  done_off);
+            break;
+        }
         case OP_LOAD_GLOBAL: {
             int idx = a;                                         // global index
             int x = x86_cache_dest_reg(cache, cb, d, -1, -1);    // prefer d's existing home
@@ -876,6 +1187,10 @@ bool loop_is_safe_to_emit(JITContext* ctx, JitLoopInfo* info) {
 
     if (info->table.used && info->uses_globals) return false;
 
+    // the table-pointer guard on the primary table is only checked once at loop entry
+    if (info->table.used && info->table.slot >= 0 &&
+        (info->live_out & (1ULL << info->table.slot))) return false;
+
     if (info->kind == JIT_LOOP_NUMERIC_FOR) {
         for (int pc = entry + 1; pc < back_edge; pc++) {     // scan body for writes
             Instruction* inst = &chunk->code[pc];
@@ -918,6 +1233,8 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
         switch (inst->opcode) {
             case OP_TABLE_GET_KEY_STR:                       // fused string-key op: helper
             case OP_TABLE_SET_KEY_STR:
+            case OP_TABLE_GET_CONST:                         // const-key op: helper on the slow path
+            case OP_TABLE_SET_CONST:
             case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:  // user calls clobber frame_reg
                 needs_helper = true;
                 break;
@@ -1087,6 +1404,8 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
             if (op == OP_MOD || op == OP_NEG ||              // use XMM_SCRATCH
                 op == OP_TABLE_GET_KEY_STR ||                // helper call clobbers xmm
                 op == OP_TABLE_SET_KEY_STR ||                // helper call clobbers xmm
+                op == OP_TABLE_GET_CONST ||                  // helper call clobbers xmm
+                op == OP_TABLE_SET_CONST ||                  // helper call clobbers xmm
                 op == OP_TABLE_SET ||                        // general path calls table_set_int
                 op == OP_TABLE_SET_NUM ||                    // general path calls table_set_int
                 op == OP_NEW_TABLE ||                        // helper call clobbers xmm

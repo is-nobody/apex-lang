@@ -85,6 +85,14 @@ static int codegen_index_assign(CodeGenerator* cg, ASTNode* node, int dest_hint)
         }
     }
 
+    if (final_acc->access.member->type == AST_LITERAL_STRING) {              // "literal" key
+        const char* key_str = final_acc->access.member->literal_string.string_value;
+        int key_idx = bytecode_add_string_constant(cg->chunk, key_str);
+        emit(cg, INST(OP_TABLE_SET_CONST, current_obj_reg, key_idx, val_reg), final_acc->line);
+        free_register(cg, current_obj_reg);
+        return val_reg;
+    }
+
     if (final_acc->access.member->type == AST_STRING_INTERP) {               // "prefix{expr}" key?
         int prefix_idx = key_str_prefix_idx(cg, final_acc->access.member);   // check without emitting
         if (prefix_idx >= 0) {                                               // fuse-able pattern

@@ -65,6 +65,8 @@ static bool is_pure_loop_instr(JITContext* ctx, int pc) {
         case OP_TABLE_SET:                                   // dynamic key, validated later by analyze_loop_regs
         case OP_TABLE_SET_INT:
         case OP_TABLE_SET_NUM:                               // same semantics, numeric key
+        case OP_TABLE_GET_CONST:                             // interned string key, hash part
+        case OP_TABLE_SET_CONST:                             // interned string key, hash part
             return true;
         case OP_TABLE_ITER_NEXT:                             // loop entry for table iteration
             return true;
@@ -451,6 +453,30 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
                 if (info->table.min_count < 1) info->table.min_count = 1;
                 if (a > info->table.max_idx) info->table.max_idx = a;  // track max index
                 break;
+            case OP_TABLE_GET_CONST:
+                // d = dest, a = table reg, b = key pool index
+                if (d >= 0 && d < 64) {
+                    pc_writes |= 1ULL << d;
+                    info->ref_writes |= 1ULL << d;               // value may be heap-allocated
+                }
+                if (a >= 0 && a < 64) pc_reads |= 1ULL << a;     // table slot read
+                info->table.used     = true;
+                info->touches_tables = true;
+                if (a >= 0 && a < JIT_MAX_SLOTS) info->live_in_kind[a] = JIT_SLOT_TABLE_ANY;
+                if (info->table.slot < 0) info->table.slot = a;
+                if (info->table.min_count < 1) info->table.min_count = 1;
+                break;
+            case OP_TABLE_SET_CONST:
+                // d = table, a = key pool index, b = value reg
+                if (d >= 0 && d < 64) pc_reads |= 1ULL << d;     // table slot read
+                if (b >= 0 && b < 64) pc_reads |= 1ULL << b;     // value slot read
+                info->table.used     = true;
+                info->touches_tables = true;
+                info->table.written  = true;
+                if (d >= 0 && d < JIT_MAX_SLOTS) info->live_in_kind[d] = JIT_SLOT_TABLE_ANY;
+                if (info->table.slot < 0) info->table.slot = d;
+                if (info->table.min_count < 1) info->table.min_count = 1;
+                break;
             case OP_JUMP:
                 break;                                           // no slots touched
             default:
@@ -519,18 +545,8 @@ static bool table_iter_body_is_clean(BytecodeChunk* chunk, int entry, int back_e
 // checks whether a numeric-for body uses only numeric table access (no string keys)
 static bool body_only_uses_counter_index(BytecodeChunk* chunk, int entry,
                                          int back_edge, int for_var_reg) {
-    (void)for_var_reg;                                       // kept for call-site parity, unused
-    for (int pc = entry + 1; pc < back_edge; pc++) {         // scan every body instruction
-        Instruction* inst = &chunk->code[pc];
-        switch (inst->opcode) {
-            case OP_TABLE_GET_CONST:
-            case OP_TABLE_SET_CONST:
-                return false;                                // string keys land in the hash part
-            default:
-                break;                                       // other ops don't touch tables
-        }
-    }
-    return true;                                             // only numeric table access seen
+    (void)chunk; (void)entry; (void)back_edge; (void)for_var_reg;   // no longer restrictive
+    return true;                                             // GET_CONST/SET_CONST now JIT-able
 }
 
 // scans one function for numeric loops and table loops

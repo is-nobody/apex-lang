@@ -1750,6 +1750,9 @@ void vm_destroy(VM* vm) {
     APEX_MUTEX_DESTROY(&vm->completion_mutex);    // destroy lock
     APEX_COND_DESTROY(&vm->completion_cond);      // destroy condvar
     string_intern_table_free(&vm->intern_table);  // free interned strings
+    free(vm->const_ic);                           // release per-pc inline cache
+    vm->const_ic = NULL;
+    vm->const_ic_capacity = 0;
     if (tls_cycle_vm == vm) tls_cycle_vm = NULL;  // clear the thread-local target
 #if APEX_JIT_ENABLED
     jit_destroy(vm->jit);                         // release JIT and its code page
@@ -1901,6 +1904,16 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     vm->chunk = chunk;                                    // store bytecode chunk
     vm->code = chunk->code;                               // pointer to instruction array
     vm->code_count = chunk->code_count;                   // total instruction count
+    if (vm->const_ic_capacity < chunk->code_count) {      // grow the per-pc IC array if needed
+        free(vm->const_ic);                               // release the old, smaller array
+        vm->const_ic = (TableConstIC*)calloc(             // allocate zeroed slots
+            chunk->code_count, sizeof(TableConstIC));
+        vm->const_ic_capacity = vm->const_ic              // publish capacity only on success
+            ? chunk->code_count : 0;
+    } else {
+        memset(vm->const_ic, 0,                           // zeroing forces a clean miss
+               sizeof(TableConstIC) * chunk->code_count); // on every chunk entry
+    }
     bool top_level = (vm->current_task == NULL);          // entering top-level or resuming a coroutine
     if (top_level) {
         vm->had_error = false;                            // reset error flag at top level only
@@ -2983,18 +2996,61 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int table_reg = ip->operands[1];             // register holding the table
         int key_idx = ip->operands[2];               // constant pool index for the string key
         Value table_val = regs[table_reg];           // fetch table value
-        if (!IS_TABLE(table_val)) {                  // not a table, return none
-            value_decref(regs[dest]);                // release old dest value
+
+        if (unlikely(!IS_TABLE(table_val))) {        // not a table, return none
+            if ((regs[dest] & QNAN) == QNAN) value_decref(regs[dest]);
             regs[dest] = MAKE_NONE();                // store none
             ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
         }
-        Table* table = AS_TABLE(table_val);          // unwrap table pointer
-        Value key = MAKE_STRING((StringObject*)chunk->constants[key_idx].cached_str);  // use pre-interned key
-        Value val;
-        val = MAKE_NONE();                           // default to none
-        table_get(table, key, &val);                 // lookup key in table, writes to val
-        value_decref(regs[dest]);                    // release old dest value
-        regs[dest] = val;                            // store result (already incref'd by table_get)
+
+        Table* table = AS_TABLE(table_val);                     // unwrap table pointer
+        StringObject* key_str =                                 // interned key, identity-stable
+            (StringObject*)chunk->constants[key_idx].cached_str;
+
+        int pc = (int)(ip - vm->code);                          // absolute pc for IC indexing
+        TableConstIC* ic = (pc < vm->const_ic_capacity)         // bounds-check against the IC
+            ? &vm->const_ic[pc] : NULL;
+
+        if (likely(ic != NULL &&                                // fast path: IC hit
+                   ic->table       == table       &&            // same table
+                   ic->key         == key_str     &&            // same interned key
+                   ic->generation  == table->generation)) {     // no rehash/remove since fill
+            Value val = ic->entry->value;                       // read value straight from entry
+            if ((val & QNAN) == QNAN) value_incref(val);        // match table_get's incref
+            Value old = regs[dest];
+            if ((old & QNAN) == QNAN) value_decref(old);
+            regs[dest] = val;
+            ip++; goto *dispatch_table[ip->opcode];
+        }
+
+        // slow path: normal lookup, then refill IC
+        Value key = MAKE_STRING(key_str);                       // box the interned key
+        Value val = MAKE_NONE();                                // default to none
+        table_get(table, key, &val);                            // table_get increfs on hit
+
+        if (ic != NULL) {                                       // refill IC slot for next time
+            ic->table      = table;
+            ic->key        = key_str;
+            ic->generation = table->generation;
+            ic->entry      = NULL;
+            if (IS_TABLE(table_val) && table->entries != NULL &&    // recover the entry pointer
+                key_str->hash_computed) {                           // so we can read it next time
+                uint32_t h    = key_str->hash;
+                uint32_t slot = h % table->capacity;
+                TableEntry* e = table->entries[slot];
+                while (e) {                                         // identical walk to table_get
+                    if (e->hash == h && key_equal(e->key, key)) {   // find the entry we just hit
+                        ic->entry = e;                              // cache pointer for O(1) reuse
+                        break;
+                    }
+                    e = e->next;
+                }
+            }
+        }
+
+        Value old = regs[dest];
+        if ((old & QNAN) == QNAN) value_decref(old);
+        regs[dest] = val;
         ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
     OP_TABLE_GET_INT_LABEL: {
@@ -3104,9 +3160,37 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int table_reg = ip->operands[0];             // register holding the table
         int key_idx = ip->operands[1];               // constant pool index for the string key
         int val_reg = ip->operands[2];               // register holding the value
-        Table* table = AS_TABLE(regs[table_reg]);    // unwrap table pointer
-        Value key = MAKE_STRING((StringObject*)chunk->constants[key_idx].cached_str);  // use pre-interned key
-        table_set(table, key, regs[val_reg]);        // perform table set with refcount handling
+        Value table_val = regs[table_reg];           // fetch table value
+
+        if (unlikely(!IS_TABLE(table_val))) {        // parser guarantees table, but be defensive
+            ip++; goto *dispatch_table[ip->opcode];
+        }
+
+        Table* table = AS_TABLE(table_val);                     // unwrap table pointer
+        StringObject* key_str =                                 // interned key, identity-stable
+            (StringObject*)chunk->constants[key_idx].cached_str;
+
+        int pc = (int)(ip - vm->code);                          // absolute pc for IC indexing
+        TableConstIC* ic = (pc < vm->const_ic_capacity)         // bounds-check
+            ? &vm->const_ic[pc] : NULL;
+
+        if (likely(ic != NULL &&                                // fast path: IC hit
+                   ic->table      == table &&
+                   ic->key        == key_str &&
+                   ic->generation == table->generation)) {
+            Value val = regs[val_reg];                          // value to store
+            Value old = ic->entry->value;                       // old value at cached slot
+            ic->entry->value = val;                             // direct write, no lookup
+            if ((val & QNAN) == QNAN) value_incref(val);        // mirror table_set's incref
+            if ((old & QNAN) == QNAN) value_decref(old);        // mirror table_set's decref
+            ip++; goto *dispatch_table[ip->opcode];
+        }
+
+        // slow path: table_set handles update-or-insert and refcounts
+        Value key = MAKE_STRING(key_str);                       // box the interned key
+        table_set(table, key, regs[val_reg]);
+        table->generation++;                                    // force IC miss; entry may be new
+
         ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
     }
     OP_TABLE_SET_INT_LABEL: {
