@@ -27,6 +27,14 @@ static int codegen_literal_number(CodeGenerator* cg, ASTNode* node, int dest) {
     return dest;                                                           // return destination
 }
 
+// true when `reg` is the home register of a named local in the current function
+static bool is_local_home_register(CodeGenerator* cg, int reg) {
+    for (int i = 0; i < cg->locals.count; i++) {
+        if (cg->locals.registers[i] == reg) return true;
+    }
+    return false;
+}
+
 // emits a string literal into dest (or fresh temp), reusing a cached register when possible
 static int codegen_literal_string(CodeGenerator* cg, ASTNode* node, int dest) {
     const char* value = node->literal_string.string_value;                 // literal text
@@ -50,8 +58,10 @@ static int codegen_literal_string(CodeGenerator* cg, ASTNode* node, int dest) {
 
     if (dest < 0) dest = alloc_register(cg);                               // allocate if no hint
     emit(cg, INST(OP_LOAD_CONST, dest, const_idx, 0), node->line);         // load constant
-    str_cache_add(cg, value, dest);                                        // cache the destination register
-    imm_lvn_add(cg, OP_LOAD_CONST, -1, -1, const_idx, dest);               // LVN backstop
+    if (!is_local_home_register(cg, dest)) {                               // only cache when the destination is a temporary register
+        str_cache_add(cg, value, dest);                                    // cache the destination register
+        imm_lvn_add(cg, OP_LOAD_CONST, -1, -1, const_idx, dest);           // lvn backstop
+    }
     return dest;                                                           // return destination
 }
 
