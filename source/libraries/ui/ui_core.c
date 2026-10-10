@@ -443,9 +443,8 @@ static Widget* hit_test(Widget* w, int x, int y) {
     if (x < w->x || x >= w->x + w->w || y < w->y || y >= w->y + w->h) return NULL;  // outside bounds
 
     if (w->kind == WK_SCROLL) {                                   // scroll containers clip and offset
-        int cx = x, cy = y + (int)w->scroll_y;                    // translate into content space
         for (int i = w->child_count - 1; i >= 0; i--) {           // topmost child first
-            Widget* r = hit_test(w->children[i], cx, cy);
+            Widget* r = hit_test(w->children[i], x, y);
             if (r) return r;
         }
         return w;                                                 // fall back to the container itself
@@ -871,7 +870,7 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     sc = sc->parent;                              // find enclosing scroll container
                 if (sc && sc->kind == WK_SCROLL) {                // vertical scroll container
                     WidgetState* s = ui_state_get(ctx, sc->id);
-                    s->scroll_y -= e->scroll_dy * 40.0;           // apply wheel delta
+                    s->scroll_y += e->scroll_dy * 40.0;           // apply wheel delta
                     if (s->scroll_y < 0) s->scroll_y = 0;         // clamp to top
                     double max = sc->content_h - sc->h;           // max scrollable offset
                     if (max < 0) max = 0;

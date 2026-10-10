@@ -193,6 +193,20 @@ static void arrange(UiContext* ctx, Widget* w, float x, float y, float width, fl
             if (vert) c->meas_h += add; else c->meas_w += add;
         }
         free_main = 0;                                   // consumed all free space
+    } else if (free_main < 0 && tw > 0) {
+        float deficit = -free_main;
+        for (int i = 0; i < n; i++) {
+            Widget* c = w->children[i];
+            if (!c->visible || c->weight <= 0) continue;
+            float shrink = deficit * (c->weight / tw);
+            if (vert) {
+                c->meas_h -= shrink;
+                if (c->meas_h < 0.f) c->meas_h = 0.f;
+            } else {
+                c->meas_w -= shrink;
+                if (c->meas_w < 0.f) c->meas_w = 0.f;
+            }
+        }
     }
 
     float lead = 0, between = w->gap;                    // leading offset and inter-child gap
