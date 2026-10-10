@@ -1571,6 +1571,21 @@ bool vm_ensure_globals(VM* vm, int needed) {
     return true;
 }
 
+// releases every table reference held by the per-pc inline cache and clears each slot back to its zero state
+static void const_ic_reset(VM* vm) {
+    if (!vm->const_ic) return;                      // no cache allocated
+    for (int i = 0; i < vm->const_ic_capacity; i++) {
+        Table* t = vm->const_ic[i].table;           // table pinned by this slot
+        if (t) {
+            value_decref(MAKE_TABLE(t));            // release the IC's reference
+        }
+        vm->const_ic[i].table      = NULL;          // clear the slot
+        vm->const_ic[i].key        = NULL;
+        vm->const_ic[i].generation = 0;
+        vm->const_ic[i].entry      = NULL;
+    }
+}
+
 // creates a new vm instance with the given source code
 VM* vm_create(const char* source) {
     VM* vm = (VM*)calloc(1, sizeof(VM));           // allocate and zero vm struct
@@ -1745,14 +1760,18 @@ void vm_destroy(VM* vm) {
     for (int i = 0; i < vm->args_top; i++) {
         value_decref(vm->args_stack[i]);          // release any remaining args
     }
+
+    // release tables pinned by the per-pc inline cache before cycle_sweep
+    const_ic_reset(vm);                           // release every table pinned by the IC
+    free(vm->const_ic);                           // release per-pc inline cache
+    vm->const_ic = NULL;
+    vm->const_ic_capacity = 0;
+
     cycle_sweep(vm);                              // free tracked tables the decref pass left behind
     APEX_MUTEX_DESTROY(&vm->cycle_lock);          // destroy tracker list lock
     APEX_MUTEX_DESTROY(&vm->completion_mutex);    // destroy lock
     APEX_COND_DESTROY(&vm->completion_cond);      // destroy condvar
     string_intern_table_free(&vm->intern_table);  // free interned strings
-    free(vm->const_ic);                           // release per-pc inline cache
-    vm->const_ic = NULL;
-    vm->const_ic_capacity = 0;
     if (tls_cycle_vm == vm) tls_cycle_vm = NULL;  // clear the thread-local target
 #if APEX_JIT_ENABLED
     jit_destroy(vm->jit);                         // release JIT and its code page
@@ -1929,14 +1948,14 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
     vm->code = chunk->code;                               // pointer to instruction array
     vm->code_count = chunk->code_count;                   // total instruction count
     if (vm->const_ic_capacity < chunk->code_count) {      // grow the per-pc IC array if needed
+        const_ic_reset(vm);                               // release pinned tables before free
         free(vm->const_ic);                               // release the old, smaller array
         vm->const_ic = (TableConstIC*)calloc(             // allocate zeroed slots
             chunk->code_count, sizeof(TableConstIC));
         vm->const_ic_capacity = vm->const_ic              // publish capacity only on success
             ? chunk->code_count : 0;
     } else {
-        memset(vm->const_ic, 0,                           // zeroing forces a clean miss
-               sizeof(TableConstIC) * chunk->code_count); // on every chunk entry
+        const_ic_reset(vm);                               // release pinned tables, zero the slots
     }
     bool top_level = (vm->current_task == NULL);          // entering top-level or resuming a coroutine
     if (top_level) {
@@ -3046,7 +3065,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         Value table_val = regs[table_reg];           // fetch table value
 
         if (unlikely(!IS_TABLE(table_val))) {        // not a table, return none
-            if ((regs[dest] & QNAN) == QNAN) value_decref(regs[dest]);
+            Value old = regs[dest];                  // save old dest value
+            if ((old & QNAN) == QNAN) value_decref(old);  // release heap value
             regs[dest] = MAKE_NONE();                // store none
             ip++; goto *dispatch_table[ip->opcode];  // advance to next instruction
         }
@@ -3059,47 +3079,56 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         TableConstIC* ic = (pc < vm->const_ic_capacity)         // bounds-check against the IC
             ? &vm->const_ic[pc] : NULL;
 
-        if (likely(ic != NULL &&                                // fast path: IC hit
-                   ic->table       == table       &&            // same table
-                   ic->key         == key_str     &&            // same interned key
-                   ic->generation  == table->generation)) {     // no rehash/remove since fill
+        // fast path: the cached slot still describes this exact lookup
+        if (likely(ic != NULL &&
+                ic->table      == table       &&
+                ic->key        == key_str     &&
+                ic->generation == table->generation &&
+                ic->entry      != NULL)) {
             Value val = ic->entry->value;                       // read value straight from entry
-            if ((val & QNAN) == QNAN) value_incref(val);        // match table_get's incref
-            Value old = regs[dest];
-            if ((old & QNAN) == QNAN) value_decref(old);
-            regs[dest] = val;
-            ip++; goto *dispatch_table[ip->opcode];
+            if ((val & QNAN) == QNAN) value_incref(val);        // mirror table_get's incref
+            Value old = regs[dest];                             // save old dest value
+            if ((old & QNAN) == QNAN) value_decref(old);        // release heap value
+            regs[dest] = val;                                   // publish result
+            ip++; goto *dispatch_table[ip->opcode];             // advance to next instruction
         }
 
-        // slow path: normal lookup, then refill IC
+        // slow path: normal lookup, then refill the IC slot
         Value key = MAKE_STRING(key_str);                       // box the interned key
         Value val = MAKE_NONE();                                // default to none
         table_get(table, key, &val);                            // table_get increfs on hit
 
-        if (ic != NULL) {                                       // refill IC slot for next time
-            ic->table      = table;
-            ic->key        = key_str;
-            ic->generation = table->generation;
-            ic->entry      = NULL;
-            if (IS_TABLE(table_val) && table->entries != NULL &&    // recover the entry pointer
-                key_str->hash_computed) {                           // so we can read it next time
+        if (ic != NULL) {                                       // refill the cache for next time
+            if (ic->table != table) {                           // switching to a different table
+                if (ic->table != NULL) {                        // release the previous reference
+                    value_decref(MAKE_TABLE(ic->table));
+                }
+                ic->table = table;                              // pin the new table so the pointer
+                value_incref(MAKE_TABLE(table));                // cannot be freed while cached
+            }
+            ic->key        = key_str;                           // per-pc constant, stable
+            ic->generation = table->generation;                 // snapshot for the staleness check
+            ic->entry      = NULL;                              // reset; refill below only on hit
+
+            if (table->entries != NULL &&                       // hash part exists, so a hit
+                key_str->hash_computed) {                       // could have produced an entry
                 uint32_t h    = key_str->hash;
                 uint32_t slot = h % table->capacity;
                 TableEntry* e = table->entries[slot];
-                while (e) {                                         // identical walk to table_get
+                while (e) {                                     // identical walk to table_get
                     if (e->hash == h && key_equal(e->key, key)) {   // find the entry we just hit
                         ic->entry = e;                              // cache pointer for O(1) reuse
-                        break;
+                        break;                                      // stop at first match
                     }
-                    e = e->next;
+                    e = e->next;                                    // advance chain
                 }
-            }
-        }
+            }                                                   // miss leaves ic->entry == NULL,
+        }                                                       // which the fast-path test rejects
 
-        Value old = regs[dest];
-        if ((old & QNAN) == QNAN) value_decref(old);
-        regs[dest] = val;
-        ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
+        Value old = regs[dest];                                 // save old dest value
+        if ((old & QNAN) == QNAN) value_decref(old);            // release heap value
+        regs[dest] = val;                                       // publish result
+        ip++; goto *dispatch_table[ip->opcode];                 // advance to next instruction
     }
     OP_TABLE_GET_INT_LABEL: {
         int dest = ip->operands[0];                  // dest register index
@@ -3211,7 +3240,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         Value table_val = regs[table_reg];           // fetch table value
 
         if (unlikely(!IS_TABLE(table_val))) {        // parser guarantees table, but be defensive
-            ip++; goto *dispatch_table[ip->opcode];
+            ip++; goto *dispatch_table[ip->opcode];  // skip, no store performed
         }
 
         Table* table = AS_TABLE(table_val);                     // unwrap table pointer
@@ -3219,27 +3248,54 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             (StringObject*)chunk->constants[key_idx].cached_str;
 
         int pc = (int)(ip - vm->code);                          // absolute pc for IC indexing
-        TableConstIC* ic = (pc < vm->const_ic_capacity)         // bounds-check
+        TableConstIC* ic = (pc < vm->const_ic_capacity)         // bounds-check against the IC
             ? &vm->const_ic[pc] : NULL;
 
-        if (likely(ic != NULL &&                                // fast path: IC hit
-                   ic->table      == table &&
-                   ic->key        == key_str &&
-                   ic->generation == table->generation)) {
+        // fast path: same table, same key, no structural change since cache fill
+        if (likely(ic != NULL &&
+                ic->table      == table       &&
+                ic->key        == key_str     &&
+                ic->generation == table->generation &&
+                ic->entry      != NULL)) {
             Value val = regs[val_reg];                          // value to store
-            Value old = ic->entry->value;                       // old value at cached slot
+            Value old = ic->entry->value;                       // old value at the cached slot
             ic->entry->value = val;                             // direct write, no lookup
             if ((val & QNAN) == QNAN) value_incref(val);        // mirror table_set's incref
             if ((old & QNAN) == QNAN) value_decref(old);        // mirror table_set's decref
-            ip++; goto *dispatch_table[ip->opcode];
+            ip++; goto *dispatch_table[ip->opcode];             // advance to next instruction
         }
 
         // slow path: table_set handles update-or-insert and refcounts
         Value key = MAKE_STRING(key_str);                       // box the interned key
-        table_set(table, key, regs[val_reg]);
-        table->generation++;                                    // force IC miss; entry may be new
+        table_set(table, key, regs[val_reg]);                   // update-or-insert
 
-        ip++; goto *dispatch_table[ip->opcode];      // advance to next instruction
+        if (ic != NULL) {                                       // refill the cache for next time
+            if (ic->table != table) {                           // switching to a different table
+                if (ic->table != NULL) {                        // release the previous reference
+                    value_decref(MAKE_TABLE(ic->table));
+                }
+                ic->table = table;                              // pin the new table so the pointer
+                value_incref(MAKE_TABLE(table));                // cannot be freed while cached
+            }
+            ic->key        = key_str;                           // per-pc constant, stable
+            ic->generation = table->generation;                 // snapshot for the staleness check
+            ic->entry      = NULL;                              // reset; refill below
+            if (table->entries != NULL &&                       // hash part exists, so the write
+                key_str->hash_computed) {                       // must have produced an entry
+                uint32_t h    = key_str->hash;
+                uint32_t slot = h % table->capacity;
+                TableEntry* e = table->entries[slot];
+                while (e) {                                     // identical walk to table_get
+                    if (e->hash == h && key_equal(e->key, key)) {   // find the entry we just wrote
+                        ic->entry = e;                              // cache pointer for O(1) reuse
+                        break;                                      // stop at first match
+                    }
+                    e = e->next;                                    // advance chain
+                }
+            }                                                   // entry is always non-NULL here,
+        }                                                       // since table_set just created it
+
+        ip++; goto *dispatch_table[ip->opcode];                 // advance to next instruction
     }
     OP_TABLE_SET_INT_LABEL: {
         int table_reg = ip->operands[0];             // register holding the table
