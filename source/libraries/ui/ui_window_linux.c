@@ -7,6 +7,7 @@
 #include "ui_window.h"
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/Xatom.h>
 #include <X11/keysym.h>
 #include <X11/extensions/XShm.h>
 #include <sys/shm.h>
@@ -25,8 +26,21 @@ struct UiWindow {
     Window   win;         // x11 window id
     GC       gc;          // graphics context for blits
     Atom     wm_delete;   // WM_DELETE_WINDOW protocol atom
+
     XIM      im;          // input method, null when unavailable
     XIC      ic;          // input context, null when unavailable
+
+    Atom     clipboard_atom;  // CLIPBOARD selection
+    Atom     utf8_atom;       // UTF8_STRING target
+    Atom     targets_atom;    // TARGETS target
+
+    char*    clipboard_text;  // owned copy of the string we currently own
+    int      clipboard_len;   // length of that copy
+
+    XEvent*  saved;           // events displaced by blocking clipboard waits
+    int      saved_count;     // number of saved events
+    int      saved_cap;       // capacity of the saved-event array
+
     int      w, h;        // window size in pixels
     bool     open;        // false once the window is closed
     uint32_t* pixels;     // fallback cpu-side framebuffer
@@ -36,8 +50,32 @@ struct UiWindow {
     int      mods;        // last observed modifier bitmask
 };
 
-// swallow x errors that can occur during optional shm setup
+// swallow x errors that can occur during optional shm setup or clipboard exchange
 static int xerr(Display* d, XErrorEvent* e) { (void)d;(void)e; return 0; }
+
+// stores an event back into the window's queue so poll can re-deliver it later
+static void push_saved_event(UiWindow* w, XEvent* ev) {
+    if (w->saved_count >= w->saved_cap) {                // grow the saved-event array
+        w->saved_cap = w->saved_cap ? w->saved_cap * 2 : 16;
+        w->saved = (XEvent*)realloc(w->saved, sizeof(XEvent) * w->saved_cap);
+    }
+    w->saved[w->saved_count++] = *ev;                    // copy the full union
+}
+
+// pops the next event, preferring anything previously saved
+static bool pop_event(UiWindow* w, XEvent* out) {
+    if (w->saved_count > 0) {                            // re-deliver a saved event
+        *out = w->saved[0];
+        memmove(&w->saved[0], &w->saved[1], sizeof(XEvent) * (w->saved_count - 1));
+        w->saved_count--;
+        return true;
+    }
+    if (XPending(w->dpy) > 0) {                          // otherwise pull from the server
+        XNextEvent(w->dpy, out);
+        return true;
+    }
+    return false;                                        // nothing left
+}
 
 // creates and maps a new x11 window, preferring shared memory backing
 UiWindow* ui_window_create(int w, int h, const char* title) {
@@ -63,6 +101,11 @@ UiWindow* ui_window_create(int w, int h, const char* title) {
     XSetWMProtocols(win->dpy, win->win, &win->wm_delete, 1);  // receive close requests
     XMapWindow(win->dpy, win->win);                      // make the window visible
     win->gc = XCreateGC(win->dpy, win->win, 0, NULL);    // create the graphics context
+
+    // clipboard atoms: interned once, reused for both ownership and target queries
+    win->clipboard_atom = XInternAtom(win->dpy, "CLIPBOARD", False);
+    win->utf8_atom      = XInternAtom(win->dpy, "UTF8_STRING", False);
+    win->targets_atom   = XInternAtom(win->dpy, "TARGETS", False);
 
     // input method: open the xim connection and bind an input context to the
     // window. preedit is off because we have no inline composition rendering,
@@ -134,6 +177,8 @@ void ui_window_destroy(UiWindow* w) {
     if (w->win) XDestroyWindow(w->dpy, w->win);          // destroy the x window
     if (w->dpy) XCloseDisplay(w->dpy);                   // close the display connection
     free(w->pixels);                                     // free the cpu-side framebuffer
+    free(w->clipboard_text);                             // free our clipboard copy
+    free(w->saved);                                      // free the saved-event queue
     free(w);                                             // free the window struct
 }
 
@@ -204,6 +249,7 @@ void ui_window_present(UiWindow* w) {
 
 // blocks until the server has input, or until the timeout expires
 bool ui_window_wait(UiWindow* w, int timeout_ms) {
+    if (w->saved_count > 0) return true;                 // saved events already pending
     if (XPending(w->dpy)) return true;                   // events already queued
     int fd = ConnectionNumber(w->dpy);                   // the x connection fd
     fd_set set; FD_ZERO(&set); FD_SET(fd, &set);         // watch the connection
@@ -218,15 +264,44 @@ static int map_key(KeySym ks, char* out_utf8, int* out_len) {
     return (int)ks;                                      // keycode is the keysym value
 }
 
+// answers a SelectionRequest by pasting our clipboard text into the requestor's property
+static void handle_selection_request(UiWindow* w, XSelectionRequestEvent* req) {
+    XSelectionEvent ev = {0};                            // the reply we send back
+    ev.type = SelectionNotify;
+    ev.display = req->display;
+    ev.requestor = req->requestor;
+    ev.selection = req->selection;
+    ev.target = req->target;
+    ev.time = req->time;
+    ev.property = None;
+
+    Atom prop = req->property ? req->property : req->target;  // legacy: no property
+
+    if (req->target == w->targets_atom) {                // TARGETS: advertise utf8
+        Atom targets[] = { w->utf8_atom, XA_STRING };
+        XChangeProperty(w->dpy, req->requestor, prop, XA_ATOM, 32,
+                        PropModeReplace, (unsigned char*)targets, 2);
+        ev.property = prop;
+    } else if (req->target == w->utf8_atom || req->target == XA_STRING) {
+        const char* src = w->clipboard_text ? w->clipboard_text : "";
+        int len = w->clipboard_text ? w->clipboard_len : 0;
+        XChangeProperty(w->dpy, req->requestor, prop, req->target, 8,
+                        PropModeReplace, (const unsigned char*)src, len);
+        ev.property = prop;                              // pasted successfully
+    }                                                   // anything else: property stays None
+
+    XSendEvent(w->dpy, req->requestor, False, 0, (XEvent*)&ev);
+    XFlush(w->dpy);
+}
+
 // polls the x event queue and translates the next event into a ui window event
 bool ui_window_poll(UiWindow* w, UiWinEvent* out) {
     out->kind = UW_EV_NONE;                              // default to nothing
-    while (XPending(w->dpy)) {                           // drain until a recognized event
-        XEvent e; XNextEvent(w->dpy, &e);
 
-        // let the input method consume any event it is working on. without
-        // this filter, ongoing compositions would surface as raw keypresses
-        // and mix with the committed text once the im fires the final event
+    XEvent e;
+    while (pop_event(w, &e)) {                           // drain until a recognized event
+
+        // let the input method consume any event it is working on
         if (w->ic && XFilterEvent(&e, w->win)) continue;
 
         switch (e.type) {
@@ -249,6 +324,14 @@ bool ui_window_poll(UiWindow* w, UiWinEvent* out) {
             case FocusOut:
                 if (w->ic) XUnsetICFocus(w->ic);         // stop feeding the ic
                 break;
+            case SelectionRequest:
+                handle_selection_request(w, &e.xselectionrequest);  // serve clipboard
+                break;
+            case SelectionClear:
+                free(w->clipboard_text);
+                w->clipboard_text = NULL;
+                w->clipboard_len = 0;
+                break;
             case KeyPress: {
                 out->mods = 0;                           // build the modifier bitmask
                 if (e.xkey.state & ShiftMask)   out->mods |= 1;
@@ -265,12 +348,21 @@ bool ui_window_poll(UiWindow* w, UiWinEvent* out) {
                     if (len < 0) len = 0;
                     buf[len] = 0;
                     out->key = (int)ks;                  // keysym for non-text keys
-                    if (len > 0 && (status == XLookupChars || status == XLookupBoth)) {
+
+                    // some im implementations report control keys
+                    bool printable = true;
+                    if (len == 1) {
+                        unsigned char b0 = (unsigned char)buf[0];
+                        if (b0 < 0x20 || b0 == 0x7F) printable = false;
+                    }
+
+                    if (len > 0 && printable &&
+                        (status == XLookupChars || status == XLookupBoth)) {
                         int n = len < (int)sizeof(out->utf8) ? len : (int)sizeof(out->utf8);
                         memcpy(out->utf8, buf, n);       // copy what fits, safely
                         out->utf8_len = n;
                     } else {
-                        out->utf8_len = 0;
+                        out->utf8_len = 0;               // key gesture, not text
                     }
                     out->kind = UW_EV_KEYDOWN;
                     return true;
@@ -323,5 +415,73 @@ bool ui_window_is_open(UiWindow* w) { return w->open; }
 
 // marks the window as closed so callers stop polling it
 void ui_window_close(UiWindow* w) { w->open = false; }
+
+// stores a utf-8 string and claims ownership of the CLIPBOARD selection
+void ui_window_clipboard_set(UiWindow* w, const char* text, int len) {
+    if (!w || !w->dpy) return;
+    if (len < 0) len = 0;                                // sanity
+    free(w->clipboard_text);                             // release the previous copy
+    w->clipboard_text = (char*)malloc((size_t)len + 1);
+    if (text && len) memcpy(w->clipboard_text, text, (size_t)len);
+    w->clipboard_text[len] = 0;
+    w->clipboard_len = len;
+    XSetSelectionOwner(w->dpy, w->clipboard_atom, w->win, CurrentTime);
+    XSetSelectionOwner(w->dpy, XA_PRIMARY,        w->win, CurrentTime);
+    XFlush(w->dpy);
+}
+
+// requests the current clipboard contents as utf-8
+bool ui_window_clipboard_get(UiWindow* w, char** out_text, int* out_len) {
+    if (out_text) *out_text = NULL;
+    if (out_len)  *out_len = 0;
+    if (!w || !w->dpy) return false;
+
+    if (XGetSelectionOwner(w->dpy, w->clipboard_atom) == w->win) {
+        if (!w->clipboard_text) return false;            // own the selection but empty
+        int n = w->clipboard_len;
+        char* copy = (char*)malloc((size_t)n + 1);
+        memcpy(copy, w->clipboard_text, (size_t)n);
+        copy[n] = 0;
+        if (out_text) *out_text = copy; else free(copy);
+        if (out_len)  *out_len = n;
+        return true;
+    }
+
+    XConvertSelection(w->dpy, w->clipboard_atom, w->utf8_atom,
+                      w->clipboard_atom, w->win, CurrentTime);
+    XFlush(w->dpy);
+
+    int fd = ConnectionNumber(w->dpy);                   // x connection fd for select
+    int waited_ms = 0;                                   // total elapsed time
+
+    while (waited_ms < 500) {                            // half-second is plenty
+        if (XPending(w->dpy) || w->saved_count > 0) {
+            XEvent e;
+            pop_event(w, &e);                            // works for saved and live
+            if (e.type == SelectionNotify && e.xselection.selection == w->clipboard_atom) {
+                if (e.xselection.property == None) return false;  // refused
+                Atom type = 0;
+                int fmt = 0;
+                unsigned long nitems = 0, after = 0;
+                unsigned char* data = NULL;
+                int (*old)(Display*,XErrorEvent*) = XSetErrorHandler(xerr);
+                XGetWindowProperty(w->dpy, w->win, e.xselection.property,
+                                   0, (long)(~0UL), True, AnyPropertyType,
+                                   &type, &fmt, &nitems, &after, &data);
+                XSetErrorHandler(old);
+                if (!data) return false;                 // owner gave us nothing
+                if (out_text) *out_text = (char*)data; else XFree(data);
+                if (out_len)  *out_len = (int)nitems;
+                return true;
+            }
+            push_saved_event(w, &e);                     // not ours: hold for later
+            continue;                                    // check next event immediately
+        }
+        struct timeval tv = { 0, 1000 };                 // 1 ms nap between polls
+        select(fd + 1, NULL, NULL, NULL, &tv);
+        waited_ms++;
+    }
+    return false;                                        // no reply from the owner
+}
 
 #endif

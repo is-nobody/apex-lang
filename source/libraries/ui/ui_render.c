@@ -369,10 +369,26 @@ static void draw_widget(UiContext* ctx, Widget* w) {
             ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);  // outline
             float fs = UI_FS_BODY;
             float base = y + (hh + fs * 0.7f) * 0.5f;   // vertically centered text baseline
+
+            WidgetState* s = ui_state_get(ctx, w->id);
+
+            // selection highlight goes under the text so glyphs sit on top
+            if (w->focused && s->sel_anchor >= 0 && s->sel_anchor != s->cursor) {
+                int a = s->sel_anchor < s->cursor ? s->sel_anchor : s->cursor;
+                int b = s->sel_anchor < s->cursor ? s->cursor : s->sel_anchor;
+                float x0 = x + 8.0f;
+                float x1 = x + 8.0f;
+                if (ctx->font) {
+                    x0 += ui_text_measure(ctx->font, w->input_value.ptr, a, fs);
+                    x1 += ui_text_measure(ctx->font, w->input_value.ptr, b, fs);
+                }
+                ui_painter_fill_rect((int)x0, y + 5, (int)(x1 - x0), hh - 10, UI_C_SEL_BG);
+            }
+
             draw_text_at(ctx, (float)(x + 8), base, w->input_value.ptr,
                          w->input_value.len, fs, UI_C_FG);
+
             if (w->focused) {                           // draw the caret when focused
-                WidgetState* s = ui_state_get(ctx, w->id);
                 if (s->blink_phase < 0.5) {             // visible half of the blink cycle
                     int cur = s->cursor < 0 ? w->input_value.len : s->cursor;
                     float cx = x + 8;
@@ -398,9 +414,7 @@ static void draw_widget(UiContext* ctx, Widget* w) {
         case WK_SPACER:
             break;                                      // spacers draw nothing
         case WK_SCROLL: {
-            // children are clipped to a narrower rect so they never overlap the
-            // scrollbar; the scrollbar itself is drawn after children so it
-            // always sits on top of any content that bleeds through the clip
+            // children are clipped to a narrower rect so they never overlap the scrollbar
             int has_sb = w->content_h > (float)hh;      // scrollbar needed?
             int content_w = has_sb ? ww - UI_SCROLL_W : ww;
             if (content_w < 1) content_w = 1;

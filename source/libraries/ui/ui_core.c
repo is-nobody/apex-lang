@@ -16,6 +16,11 @@ static void rebuild_and_draw(UiContext* ctx);       // full widget tree rebuild 
 static void redraw_only(UiContext* ctx);            // repaint without rebuilding the tree
 static void ui_window_paint_cb(void* user, int w, int h);  // host window paint hook
 
+// forward declarations for the input-edit helpers, so that mutating paths can
+// push a change event and the pre-mutation snapshotter can call them in any
+// order without triggering implicit-declaration warnings
+static void push_input_change(UiContext* ctx, Widget* w, const char* str_val);
+
 // fnv-1a hash of parent id + key (or index) to produce a stable widget id
 uint64_t ui_hash_id(uint64_t parent, const char* key, int idx) {
     uint64_t h = 0xCBF29CE484222325ULL ^ parent;     // fold parent id into the seed
@@ -87,6 +92,7 @@ WidgetState* ui_state_get(UiContext* ctx, uint64_t id) {
     memset(s, 0, sizeof(*s));                             // clear the entry
     s->id = id;                                           // bind to the widget id
     s->cursor = -1;                                       // no cursor override yet
+    s->sel_anchor = -1;                                   // no active selection
     return s;                                             // return the fresh entry
 }
 
@@ -134,9 +140,9 @@ static Value intern(VM* vm, const char* s) {
 
 // converts a native ui event into an apex table value for the script layer
 //
-// "key" is now always a string: the widget's user key when one was declared,
-// or the empty string otherwise. this replaces the previous "key_name"
-// convention and lets scripts match with `ev["key"] == "..."` unconditionally.
+// "key" is always a string: the widget's user key when one was declared, or
+// the empty string otherwise. this lets scripts match on `ev["key"] == "..."`
+// without having to branch on whether a key was provided.
 Value ui_event_to_table(VM* vm, const UiEvent* ev) {
     Table* t = table_create(14);                          // event table with room for ~10 fields
     Value k, v;
@@ -156,7 +162,7 @@ Value ui_event_to_table(VM* vm, const UiEvent* ev) {
     v = intern(vm, ty);
     table_set(t, k, v); value_decref(k); value_decref(v);
 
-    k = intern(vm, "key");                                // "key" = user key string, always present
+    k = intern(vm, "key");                                // "key" = user key string
     if (ev->key_name[0]) {
         v = MAKE_STRING(string_create(ev->key_name, (int)strlen(ev->key_name)));
         table_set(t, k, v); value_decref(k); value_decref(v);
@@ -410,6 +416,15 @@ void ui_context_destroy(UiContext* ctx) {
     if (!ctx) return;                                             // null guard
     VM* saved_vm = ctx->vm;                                       // remember vm for back-pointer clear
     ui_widgets_reset(ctx);                                        // free all per-widget allocations
+
+    for (int i = 0; i < ctx->state.count; i++) {                  // release per-state history
+        WidgetState* s = &ctx->state.entries[i];
+        for (int j = 0; j < s->undo_count; j++) free(s->undo_stack[j].text);
+        for (int j = 0; j < s->redo_count; j++) free(s->redo_stack[j].text);
+        free(s->undo_stack);
+        free(s->redo_stack);
+    }
+
     free(ctx->pool);                                              // free the widget pool array
     free(ctx->state.entries);                                     // free the persistent state table
     for (int i = 0; i < ctx->queue.count; i++) free(ctx->queue.events[i].str_value);  // release queued event strings
@@ -454,6 +469,183 @@ static void collect_focusable(Widget* w, Widget** arr, int* n, int cap) {
     if (widget_focusable(w->kind) && *n < cap) arr[(*n)++] = w;   // append if focusable and room
     for (int i = 0; i < w->child_count; i++)
         collect_focusable(w->children[i], arr, n, cap);           // recurse into children
+}
+
+// ---------------- input-edit helpers ----------------
+
+// true when the state has a live non-empty selection
+static bool input_has_selection(WidgetState* s) {
+    return s->sel_anchor >= 0 && s->sel_anchor != s->cursor;
+}
+
+// returns the [min, max) byte range covered by the selection
+static void input_sel_range(WidgetState* s, int* out_min, int* out_max) {
+    int a = s->sel_anchor;
+    int b = s->cursor;
+    if (a > b) { int t = a; a = b; b = t; }
+    *out_min = a;
+    *out_max = b;
+}
+
+// maps a local x offset inside an input widget to a byte offset in its text
+//
+// walks one codepoint at a time and compares against the midpoint of the
+// codepoint's advance, so clicks land on the character nearest the cursor
+static int input_hit_offset(UiContext* ctx, Widget* w, float local_x) {
+    const char* s = w->input_value.ptr;
+    int n = w->input_value.len;
+    if (!ctx->font || n == 0) return 0;
+    if (local_x <= 0) return 0;
+    float full = ui_text_measure(ctx->font, s, n, UI_FS_BODY);
+    if (local_x >= full) return n;                        // past the end: caret at end
+
+    int best = 0;
+    float prev = 0;
+    int i = 0;
+    while (i < n) {
+        int next = ui_utf8_next(s, i, n);
+        float w2 = ui_text_measure(ctx->font, s, next, UI_FS_BODY);
+        float mid = (prev + w2) * 0.5f;                   // midpoint of this codepoint
+        if (local_x < mid) return i;                      // clicked left of the midpoint
+        i = next;
+        prev = w2;
+        best = i;
+    }
+    return best;
+}
+
+// finds the [start, end) byte range of the word containing pos
+//
+// a word is a maximal run of non-whitespace bytes around the caret. this is
+// deliberately simpler than unicode word boundaries: good enough for the
+// double-click gesture in v1.
+static void input_word_range(Widget* w, int pos, int* out_start, int* out_end) {
+    const char* s = w->input_value.ptr;
+    int n = w->input_value.len;
+    int a = pos;
+    while (a > 0) {
+        int prev = ui_utf8_prev(s, a);
+        unsigned char c = (unsigned char)s[prev];
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') break;
+        a = prev;
+    }
+    int b = pos;
+    while (b < n) {
+        unsigned char c = (unsigned char)s[b];
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') break;
+        b = ui_utf8_next(s, b, n);
+    }
+    *out_start = a;
+    *out_end = b;
+}
+
+// replaces the input buffer with a new heap copy and frees the old one
+static void input_set_buffer(Widget* w, char* buf, int len) {
+    free(w->input_value.ptr);
+    w->input_value.ptr = buf;
+    w->input_value.len = len;
+}
+
+// pushes a snapshot of the current buffer onto the undo stack
+//
+// any new edit invalidates the redo history, so redo is cleared here too.
+// the stack is capped to bound memory for very long editing sessions.
+#define INPUT_UNDO_MAX 128
+static void input_push_undo(WidgetState* s, const char* text, int len, int cursor) {
+    if (s->undo_count >= INPUT_UNDO_MAX) {                 // drop the oldest snapshot
+        free(s->undo_stack[0].text);
+        memmove(&s->undo_stack[0], &s->undo_stack[1],
+                sizeof(UndoEntry) * (s->undo_count - 1));
+        s->undo_count--;
+    }
+    if (s->undo_count >= s->undo_cap) {                    // grow the undo stack
+        s->undo_cap = s->undo_cap ? s->undo_cap * 2 : 16;
+        s->undo_stack = (UndoEntry*)realloc(s->undo_stack,
+                                            sizeof(UndoEntry) * s->undo_cap);
+    }
+    char* copy = (char*)malloc((size_t)len + 1);           // snapshot the text
+    memcpy(copy, text, len);
+    copy[len] = 0;
+    s->undo_stack[s->undo_count].text   = copy;
+    s->undo_stack[s->undo_count].len    = len;
+    s->undo_stack[s->undo_count].cursor = cursor;
+    s->undo_count++;
+
+    for (int i = 0; i < s->redo_count; i++) free(s->redo_stack[i].text);  // invalidate redo
+    s->redo_count = 0;
+}
+
+// steps the buffer back one snapshot, moving the current state onto redo
+static void input_undo(UiContext* ctx, Widget* w, WidgetState* s) {
+    if (s->undo_count == 0) return;                        // nothing to undo
+    if (s->redo_count >= s->redo_cap) {                    // grow redo
+        s->redo_cap = s->redo_cap ? s->redo_cap * 2 : 16;
+        s->redo_stack = (UndoEntry*)realloc(s->redo_stack,
+                                            sizeof(UndoEntry) * s->redo_cap);
+    }
+    char* cur = (char*)malloc((size_t)w->input_value.len + 1);  // snapshot current
+    memcpy(cur, w->input_value.ptr, w->input_value.len);
+    cur[w->input_value.len] = 0;
+    s->redo_stack[s->redo_count].text   = cur;
+    s->redo_stack[s->redo_count].len    = w->input_value.len;
+    s->redo_stack[s->redo_count].cursor = s->cursor;
+    s->redo_count++;
+
+    UndoEntry e = s->undo_stack[--s->undo_count];          // pop the previous state
+    free(w->input_value.ptr);
+    w->input_value.ptr = e.text;
+    w->input_value.len = e.len;
+    s->cursor = e.cursor;
+    s->sel_anchor = e.cursor;
+    push_input_change(ctx, w, e.text);
+    ctx->redraw_needed = true;
+}
+
+// steps the buffer forward one snapshot, moving the current state back to undo
+static void input_redo(UiContext* ctx, Widget* w, WidgetState* s) {
+    if (s->redo_count == 0) return;                        // nothing to redo
+    if (s->undo_count >= s->undo_cap) {                    // grow undo
+        s->undo_cap = s->undo_cap ? s->undo_cap * 2 : 16;
+        s->undo_stack = (UndoEntry*)realloc(s->undo_stack,
+                                            sizeof(UndoEntry) * s->undo_cap);
+    }
+    char* cur = (char*)malloc((size_t)w->input_value.len + 1);  // snapshot current
+    memcpy(cur, w->input_value.ptr, w->input_value.len);
+    cur[w->input_value.len] = 0;
+    s->undo_stack[s->undo_count].text   = cur;
+    s->undo_stack[s->undo_count].len    = w->input_value.len;
+    s->undo_stack[s->undo_count].cursor = s->cursor;
+    s->undo_count++;
+
+    UndoEntry e = s->redo_stack[--s->redo_count];          // pop the forward state
+    free(w->input_value.ptr);
+    w->input_value.ptr = e.text;
+    w->input_value.len = e.len;
+    s->cursor = e.cursor;
+    s->sel_anchor = e.cursor;
+    push_input_change(ctx, w, e.text);
+    ctx->redraw_needed = true;
+}
+
+// deletes [a, b) from the input buffer, moving the caret to a
+//
+// the caller is expected to have already pushed an undo snapshot; this
+// function only mutates and emits the change event
+static void input_delete_range(UiContext* ctx, Widget* w, WidgetState* s, int a, int b) {
+    int len = (int)w->input_value.len;
+    if (a < 0) a = 0;
+    if (b > len) b = len;
+    if (b <= a) return;                                   // nothing to remove
+    int new_len = len - (b - a);
+    char* nb = (char*)malloc((size_t)new_len + 1);
+    memcpy(nb, w->input_value.ptr, a);                    // prefix
+    memcpy(nb + a, w->input_value.ptr + b, len - b);      // suffix
+    nb[new_len] = 0;
+    input_set_buffer(w, nb, new_len);
+    s->cursor = a;
+    s->sel_anchor = a;
+    push_input_change(ctx, w, nb);
+    ctx->redraw_needed = true;
 }
 
 // emits a click event for a widget, plus a change event for checkboxes
@@ -521,27 +713,28 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
             ctx->input.x = e->x;                                  // track current pointer
             ctx->input.y = e->y;
 
-            if (ctx->input.lmb && ctx->drag_widget_id) {          // dragging an active slider
+            if (ctx->input.lmb && ctx->drag_widget_id) {          // dragging something
                 Widget* dw = NULL;
                 for (int i = 0; i < ctx->pool_used; i++)
                     if (ctx->pool[i].id == ctx->drag_widget_id) {
                         dw = &ctx->pool[i];
                         break;
                     }
-                if (dw && dw->kind == WK_SLIDER) {
-                    double range = dw->num_max - dw->num_min;     // value range
-                    int thumb_w = 16;                             // thumb width in pixels
-                    int track_w = (int)dw->w - thumb_w;           // usable track width
+
+                if (dw && dw->kind == WK_SLIDER) {                // slider: track pointer value
+                    double range = dw->num_max - dw->num_min;
+                    int thumb_w = 16;
+                    int track_w = (int)dw->w - thumb_w;
                     if (track_w < 1) track_w = 1;
-                    int local = e->x - (int)dw->x - thumb_w / 2;  // pointer position on the track
-                    if (local < 0) local = 0;                     // clamp to track start
-                    if (local > track_w) local = track_w;         // clamp to track end
-                    double t = (double)local / (double)track_w;   // normalised position
-                    double v = dw->num_min + t * range;           // map to value range
+                    int local = e->x - (int)dw->x - thumb_w / 2;
+                    if (local < 0) local = 0;
+                    if (local > track_w) local = track_w;
+                    double t = (double)local / (double)track_w;
+                    double v = dw->num_min + t * range;
 
-                    dw->num_value = v;                            // update the live widget
+                    dw->num_value = v;
 
-                    UiEvent cev; memset(&cev, 0, sizeof(cev));    // emit a change event
+                    UiEvent cev; memset(&cev, 0, sizeof(cev));
                     cev.kind = EV_CHANGE;
                     cev.widget_id = dw->id;
                     strncpy(cev.widget_type, "slider", 15);
@@ -549,6 +742,13 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     cev.num_value = v;
                     ui_event_push(ctx, &cev);
 
+                    ctx->redraw_needed = true;
+                } else if (dw && dw->kind == WK_INPUT) {          // input: extend selection
+                    WidgetState* s = ui_state_get(ctx, dw->id);
+                    if (s->sel_anchor < 0) s->sel_anchor = s->cursor;  // first drag: seed anchor
+                    float local_x = (float)e->x - dw->x - 8.0f;        // into text coordinates
+                    int off = input_hit_offset(ctx, dw, local_x);
+                    s->cursor = off;                                   // head follows the pointer
                     ctx->redraw_needed = true;
                 }
             }
@@ -589,6 +789,31 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                         // widget the user has clearly moved away from
                         if (widget_focusable(h->kind)) ctx->focused_id = h->id;
                         else                           ctx->focused_id = 0;
+
+                        // clicking inside a text input places the caret, and a
+                        // second click on the same widget within a short window
+                        // promotes the gesture into a word selection
+                        if (h->kind == WK_INPUT) {
+                            float local_x = (float)e->x - h->x - 8.0f;
+                            int off = input_hit_offset(ctx, h, local_x);
+
+                            double now = apex_now_seconds();
+                            bool is_double = (h->id == ctx->last_click_id) &&
+                                             (now - ctx->last_click_time) < 0.4;
+                            ctx->last_click_id   = h->id;         // remember for next click
+                            ctx->last_click_time = now;
+
+                            if (is_double) {                      // select the word under the caret
+                                int a, b;
+                                input_word_range(h, off, &a, &b);
+                                s->sel_anchor = a;
+                                s->cursor = b;
+                            } else {                              // single click: place caret
+                                s->cursor = off;
+                                s->sel_anchor = off;
+                            }
+                            ctx->drag_widget_id = h->id;          // begin drag-selection
+                        }
 
                         if (h->kind == WK_SLIDER && !h->disabled) {  // begin slider drag
                             ctx->drag_widget_id = h->id;
@@ -673,44 +898,184 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                         WidgetState* s = ui_state_get(ctx, w->id);
                         int cur = s->cursor < 0 ? (int)w->input_value.len : s->cursor;
                         int len = (int)w->input_value.len;
+                        if (s->sel_anchor < 0) s->sel_anchor = cur;  // normalize anchor
 
-                        if (e->utf8_len > 0 && !(e->mods & 2)) {  // printable text, no ctrl
-                            int need = len + e->utf8_len;
-                            char* nb = (char*)malloc(need + 1);   // build new buffer
-                            memcpy(nb, w->input_value.ptr, cur);  // prefix before cursor
-                            memcpy(nb + cur, e->utf8, e->utf8_len);  // inserted text
-                            memcpy(nb + cur + e->utf8_len,
-                                   w->input_value.ptr + cur, len - cur);  // suffix after cursor
-                            nb[need] = 0;
-                            free(w->input_value.ptr);             // release old buffer
-                            w->input_value.ptr = nb;              // install new buffer
-                            w->input_value.len = need;
-                            s->cursor = cur + e->utf8_len;        // advance cursor past insert
-                            push_input_change(ctx, w, nb);        // emit change event
-                            ctx->redraw_needed = true;
-                            break;
+                        // ctrl shortcuts: select all, copy, cut, paste, undo,
+                        // redo, and word-delete. all of these are checked here
+                        // because the earlier mods mask consumes every ctrl+
+                        // key combination before the plain handlers can see it.
+                        if (e->mods & 2) {
+                            int k = e->key;
+                            if (k >= 'A' && k <= 'Z') k = k - 'A' + 'a';
+                            if (k == 'a') {                   // select all
+                                s->sel_anchor = 0;
+                                s->cursor = len;
+                                ctx->redraw_needed = true;
+                                break;
+                            }
+                            if (k == 'c') {                   // copy selection
+                                if (input_has_selection(s)) {
+                                    int a, b;
+                                    input_sel_range(s, &a, &b);
+                                    ui_window_clipboard_set(ctx->window,
+                                        w->input_value.ptr + a, b - a);
+                                }
+                                break;
+                            }
+                            if (k == 'x') {                   // cut selection
+                                if (input_has_selection(s)) {
+                                    int a, b;
+                                    input_sel_range(s, &a, &b);
+                                    ui_window_clipboard_set(ctx->window,
+                                        w->input_value.ptr + a, b - a);
+                                    input_push_undo(s, w->input_value.ptr, len, cur);
+                                    input_delete_range(ctx, w, s, a, b);
+                                }
+                                break;
+                            }
+                            if (k == 'v') {                   // paste
+                                char* text = NULL;
+                                int tlen = 0;
+                                if (ui_window_clipboard_get(ctx->window, &text, &tlen)
+                                    && text && tlen > 0)
+                                {
+                                    input_push_undo(s, w->input_value.ptr, len, cur);
+
+                                    if (input_has_selection(s)) {  // drop the selection first
+                                        int a, b;
+                                        input_sel_range(s, &a, &b);
+                                        input_delete_range(ctx, w, s, a, b);
+                                        cur = s->cursor;
+                                        len = (int)w->input_value.len;
+                                    }
+                                    int need = len + tlen;
+                                    char* nb = (char*)malloc((size_t)need + 1);
+                                    memcpy(nb, w->input_value.ptr, cur);
+                                    memcpy(nb + cur, text, tlen);
+                                    memcpy(nb + cur + tlen,
+                                           w->input_value.ptr + cur, len - cur);
+                                    nb[need] = 0;
+                                    input_set_buffer(w, nb, need);
+                                    s->cursor = cur + tlen;
+                                    s->sel_anchor = s->cursor;
+                                    push_input_change(ctx, w, nb);
+                                    ctx->redraw_needed = true;
+                                }
+                                free(text);
+                                break;
+                            }
+                            if (k == 'z') {                   // undo (shift+z = redo)
+                                if (e->mods & 1) input_redo(ctx, w, s);
+                                else             input_undo(ctx, w, s);
+                                break;
+                            }
+                            if (k == 'y') {                   // redo
+                                input_redo(ctx, w, s);
+                                break;
+                            }
+                            if (e->key == 0xFF08) {           // ctrl+backspace: delete word back
+                                if (input_has_selection(s)) {
+                                    int a, b;
+                                    input_sel_range(s, &a, &b);
+                                    input_push_undo(s, w->input_value.ptr, len, cur);
+                                    input_delete_range(ctx, w, s, a, b);
+                                } else if (cur > 0) {
+                                    int word_start = cur;
+                                    while (word_start > 0) {
+                                        int prev = ui_utf8_prev(w->input_value.ptr, word_start);
+                                        unsigned char c = (unsigned char)w->input_value.ptr[prev];
+                                        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') break;
+                                        word_start = prev;
+                                    }
+                                    if (word_start < cur) {
+                                        input_push_undo(s, w->input_value.ptr, len, cur);
+                                        input_delete_range(ctx, w, s, word_start, cur);
+                                    }
+                                }
+                                break;
+                            }
+                            break;                            // other ctrl+key: consume and drop
                         }
 
-                        if (e->key == 0xFF08 && cur > 0) {        // backspace
-                            int prev = ui_utf8_prev(w->input_value.ptr, cur);
-                            int need = len - (cur - prev);        // shrink by one codepoint
-                            char* nb = (char*)malloc(need + 1);
-                            memcpy(nb, w->input_value.ptr, prev); // prefix before removed char
-                            memcpy(nb + prev, w->input_value.ptr + cur, len - cur);  // suffix after cursor
+                        // printable text: replaces any active selection first
+                        if (e->utf8_len > 0) {
+                            input_push_undo(s, w->input_value.ptr, len, cur);
+                            if (input_has_selection(s)) {
+                                int a, b;
+                                input_sel_range(s, &a, &b);
+                                input_delete_range(ctx, w, s, a, b);
+                                cur = s->cursor;
+                                len = (int)w->input_value.len;
+                            }
+                            int need = len + e->utf8_len;
+                            char* nb = (char*)malloc((size_t)need + 1);
+                            memcpy(nb, w->input_value.ptr, cur);
+                            memcpy(nb + cur, e->utf8, e->utf8_len);
+                            memcpy(nb + cur + e->utf8_len,
+                                   w->input_value.ptr + cur, len - cur);
                             nb[need] = 0;
-                            free(w->input_value.ptr);
-                            w->input_value.ptr = nb;
-                            w->input_value.len = need;
-                            s->cursor = prev;                     // cursor moves to removed char
+                            input_set_buffer(w, nb, need);
+                            s->cursor = cur + e->utf8_len;
+                            s->sel_anchor = s->cursor;
                             push_input_change(ctx, w, nb);
                             ctx->redraw_needed = true;
                             break;
                         }
 
-                        if (e->key == 0xFF51) { s->cursor = ui_utf8_prev(w->input_value.ptr, cur); ctx->redraw_needed = true; break; }  // left arrow
-                        if (e->key == 0xFF53) { s->cursor = ui_utf8_next(w->input_value.ptr, cur, len); ctx->redraw_needed = true; break; }  // right arrow
-                        if (e->key == 0xFF50) { s->cursor = 0;   ctx->redraw_needed = true; break; }  // home
-                        if (e->key == 0xFF57) { s->cursor = len; ctx->redraw_needed = true; break; }  // end
+                        if (e->key == 0xFF08) {               // backspace
+                            if (input_has_selection(s)) {
+                                int a, b;
+                                input_sel_range(s, &a, &b);
+                                input_push_undo(s, w->input_value.ptr, len, cur);
+                                input_delete_range(ctx, w, s, a, b);
+                            } else if (cur > 0) {
+                                int prev = ui_utf8_prev(w->input_value.ptr, cur);
+                                input_push_undo(s, w->input_value.ptr, len, cur);
+                                input_delete_range(ctx, w, s, prev, cur);
+                            }
+                            break;
+                        }
+                        if (e->key == 0xFFFF) {               // delete (forward)
+                            if (input_has_selection(s)) {
+                                int a, b;
+                                input_sel_range(s, &a, &b);
+                                input_push_undo(s, w->input_value.ptr, len, cur);
+                                input_delete_range(ctx, w, s, a, b);
+                            } else if (cur < len) {
+                                int next = ui_utf8_next(w->input_value.ptr, cur, len);
+                                input_push_undo(s, w->input_value.ptr, len, cur);
+                                input_delete_range(ctx, w, s, cur, next);
+                            }
+                            break;
+                        }
+
+                        // arrow keys move the caret; shift extends the selection
+                        if (e->key == 0xFF51) {               // left
+                            int np = ui_utf8_prev(w->input_value.ptr, cur);
+                            s->cursor = np;
+                            if (!(e->mods & 1)) s->sel_anchor = np;   // clear on plain move
+                            ctx->redraw_needed = true;
+                            break;
+                        }
+                        if (e->key == 0xFF53) {               // right
+                            int np = ui_utf8_next(w->input_value.ptr, cur, len);
+                            s->cursor = np;
+                            if (!(e->mods & 1)) s->sel_anchor = np;
+                            ctx->redraw_needed = true;
+                            break;
+                        }
+                        if (e->key == 0xFF50) {               // home
+                            s->cursor = 0;
+                            if (!(e->mods & 1)) s->sel_anchor = 0;
+                            ctx->redraw_needed = true;
+                            break;
+                        }
+                        if (e->key == 0xFF57) {               // end
+                            s->cursor = len;
+                            if (!(e->mods & 1)) s->sel_anchor = len;
+                            ctx->redraw_needed = true;
+                            break;
+                        }
                     }
 
                     if (w->kind == WK_BUTTON &&
@@ -763,10 +1128,9 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
 // advances time-based widget state
 //
 // the only time-based state right now is the caret blink of the focused
-// widget. dt is the wall-clock delta since the previous call; it is
-// clamped by the caller so long pauses do not jump the phase forward.
-// a repaint is requested only when the caret crosses the visible/hidden
-// boundary so idle frames stay cheap.
+// widget. dt is the wall-clock delta since the previous call; a repaint is
+// requested only when the caret crosses the visible/hidden boundary so
+// idle frames stay cheap.
 void ui_tick(UiContext* ctx, double dt) {
     if (!ctx->focused_id) return;                        // nothing focused: nothing to animate
     if (dt <= 0.0) return;                               // no time passed
@@ -799,9 +1163,7 @@ static bool pump(UiContext* ctx) {
         }
     }
 
-    // advance the blink clock; a static holds the previous wall-clock reading
-    // because the tick has no other natural home between pumps
-    static double s_last_tick = 0.0;
+    static double s_last_tick = 0.0;                              // previous wall-clock reading
     double now = apex_now_seconds();
     double dt = now - s_last_tick;
     s_last_tick = now;

@@ -75,4 +75,10 @@ bool ui_window_is_open(UiWindow* w);
 // ask the window to close
 void ui_window_close(UiWindow* w);
 
+// place a utf-8 string on the system clipboard; owns an internal copy
+void ui_window_clipboard_set(UiWindow* w, const char* text, int len);
+
+// fetch the current clipboard contents as utf-8
+bool ui_window_clipboard_get(UiWindow* w, char** out_text, int* out_len);
+
 #endif

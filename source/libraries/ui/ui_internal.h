@@ -65,12 +65,28 @@ struct Widget {
     double scroll_y, content_h;          // vertical scroll offset and content height
 };
 
+// one snapshot in an input widget's undo/redo history
+typedef struct {
+    char* text;    // owned copy of the input buffer
+    int   len;     // length of that copy
+    int   cursor;  // caret position at snapshot time
+} UndoEntry;
+
 typedef struct {
     uint64_t id;                // widget identity this state belongs to
     bool     hovered, pressed;  // persistent interaction flags
     int      cursor;            // saved cursor position (-1 = unset)
+    int      sel_anchor;        // byte offset of the selection anchor (-1 = no selection)
     double   scroll_y;          // saved scroll offset
     double   blink_phase;       // cursor blink animation phase
+
+    // per-input undo/redo history; null until the first edit
+    UndoEntry* undo_stack;      // snapshots that undo can walk back through
+    int        undo_count;      // live entries in the undo stack
+    int        undo_cap;        // allocated capacity of the undo stack
+    UndoEntry* redo_stack;      // snapshots that redo can walk forward through
+    int        redo_count;      // live entries in the redo stack
+    int        redo_cap;        // allocated capacity of the redo stack
 } WidgetState;                  // per-widget persistent state across frames
 
 typedef struct {
@@ -125,7 +141,11 @@ typedef struct UiContext {
 
     InputState input;           // current pointer and modifier state
     uint64_t   focused_id;      // widget id with keyboard focus, 0 for none
-    uint64_t   drag_widget_id;  // widget id currently being dragged
+    uint64_t   drag_widget_id;  // widget currently being dragged (slider or input)
+
+    // double-click detection
+    double     last_click_time; // wall clock of the previous click
+    uint64_t   last_click_id;   // widget id of the previous click
 
     StateMap   state;           // persistent per-widget state across frames
     EventQueue queue;           // pending events awaiting the script
