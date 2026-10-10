@@ -10,15 +10,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
 #include <unistd.h>
 
 static void rebuild_and_draw(UiContext* ctx);       // full widget tree rebuild then repaint
 static void redraw_only(UiContext* ctx);            // repaint without rebuilding the tree
 static void ui_window_paint_cb(void* user, int w, int h);  // host window paint hook
 
-// forward declarations for the input-edit helpers, so that mutating paths can
-// push a change event and the pre-mutation snapshotter can call them in any
-// order without triggering implicit-declaration warnings
+// forward declarations for the input-edit helpers
 static void push_input_change(UiContext* ctx, Widget* w, const char* str_val);
 
 // fnv-1a hash of parent id + key (or index) to produce a stable widget id
@@ -104,6 +103,192 @@ void ui_event_push(UiContext* ctx, const UiEvent* ev) {
                                 sizeof(UiEvent) * ctx->queue.cap);
     }
     ctx->queue.events[ctx->queue.count++] = *ev;          // copy event into the queue
+}
+
+// fnv-1a over a byte range;
+static uint64_t hash_bytes64(uint64_t h, const void* p, size_t n) {
+    const uint8_t* b = (const uint8_t*)p;                              // byte cursor over the range
+    for (size_t i = 0; i < n; i++) {                                   // one step per byte
+        h ^= (uint64_t)b[i];                                           // xor next byte into state
+        h *= 0x100000001B3ULL;                                         // multiply by fnv-1a prime
+    }
+    return h;                                                          // running digest
+}
+
+// digest of every field that affects how a widget renders
+uint64_t ui_visual_hash(const Widget* w) {
+    uint64_t h = 0xCBF29CE484222325ULL;                                // fnv-1a offset basis
+    h = hash_bytes64(h, &w->kind,      sizeof(w->kind));               // widget kind
+    h = hash_bytes64(h, &w->visible,   sizeof(w->visible));            // visibility flag
+    h = hash_bytes64(h, &w->disabled,  sizeof(w->disabled));           // disabled flag
+    h = hash_bytes64(h, &w->hovered,   sizeof(w->hovered));            // hover flag
+    h = hash_bytes64(h, &w->pressed,   sizeof(w->pressed));            // pressed flag
+    h = hash_bytes64(h, &w->focused,   sizeof(w->focused));            // focus flag
+    h = hash_bytes64(h, &w->checked,   sizeof(w->checked));            // checkbox/radio state
+    h = hash_bytes64(h, &w->cursor,    sizeof(w->cursor));             // input caret position
+    h = hash_bytes64(h, &w->num_value, sizeof(w->num_value));          // slider/progress value
+    h = hash_bytes64(h, &w->scroll_y,  sizeof(w->scroll_y));           // scroll offset
+    h = hash_bytes64(h, &w->content_h, sizeof(w->content_h));          // scroll content height
+
+    // str fields carry a fresh heap copy each rebuild; hash the payload, not the pointer
+    h = hash_bytes64(h, &w->text.len, sizeof(w->text.len));            // label/content length
+    if (w->text.ptr && w->text.len > 0)                                // non-empty label payload
+        h = hash_bytes64(h, w->text.ptr, (size_t)w->text.len);         //   hash the actual bytes
+
+    h = hash_bytes64(h, &w->input_value.len, sizeof(w->input_value.len));  // input text length
+    if (w->input_value.ptr && w->input_value.len > 0)                  // non-empty input payload
+        h = hash_bytes64(h, w->input_value.ptr, (size_t)w->input_value.len);  // hash the bytes
+
+    h = hash_bytes64(h, &w->group.len, sizeof(w->group.len));          // radio group length
+    if (w->group.ptr && w->group.len > 0)                              // non-empty group name
+        h = hash_bytes64(h, w->group.ptr, (size_t)w->group.len);       // hash the bytes
+
+    return h;                                                          // final widget digest
+}
+
+// recursively capture geometry and visual hash into the given table
+static void snapshot_walk(Widget* w, SnapshotTable* t) {
+    if (!w) return;                                                    // null guard
+    if (t->count >= t->cap) {                                          // need room for another entry
+        t->cap = t->cap ? t->cap * 2 : 64;                             // double capacity (or start at 64)
+        t->entries = (WidgetSnapshot*)realloc(t->entries,              // grow the snapshot array
+                                              sizeof(WidgetSnapshot) * t->cap);
+    }
+    WidgetSnapshot* e = &t->entries[t->count++];                       // take the next free slot
+    e->id   = w->id;                                                   // stable widget identity
+    e->x    = (int)floorf(w->x + 0.5f);                                // rounded screen x
+    e->y    = (int)floorf(w->y + 0.5f);                                // rounded screen y
+    e->w    = (int)floorf(w->w + 0.5f);                                // rounded screen width
+    e->h    = (int)floorf(w->h + 0.5f);                                // rounded screen height
+    e->hash = ui_visual_hash(w);                                       // visual-state digest
+    for (int i = 0; i < w->child_count; i++) snapshot_walk(w->children[i], t);  // recurse into children
+}
+
+void ui_snapshot_capture(UiContext* ctx, Widget* root) {
+    ctx->snap_cur.count = 0;                                           // rewind the current snapshot
+    snapshot_walk(root, &ctx->snap_cur);                               // walk the whole tree
+}
+
+void ui_damage_begin(UiContext* ctx) {
+    ctx->damage_count = 0;                                             // forget the previous frame's damage
+}
+
+void ui_damage_add(UiContext* ctx, int x, int y, int w, int h) {
+    if (w <= 0 || h <= 0) return;                                      // degenerate: skip
+    if (x < 0) { w += x; x = 0; }                                      // clip left edge
+    if (y < 0) { h += y; y = 0; }                                      // clip top edge
+    if (x + w > ctx->win_w) w = ctx->win_w - x;                        // clip right edge
+    if (y + h > ctx->win_h) h = ctx->win_h - y;                        // clip bottom edge
+    if (w <= 0 || h <= 0) return;                                      // fully clipped: skip
+
+    if (ctx->damage_count >= ctx->damage_cap) {                        // need room for another rect
+        ctx->damage_cap = ctx->damage_cap ? ctx->damage_cap * 2 : 16;  // double capacity (or start at 16)
+        ctx->damage = (DamageRect*)realloc(ctx->damage,                // grow the damage array
+                                           sizeof(DamageRect) * ctx->damage_cap);
+    }
+    ctx->damage[ctx->damage_count++] = (DamageRect){x, y, w, h};       // append the clamped rect
+}
+
+static int cmp_snap_id(const void* a, const void* b) {
+    uint64_t ia = ((const WidgetSnapshot*)a)->id;                      // left widget id
+    uint64_t ib = ((const WidgetSnapshot*)b)->id;                      // right widget id
+    if (ia < ib) return -1;                                            // a comes before b
+    if (ia > ib) return  1;                                            // b comes before a
+    return 0;                                                          // equal ids
+}
+
+// diff the previous snapshot against the current tree, filling ctx->damage
+void ui_damage_diff(UiContext* ctx) {
+    SnapshotTable* prev = &ctx->snap_prev;                             // previous frame's snapshot
+    SnapshotTable* cur  = &ctx->snap_cur;                              // current frame's snapshot
+
+    qsort(prev->entries, prev->count, sizeof(WidgetSnapshot), cmp_snap_id);  // sort by id for merge walk
+    qsort(cur->entries,  cur->count,  sizeof(WidgetSnapshot), cmp_snap_id);  // sort by id for merge walk
+
+    int i = 0, j = 0;                                                  // cursors into prev and cur
+    while (i < prev->count || j < cur->count) {                        // walk both sorted arrays
+        if (i < prev->count && j < cur->count) {                       // both sides still have entries
+            uint64_t a = prev->entries[i].id;                          // left id
+            uint64_t b = cur->entries[j].id;                           // right id
+            if (a < b) {                                               // widget only in prev: removed
+                WidgetSnapshot* e = &prev->entries[i];
+                ui_damage_add(ctx, e->x, e->y, e->w, e->h);            //   damage where it used to be
+                i++;
+            } else if (a > b) {                                        // widget only in cur: added
+                WidgetSnapshot* e = &cur->entries[j];
+                ui_damage_add(ctx, e->x, e->y, e->w, e->h);            //   damage where it now is
+                j++;
+            } else {                                                   // same id present in both
+                WidgetSnapshot* o = &prev->entries[i];                 // old entry
+                WidgetSnapshot* n = &cur->entries[j];                  // new entry
+                if (o->x != n->x || o->y != n->y ||                    // geometry or visual state
+                    o->w != n->w || o->h != n->h || o->hash != n->hash) {  //   changed?
+                    ui_damage_add(ctx, o->x, o->y, o->w, o->h);        //   erase old
+                    ui_damage_add(ctx, n->x, n->y, n->w, n->h);        //   draw new
+                }
+                i++; j++;
+            }
+        } else if (i < prev->count) {                                  // trailing removed widgets
+            WidgetSnapshot* e = &prev->entries[i];
+            ui_damage_add(ctx, e->x, e->y, e->w, e->h);                // damage old position
+            i++;
+        } else {                                                       // trailing added widgets
+            WidgetSnapshot* e = &cur->entries[j];
+            ui_damage_add(ctx, e->x, e->y, e->w, e->h);                // damage new position
+            j++;
+        }
+    }
+}
+
+static int rects_overlap(const DamageRect* a, const DamageRect* b) {
+    return !(a->x + a->w <= b->x || b->x + b->w <= a->x ||             // separated on x-axis
+             a->y + a->h <= b->y || b->y + b->h <= a->y);              // or on y-axis
+}
+
+static void rect_union(DamageRect* out, const DamageRect* a, const DamageRect* b) {
+    int x0 = a->x < b->x ? a->x : b->x;                                // min left edge
+    int y0 = a->y < b->y ? a->y : b->y;                                // min top edge
+    int x1 = (a->x + a->w) > (b->x + b->w) ? (a->x + a->w) : (b->x + b->w);  // max right edge
+    int y1 = (a->y + a->h) > (b->y + b->h) ? (a->y + a->h) : (b->y + b->h);  // max bottom edge
+    out->x = x0; out->y = y0; out->w = x1 - x0; out->h = y1 - y0;      // write bounding union
+}
+
+// collapse overlapping damage rects; n^2 is fine because n stays tiny
+void ui_damage_finalize(UiContext* ctx) {
+    bool merged = true;                                                // keep merging until fixpoint
+    while (merged) {                                                   // repeat while any merge happened
+        merged = false;                                                // reset for this sweep
+        for (int i = 0; i < ctx->damage_count; i++) {                  // scan each rect
+            for (int j = i + 1; j < ctx->damage_count; ) {             // against later rects
+                if (rects_overlap(&ctx->damage[i], &ctx->damage[j])) { // overlapping pair
+                    rect_union(&ctx->damage[i], &ctx->damage[i], &ctx->damage[j]);  // fold into i
+                    ctx->damage[j] = ctx->damage[--ctx->damage_count];  // swap-remove j
+                    merged = true;                                     // remember progress
+                } else {
+                    j++;                                               // no overlap: advance j
+                }
+            }
+        }
+    }
+}
+
+// swap cur/prev snapshots so the next frame diffs against this one
+void ui_damage_swap(UiContext* ctx) {
+    SnapshotTable t = ctx->snap_prev;                                  // stash previous
+    ctx->snap_prev = ctx->snap_cur;                                    // previous becomes current
+    ctx->snap_cur  = t;                                                // reused buffer as scratch
+}
+
+void ui_damage_free(UiContext* ctx) {
+    free(ctx->damage);                                                 // release damage rect array
+    free(ctx->snap_cur.entries);                                       // release current snapshot
+    free(ctx->snap_prev.entries);                                      // release previous snapshot
+    ctx->damage            = NULL;                                     // clear dangling pointer
+    ctx->snap_cur.entries  = NULL;                                     // clear dangling pointer
+    ctx->snap_prev.entries = NULL;                                     // clear dangling pointer
+    ctx->damage_count = ctx->damage_cap = 0;                           // reset damage list
+    ctx->snap_cur.count = ctx->snap_cur.cap = 0;                       // reset current snapshot
+    ctx->snap_prev.count = ctx->snap_prev.cap = 0;                     // reset previous snapshot
 }
 
 // maps a widget kind enum to its lowercase string name
@@ -433,6 +618,7 @@ void ui_context_destroy(UiContext* ctx) {
     if (ctx->window) ui_window_destroy(ctx->window);              // release the host window
     ctx->last_tree = MAKE_NONE();                                 // clear the cached tree
     ctx->has_tree = false;
+    ui_damage_free(ctx);                                          // free ui damage
     free(ctx);                                                    // free the context itself
     if (saved_vm) saved_vm->ui = NULL;                            // drop the vm's back-pointer
 }
@@ -1257,8 +1443,18 @@ static void rebuild_and_draw(UiContext* ctx) {
     ctx->root->w = (float)ctx->win_w;
     ctx->root->h = (float)ctx->win_h;
     ui_layout(ctx);                                               // compute widget geometry
-    ui_render_frame(ctx);                                         // draw into the pixel buffer
-    ui_window_present(ctx->window);                               // blit to the screen
+
+    // snapshot the freshly laid-out tree, diff against the previous frame to compute damage
+    ui_snapshot_capture(ctx, ctx->root);
+    ui_damage_begin(ctx);
+    ui_damage_diff(ctx);
+    ui_damage_finalize(ctx);
+
+    if (ctx->damage_count > 0) {
+        ui_render_frame_damage(ctx, ctx->damage, ctx->damage_count);
+    }
+    ui_window_present(ctx->window);
+    ui_damage_swap(ctx);
     ctx->redraw_needed = false;                                   // repaint satisfied
 }
 

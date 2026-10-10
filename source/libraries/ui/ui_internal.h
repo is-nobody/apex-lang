@@ -124,6 +124,24 @@ typedef struct {
     int      count, cap;  // live count and allocated capacity
 } EventQueue;             // fifo of events awaiting script consumption
 
+// dirty rectangle in window coordinates; used for damage-tracked repaints
+typedef struct {
+    int x, y, w, h;
+} DamageRect;
+
+// one entry in the per-frame widget snapshot used for damage detection
+typedef struct {
+    uint64_t id;           // widget identity, stable across frames when keyed
+    int      x, y, w, h;   // border_box, rounded to integer pixels
+    uint64_t hash;         // digest of visual state (kind, text, flags, colors, ...)
+} WidgetSnapshot;
+
+typedef struct {
+    WidgetSnapshot* entries;
+    int             count;
+    int             cap;
+} SnapshotTable;
+
 typedef struct UiContext {
     VM*       vm;               // owner vm, used for interning and refcounts
     UiWindow* window;           // native window handle, null until init
@@ -155,6 +173,12 @@ typedef struct UiContext {
 
     bool       redraw_needed;   // set when the tree must be re-laid out and painted
     bool       quit_requested;  // set when the ui should shut down
+
+    SnapshotTable snap_cur;     // widgets laid out this frame
+    SnapshotTable snap_prev;    // widgets laid out in the previous frame
+    DamageRect*   damage;       // pending damage rects for this repaint
+    int           damage_count;
+    int           damage_cap;
 } UiContext;                    // per-vm ui session state
 
 // lazily create the ui context on the vm
@@ -186,6 +210,33 @@ WidgetState* ui_state_get(UiContext* ctx, uint64_t id);
 
 // enqueue an event
 void ui_event_push(UiContext* ctx, const UiEvent* ev);
+
+// digest of every visual field of a widget, used for damage detection
+uint64_t ui_visual_hash(const Widget* w);
+
+// recursively capture the laid-out widget tree into the current snapshot
+void ui_snapshot_capture(UiContext* ctx, Widget* root);
+
+// reset the pending damage list before a fresh diff
+void ui_damage_begin(UiContext* ctx);
+
+// add one rectangle to the pending damage list, clamped to the window
+void ui_damage_add(UiContext* ctx, int x, int y, int w, int h);
+
+// diff the previous snapshot against the current tree, filling the damage list
+void ui_damage_diff(UiContext* ctx);
+
+// collapse overlapping damage rectangles into their union
+void ui_damage_finalize(UiContext* ctx);
+
+// swap current and previous snapshots so the next frame diffs against this one
+void ui_damage_swap(UiContext* ctx);
+
+// release every damage-tracking allocation owned by the context
+void ui_damage_free(UiContext* ctx);
+
+// damage-aware render
+void ui_render_frame_damage(UiContext* ctx, const DamageRect* rects, int n);
 
 // convert an event into an apex table
 Value ui_event_to_table(VM* vm, const UiEvent* ev);

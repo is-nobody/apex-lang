@@ -186,7 +186,8 @@ void ui_painter_stroke_round(int x, int y, int w, int h, int r, uint32_t c) {
     stroke_corner_aa(x+w-r, y+h-r, r, 0, 0, c);                     // bottom-right corner
 }
 
-static void draw_widget(UiContext* ctx, Widget* w);     // forward declaration for recursion
+// damage-aware
+static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d);
 
 // draws a single line of text at the given baseline position
 static void draw_text_at(UiContext* ctx, float x, float baseline,
@@ -238,210 +239,224 @@ static void draw_wrapped(UiContext* ctx, Widget* w, int x, int y, int width, uin
 }
 
 // recursively draws a widget and all of its visible children
-static void draw_widget(UiContext* ctx, Widget* w) {
-    if (!w || !w->visible) return;                      // nothing to draw
-    int x = (int)floorf(w->x + 0.5f);                   // rounded pixel coordinates
-    int y = (int)floorf(w->y + 0.5f);
+static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
+    if (!w || !w->visible) return;      // nothing to draw
+
+    int x  = (int)floorf(w->x + 0.5f);  // rounded pixel coordinates
+    int y  = (int)floorf(w->y + 0.5f);
     int ww = (int)floorf(w->w + 0.5f);
     int hh = (int)floorf(w->h + 0.5f);
-    if (ww <= 0 || hh <= 0) return;                     // degenerate rect: skip
 
-    if (w->focused && w->kind == WK_INPUT) {            // focus ring around inputs
-        ui_painter_stroke_round(x-2, y-2, ww+4, hh+4, UI_RADIUS+2, UI_C_FOCUS);
+    bool draw_self = true;
+    if (d) {
+        int wx1 = x + ww;
+        int wy1 = y + hh;
+        if (wx1 <= d->x || x >= d->x + d->w ||
+            wy1 <= d->y || y >= d->y + d->h) {
+            draw_self = false;
+            if (w->kind == WK_SCROLL) return;  // clipped subtree: skip entirely
+        }
     }
 
-    switch (w->kind) {
-        case WK_TEXT:
-            draw_wrapped(ctx, w, x, y, ww, UI_C_FG);    // plain body text
-            break;
-        case WK_HEADING:
-            draw_wrapped(ctx, w, x, y, ww, UI_C_FG);    // heading text uses a larger size
-            break;
-        case WK_BUTTON: {
-            uint32_t bg = UI_C_ACCENT;                  // default button background
-            if (w->disabled) bg = UI_C_DIS_BG;          // greyed when disabled
-            else if (w->pressed) bg = UI_C_ACCENT_A;    // brighter while pressed
-            else if (w->hovered) bg = UI_C_ACCENT_H;    // slightly brighter on hover
-            ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, bg);
-            ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER_S);
-            float fs = UI_FS_BODY;
-            float tw = ctx->font ? ui_text_measure(ctx->font, w->text.ptr, w->text.len, fs) : w->text.len*8.0f;
-            float tx = x + (ww - tw) * 0.5f;            // center horizontally
-            float base = y + (hh + fs * 0.7f) * 0.5f;   // vertically center the cap height
-            uint32_t tc = w->disabled ? UI_C_DIS_FG : UI_C_ACCENT_T;
-            draw_text_at(ctx, tx, base, w->text.ptr, w->text.len, fs, tc);
-            break;
+    if (draw_self && ww > 0 && hh > 0) {
+        if (w->focused && w->kind == WK_INPUT) {  // focus ring around inputs
+            ui_painter_stroke_round(x-2, y-2, ww+4, hh+4, UI_RADIUS+2, UI_C_FOCUS);
         }
-        case WK_LINK: {
-            float fs = UI_FS_BODY;
-            float base = y + hh - 4;                    // baseline at the bottom of the box
-            uint32_t tc = w->hovered ? UI_C_FG : UI_C_FG_DIM;
-            draw_text_at(ctx, (float)x, base, w->text.ptr, w->text.len, fs, tc);
-            float tw = ctx->font ? ui_text_measure(ctx->font, w->text.ptr, w->text.len, fs) : 0;
-            ui_painter_fill_rect(x, (int)base + 2, (int)tw, 1, tc);  // underline
-            break;
-        }
-        case WK_BADGE: {
-            ui_painter_fill_round(x, y, ww, hh, UI_RADIUS_SM, UI_C_ACCENT);  // pill background
-            float fs = UI_FS_SMALL;
-            float tw = ctx->font ? ui_text_measure(ctx->font, w->text.ptr, w->text.len, fs) : 0;
-            float tx = x + (ww - tw) * 0.5f;            // center horizontally
-            float base = y + hh - 5;                    // baseline near the bottom
-            draw_text_at(ctx, tx, base, w->text.ptr, w->text.len, fs, UI_C_ACCENT_T);
-            break;
-        }
-        case WK_CHECKBOX: {
-            int sz = UI_CB_SIZE;                        // box side length
-            int bx = x, by = y + (hh - sz)/2;           // vertically centered box
 
-            if (w->checked) {                           // checked state: accent fill plus checkmark
-                uint32_t fill = w->hovered ? UI_C_ACCENT_H : UI_C_ACCENT;
-                ui_painter_fill_round(bx, by, sz, sz, UI_RADIUS_SM, fill);
-                ui_painter_stroke_round(bx, by, sz, sz, UI_RADIUS_SM, UI_C_BORDER_S);
+        switch (w->kind) {
+            case WK_TEXT:
+                draw_wrapped(ctx, w, x, y, ww, UI_C_FG);  // plain body text
+                break;
+            case WK_HEADING:
+                draw_wrapped(ctx, w, x, y, ww, UI_C_FG);  // heading text uses a larger size
+                break;
+            case WK_BUTTON: {
+                uint32_t bg = UI_C_ACCENT;                // default button background
+                if (w->disabled) bg = UI_C_DIS_BG;        // greyed when disabled
+                else if (w->pressed) bg = UI_C_ACCENT_A;  // brighter while pressed
+                else if (w->hovered) bg = UI_C_ACCENT_H;  // slightly brighter on hover
+                ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, bg);
+                ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER_S);
+                float fs = UI_FS_BODY;
+                float tw = ctx->font ? ui_text_measure(ctx->font, w->text.ptr, w->text.len, fs) : w->text.len*8.0f;
+                float tx = x + (ww - tw) * 0.5f;           // center horizontally
+                float base = y + (hh + fs * 0.7f) * 0.5f;  // vertically center the cap height
+                uint32_t tc = w->disabled ? UI_C_DIS_FG : UI_C_ACCENT_T;
+                draw_text_at(ctx, tx, base, w->text.ptr, w->text.len, fs, tc);
+                break;
+            }
+            case WK_LINK: {
+                float fs = UI_FS_BODY;
+                float base = y + hh - 4;                    // baseline at the bottom of the box
+                uint32_t tc = w->hovered ? UI_C_FG : UI_C_FG_DIM;
+                draw_text_at(ctx, (float)x, base, w->text.ptr, w->text.len, fs, tc);
+                float tw = ctx->font ? ui_text_measure(ctx->font, w->text.ptr, w->text.len, fs) : 0;
+                ui_painter_fill_rect(x, (int)base + 2, (int)tw, 1, tc);  // underline
+                break;
+            }
+            case WK_BADGE: {
+                ui_painter_fill_round(x, y, ww, hh, UI_RADIUS_SM, UI_C_ACCENT);  // pill background
+                float fs = UI_FS_SMALL;
+                float tw = ctx->font ? ui_text_measure(ctx->font, w->text.ptr, w->text.len, fs) : 0;
+                float tx = x + (ww - tw) * 0.5f;            // center horizontally
+                float base = y + hh - 5;                    // baseline near the bottom
+                draw_text_at(ctx, tx, base, w->text.ptr, w->text.len, fs, UI_C_ACCENT_T);
+                break;
+            }
+            case WK_CHECKBOX: {
+                int sz = UI_CB_SIZE;                        // box side length
+                int bx = x, by = y + (hh - sz)/2;           // vertically centered box
 
-                int cx = bx + sz/2 - 1, cy = by + sz/2 - 2;  // checkmark origin
+                if (w->checked) {                           // checked state: accent fill plus checkmark
+                    uint32_t fill = w->hovered ? UI_C_ACCENT_H : UI_C_ACCENT;
+                    ui_painter_fill_round(bx, by, sz, sz, UI_RADIUS_SM, fill);
+                    ui_painter_stroke_round(bx, by, sz, sz, UI_RADIUS_SM, UI_C_BORDER_S);
 
-                for (int i = 0; i <= 4; i++) {          // downstroke of the checkmark
-                    int px = cx - 4 + i;
-                    int py = cy + i;
-                    blend_px(px, py,     UI_C_ACCENT_T);
-                    blend_px(px, py + 1, UI_C_ACCENT_T);  // 2px thick for legibility
+                    int cx = bx + sz/2 - 1, cy = by + sz/2 - 2;  // checkmark origin
+
+                    for (int i = 0; i <= 4; i++) {          // downstroke of the checkmark
+                        int px = cx - 4 + i;
+                        int py = cy + i;
+                        blend_px(px, py,     UI_C_ACCENT_T);
+                        blend_px(px, py + 1, UI_C_ACCENT_T);  // 2px thick for legibility
+                    }
+                    for (int i = 0; i <= 4; i++) {          // upstroke of the checkmark
+                        int px = cx + i;
+                        int py = cy + 4 - i;
+                        blend_px(px, py,     UI_C_ACCENT_T);
+                        blend_px(px, py + 1, UI_C_ACCENT_T);
+                    }
+                } else {                                    // unchecked: empty box
+                    uint32_t fill = w->hovered ? UI_C_PANEL_ALT : UI_C_INPUT_BG;
+                    ui_painter_fill_round(bx, by, sz, sz, UI_RADIUS_SM, fill);
+                    ui_painter_stroke_round(bx, by, sz, sz, UI_RADIUS_SM, UI_C_BORDER);
                 }
-                for (int i = 0; i <= 4; i++) {          // upstroke of the checkmark
-                    int px = cx + i;
-                    int py = cy + 4 - i;
-                    blend_px(px, py,     UI_C_ACCENT_T);
-                    blend_px(px, py + 1, UI_C_ACCENT_T);
-                }
-            } else {                                    // unchecked: empty box
+
+                float fs = UI_FS_BODY;
+                float base = y + hh - 4;                    // label baseline at the bottom
+                draw_text_at(ctx, (float)(bx + sz + 8), base,
+                             w->text.ptr, w->text.len, fs, UI_C_FG);  // label to the right of the box
+                break;
+            }
+            case WK_RADIO: {
+                int sz = UI_CB_SIZE;                        // radio circle side
+                int bx = x, by = y + (hh - sz)/2;           // vertically centered circle
+
                 uint32_t fill = w->hovered ? UI_C_PANEL_ALT : UI_C_INPUT_BG;
-                ui_painter_fill_round(bx, by, sz, sz, UI_RADIUS_SM, fill);
-                ui_painter_stroke_round(bx, by, sz, sz, UI_RADIUS_SM, UI_C_BORDER);
+                ui_painter_fill_round(bx, by, sz, sz, sz/2, fill);              // outer circle
+                ui_painter_stroke_round(bx, by, sz, sz, sz/2, UI_C_BORDER);     // outline
+                if (w->checked)                                                 // filled dot when selected
+                    ui_painter_fill_round(bx+4, by+4, sz-8, sz-8, (sz-8)/2, UI_C_ACCENT);
+
+                float fs = UI_FS_BODY;
+                float base = y + hh - 4;                    // label baseline
+                draw_text_at(ctx, (float)(bx + sz + 8), base, w->text.ptr, w->text.len, fs, UI_C_FG);
+                break;
             }
+            case WK_PROGRESS: {
+                ui_painter_fill_round(x, y, ww, hh, hh/2, UI_C_DIS_BG);         // empty track
+                double v = w->num_value;                    // current value, expected 0..1
+                if (v < 0) v = 0;
+                if (v > 1) v = 1;
+                int fw = (int)(ww * v);                     // filled width in pixels
+                if (fw > 0) ui_painter_fill_round(x, y, fw, hh, hh/2, UI_C_ACCENT);
+                break;
+            }
+            case WK_SLIDER: {
+                int track_y = y + hh/2 - 2;                 // center the track vertically
+                ui_painter_fill_round(x, track_y, ww, 4, 2, UI_C_DIS_BG);       // track
+                double range = w->num_max - w->num_min;
+                double t = range > 0 ? (w->num_value - w->num_min) / range : 0;  // normalized value
+                if (t < 0) t = 0;
+                if (t > 1) t = 1;
+                int thumb_x = x + (int)(t * (ww - 16));     // thumb position along the track
+                uint32_t tc = w->pressed ? UI_C_ACCENT_A
+                            : w->hovered ? UI_C_ACCENT_H
+                            : UI_C_ACCENT;                  // thumb color state
+                ui_painter_fill_round(thumb_x, y + hh/2 - 8, 16, 16, 8, tc);    // round thumb
+                ui_painter_stroke_round(thumb_x, y + hh/2 - 8, 16, 16, 8, UI_C_BORDER_S);
+                break;
+            }
+            case WK_INPUT: {
+                ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_INPUT_BG);  // input background
+                ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);  // outline
+                float fs = UI_FS_BODY;
+                float base = y + (hh + fs * 0.7f) * 0.5f;   // vertically centered text baseline
 
-            float fs = UI_FS_BODY;
-            float base = y + hh - 4;                    // label baseline at the bottom
-            draw_text_at(ctx, (float)(bx + sz + 8), base,
-                         w->text.ptr, w->text.len, fs, UI_C_FG);  // label to the right of the box
-            break;
-        }
-        case WK_RADIO: {
-            int sz = UI_CB_SIZE;                        // radio circle side
-            int bx = x, by = y + (hh - sz)/2;           // vertically centered circle
+                WidgetState* s = ui_state_get(ctx, w->id);
 
-            uint32_t fill = w->hovered ? UI_C_PANEL_ALT : UI_C_INPUT_BG;
-            ui_painter_fill_round(bx, by, sz, sz, sz/2, fill);              // outer circle
-            ui_painter_stroke_round(bx, by, sz, sz, sz/2, UI_C_BORDER);     // outline
-            if (w->checked)                                                 // filled dot when selected
-                ui_painter_fill_round(bx+4, by+4, sz-8, sz-8, (sz-8)/2, UI_C_ACCENT);
-
-            float fs = UI_FS_BODY;
-            float base = y + hh - 4;                    // label baseline
-            draw_text_at(ctx, (float)(bx + sz + 8), base, w->text.ptr, w->text.len, fs, UI_C_FG);
-            break;
-        }
-        case WK_PROGRESS: {
-            ui_painter_fill_round(x, y, ww, hh, hh/2, UI_C_DIS_BG);         // empty track
-            double v = w->num_value;                    // current value, expected 0..1
-            if (v < 0) v = 0;
-            if (v > 1) v = 1;
-            int fw = (int)(ww * v);                     // filled width in pixels
-            if (fw > 0) ui_painter_fill_round(x, y, fw, hh, hh/2, UI_C_ACCENT);
-            break;
-        }
-        case WK_SLIDER: {
-            int track_y = y + hh/2 - 2;                 // center the track vertically
-            ui_painter_fill_round(x, track_y, ww, 4, 2, UI_C_DIS_BG);       // track
-            double range = w->num_max - w->num_min;
-            double t = range > 0 ? (w->num_value - w->num_min) / range : 0;  // normalized value
-            if (t < 0) t = 0;
-            if (t > 1) t = 1;
-            int thumb_x = x + (int)(t * (ww - 16));     // thumb position along the track
-            uint32_t tc = w->pressed ? UI_C_ACCENT_A
-                        : w->hovered ? UI_C_ACCENT_H
-                        : UI_C_ACCENT;                  // thumb color state
-            ui_painter_fill_round(thumb_x, y + hh/2 - 8, 16, 16, 8, tc);    // round thumb
-            ui_painter_stroke_round(thumb_x, y + hh/2 - 8, 16, 16, 8, UI_C_BORDER_S);
-            break;
-        }
-        case WK_INPUT: {
-            ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_INPUT_BG);  // input background
-            ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);  // outline
-            float fs = UI_FS_BODY;
-            float base = y + (hh + fs * 0.7f) * 0.5f;   // vertically centered text baseline
-
-            WidgetState* s = ui_state_get(ctx, w->id);
-
-            // selection highlight goes under the text so glyphs sit on top
-            if (w->focused && s->sel_anchor >= 0 && s->sel_anchor != s->cursor) {
-                int a = s->sel_anchor < s->cursor ? s->sel_anchor : s->cursor;
-                int b = s->sel_anchor < s->cursor ? s->cursor : s->sel_anchor;
-                float x0 = x + 8.0f;
-                float x1 = x + 8.0f;
-                if (ctx->font) {
-                    x0 += ui_text_measure(ctx->font, w->input_value.ptr, a, fs);
-                    x1 += ui_text_measure(ctx->font, w->input_value.ptr, b, fs);
+                // selection highlight goes under the text so glyphs sit on top
+                if (w->focused && s->sel_anchor >= 0 && s->sel_anchor != s->cursor) {
+                    int a = s->sel_anchor < s->cursor ? s->sel_anchor : s->cursor;
+                    int b = s->sel_anchor < s->cursor ? s->cursor : s->sel_anchor;
+                    float x0 = x + 8.0f;
+                    float x1 = x + 8.0f;
+                    if (ctx->font) {
+                        x0 += ui_text_measure(ctx->font, w->input_value.ptr, a, fs);
+                        x1 += ui_text_measure(ctx->font, w->input_value.ptr, b, fs);
+                    }
+                    ui_painter_fill_rect((int)x0, y + 5, (int)(x1 - x0), hh - 10, UI_C_SEL_BG);
                 }
-                ui_painter_fill_rect((int)x0, y + 5, (int)(x1 - x0), hh - 10, UI_C_SEL_BG);
-            }
 
-            draw_text_at(ctx, (float)(x + 8), base, w->input_value.ptr,
-                         w->input_value.len, fs, UI_C_FG);
+                draw_text_at(ctx, (float)(x + 8), base, w->input_value.ptr,
+                             w->input_value.len, fs, UI_C_FG);
 
-            if (w->focused) {                           // draw the caret when focused
-                if (s->blink_phase < 0.5) {             // visible half of the blink cycle
-                    int cur = s->cursor < 0 ? w->input_value.len : s->cursor;
-                    float cx = x + 8;
-                    if (ctx->font) cx += ui_text_measure(ctx->font, w->input_value.ptr, cur, fs);
-                    ui_painter_fill_rect((int)cx, y + 6, 1, hh - 12, UI_C_FG);
+                if (w->focused) {                           // draw the caret when focused
+                    if (s->blink_phase < 0.5) {             // visible half of the blink cycle
+                        int cur = s->cursor < 0 ? w->input_value.len : s->cursor;
+                        float cx = x + 8;
+                        if (ctx->font) cx += ui_text_measure(ctx->font, w->input_value.ptr, cur, fs);
+                        ui_painter_fill_rect((int)cx, y + 6, 1, hh - 12, UI_C_FG);
+                    }
                 }
+                break;
             }
-            break;
+            case WK_SEPARATOR:
+                ui_painter_fill_rect(x, y, ww, 1, UI_C_BORDER);  // 1px horizontal rule
+                break;
+            case WK_IMAGE: {
+                ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_DIS_BG);     // placeholder fill
+                ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);   // outline
+                break;
+            }
+            case WK_PANEL: {
+                ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_PANEL);      // panel background
+                ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);   // panel outline
+                break;
+            }
+            case WK_SPACER:
+                break;                                      // spacers draw nothing
+            case WK_SCROLL: {
+                // children are clipped to a narrower rect so they never overlap the scrollbar
+                int has_sb = w->content_h > (float)hh;      // scrollbar needed?
+                int content_w = has_sb ? ww - UI_SCROLL_W : ww;
+                if (content_w < 1) content_w = 1;
+                ui_painter_push_clip(x, y, content_w, hh);
+                break;
+            }
+            case WK_FRAME:
+            case WK_HSCROLL:
+            case WK_GRID:
+            case WK_VBOX:
+            case WK_HBOX:
+                break;                                      // pure containers: no own chrome
         }
-        case WK_SEPARATOR:
-            ui_painter_fill_rect(x, y, ww, 1, UI_C_BORDER);  // 1px horizontal rule
-            break;
-        case WK_IMAGE: {
-            ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_DIS_BG);     // placeholder fill
-            ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);   // outline
-            break;
-        }
-        case WK_PANEL: {
-            ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_PANEL);      // panel background
-            ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);   // panel outline
-            break;
-        }
-        case WK_SPACER:
-            break;                                      // spacers draw nothing
-        case WK_SCROLL: {
-            // children are clipped to a narrower rect so they never overlap the scrollbar
-            int has_sb = w->content_h > (float)hh;      // scrollbar needed?
-            int content_w = has_sb ? ww - UI_SCROLL_W : ww;
-            if (content_w < 1) content_w = 1;
-            ui_painter_push_clip(x, y, content_w, hh);
-            break;
-        }
-        case WK_FRAME:
-        case WK_HSCROLL:
-        case WK_GRID:
-        case WK_VBOX:
-        case WK_HBOX:
-            break;                                      // pure containers: no own chrome
     }
 
-    for (int i = 0; i < w->child_count; i++) draw_widget(ctx, w->children[i]);  // draw children in order
+    for (int i = 0; i < w->child_count; i++)
+        draw_widget(ctx, w->children[i], d);                // draw children in order
 
-    if (w->kind == WK_SCROLL) {
-        ui_painter_pop_clip();                          // restore the clip after scroll children
+    if (draw_self && w->kind == WK_SCROLL) {
+        ui_painter_pop_clip();                              // restore the clip after scroll children
 
-        if (w->content_h > (float)hh) {                 // scrollbar drawn last, above children
+        if (w->content_h > (float)hh) {                     // scrollbar drawn last, above children
             int sb_x = x + ww - UI_SCROLL_W;
             ui_painter_fill_rect(sb_x, y, UI_SCROLL_W, hh, UI_C_SCROLL_T);   // track
-            double maxs = w->content_h - hh;            // scrollable extent
+            double maxs = w->content_h - hh;                // scrollable extent
             double t = maxs > 0 ? w->scroll_y / maxs : 0;
-            int th = (int)(hh * (hh / w->content_h));   // thumb height proportional to viewport
-            if (th < 24) th = 24;                       // enforce a minimum thumb size
-            int ty = y + (int)(t * (hh - th));          // thumb position
+            int th = (int)(hh * (hh / w->content_h));       // thumb height proportional to viewport
+            if (th < 24) th = 24;                           // enforce a minimum thumb size
+            int ty = y + (int)(t * (hh - th));              // thumb position
             ui_painter_fill_round(sb_x+2, ty+2, UI_SCROLL_W-4, th-4,
                                   (UI_SCROLL_W-4)/2, UI_C_SCROLL_H);
         }
@@ -452,5 +467,18 @@ static void draw_widget(UiContext* ctx, Widget* w) {
 void ui_render_frame(UiContext* ctx) {
     ui_painter_init(ctx->pixels, ctx->win_w, ctx->win_h);       // bind the painter to the surface
     ui_painter_fill_rect(0, 0, ctx->win_w, ctx->win_h, UI_C_BG); // clear with the background color
-    if (ctx->root) draw_widget(ctx, ctx->root);                 // paint the tree
+    if (ctx->root) draw_widget(ctx, ctx->root, NULL);           // full repaint, no damage mask
+}
+
+// repaints only the given damage rectangles
+void ui_render_frame_damage(UiContext* ctx, const DamageRect* rects, int n) {
+    if (n <= 0) return;                                         // nothing damaged, no work
+    ui_painter_init(ctx->pixels, ctx->win_w, ctx->win_h);       // bind painter to the framebuffer
+    for (int i = 0; i < n; i++) {                               // one pass per damage rect
+        const DamageRect* d = &rects[i];                        // current damage rect
+        ui_painter_push_clip(d->x, d->y, d->w, d->h);           // restrict writes to this rect
+        ui_painter_fill_rect(d->x, d->y, d->w, d->h, UI_C_BG);  // clear rect to background
+        if (ctx->root) draw_widget(ctx, ctx->root, d);          // redraw only widgets touching rect
+        ui_painter_pop_clip();                                  // restore previous clip
+    }
 }
