@@ -255,6 +255,17 @@ static void emit_instruction(BytecodeChunk* chunk, int offset, FILE* out) {  // 
             fprintf(out, " >= " C_MAGENTA "%d" C_RESET, c);       // >= imm
             break;
 
+        case OP_JUMP_IF_NONE: {                                  // branch if r[op1] is none
+            fprintf(out, C_BLUE "->" C_RESET " " C_GRAY "%d" C_RESET " if ", a);
+            REG(b); fputs(" == " C_MAGENTA "none" C_RESET, out);
+            break;
+        }
+        case OP_JUMP_IF_NOT_NONE: {                              // branch if r[op1] is not none
+            fprintf(out, C_BLUE "->" C_RESET " " C_GRAY "%d" C_RESET " if ", a);
+            REG(b); fputs(" != " C_MAGENTA "none" C_RESET, out);
+            break;
+        }
+
         case OP_JUMP_MATCH_NUM:                                   // match number case
             fprintf(out, C_BLUE "->" C_RESET " " C_GRAY "%d" C_RESET " if ", a); REG(b); fputs(" == ", out);  // -> target if subj ==
             print_const_value(chunk, c, out);                     // number constant

@@ -230,6 +230,8 @@ uint8_t jcc_for_entry_op(Opcode op) {
         case OP_JUMP_IF_GT_IMM:  return 0x87;
         case OP_JUMP_IF_LTE_IMM: return 0x86;
         case OP_JUMP_IF_GTE_IMM: return 0x83;
+        case OP_JUMP_IF_NONE:     return 0x84;   // je: exit when the register is none
+        case OP_JUMP_IF_NOT_NONE: return 0x85;   // jne: exit when the register is not none
         default:             return 0x84;
     }
 }

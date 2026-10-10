@@ -70,6 +70,8 @@ bool inst_reads_reg(Instruction* inst, int reg) {
             return false;                                       // args captured via PUSH_ARG
         case OP_ASYNC_CALL:                                         // dest, func_idx, arg_count
             return false;                                       // args captured via PUSH_ARG
+        case OP_JUMP_IF_NONE: case OP_JUMP_IF_NOT_NONE:
+            return inst->operands[1] == reg;
         case OP_RETURN: case OP_RETURN_NUM: case OP_RETURN_BOOL:
             return inst->operands[0] == reg;                    // reads the return value
         case OP_RETURN_NONE:

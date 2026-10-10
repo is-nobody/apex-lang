@@ -24,7 +24,7 @@ int emit(CodeGenerator* cg, Instruction inst, int line) {
 
     bool is_jump = (inst.opcode == OP_JUMP ||
                     (inst.opcode >= OP_JUMP_IF_FALSE && inst.opcode <= OP_JUMP_IF_GTE) ||
-                    (inst.opcode >= OP_JUMP_IF_EQ_IMM && inst.opcode <= OP_JUMP_IF_GTE_IMM) ||
+                    (inst.opcode >= OP_JUMP_IF_EQ_IMM && inst.opcode <= OP_JUMP_IF_NOT_NONE) ||
                     inst.opcode == OP_JUMP_MATCH_NUM || inst.opcode == OP_JUMP_MATCH_STR ||
                     inst.opcode == OP_JUMP_MATCH_BOOL || inst.opcode == OP_JUMP_MATCH_NONE);
 

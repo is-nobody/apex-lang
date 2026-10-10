@@ -972,7 +972,7 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
         int saved_next_register = cg->next_register;
         cg->for_scope_depth++;                                                      // enter for-scope
 
-        ASTNode* condition = node->for_stmt.condition;                              // condition
+            ASTNode* condition = node->for_stmt.condition;                          // condition
         int left_reg = -1;                                                          // left operand reg
         int right_reg = -1;                                                         // right operand reg
         bool optimized = false;                                                     // optimized flag
@@ -982,6 +982,8 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
         double imm_val_for_cond = 0;                                                // folded immediate value
         Opcode jump_op = OP_JUMP;                                                   // jump opcode
         Opcode jump_op_imm = OP_JUMP;                                               // jump opcode with immediate
+        bool fused_none = false;                                                    // true: condition is `x == none` / `x != none`
+        ASTNode* none_value_operand = NULL;                                         // non-none side of the comparison
 
         LocalNumSnap cond_entry = snap_numbers(cg);                                 // snapshot before condition
 
@@ -991,27 +993,43 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
                 bool both_numbers = is_number_expression(cg, condition->binary.left) &&  // check both operands known numeric
                                     is_number_expression(cg, condition->binary.right);
 
-                switch (op) {                                                       // map to jump op
-                    case TOKEN_LESS:          jump_op = OP_JUMP_IF_GTE; jump_op_imm = OP_JUMP_IF_GTE_IMM; has_imm = true; optimized = true; break;
-                    case TOKEN_LESS_EQUAL:    jump_op = OP_JUMP_IF_GT;  jump_op_imm = OP_JUMP_IF_GT_IMM;  has_imm = true; optimized = true; break;
-                    case TOKEN_GREATER:       jump_op = OP_JUMP_IF_LTE; jump_op_imm = OP_JUMP_IF_LTE_IMM; has_imm = true; optimized = true; break;
-                    case TOKEN_GREATER_EQUAL: jump_op = OP_JUMP_IF_LT;  jump_op_imm = OP_JUMP_IF_LT_IMM;  has_imm = true; optimized = true; break;
-                    case TOKEN_EQUAL_EQUAL:   jump_op = both_numbers ? OP_JUMP_IF_NEQ_NUM : OP_JUMP_IF_NEQ; jump_op_imm = OP_JUMP_IF_NEQ_IMM; has_imm = true; optimized = true; break;
-                    case TOKEN_NOT_EQUAL:     jump_op = both_numbers ? OP_JUMP_IF_EQ_NUM : OP_JUMP_IF_EQ;   jump_op_imm = OP_JUMP_IF_EQ_IMM;   has_imm = true; optimized = true; break;
-                    default: break;
+                if (op == TOKEN_EQUAL_EQUAL || op == TOKEN_NOT_EQUAL) {
+                    if (condition->binary.right->type == AST_LITERAL_NONE) {
+                        none_value_operand = condition->binary.left;
+                    } else if (condition->binary.left->type == AST_LITERAL_NONE) {
+                        none_value_operand = condition->binary.right;
+                    }
+                    if (none_value_operand) {
+                        fused_none = true;
+                        jump_op = (op == TOKEN_EQUAL_EQUAL)
+                                  ? OP_JUMP_IF_NOT_NONE
+                                  : OP_JUMP_IF_NONE;
+                    }
                 }
-                if (has_imm && try_fold_number(cg, condition->binary.right, &imm_val_for_cond) &&
-                    imm_val_for_cond == (int)imm_val_for_cond &&
-                    imm_val_for_cond >= 0 && imm_val_for_cond <= 65535) {
-                    imm_jump_ready = true;
-                }
-                if (optimized && !imm_jump_ready) {                                 // can optimize and not already folded
-                    ASTNode* right_node = condition->binary.right;                  // right side
-                    if (right_node->type == AST_LITERAL_NUMBER ||                   // constant right
-                        right_node->type == AST_LITERAL_STRING ||
-                        right_node->type == AST_LITERAL_BOOL) {
-                        right_reg = codegen_expression(cg, right_node);             // evaluate
-                        right_hoisted = true;                                       // mark hoisted
+
+                if (!fused_none) {                                                  // general comparison path unchanged
+                    switch (op) {                                                   // map to jump op
+                        case TOKEN_LESS:          jump_op = OP_JUMP_IF_GTE; jump_op_imm = OP_JUMP_IF_GTE_IMM; has_imm = true; optimized = true; break;
+                        case TOKEN_LESS_EQUAL:    jump_op = OP_JUMP_IF_GT;  jump_op_imm = OP_JUMP_IF_GT_IMM;  has_imm = true; optimized = true; break;
+                        case TOKEN_GREATER:       jump_op = OP_JUMP_IF_LTE; jump_op_imm = OP_JUMP_IF_LTE_IMM; has_imm = true; optimized = true; break;
+                        case TOKEN_GREATER_EQUAL: jump_op = OP_JUMP_IF_LT;  jump_op_imm = OP_JUMP_IF_LT_IMM;  has_imm = true; optimized = true; break;
+                        case TOKEN_EQUAL_EQUAL:   jump_op = both_numbers ? OP_JUMP_IF_NEQ_NUM : OP_JUMP_IF_NEQ; jump_op_imm = OP_JUMP_IF_NEQ_IMM; has_imm = true; optimized = true; break;
+                        case TOKEN_NOT_EQUAL:     jump_op = both_numbers ? OP_JUMP_IF_EQ_NUM : OP_JUMP_IF_EQ;   jump_op_imm = OP_JUMP_IF_EQ_IMM;   has_imm = true; optimized = true; break;
+                        default: break;
+                    }
+                    if (has_imm && try_fold_number(cg, condition->binary.right, &imm_val_for_cond) &&
+                        imm_val_for_cond == (int)imm_val_for_cond &&
+                        imm_val_for_cond >= 0 && imm_val_for_cond <= 65535) {
+                        imm_jump_ready = true;
+                    }
+                    if (optimized && !imm_jump_ready) {                             // can optimize and not already folded
+                        ASTNode* right_node = condition->binary.right;              // right side
+                        if (right_node->type == AST_LITERAL_NUMBER ||               // constant right
+                            right_node->type == AST_LITERAL_STRING ||
+                            right_node->type == AST_LITERAL_BOOL) {
+                            right_reg = codegen_expression(cg, right_node);         // evaluate
+                            right_hoisted = true;                                   // mark hoisted
+                        }
                     }
                 }
             }
@@ -1024,7 +1042,11 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
 
         int jump_to_end = -1;                                                       // jump to end instr
         if (condition) {                                                            // has condition
-            if (optimized) {                                                        // optimized condition
+            if (fused_none) {                                                       // x == none / x != none
+                int reg = codegen_expression(cg, none_value_operand);               // evaluate only the value side
+                jump_to_end = emit(cg, INST(jump_op, 0, reg, 0), node->line);       // fused none-test jump
+                free_register(cg, reg);                                             // free operand
+            } else if (optimized) {                                                 // optimized condition
                 left_reg = codegen_expression(cg, condition->binary.left);          // evaluate left
                 if (imm_jump_ready) {                                               // right folds to a small int
                     jump_to_end = emit(cg, INST(jump_op_imm, 0, left_reg, (int)imm_val_for_cond), node->line);

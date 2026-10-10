@@ -2034,6 +2034,24 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
             fixups[nfix].target_pc = tgt;                    // exit vs internal decided at patch time
             nfix++;
             emit_i32(cb, 0);
+        } else if (inst->opcode == OP_JUMP_IF_NONE ||
+                   inst->opcode == OP_JUMP_IF_NOT_NONE) {
+            int tgt = inst->operands[0];
+            int a   = inst->operands[1];
+            int xa  = x86_cache_load(&cache, cb, a);
+            if (xa < 0) JIT_FATAL("cache full: cond-enter JUMP_IF_NONE a=%d (pc=%d)", a, pc);
+            x86_emit_movq_rax_xmm(cb, xa);                  // rax = raw 64-bit value
+            x86_emit_movabs_r11(cb, X86_NONE_BITS);         // r11 = NONE bit pattern
+            x86_emit_cmp_rax_r11(cb);                       // cmp rax, r11
+            x86_cache_flush(&cache, cb);
+            uint8_t jcc = (inst->opcode == OP_JUMP_IF_NONE) ? 0x84 : 0x85;
+            emit_u8(cb, 0x0F); emit_u8(cb, jcc);            // je / jne rel32
+            if (nfix >= range_size)
+                JIT_FATAL("fixup overflow in cond-enter loop at pc=%d", entry);
+            fixups[nfix].patch_at  = cb->len;
+            fixups[nfix].target_pc = tgt;
+            nfix++;
+            emit_i32(cb, 0);
         } else if (inst->opcode == OP_JUMP_IF_EQ || inst->opcode == OP_JUMP_IF_NEQ ||
                    inst->opcode == OP_JUMP_IF_EQ_NUM || inst->opcode == OP_JUMP_IF_NEQ_NUM ||
                    inst->opcode == OP_JUMP_IF_LT || inst->opcode == OP_JUMP_IF_GT ||

@@ -2027,6 +2027,9 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_JUMP_IF_LTE_IMM]    = &&OP_JUMP_IF_LTE_IMM_LABEL,
         [OP_JUMP_IF_GTE_IMM]    = &&OP_JUMP_IF_GTE_IMM_LABEL,
 
+        [OP_JUMP_IF_NONE]       = &&OP_JUMP_IF_NONE_LABEL,
+        [OP_JUMP_IF_NOT_NONE]   = &&OP_JUMP_IF_NOT_NONE_LABEL,
+
         [OP_JUMP_MATCH_NUM]     = &&OP_JUMP_MATCH_NUM_LABEL,
         [OP_JUMP_MATCH_STR]     = &&OP_JUMP_MATCH_STR_LABEL,
         [OP_JUMP_MATCH_BOOL]    = &&OP_JUMP_MATCH_BOOL_LABEL,
@@ -2668,6 +2671,27 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             goto *dispatch_table[ip->opcode];    // dispatch next instruction
         }
         ip++; goto *dispatch_table[ip->opcode];  // fall through
+    }
+
+    OP_JUMP_IF_NONE_LABEL: {
+        APEX_TRY_JIT_LOOP();
+        int target = ip->operands[0];                    // jump target address
+        Value v = regs[ip->operands[1]];                 // operand register
+        if (v == MAKE_NONE()) {                          // single 64-bit compare, no type dispatch
+            ip = &vm->code[target];                      // take the jump
+            goto *dispatch_table[ip->opcode];
+        }
+        ip++; goto *dispatch_table[ip->opcode];          // fall through
+    }
+    OP_JUMP_IF_NOT_NONE_LABEL: {
+        APEX_TRY_JIT_LOOP();
+        int target = ip->operands[0];                    // jump target address
+        Value v = regs[ip->operands[1]];                 // operand register
+        if (v != MAKE_NONE()) {                          // single 64-bit compare, no type dispatch
+            ip = &vm->code[target];                      // take the jump
+            goto *dispatch_table[ip->opcode];
+        }
+        ip++; goto *dispatch_table[ip->opcode];          // fall through
     }
 
     OP_JUMP_MATCH_NUM_LABEL: {

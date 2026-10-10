@@ -807,6 +807,46 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 did_flush = true;
                 break;
             }
+            case OP_JUMP_IF_NONE: {                              // jump if rax holds the none pattern
+                int xa = x86_cache_load(&cache, cb, a);
+                if (xa < 0) JIT_FATAL("cache full: JUMP_IF_NONE a=%d (pc=%d)", a, pc);
+                x86_emit_movq_rax_xmm(cb, xa);                   // rax = raw 64-bit value
+                x86_emit_movabs_r11(cb, X86_NONE_BITS);          // r11 = NONE bit pattern
+                x86_emit_cmp_rax_r11(cb);                        // cmp rax, r11
+                if (d >= start && d < end) {
+                    if (needs_flush[d - start])      x86_cache_flush(&cache, cb);
+                    else if (use_snap[d - start])    x86_cache_snap(&jump_snap[d - start], &cache);
+                } else {
+                    x86_cache_flush(&cache, cb);
+                }
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x84);            // je rel32
+                fixups[fixup_count].patch_at  = cb->len;
+                fixups[fixup_count].target_pc = d;
+                fixup_count++;
+                emit_i32(cb, 0);
+                did_flush = true;
+                break;
+            }
+            case OP_JUMP_IF_NOT_NONE: {                          // jump if rax does not hold none
+                int xa = x86_cache_load(&cache, cb, a);
+                if (xa < 0) JIT_FATAL("cache full: JUMP_IF_NOT_NONE a=%d (pc=%d)", a, pc);
+                x86_emit_movq_rax_xmm(cb, xa);                   // rax = raw 64-bit value
+                x86_emit_movabs_r11(cb, X86_NONE_BITS);          // r11 = NONE bit pattern
+                x86_emit_cmp_rax_r11(cb);                        // cmp rax, r11
+                if (d >= start && d < end) {
+                    if (needs_flush[d - start])      x86_cache_flush(&cache, cb);
+                    else if (use_snap[d - start])    x86_cache_snap(&jump_snap[d - start], &cache);
+                } else {
+                    x86_cache_flush(&cache, cb);
+                }
+                emit_u8(cb, 0x0F); emit_u8(cb, 0x85);            // jne rel32
+                fixups[fixup_count].patch_at  = cb->len;
+                fixups[fixup_count].target_pc = d;
+                fixup_count++;
+                emit_i32(cb, 0);
+                did_flush = true;
+                break;
+            }
             case OP_JUMP_MATCH_NUM: {                            // jump if R[a] is a number == const[b]
                 int xa = x86_cache_load(&cache, cb, a);          // load subject
                 if (xa < 0) JIT_FATAL("cache full: JUMP_MATCH_NUM subj=%d (func=%d pc=%d)", a, func_idx, pc);

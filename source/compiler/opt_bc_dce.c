@@ -71,7 +71,7 @@ int dce_local_range(CodeGenerator* cg, int from_pc, int to_pc) {
 bool op_has_pc_in_op0(Opcode op) {
     if (op == OP_JUMP) return true;
     if (op >= OP_JUMP_IF_FALSE && op <= OP_JUMP_IF_GTE) return true;
-    if (op >= OP_JUMP_IF_EQ_IMM && op <= OP_JUMP_IF_GTE_IMM) return true;
+    if (op >= OP_JUMP_IF_EQ_IMM && op <= OP_JUMP_IF_NOT_NONE) return true;
     if (op == OP_JUMP_MATCH_NUM || op == OP_JUMP_MATCH_STR ||
         op == OP_JUMP_MATCH_BOOL || op == OP_JUMP_MATCH_NONE) return true;
     return false;

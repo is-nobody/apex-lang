@@ -57,6 +57,9 @@ static bool is_pure_loop_instr(JITContext* ctx, int pc) {
         case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:     // conditional branches with imm
         case OP_JUMP_IF_LT_IMM: case OP_JUMP_IF_GT_IMM:
         case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
+        case OP_JUMP_IF_NONE:                                // none-test conditional branches
+        case OP_JUMP_IF_NOT_NONE:
+            return true;
         case OP_FOR_NEXT:                                    // numeric-for entry
         case OP_FOR_NEXT_LOOP:                               // loop-inverted back edge
         case OP_TABLE_GET:                                   // validated by analyze_loop_regs
@@ -145,7 +148,9 @@ static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
             case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:     // imm-jump variants
             case OP_JUMP_IF_LT_IMM: case OP_JUMP_IF_GT_IMM:
             case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
-            case OP_JUMP_MATCH_BOOL:                             // match jumps share the range check
+            case OP_JUMP_IF_NONE:                                 // none-test variants
+            case OP_JUMP_IF_NOT_NONE:
+            case OP_JUMP_MATCH_BOOL:                              // match jumps share the range check
             case OP_JUMP_MATCH_NONE: {
                 int target = inst->operands[0];                     // jump target pc
                 if (target < start || target > end) return false;   // end is a valid exit
@@ -296,7 +301,7 @@ static bool infer_return_type(BytecodeChunk* chunk, int start, int end,
 static bool is_loop_entry_op(Opcode op) {
     return op == OP_FOR_NEXT ||
            op == OP_TABLE_ITER_NEXT ||
-           (op >= OP_JUMP_IF_EQ && op <= OP_JUMP_IF_GTE_IMM);  // widened: includes imm variants
+           (op >= OP_JUMP_IF_EQ && op <= OP_JUMP_IF_NOT_NONE); // widened: includes imm and none variants
 }
 
 // walks the loop body, marks read and written slots, and collects table uses
@@ -651,7 +656,7 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
         for (int i = entry + 1; i < pc && ok; i++) {             // internal branch scan
             Opcode op = chunk->code[i].opcode;
             if (op == OP_JUMP_IF_FALSE ||
-                (op >= OP_JUMP_IF_EQ && op <= OP_JUMP_IF_GTE_IMM)) {
+                (op >= OP_JUMP_IF_EQ && op <= OP_JUMP_IF_NOT_NONE)) {
                 if (kind != JIT_LOOP_COND_ENTER) { ok = false; break; }
                 int tgt = chunk->code[i].operands[0];
                 if (tgt >= entry && tgt <= pc) continue;         // internal forward skip

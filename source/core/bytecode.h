@@ -49,6 +49,9 @@ typedef enum {
     OP_JUMP_IF_LTE_IMM,    // branch if r[op1] <= imm (numeric compare)
     OP_JUMP_IF_GTE_IMM,    // branch if r[op1] >= imm (numeric compare)
 
+    OP_JUMP_IF_NONE,       // jump if r[op1] is none (exact bit compare)
+    OP_JUMP_IF_NOT_NONE,   // jump if r[op1] is not none (exact bit compare)
+
     OP_JUMP_MATCH_NUM,     // jump if subject equals number constant
     OP_JUMP_MATCH_STR,     // jump if subject equals string constant
     OP_JUMP_MATCH_BOOL,    // jump if subject equals boolean constant

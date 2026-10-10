@@ -490,6 +490,11 @@ static inline void x86_emit_clear_high16_rsi(CodeBuf* b) {
     emit_u8(b, 0x48); emit_u8(b, 0xC1); emit_u8(b, 0xEE); emit_u8(b, 16);
 }
 
+// cmp rax, r11 — used for exact-bit compares against the none pattern
+static inline void x86_emit_cmp_rax_r11(CodeBuf* b) {
+    emit_u8(b, 0x4C); emit_u8(b, 0x39); emit_u8(b, 0xD8);
+}
+
 // returns a cache register to receive slot d's new value, preferring d's
 // existing home so the fixpoint pass converges in a small number of steps
 int  x86_cache_dest_reg(XmmCache* c, CodeBuf* cb, int d, int excl1, int excl2);

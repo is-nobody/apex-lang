@@ -32,6 +32,26 @@ int codegen_optimized_condition(CodeGenerator* cg, ASTNode* condition, int line)
             free_register(cg, reg);                                          // free operand
             return jump_offset;                                              // return jump offset
         }
+
+        // -- x == none / x != none → fused compare-and-jump, no register for `none` --
+        ASTNode* none_operand = NULL;                                        // operand to test for none-ness
+        if (right->type == AST_LITERAL_NONE) {
+            none_operand = left;                                             // x == none / x != none
+        } else if (left->type == AST_LITERAL_NONE) {
+            none_operand = right;                                            // none == x / none != x
+        }
+
+        if (none_operand) {                                                  // pattern matched
+            int reg = codegen_expression(cg, none_operand);                  // evaluate tested operand
+            // `==` is false when the value is not none, so emit JUMP_IF_NOT_NONE
+            // `!=` is false when the value is none,     so emit JUMP_IF_NONE
+            Opcode jump_op = (op == TOKEN_EQUAL_EQUAL)
+                             ? OP_JUMP_IF_NOT_NONE
+                             : OP_JUMP_IF_NONE;
+            int jump_offset = emit(cg, INST(jump_op, 0, reg, 0), line);      // fused jump
+            free_register(cg, reg);                                          // free operand
+            return jump_offset;                                              // return jump offset
+        }
     }
 
     Opcode jump_op;                                                          // jump opcode for register-register
