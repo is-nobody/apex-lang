@@ -374,6 +374,145 @@ static void mirror_to_global(CodeGenerator* cg, const char* name, int reg, int l
     emit(cg, INST(OP_STORE_GLOBAL, reg, gidx, 0), line);
 }
 
+// returns true when `name` is read anywhere in `node`
+static bool name_is_read(ASTNode* node, const char* name) {
+    if (!node) return false;
+    switch (node->type) {
+        case AST_IDENTIFIER:
+            return strcmp(node->identifier.name, name) == 0;
+
+        case AST_VAR_DECL:
+        case AST_ASSIGN: {
+            if (node->var_assign.value &&
+                name_is_read(node->var_assign.value, name)) return true;
+            if (node->var_assign.access_path &&
+                name_is_read(node->var_assign.access_path, name)) return true;
+            return false;
+        }
+
+        case AST_BINARY:
+            return name_is_read(node->binary.left,  name) ||
+                   name_is_read(node->binary.right, name);
+        case AST_UNARY:
+            return name_is_read(node->unary.operand, name);
+        case AST_AWAIT:
+            return name_is_read(node->await_expr.expression, name);
+        case AST_CALL:
+            if (name_is_read(node->call.callee, name)) return true;
+            for (int i = 0; i < node->call.arguments->count; i++)
+                if (name_is_read(node->call.arguments->nodes[i], name)) return true;
+            return false;
+        case AST_INDEX_ACCESS:
+            return name_is_read(node->access.object, name) ||
+                   name_is_read(node->access.member, name);
+        case AST_TABLE_LITERAL:
+            for (int i = 0; i < node->table_literal.items->count; i++)
+                if (name_is_read(node->table_literal.items->nodes[i], name)) return true;
+            for (int i = 0; i < node->table_literal.key_values->count; i++) {
+                ASTNode* kv = node->table_literal.key_values->nodes[i];
+                if (name_is_read(kv->binary.left,  name)) return true;
+                if (name_is_read(kv->binary.right, name)) return true;
+            }
+            return false;
+        case AST_STRING_INTERP:
+            for (int i = 0; i < node->string_interp.parts->count; i++)
+                if (name_is_read(node->string_interp.parts->nodes[i], name)) return true;
+            return false;
+        case AST_TERNARY:
+            return name_is_read(node->ternary.condition,  name) ||
+                   name_is_read(node->ternary.true_expr,  name) ||
+                   name_is_read(node->ternary.false_expr, name);
+        case AST_BLOCK:
+        case AST_PROGRAM:
+            for (int i = 0; i < node->block.statements->count; i++)
+                if (name_is_read(node->block.statements->nodes[i], name)) return true;
+            return false;
+        case AST_EXPR_STMT:
+            return name_is_read(node->expr_stmt.expression, name);
+        case AST_RETURN_STMT:
+            return node->return_stmt.value &&
+                   name_is_read(node->return_stmt.value, name);
+        case AST_IF_STMT:
+            return name_is_read(node->if_stmt.condition,   name) ||
+                   name_is_read(node->if_stmt.then_branch, name) ||
+                   name_is_read(node->if_stmt.elif_chain,  name) ||
+                   name_is_read(node->if_stmt.else_branch, name);
+        case AST_FOR_STMT:
+            if (node->for_stmt.var_name &&
+                strcmp(node->for_stmt.var_name, name) == 0) return true;
+            if (name_is_read(node->for_stmt.start, name)) return true;
+            if (name_is_read(node->for_stmt.end,   name)) return true;
+            if (name_is_read(node->for_stmt.step,  name)) return true;
+            if (name_is_read(node->for_stmt.condition, name)) return true;
+            return name_is_read(node->for_stmt.body, name);
+        case AST_MATCH_STMT:
+            if (name_is_read(node->match_stmt.subject, name)) return true;
+            if (node->match_stmt.cases) {
+                for (int i = 0; i < node->match_stmt.cases->count; i++)
+                    if (name_is_read(node->match_stmt.cases->nodes[i], name)) return true;
+            }
+            return name_is_read(node->match_stmt.default_case, name);
+        case AST_CASE:
+            return name_is_read(node->case_stmt.pattern, name) ||
+                   name_is_read(node->case_stmt.body,    name);
+        default:
+            return false;
+    }
+}
+
+// returns true when `name` is aliased anywhere in `node`
+static bool name_is_aliased(ASTNode* node, const char* name) {
+    if (!node) return false;
+    switch (node->type) {
+        case AST_VAR_DECL:
+        case AST_ASSIGN:
+            if (node->var_assign.value &&
+                node->var_assign.value->type == AST_IDENTIFIER &&
+                strcmp(node->var_assign.value->identifier.name, name) == 0) {
+                return true;
+            }
+            if (node->var_assign.value &&
+                name_is_aliased(node->var_assign.value, name)) return true;
+            if (node->var_assign.access_path &&
+                name_is_aliased(node->var_assign.access_path, name)) return true;
+            return false;
+        case AST_BINARY:
+            return name_is_aliased(node->binary.left,  name) ||
+                   name_is_aliased(node->binary.right, name);
+        case AST_UNARY:
+            return name_is_aliased(node->unary.operand, name);
+        case AST_AWAIT:
+            return name_is_aliased(node->await_expr.expression, name);
+        case AST_CALL:
+            if (name_is_aliased(node->call.callee, name)) return true;
+            for (int i = 0; i < node->call.arguments->count; i++)
+                if (name_is_aliased(node->call.arguments->nodes[i], name)) return true;
+            return false;
+        case AST_INDEX_ACCESS:
+            return name_is_aliased(node->access.object, name) ||
+                   name_is_aliased(node->access.member, name);
+        case AST_BLOCK:
+        case AST_PROGRAM:
+            for (int i = 0; i < node->block.statements->count; i++)
+                if (name_is_aliased(node->block.statements->nodes[i], name)) return true;
+            return false;
+        case AST_EXPR_STMT:
+            return name_is_aliased(node->expr_stmt.expression, name);
+        case AST_RETURN_STMT:
+            return node->return_stmt.value &&
+                   name_is_aliased(node->return_stmt.value, name);
+        case AST_IF_STMT:
+            return name_is_aliased(node->if_stmt.condition,   name) ||
+                   name_is_aliased(node->if_stmt.then_branch, name) ||
+                   name_is_aliased(node->if_stmt.elif_chain,  name) ||
+                   name_is_aliased(node->if_stmt.else_branch, name);
+        case AST_FOR_STMT:
+            return name_is_aliased(node->for_stmt.body, name);
+        default:
+            return false;
+    }
+}
+
 // folds a constant range loop or bare condition loop with straight-line arithmetic
 bool try_emit_symbolic_loop(CodeGenerator* cg, ASTNode* node) {
     const char* var = NULL;
@@ -414,6 +553,32 @@ bool try_emit_symbolic_loop(CodeGenerator* cg, ASTNode* node) {
     for (int i = 0; i < body->block.statements->count; i++) {
         ASTNode* s = body->block.statements->nodes[i];
         if (!s) return false;
+
+        // indexed assignment `t[...] = expr`
+        if ((s->type == AST_ASSIGN || s->type == AST_VAR_DECL) &&
+            s->var_assign.access_path != NULL) {
+            ASTNode* root = s->var_assign.access_path;
+            while (root->type == AST_INDEX_ACCESS) root = root->access.object;
+            if (root->type != AST_IDENTIFIER) return false;
+            const char* tname = root->identifier.name;
+
+            // `t` must not be read anywhere in the body.
+            for (int k = 0; k < body->block.statements->count; k++) {
+                if (k == i) continue;
+                if (name_is_read(body->block.statements->nodes[k], tname)) return false;
+            }
+            // the rhs of the same statement is fine to read other names, but must not read `t`
+            if (name_is_read(s->var_assign.value, tname)) return false;
+
+            // `t` must not be read after the loop
+            if (is_local_dead_after_current_stmt(cg, tname) == false) return false;
+
+            // `t` must not be aliased anywhere in the enclosing function.
+            if (cg->ast_root && name_is_aliased(cg->ast_root, tname)) return false;
+
+            continue;                                       // skip; write is dead
+        }
+
         if (s->type != AST_ASSIGN && s->type != AST_VAR_DECL) return false;
         if (s->var_assign.access_path || !s->var_assign.name) return false;
         const char* nm = s->var_assign.name;
