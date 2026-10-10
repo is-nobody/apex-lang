@@ -26,6 +26,7 @@ typedef enum {
     JIT_RET_NUMBER = 0,  // plain number — MAKE_NUMBER(r)
     JIT_RET_BOOL,        // boolean — MAKE_BOOL(r != 0.0)
     JIT_RET_NONE,        // none — MAKE_NONE(), r is ignored
+    JIT_RET_ANY,         // return type not provable; runtime tag check in jit_box_return
 } JitReturnType;
 
 // analyses the chunk and builds a JIT context, or returns NULL

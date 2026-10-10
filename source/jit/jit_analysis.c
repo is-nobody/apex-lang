@@ -191,12 +191,15 @@ static bool infer_return_type(BytecodeChunk* chunk, int start, int end,
                               JitReturnType* out) {
     bool is_bool[JIT_MAX_REGS_SCAN];                             // bool-flag per register
     bool is_none[JIT_MAX_REGS_SCAN];                             // none-flag per register
+    bool is_num [JIT_MAX_REGS_SCAN];                             // numeric-flag per register
     memset(is_bool, 0, sizeof(is_bool));                         // no regs are bool initially
     memset(is_none, 0, sizeof(is_none));                         // no regs are none initially
+    memset(is_num,  0, sizeof(is_num));                          // no regs are number initially
 
-    bool any_bool = false;                                       // saw a bool RETURN
-    bool any_num  = false;                                       // saw a numeric RETURN
+    bool any_bool = false;                                       // saw a provably-bool RETURN
+    bool any_num  = false;                                       // saw a provably-number RETURN
     bool any_none = false;                                       // saw a RETURN_NONE
+    bool any_any  = false;                                       // saw a RETURN with unprovable type
 
     for (int pc = start; pc < end; pc++) {                       // walk the function body
         Instruction* inst = &chunk->code[pc];
@@ -208,37 +211,53 @@ static bool infer_return_type(BytecodeChunk* chunk, int start, int end,
             case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:             // a bool
             case OP_CMP_LT: case OP_CMP_GT:
             case OP_CMP_LTE: case OP_CMP_GTE:
-                if (d < JIT_MAX_REGS_SCAN) { is_bool[d] = true; is_none[d] = false; }
+                if (d < JIT_MAX_REGS_SCAN) {
+                    is_bool[d] = true;  is_none[d] = false; is_num[d] = false;
+                }
                 break;
 
-            case OP_MOVE:                                        // move preserves bool/none-ness
+            case OP_MOVE:                                        // move preserves all three flags
                 if (d < JIT_MAX_REGS_SCAN) {
                     is_bool[d] = (a < JIT_MAX_REGS_SCAN) ? is_bool[a] : false;
                     is_none[d] = (a < JIT_MAX_REGS_SCAN) ? is_none[a] : false;
+                    is_num [d] = (a < JIT_MAX_REGS_SCAN) ? is_num [a] : false;
                 }
                 break;
 
             case OP_LOAD_BOOL:
-                if (d < JIT_MAX_REGS_SCAN) { is_bool[d] = true;  is_none[d] = false; }
+                if (d < JIT_MAX_REGS_SCAN) {
+                    is_bool[d] = true;  is_none[d] = false; is_num[d] = false;
+                }
                 break;
 
             case OP_LOAD_NONE:
-                if (d < JIT_MAX_REGS_SCAN) { is_bool[d] = false; is_none[d] = true; }
+                if (d < JIT_MAX_REGS_SCAN) {
+                    is_bool[d] = false; is_none[d] = true;  is_num[d] = false;
+                }
                 break;
 
-            case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:              // numeric producers
+            case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:              // provably numeric producers
             case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
-            case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:    // arithmetic with immediate
-            case OP_DIV_IMM: case OP_MOD_IMM:                     // arithmetic with immediate
+            case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:
+            case OP_DIV_IMM: case OP_MOD_IMM:
             case OP_NEG: case OP_INC: case OP_DEC:
-            case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:      // treated as numeric here
-                if (d < JIT_MAX_REGS_SCAN) { is_bool[d] = false; is_none[d] = false; }
+                if (d < JIT_MAX_REGS_SCAN) {
+                    is_bool[d] = false; is_none[d] = false; is_num[d] = true;
+                }
+                break;
+
+            case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:      // callee return type unknown
+                if (d < JIT_MAX_REGS_SCAN) {
+                    is_bool[d] = false; is_none[d] = false; is_num[d] = false;
+                }
                 break;
 
             case OP_RETURN:                                      // return kind depends on reg
-                if      (d < JIT_MAX_REGS_SCAN && is_none[d]) any_none = true;
-                else if (d < JIT_MAX_REGS_SCAN && is_bool[d]) any_bool = true;
-                else                                          any_num  = true;
+                if (d >= JIT_MAX_REGS_SCAN) { any_any = true; break; }
+                if      (is_none[d]) any_none = true;
+                else if (is_bool[d]) any_bool = true;
+                else if (is_num [d]) any_num  = true;
+                else                 any_any  = true;            // can't prove -> runtime check
                 break;
 
             case OP_RETURN_NUM:                                  // explicitly numeric
@@ -258,8 +277,14 @@ static bool infer_return_type(BytecodeChunk* chunk, int start, int end,
         }
     }
 
+    // if any return came from a register whose type isn't provable, fall back to jit_ret_any
+    if (any_any) {
+        *out = JIT_RET_ANY;
+        return true;
+    }
+
     int kinds = (any_bool ? 1 : 0) + (any_num ? 1 : 0) + (any_none ? 1 : 0);
-    if (kinds != 1) return false;                                // mixed or no return -> reject
+    if (kinds != 1) return false;                                // mixed return -> reject
 
     *out = any_none ? JIT_RET_NONE
          : any_bool ? JIT_RET_BOOL

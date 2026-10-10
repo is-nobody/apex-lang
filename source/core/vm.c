@@ -1856,6 +1856,30 @@ static inline Value jit_box_return(JITContext* jit, int func_idx, double r) {
             return MAKE_BOOL((bits & 1) != 0);
         }
         case JIT_RET_NONE: return MAKE_NONE();                   // none tag, r ignored
+        case JIT_RET_ANY: {
+            // return type wasn't provable at compile time
+            uint64_t bits;
+            memcpy(&bits, &r, 8);
+
+            // plain number
+            if ((bits & QNAN) != QNAN) {
+                return bits;
+            }
+
+            // qnan-tagged. look at the tag field (bits 48-50).
+            uint64_t tag = (bits >> TAG_SHIFT) & TAG_MASK;
+            if (tag != 0) {
+                return bits;
+            }
+
+            // tag == 0
+            if (bits == MAKE_QNAN(TAG_NONE)) {
+                return bits;                                     // it's none
+            }
+
+            // real nan
+            return MAKE_QNAN(TAG_NAN) | (bits >> 63);
+        }
         default:           return MAKE_NUMBER(r);                // plain number
     }
 }
