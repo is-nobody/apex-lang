@@ -223,12 +223,15 @@ BytecodeChunk* bytecode_load(const char* path) {
         fclose(f);
         return NULL;
     }
-    
+
+    uint32_t flags = read_u32(f);                               // bit 0: uses_ui
+
     BytecodeChunk* chunk = bytecode_create();                   // create empty chunk
     if (!chunk) {
         fclose(f);
         return NULL;
     }
+    chunk->uses_ui = (flags & 1u) != 0;                         // restore ui-usage bit
     
     // load code section: all instructions
     uint32_t code_count = read_u32(f);                          // read instruction count

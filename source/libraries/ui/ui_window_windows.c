@@ -422,6 +422,16 @@ UiWindow* ui_window_create(int w, int h, const char* title) {
 
     RECT r = { 0, 0, w, h };                             // desired client size
     AdjustWindowRectEx(&r, WS_OVERLAPPEDWINDOW, FALSE, 0);  // expand to include chrome
+    int win_w = r.right - r.left;                        // full window width incl. chrome
+    int win_h = r.bottom - r.top;                        // full window height incl. chrome
+
+    // centre the window inside the work area
+    RECT work = { 0, 0, 0, 0 };
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+    int pos_x = work.left + (work.right  - work.left - win_w) / 2;
+    int pos_y = work.top  + (work.bottom - work.top  - win_h) / 2;
+    if (pos_x < work.left) pos_x = work.left;            // window wider than the work area
+    if (pos_y < work.top)  pos_y = work.top;             // window taller than the work area
 
     WCHAR wtitle[512];                                   // window title in wide chars
     MultiByteToWideChar(CP_UTF8, 0, title ? title : "Apex UI", -1,
@@ -435,8 +445,8 @@ UiWindow* ui_window_create(int w, int h, const char* title) {
     HWND hwnd = CreateWindowExW(
         0, kClassName, wtitle,
         WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT,
-        r.right - r.left, r.bottom - r.top,
+        pos_x, pos_y,                                    // centred inside the work area
+        win_w, win_h,
         NULL, NULL, hInst, win);                         // pass win as lpCreateParams
     if (!hwnd) { free(win); return NULL; }               // creation failed
     win->hwnd = hwnd;

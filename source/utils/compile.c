@@ -140,7 +140,8 @@ static bool serialize_chunk(BytecodeChunk* chunk, const char* output_path) {
     }
     
     write_u32(f, APEXC_MAGIC);                           // write "APEX" magic marker
-    
+    write_u32(f, chunk->uses_ui ? 1u : 0u);              // bit 0: source imports the "ui" library
+
     write_u32(f, (uint32_t)chunk->code_count);           // write instruction count
     for (int i = 0; i < chunk->code_count; i++) {
         write_instruction(f, &chunk->code[i]);           // write each instruction

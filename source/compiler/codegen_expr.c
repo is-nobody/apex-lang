@@ -229,6 +229,12 @@ static int codegen_call(CodeGenerator* cg, ASTNode* node, int dest_hint) {
 
     bool is_builtin = is_known_builtin_function(func_name);   // single source of truth
 
+    // a "ui.*" builtin call is the only way a script touches the ui library
+    if (is_builtin &&
+        func_name[0] == 'u' && func_name[1] == 'i' && func_name[2] == '.') {
+        cg->chunk->uses_ui = true;                                           // sticky for the whole chunk
+    }
+
     if (is_builtin) {                                                         // built-in function
         for (int i = 0; i < arg_count; i++) {                                 // push args
             emit(cg, INST(OP_PUSH_ARG, arg_regs[i], 0, 0), node->line);

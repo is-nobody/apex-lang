@@ -307,6 +307,20 @@ static bool has_extension(const char* filename, const char* ext) {
 
 // main entry point: optimized for fast startup
 int main(int argc, char** argv) {
+#ifdef _WIN32
+    // a gui-subsystem build produced by "apex build" for a ui script has no console of its own
+    if (GetConsoleWindow() == NULL) {
+        if (AttachConsole(ATTACH_PARENT_PROCESS)) {
+            FILE* fp;
+            fp = freopen("CONOUT$", "w", stdout);  // stdout -> attached console
+            (void)fp;
+            fp = freopen("CONOUT$", "w", stderr);  // stderr -> attached console
+            (void)fp;
+            fp = freopen("CONIN$",  "r", stdin);   // stdin  -> attached console
+            (void)fp;
+        }
+    }
+#endif
     setup_utf8_console();                          // windows: switch console to utf-8, disable newline translation
 
     int embedded_result = execute_embedded_bytecode(argc, argv);  // try to run as embedded binary first

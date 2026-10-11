@@ -30,6 +30,30 @@
 #endif
 
 #define MARKER "__APEX_BIN_PAYLOAD__"  // marker to locate payload in binary
+#define APEXC_MAGIC 0x41504558         // "APEX" magic, mirrors compile.c / loader.c
+
+// flips the subsystem field
+static bool patch_pe_subsystem_to_gui(unsigned char* data, long size) {
+    if (!data || size < 0x40) return false;                              // too small for a DOS header
+    if (data[0] != 'M' || data[1] != 'Z') return false;                  // no MZ signature
+    uint32_t e_lfanew;                                                   // offset to the PE header
+    memcpy(&e_lfanew, data + 0x3C, 4);
+    if ((uint64_t)e_lfanew + 0x5C + 2 > (uint64_t)size) return false;    // PE header out of bounds
+    if (data[e_lfanew] != 'P' || data[e_lfanew + 1] != 'E') return false;// no PE signature
+    uint16_t subsystem = 2;                                              // IMAGE_SUBSYSTEM_WINDOWS_GUI
+    memcpy(data + e_lfanew + 0x5C, &subsystem, 2);                       // patch the subsystem field
+    return true;                                                         // success
+}
+
+// reads the flags word from the raw .apexc header, or 0 when the magic is wrong
+static uint32_t read_apexc_flags(const char* data, long size) {
+    if (!data || size < 8) return 0;                                     // too small for magic + flags
+    uint32_t magic = (uint8_t)data[0] | ((uint8_t)data[1] << 8) |
+                     ((uint8_t)data[2] << 16) | ((uint8_t)data[3] << 24);
+    if (magic != APEXC_MAGIC) return 0;                                  // not an apexc buffer
+    return (uint8_t)data[4] | ((uint8_t)data[5] << 8) |
+           ((uint8_t)data[6] << 16) | ((uint8_t)data[7] << 24);          // little-endian flags word
+}
 
 // platform descriptor for target builds
 typedef struct {
@@ -280,6 +304,12 @@ int build_command(int argc, char** argv) {
             free(bytecode_data);                                   // free bytecode
             return 1;                                              // error
         }
+    }
+
+    // a windows binary whose script pulls in the ui library must be a gui-subsystem
+    if (strcmp(target.os, "windows") == 0 &&
+        (read_apexc_flags(bytecode_data, bytecode_size) & 1u) != 0) {
+        patch_pe_subsystem_to_gui((unsigned char*)self_code, self_size);
     }
 
     FILE* out = fopen(final_output, "wb");                         // open output file

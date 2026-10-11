@@ -227,6 +227,8 @@ typedef struct {
         int hash_size;                 // number of buckets (power of 2)
     } string_pool;               // shared string storage to reduce memory duplication
 
+    bool uses_ui;                // true when the source imports the "ui" library
+
     // one-entry lookup cache for bytecode_get_global
     int last_global_index;       // cached index, -1 when empty
 } BytecodeChunk;
