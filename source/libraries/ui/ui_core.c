@@ -147,6 +147,9 @@ uint64_t ui_visual_hash(const Widget* w) {
     return h;                                                          // final widget digest
 }
 
+// widgets can draw effects a couple of pixels outside their own box
+#define SNAP_MARGIN 2
+
 // recursively capture geometry and visual hash into the given table
 static void snapshot_walk(Widget* w, SnapshotTable* t) {
     if (!w) return;                                                    // null guard
@@ -157,10 +160,10 @@ static void snapshot_walk(Widget* w, SnapshotTable* t) {
     }
     WidgetSnapshot* e = &t->entries[t->count++];                       // take the next free slot
     e->id   = w->id;                                                   // stable widget identity
-    e->x    = (int)floorf(w->x + 0.5f);                                // rounded screen x
-    e->y    = (int)floorf(w->y + 0.5f);                                // rounded screen y
-    e->w    = (int)floorf(w->w + 0.5f);                                // rounded screen width
-    e->h    = (int)floorf(w->h + 0.5f);                                // rounded screen height
+    e->x    = (int)floorf(w->x + 0.5f) - SNAP_MARGIN;                  // rounded screen x, padded
+    e->y    = (int)floorf(w->y + 0.5f) - SNAP_MARGIN;                  // rounded screen y, padded
+    e->w    = (int)floorf(w->w + 0.5f) + 2*SNAP_MARGIN;                // rounded screen width, padded
+    e->h    = (int)floorf(w->h + 0.5f) + 2*SNAP_MARGIN;                // rounded screen height, padded
     e->hash = ui_visual_hash(w);                                       // visual-state digest
     for (int i = 0; i < w->child_count; i++) snapshot_walk(w->children[i], t);  // recurse into children
 }
