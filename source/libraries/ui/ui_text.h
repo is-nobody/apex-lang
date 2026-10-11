@@ -34,6 +34,9 @@ float ui_text_draw(UiFont* f, uint32_t* fb, int fbw, int fbh,
                    float x, float baseline, const char* s, int len,
                    float size, uint32_t color);
 
+// set the active scissor for text drawing; pass an empty rect to disable
+void ui_text_set_clip(int x0, int y0, int x1, int y1);
+
 // count codepoints in a byte range
 int ui_utf8_len(const char* s, int byte_len);
 

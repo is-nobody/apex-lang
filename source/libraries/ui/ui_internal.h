@@ -50,6 +50,7 @@ struct Widget {
     float   weight;                      // flex weight in the parent's layout
     float   gap, padding;                // child spacing and inner padding
     bool    visible, disabled;           // visibility and interaction flags
+    bool    on_top;                      // if true, draw subtree after siblings
 
     char*      key_str;                  // user-supplied key string, or null
     Str     text;                        // label/content text

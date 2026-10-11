@@ -17,6 +17,7 @@ static int clip_stack[16][4]; static int clip_depth;
 // binds the painter to a framebuffer and clears the clip stack
 void ui_painter_init(uint32_t* p, int w, int h) {
     g_pixels = p; g_w = w; g_h = h; clip_depth = 0;
+    ui_text_set_clip(0, 0, 0, 0);                        // disable text scissor
 }
 
 // pushes a scissor rect, intersected with the current top of the stack
@@ -36,14 +37,29 @@ void ui_painter_push_clip(int x, int y, int w, int h) {
         clip_stack[clip_depth][0] = nx0; clip_stack[clip_depth][1] = ny0;
         clip_stack[clip_depth][2] = nx1 - nx0; clip_stack[clip_depth][3] = ny1 - ny0;
         clip_depth++;
+        ui_text_set_clip(nx0, ny0, nx0 + (nx1 - nx0), ny0 + (ny1 - ny0));
     }
 }
 
 // pops the most recent scissor rect
-void ui_painter_pop_clip(void) { if (clip_depth > 0) clip_depth--; }
+void ui_painter_pop_clip(void) {
+    if (clip_depth > 0) clip_depth--;
+    if (clip_depth > 0) {
+        int cx = clip_stack[clip_depth-1][0];
+        int cy = clip_stack[clip_depth-1][1];
+        int cw = clip_stack[clip_depth-1][2];
+        int ch = clip_stack[clip_depth-1][3];
+        ui_text_set_clip(cx, cy, cx+cw, cy+ch);
+    } else {
+        ui_text_set_clip(0, 0, 0, 0);
+    }
+}
 
 // clears the whole clip stack
-void ui_painter_reset_clip(void) { clip_depth = 0; }
+void ui_painter_reset_clip(void) {
+    clip_depth = 0;
+    ui_text_set_clip(0, 0, 0, 0);
+}
 
 // returns true when (x, y) lies inside the active scissor rect
 static inline bool in_clip(int x, int y) {
@@ -254,8 +270,17 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
         if (wx1 <= d->x || x >= d->x + d->w ||
             wy1 <= d->y || y >= d->y + d->h) {
             draw_self = false;
-            if (w->kind == WK_SCROLL) return;  // clipped subtree: skip entirely
         }
+    }
+
+    // a scroll always clips its children to its viewport
+    bool clip_pushed = false;
+    if (w->kind == WK_SCROLL && ww > 0 && hh > 0) {
+        int has_sb = w->content_h > (float)hh;
+        int content_w = has_sb ? ww - UI_SCROLL_W : ww;
+        if (content_w < 1) content_w = 1;
+        ui_painter_push_clip(x, y, content_w, hh);
+        clip_pushed = true;
     }
 
     if (draw_self && ww > 0 && hh > 0) {
@@ -412,14 +437,8 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
             }
             case WK_SPACER:
                 break;                                      // spacers draw nothing
-            case WK_SCROLL: {
-                // children are clipped to a narrower rect so they never overlap the scrollbar
-                int has_sb = w->content_h > (float)hh;      // scrollbar needed?
-                int content_w = has_sb ? ww - UI_SCROLL_W : ww;
-                if (content_w < 1) content_w = 1;
-                ui_painter_push_clip(x, y, content_w, hh);
-                break;
-            }
+            case WK_SCROLL:
+                break;                                      // clip already pushed above
             case WK_HSCROLL:
             case WK_VBOX:
             case WK_HBOX:
@@ -427,12 +446,17 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
         }
     }
 
-    for (int i = 0; i < w->child_count; i++)
-        draw_widget(ctx, w->children[i], d);                // draw children in order
+    for (int i = 0; i < w->child_count; i++)                // first pass: normal children
+        if (!w->children[i]->on_top)
+            draw_widget(ctx, w->children[i], d);
+
+    for (int i = 0; i < w->child_count; i++)                // second pass: on-top overlay children
+        if (w->children[i]->on_top)
+            draw_widget(ctx, w->children[i], d);
+
+    if (clip_pushed) ui_painter_pop_clip();                 // restore the clip after scroll children
 
     if (draw_self && w->kind == WK_SCROLL) {
-        ui_painter_pop_clip();                              // restore the clip after scroll children
-
         if (w->content_h > (float)hh) {                     // scrollbar drawn last, above children
             int sb_x = x + ww - UI_SCROLL_W;
             ui_painter_fill_rect(sb_x, y, UI_SCROLL_W, hh, UI_C_SCROLL_T);   // track

@@ -645,6 +645,18 @@ static inline void blend(uint32_t* fb, int idx, uint32_t c, uint8_t cov) {
     fb[idx] = 0xFF000000u | (r << 16) | (g << 8) | b;
 }
 
+// scissor rect applied to glyph blits; empty = no clip
+static int  g_clip_x0 = 0, g_clip_y0 = 0, g_clip_x1 = 0, g_clip_y1 = 0;
+static bool g_clip_on = false;
+
+// sets or clears the scissor rect used by ui_text_draw
+void ui_text_set_clip(int x0, int y0, int x1, int y1) {
+    if (x1 <= x0 || y1 <= y0) { g_clip_on = false; return; }
+    g_clip_x0 = x0; g_clip_y0 = y0;
+    g_clip_x1 = x1; g_clip_y1 = y1;
+    g_clip_on = true;
+}
+
 // draws a utf-8 string into the framebuffer and returns the advance width in pixels
 float ui_text_draw(UiFont* f, uint32_t* fb, int fbw, int fbh,
                    float x, float baseline, const char* s, int n,
@@ -670,6 +682,9 @@ float ui_text_draw(UiFont* f, uint32_t* fb, int fbw, int fbh,
                 for (int xx = 0; xx < e->w; xx++) {
                     int tx = px + xx;                    // column in framebuffer space
                     if (tx < 0 || tx >= fbw) continue;   // column outside the framebuffer
+                    if (g_clip_on && (tx < g_clip_x0 || tx >= g_clip_x1 ||
+                                      ty < g_clip_y0 || ty >= g_clip_y1))
+                        continue;                        // outside the scissor
                     uint8_t cov = row[xx];
                     if (cov) blend(fb, (size_t)ty*fbw + tx, color, cov);
                 }

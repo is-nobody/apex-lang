@@ -52,6 +52,7 @@ Widget* ui_widget_alloc(UiContext* ctx) {
     w->padding = 0;                                       // no padding
     w->child_cap = 0; w->children = NULL;                 // no child storage yet
     w->key_str = NULL;                                    // no user key
+    w->on_top = false;                                    // draw in tree order by default
     return w;                                             // return freshly initialised slot
 }
 
@@ -504,6 +505,7 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
     w->max_w   = (float)table_get_num(vm, t, "max_width", 0);    // maximum width
     w->disabled = table_get_bool(vm, t, "disabled", false);      // disabled flag
     w->visible  = table_get_bool(vm, t, "visible", true);        // visibility flag
+    w->on_top   = table_get_bool(vm, t, "on_top", false);        // draw after siblings
 
     Value wk, wv;
     wk = intern(vm, "width");                            // explicit width override
