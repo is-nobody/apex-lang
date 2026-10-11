@@ -545,48 +545,6 @@ Value ui_event_to_table(VM* vm, const UiEvent* ev) {
     return MAKE_TABLE(t);                                 // hand the event table to the caller
 }
 
-// parses a cross-axis alignment name into its enum value
-static Align parse_align(const char* s) {
-    if (!s) return AL_STRETCH;                            // default: stretch
-    if (!strcmp(s, "start"))   return AL_START;
-    if (!strcmp(s, "center"))  return AL_CENTER;
-    if (!strcmp(s, "end"))     return AL_END;
-    if (!strcmp(s, "stretch")) return AL_STRETCH;
-    return AL_STRETCH;                                    // fallback: stretch
-}
-
-// parses a main-axis justification name into its enum value
-static Justify parse_justify(const char* s) {
-    if (!s) return JU_START;                              // default: pack to start
-    if (!strcmp(s, "center")) return JU_CENTER;
-    if (!strcmp(s, "end"))    return JU_END;
-    if (!strcmp(s, "space-between")) return JU_SPACE_BETWEEN;
-    if (!strcmp(s, "space-around"))  return JU_SPACE_AROUND;
-    if (!strcmp(s, "space-evenly"))  return JU_SPACE_EVENLY;
-    return JU_START;                                      // fallback: start
-}
-
-// parses a widget kind name into its enum value
-static WidgetKind kind_from_str(const char* s) {
-    if (!strcmp(s, "text"))      return WK_TEXT;
-    if (!strcmp(s, "heading"))   return WK_HEADING;
-    if (!strcmp(s, "button"))    return WK_BUTTON;
-    if (!strcmp(s, "checkbox"))  return WK_CHECKBOX;
-    if (!strcmp(s, "radio"))     return WK_RADIO;
-    if (!strcmp(s, "slider"))    return WK_SLIDER;
-    if (!strcmp(s, "progress"))  return WK_PROGRESS;
-    if (!strcmp(s, "input"))     return WK_INPUT;
-    if (!strcmp(s, "badge"))     return WK_BADGE;
-    if (!strcmp(s, "separator")) return WK_SEPARATOR;
-    if (!strcmp(s, "spacer"))    return WK_SPACER;
-    if (!strcmp(s, "vbox"))      return WK_VBOX;
-    if (!strcmp(s, "hbox"))      return WK_HBOX;
-    if (!strcmp(s, "panel"))     return WK_PANEL;
-    if (!strcmp(s, "scroll"))    return WK_SCROLL;
-    if (!strcmp(s, "hscroll"))   return WK_HSCROLL;
-    return WK_TEXT;                                       // fallback: plain text
-}
-
 // reads a string field from a table, returns a heap copy or null on miss
 static char* table_get_str_dup(VM* vm, Table* t, const char* key) {
     Value k = intern(vm, key), v;
@@ -621,6 +579,93 @@ static bool table_get_bool(VM* vm, Table* t, const char* key, bool def) {
     return r;
 }
 
+// reads a string field via an already-interned key
+static bool table_get_str_view(Table* t, Value key, StrView* out) {
+    Value v;
+    if (!table_get(t, key, &v)) return false;
+    if (!IS_STRING(v)) { value_decref(v); return false; }
+    StringObject* s = AS_STRING(v);
+    out->ptr = s->chars;
+    out->len = s->length;
+    value_decref(v);                                 // table keeps its own ref: buffer stays alive
+    return true;
+}
+
+// reads a number field via a cached key; returns default on miss or wrong type. no interning.
+static double table_get_num_key(Table* t, Value key, double def) {
+    Value v;
+    if (!table_get(t, key, &v)) return def;
+    double r = IS_NUMBER(v) ? AS_NUMBER(v) : def;
+    value_decref(v);
+    return r;
+}
+
+// reads a boolean field via a cached key; returns default on miss or wrong type. no interning.
+static bool table_get_bool_key(Table* t, Value key, bool def) {
+    Value v;
+    if (!table_get(t, key, &v)) return def;
+    bool r = IS_BOOL(v) ? AS_BOOL(v) : def;
+    value_decref(v);
+    return r;
+}
+
+// length-exact comparison against a string literal, no allocation
+static inline bool str_eq_n(const char* s, int n, const char* lit, int lit_n) {
+    return n == lit_n && memcmp(s, lit, (size_t)n) == 0;
+}
+#define STR_EQ(s, n, lit) str_eq_n((s), (n), (lit), (int)(sizeof(lit) - 1))
+
+// length-aware variant of kind_from_str
+static WidgetKind kind_from_str_n(const char* s, int n) {
+    if (STR_EQ(s,n,"text"))      return WK_TEXT;
+    if (STR_EQ(s,n,"heading"))   return WK_HEADING;
+    if (STR_EQ(s,n,"button"))    return WK_BUTTON;
+    if (STR_EQ(s,n,"checkbox"))  return WK_CHECKBOX;
+    if (STR_EQ(s,n,"radio"))     return WK_RADIO;
+    if (STR_EQ(s,n,"slider"))    return WK_SLIDER;
+    if (STR_EQ(s,n,"progress"))  return WK_PROGRESS;
+    if (STR_EQ(s,n,"input"))     return WK_INPUT;
+    if (STR_EQ(s,n,"badge"))     return WK_BADGE;
+    if (STR_EQ(s,n,"separator")) return WK_SEPARATOR;
+    if (STR_EQ(s,n,"spacer"))    return WK_SPACER;
+    if (STR_EQ(s,n,"vbox"))      return WK_VBOX;
+    if (STR_EQ(s,n,"hbox"))      return WK_HBOX;
+    if (STR_EQ(s,n,"panel"))     return WK_PANEL;
+    if (STR_EQ(s,n,"scroll"))    return WK_SCROLL;
+    if (STR_EQ(s,n,"hscroll"))   return WK_HSCROLL;
+    return WK_TEXT;
+}
+
+// length-aware variant of parse_align
+static Align parse_align_n(const char* s, int n) {
+    if (STR_EQ(s,n,"start"))   return AL_START;
+    if (STR_EQ(s,n,"center"))  return AL_CENTER;
+    if (STR_EQ(s,n,"end"))     return AL_END;
+    if (STR_EQ(s,n,"stretch")) return AL_STRETCH;
+    return AL_STRETCH;
+}
+
+// length-aware variant of parse_justify
+static Justify parse_justify_n(const char* s, int n) {
+    if (STR_EQ(s,n,"center"))        return JU_CENTER;
+    if (STR_EQ(s,n,"end"))           return JU_END;
+    if (STR_EQ(s,n,"space-between")) return JU_SPACE_BETWEEN;
+    if (STR_EQ(s,n,"space-around"))  return JU_SPACE_AROUND;
+    if (STR_EQ(s,n,"space-evenly"))  return JU_SPACE_EVENLY;
+    return JU_START;
+}
+
+// same hash as ui_hash_id but reads from a length-tagged view
+static uint64_t ui_hash_id_view(uint64_t parent, const StrView* kv, int idx) {
+    if (!kv) return ui_hash_id(parent, NULL, idx);
+    uint64_t h = 0xCBF29CE484222325ULL ^ parent;
+    for (int i = 0; i < kv->len; i++) {
+        h ^= (unsigned char)kv->ptr[i];
+        h *= 0x100000001B3ULL;
+    }
+    return h ? h : 1;
+}
+
 // duplicates n bytes of a c string into a heap-owned Str
 static Str str_dup(const char* s, int n) {
     Str r;
@@ -652,84 +697,88 @@ static Str arena_dup(UiContext* ctx, const char* s, int n) {
 Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
     if (!IS_TABLE(descr)) return NULL;                   // descriptors must be tables
     Table* t = AS_TABLE(descr);
-    VM* vm = ctx->vm;
 
-    char* ty = table_get_str_dup(vm, t, "__t");          // "__t" = widget kind name
-    if (!ty) { free(ty); return NULL; }                  // missing kind: skip this node
+    StrView tv;
+    if (!table_get_str_view(t, ctx->key_cache[UK_T], &tv)) return NULL;  // missing kind: skip
 
     Widget* w = ui_widget_alloc(ctx);                    // allocate the widget slot
-    w->kind = kind_from_str(ty);                         // resolve the kind enum
-    free(ty);                                            // release the temp kind string
+    w->kind = kind_from_str_n(tv.ptr, tv.len);           // resolve the kind enum
 
-    char* key = table_get_str_dup(vm, t, "key");         // optional user key for id derivation
+    StrView kv;
     uint64_t parent_id = parent ? parent->id : 0;        // root widgets hash from 0
-    w->id = ui_hash_id(parent_id, key, idx);             // derive stable id
-    if (key) w->key_str = arena_dup(ctx, key, (int)strlen(key)).ptr;  // arena copy of the key
-    free(key);
+    if (table_get_str_view(t, ctx->key_cache[UK_KEY], &kv)) {
+        w->id = ui_hash_id_view(parent_id, &kv, idx);    // derive stable id
+        w->key_str = arena_dup(ctx, kv.ptr, kv.len).ptr; // arena copy of the key
+    } else {
+        w->id = ui_hash_id(parent_id, NULL, idx);        // no key: positional fallback
+    }
 
-    char* al = table_get_str_dup(vm, t, "align");        // optional align override
-    if (al) { w->align = parse_align(al); free(al); }
-    char* ju = table_get_str_dup(vm, t, "justify");      // optional justify override
-    if (ju) { w->justify = parse_justify(ju); free(ju); }
-    w->gap     = (float)table_get_num(vm, t, "gap", 8);          // child spacing
-    w->padding = (float)table_get_num(vm, t, "padding", 0);      // inner padding
-    w->weight  = (float)table_get_num(vm, t, "weight", 0);       // flex weight
-    w->min_w   = (float)table_get_num(vm, t, "min_width", 0);    // minimum width
-    w->max_w   = (float)table_get_num(vm, t, "max_width", 0);    // maximum width
-    w->disabled = table_get_bool(vm, t, "disabled", false);      // disabled flag
-    w->visible  = table_get_bool(vm, t, "visible", true);        // visibility flag
-    w->on_top   = table_get_bool(vm, t, "on_top", false);        // draw after siblings
+    StrView sv;
+    if (table_get_str_view(t, ctx->key_cache[UK_ALIGN], &sv))
+        w->align = parse_align_n(sv.ptr, sv.len);
+    if (table_get_str_view(t, ctx->key_cache[UK_JUSTIFY], &sv))
+        w->justify = parse_justify_n(sv.ptr, sv.len);
 
-    Value wk, wv;
-    wk = intern(vm, "width");                            // explicit width override
-    if (table_get(t, wk, &wv)) {
+    w->gap      = (float)table_get_num_key(t, ctx->key_cache[UK_GAP], 8);           // child spacing
+    w->padding  = (float)table_get_num_key(t, ctx->key_cache[UK_PADDING], 0);       // inner padding
+    w->weight   = (float)table_get_num_key(t, ctx->key_cache[UK_WEIGHT], 0);        // flex weight
+    w->min_w    = (float)table_get_num_key(t, ctx->key_cache[UK_MIN_WIDTH], 0);     // minimum width
+    w->max_w    = (float)table_get_num_key(t, ctx->key_cache[UK_MAX_WIDTH], 0);     // maximum width
+    w->disabled = table_get_bool_key(t, ctx->key_cache[UK_DISABLED], false);        // disabled flag
+    w->visible  = table_get_bool_key(t, ctx->key_cache[UK_VISIBLE], true);          // visibility flag
+    w->on_top   = table_get_bool_key(t, ctx->key_cache[UK_ON_TOP], false);          // draw after siblings
+
+    Value wv;
+    if (table_get(t, ctx->key_cache[UK_WIDTH], &wv)) {   // explicit width override
         if (IS_NUMBER(wv)) w->req_w = (float)AS_NUMBER(wv);
         value_decref(wv);
     }
-    value_decref(wk);
-    wk = intern(vm, "height");                           // explicit height override
-    if (table_get(t, wk, &wv)) {
+    if (table_get(t, ctx->key_cache[UK_HEIGHT], &wv)) {  // explicit height override
         if (IS_NUMBER(wv)) w->req_h = (float)AS_NUMBER(wv);
         value_decref(wv);
     }
-    value_decref(wk);
 
-    char* txt = table_get_str_dup(vm, t, "content");     // "content" preferred for text
-    if (!txt) txt = table_get_str_dup(vm, t, "label");   // "label" as fallback
-    if (txt) { w->text = arena_dup(ctx, txt, (int)strlen(txt)); free(txt); }
+    StrView txt;
+    bool has_txt = table_get_str_view(t, ctx->key_cache[UK_CONTENT], &txt);  // "content" preferred
+    if (!has_txt) has_txt = table_get_str_view(t, ctx->key_cache[UK_LABEL], &txt);  // "label" fallback
+    if (has_txt) w->text = arena_dup(ctx, txt.ptr, txt.len);
 
-    w->checked = table_get_bool(vm, t, "checked", false);         // checkbox/radio state
-    char* grp = table_get_str_dup(vm, t, "group");                // radio group name
-    if (grp) { w->group = arena_dup(ctx, grp, (int)strlen(grp)); free(grp); }
-    w->num_value = table_get_num(vm, t, "value", 0);              // slider/progress value
-    w->num_min   = table_get_num(vm, t, "min", 0);                // slider/progress min
-    w->num_max   = table_get_num(vm, t, "max", 100);              // slider/progress max
+    w->checked = table_get_bool_key(t, ctx->key_cache[UK_CHECKED], false);  // checkbox/radio state
 
-    char* ival = table_get_str_dup(vm, t, "value_text");          // explicit input text
-    if (!ival && w->kind == WK_INPUT) ival = table_get_str_dup(vm, t, "content");  // fall back to content
-    if (ival) {
-        w->input_value = str_dup(ival, (int)strlen(ival));        // copy into owned buffer
-        free(ival);
+    StrView grp;
+    if (table_get_str_view(t, ctx->key_cache[UK_GROUP], &grp))              // radio group name
+        w->group = arena_dup(ctx, grp.ptr, grp.len);
+
+    w->num_value = table_get_num_key(t, ctx->key_cache[UK_VALUE], 0);       // slider/progress value
+    w->num_min   = table_get_num_key(t, ctx->key_cache[UK_MIN], 0);         // slider/progress min
+    w->num_max   = table_get_num_key(t, ctx->key_cache[UK_MAX], 100);       // slider/progress max
+
+    StrView ival;
+    bool has_ival = table_get_str_view(t, ctx->key_cache[UK_VALUE_TEXT], &ival);
+    if (!has_ival && w->kind == WK_INPUT)
+        has_ival = table_get_str_view(t, ctx->key_cache[UK_CONTENT], &ival);
+    if (has_ival) {
+        w->input_value = str_dup(ival.ptr, ival.len);       // copy into owned buffer
     } else if (w->kind == WK_INPUT) {
-        w->input_value = str_dup("", 0);                          // input widgets always own a buffer
+        w->input_value = str_dup("", 0);                    // input widgets always own a buffer
     }
 
-    WidgetState* st = ui_state_get(ctx, w->id);                   // pull persistent state
-    w->hovered = st->hovered;                                     // restore hover flag
-    w->pressed = st->pressed;                                     // restore press flag
-    w->focused = (ctx->focused_id == w->id);                      // reflect current focus
-    w->cursor  = st->cursor < 0 ? (int)w->input_value.len : st->cursor;  // default cursor at end
-    w->sel_anchor = st->sel_anchor;                               // restore the selection anchor
-    w->scroll_y = st->scroll_y;                                   // restore scroll offset
+    WidgetState* st = ui_state_get(ctx, w->id);             // pull persistent state
+    w->hovered = st->hovered;                               // restore hover flag
+    w->pressed = st->pressed;                               // restore press flag
+    w->focused = (ctx->focused_id == w->id);                // reflect current focus
+    w->cursor  = st->cursor < 0 ? (int)w->input_value.len : st->cursor;
+    w->sel_anchor = st->sel_anchor;                         // restore the selection anchor
+    w->scroll_y = st->scroll_y;                             // restore scroll offset
 
-    Value ck = intern(vm, "children"), cv;
-    if (table_get(t, ck, &cv)) {                                  // child descriptor present?
+    Value cv;
+    if (table_get(t, ctx->key_cache[UK_CHILDREN], &cv)) {   // child descriptor present?
         if (IS_TABLE(cv)) {
             Table* ct = AS_TABLE(cv);
             Value probe;
-            if (table_get(ct, MAKE_NUMBER(1.0), &probe)) {        // array-style children list
+            if (table_get(ct, MAKE_NUMBER(1.0), &probe)) {  // array-style children list
                 value_decref(probe);
-                for (int i = 1; ; i++) {                          // walk 1-based array part
+                for (int i = 1; ; i++) {                    // walk 1-based array part
                     Value vv;
                     if (!table_get(ct, MAKE_NUMBER((double)i), &vv)) break;
                     Widget* ch = ui_build_tree(ctx, vv, w, i - 1);
@@ -737,15 +786,14 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
                     value_decref(vv);
                 }
             }
-        } else if (!IS_NONE(cv)) {                                // single child descriptor
+        } else if (!IS_NONE(cv)) {                          // single child descriptor
             Widget* ch = ui_build_tree(ctx, cv, w, 0);
             if (ch) widget_add_child(w, ch);
         }
         value_decref(cv);
     }
-    value_decref(ck);
 
-    return w;                                                     // return the built subtree
+    return w;                                               // return the built subtree
 }
 
 // lazily creates the ui context on first use, attached to the vm
@@ -760,6 +808,17 @@ UiContext* ui_ensure(VM* vm) {
     if (!ctx->font) {
         fprintf(stderr, "[ui] no system font available; text will not render\n");
     }
+
+    // pre-intern every descriptor field name once; saves a hash + lookup per field per widget
+    static const char* const kKeyNames[UK_COUNT] = {
+        "__t", "key", "align", "justify", "gap", "padding", "weight",
+        "min_width", "max_width", "disabled", "visible", "on_top",
+        "width", "height", "content", "label", "checked", "group",
+        "value", "min", "max", "value_text", "children"
+    };
+    for (int i = 0; i < UK_COUNT; i++)
+        ctx->key_cache[i] = intern(vm, kKeyNames[i]);
+
     vm->ui = ctx;                                                 // publish on the vm
     return ctx;
 }

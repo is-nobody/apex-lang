@@ -153,6 +153,18 @@ typedef struct TextMeasureEntry {
     float    width;  // cached advance width in pixels
 } TextMeasureEntry;
 
+// non-owning view into a string value; ptr is valid while the owning table holds the entry
+typedef struct { const char* ptr; int len; } StrView;
+
+// cached interned key ids for hot descriptor-field lookups
+typedef enum {
+    UK_T, UK_KEY, UK_ALIGN, UK_JUSTIFY, UK_GAP, UK_PADDING, UK_WEIGHT,
+    UK_MIN_WIDTH, UK_MAX_WIDTH, UK_DISABLED, UK_VISIBLE, UK_ON_TOP,
+    UK_WIDTH, UK_HEIGHT, UK_CONTENT, UK_LABEL, UK_CHECKED, UK_GROUP,
+    UK_VALUE, UK_MIN, UK_MAX, UK_VALUE_TEXT, UK_CHILDREN,
+    UK_COUNT
+} UiKeyId;
+
 typedef struct UiContext {
     VM*       vm;               // owner vm, used for interning and refcounts
     UiWindow* window;           // native window handle, null until init
@@ -173,6 +185,7 @@ typedef struct UiContext {
 
     Value last_tree;            // last widget descriptor passed to render()
     bool  has_tree;             // true when last_tree holds a live reference
+    Value key_cache[UK_COUNT];  // borrowed interned field names
 
     Widget* root;               // root of the current widget tree
 
