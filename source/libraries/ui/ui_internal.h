@@ -21,8 +21,8 @@ typedef struct UiFont UiFont;
 typedef struct { char* ptr; int len; } Str;
 
 typedef enum {
-    WK_TEXT, WK_HEADING, WK_BUTTON, WK_LINK, WK_CHECKBOX, WK_RADIO,
-    WK_SLIDER, WK_PROGRESS, WK_INPUT, WK_BADGE, WK_IMAGE,
+    WK_TEXT, WK_HEADING, WK_BUTTON, WK_CHECKBOX, WK_RADIO,
+    WK_SLIDER, WK_PROGRESS, WK_INPUT, WK_BADGE,
     WK_SEPARATOR, WK_SPACER,
     WK_VBOX, WK_HBOX, WK_PANEL, WK_FRAME, WK_SCROLL, WK_HSCROLL, WK_GRID
 } WidgetKind;  // leaf widget kinds then container kinds

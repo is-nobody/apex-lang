@@ -67,15 +67,13 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
             w->meas_h = lines * text_line_h(w->kind);        // lines times line height
             break;
         }
-        case WK_BUTTON: case WK_LINK: case WK_BADGE: {       // single-line labelled widgets
+        case WK_BUTTON: case WK_BADGE: {                     // single-line labelled widgets
             float fs = (w->kind == WK_BADGE) ? UI_FS_SMALL : UI_FS_BODY;  // badges render smaller
             float tw = ctx->font ? ui_text_measure(ctx->font, w->text.ptr, w->text.len, fs) : w->text.len * 8.0f;
             if (w->kind == WK_BUTTON) {
                 w->meas_w = tw + 24; w->meas_h = UI_BTN_H;   // buttons have fixed height and side padding
-            } else if (w->kind == WK_BADGE) {
-                w->meas_w = tw + 12; w->meas_h = fs + 8;     // badges are compact pills
             } else {
-                w->meas_w = tw; w->meas_h = text_line_h(WK_TEXT);  // links hug their text
+                w->meas_w = tw + 12; w->meas_h = fs + 8;     // badges are compact pills
             }
             break;
         }
@@ -108,9 +106,6 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
             break;
         case WK_SPACER:                                      // explicit empty gap
             w->meas_w = 0; w->meas_h = 0;
-            break;
-        case WK_IMAGE:                                       // placeholder until real sizing
-            w->meas_w = 100; w->meas_h = 100;
             break;
         case WK_FRAME:                                       // fixed-size clipping frame
             w->meas_w = w->req_w > 0 ? w->req_w : 100;

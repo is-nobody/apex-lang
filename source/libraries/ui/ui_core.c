@@ -297,14 +297,12 @@ static const char* widget_kind_name(WidgetKind k) {
         case WK_TEXT: return "text";
         case WK_HEADING: return "heading";
         case WK_BUTTON: return "button";
-        case WK_LINK: return "link";
         case WK_CHECKBOX: return "checkbox";
         case WK_RADIO: return "radio";
         case WK_SLIDER: return "slider";
         case WK_PROGRESS: return "progress";
         case WK_INPUT: return "input";
         case WK_BADGE: return "badge";
-        case WK_IMAGE: return "image";
         case WK_SEPARATOR: return "separator";
         case WK_SPACER: return "spacer";
         case WK_VBOX: return "vbox";
@@ -418,14 +416,12 @@ static WidgetKind kind_from_str(const char* s) {
     if (!strcmp(s, "text"))      return WK_TEXT;
     if (!strcmp(s, "heading"))   return WK_HEADING;
     if (!strcmp(s, "button"))    return WK_BUTTON;
-    if (!strcmp(s, "link"))      return WK_LINK;
     if (!strcmp(s, "checkbox"))  return WK_CHECKBOX;
     if (!strcmp(s, "radio"))     return WK_RADIO;
     if (!strcmp(s, "slider"))    return WK_SLIDER;
     if (!strcmp(s, "progress"))  return WK_PROGRESS;
     if (!strcmp(s, "input"))     return WK_INPUT;
     if (!strcmp(s, "badge"))     return WK_BADGE;
-    if (!strcmp(s, "image"))     return WK_IMAGE;
     if (!strcmp(s, "separator")) return WK_SEPARATOR;
     if (!strcmp(s, "spacer"))    return WK_SPACER;
     if (!strcmp(s, "vbox"))      return WK_VBOX;
@@ -645,7 +641,7 @@ static Widget* hit_test(Widget* w, int x, int y) {
 // returns true if the widget kind participates in keyboard focus
 static bool widget_focusable(WidgetKind k) {
     return k == WK_BUTTON || k == WK_CHECKBOX || k == WK_RADIO ||
-           k == WK_SLIDER || k == WK_INPUT || k == WK_LINK;
+           k == WK_SLIDER || k == WK_INPUT;
 }
 
 // collects focusable widgets in draw order into a caller-supplied array
@@ -655,8 +651,6 @@ static void collect_focusable(Widget* w, Widget** arr, int* n, int cap) {
     for (int i = 0; i < w->child_count; i++)
         collect_focusable(w->children[i], arr, n, cap);           // recurse into children
 }
-
-// ---------------- input-edit helpers ----------------
 
 // true when the state has a live non-empty selection
 static bool input_has_selection(WidgetState* s) {

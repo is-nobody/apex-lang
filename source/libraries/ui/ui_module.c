@@ -218,9 +218,7 @@ bool ui_call_builtin(VM* vm, const char* name, int argc, Value* argv, Value* res
 
     if (strcmp(name, "ui.text") == 0)     { *result = make_leaf(vm, "text", argc, argv); return true; }         // plain text block
     if (strcmp(name, "ui.heading") == 0)  { *result = make_leaf(vm, "heading", argc, argv); return true; }      // section heading
-    if (strcmp(name, "ui.link") == 0)     { *result = make_leaf(vm, "link", argc, argv); return true; }         // clickable link
     if (strcmp(name, "ui.badge") == 0)    { *result = make_leaf(vm, "badge", argc, argv); return true; }        // small status pill
-    if (strcmp(name, "ui.image") == 0)    { *result = make_leaf(vm, "image", argc, argv); return true; }        // image placeholder
     if (strcmp(name, "ui.separator") == 0){ *result = make_leaf(vm, "separator", argc, argv); return true; }    // horizontal rule
 
     if (strcmp(name, "ui.button") == 0)   { *result = ctor_button(vm, argc, argv); return true; }               // push button
@@ -228,7 +226,7 @@ bool ui_call_builtin(VM* vm, const char* name, int argc, Value* argv, Value* res
     if (strcmp(name, "ui.radio") == 0)    { *result = ctor_radio(vm, argc, argv); return true; }                // radio option
     if (strcmp(name, "ui.slider") == 0)   { *result = ctor_slider(vm, argc, argv); return true; }               // numeric slider
     if (strcmp(name, "ui.progress") == 0) { *result = ctor_progress(vm, argc, argv); return true; }             // progress bar
-    if (strcmp(name, "ui.input_text") == 0){ *result = ctor_input(vm, argc, argv); return true; }               // editable text field
+    if (strcmp(name, "ui.input") == 0){ *result = ctor_input(vm, argc, argv); return true; }               // editable text field
     if (strcmp(name, "ui.spacer") == 0)   { *result = ctor_spacer(vm, argc, argv); return true; }               // flexible gap
 
     if (strcmp(name, "ui.vbox") == 0)   { *result = ui_ctor_container(vm, argc, argv, "vbox"); return true; }    // vertical stack

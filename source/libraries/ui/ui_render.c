@@ -285,15 +285,6 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 draw_text_at(ctx, tx, base, w->text.ptr, w->text.len, fs, tc);
                 break;
             }
-            case WK_LINK: {
-                float fs = UI_FS_BODY;
-                float base = y + hh - 4;                    // baseline at the bottom of the box
-                uint32_t tc = w->hovered ? UI_C_FG : UI_C_FG_DIM;
-                draw_text_at(ctx, (float)x, base, w->text.ptr, w->text.len, fs, tc);
-                float tw = ctx->font ? ui_text_measure(ctx->font, w->text.ptr, w->text.len, fs) : 0;
-                ui_painter_fill_rect(x, (int)base + 2, (int)tw, 1, tc);  // underline
-                break;
-            }
             case WK_BADGE: {
                 ui_painter_fill_round(x, y, ww, hh, UI_RADIUS_SM, UI_C_ACCENT);  // pill background
                 float fs = UI_FS_SMALL;
@@ -414,11 +405,6 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
             case WK_SEPARATOR:
                 ui_painter_fill_rect(x, y, ww, 1, UI_C_BORDER);  // 1px horizontal rule
                 break;
-            case WK_IMAGE: {
-                ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_DIS_BG);     // placeholder fill
-                ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);   // outline
-                break;
-            }
             case WK_PANEL: {
                 ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_PANEL);      // panel background
                 ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);   // panel outline
