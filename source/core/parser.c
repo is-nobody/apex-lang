@@ -372,6 +372,7 @@ static const BuiltinSig BUILTINS[] = {
     {"ui.shutdown",         0, 0, TYPE_ANY},
     {"ui.render",           1, 1, TYPE_ANY},
     {"ui.next_event",       0, 0, TYPE_ANY},
+    {"ui.run",              1, 1, TYPE_FUNCTION},
     {"ui.set_title",        1, 1, TYPE_STRING},
     {"ui.window_size",      0, 0, TYPE_ANY},
     {"ui.text",             1, 2, TYPE_ANY},

@@ -1512,6 +1512,38 @@ static bool pump(UiContext* ctx) {
     return ctx->queue.count > 0;                                  // true if anything was queued
 }
 
+// calls an apex function value synchronously by running it as a one-shot coroutine
+static Value apex_call_function(VM* vm, Value func, int argc, Value* argv) {
+    if (!IS_FUNCTION(func)) return MAKE_NONE();       // not callable
+    int func_idx = AS_FUNCTION(func);                 // unwrap packed function index
+
+    FutureObject* fut = (FutureObject*)calloc(1, sizeof(FutureObject));
+    if (!fut) return MAKE_NONE();                     // oom: no result
+    fut->header.ref_count = 1;                        // fresh object
+    fut->header.type      = VAL_FUTURE;               // mark as future
+    fut->result           = MAKE_NONE();
+    fut->state            = 0;                        // pending
+    fut->func_idx         = func_idx;
+    fut->arg_count        = argc;
+    fut->args             = argc > 0 ? (Value*)malloc(sizeof(Value) * argc) : NULL;
+    fut->saved_dest_reg   = -1;
+    fut->awaiting         = MAKE_NONE();
+    fut->saved_iter_depth = -1;
+    fut->saved_table_iter_depth = -1;
+    fut->saved_call_depth = 0;
+    for (int i = 0; i < argc; i++) {                  // capture args, keeping refs alive
+        if ((argv[i] & QNAN) == QNAN) value_incref(argv[i]);
+        fut->args[i] = argv[i];
+    }
+
+    future_start(vm, fut);                            // enqueue the coroutine
+    Value target = MAKE_FUTURE(fut);
+    Value result;
+    vm_drive_until(vm, target, &result);              // run it to completion
+    value_decref(target);                             // drop our local reference
+    return result;                                    // caller owns one ref
+}
+
 // builtin: creates the native window if not already open
 Value ui_impl_init(VM* vm, int argc, Value* argv) {
     UiContext* ctx = ui_ensure(vm);                               // ensure the context exists
@@ -1685,6 +1717,54 @@ Value ui_impl_next_event(VM* vm, int argc, Value* argv) {
     Value t = ui_event_to_table(vm, &ev);                         // convert to an apex table
     free(ev.str_value);                                           // release the event's owned string
     return t;                                                     // return the event table
+}
+
+// drive the message loop with batched repaints
+Value ui_impl_run(VM* vm, int argc, Value* argv) {
+    UiContext* ctx = ui_ensure(vm);                   // ensure the context exists
+    if (!ctx->window) return MAKE_NONE();             // no window: nothing to run
+    if (argc < 1 || !IS_FUNCTION(argv[0])) return MAKE_NONE();  // callback required
+
+    Value callback = argv[0];
+    value_incref(callback);                           // keep alive across the loop
+
+    if (ctx->redraw_needed) rebuild_and_draw(ctx);    // honour a pre-run ui.render
+
+    while (!ctx->quit_requested && ui_window_is_open(ctx->window)) {
+        pump(ctx);                                    // block, drain native events
+
+        bool rebuilt = false;                         // did any callback return a tree?
+
+        while (ctx->queue.count > 0) {                // process the whole batch
+            UiEvent ev = ctx->queue.events[0];        // peek front
+            memmove(&ctx->queue.events[0], &ctx->queue.events[1],
+                    sizeof(UiEvent) * (ctx->queue.count - 1));  // shift down
+            ctx->queue.count--;                       // one fewer queued event
+
+            Value ev_tbl = ui_event_to_table(vm, &ev);  // convert to Apex table
+            free(ev.str_value);                       // release the event's owned string
+
+            Value result = apex_call_function(vm, callback, 1, &ev_tbl);
+            value_decref(ev_tbl);                     // release our local reference
+
+            if (IS_TABLE(result)) {                   // callback staged a new tree
+                if (ctx->has_tree && (ctx->last_tree & QNAN) == QNAN)
+                    value_decref(ctx->last_tree);     // release previous tree
+                ctx->last_tree = result;              // take ownership of the new one
+                ctx->has_tree  = true;
+                ctx->redraw_needed = true;
+                rebuilt = true;
+            } else {
+                value_decref(result);                 // none or non-table: drop it
+            }
+        }
+
+        if (rebuilt || ctx->redraw_needed)            // one rebuild per batch
+            rebuild_and_draw(ctx);
+    }
+
+    value_decref(callback);                           // release the callback
+    return MAKE_NONE();
 }
 
 // builtin: destroys the native window and marks the context as shut down

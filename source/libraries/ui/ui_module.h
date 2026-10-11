@@ -20,6 +20,9 @@ Value ui_impl_render(VM* vm, int argc, Value* argv);
 // block until the next ui event
 Value ui_impl_next_event(VM* vm, int argc, Value* argv);
 
+// drive the message loop with batched repaints
+Value ui_impl_run(VM* vm, int argc, Value* argv);
+
 // tear down the native window
 Value ui_impl_shutdown(VM* vm, int argc, Value* argv);
 
