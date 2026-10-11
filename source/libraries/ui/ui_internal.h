@@ -76,6 +76,7 @@ typedef struct {
 typedef struct {
     uint64_t id;                // widget identity this state belongs to
     bool     hovered, pressed;  // persistent interaction flags
+    bool     seen;              // marked during the current frame by the state gc
     int      cursor;            // saved cursor position (-1 = unset)
     int      sel_anchor;        // byte offset of the selection anchor (-1 = no selection)
     double   scroll_y;          // saved scroll offset
@@ -152,6 +153,10 @@ typedef struct UiContext {
     Widget* pool;               // bump-allocated widget storage for this frame
     int     pool_cap;           // allocated capacity of the widget pool
     int     pool_used;          // number of widgets allocated this frame
+
+    char*   arena;              // per-frame bump arena for widget strings
+    int     arena_used;         // bytes consumed in the arena
+    int     arena_cap;          // allocated capacity of the arena
 
     Value last_tree;            // last widget descriptor passed to render()
     bool  has_tree;             // true when last_tree holds a live reference

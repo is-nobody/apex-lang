@@ -60,13 +60,11 @@ Widget* ui_widget_alloc(UiContext* ctx) {
 void ui_widgets_reset(UiContext* ctx) {
     for (int i = 0; i < ctx->pool_used; i++) {            // walk each live widget
         free(ctx->pool[i].children);                      // free child pointer array
-        free(ctx->pool[i].text.ptr);                      // free label/content string
-        free(ctx->pool[i].input_value.ptr);               // free input buffer
-        free(ctx->pool[i].group.ptr);                     // free radio group name
-        free(ctx->pool[i].key_str);                       // free user key string
+        free(ctx->pool[i].input_value.ptr);               // free input buffer (heap, mutable)
     }
     ctx->pool_used = 0;                                   // reset pool cursor
     ctx->root = NULL;                                     // drop tree root
+    ctx->arena_used = 0;                                  // bulk-free text/group/key_str
 }
 
 // appends a child to a widget, growing the child array as needed
@@ -93,7 +91,34 @@ WidgetState* ui_state_get(UiContext* ctx, uint64_t id) {
     s->id = id;                                           // bind to the widget id
     s->cursor = -1;                                       // no cursor override yet
     s->sel_anchor = -1;                                   // no active selection
+    s->seen = false;                                      // mark cleared until the gc runs
     return s;                                             // return the fresh entry
+}
+
+// marks the state entry backing each live widget, recursively
+static void state_gc_mark(UiContext* ctx, Widget* w) {
+    if (!w) return;
+    ui_state_get(ctx, w->id)->seen = true;                // touch creates or reuses the entry
+    for (int i = 0; i < w->child_count; i++)
+        state_gc_mark(ctx, w->children[i]);
+}
+
+// drops state entries no widget referenced this frame
+static void state_gc_sweep(UiContext* ctx) {
+    int out = 0;
+    for (int i = 0; i < ctx->state.count; i++) {
+        WidgetState* s = &ctx->state.entries[i];
+        if (s->seen) {
+            s->seen = false;                              // clear for the next frame
+            ctx->state.entries[out++] = *s;               // compact live entry forward
+        } else {
+            for (int j = 0; j < s->undo_count; j++) free(s->undo_stack[j].text);
+            for (int j = 0; j < s->redo_count; j++) free(s->redo_stack[j].text);
+            free(s->undo_stack);                          // release the undo history
+            free(s->redo_stack);                          // release the redo history
+        }
+    }
+    ctx->state.count = out;                               // truncate the tail
 }
 
 // appends an event to the pending event queue
@@ -478,6 +503,23 @@ static Str str_dup(const char* s, int n) {
     return r;                                            // return by value
 }
 
+// copies n bytes of a c string into the context's per-frame arena
+static Str arena_dup(UiContext* ctx, const char* s, int n) {
+    if (ctx->arena_used + n + 1 > ctx->arena_cap) {      // arena full: grow
+        int cap = ctx->arena_cap ? ctx->arena_cap : 64 * 1024;
+        while (ctx->arena_used + n + 1 > cap) cap *= 2;
+        ctx->arena = (char*)realloc(ctx->arena, (size_t)cap);
+        ctx->arena_cap = cap;
+    }
+    Str r;
+    r.ptr = ctx->arena + ctx->arena_used;                // bump the cursor
+    memcpy(r.ptr, s, n);                                 // copy the payload
+    r.ptr[n] = 0;                                        // null terminate
+    r.len = n;                                           // record the length
+    ctx->arena_used += n + 1;                            // advance the cursor
+    return r;                                            // return by value
+}
+
 // recursively builds a Widget subtree from an apex table descriptor
 Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
     if (!IS_TABLE(descr)) return NULL;                   // descriptors must be tables
@@ -494,7 +536,7 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
     char* key = table_get_str_dup(vm, t, "key");         // optional user key for id derivation
     uint64_t parent_id = parent ? parent->id : 0;        // root widgets hash from 0
     w->id = ui_hash_id(parent_id, key, idx);             // derive stable id
-    if (key) w->key_str = strdup(key);                   // keep the key for event payloads
+    if (key) w->key_str = arena_dup(ctx, key, (int)strlen(key)).ptr;  // arena copy of the key
     free(key);
 
     char* al = table_get_str_dup(vm, t, "align");        // optional align override
@@ -526,11 +568,11 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
 
     char* txt = table_get_str_dup(vm, t, "content");     // "content" preferred for text
     if (!txt) txt = table_get_str_dup(vm, t, "label");   // "label" as fallback
-    if (txt) { w->text = str_dup(txt, (int)strlen(txt)); free(txt); }
+    if (txt) { w->text = arena_dup(ctx, txt, (int)strlen(txt)); free(txt); }
 
     w->checked = table_get_bool(vm, t, "checked", false);         // checkbox/radio state
     char* grp = table_get_str_dup(vm, t, "group");                // radio group name
-    if (grp) { w->group = str_dup(grp, (int)strlen(grp)); free(grp); }
+    if (grp) { w->group = arena_dup(ctx, grp, (int)strlen(grp)); free(grp); }
     w->num_value = table_get_num(vm, t, "value", 0);              // slider/progress value
     w->num_min   = table_get_num(vm, t, "min", 0);                // slider/progress min
     w->num_max   = table_get_num(vm, t, "max", 100);              // slider/progress max
@@ -608,6 +650,7 @@ void ui_context_destroy(UiContext* ctx) {
     }
 
     free(ctx->pool);                                              // free the widget pool array
+    free(ctx->arena);                                             // free the per-frame string arena
     free(ctx->state.entries);                                     // free the persistent state table
     for (int i = 0; i < ctx->queue.count; i++) free(ctx->queue.events[i].str_value);  // release queued event strings
     free(ctx->queue.events);                                      // free the event queue array
@@ -1454,6 +1497,9 @@ static void rebuild_and_draw(UiContext* ctx) {
     ui_window_present(ctx->window);
     ui_damage_swap(ctx);
     ctx->redraw_needed = false;                                   // repaint satisfied
+
+    state_gc_mark(ctx, ctx->root);                                // mark reachable state
+    state_gc_sweep(ctx);                                          // drop the rest
 }
 
 // repaints the existing widget tree without rebuilding it

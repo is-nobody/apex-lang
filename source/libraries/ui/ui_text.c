@@ -66,10 +66,15 @@ typedef struct {
     uint8_t* cov;                 // coverage bitmap, one byte per pixel
 } CacheEntry;
 
+// glyph cache hash: one open-addressed slot per (gid, size_q) pair
+#define GLYPH_HASH_SIZE 512
+#define GLYPH_HASH_MASK (GLYPH_HASH_SIZE - 1)
+
 // loaded TrueType font state and its glyph cache
 struct UiFont {
     uint8_t* data;                                       // owned copy of the font file bytes
     size_t   size;                                       // size of the font file
+    int      glyph_hash[GLYPH_HASH_SIZE];                // slot -> cache index, -1 = empty
     uint32_t cmap_off, glyf_off, loca_off, head_off, hhea_off, hmtx_off, maxp_off;  // table offsets
     uint16_t upem;                                       // units per em from the head table
     int16_t  loca_fmt;                                   // loca table format, 0 for short, 1 for long
@@ -142,6 +147,8 @@ UiFont* ui_font_load_memory(const uint8_t* data, size_t len) {
     f->data = (uint8_t*)malloc(len);                     // take ownership of a copy
     memcpy(f->data, data, len);
     f->size = len;
+    for (int i = 0; i < GLYPH_HASH_SIZE; i++)            // mark every slot as empty
+        f->glyph_hash[i] = -1;
     if (!find_tables(f)) { ui_font_free(f); return NULL; }  // parse failed: bail out
     return f;
 }
@@ -591,16 +598,31 @@ static bool decode_glyph(UiFont* f, uint16_t gid, Poly** polys_out, int* npolys_
     return true;
 }
 
+// maps a (gid, size_q) pair to a starting slot in the glyph hash
+static inline uint32_t glyph_slot(uint16_t gid, uint16_t size_q) {
+    uint32_t h = (uint32_t)gid * 2654435761u;            // knuth multiplicative mix
+    h ^= (uint32_t)size_q * 40503u;                      // fold the size in
+    return h & GLYPH_HASH_MASK;                          // clamp to the table
+}
+
 // fetches a cached glyph bitmap, rasterizing and inserting on first miss
 static CacheEntry* glyph_get(UiFont* f, uint16_t gid, uint16_t size_q) {
-    for (int i = 0; i < f->cache_count; i++)             // linear scan of the cache
-        if (f->cache[i].gid == gid && f->cache[i].size_q == size_q)
-            return &f->cache[i];
+    uint32_t slot = glyph_slot(gid, size_q);             // starting slot
+    uint32_t insert_at = GLYPH_HASH_MASK + 1;            // first empty slot seen, if any
+    for (uint32_t probe = 0; probe < GLYPH_HASH_SIZE; probe++) {
+        uint32_t s = (slot + probe) & GLYPH_HASH_MASK;   // linear probing
+        int idx = f->glyph_hash[s];
+        if (idx < 0) { insert_at = s; break; }           // empty: glyph not present
+        if (f->cache[idx].gid == gid && f->cache[idx].size_q == size_q)
+            return &f->cache[idx];                       // hit
+    }
+    if (insert_at > GLYPH_HASH_MASK)                     // table is full: bail out
+        return NULL;
     if (f->cache_count >= f->cache_cap) {                // cache full: grow
         f->cache_cap = f->cache_cap ? f->cache_cap * 2 : 128;
         f->cache = (CacheEntry*)realloc(f->cache, sizeof(CacheEntry) * f->cache_cap);
     }
-    CacheEntry* e = &f->cache[f->cache_count++];         // take the next slot
+    CacheEntry* e = &f->cache[f->cache_count];           // take the next slot
     memset(e, 0, sizeof(*e));
     e->gid = gid; e->size_q = size_q;
     float size = size_q / 4.0f;                          // undo the quarter-pixel quantization
@@ -609,8 +631,11 @@ static CacheEntry* glyph_get(UiFont* f, uint16_t gid, uint16_t size_q) {
 
     Poly* polys = NULL; int npolys = 0;
     int xmin=0, ymin=0, xmax=0, ymax=0;
-    if (!decode_glyph(f, gid, &polys, &npolys, &xmin, &ymin, &xmax, &ymax, scale))
-        return e;                                        // blank glyph, no coverage bitmap
+    if (!decode_glyph(f, gid, &polys, &npolys, &xmin, &ymin, &xmax, &ymax, scale)) {
+        f->glyph_hash[insert_at] = f->cache_count;       // blank glyph still lives in the cache
+        f->cache_count++;
+        return e;
+    }
 
     float fxmin = xmin * scale, fymin = ymin * scale;    // scaled bounds
     float fxmax = xmax * scale, fymax = ymax * scale;
@@ -621,6 +646,8 @@ static CacheEntry* glyph_get(UiFont* f, uint16_t gid, uint16_t size_q) {
     if (W <= 0 || H <= 0 || W > 512 || H > 512) {        // sanity bounds
         for (int i = 0; i < npolys; i++) free(polys[i].pts);
         free(polys);
+        f->glyph_hash[insert_at] = f->cache_count;       // oversized bitmap: cache the empty entry
+        f->cache_count++;
         return e;
     }
     e->w = W; e->h = H; e->off_x = ox; e->off_y = oy;    // remember the placement
@@ -629,6 +656,8 @@ static CacheEntry* glyph_get(UiFont* f, uint16_t gid, uint16_t size_q) {
 
     for (int i = 0; i < npolys; i++) free(polys[i].pts); // release temporary polygons
     free(polys);
+    f->glyph_hash[insert_at] = f->cache_count;           // publish in the hash
+    f->cache_count++;                                    // and advance the linear tail
     return e;
 }
 
