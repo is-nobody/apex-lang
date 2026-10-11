@@ -17,7 +17,7 @@ static int clip_stack[16][4]; static int clip_depth;
 // binds the painter to a framebuffer and clears the clip stack
 void ui_painter_init(uint32_t* p, int w, int h) {
     g_pixels = p; g_w = w; g_h = h; clip_depth = 0;
-    ui_text_set_clip(0, 0, 0, 0);                        // disable text scissor
+    ui_text_set_clip(0, 0, w, h);                        // whole surface: nothing clipped
 }
 
 // pushes a scissor rect, intersected with the current top of the stack
@@ -51,14 +51,14 @@ void ui_painter_pop_clip(void) {
         int ch = clip_stack[clip_depth-1][3];
         ui_text_set_clip(cx, cy, cx+cw, cy+ch);
     } else {
-        ui_text_set_clip(0, 0, 0, 0);
+        ui_text_set_clip(0, 0, g_w, g_h);
     }
 }
 
 // clears the whole clip stack
 void ui_painter_reset_clip(void) {
     clip_depth = 0;
-    ui_text_set_clip(0, 0, 0, 0);
+    ui_text_set_clip(0, 0, g_w, g_h);
 }
 
 // returns true when (x, y) lies inside the active scissor rect
