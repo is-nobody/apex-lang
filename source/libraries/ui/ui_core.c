@@ -1119,14 +1119,13 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
 
                     if (w->kind == WK_INPUT) {                    // input field editing
                         WidgetState* s = ui_state_get(ctx, w->id);
-                        int cur = s->cursor < 0 ? (int)w->input_value.len : s->cursor;
                         int len = (int)w->input_value.len;
-                        if (s->sel_anchor < 0) s->sel_anchor = cur;  // normalize anchor
+                        // the cursor can be one frame ahead of the buffer
+                        int cur = s->cursor < 0 ? len : s->cursor;
+                        if (cur > len) cur = len;
+                        if (s->sel_anchor < 0 || s->sel_anchor > len) s->sel_anchor = cur;
 
-                        // ctrl shortcuts: select all, copy, cut, paste, undo,
-                        // redo, and word-delete. all of these are checked here
-                        // because the earlier mods mask consumes every ctrl+
-                        // key combination before the plain handlers can see it.
+                        // ctrl shortcuts: select all, copy, cut, paste, undo, redo, and word-delete
                         if (e->mods & 2) {
                             int k = e->key;
                             if (k >= 'A' && k <= 'Z') k = k - 'A' + 'a';
@@ -1544,8 +1543,8 @@ Value ui_impl_next_event(VM* vm, int argc, Value* argv) {
             ui_event_push(ctx, &ev);
             break;
         }
-        pump(ctx);                                                // drain native events
         if (ctx->redraw_needed) rebuild_and_draw(ctx);            // repaint if requested
+        pump(ctx);                                                // drain native events
         if (ctx->queue.count > 0) break;                          // event arrived
         if (++safety > 5000) break;                               // give up after too many empty spins
     }

@@ -349,7 +349,8 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 }
 
                 float fs = UI_FS_BODY;
-                float base = y + hh - 4;                    // label baseline at the bottom
+                // center the label on the widget instead of pinning it to the bottom
+                float base = y + (hh + fs * 0.7f) * 0.5f;
                 draw_text_at(ctx, (float)(bx + sz + 8), base,
                              w->text.ptr, w->text.len, fs, UI_C_FG);  // label to the right of the box
                 break;
@@ -365,7 +366,7 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                     ui_painter_fill_round(bx+4, by+4, sz-8, sz-8, (sz-8)/2, UI_C_ACCENT);
 
                 float fs = UI_FS_BODY;
-                float base = y + hh - 4;                    // label baseline
+                float base = y + (hh + fs * 0.7f) * 0.5f;  // center on the widget
                 draw_text_at(ctx, (float)(bx + sz + 8), base, w->text.ptr, w->text.len, fs, UI_C_FG);
                 break;
             }
@@ -401,10 +402,17 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
 
                 WidgetState* s = ui_state_get(ctx, w->id);
 
+                // the persistent cursor and anchor can point past the descriptor's text for one frame
+                int lim = w->input_value.len;
+                int cur_off = s->cursor < 0 ? lim : s->cursor;
+                if (cur_off > lim) cur_off = lim;
+                int anc_off = s->sel_anchor < 0 ? lim : s->sel_anchor;
+                if (anc_off > lim) anc_off = lim;
+
                 // selection highlight goes under the text so glyphs sit on top
-                if (w->focused && s->sel_anchor >= 0 && s->sel_anchor != s->cursor) {
-                    int a = s->sel_anchor < s->cursor ? s->sel_anchor : s->cursor;
-                    int b = s->sel_anchor < s->cursor ? s->cursor : s->sel_anchor;
+                if (w->focused && anc_off != cur_off) {
+                    int a = anc_off < cur_off ? anc_off : cur_off;
+                    int b = anc_off < cur_off ? cur_off : anc_off;
                     float x0 = x + 8.0f;
                     float x1 = x + 8.0f;
                     if (ctx->font) {
@@ -419,9 +427,8 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
 
                 if (w->focused) {                           // draw the caret when focused
                     if (s->blink_phase < 0.5) {             // visible half of the blink cycle
-                        int cur = s->cursor < 0 ? w->input_value.len : s->cursor;
                         float cx = x + 8;
-                        if (ctx->font) cx += ui_text_measure(ctx->font, w->input_value.ptr, cur, fs);
+                        if (ctx->font) cx += ui_text_measure(ctx->font, w->input_value.ptr, cur_off, fs);
                         ui_painter_fill_rect((int)cx, y + 6, 1, hh - 12, UI_C_FG);
                     }
                 }
