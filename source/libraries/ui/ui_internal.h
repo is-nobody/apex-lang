@@ -95,6 +95,8 @@ typedef struct {
 typedef struct {
     WidgetState* entries;     // flat array of widget states
     int          count, cap;  // live count and allocated capacity
+    int*         index;       // open-addressed: id hash -> entry index, -1 empty
+    int          index_cap;   // power of two, kept >= 2 * (count + 1)
 } StateMap;                   // id-indexed state store for the ui context
 
 typedef struct {

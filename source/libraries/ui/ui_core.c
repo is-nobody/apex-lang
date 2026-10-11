@@ -91,22 +91,65 @@ static void widget_add_child(Widget* p, Widget* c) {
     c->parent = p;                                        // back-link to parent
 }
 
-// looks up persistent per-widget state by id, creating an empty entry on miss
-WidgetState* ui_state_get(UiContext* ctx, uint64_t id) {
-    for (int i = 0; i < ctx->state.count; i++)
-        if (ctx->state.entries[i].id == id) return &ctx->state.entries[i];  // existing entry
-    if (ctx->state.count >= ctx->state.cap) {             // state table is full
-        ctx->state.cap = ctx->state.cap ? ctx->state.cap * 2 : 64;  // start at 64, then double
-        ctx->state.entries = (WidgetState*)realloc(ctx->state.entries,
-                                sizeof(WidgetState) * ctx->state.cap);
+// mixes a 64-bit widget id into a 32-bit slot hash
+static inline uint32_t state_hash(uint64_t id) {
+    uint64_t h = id * 0x9E3779B97F4A7C15ULL;   // 64-bit golden-ratio step
+    return (uint32_t)(h ^ (h >> 32));          // fold high half down
+}
+
+// allocates or grows the index and reinserts every existing entry
+static void state_index_grow(UiContext* ctx) {
+    int need = (ctx->state.count + 1) * 2;             // load factor <= 0.5
+    int cap = 8;
+    while (cap < need) cap <<= 1;                       // next power of two
+    free(ctx->state.index);
+    ctx->state.index = (int*)malloc(sizeof(int) * cap);
+    ctx->state.index_cap = cap;
+    for (int i = 0; i < cap; i++) ctx->state.index[i] = -1;
+    uint32_t mask = (uint32_t)(cap - 1);
+    for (int i = 0; i < ctx->state.count; i++) {        // reinsert live entries
+        uint32_t slot = state_hash(ctx->state.entries[i].id) & mask;
+        while (ctx->state.index[slot] >= 0) slot = (slot + 1) & mask;
+        ctx->state.index[slot] = i;
     }
-    WidgetState* s = &ctx->state.entries[ctx->state.count++];  // take next slot
-    memset(s, 0, sizeof(*s));                             // clear the entry
-    s->id = id;                                           // bind to the widget id
-    s->cursor = -1;                                       // no cursor override yet
-    s->sel_anchor = -1;                                   // no active selection
-    s->seen = false;                                      // mark cleared until the gc runs
-    return s;                                             // return the fresh entry
+}
+
+// o(1) average lookup: id -> state entry, creating on miss
+WidgetState* ui_state_get(UiContext* ctx, uint64_t id) {
+    if (ctx->state.index == NULL) state_index_grow(ctx);        // lazy init on first call
+
+    uint32_t mask = (uint32_t)(ctx->state.index_cap - 1);       // power-of-two mask for slot folding
+    uint32_t slot = state_hash(id) & mask;                      // starting slot from id hash
+    for (;;) {                                                  // linear probe until an empty slot
+        int idx = ctx->state.index[slot];                       // entry index stored in this slot
+        if (idx < 0) break;                                     // empty slot: id is not present
+        if (ctx->state.entries[idx].id == id)                   // id matches this entry
+            return &ctx->state.entries[idx];                    // hit: hand back the live state
+        slot = (slot + 1) & mask;                               // collide: advance to next slot
+    }
+
+    // miss: append a fresh entry, then insert it into the index
+    if (ctx->state.count >= ctx->state.cap) {                   // entries array is full
+        ctx->state.cap = ctx->state.cap ? ctx->state.cap * 2 : 64;  // double, or start at 64
+        ctx->state.entries = (WidgetState*)realloc(ctx->state.entries,
+                                sizeof(WidgetState) * ctx->state.cap);  // grow the array
+    }
+    if ((ctx->state.count + 1) * 2 > ctx->state.index_cap) {    // load factor would exceed 0.5
+        state_index_grow(ctx);                                  // rehash: keeps probes short
+        mask = (uint32_t)(ctx->state.index_cap - 1);            // recompute mask after growth
+        slot = state_hash(id) & mask;                           // recompute starting slot
+        while (ctx->state.index[slot] >= 0) slot = (slot + 1) & mask;  // find an empty slot
+    }
+
+    WidgetState* s = &ctx->state.entries[ctx->state.count];     // next free entry slot
+    memset(s, 0, sizeof(*s));                                   // clear every field
+    s->id = id;                                                 // bind to the widget id
+    s->cursor = -1;                                             // no cursor override yet
+    s->sel_anchor = -1;                                         // no active selection
+    s->seen = false;                                            // marked when the gc touches it
+    ctx->state.index[slot] = ctx->state.count;                  // publish index -> entry mapping
+    ctx->state.count++;                                         // advance the entry cursor
+    return s;                                                   // return the fresh entry
 }
 
 // marks the state entry backing each live widget, recursively
@@ -133,6 +176,18 @@ static void state_gc_sweep(UiContext* ctx) {
         }
     }
     ctx->state.count = out;                               // truncate the tail
+
+    // rebuild the index after compaction so lookups stay consistent
+    if (ctx->state.index) {
+        for (int i = 0; i < ctx->state.index_cap; i++)
+            ctx->state.index[i] = -1;                     // clear all slots
+        uint32_t mask = (uint32_t)(ctx->state.index_cap - 1);
+        for (int i = 0; i < ctx->state.count; i++) {
+            uint32_t slot = state_hash(ctx->state.entries[i].id) & mask;
+            while (ctx->state.index[slot] >= 0) slot = (slot + 1) & mask;
+            ctx->state.index[slot] = i;
+        }
+    }
 }
 
 // appends an event to the pending event queue
@@ -668,6 +723,7 @@ void ui_context_destroy(UiContext* ctx) {
     free(ctx->pool);                                              // free the widget pool array
     free(ctx->arena);                                             // free the per-frame string arena
     free(ctx->state.entries);                                     // free the persistent state table
+    free(ctx->state.index);                                       // free the state lookup index
     for (int i = 0; i < ctx->queue.count; i++) free(ctx->queue.events[i].str_value);  // release queued event strings
     free(ctx->queue.events);                                      // free the event queue array
     if (ctx->font)   ui_font_free(ctx->font);                     // release the font
