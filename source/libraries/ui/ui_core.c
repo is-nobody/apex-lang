@@ -1308,7 +1308,7 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                                 input_redo(ctx, w, s);
                                 break;
                             }
-                            if (e->key == 0xFF08) {           // ctrl+backspace: delete word back
+                            if (e->key == UI_KEY_BACKSPACE) { // ctrl+backspace: delete word back
                                 if (input_has_selection(s)) {
                                     int a, b;
                                     input_sel_range(s, &a, &b);
@@ -1357,7 +1357,7 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                             break;
                         }
 
-                        if (e->key == 0xFF08) {               // backspace
+                        if (e->key == UI_KEY_BACKSPACE) {     // backspace
                             if (input_has_selection(s)) {
                                 int a, b;
                                 input_sel_range(s, &a, &b);
@@ -1370,7 +1370,7 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                             }
                             break;
                         }
-                        if (e->key == 0xFFFF) {               // delete (forward)
+                        if (e->key == UI_KEY_DELETE) {        // delete (forward)
                             if (input_has_selection(s)) {
                                 int a, b;
                                 input_sel_range(s, &a, &b);
@@ -1385,27 +1385,27 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                         }
 
                         // arrow keys move the caret; shift extends the selection
-                        if (e->key == 0xFF51) {               // left
+                        if (e->key == UI_KEY_LEFT) {          // left
                             int np = ui_utf8_prev(w->input_value.ptr, cur);
                             s->cursor = np;
                             if (!(e->mods & 1)) s->sel_anchor = np;   // clear on plain move
                             ctx->redraw_needed = true;
                             break;
                         }
-                        if (e->key == 0xFF53) {               // right
+                        if (e->key == UI_KEY_RIGHT) {         // right
                             int np = ui_utf8_next(w->input_value.ptr, cur, len);
                             s->cursor = np;
                             if (!(e->mods & 1)) s->sel_anchor = np;
                             ctx->redraw_needed = true;
                             break;
                         }
-                        if (e->key == 0xFF50) {               // home
+                        if (e->key == UI_KEY_HOME) {          // home
                             s->cursor = 0;
                             if (!(e->mods & 1)) s->sel_anchor = 0;
                             ctx->redraw_needed = true;
                             break;
                         }
-                        if (e->key == 0xFF57) {               // end
+                        if (e->key == UI_KEY_END) {           // end
                             s->cursor = len;
                             if (!(e->mods & 1)) s->sel_anchor = len;
                             ctx->redraw_needed = true;
@@ -1414,19 +1414,19 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     }
 
                     if (w->kind == WK_BUTTON &&
-                        (e->key == 0x20 || e->key == 0xFF0D)) {   // space or enter activates
+                        (e->key == UI_KEY_SPACE || e->key == UI_KEY_ENTER)) {   // space or enter activates
                         fire_click(ctx, w);
                         break;
                     }
                     if (w->kind == WK_CHECKBOX &&
-                        (e->key == 0x20 || e->key == 0xFF0D)) {   // space or enter toggles
+                        (e->key == UI_KEY_SPACE || e->key == UI_KEY_ENTER)) {   // space or enter toggles
                         fire_click(ctx, w);
                         break;
                     }
                 }
             }
 
-            if (e->key == 0xFF09 && ctx->root) {                  // tab cycles focus
+            if (e->key == UI_KEY_TAB && ctx->root) {              // tab cycles focus
                 Widget* focs[512];
                 int n = 0;
                 collect_focusable(ctx->root, focs, &n, 512);      // gather in draw order

@@ -74,4 +74,36 @@
 #define UI_MIN_W   150                 // default minimum window width in pixels
 #define UI_MIN_H   35                  // default minimum window height in pixels
 
+#define UI_KEY_ESCAPE     0xFF1B  // 65307
+#define UI_KEY_ENTER      0xFF0D  // 65293
+#define UI_KEY_TAB        0xFF09  // 65289
+#define UI_KEY_BACKSPACE  0xFF08  // 65288
+#define UI_KEY_DELETE     0xFFFF  // 65535
+#define UI_KEY_INSERT     0xFF63  // 65379
+#define UI_KEY_HOME       0xFF50  // 65360
+#define UI_KEY_END        0xFF57  // 65367
+#define UI_KEY_PAGE_UP    0xFF55  // 65365
+#define UI_KEY_PAGE_DOWN  0xFF56  // 65366
+#define UI_KEY_LEFT       0xFF51  // 65361
+#define UI_KEY_RIGHT      0xFF53  // 65363
+#define UI_KEY_UP         0xFF52  // 65362
+#define UI_KEY_DOWN       0xFF54  // 65364
+#define UI_KEY_SPACE      0x20    // 32
+#define UI_KEY_F1         0xFFBE  // 65470
+#define UI_KEY_F2         0xFFBF
+#define UI_KEY_F3         0xFFC0
+#define UI_KEY_F4         0xFFC1
+#define UI_KEY_F5         0xFFC2
+#define UI_KEY_F6         0xFFC3
+#define UI_KEY_F7         0xFFC4
+#define UI_KEY_F8         0xFFC5
+#define UI_KEY_F9         0xFFC6
+#define UI_KEY_F10        0xFFC7
+#define UI_KEY_F11        0xFFC8
+#define UI_KEY_F12        0xFFC9
+
+#define UI_MOD_SHIFT      1       // shift held
+#define UI_MOD_CTRL       2       // control held
+#define UI_MOD_ALT        4       // alt / option held
+
 #endif
