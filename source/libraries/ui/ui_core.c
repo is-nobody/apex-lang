@@ -79,6 +79,11 @@ void ui_widgets_reset(UiContext* ctx) {
     ctx->pool_used = 0;                                   // reset pool cursor
     ctx->root = NULL;                                     // drop tree root
     ctx->arena_used = 0;                                  // bulk-free text/group/key_str
+    if (ctx->text_cache_cap > 0) {                        // invalidate memoized measurements:
+        memset(ctx->text_cache, 0,                        // the arena they were keyed against
+               sizeof(TextMeasureEntry) * ctx->text_cache_cap);  // is reset, so stale hits
+        ctx->text_cache_count = 0;                        // would report wrong widths
+    }
 }
 
 // appends a child to a widget, growing the child array as needed
@@ -208,6 +213,63 @@ static uint64_t hash_bytes64(uint64_t h, const void* p, size_t n) {
         h *= 0x100000001B3ULL;                                         // multiply by fnv-1a prime
     }
     return h;                                                          // running digest
+}
+
+// hash of (size, length, content) used as the text measurement cache key
+static uint64_t text_measure_hash(const char* s, int len, float size) {
+    uint64_t h = 0xCBF29CE484222325ULL;               // fnv-1a offset basis
+    h = hash_bytes64(h, &size, sizeof(size));         // fold font size first
+    h = hash_bytes64(h, &len,  sizeof(len));          // then the length
+    if (len > 0) h = hash_bytes64(h, s, (size_t)len); // then the payload bytes
+    return h ? h : 1;                                 // 0 is reserved for empty slots
+}
+
+// memoized ui_text_measure: same (content, size) is measured at most once per frame
+float ui_text_measure_cached(UiContext* ctx, const char* s, int len, float size) {
+    if (!ctx->font || !s || len <= 0) return 0.0f;    // nothing to measure
+
+    uint64_t key = text_measure_hash(s, len, size);   // key for this measurement
+
+    if (ctx->text_cache_cap > 0) {                    // probe the open-addressed table
+        uint32_t mask = (uint32_t)(ctx->text_cache_cap - 1);
+        uint32_t slot = (uint32_t)key & mask;
+        for (;;) {
+            TextMeasureEntry* e = &ctx->text_cache[slot];
+            if (e->hash == 0) break;                  // empty: miss
+            if (e->hash == key) return e->width;      // hit
+            slot = (slot + 1) & mask;
+        }
+    }
+
+    float w = ui_text_measure(ctx->font, s, len, size);  // miss: measure for real
+
+    if (ctx->text_cache_cap == 0 ||
+        (ctx->text_cache_count + 1) * 4 > ctx->text_cache_cap * 3) {  // grow at 75% load
+        int new_cap = ctx->text_cache_cap ? ctx->text_cache_cap * 2 : 256;
+        TextMeasureEntry* nc = (TextMeasureEntry*)calloc(new_cap, sizeof(TextMeasureEntry));
+        if (nc) {                                     // rehash existing entries into the new table
+            uint32_t new_mask = (uint32_t)(new_cap - 1);
+            for (int i = 0; i < ctx->text_cache_cap; i++) {
+                if (ctx->text_cache[i].hash == 0) continue;
+                uint32_t s2 = (uint32_t)ctx->text_cache[i].hash & new_mask;
+                while (nc[s2].hash != 0) s2 = (s2 + 1) & new_mask;
+                nc[s2] = ctx->text_cache[i];
+            }
+            free(ctx->text_cache);
+            ctx->text_cache = nc;
+            ctx->text_cache_cap = new_cap;
+        }                                             // oom: fall through with old table
+    }
+
+    if (ctx->text_cache_cap > 0) {                    // insert the fresh measurement
+        uint32_t mask = (uint32_t)(ctx->text_cache_cap - 1);
+        uint32_t slot = (uint32_t)key & mask;
+        while (ctx->text_cache[slot].hash != 0) slot = (slot + 1) & mask;
+        ctx->text_cache[slot].hash  = key;
+        ctx->text_cache[slot].width = w;
+        ctx->text_cache_count++;
+    }
+    return w;
 }
 
 // digest of every field that affects how a widget renders
@@ -419,10 +481,6 @@ static Value intern(VM* vm, const char* s) {
 }
 
 // converts a native ui event into an apex table value for the script layer
-//
-// "key" is always a string: the widget's user key when one was declared, or
-// the empty string otherwise. this lets scripts match on `ev["key"] == "..."`
-// without having to branch on whether a key was provided.
 Value ui_event_to_table(VM* vm, const UiEvent* ev) {
     Table* t = table_create(14);                          // event table with room for ~10 fields
     Value k, v;
@@ -723,6 +781,7 @@ void ui_context_destroy(UiContext* ctx) {
     free(ctx->pool);                                              // free the widget pool array
     free(ctx->arena);                                             // free the per-frame string arena
     free(ctx->state.entries);                                     // free the persistent state table
+    free(ctx->text_cache);                                        // free the text measurement cache
     free(ctx->state.index);                                       // free the state lookup index
     for (int i = 0; i < ctx->queue.count; i++) free(ctx->queue.events[i].str_value);  // release queued event strings
     free(ctx->queue.events);                                      // free the event queue array
@@ -783,15 +842,12 @@ static void input_sel_range(WidgetState* s, int* out_min, int* out_max) {
 }
 
 // maps a local x offset inside an input widget to a byte offset in its text
-//
-// walks one codepoint at a time and compares against the midpoint of the
-// codepoint's advance, so clicks land on the character nearest the cursor
 static int input_hit_offset(UiContext* ctx, Widget* w, float local_x) {
     const char* s = w->input_value.ptr;
     int n = w->input_value.len;
     if (!ctx->font || n == 0) return 0;
     if (local_x <= 0) return 0;
-    float full = ui_text_measure(ctx->font, s, n, UI_FS_BODY);
+    float full = ui_text_measure_cached(ctx, s, n, UI_FS_BODY);
     if (local_x >= full) return n;                        // past the end: caret at end
 
     int best = 0;
@@ -799,7 +855,7 @@ static int input_hit_offset(UiContext* ctx, Widget* w, float local_x) {
     int i = 0;
     while (i < n) {
         int next = ui_utf8_next(s, i, n);
-        float w2 = ui_text_measure(ctx->font, s, next, UI_FS_BODY);
+        float w2 = ui_text_measure_cached(ctx, s, next, UI_FS_BODY);
         float mid = (prev + w2) * 0.5f;                   // midpoint of this codepoint
         if (local_x < mid) return i;                      // clicked left of the midpoint
         i = next;
@@ -810,10 +866,6 @@ static int input_hit_offset(UiContext* ctx, Widget* w, float local_x) {
 }
 
 // finds the [start, end) byte range of the word containing pos
-//
-// a word is a maximal run of non-whitespace bytes around the caret. this is
-// deliberately simpler than unicode word boundaries: good enough for the
-// double-click gesture in v1.
 static void input_word_range(Widget* w, int pos, int* out_start, int* out_end) {
     const char* s = w->input_value.ptr;
     int n = w->input_value.len;
@@ -842,9 +894,6 @@ static void input_set_buffer(Widget* w, char* buf, int len) {
 }
 
 // pushes a snapshot of the current buffer onto the undo stack
-//
-// any new edit invalidates the redo history, so redo is cleared here too.
-// the stack is capped to bound memory for very long editing sessions.
 #define INPUT_UNDO_MAX 128
 static void input_push_undo(WidgetState* s, const char* text, int len, int cursor) {
     if (s->undo_count >= INPUT_UNDO_MAX) {                 // drop the oldest snapshot
@@ -923,9 +972,6 @@ static void input_redo(UiContext* ctx, Widget* w, WidgetState* s) {
 }
 
 // deletes [a, b) from the input buffer, moving the caret to a
-//
-// the caller is expected to have already pushed an undo snapshot; this
-// function only mutates and emits the change event
 static void input_delete_range(UiContext* ctx, Widget* w, WidgetState* s, int a, int b) {
     int len = (int)w->input_value.len;
     if (a < 0) a = 0;

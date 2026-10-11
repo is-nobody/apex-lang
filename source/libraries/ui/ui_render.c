@@ -235,8 +235,8 @@ static void draw_wrapped(UiContext* ctx, Widget* w, int x, int y, int width, uin
         while (j < len) {
             int nj = j;
             while (nj < len && s[nj] != ' ') nj++;      // end of the next word
-            float word_w = ui_text_measure(ctx->font, s + j, nj - j, size);  // word width
-            float sp = (cur > 0) ? ui_text_measure(ctx->font, " ", 1, size) : 0;  // space before it
+            float word_w = ui_text_measure_cached(ctx, s + j, nj - j, size);  // word width
+            float sp = (cur > 0) ? ui_text_measure_cached(ctx, " ", 1, size) : 0;  // space before it
             if (cur + sp + word_w > (float)width && cur > 0) {
                 last_break = j;                         // wrap here
                 break;
@@ -304,7 +304,7 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, bg);
                 ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER_S);
                 float fs = UI_FS_BODY;
-                float tw = ctx->font ? ui_text_measure(ctx->font, w->text.ptr, w->text.len, fs) : w->text.len*8.0f;
+                float tw = ctx->font ? ui_text_measure_cached(ctx, w->text.ptr, w->text.len, fs) : w->text.len*8.0f;
                 float tx = x + (ww - tw) * 0.5f;           // center horizontally
                 float base = y + (hh + fs * 0.7f) * 0.5f;  // vertically center the cap height
                 uint32_t tc = w->disabled ? UI_C_DIS_FG : UI_C_ACCENT_T;
@@ -314,7 +314,7 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
             case WK_BADGE: {
                 ui_painter_fill_round(x, y, ww, hh, UI_RADIUS_SM, UI_C_ACCENT);  // pill background
                 float fs = UI_FS_SMALL;
-                float tw = ctx->font ? ui_text_measure(ctx->font, w->text.ptr, w->text.len, fs) : 0;
+                float tw = ctx->font ? ui_text_measure_cached(ctx, w->text.ptr, w->text.len, fs) : 0;
                 float tx = x + (ww - tw) * 0.5f;            // center horizontally
                 float base = y + hh - 5;                    // baseline near the bottom
                 draw_text_at(ctx, tx, base, w->text.ptr, w->text.len, fs, UI_C_ACCENT_T);
@@ -417,8 +417,8 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                     float x0 = x + 8.0f;
                     float x1 = x + 8.0f;
                     if (ctx->font) {
-                        x0 += ui_text_measure(ctx->font, w->input_value.ptr, a, fs);
-                        x1 += ui_text_measure(ctx->font, w->input_value.ptr, b, fs);
+                        x0 += ui_text_measure_cached(ctx, w->input_value.ptr, a, fs);
+                        x1 += ui_text_measure_cached(ctx, w->input_value.ptr, b, fs);
                     }
                     ui_painter_fill_rect((int)x0, y + 5, (int)(x1 - x0), hh - 10, UI_C_SEL_BG);
                 }
@@ -429,7 +429,7 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 if (w->focused) {                           // draw the caret when focused
                     if (s->blink_phase < 0.5) {             // visible half of the blink cycle
                         float cx = x + 8;
-                        if (ctx->font) cx += ui_text_measure(ctx->font, w->input_value.ptr, cur_off, fs);
+                        if (ctx->font) cx += ui_text_measure_cached(ctx, w->input_value.ptr, cur_off, fs);
                         ui_painter_fill_rect((int)cx, y + 6, 1, hh - 12, UI_C_FG);
                     }
                 }
@@ -556,13 +556,13 @@ void ui_render_titlebar(UiContext* ctx) {
         int avail = bx1 - left_pad - right_pad;       // pixels the title may occupy
         if (avail < 0) avail = 0;
 
-        float full_w = ui_text_measure(ctx->font, ctx->title, tlen, fs);
+        float full_w = ui_text_measure_cached(ctx, ctx->title, tlen, fs);
         if (full_w <= (float)avail) {                 // whole title fits
             ui_text_draw(ctx->font, ctx->pixels, ctx->win_w, ctx->win_h,
                          (float)left_pad, base, ctx->title, tlen, fs, UI_C_TB_FG);
         } else {
             static const char ell[] = "...";
-            float ell_w = ui_text_measure(ctx->font, ell, 3, fs);
+            float ell_w = ui_text_measure_cached(ctx, ell, 3, fs);
             if ((float)avail > ell_w) {
                 float budget = (float)avail - ell_w;  // width left for the prefix
                 int cut = 0;                          // byte length of the kept prefix
@@ -570,7 +570,7 @@ void ui_render_titlebar(UiContext* ctx) {
                 int i = 0;
                 while (i < tlen) {                    // grow the prefix codepoint by codepoint
                     int next = ui_utf8_next(ctx->title, i, tlen);
-                    float w  = ui_text_measure(ctx->font, ctx->title, next, fs);
+                    float w  = ui_text_measure_cached(ctx, ctx->title, next, fs);
                     if (w > budget) break;            // this codepoint would overflow
                     i = next;
                     cut = i;

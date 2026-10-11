@@ -25,7 +25,7 @@ static float wrap_measure(UiContext* ctx, const char* s, int len, float size, fl
                           int* out_lines) {
     if (!ctx->font) { if (out_lines) *out_lines = 1; return (float)len * size * 0.5f; }  // no font: rough estimate
     if (max_w <= 0) {                            // no wrap constraint: single line
-        float w = ui_text_measure(ctx->font, s, len, size);
+        float w = ui_text_measure_cached(ctx, s, len, size);
         if (out_lines) *out_lines = 1;
         return w;
     }
@@ -37,8 +37,8 @@ static float wrap_measure(UiContext* ctx, const char* s, int len, float size, fl
         int j = i;
         while (j < len && s[j] != ' ') j++;      // find end of the next word
         if (i == j) break;                       // no more words
-        float w = ui_text_measure(ctx->font, s + i, j - i, size);  // width of the word
-        float sp = cur > 0 ? ui_text_measure(ctx->font, " ", 1, size) : 0;  // space before it
+        float w = ui_text_measure_cached(ctx, s + i, j - i, size);  // width of the word
+        float sp = cur > 0 ? ui_text_measure_cached(ctx, " ", 1, size) : 0;  // space before it
         if (cur + sp + w > max_w && cur > 0) {   // would overflow: wrap
             if (cur > maxw) maxw = cur;          // record the finished line
             cur = w;                             // start a new line with the word
@@ -69,7 +69,7 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
         }
         case WK_BUTTON: case WK_BADGE: {                     // single-line labelled widgets
             float fs = (w->kind == WK_BADGE) ? UI_FS_SMALL : UI_FS_BODY;  // badges render smaller
-            float tw = ctx->font ? ui_text_measure(ctx->font, w->text.ptr, w->text.len, fs) : w->text.len * 8.0f;
+            float tw = ctx->font ? ui_text_measure_cached(ctx, w->text.ptr, w->text.len, fs) : w->text.len * 8.0f;
             if (w->kind == WK_BUTTON) {
                 w->meas_w = tw + 24; w->meas_h = UI_BTN_H;   // buttons have fixed height and side padding
             } else {
@@ -79,7 +79,7 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
         }
         case WK_CHECKBOX: case WK_RADIO: {                   // box plus label
             float fs = UI_FS_BODY;
-            float tw = ctx->font ? ui_text_measure(ctx->font, w->text.ptr, w->text.len, fs) : w->text.len*8.0f;
+            float tw = ctx->font ? ui_text_measure_cached(ctx, w->text.ptr, w->text.len, fs) : w->text.len*8.0f;
             w->meas_w = UI_CB_SIZE + 8 + tw;                 // box, gap, then label
             w->meas_h = UI_CB_SIZE;                          // height driven by the box
             break;
@@ -94,8 +94,8 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
         }
         case WK_INPUT: {                                     // editable single line
             float fs = UI_FS_BODY;
-            float tw = ctx->font ? ui_text_measure(ctx->font, w->input_value.ptr,
-                                                   w->input_value.len, fs) : w->input_value.len*8.0f;
+            float tw = ctx->font ? ui_text_measure_cached(ctx, w->input_value.ptr,
+                                                          w->input_value.len, fs) : w->input_value.len*8.0f;
             w->meas_w = (tw > 200 ? tw : 200) + 16;          // grow with content, min 200px
             w->meas_h = UI_INPUT_H;
             break;

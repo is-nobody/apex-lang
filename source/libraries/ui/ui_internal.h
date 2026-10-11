@@ -147,6 +147,12 @@ typedef struct {
     int             cap;
 } SnapshotTable;
 
+// one memoized text measurement: content hash + size -> advance width
+typedef struct TextMeasureEntry {
+    uint64_t hash;   // 0 = empty slot; nonzero otherwise
+    float    width;  // cached advance width in pixels
+} TextMeasureEntry;
+
 typedef struct UiContext {
     VM*       vm;               // owner vm, used for interning and refcounts
     UiWindow* window;           // native window handle, null until init
@@ -192,6 +198,11 @@ typedef struct UiContext {
     DamageRect*   damage;       // pending damage rects for this repaint
     int           damage_count;
     int           damage_cap;
+
+    // per-frame text measurement cache; cleared by ui_widgets_reset
+    TextMeasureEntry* text_cache;       // open-addressed (hash, width) slots
+    int               text_cache_count; // live entries
+    int               text_cache_cap;   // power of two, 0 until first use
 } UiContext;                    // per-vm ui session state
 
 // lazily create the ui context on the vm
@@ -202,6 +213,9 @@ void ui_context_destroy(UiContext* ctx);
 
 // allocate a zeroed widget from the pool
 Widget* ui_widget_alloc(UiContext* ctx);
+
+// memoized wrapper around ui_text_measure; safe on null font (returns 0)
+float ui_text_measure_cached(UiContext* ctx, const char* s, int len, float size);
 
 // free per-widget heap allocations and rewind the pool
 void ui_widgets_reset(UiContext* ctx);
