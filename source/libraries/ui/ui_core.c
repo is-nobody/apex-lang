@@ -1330,7 +1330,10 @@ static bool pump(UiContext* ctx) {
     if (ctx->queue.count > 0) return true;                        // events already queued
     if (!ui_window_is_open(ctx->window)) return false;            // window closed
 
-    int timeout = ctx->redraw_needed ? 0 : 1;                     // poll quickly if repaint pending
+    int timeout;
+    if (ctx->redraw_needed)      timeout = 8;                     // ~120 fps: repaint pending, poll fast
+    else if (ctx->focused_id)    timeout = 62;                    // ~16 hz: only needed for caret blink
+    else                         timeout = 1000;                  // fully idle: sleep until real input
     if (ui_window_wait(ctx->window, timeout)) {                   // block briefly for input
         while (ui_window_poll(ctx->window, &we)) {                // drain newly arrived events
             handle_win_event(ctx, &we);
