@@ -45,6 +45,9 @@ struct Widget {
     float req_w, req_h;                  // explicit size request (-1 = unset)
     float min_w, max_w;                  // width clamps, 0 = no constraint
 
+    // aggregated screen-space bbox of the subtree, computed after layout
+    int bbox_x0, bbox_y0, bbox_x1, bbox_y1;
+
     Align   align;                       // cross-axis alignment
     Justify justify;                     // main-axis justification
     float   weight;                      // flex weight in the parent's layout

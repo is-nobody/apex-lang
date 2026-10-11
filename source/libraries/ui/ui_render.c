@@ -428,6 +428,13 @@ static void draw_wrapped(UiContext* ctx, Widget* w, int x, int y, int width, uin
 static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
     if (!w || !w->visible) return;      // nothing to draw
 
+    // fast reject
+    if (d) {
+        if (w->bbox_x1 <= d->x || w->bbox_x0 >= d->x + d->w ||
+            w->bbox_y1 <= d->y || w->bbox_y0 >= d->y + d->h)
+            return;
+    }
+
     int x  = (int)floorf(w->x + 0.5f);  // rounded pixel coordinates
     int y  = (int)floorf(w->y + 0.5f);
     int ww = (int)floorf(w->w + 0.5f);

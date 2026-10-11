@@ -281,6 +281,50 @@ static void arrange(UiContext* ctx, Widget* w, float x, float y, float width, fl
     }
 }
 
+// computes the aggregated screen-space bbox of a subtree
+static void compute_subtree_bbox(Widget* w) {
+    if (!w) return;
+    if (!w->visible) {                                   // invisible subtrees draw nothing
+        w->bbox_x0 = w->bbox_y0 = w->bbox_x1 = w->bbox_y1 = 0;
+        return;
+    }
+    int x0 = (int)floorf(w->x + 0.5f);
+    int y0 = (int)floorf(w->y + 0.5f);
+    int x1 = x0 + (int)floorf(w->w + 0.5f);
+    int y1 = y0 + (int)floorf(w->h + 0.5f);
+
+    bool clips = (w->kind == WK_SCROLL || w->kind == WK_HSCROLL);
+    int cx1 = x1;
+    if (w->kind == WK_SCROLL) {
+        int has_sb = w->content_h > (float)w->h;         // scrollbar steals width
+        cx1 = x0 + (has_sb ? (int)w->w - UI_SCROLL_W : (int)w->w);
+    }
+
+    for (int i = 0; i < w->child_count; i++) {
+        Widget* c = w->children[i];
+        compute_subtree_bbox(c);
+        if (!c->visible) continue;                       // invisible children contribute nothing
+        int bx0 = c->bbox_x0, by0 = c->bbox_y0, bx1 = c->bbox_x1, by1 = c->bbox_y1;
+        if (clips) {                                     // clamp to the visible viewport
+            if (bx0 < x0) bx0 = x0;
+            if (by0 < y0) by0 = y0;
+            if (bx1 > cx1) bx1 = cx1;
+            if (by1 > y1) by1 = y1;
+            if (bx0 >= bx1 || by0 >= by1) continue;      // fully clipped out
+        }
+        if (bx0 < x0) x0 = bx0;
+        if (by0 < y0) y0 = by0;
+        if (bx1 > x1) x1 = bx1;
+        if (by1 > y1) y1 = by1;
+    }
+
+    // 2px margin covers the focus ring (drawn at x-2) and antialiased edges
+    w->bbox_x0 = x0 - 2;
+    w->bbox_y0 = y0 - 2;
+    w->bbox_x1 = x1 + 2;
+    w->bbox_y1 = y1 + 2;
+}
+
 // top-level layout: measure the root then arrange the whole tree within the window
 void ui_layout(UiContext* ctx) {
     if (!ctx->root) return;                              // nothing to lay out
@@ -297,5 +341,6 @@ void ui_layout(UiContext* ctx) {
         ctx->root->meas_h = rh;
     }
     arrange(ctx, ctx->root, rx, ry, rw, rh);             // top-down placement
+    compute_subtree_bbox(ctx->root);                     // aggregate bboxes for the damage reject
     hit_grid_build(ctx, ctx->root);                      // refresh the uniform hit-test grid
 }
