@@ -7,6 +7,7 @@
 #include "ui_text.h"
 #include <math.h>
 #include <string.h>
+#include <stdlib.h>
 
 // line height for a text-bearing widget kind
 static float text_line_h(WidgetKind k) {
@@ -20,35 +21,58 @@ static float text_fs(WidgetKind k) {
     return UI_FS_BODY;                           // everything else uses body size
 }
 
-// measures a string, wrapping on spaces to fit max_w, and reports line count
-static float wrap_measure(UiContext* ctx, const char* s, int len, float size, float max_w,
-                          int* out_lines) {
-    if (!ctx->font) { if (out_lines) *out_lines = 1; return (float)len * size * 0.5f; }  // no font: rough estimate
-    if (max_w <= 0) {                            // no wrap constraint: single line
-        float w = ui_text_measure_cached(ctx, s, len, size);
+// appends one [start, end) line range to the widget's cached breakdown
+static void push_line(Widget* w, int start, int end) {
+    if (w->line_count >= w->line_cap) {
+        w->line_cap = w->line_cap ? w->line_cap * 2 : 8;
+        w->line_starts = (int*)realloc(w->line_starts, sizeof(int) * (size_t)w->line_cap);
+        w->line_ends   = (int*)realloc(w->line_ends,   sizeof(int) * (size_t)w->line_cap);
+    }
+    w->line_starts[w->line_count] = start;
+    w->line_ends[w->line_count]   = end;
+    w->line_count++;
+}
+
+// measures a string, wrapping on spaces to fit max_w, and stores the resulting
+static float wrap_measure(UiContext* ctx, Widget* w, const char* s, int len,
+                          float size, float max_w, int* out_lines) {
+    if (!ctx->font) {                            // no font: rough estimate, single line
         if (out_lines) *out_lines = 1;
-        return w;
+        push_line(w, 0, len);
+        return (float)len * size * 0.5f;
+    }
+    if (max_w <= 0) {                            // no wrap constraint: single line
+        float mw = ui_text_measure_cached(ctx, s, len, size);
+        push_line(w, 0, len);
+        if (out_lines) *out_lines = 1;
+        return mw;
     }
     float maxw = 0, cur = 0;                     // widest line so far, current line width
     int lines = 1;                               // line count, at least one
     int i = 0;
+    int line_start = -1;                         // -1 = no content byte on this line yet
     while (i < len) {
         while (i < len && s[i] == ' ') i++;      // skip leading spaces
+        if (line_start < 0) line_start = i;      // first content byte of the current line
         int j = i;
         while (j < len && s[j] != ' ') j++;      // find end of the next word
         if (i == j) break;                       // no more words
-        float w = ui_text_measure_cached(ctx, s + i, j - i, size);  // width of the word
+        float wd = ui_text_measure_cached(ctx, s + i, j - i, size);  // width of the word
         float sp = cur > 0 ? ui_text_measure_cached(ctx, " ", 1, size) : 0;  // space before it
-        if (cur + sp + w > max_w && cur > 0) {   // would overflow: wrap
-            if (cur > maxw) maxw = cur;          // record the finished line
-            cur = w;                             // start a new line with the word
+        if (cur + sp + wd > max_w && cur > 0) {  // would overflow: wrap
+            push_line(w, line_start, i);         // [line_start, i) is this line
+            if (cur > maxw) maxw = cur;          // record the widest so far
+            cur = wd;                            // start a new line with the word
+            line_start = i;                      // next line starts at this word
             lines++;
         } else {
-            cur += sp + w;                       // append to the current line
+            cur += sp + wd;                      // append to the current line
         }
         i = j;                                   // advance past the word
     }
-    if (cur > maxw) maxw = cur;                  // record the final line
+    if (line_start < 0) line_start = len;        // empty text: one empty line
+    push_line(w, line_start, len);               // final line runs to the end
+    if (cur > maxw) maxw = cur;                  // record the final line width
     if (out_lines) *out_lines = lines;
     return maxw;                                 // widest line in the wrapped block
 }
@@ -61,7 +85,7 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
         case WK_TEXT: case WK_HEADING: {                     // single-block wrapped text
             int lines = 1;
             float maxw = avail_w > 0 ? avail_w : 1e6f;       // no limit if unconstrained
-            float ww = wrap_measure(ctx, w->text.ptr, w->text.len,
+            float ww = wrap_measure(ctx, w, w->text.ptr, w->text.len,
                                     text_fs(w->kind), maxw, &lines);
             w->meas_w = ww;                                  // widest wrapped line
             w->meas_h = lines * text_line_h(w->kind);        // lines times line height

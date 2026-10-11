@@ -75,6 +75,8 @@ void ui_widgets_reset(UiContext* ctx) {
     for (int i = 0; i < ctx->pool_used; i++) {            // walk each live widget
         free(ctx->pool[i].children);                      // free child pointer array
         free(ctx->pool[i].input_value.ptr);               // free input buffer (heap, mutable)
+        free(ctx->pool[i].line_starts);                   // free cached wrapped-line offsets
+        free(ctx->pool[i].line_ends);                     // parallel end-offset array
     }
     ctx->pool_used = 0;                                   // reset pool cursor
     ctx->root = NULL;                                     // drop tree root

@@ -55,6 +55,12 @@ struct Widget {
     char*      key_str;                  // user-supplied key string, or null
     Str     text;                        // label/content text
 
+    // cached wrapped-line breakdown for wk_text / wk_heading, filled by wrap_measure during layout
+    int*    line_starts;                 // byte offset of the first byte on each line
+    int*    line_ends;                   // byte offset just past the last byte on each line
+    int     line_count;                  // number of cached lines
+    int     line_cap;                    // allocated capacity of the line arrays
+
     bool   hovered, pressed, focused;    // per-frame interaction flags
     bool   checked;                      // checkbox / radio state
     double num_value, num_min, num_max;  // slider / progress numeric state

@@ -219,39 +219,22 @@ static float text_fs(WidgetKind k) { return k == WK_HEADING ? UI_FS_H1 : UI_FS_B
 // returns the line height used for a text-bearing widget kind
 static float text_lh(WidgetKind k) { return k == WK_HEADING ? UI_LINE_H + 8 : UI_LINE_H; }
 
-// draws wrapped multi-line text into the given rectangle width
+// draws wrapped multi-line text using the line breakdown cached by wrap_measure during layout
 static void draw_wrapped(UiContext* ctx, Widget* w, int x, int y, int width, uint32_t color) {
+    (void)width;                                        // lines were wrapped for this width at layout
+    if (!ctx->font) return;                             // no font: nothing to draw
+    const char* s = w->text.ptr;
+    if (!s || w->line_count == 0) return;               // no cached breakdown: nothing to draw
+
     float size = text_fs(w->kind);                      // font size for this widget kind
     float lh   = text_lh(w->kind);                      // line height for this widget kind
-    if (!ctx->font) return;                             // no font: nothing to draw
-    int len = w->text.len;
-    const char* s = w->text.ptr;
-    int i = 0; float ly = (float)y + lh - 4;            // first baseline
-    while (i < len) {
-        while (i < len && s[i] == ' ') i++;             // skip leading spaces
-        int line_start = i; float cur = 0;              // start of the current line, its width
-        int last_break = -1;                            // position where the line wrapped
-        int j = i;
-        while (j < len) {
-            int nj = j;
-            while (nj < len && s[nj] != ' ') nj++;      // end of the next word
-            float word_w = ui_text_measure_cached(ctx, s + j, nj - j, size);  // word width
-            float sp = (cur > 0) ? ui_text_measure_cached(ctx, " ", 1, size) : 0;  // space before it
-            if (cur + sp + word_w > (float)width && cur > 0) {
-                last_break = j;                         // wrap here
-                break;
-            }
-            cur += sp + word_w;                         // append the word
-            j = nj;
-            if (j < len && s[j] == ' ') j++;            // consume the trailing space
-        }
-        int end;
-        if (last_break > 0) end = last_break;           // stop at the wrap point
-        else end = j;                                   // otherwise take the rest of the block
-        if (end <= line_start) end = len;               // safety: never loop forever
-        draw_text_at(ctx, (float)x, ly, s + line_start, end - line_start, size, color);
+    float ly   = (float)y + lh - 4;                     // first baseline
+    for (int i = 0; i < w->line_count; i++) {
+        int a = w->line_starts[i];
+        int b = w->line_ends[i];
+        if (b > a)                                      // empty ranges (leading indents) draw nothing
+            draw_text_at(ctx, (float)x, ly, s + a, b - a, size, color);
         ly += lh;                                       // advance to the next baseline
-        i = end;
     }
 }
 
