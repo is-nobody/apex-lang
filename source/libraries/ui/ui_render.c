@@ -420,9 +420,7 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 ui_painter_push_clip(x, y, content_w, hh);
                 break;
             }
-            case WK_FRAME:
             case WK_HSCROLL:
-            case WK_GRID:
             case WK_VBOX:
             case WK_HBOX:
                 break;                                      // pure containers: no own chrome

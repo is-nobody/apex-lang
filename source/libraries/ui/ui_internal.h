@@ -24,7 +24,7 @@ typedef enum {
     WK_TEXT, WK_HEADING, WK_BUTTON, WK_CHECKBOX, WK_RADIO,
     WK_SLIDER, WK_PROGRESS, WK_INPUT, WK_BADGE,
     WK_SEPARATOR, WK_SPACER,
-    WK_VBOX, WK_HBOX, WK_PANEL, WK_FRAME, WK_SCROLL, WK_HSCROLL, WK_GRID
+    WK_VBOX, WK_HBOX, WK_PANEL, WK_SCROLL, WK_HSCROLL
 } WidgetKind;  // leaf widget kinds then container kinds
 
 typedef enum { AL_START, AL_CENTER, AL_END, AL_STRETCH } Align;  // cross-axis child placement

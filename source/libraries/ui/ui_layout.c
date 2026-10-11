@@ -107,12 +107,8 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
         case WK_SPACER:                                      // explicit empty gap
             w->meas_w = 0; w->meas_h = 0;
             break;
-        case WK_FRAME:                                       // fixed-size clipping frame
-            w->meas_w = w->req_w > 0 ? w->req_w : 100;
-            w->meas_h = w->req_h > 0 ? w->req_h : 100;
-            break;
         case WK_VBOX: case WK_HBOX: case WK_PANEL:
-        case WK_SCROLL: case WK_HSCROLL: case WK_GRID: {     // container kinds
+        case WK_SCROLL: case WK_HSCROLL: {                   // container kinds
             bool vert = (w->kind != WK_HBOX && w->kind != WK_HSCROLL);  // orientation
             float pad = w->padding;
             float inner_w = avail_w - pad*2;                 // available width inside padding
@@ -153,7 +149,7 @@ static void arrange(UiContext* ctx, Widget* w, float x, float y, float width, fl
     if (!w->visible) return;                             // nothing more to do
 
     bool vert = (w->kind == WK_VBOX || w->kind == WK_PANEL ||
-                 w->kind == WK_SCROLL || w->kind == WK_GRID);  // vertical container kinds
+                 w->kind == WK_SCROLL);                      // vertical container kinds
     bool horiz = (w->kind == WK_HBOX || w->kind == WK_HSCROLL);  // horizontal container kinds
     if (!vert && !horiz) return;                         // leaf widgets have no children to place
 

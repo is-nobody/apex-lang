@@ -202,11 +202,6 @@ static Value ctor_spacer(VM* vm, int argc, Value* argv) {
     return MAKE_TABLE(t);
 }
 
-// builds a grid container widget descriptor
-static Value ctor_grid(VM* vm, int argc, Value* argv) {
-    return ui_ctor_container(vm, argc, argv, "grid");  // grid shares the container path
-}
-
 // dispatches ui.* builtin calls from the vm into the ui library
 bool ui_call_builtin(VM* vm, const char* name, int argc, Value* argv, Value* result) {
     if (strcmp(name, "ui.init") == 0)          { *result = ui_impl_init(vm, argc, argv); return true; }         // open the native window
@@ -232,10 +227,8 @@ bool ui_call_builtin(VM* vm, const char* name, int argc, Value* argv, Value* res
     if (strcmp(name, "ui.vbox") == 0)   { *result = ui_ctor_container(vm, argc, argv, "vbox"); return true; }    // vertical stack
     if (strcmp(name, "ui.hbox") == 0)   { *result = ui_ctor_container(vm, argc, argv, "hbox"); return true; }    // horizontal row
     if (strcmp(name, "ui.panel") == 0)  { *result = ui_ctor_container(vm, argc, argv, "panel"); return true; }   // framed panel
-    if (strcmp(name, "ui.frame") == 0)  { *result = ui_ctor_container(vm, argc, argv, "frame"); return true; }   // fixed-size frame
     if (strcmp(name, "ui.scroll") == 0) { *result = ui_ctor_container(vm, argc, argv, "scroll"); return true; }  // vertical scroller
     if (strcmp(name, "ui.hscroll") == 0){ *result = ui_ctor_container(vm, argc, argv, "hscroll"); return true; } // horizontal scroller
-    if (strcmp(name, "ui.grid") == 0)   { *result = ctor_grid(vm, argc, argv); return true; }                   // grid container
 
     return false;                                // not a ui builtin, let other modules try
 }

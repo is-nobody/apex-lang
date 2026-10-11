@@ -308,10 +308,8 @@ static const char* widget_kind_name(WidgetKind k) {
         case WK_VBOX: return "vbox";
         case WK_HBOX: return "hbox";
         case WK_PANEL: return "panel";
-        case WK_FRAME: return "frame";
         case WK_SCROLL: return "scroll";
         case WK_HSCROLL: return "hscroll";
-        case WK_GRID: return "grid";
     }
     return "widget";                                      // fallback for unknown kinds
 }
@@ -427,10 +425,8 @@ static WidgetKind kind_from_str(const char* s) {
     if (!strcmp(s, "vbox"))      return WK_VBOX;
     if (!strcmp(s, "hbox"))      return WK_HBOX;
     if (!strcmp(s, "panel"))     return WK_PANEL;
-    if (!strcmp(s, "frame"))     return WK_FRAME;
     if (!strcmp(s, "scroll"))    return WK_SCROLL;
     if (!strcmp(s, "hscroll"))   return WK_HSCROLL;
-    if (!strcmp(s, "grid"))      return WK_GRID;
     return WK_TEXT;                                       // fallback: plain text
 }
 
