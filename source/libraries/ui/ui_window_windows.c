@@ -13,6 +13,7 @@
 #endif
 
 #include "ui_window.h"
+#include "ui_theme.h"
 #include <windows.h>
 #include <windowsx.h>
 #include <stdlib.h>
@@ -31,6 +32,9 @@ struct UiWindow {
     int       pending_w;               // deferred resize width
     int       pending_h;               // deferred resize height
     bool      open;                    // false once the window is closed
+    bool      decorated;               // false when we draw our own titlebar
+    int       min_w;                   // minimum client width, 0 = unset
+    int       min_h;                   // minimum client height, 0 = unset
     int       mods;                    // last observed modifier bitmask
     WCHAR     pending_high_surrogate;  // surrogate pair carry between WM_CHARs
     int       pending_vk;              // virtual key held for a follow-up WM_CHAR
@@ -109,6 +113,18 @@ static int current_mods(void) {
     if (GetKeyState(VK_CONTROL) & 0x8000) mods |= 2;     // ctrl
     if (GetKeyState(VK_MENU)    & 0x8000) mods |= 4;     // alt
     return mods;
+}
+
+// asks dwm for rounded corners; no-op on windows 10
+static void enable_round_corners(HWND hwnd) {
+    HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
+    if (!dwm) return;
+    FARPROC raw = GetProcAddress(dwm, "DwmSetWindowAttribute");
+    if (!raw) return;
+    typedef HRESULT (WINAPI *Fn)(HWND, DWORD, LPCVOID, DWORD);
+    Fn fn; memcpy(&fn, &raw, sizeof(fn));
+    DWORD pref = 2;                                      // DWMWCP_ROUND
+    fn(hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &pref, sizeof(pref));
 }
 
 // releases the memory dc, dib section, and cpu buffer
@@ -206,6 +222,95 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (!w) return DefWindowProcW(hwnd, msg, wp, lp);    // not yet attached: pass through
 
     switch (msg) {
+        case WM_NCCALCSIZE:
+            if (wp && w && !w->decorated) {
+                // on entry rgrc[0] holds the proposed window rect, rgrc[1] the previous.
+                // when maximized, windows expands the window rect by the invisible
+                // resize border so dwm can compose shadows; pull the client back inside
+                // so our content aligns to the actual monitor edges.
+                if (IsZoomed(hwnd)) {
+                    int bx = GetSystemMetrics(SM_CXSIZEFRAME) +
+                             GetSystemMetrics(SM_CXPADDEDBORDER);
+                    int by = GetSystemMetrics(SM_CYSIZEFRAME) +
+                             GetSystemMetrics(SM_CXPADDEDBORDER);
+                    NCCALCSIZE_PARAMS* np = (NCCALCSIZE_PARAMS*)lp;
+                    np->rgrc[0].left   += bx;
+                    np->rgrc[0].top    += by;
+                    np->rgrc[0].right  -= bx;
+                    np->rgrc[0].bottom -= by;
+                }
+                return 0;                                // we handled it: use rgrc[0] as-is
+            }
+            break;
+
+        case WM_NCHITTEST: {
+            if (!w || w->decorated)
+                return DefWindowProcW(hwnd, msg, wp, lp);
+            if (IsZoomed(hwnd)) return HTCLIENT;         // no borders while maximized
+
+            POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
+            ScreenToClient(hwnd, &pt);
+            RECT rc; GetClientRect(hwnd, &rc);
+
+            const int b = UI_TB_RESIZE;
+            bool left   = pt.x < b;
+            bool right  = pt.x >= rc.right  - b;
+            bool top    = pt.y < b;
+            bool bottom = pt.y >= rc.bottom - b;
+
+            // corners and sides are resize handles
+            if (top && left)     return HTTOPLEFT;
+            if (top && right)    return HTTOPRIGHT;
+            if (bottom && left)  return HTBOTTOMLEFT;
+            if (bottom && right) return HTBOTTOMRIGHT;
+            if (left)            return HTLEFT;
+            if (right)           return HTRIGHT;
+            if (bottom)          return HTBOTTOM;
+            // top-middle is intentionally left as HTCAPTION so snap-to-maximize works
+
+            if (pt.y < UI_TITLEBAR_H) {                  // inside the custom titlebar
+                // the three window buttons live in the client; hit test them as HTCLIENT
+                const int sz  = UI_TB_BTN_SZ;
+                const int gap = UI_TB_BTN_GAP;
+                const int pr  = UI_TB_BTN_PAD;
+                int by  = (UI_TITLEBAR_H - sz) / 2;
+                if (by < UI_TB_RESIZE) by = UI_TB_RESIZE;
+                int bx3 = rc.right - pr - sz;
+                int bx2 = bx3 - gap - sz;
+                int bx1 = bx2 - gap - sz;
+                if (pt.y >= by && pt.y < by + sz) {
+                    if (pt.x >= bx1 && pt.x < bx1 + sz) return HTCLIENT;
+                    if (pt.x >= bx2 && pt.x < bx2 + sz) return HTCLIENT;
+                    if (pt.x >= bx3 && pt.x < bx3 + sz) return HTCLIENT;
+                }
+                return HTCAPTION;                        // draggable: system runs the move loop natively
+            }
+            return HTCLIENT;
+        }
+
+        case WM_GETMINMAXINFO: {
+            MINMAXINFO* mmi = (MINMAXINFO*)lp;
+            if (!w) return DefWindowProcW(hwnd, msg, wp, lp);  // before WM_NCCREATE: leave to system
+            if (w->min_w > 0) mmi->ptMinTrackSize.x = w->min_w;
+            if (w->min_h > 0) mmi->ptMinTrackSize.y = w->min_h;
+
+            // let the os fill the defaults first, then clamp the maximize
+            // box to the work area of the monitor the window is on
+            DefWindowProcW(hwnd, msg, wp, lp);
+
+            HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            MONITORINFO mi;
+            memset(&mi, 0, sizeof(mi));
+            mi.cbSize = sizeof(MONITORINFO);
+            if (GetMonitorInfoW(mon, &mi)) {
+                mmi->ptMaxPosition.x = mi.rcWork.left - mi.rcMonitor.left;
+                mmi->ptMaxPosition.y = mi.rcWork.top  - mi.rcMonitor.top;
+                mmi->ptMaxSize.x     = mi.rcWork.right  - mi.rcWork.left;
+                mmi->ptMaxSize.y     = mi.rcWork.bottom - mi.rcWork.top;
+            }
+            return 0;
+        }
+
         case WM_CLOSE:                                   // user or system close request
             g_pending.kind = UW_EV_CLOSE;
             g_pending_set = true;
@@ -237,15 +342,19 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 int nw = LOWORD(lp);                     // new client width
                 int nh = HIWORD(lp);                     // new client height
                 if (nw > 0 && nh > 0 && (nw != w->w || nh != w->h)) {
-                    w->pending_w = nw;                   // defer the actual realloc until safe
+                    w->pending_w = nw;                   // stash the request
                     w->pending_h = nh;
+                    apply_pending_resize(w);             // realloc now: we are not inside a paint
                     g_pending.kind = UW_EV_RESIZE;
                     g_pending.w = nw;
                     g_pending.h = nh;
                     g_pending_set = true;
 
-                    InvalidateRect(hwnd, NULL, FALSE);   // schedule a repaint
-                    UpdateWindow(hwnd);
+                    // force an immediate, erasing repaint so the freshly exposed
+                    // region is never shown uninitialised by dwm
+                    RedrawWindow(hwnd, NULL, NULL,
+                                 RDW_INVALIDATE | RDW_UPDATENOW |
+                                 RDW_ERASE | RDW_ALLCHILDREN);
                 }
             }
             return 0;
@@ -384,9 +493,6 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 return TRUE;
             }
             return DefWindowProcW(hwnd, msg, wp, lp);
-
-        case WM_NCHITTEST:
-            return DefWindowProcW(hwnd, msg, wp, lp);    // default hit testing
     }
 
     return DefWindowProcW(hwnd, msg, wp, lp);            // everything else: default handling
@@ -395,7 +501,7 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 static const WCHAR kClassName[] = L"ApexUiWindowClass";  // registered class name
 
 // creates a native window and its offscreen buffer
-UiWindow* ui_window_create(int w, int h, const char* title) {
+UiWindow* ui_window_create(int w, int h, const char* title, bool decorated) {
     HMODULE user32 = GetModuleHandleW(L"user32.dll");    // opt into dpi awareness if possible
     if (user32) {
         typedef BOOL (WINAPI *SetDPIAwareFn)(void);
@@ -420,10 +526,14 @@ UiWindow* ui_window_create(int w, int h, const char* title) {
     wc.lpszClassName = kClassName;
     RegisterClassExW(&wc);                               // idempotent across runs
 
+    // both cases use the same underlying style
+    DWORD style = WS_OVERLAPPEDWINDOW;
+
     RECT r = { 0, 0, w, h };                             // desired client size
-    AdjustWindowRectEx(&r, WS_OVERLAPPEDWINDOW, FALSE, 0);  // expand to include chrome
-    int win_w = r.right - r.left;                        // full window width incl. chrome
-    int win_h = r.bottom - r.top;                        // full window height incl. chrome
+    if (decorated)
+        AdjustWindowRectEx(&r, style, FALSE, 0);         // expand for system chrome
+    int win_w = r.right - r.left;                        // full window width
+    int win_h = r.bottom - r.top;                        // full window height
 
     // centre the window inside the work area
     RECT work = { 0, 0, 0, 0 };
@@ -439,17 +549,21 @@ UiWindow* ui_window_create(int w, int h, const char* title) {
 
     UiWindow* win = (UiWindow*)calloc(1, sizeof(UiWindow));  // zeroed window struct
     if (!win) return NULL;
-    win->w = 0;                                          // reported size until the buffer exists
-    win->h = 0;
+    win->w = w;                                          // seed real size before the window exists
+    win->h = h;
+    win->decorated = decorated;                          // must be set before WM_NCCALCSIZE fires
 
     HWND hwnd = CreateWindowExW(
-        0, kClassName, wtitle,
-        WS_OVERLAPPEDWINDOW,
+        WS_EX_APPWINDOW,                                 // show up in the taskbar as a top-level window
+        kClassName, wtitle,
+        style,
         pos_x, pos_y,                                    // centred inside the work area
         win_w, win_h,
         NULL, NULL, hInst, win);                         // pass win as lpCreateParams
     if (!hwnd) { free(win); return NULL; }               // creation failed
     win->hwnd = hwnd;
+
+    if (!decorated) enable_round_corners(hwnd);          // win11 rounded corners
 
     if (!alloc_buffer_resources(win, w, h)) {            // allocate the offscreen buffer
         DestroyWindow(hwnd);
@@ -458,8 +572,14 @@ UiWindow* ui_window_create(int w, int h, const char* title) {
     }
 
     ShowWindow(hwnd, SW_SHOW);                           // show the window
-    UpdateWindow(hwnd);                                  // trigger the first paint
-    SetFocus(hwnd);                                      // give it keyboard focus
+    if (!decorated) {
+        // tell dwm the frame has changed so it drops the system caption
+        // immediately rather than waiting for the first user resize
+        SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+                     SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE |
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+        enable_round_corners(hwnd);                      // re-apply win11 rounding after the swap
+    }
 
     win->open = true;
     return win;
@@ -485,6 +605,10 @@ void ui_window_set_title(UiWindow* w, const char* t) {
 void ui_window_set_paint_callback(UiWindow* w, UiPaintCallback cb, void* user) {
     w->paint_cb = cb;
     w->paint_user = user;
+    if (w->hwnd) {                                       // force the first real paint now
+        InvalidateRect(w->hwnd, NULL, FALSE);
+        UpdateWindow(w->hwnd);
+    }
 }
 
 // returns the current framebuffer, applying any deferred resize first
@@ -502,6 +626,11 @@ int ui_window_height(UiWindow* w) { return w->h; }
 // resizes the native window, which will trigger WM_SIZE
 void ui_window_resize(UiWindow* w, int nw, int nh) {
     if (nw <= 0 || nh <= 0) return;                      // ignore degenerate sizes
+    if (!w->decorated) {
+        SetWindowPos(w->hwnd, NULL, 0, 0, nw, nh,
+                     SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+        return;
+    }
     RECT r = { 0, 0, nw, nh };
     AdjustWindowRectEx(&r, WS_OVERLAPPEDWINDOW, FALSE, 0);  // expand for chrome
     SetWindowPos(w->hwnd, NULL, 0, 0,
@@ -511,6 +640,7 @@ void ui_window_resize(UiWindow* w, int nw, int nh) {
 
 // blits the cpu framebuffer into the dib section and to the client area
 void ui_window_present(UiWindow* w) {
+    apply_pending_resize(w);                             // catch up on any resize not yet applied
     if (!w->mem_dc || !w->dib_bits || !w->pixels) return;  // nothing to present
 
     RECT r;
@@ -596,6 +726,72 @@ bool ui_window_is_open(UiWindow* w) { return w->open; }
 void ui_window_close(UiWindow* w) {
     w->open = false;
     if (w->hwnd) PostMessageW(w->hwnd, WM_CLOSE, 0, 0);
+}
+
+// true when the window is currently maximized
+bool ui_window_is_maximized(UiWindow* w) {
+    return w && w->hwnd && IsZoomed(w->hwnd);
+}
+
+// iconifies the window
+void ui_window_minimize(UiWindow* w) {
+    if (w->hwnd) ShowWindow(w->hwnd, SW_MINIMIZE);
+}
+
+// toggles between maximized and restored
+void ui_window_toggle_maximize(UiWindow* w) {
+    if (!w->hwnd) return;
+    if (IsZoomed(w->hwnd)) {
+        ShowWindow(w->hwnd, SW_RESTORE);
+    } else {
+        // save the current placement so a subsequent restore returns here
+        WINDOWPLACEMENT wp;
+        memset(&wp, 0, sizeof(wp));
+        wp.length = sizeof(wp);
+        GetWindowPlacement(w->hwnd, &wp);
+        wp.showCmd = SW_MAXIMIZE;
+        SetWindowPlacement(w->hwnd, &wp);
+    }
+}
+
+// clamps the window to a minimum client size via the min-track fields
+void ui_window_set_min_size(UiWindow* w, int min_w, int min_h) {
+    if (!w || !w->hwnd) return;
+    if (min_w <= 0 || min_h <= 0) return;
+    w->min_w = min_w;
+    w->min_h = min_h;
+
+    // ask the system to re-query WM_GETMINMAXINFO without changing the size
+    SetWindowPos(w->hwnd, NULL, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+// hands off to the system modal move loop
+void ui_window_begin_drag(UiWindow* w) {
+    if (!w->hwnd) return;
+    ReleaseCapture();
+    SendMessageW(w->hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+}
+
+// hands off to the system modal resize loop
+void ui_window_begin_resize(UiWindow* w, const char* edge) {
+    if (!w->hwnd) return;
+    WPARAM ht = HTBOTTOMRIGHT;
+    if      (!strcmp(edge, "top-left"))     ht = HTTOPLEFT;
+    else if (!strcmp(edge, "top"))          ht = HTTOP;
+    else if (!strcmp(edge, "top-right"))    ht = HTTOPRIGHT;
+    else if (!strcmp(edge, "right"))        ht = HTRIGHT;
+    else if (!strcmp(edge, "bottom-right")) ht = HTBOTTOMRIGHT;
+    else if (!strcmp(edge, "bottom"))       ht = HTBOTTOM;
+    else if (!strcmp(edge, "bottom-left"))  ht = HTBOTTOMLEFT;
+    else if (!strcmp(edge, "left"))         ht = HTLEFT;
+    ReleaseCapture();
+    SendMessageW(w->hwnd, WM_NCLBUTTONDOWN, ht, 0);
+}
+
+// cursor feedback is provided by wm_nchittest; nothing to do here
+void ui_window_set_resize_cursor(UiWindow* w, const char* edge) {
+    (void)w; (void)edge;
 }
 
 // stores a utf-8 string and claims ownership of the win32 clipboard

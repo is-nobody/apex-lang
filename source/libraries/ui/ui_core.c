@@ -13,9 +13,23 @@
 #include <math.h>
 #include <unistd.h>
 
-static void rebuild_and_draw(UiContext* ctx);       // full widget tree rebuild then repaint
-static void redraw_only(UiContext* ctx);            // repaint without rebuilding the tree
-static void ui_window_paint_cb(void* user, int w, int h);  // host window paint hook
+// full widget tree rebuild then repaint
+static void rebuild_and_draw(UiContext* ctx);
+
+// repaint without rebuilding the tree
+static void redraw_only(UiContext* ctx);
+
+// host window paint hook
+static void ui_window_paint_cb(void* user, int w, int h);
+
+// hit test for titlebar buttons: 0 none, 1 min, 2 max, 3 close
+static int  titlebar_button_at(UiContext* ctx, int x, int y);
+
+// true when (x, y) is inside the draggable portion of the titlebar
+static bool titlebar_is_drag(UiContext* ctx, int x, int y);
+
+// returns the resize edge name at (x, y), or null
+static const char* titlebar_resize_edge(UiContext* ctx, int x, int y);
 
 // forward declarations for the input-edit helpers
 static void push_input_change(UiContext* ctx, Widget* w, const char* str_val);
@@ -908,6 +922,57 @@ static void push_input_change(UiContext* ctx, Widget* w, const char* str_val) {
     ui_event_push(ctx, &ev);                                      // enqueue the change
 }
 
+// hit test for titlebar buttons: 0 none, 1 min, 2 max, 3 close
+static int titlebar_button_at(UiContext* ctx, int x, int y) {
+    if (!ctx->custom_chrome) return 0;
+    if (y < 0 || y >= UI_TITLEBAR_H) return 0;
+
+    const int sz  = UI_TB_BTN_SZ;
+    const int gap = UI_TB_BTN_GAP;
+    const int pr  = UI_TB_BTN_PAD;
+    int by = (UI_TITLEBAR_H - sz) / 2;
+    if (by < UI_TB_RESIZE) by = UI_TB_RESIZE;            // mirror the render layout
+    if (y < by || y >= by + sz) return 0;                // outside the button row
+
+    int bx3 = ctx->win_w - pr - sz;                      // close is rightmost
+    int bx2 = bx3 - gap - sz;                            // maximize in the middle
+    int bx1 = bx2 - gap - sz;                            // minimize on the left
+
+    if (x >= bx1 && x < bx1 + sz) return 1;
+    if (x >= bx2 && x < bx2 + sz) return 2;
+    if (x >= bx3 && x < bx3 + sz) return 3;
+    return 0;
+}
+
+// true when (x, y) is inside the draggable portion of the titlebar
+static bool titlebar_is_drag(UiContext* ctx, int x, int y) {
+    if (!ctx->custom_chrome) return false;
+    if (y < 0 || y >= UI_TITLEBAR_H) return false;
+    if (titlebar_button_at(ctx, x, y) != 0) return false;
+    if (y < UI_TB_RESIZE && (x < UI_TB_RESIZE || x >= ctx->win_w - UI_TB_RESIZE))
+        return false;                                          // corners belong to resize
+    return true;
+}
+
+// returns the resize edge name at (x, y), or null
+static const char* titlebar_resize_edge(UiContext* ctx, int x, int y) {
+    if (!ctx->custom_chrome) return NULL;
+    int w = ctx->win_w, h = ctx->win_h;
+    bool left   = x < UI_TB_RESIZE;
+    bool right  = x >= w - UI_TB_RESIZE;
+    bool top    = y < UI_TB_RESIZE;
+    bool bottom = y >= h - UI_TB_RESIZE;
+    if (top && left)     return "top-left";
+    if (top && right)    return "top-right";
+    if (bottom && left)  return "bottom-left";
+    if (bottom && right) return "bottom-right";
+    if (left)   return "left";
+    if (right)  return "right";
+    if (top)    return "top";
+    if (bottom) return "bottom";
+    return NULL;
+}
+
 // translates a raw window event into ui-layer events and state changes
 static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
     switch (e->kind) {
@@ -937,6 +1002,16 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
         case UW_EV_MOUSEMOVE: {                                   // pointer moved
             ctx->input.x = e->x;                                  // track current pointer
             ctx->input.y = e->y;
+
+            if (ctx->custom_chrome) {                         // update titlebar hover feedback
+                const char* edge = titlebar_resize_edge(ctx, e->x, e->y);
+                ui_window_set_resize_cursor(ctx->window, edge);
+                int hot = titlebar_button_at(ctx, e->x, e->y);
+                if (hot != ctx->tb_hot) {
+                    ctx->tb_hot = hot;
+                    ctx->redraw_needed = true;
+                }
+            }
 
             if (ctx->input.lmb && ctx->drag_widget_id) {          // dragging something
                 Widget* dw = NULL;
@@ -1001,23 +1076,39 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
         }
         case UW_EV_MOUSEDOWN:
             if (e->button == 1) {                                 // left button only
-                ctx->input.lmb = true;                            // record button as held
                 ctx->input.x = e->x;
                 ctx->input.y = e->y;
+
+                // wm-owned gestures win over anything we draw
+                const char* redge = titlebar_resize_edge(ctx, e->x, e->y);
+                if (redge) {
+                    ui_window_begin_resize(ctx->window, redge);
+                    break;
+                }
+                if (titlebar_is_drag(ctx, e->x, e->y)) {
+                    ui_window_begin_drag(ctx->window);
+                    break;
+                }
+
+                ctx->input.lmb = true;                        // record button as held
+
+                int tbtn = titlebar_button_at(ctx, e->x, e->y);
+                if (tbtn) {
+                    ctx->tb_active = tbtn;
+                    ctx->redraw_needed = true;
+                    break;
+                }
+
                 if (ctx->root) {
                     Widget* h = hit_test(ctx->root, e->x, e->y);
                     if (h) {
                         WidgetState* s = ui_state_get(ctx, h->id);
                         s->pressed = true;                        // mark pressed
-                        // focus follows the click: focusables take it, anything
-                        // else drops it, so the caret ring never lingers on a
-                        // widget the user has clearly moved away from
+                        // focus follows the click
                         if (widget_focusable(h->kind)) ctx->focused_id = h->id;
                         else                           ctx->focused_id = 0;
 
-                        // clicking inside a text input places the caret, and a
-                        // second click on the same widget within a short window
-                        // promotes the gesture into a word selection
+                        // clicking inside a text input places the caret
                         if (h->kind == WK_INPUT) {
                             float local_x = (float)e->x - h->x - 8.0f;
                             int off = input_hit_offset(ctx, h, local_x);
@@ -1071,6 +1162,26 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
         case UW_EV_MOUSEUP:
             if (e->button == 1) {                                 // left button released
                 ctx->input.lmb = false;
+
+                // finish a titlebar button gesture
+                if (ctx->tb_active) {
+                    int was = ctx->tb_active;
+                    int hot = titlebar_button_at(ctx, e->x, e->y);
+                    ctx->tb_active = 0;
+                    if (hot == was) {
+                        if (was == 1)      ui_window_minimize(ctx->window);
+                        else if (was == 2) ui_window_toggle_maximize(ctx->window);
+                        else if (was == 3) {
+                            UiEvent cev; memset(&cev, 0, sizeof(cev));
+                            cev.kind = EV_CLOSE;
+                            ui_event_push(ctx, &cev);
+                            ctx->quit_requested = true;
+                        }
+                    }
+                    ctx->redraw_needed = true;
+                    break;
+                }
+
                 ctx->drag_widget_id = 0;                          // end any drag
                 if (ctx->root) {
                     Widget* h = hit_test(ctx->root, e->x, e->y);
@@ -1406,22 +1517,32 @@ Value ui_impl_init(VM* vm, int argc, Value* argv) {
     UiContext* ctx = ui_ensure(vm);                               // ensure the context exists
     if (ctx->window) return MAKE_BOOL(true);                      // already initialised
     int w = 640, h = 480;                                         // default window size
+    int min_w = UI_MIN_W, min_h = UI_MIN_H;                       // default minimum size
     char* title = NULL;
+    bool chrome = true;                                           // custom titlebar on by default
     if (argc >= 1 && IS_TABLE(argv[0])) {                         // optional options table
         Table* t = AS_TABLE(argv[0]);
         w = (int)table_get_num(vm, t, "width", 640);              // width override
         h = (int)table_get_num(vm, t, "height", 480);             // height override
-        title = table_get_str_dup(vm, t, "title");                // title override
+        title  = table_get_str_dup(vm, t, "title");               // title override
+        chrome = table_get_bool(vm, t, "titlebar", true);         // default: on
+        min_w = (int)table_get_num(vm, t, "min_width",  UI_MIN_W);  // minimum width
+        min_h = (int)table_get_num(vm, t, "min_height", UI_MIN_H);  // minimum height
     }
     const char* use_title = title ? title : "Apex UI";            // fall back to default title
-    ctx->window = ui_window_create(w, h, use_title);              // create the host window
+    ctx->custom_chrome = chrome;                                  // remember for the render pass
+    ctx->tb_hot = ctx->tb_active = 0;                             // clear button state
+    strncpy(ctx->title, use_title, sizeof(ctx->title) - 1);       // mirror the title
+    ctx->title[sizeof(ctx->title) - 1] = 0;
+    ctx->window = ui_window_create(w, h, use_title, !chrome);     // create the host window
     free(title);                                                  // release the temp title
     if (!ctx->window) return MAKE_BOOL(false);                    // creation failed
     ctx->win_w = w;                                               // cache window size
     ctx->win_h = h;
     ctx->pixels = ui_window_pixels(ctx->window);                  // cache pixel buffer
-    ctx->redraw_needed = true;                                    // force first paint
 
+    ctx->redraw_needed = true;                                    // force first paint
+    ui_window_set_min_size(ctx->window, min_w, min_h);            // enforce a floor on resize
     ui_window_set_paint_callback(ctx->window, ui_window_paint_cb, ctx);  // install paint hook
 
     return MAKE_BOOL(true);                                       // success
@@ -1480,16 +1601,19 @@ static void rebuild_and_draw(UiContext* ctx) {
         root->padding = UI_PAD_SCREEN;
         ctx->root = root;
     }
-    ctx->root->x = 0;                                             // root fills the whole window
-    ctx->root->y = 0;
+    int top = ctx->custom_chrome ? UI_TITLEBAR_H : 0;             // reserve room for the titlebar
+    ctx->root->x = 0;
+    ctx->root->y = (float)top;
     ctx->root->w = (float)ctx->win_w;
-    ctx->root->h = (float)ctx->win_h;
+    ctx->root->h = (float)(ctx->win_h - top);
     ui_layout(ctx);                                               // compute widget geometry
 
     // snapshot the freshly laid-out tree, diff against the previous frame to compute damage
     ui_snapshot_capture(ctx, ctx->root);
     ui_damage_begin(ctx);
     ui_damage_diff(ctx);
+    if (ctx->custom_chrome)                                       // always repaint the titlebar
+        ui_damage_add(ctx, 0, 0, ctx->win_w, UI_TITLEBAR_H);
     ui_damage_finalize(ctx);
 
     if (ctx->damage_count > 0) {
@@ -1507,10 +1631,11 @@ static void rebuild_and_draw(UiContext* ctx) {
 static void redraw_only(UiContext* ctx) {
     if (!ctx->root) return;                                       // nothing to draw
 
-    ctx->root->x = 0;                                             // root fills the whole window
-    ctx->root->y = 0;
+    int top = ctx->custom_chrome ? UI_TITLEBAR_H : 0;             // reserve room for the titlebar
+    ctx->root->x = 0;
+    ctx->root->y = (float)top;
     ctx->root->w = (float)ctx->win_w;
-    ctx->root->h = (float)ctx->win_h;
+    ctx->root->h = (float)(ctx->win_h - top);
 
     ui_layout(ctx);                                               // recompute geometry
     ui_render_frame(ctx);                                         // redraw into the pixel buffer
@@ -1578,8 +1703,13 @@ Value ui_impl_shutdown(VM* vm, int argc, Value* argv) {
 Value ui_impl_set_title(VM* vm, int argc, Value* argv) {
     UiContext* ctx = ui_ensure(vm);                               // ensure the context exists
     if (!ctx->window) return MAKE_NONE();                         // no window: no-op
-    if (argc >= 1 && IS_STRING(argv[0]))                          // only string titles are applied
-        ui_window_set_title(ctx->window, AS_STRING(argv[0])->chars);
+    if (argc >= 1 && IS_STRING(argv[0])) {                        // only string titles are applied
+        const char* s = AS_STRING(argv[0])->chars;
+        ui_window_set_title(ctx->window, s);
+        strncpy(ctx->title, s, sizeof(ctx->title) - 1);           // mirror for the custom titlebar
+        ctx->title[sizeof(ctx->title) - 1] = 0;
+        ctx->redraw_needed = true;                                // schedule a repaint
+    }
     return MAKE_NONE();
 }
 

@@ -9,6 +9,7 @@
 #include <X11/Xutil.h>
 #include <X11/Xatom.h>
 #include <X11/keysym.h>
+#include <X11/cursorfont.h>
 #include <X11/extensions/XShm.h>
 #include <sys/shm.h>
 #include <sys/ipc.h>
@@ -48,6 +49,15 @@ struct UiWindow {
     bool     shm_ok;      // true when shm backing is active
     XShmSegmentInfo shm;  // shm segment info when shm is active
     int      mods;        // last observed modifier bitmask
+
+    bool     maximized;              // cached maximize state
+    bool     decorated;              // false when we draw our own titlebar
+    int      min_w;                  // minimum client width from wm hints
+    int      min_h;                  // minimum client height from wm hints
+    int      last_root_x;            // last pointer position in root coords
+    int      last_root_y;
+    Cursor   resize_cursor[9];       // cached resize cursors, index 0 = unused
+    const char* last_cursor_edge;    // last edge passed to set_resize_cursor, null = arrow
 };
 
 // swallow x errors that can occur during optional shm setup or clipboard exchange
@@ -78,12 +88,14 @@ static bool pop_event(UiWindow* w, XEvent* out) {
 }
 
 // creates and maps a new x11 window, preferring shared memory backing
-UiWindow* ui_window_create(int w, int h, const char* title) {
+UiWindow* ui_window_create(int w, int h, const char* title, bool decorated) {
     UiWindow* win = (UiWindow*)calloc(1, sizeof(UiWindow));  // zeroed window struct
     win->dpy = XOpenDisplay(NULL);                       // connect to the default display
     if (!win->dpy) { free(win); return NULL; }           // no display: give up
     win->screen = DefaultScreen(win->dpy);               // default screen
+    win->decorated = decorated;                          // remember chrome preference
     win->w = w; win->h = h;
+    win->shm.shmid = -1;                                 // sentinel: no live shm segment yet
     win->pixels = (uint32_t*)calloc((size_t)w*h, 4);     // cpu-side fallback framebuffer
 
     XSetWindowAttributes a = {0};                        // window attribute set
@@ -99,6 +111,26 @@ UiWindow* ui_window_create(int w, int h, const char* title) {
         FocusChangeMask);                                // focus mask feeds xim
     win->wm_delete = XInternAtom(win->dpy, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(win->dpy, win->win, &win->wm_delete, 1);  // receive close requests
+
+    if (!decorated) {
+        // ask the wm to drop its own decorations; we draw a custom titlebar
+        Atom motif = XInternAtom(win->dpy, "_MOTIF_WM_HINTS", False);
+        struct {
+            unsigned long flags;
+            unsigned long functions;
+            unsigned long decorations;
+            long          input_mode;
+            unsigned long status;
+        } hints;
+        hints.flags       = 2;           // MWM_HINTS_DECORATIONS
+        hints.functions   = 0;
+        hints.decorations = 0;           // no decorations
+        hints.input_mode  = 0;
+        hints.status      = 0;
+        XChangeProperty(win->dpy, win->win, motif, motif, 32,
+                        PropModeReplace, (unsigned char*)&hints, 5);
+    }
+
     XMapWindow(win->dpy, win->win);                      // make the window visible
     win->gc = XCreateGC(win->dpy, win->win, 0, NULL);    // create the graphics context
 
@@ -171,6 +203,8 @@ static void destroy_image(UiWindow* w) {
 void ui_window_destroy(UiWindow* w) {
     if (!w) return;                                      // null guard
     destroy_image(w);                                    // release the ximage and shm backing
+    for (int i = 0; i < 9; i++)                          // release cached resize cursors
+        if (w->resize_cursor[i]) XFreeCursor(w->dpy, w->resize_cursor[i]);
     if (w->ic)  { XDestroyIC(w->ic);  w->ic = NULL; }    // release the input context
     if (w->im)  { XCloseIM(w->im);    w->im = NULL; }    // close the input method
     if (w->gc)  XFreeGC(w->dpy, w->gc);                  // free the graphics context
@@ -318,6 +352,31 @@ bool ui_window_poll(UiWindow* w, UiWinEvent* out) {
                     return true;
                 }
                 break;
+            case PropertyNotify:
+                // track _NET_WM_STATE so the titlebar can reflect maximize state
+                {
+                    Atom net_state = XInternAtom(w->dpy, "_NET_WM_STATE", False);
+                    Atom hz = XInternAtom(w->dpy, "_NET_WM_STATE_MAXIMIZED_HORZ", False);
+                    Atom vt = XInternAtom(w->dpy, "_NET_WM_STATE_MAXIMIZED_VERT", False);
+                    if (e.xproperty.atom == net_state && e.xproperty.state == PropertyNewValue) {
+                        Atom* atoms = NULL; int n = 0;
+                        Atom actual; int fmt; unsigned long nitems, after;
+                        unsigned char* data = NULL;
+                        if (XGetWindowProperty(w->dpy, w->win, net_state,
+                                               0, 32, False, XA_ATOM,
+                                               &actual, &fmt, &nitems, &after, &data) == Success) {
+                            atoms = (Atom*)data; n = (int)nitems;
+                        }
+                        bool mh = false, mv = false;
+                        for (int i = 0; i < n; i++) {
+                            if (atoms[i] == hz) mh = true;
+                            if (atoms[i] == vt) mv = true;
+                        }
+                        w->maximized = mh && mv;
+                        if (data) XFree(data);
+                    }
+                }
+                break;
             case FocusIn:
                 if (w->ic) XSetICFocus(w->ic);           // hand keyboard input to the ic
                 break;
@@ -379,6 +438,8 @@ bool ui_window_poll(UiWindow* w, UiWinEvent* out) {
             case MotionNotify:
                 out->kind = UW_EV_MOUSEMOVE;             // pointer moved
                 out->x = e.xmotion.x; out->y = e.xmotion.y;
+                w->last_root_x = e.xmotion.x_root;       // remember for _NET_WM_MOVERESIZE
+                w->last_root_y = e.xmotion.y_root;
                 return true;
             case ButtonPress: {
                 unsigned b = e.xbutton.button;
@@ -391,6 +452,8 @@ bool ui_window_poll(UiWindow* w, UiWinEvent* out) {
                 out->kind = UW_EV_MOUSEDOWN;             // button press
                 out->x = e.xbutton.x; out->y = e.xbutton.y;
                 out->button = (int)b;
+                w->last_root_x = e.xbutton.x_root;
+                w->last_root_y = e.xbutton.y_root;
                 return true;
             }
             case ButtonRelease:
@@ -415,6 +478,147 @@ bool ui_window_is_open(UiWindow* w) { return w->open; }
 
 // marks the window as closed so callers stop polling it
 void ui_window_close(UiWindow* w) { w->open = false; }
+
+// true when the window manager reports us as maximized
+bool ui_window_is_maximized(UiWindow* w) {
+    return w && w->maximized;
+}
+
+// asks the window manager to iconify the window
+void ui_window_minimize(UiWindow* w) {
+    XIconifyWindow(w->dpy, w->win, w->screen);
+    XFlush(w->dpy);
+}
+
+// toggles between maximized and normal via _NET_WM_STATE
+void ui_window_toggle_maximize(UiWindow* w) {
+    Atom state = XInternAtom(w->dpy, "_NET_WM_STATE", False);
+    Atom hz    = XInternAtom(w->dpy, "_NET_WM_STATE_MAXIMIZED_HORZ", False);
+    Atom vt    = XInternAtom(w->dpy, "_NET_WM_STATE_MAXIMIZED_VERT", False);
+    XEvent xev;
+    memset(&xev, 0, sizeof(xev));
+    xev.type                 = ClientMessage;
+    xev.xclient.window       = w->win;
+    xev.xclient.message_type = state;
+    xev.xclient.format       = 32;
+    xev.xclient.data.l[0]    = w->maximized ? 0 : 1;  // 0=remove, 1=add
+    xev.xclient.data.l[1]    = (long)hz;
+    xev.xclient.data.l[2]    = (long)vt;
+    xev.xclient.data.l[3]    = 1;
+    XSendEvent(w->dpy, DefaultRootWindow(w->dpy), False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &xev);
+    w->maximized = !w->maximized;   // optimistic flip; PropertyNotify confirms shortly
+    XFlush(w->dpy);
+}
+
+// clamps the window to a minimum client size via wm size hints
+void ui_window_set_min_size(UiWindow* w, int min_w, int min_h) {
+    if (min_w <= 0 || min_h <= 0) return;
+    w->min_w = min_w;
+    w->min_h = min_h;
+
+    XSizeHints hints;
+    long supplied = 0;
+    if (!XGetWMNormalHints(w->dpy, w->win, &hints, &supplied)) {
+        memset(&hints, 0, sizeof(hints));     // no prior hints: start clean
+    }
+    hints.flags     |= PMinSize;              // keep whatever was already set
+    hints.min_width  = min_w;
+    hints.min_height = min_h;
+    XSetWMNormalHints(w->dpy, w->win, &hints);
+    XFlush(w->dpy);
+}
+
+// delegates an interactive move to the window manager
+void ui_window_begin_drag(UiWindow* w) {
+    Atom mr = XInternAtom(w->dpy, "_NET_WM_MOVERESIZE", False);
+    XEvent xev;
+    memset(&xev, 0, sizeof(xev));
+    xev.type                 = ClientMessage;
+    xev.xclient.window       = w->win;
+    xev.xclient.message_type = mr;
+    xev.xclient.format       = 32;
+    xev.xclient.data.l[0]    = w->last_root_x;
+    xev.xclient.data.l[1]    = w->last_root_y;
+    xev.xclient.data.l[2]    = 8;                     // _NET_WM_MOVERESIZE_MOVE
+    xev.xclient.data.l[3]    = 1;                     // button 1
+    xev.xclient.data.l[4]    = 1;
+    XUngrabPointer(w->dpy, CurrentTime);
+    XSendEvent(w->dpy, DefaultRootWindow(w->dpy), False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &xev);
+    XFlush(w->dpy);
+}
+
+// delegates an interactive resize to the window manager
+void ui_window_begin_resize(UiWindow* w, const char* edge) {
+    int dir = 8;                                      // default: treat as a move
+    if      (!strcmp(edge, "top-left"))     dir = 0;
+    else if (!strcmp(edge, "top"))          dir = 1;
+    else if (!strcmp(edge, "top-right"))    dir = 2;
+    else if (!strcmp(edge, "right"))        dir = 3;
+    else if (!strcmp(edge, "bottom-right")) dir = 4;
+    else if (!strcmp(edge, "bottom"))       dir = 5;
+    else if (!strcmp(edge, "bottom-left"))  dir = 6;
+    else if (!strcmp(edge, "left"))         dir = 7;
+
+    Atom mr = XInternAtom(w->dpy, "_NET_WM_MOVERESIZE", False);
+    XEvent xev;
+    memset(&xev, 0, sizeof(xev));
+    xev.type                 = ClientMessage;
+    xev.xclient.window       = w->win;
+    xev.xclient.message_type = mr;
+    xev.xclient.format       = 32;
+    xev.xclient.data.l[0]    = w->last_root_x;
+    xev.xclient.data.l[1]    = w->last_root_y;
+    xev.xclient.data.l[2]    = dir;
+    xev.xclient.data.l[3]    = 1;
+    xev.xclient.data.l[4]    = 1;
+    XUngrabPointer(w->dpy, CurrentTime);
+    XSendEvent(w->dpy, DefaultRootWindow(w->dpy), False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &xev);
+    XFlush(w->dpy);
+}
+
+// lazily creates a cached resize cursor for the given index
+static Cursor linux_resize_cursor(UiWindow* w, int idx) {
+    if (idx < 1 || idx > 8) return None;
+    if (w->resize_cursor[idx] == None) {
+        unsigned shape = XC_left_ptr;
+        switch (idx) {
+            case 1: shape = XC_left_side;          break;  // left
+            case 2: shape = XC_right_side;         break;  // right
+            case 3: shape = XC_top_side;           break;  // top
+            case 4: shape = XC_bottom_side;        break;  // bottom
+            case 5: shape = XC_top_left_corner;    break;  // top-left
+            case 6: shape = XC_top_right_corner;   break;  // top-right
+            case 7: shape = XC_bottom_left_corner; break;  // bottom-left
+            case 8: shape = XC_bottom_right_corner;break;  // bottom-right
+        }
+        w->resize_cursor[idx] = XCreateFontCursor(w->dpy, shape);
+    }
+    return w->resize_cursor[idx];
+}
+
+// swaps the active pointer cursor to match the given edge
+void ui_window_set_resize_cursor(UiWindow* w, const char* edge) {
+    if (w->last_cursor_edge == edge) return;             // no change, skip the x roundtrip
+    w->last_cursor_edge = edge;
+
+    int idx = 0;
+    if (edge) {
+        if      (!strcmp(edge, "left"))         idx = 1;
+        else if (!strcmp(edge, "right"))        idx = 2;
+        else if (!strcmp(edge, "top"))          idx = 3;
+        else if (!strcmp(edge, "bottom"))       idx = 4;
+        else if (!strcmp(edge, "top-left"))     idx = 5;
+        else if (!strcmp(edge, "top-right"))    idx = 6;
+        else if (!strcmp(edge, "bottom-left"))  idx = 7;
+        else if (!strcmp(edge, "bottom-right")) idx = 8;
+    }
+    Cursor c = (idx == 0) ? None : linux_resize_cursor(w, idx);
+    XDefineCursor(w->dpy, w->win, c);
+    XFlush(w->dpy);
+}
 
 // stores a utf-8 string and claims ownership of the CLIPBOARD selection
 void ui_window_clipboard_set(UiWindow* w, const char* text, int len) {

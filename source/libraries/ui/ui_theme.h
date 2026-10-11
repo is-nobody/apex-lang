@@ -58,4 +58,20 @@
 #define UI_SCROLL_W     10             // scrollbar width in pixels
 #define UI_FOCUS_W      2              // focus ring width in pixels
 
+#define UI_TITLEBAR_H     35           // custom titlebar height in pixels
+#define UI_TB_RESIZE      5            // resize border thickness in pixels
+
+#define UI_TB_BTN_SZ      28           // titlebar button size in pixels
+#define UI_TB_BTN_GAP     4            // gap between titlebar buttons
+#define UI_TB_BTN_PAD     8            // right padding of the button group
+
+#define UI_C_TB_BG        0xFF181818u  // titlebar background
+#define UI_C_TB_FG        0xFFCCCCCCu  // titlebar title text
+#define UI_C_TB_BTN       0xFF9D9D9Du  // titlebar button icon
+#define UI_C_TB_BTN_HOV   0xFF3A3D41u  // titlebar button hover background
+#define UI_C_TB_BTN_ACT   0xFF4A4D51u  // titlebar button active background
+
+#define UI_MIN_W   150                 // default minimum window width in pixels
+#define UI_MIN_H   35                  // default minimum window height in pixels
+
 #endif

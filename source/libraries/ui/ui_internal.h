@@ -150,6 +150,10 @@ typedef struct UiContext {
     UiWindow* window;           // native window handle, null until init
     uint32_t* pixels;           // framebuffer pointer for the painter
     int       win_w, win_h;     // current window size in pixels
+    char      title[128];       // mirror of the current window title
+    bool      custom_chrome;    // true when we draw our own titlebar
+    int       tb_hot;           // hovered titlebar button: 0 none, 1 min, 2 max, 3 close
+    int       tb_active;        // pressed titlebar button, same encoding
 
     Widget* pool;               // bump-allocated widget storage for this frame
     int     pool_cap;           // allocated capacity of the widget pool
@@ -205,6 +209,9 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx);
 
 // compute geometry for the whole tree
 void ui_layout(UiContext* ctx);
+
+// draw the custom titlebar into the current framebuffer
+void ui_render_titlebar(UiContext* ctx);
 
 // draw the tree into the current framebuffer
 void ui_render_frame(UiContext* ctx);

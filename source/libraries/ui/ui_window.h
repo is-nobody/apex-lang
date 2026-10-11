@@ -36,8 +36,8 @@ typedef struct {
 // host hook invoked on repaint
 typedef void (*UiPaintCallback)(void* user, int w, int h);
 
-// create and show a native window
-UiWindow* ui_window_create(int w, int h, const char* title);
+// create and show a native window; decorated=false strips system chrome
+UiWindow* ui_window_create(int w, int h, const char* title, bool decorated);
 
 // destroy a native window
 void ui_window_destroy(UiWindow* w);
@@ -74,6 +74,27 @@ bool ui_window_is_open(UiWindow* w);
 
 // ask the window to close
 void ui_window_close(UiWindow* w);
+
+// true when the native window is currently maximized
+bool ui_window_is_maximized(UiWindow* w);
+
+// iconify / minimize the window
+void ui_window_minimize(UiWindow* w);
+
+// toggle between maximized and restored
+void ui_window_toggle_maximize(UiWindow* w);
+
+// clamp the window to a minimum client size
+void ui_window_set_min_size(UiWindow* w, int min_w, int min_h);
+
+// begin an interactive window-manager move (titlebar drag)
+void ui_window_begin_drag(UiWindow* w);
+
+// begin an interactive resize from the given edge
+void ui_window_begin_resize(UiWindow* w, const char* edge);
+
+// set a resize cursor hint while hovering a border, or null for default
+void ui_window_set_resize_cursor(UiWindow* w, const char* edge);
 
 // place a utf-8 string on the system clipboard; owns an internal copy
 void ui_window_clipboard_set(UiWindow* w, const char* text, int len);

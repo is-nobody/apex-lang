@@ -260,11 +260,17 @@ static void arrange(UiContext* ctx, Widget* w, float x, float y, float width, fl
 // top-level layout: measure the root then arrange the whole tree within the window
 void ui_layout(UiContext* ctx) {
     if (!ctx->root) return;                              // nothing to lay out
-    measure(ctx, ctx->root, (float)ctx->win_w);          // bottom-up intrinsic sizing
+    float rx = ctx->root->x;                             // preserve caller-set root rect
+    float ry = ctx->root->y;
+    float rw = ctx->root->w;
+    float rh = ctx->root->h;
+    if (rw <= 0) rw = (float)ctx->win_w;                 // fall back to window size
+    if (rh <= 0) rh = (float)ctx->win_h;
+    measure(ctx, ctx->root, rw);                         // bottom-up intrinsic sizing
     if (ctx->root->kind == WK_VBOX || ctx->root->kind == WK_HBOX ||
-        ctx->root->kind == WK_PANEL) {                   // container roots fill the window
-        ctx->root->meas_w = (float)ctx->win_w;
-        ctx->root->meas_h = (float)ctx->win_h;
+        ctx->root->kind == WK_PANEL) {                   // container roots fill the given rect
+        ctx->root->meas_w = rw;
+        ctx->root->meas_h = rh;
     }
-    arrange(ctx, ctx->root, 0, 0, (float)ctx->win_w, (float)ctx->win_h);  // top-down placement
+    arrange(ctx, ctx->root, rx, ry, rw, rh);             // top-down placement
 }
