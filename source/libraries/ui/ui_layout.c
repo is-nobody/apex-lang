@@ -141,6 +141,10 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
     if (w->req_h >= 0) w->meas_h = w->req_h;
     if (w->max_w > 0 && w->meas_w > w->max_w) w->meas_w = w->max_w;  // clamp to max
     if (w->min_w > 0 && w->meas_w < w->min_w) w->meas_w = w->min_w;  // clamp to min
+
+    // snap up to the next integer pixel
+    w->meas_w = ceilf(w->meas_w);
+    w->meas_h = ceilf(w->meas_h);
 }
 
 // assigns final geometry to a widget and lays out its children
