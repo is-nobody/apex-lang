@@ -241,6 +241,23 @@ static uint64_t hash_bytes64(uint64_t h, const void* p, size_t n) {
     return h;                                                          // running digest
 }
 
+// how many leading/trailing bytes of a string field are folded into the visual hash
+#define VIS_HASH_EDGE 16
+
+// hashes a string field by (length, first vis_hash_edge bytes, last vis_hash_edge bytes)
+static uint64_t hash_str_sampled(uint64_t h, const char* s, int len) {
+    h = hash_bytes64(h, &len, sizeof(len));               // length: catches inserts/deletes outright
+    if (!s || len <= 0) return h;                         // empty: nothing else to fold in
+
+    int edge = VIS_HASH_EDGE;
+    if (len <= edge * 2) {                                // short string: hash it whole
+        return hash_bytes64(h, s, (size_t)len);
+    }
+    h = hash_bytes64(h, s, (size_t)edge);                 // leading window
+    h = hash_bytes64(h, s + len - edge, (size_t)edge);    // trailing window
+    return h;
+}
+
 // hash of (size, length, content) used as the text measurement cache key
 static uint64_t text_measure_hash(const char* s, int len, float size) {
     uint64_t h = 0xCBF29CE484222325ULL;               // fnv-1a offset basis
@@ -318,18 +335,10 @@ uint64_t ui_visual_hash(const Widget* w) {
     h = hash_bytes64(h, &w->scroll_y,  sizeof(w->scroll_y));           // scroll offset
     h = hash_bytes64(h, &w->content_h, sizeof(w->content_h));          // scroll content height
 
-    // str fields carry a fresh heap copy each rebuild; hash the payload, not the pointer
-    h = hash_bytes64(h, &w->text.len, sizeof(w->text.len));            // label/content length
-    if (w->text.ptr && w->text.len > 0)                                // non-empty label payload
-        h = hash_bytes64(h, w->text.ptr, (size_t)w->text.len);         //   hash the actual bytes
-
-    h = hash_bytes64(h, &w->input_value.len, sizeof(w->input_value.len));  // input text length
-    if (w->input_value.ptr && w->input_value.len > 0)                  // non-empty input payload
-        h = hash_bytes64(h, w->input_value.ptr, (size_t)w->input_value.len);  // hash the bytes
-
-    h = hash_bytes64(h, &w->group.len, sizeof(w->group.len));          // radio group length
-    if (w->group.ptr && w->group.len > 0)                              // non-empty group name
-        h = hash_bytes64(h, w->group.ptr, (size_t)w->group.len);       // hash the bytes
+    // str fields carry a fresh heap copy each rebuild
+    h = hash_str_sampled(h, w->text.ptr,        w->text.len);          // label/content
+    h = hash_str_sampled(h, w->input_value.ptr, w->input_value.len);   // input text
+    h = hash_str_sampled(h, w->group.ptr,       w->group.len);         // radio group name
 
     return h;                                                          // final widget digest
 }
