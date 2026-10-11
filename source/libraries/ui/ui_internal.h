@@ -213,6 +213,12 @@ typedef struct UiContext {
     int           damage_count;
     int           damage_cap;
 
+    // reused id->index map for the damage diff, rebuilt every frame from snap_prev
+    int*     snap_prev_index;     // hash slot -> index into snap_prev->entries
+    int      snap_prev_index_cap; // power of two, or 0 before first use
+    uint8_t* snap_prev_seen;      // parallel to snap_prev->entries
+    int      snap_prev_seen_cap;
+
     // persistent text measurement cache
     TextMeasureEntry* text_cache;         // open-addressed (hash, width) slots
     int               text_cache_count;   // live entries

@@ -389,54 +389,83 @@ void ui_damage_add(UiContext* ctx, int x, int y, int w, int h) {
     ctx->damage[ctx->damage_count++] = (DamageRect){x, y, w, h};       // append the clamped rect
 }
 
-static int cmp_snap_id(const void* a, const void* b) {
-    uint64_t ia = ((const WidgetSnapshot*)a)->id;                      // left widget id
-    uint64_t ib = ((const WidgetSnapshot*)b)->id;                      // right widget id
-    if (ia < ib) return -1;                                            // a comes before b
-    if (ia > ib) return  1;                                            // b comes before a
-    return 0;                                                          // equal ids
-}
-
 // diff the previous snapshot against the current tree, filling ctx->damage
 void ui_damage_diff(UiContext* ctx) {
     SnapshotTable* prev = &ctx->snap_prev;                             // previous frame's snapshot
     SnapshotTable* cur  = &ctx->snap_cur;                              // current frame's snapshot
 
-    qsort(prev->entries, prev->count, sizeof(WidgetSnapshot), cmp_snap_id);  // sort by id for merge walk
-    qsort(cur->entries,  cur->count,  sizeof(WidgetSnapshot), cmp_snap_id);  // sort by id for merge walk
-
-    int i = 0, j = 0;                                                  // cursors into prev and cur
-    while (i < prev->count || j < cur->count) {                        // walk both sorted arrays
-        if (i < prev->count && j < cur->count) {                       // both sides still have entries
-            uint64_t a = prev->entries[i].id;                          // left id
-            uint64_t b = cur->entries[j].id;                           // right id
-            if (a < b) {                                               // widget only in prev: removed
-                WidgetSnapshot* e = &prev->entries[i];
-                ui_damage_add(ctx, e->x, e->y, e->w, e->h);            //   damage where it used to be
-                i++;
-            } else if (a > b) {                                        // widget only in cur: added
-                WidgetSnapshot* e = &cur->entries[j];
-                ui_damage_add(ctx, e->x, e->y, e->w, e->h);            //   damage where it now is
-                j++;
-            } else {                                                   // same id present in both
-                WidgetSnapshot* o = &prev->entries[i];                 // old entry
-                WidgetSnapshot* n = &cur->entries[j];                  // new entry
-                if (o->x != n->x || o->y != n->y ||                    // geometry or visual state
-                    o->w != n->w || o->h != n->h || o->hash != n->hash) {  //   changed?
-                    ui_damage_add(ctx, o->x, o->y, o->w, o->h);        //   erase old
-                    ui_damage_add(ctx, n->x, n->y, n->w, n->h);        //   draw new
-                }
-                i++; j++;
-            }
-        } else if (i < prev->count) {                                  // trailing removed widgets
-            WidgetSnapshot* e = &prev->entries[i];
-            ui_damage_add(ctx, e->x, e->y, e->w, e->h);                // damage old position
-            i++;
-        } else {                                                       // trailing added widgets
+    // no prior frame: every entry in cur is new
+    if (prev->count == 0) {
+        for (int j = 0; j < cur->count; j++) {
             WidgetSnapshot* e = &cur->entries[j];
-            ui_damage_add(ctx, e->x, e->y, e->w, e->h);                // damage new position
-            j++;
+            ui_damage_add(ctx, e->x, e->y, e->w, e->h);
         }
+        return;
+    }
+    // nothing drawn this frame: every prev entry was removed
+    if (cur->count == 0) {
+        for (int i = 0; i < prev->count; i++) {
+            WidgetSnapshot* e = &prev->entries[i];
+            ui_damage_add(ctx, e->x, e->y, e->w, e->h);
+        }
+        return;
+    }
+
+    // ensure the id->index table and seen-flag array can hold prev
+    if (ctx->snap_prev_index_cap < prev->count * 2) {
+        int cap = 8;
+        while (cap < prev->count * 2) cap <<= 1;                       // next power of two, load <= 0.5
+        free(ctx->snap_prev_index);
+        ctx->snap_prev_index = (int*)malloc(sizeof(int) * (size_t)cap);
+        ctx->snap_prev_index_cap = cap;
+    }
+    if (ctx->snap_prev_seen_cap < prev->count) {
+        ctx->snap_prev_seen_cap = prev->count;
+        ctx->snap_prev_seen = (uint8_t*)realloc(ctx->snap_prev_seen,
+                                                (size_t)prev->count);
+    }
+
+    uint32_t mask = (uint32_t)(ctx->snap_prev_index_cap - 1);
+    for (int i = 0; i < ctx->snap_prev_index_cap; i++) ctx->snap_prev_index[i] = -1;
+    memset(ctx->snap_prev_seen, 0, (size_t)prev->count);
+
+    // insert every prev entry into the id -> index table
+    for (int i = 0; i < prev->count; i++) {
+        uint32_t slot = state_hash(prev->entries[i].id) & mask;        // same mix used by the state map
+        while (ctx->snap_prev_index[slot] >= 0) slot = (slot + 1) & mask;
+        ctx->snap_prev_index[slot] = i;
+    }
+
+    // walk cur once; each lookup is O(1) average, each match marks the prev entry seen
+    for (int j = 0; j < cur->count; j++) {
+        WidgetSnapshot* n = &cur->entries[j];
+        uint32_t slot = state_hash(n->id) & mask;
+        int found = -1;
+        for (;;) {
+            int idx = ctx->snap_prev_index[slot];
+            if (idx < 0) break;                                        // empty: id was not in prev
+            if (prev->entries[idx].id == n->id) { found = idx; break; }
+            slot = (slot + 1) & mask;
+        }
+
+        if (found < 0) {                                               // widget appeared this frame
+            ui_damage_add(ctx, n->x, n->y, n->w, n->h);
+        } else {
+            ctx->snap_prev_seen[found] = 1;                            // mark as consumed
+            WidgetSnapshot* o = &prev->entries[found];
+            if (o->x != n->x || o->y != n->y ||
+                o->w != n->w || o->h != n->h || o->hash != n->hash) {
+                ui_damage_add(ctx, o->x, o->y, o->w, o->h);            // erase old position
+                ui_damage_add(ctx, n->x, n->y, n->w, n->h);            // draw new position
+            }
+        }
+    }
+
+    // any prev entry not consumed this frame is a widget that went away
+    for (int i = 0; i < prev->count; i++) {
+        if (ctx->snap_prev_seen[i]) continue;
+        WidgetSnapshot* e = &prev->entries[i];
+        ui_damage_add(ctx, e->x, e->y, e->w, e->h);
     }
 }
 
@@ -483,9 +512,15 @@ void ui_damage_free(UiContext* ctx) {
     free(ctx->damage);                                                 // release damage rect array
     free(ctx->snap_cur.entries);                                       // release current snapshot
     free(ctx->snap_prev.entries);                                      // release previous snapshot
+    free(ctx->snap_prev_index);                                        // release the id->index map
+    free(ctx->snap_prev_seen);                                         // release the seen-flag array
     ctx->damage            = NULL;                                     // clear dangling pointer
     ctx->snap_cur.entries  = NULL;                                     // clear dangling pointer
     ctx->snap_prev.entries = NULL;                                     // clear dangling pointer
+    ctx->snap_prev_index   = NULL;                                     // clear dangling pointer
+    ctx->snap_prev_seen    = NULL;                                     // clear dangling pointer
+    ctx->snap_prev_index_cap = 0;                                      // reset index capacity
+    ctx->snap_prev_seen_cap  = 0;                                      // reset seen capacity
     ctx->damage_count = ctx->damage_cap = 0;                           // reset damage list
     ctx->snap_cur.count = ctx->snap_cur.cap = 0;                       // reset current snapshot
     ctx->snap_prev.count = ctx->snap_prev.cap = 0;                     // reset previous snapshot
