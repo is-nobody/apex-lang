@@ -153,6 +153,15 @@ typedef struct {
     int             cap;
 } SnapshotTable;
 
+// uniform grid over the laid-out widget tree, rebuilt after every ui_layout()
+typedef struct {
+    int       cell_size;      // pixels per cell
+    int       cols, rows;     // grid dimensions in cells
+    int       win_w, win_h;   // window size the grid was built for
+    int*      cell_start;     // [cols*rows + 1] prefix-sum offsets into cell_items
+    Widget**  cell_items;     // [cell_start[cols*rows]] widget pointers, draw order
+} HitGrid;
+
 // one memoized text measurement: content hash + size -> advance width
 typedef struct TextMeasureEntry {
     uint64_t hash;        // 0 = empty slot; nonzero otherwise
@@ -199,6 +208,10 @@ typedef struct UiContext {
     InputState input;           // current pointer and modifier state
     uint64_t   focused_id;      // widget id with keyboard focus, 0 for none
     uint64_t   drag_widget_id;  // widget currently being dragged (slider or input)
+    uint64_t   hovered_id;      // widget id currently hovered, 0 = none; invariant:
+                                // at most one state entry has hovered=true
+
+    HitGrid    hit_grid;        // uniform grid for hit testing, rebuilt by ui_layout
 
     // double-click detection
     double     last_click_time; // wall clock of the previous click
@@ -274,6 +287,12 @@ uint64_t ui_visual_hash(const Widget* w);
 
 // recursively capture the laid-out widget tree into the current snapshot
 void ui_snapshot_capture(UiContext* ctx, Widget* root);
+
+// rebuild the uniform hit-test grid from the laid-out tree. call after ui_layout().
+void hit_grid_build(UiContext* ctx, Widget* root);
+
+// release every hit-grid allocation owned by the context.
+void hit_grid_free(UiContext* ctx);
 
 // reset the pending damage list before a fresh diff
 void ui_damage_begin(UiContext* ctx);

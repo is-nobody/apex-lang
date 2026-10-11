@@ -297,4 +297,5 @@ void ui_layout(UiContext* ctx) {
         ctx->root->meas_h = rh;
     }
     arrange(ctx, ctx->root, rx, ry, rw, rh);             // top-down placement
+    hit_grid_build(ctx, ctx->root);                      // refresh the uniform hit-test grid
 }
