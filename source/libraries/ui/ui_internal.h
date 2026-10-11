@@ -62,6 +62,7 @@ struct Widget {
 
     Str    input_value;                  // owned text buffer for input widgets
     int    cursor;                       // cursor byte offset into input_value
+    int    sel_anchor;                   // selection anchor byte offset, -1 = none
 
     double scroll_y, content_h;          // vertical scroll offset and content height
 };

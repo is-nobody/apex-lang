@@ -152,6 +152,7 @@ uint64_t ui_visual_hash(const Widget* w) {
     h = hash_bytes64(h, &w->focused,   sizeof(w->focused));            // focus flag
     h = hash_bytes64(h, &w->checked,   sizeof(w->checked));            // checkbox/radio state
     h = hash_bytes64(h, &w->cursor,    sizeof(w->cursor));             // input caret position
+    h = hash_bytes64(h, &w->sel_anchor, sizeof(w->sel_anchor));        // input selection anchor
     h = hash_bytes64(h, &w->num_value, sizeof(w->num_value));          // slider/progress value
     h = hash_bytes64(h, &w->scroll_y,  sizeof(w->scroll_y));           // scroll offset
     h = hash_bytes64(h, &w->content_h, sizeof(w->content_h));          // scroll content height
@@ -591,6 +592,7 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
     w->pressed = st->pressed;                                     // restore press flag
     w->focused = (ctx->focused_id == w->id);                      // reflect current focus
     w->cursor  = st->cursor < 0 ? (int)w->input_value.len : st->cursor;  // default cursor at end
+    w->sel_anchor = st->sel_anchor;                               // restore the selection anchor
     w->scroll_y = st->scroll_y;                                   // restore scroll offset
 
     Value ck = intern(vm, "children"), cv;
