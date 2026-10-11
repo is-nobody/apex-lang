@@ -9,15 +9,43 @@
 #include <string.h>
 #include <math.h>
 
+// simd dispatch
+#if defined(__SSE2__) || defined(_M_X64) || \
+    (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+#  include <emmintrin.h>
+#  define UI_HAVE_SSE2 1
+#elif defined(__ARM_NEON) || defined(__ARM_NEON__)
+#  include <arm_neon.h>
+#  define UI_HAVE_NEON 1
+#endif
+
 // active framebuffer and its dimensions
 static uint32_t* g_pixels; static int g_w, g_h;
 
 // nested scissor rectangles
 static int clip_stack[16][4]; static int clip_depth;
 
+// top-of-stack clip cached as (x0, y0, x1, y1). refreshed on every push/pop
+// so the hot pixel loops read two globals instead of chasing the stack.
+static int g_clip_x0, g_clip_y0, g_clip_x1, g_clip_y1;
+
+// refresh the cached clip from the current top of the stack
+static inline void clip_refresh(void) {
+    if (clip_depth > 0) {
+        g_clip_x0 = clip_stack[clip_depth-1][0];
+        g_clip_y0 = clip_stack[clip_depth-1][1];
+        g_clip_x1 = g_clip_x0 + clip_stack[clip_depth-1][2];
+        g_clip_y1 = g_clip_y0 + clip_stack[clip_depth-1][3];
+    } else {
+        g_clip_x0 = 0; g_clip_y0 = 0;
+        g_clip_x1 = g_w; g_clip_y1 = g_h;
+    }
+}
+
 // binds the painter to a framebuffer and clears the clip stack
 void ui_painter_init(uint32_t* p, int w, int h) {
     g_pixels = p; g_w = w; g_h = h; clip_depth = 0;
+    clip_refresh();
     ui_text_set_clip(0, 0, w, h);                        // whole surface: nothing clipped
 }
 
@@ -38,50 +66,46 @@ void ui_painter_push_clip(int x, int y, int w, int h) {
         clip_stack[clip_depth][0] = nx0; clip_stack[clip_depth][1] = ny0;
         clip_stack[clip_depth][2] = nx1 - nx0; clip_stack[clip_depth][3] = ny1 - ny0;
         clip_depth++;
-        ui_text_set_clip(nx0, ny0, nx0 + (nx1 - nx0), ny0 + (ny1 - ny0));
+        clip_refresh();
+        ui_text_set_clip(nx0, ny0, nx1, ny1);
     }
 }
 
 // pops the most recent scissor rect
 void ui_painter_pop_clip(void) {
     if (clip_depth > 0) clip_depth--;
-    if (clip_depth > 0) {
-        int cx = clip_stack[clip_depth-1][0];
-        int cy = clip_stack[clip_depth-1][1];
-        int cw = clip_stack[clip_depth-1][2];
-        int ch = clip_stack[clip_depth-1][3];
-        ui_text_set_clip(cx, cy, cx+cw, cy+ch);
-    } else {
-        ui_text_set_clip(0, 0, g_w, g_h);
-    }
+    clip_refresh();
+    ui_text_set_clip(g_clip_x0, g_clip_y0, g_clip_x1, g_clip_y1);
 }
 
 // clears the whole clip stack
 void ui_painter_reset_clip(void) {
     clip_depth = 0;
+    clip_refresh();
     ui_text_set_clip(0, 0, g_w, g_h);
 }
 
 // returns true when (x, y) lies inside the active scissor rect
 static inline bool in_clip(int x, int y) {
-    if (clip_depth <= 0) return true;                   // no clip: everything is inside
-    int cx = clip_stack[clip_depth-1][0], cy = clip_stack[clip_depth-1][1];
-    int cw = clip_stack[clip_depth-1][2], ch = clip_stack[clip_depth-1][3];
-    return x >= cx && x < cx+cw && y >= cy && y < cy+ch;
+    return x >= g_clip_x0 && x < g_clip_x1 &&
+           y >= g_clip_y0 && y < g_clip_y1;
 }
 
 // alpha-blends a single pixel into the framebuffer, honoring the active clip
 static inline void blend_px(int x, int y, uint32_t c) {
-    if (x < 0 || y < 0 || x >= g_w || y >= g_h) return; // outside the surface
-    if (!in_clip(x, y)) return;                         // outside the scissor
+    if ((unsigned)x >= (unsigned)g_clip_x1 || x < g_clip_x0) return;
+    if ((unsigned)y >= (unsigned)g_clip_y1 || y < g_clip_y0) return;
     uint32_t sa = (c >> 24) & 0xFF;                     // source alpha
     if (!sa) return;                                    // fully transparent: nothing to do
     uint32_t idx = (uint32_t)y * g_w + x;               // linear pixel index
-    if (sa == 255) { g_pixels[idx] = 0xFF000000u | (c & 0x00FFFFFFu); return; }  // opaque fast path
+    if (sa == 255) { g_pixels[idx] = 0xFF000000u | (c & 0x00FFFFFFu); return; }
     uint32_t inv = 255 - sa;                            // destination weight
-    uint32_t dr = (g_pixels[idx] >> 16) & 0xFF, dg = (g_pixels[idx] >> 8) & 0xFF, db = g_pixels[idx] & 0xFF;
+    uint32_t d  = g_pixels[idx];
+    uint32_t dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
     uint32_t sr = (c >> 16) & 0xFF, sg = (c >> 8) & 0xFF, sb = c & 0xFF;
-    uint32_t r = (sr*sa + dr*inv)/255, g = (sg*sa + dg*inv)/255, b = (sb*sa + db*inv)/255;
+    uint32_t r = (sr*sa + dr*inv + 128) >> 8;
+    uint32_t g = (sg*sa + dg*inv + 128) >> 8;
+    uint32_t b = (sb*sa + db*inv + 128) >> 8;
     g_pixels[idx] = 0xFF000000u | (r<<16) | (g<<8) | b;
 }
 
@@ -89,25 +113,153 @@ static inline void blend_px(int x, int y, uint32_t c) {
 static inline void blend_px_cov(int x, int y, uint32_t c, int cov) {
     if (cov <= 0) return;                               // no coverage: skip
     if (cov >= 255) { blend_px(x, y, c); return; }      // full coverage: delegate
-    if (x < 0 || y < 0 || x >= g_w || y >= g_h) return; // outside the surface
-    if (!in_clip(x, y)) return;                         // outside the scissor
+    if ((unsigned)x >= (unsigned)g_clip_x1 || x < g_clip_x0) return;
+    if ((unsigned)y >= (unsigned)g_clip_y1 || y < g_clip_y0) return;
     uint32_t idx = (uint32_t)y * g_w + x;               // linear pixel index
     uint32_t ca = (c >> 24) & 0xFF;                     // source alpha
-    uint32_t sa = ca * (uint32_t)cov / 255u;            // combined alpha
+    uint32_t sa = (ca * (uint32_t)cov + 128) >> 8;      // combined alpha, branchless
     if (!sa) return;                                    // fully transparent after coverage
     uint32_t inv = 255 - sa;                            // destination weight
-    uint32_t dr = (g_pixels[idx] >> 16) & 0xFF, dg = (g_pixels[idx] >> 8) & 0xFF, db = g_pixels[idx] & 0xFF;
+    uint32_t d  = g_pixels[idx];
+    uint32_t dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
     uint32_t sr = (c >> 16) & 0xFF, sg = (c >> 8) & 0xFF, sb = c & 0xFF;
-    uint32_t r = (sr*sa + dr*inv)/255, g = (sg*sa + dg*inv)/255, b = (sb*sa + db*inv)/255;
+    uint32_t r = (sr*sa + dr*inv + 128) >> 8;
+    uint32_t g = (sg*sa + dg*inv + 128) >> 8;
+    uint32_t b = (sb*sa + db*inv + 128) >> 8;
     g_pixels[idx] = 0xFF000000u | (r<<16) | (g<<8) | b;
 }
+
+// simd row blenders
+#ifdef UI_HAVE_SSE2
+// processes 4 pixels at a time. uses epi16 multiplies on epi32 lanes
+// holding one channel each, with a +128>>8 rounding approximation.
+static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
+    uint32_t sa  = (c >> 24) & 0xFF;
+    uint32_t inv = 255 - sa;
+    uint32_t sr  = (c >> 16) & 0xFF;
+    uint32_t sg  = (c >> 8)  & 0xFF;
+    uint32_t sb  =  c        & 0xFF;
+
+    __m128i k_sa = _mm_set1_epi32((int)sa);
+    __m128i k_sr = _mm_set1_epi32((int)(sr * inv + 128));
+    __m128i k_sg = _mm_set1_epi32((int)(sg * inv + 128));
+    __m128i k_sb = _mm_set1_epi32((int)(sb * inv + 128));
+    __m128i kFF  = _mm_set1_epi32(0xFF);
+    __m128i kAA  = _mm_set1_epi32((int)0xFF000000u);
+
+    int i = 0;
+    for (; i + 4 <= n; i += 4) {
+        __m128i d  = _mm_loadu_si128((const __m128i*)(row + i));
+        __m128i dr = _mm_and_si128(_mm_srli_epi32(d, 16), kFF);
+        __m128i dg = _mm_and_si128(_mm_srli_epi32(d, 8),  kFF);
+        __m128i db = _mm_and_si128(d,                     kFF);
+
+        __m128i r = _mm_srli_epi32(_mm_add_epi32(_mm_mullo_epi16(dr, k_sa), k_sr), 8);
+        __m128i g = _mm_srli_epi32(_mm_add_epi32(_mm_mullo_epi16(dg, k_sa), k_sg), 8);
+        __m128i b = _mm_srli_epi32(_mm_add_epi32(_mm_mullo_epi16(db, k_sa), k_sb), 8);
+
+        __m128i out = _mm_or_si128(
+            kAA,
+            _mm_or_si128(
+                _mm_slli_epi32(r, 16),
+                _mm_or_si128(_mm_slli_epi32(g, 8), b)));
+        _mm_storeu_si128((__m128i*)(row + i), out);
+    }
+    for (; i < n; i++) {                                    // scalar tail
+        uint32_t d  = row[i];
+        uint32_t dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
+        uint32_t r = (dr*sa + sr*inv + 128) >> 8;
+        uint32_t g = (dg*sa + sg*inv + 128) >> 8;
+        uint32_t b = (db*sa + sb*inv + 128) >> 8;
+        row[i] = 0xFF000000u | (r << 16) | (g << 8) | b;
+    }
+}
+#elif defined(UI_HAVE_NEON)
+// processes 8 pixels at a time via vld4/vst4 deinterleave.
+static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
+    uint32_t sa  = (c >> 24) & 0xFF;
+    uint32_t inv = 255 - sa;
+    uint32_t sr  = (c >> 16) & 0xFF;
+    uint32_t sg  = (c >> 8)  & 0xFF;
+    uint32_t sb  =  c        & 0xFF;
+
+    uint16x8_t k_sa = vdupq_n_u16((uint16_t)sa);
+    uint16x8_t k_sr = vdupq_n_u16((uint16_t)(sr * inv + 128));
+    uint16x8_t k_sg = vdupq_n_u16((uint16_t)(sg * inv + 128));
+    uint16x8_t k_sb = vdupq_n_u16((uint16_t)(sb * inv + 128));
+    uint8x8_t  kA8  = vdup_n_u8(0xFF);
+
+    int i = 0;
+    for (; i + 8 <= n; i += 8) {
+        uint8x8x4_t d = vld4_u8((const uint8_t*)(row + i));   // [B][G][R][A]
+        uint16x8_t b16 = vmlaq_u16(k_sb, vmovl_u8(d.val[0]), k_sa);
+        uint16x8_t g16 = vmlaq_u16(k_sg, vmovl_u8(d.val[1]), k_sa);
+        uint16x8_t r16 = vmlaq_u16(k_sr, vmovl_u8(d.val[2]), k_sa);
+        uint8x8x4_t out;
+        out.val[0] = vshrn_n_u16(b16, 8);
+        out.val[1] = vshrn_n_u16(g16, 8);
+        out.val[2] = vshrn_n_u16(r16, 8);
+        out.val[3] = kA8;
+        vst4_u8((uint8_t*)(row + i), out);
+    }
+    for (; i < n; i++) {
+        uint32_t d  = row[i];
+        uint32_t dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
+        uint32_t r = (dr*sa + sr*inv + 128) >> 8;
+        uint32_t g = (dg*sa + sg*inv + 128) >> 8;
+        uint32_t b = (db*sa + sb*inv + 128) >> 8;
+        row[i] = 0xFF000000u | (r << 16) | (g << 8) | b;
+    }
+}
+#else
+static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
+    uint32_t sa  = (c >> 24) & 0xFF;
+    uint32_t inv = 255 - sa;
+    uint32_t sr  = (c >> 16) & 0xFF;
+    uint32_t sg  = (c >> 8)  & 0xFF;
+    uint32_t sb  =  c        & 0xFF;
+    for (int i = 0; i < n; i++) {
+        uint32_t d  = row[i];
+        uint32_t dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
+        uint32_t r = (dr*sa + sr*inv + 128) >> 8;
+        uint32_t g = (dg*sa + sg*inv + 128) >> 8;
+        uint32_t b = (db*sa + sb*inv + 128) >> 8;
+        row[i] = 0xFF000000u | (r << 16) | (g << 8) | b;
+    }
+}
+#endif
 
 // fills an axis-aligned rectangle with the given color
 void ui_painter_fill_rect(int x, int y, int w, int h, uint32_t c) {
     if (w <= 0 || h <= 0) return;                       // degenerate rectangle
-    for (int yy = 0; yy < h; yy++)
-        for (int xx = 0; xx < w; xx++)
-            blend_px(x+xx, y+yy, c);
+
+    // clamp to the cached clip; the clip already lives inside the surface
+    int x0 = x, y0 = y, x1 = x + w, y1 = y + h;
+    if (x0 < g_clip_x0) x0 = g_clip_x0;
+    if (y0 < g_clip_y0) y0 = g_clip_y0;
+    if (x1 > g_clip_x1) x1 = g_clip_x1;
+    if (y1 > g_clip_y1) y1 = g_clip_y1;
+    if (x1 <= x0 || y1 <= y0) return;                   // fully clipped
+
+    uint32_t sa = (c >> 24) & 0xFF;
+    if (!sa) return;                                    // fully transparent
+
+    int rw = x1 - x0;
+
+    if (sa == 255) {                                    // opaque fast path: row-wise store
+        uint32_t color = 0xFF000000u | (c & 0x00FFFFFFu);
+        for (int yy = y0; yy < y1; yy++) {
+            uint32_t* row = g_pixels + (size_t)yy * g_w + x0;
+            for (int i = 0; i < rw; i++) row[i] = color;
+        }
+        return;
+    }
+
+    // alpha path: one SIMD (or scalar) sweep per row
+    for (int yy = y0; yy < y1; yy++) {
+        uint32_t* row = g_pixels + (size_t)yy * g_w + x0;
+        blend_row_simd(row, rw, c);
+    }
 }
 
 // supersamples a rounded corner and blends the result into the destination
