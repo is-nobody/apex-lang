@@ -60,14 +60,14 @@ static uint32_t decode_cp(const char* s, int n, int* adv) {
 // one cached rasterized glyph at a fixed pixel size
 typedef struct {
     int      gid;                 // glyph id in the font
-    uint16_t size_q;              // size in quarter-pixels (size * 4)
+    uint16_t size_q;              // size in half-pixels (size * 2)
     int      w, h, off_x, off_y;  // bitmap size and offsets from pen
     float    advance;             // horizontal advance in pixels
     uint8_t* cov;                 // coverage bitmap, one byte per pixel
 } CacheEntry;
 
 // glyph cache hash: one open-addressed slot per (gid, size_q) pair
-#define GLYPH_HASH_SIZE 512
+#define GLYPH_HASH_SIZE 2048
 #define GLYPH_HASH_MASK (GLYPH_HASH_SIZE - 1)
 
 // loaded TrueType font state and its glyph cache
@@ -84,6 +84,16 @@ struct UiFont {
     int      cmap_fmt;                                   // chosen cmap format (4 or 12)
     CacheEntry* cache;                                   // glyph cache entries
     int cache_count, cache_cap;                          // live count and capacity of the cache
+
+    // direct bmp cmap: 64K entries, lazily filled
+    uint16_t* cmap_bmp;
+
+    // per-size advance tables
+    struct AdvanceTable {
+        uint16_t size_q;
+        float*   values;                                 // [num_glyphs]
+    } adv_tables[8];
+    int adv_table_count;
 };
 
 // parses the sfnt directory to locate every required table and pick a cmap
@@ -150,6 +160,13 @@ UiFont* ui_font_load_memory(const uint8_t* data, size_t len) {
     for (int i = 0; i < GLYPH_HASH_SIZE; i++)            // mark every slot as empty
         f->glyph_hash[i] = -1;
     if (!find_tables(f)) { ui_font_free(f); return NULL; }  // parse failed: bail out
+
+    // direct bmp cmap cache: lazily populated on first lookup of each codepoint
+    f->cmap_bmp = (uint16_t*)malloc(0x10000u * sizeof(uint16_t));
+    if (f->cmap_bmp) {
+        for (uint32_t i = 0; i < 0x10000u; i++) f->cmap_bmp[i] = 0xFFFF;
+    }
+
     return f;
 }
 
@@ -158,6 +175,9 @@ void ui_font_free(UiFont* f) {
     if (!f) return;                                      // null guard
     for (int i = 0; i < f->cache_count; i++) free(f->cache[i].cov);  // free each coverage bitmap
     free(f->cache);                                      // free the cache array
+    for (int i = 0; i < f->adv_table_count; i++)         // free per-size advance tables
+        free(f->adv_tables[i].values);
+    free(f->cmap_bmp);                                   // free the direct BMP cmap
     free(f->data);                                       // free the font bytes
     free(f);                                             // free the font struct
 }
@@ -213,17 +233,61 @@ static float advance_raw(UiFont* f, uint16_t gid) {
     return (float)r16(f->data + off);                    // first field is the advance width
 }
 
+// direct bmp cmap: lazily resolve codepoint -> glyph id once, then o(1) forever
+static inline uint16_t glyph_index_cached(UiFont* f, uint32_t cp) {
+    if (cp > 0xFFFF || !f->cmap_bmp) return glyph_index(f, cp);
+    uint16_t cached = f->cmap_bmp[cp];
+    if (cached != 0xFFFF) return cached;
+    uint16_t gid = glyph_index(f, cp);
+    f->cmap_bmp[cp] = gid;
+    return gid;
+}
+
+// per-size advance table: num_glyphs floats per size_q, filled on first use
+static float* advance_table(UiFont* f, uint16_t size_q) {
+    for (int i = 0; i < f->adv_table_count; i++)
+        if (f->adv_tables[i].size_q == size_q) return f->adv_tables[i].values;
+    if (f->adv_table_count >= (int)(sizeof(f->adv_tables)/sizeof(f->adv_tables[0])))
+        return NULL;
+
+    float size  = size_q / 2.0f;                         // undo the half-pixel quantization
+    float scale = size / (float)f->upem;                 // font units -> pixels
+    float* values = (float*)malloc(sizeof(float) * (size_t)f->num_glyphs);
+    if (!values) return NULL;
+    for (int g = 0; g < f->num_glyphs; g++)
+        values[g] = advance_raw(f, (uint16_t)g) * scale;
+
+    int slot = f->adv_table_count++;
+    f->adv_tables[slot].size_q = size_q;
+    f->adv_tables[slot].values  = values;
+    return values;
+}
+
+// advance in pixels for (gid, size_q); O(1) once the table for the size is warm.
+static inline float advance_cached(UiFont* f, uint16_t gid, uint16_t size_q) {
+    float* tbl = advance_table(f, size_q);
+    if (tbl && gid < f->num_glyphs) return tbl[gid];
+    // fallback: same math as advance_raw scaled by the half-pixel size
+    return advance_raw(f, gid) * (size_q / 2.0f) / (float)f->upem;
+}
+
 // measures the advance width of a utf-8 string at the given pixel size
 float ui_text_measure(UiFont* f, const char* s, int n, float size) {
     if (!f || !s) return 0;                              // nothing to measure
-    float scale = size / (float)f->upem;                 // convert font units to pixels
+    uint16_t size_q = (uint16_t)(size * 2 + 0.5f);       // same quantization as the glyph cache
+    float* adv_tbl = advance_table(f, size_q);           // build once, reuse forever
+    float fallback_scale = size / (float)f->upem;        // used only if the table is unavailable
+
     float w = 0;
     int i = 0;
     while (i < n) {
         int adv; uint32_t cp = decode_cp(s + i, n - i, &adv);  // decode one codepoint
         i += adv;
-        uint16_t gid = glyph_index(f, cp);               // map to a glyph id
-        w += advance_raw(f, gid) * scale;                // add its scaled advance
+        uint16_t gid = glyph_index_cached(f, cp);        // O(1) after first touch of cp
+        if (adv_tbl && gid < f->num_glyphs)
+            w += adv_tbl[gid];                           // O(1) table lookup
+        else
+            w += advance_raw(f, gid) * fallback_scale;   // cold path if table alloc failed
     }
     return w;
 }
@@ -625,9 +689,9 @@ static CacheEntry* glyph_get(UiFont* f, uint16_t gid, uint16_t size_q) {
     CacheEntry* e = &f->cache[f->cache_count];           // take the next slot
     memset(e, 0, sizeof(*e));
     e->gid = gid; e->size_q = size_q;
-    float size = size_q / 4.0f;                          // undo the quarter-pixel quantization
+    float size = size_q / 2.0f;                          // undo the half-pixel quantization
     float scale = size / (float)f->upem;                 // font units to pixels
-    e->advance = advance_raw(f, gid) * scale;            // scaled advance for this size
+    e->advance = advance_cached(f, gid, size_q);         // O(1) from the per-size advance table
 
     Poly* polys = NULL; int npolys = 0;
     int xmin=0, ymin=0, xmax=0, ymax=0;
@@ -691,7 +755,7 @@ float ui_text_draw(UiFont* f, uint32_t* fb, int fbw, int fbh,
                    float size, uint32_t color) {
     if (!f || !s) return 0;                              // nothing to draw
     float scale = size / (float)f->upem;                 // not used directly, kept for clarity
-    uint16_t size_q = (uint16_t)(size * 4 + 0.5f);       // quantized size to share cache entries
+    uint16_t size_q = (uint16_t)(size * 2 + 0.5f);       // quantized size to share cache entries
     float pen = x;                                       // running pen position
     int i = 0;
     int base_y = (int)floorf(baseline + 0.5f);           // rounded baseline row
