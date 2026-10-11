@@ -342,7 +342,10 @@ void ui_painter_push_clip(int x, int y, int w, int h);
 // pop the most recent scissor
 void ui_painter_pop_clip(void);
 
-// clear the whole clip stack
+// clears the whole clip stack
 void ui_painter_reset_clip(void);
+
+// releases the corner-coverage cache owned by the painter
+void ui_painter_shutdown(void);
 
 #endif

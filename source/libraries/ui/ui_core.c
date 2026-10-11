@@ -925,6 +925,7 @@ void ui_context_destroy(UiContext* ctx) {
     ctx->last_tree = MAKE_NONE();                                 // clear the cached tree
     ctx->has_tree = false;
     hit_grid_free(ctx);                                           // release hit-test grid
+    ui_painter_shutdown();                                        // release the corner atlas
     ui_damage_free(ctx);                                          // free ui damage
     free(ctx);                                                    // free the context itself
     if (saved_vm) saved_vm->ui = NULL;                            // drop the vm's back-pointer

@@ -262,58 +262,98 @@ void ui_painter_fill_rect(int x, int y, int w, int h, uint32_t c) {
     }
 }
 
-// supersamples a rounded corner and blends the result into the destination
-static void fill_corner_aa(int ox, int oy, int r, int cx_off, int cy_off, uint32_t c) {
-    if (r <= 0) return;                                 // no corner to draw
-    const int SS = 4;                                   // 4x4 supersampling grid
-    float rr2 = (float)r * (float)r;                    // outer radius squared
-    for (int yy = 0; yy < r; yy++) {
-        for (int xx = 0; xx < r; xx++) {
-            int inside = 0;                             // samples inside the arc
-            for (int sy = 0; sy < SS; sy++) {
-                for (int sx = 0; sx < SS; sx++) {
-                    float fx = (float)xx + (sx + 0.5f) / SS;  // sample position in corner space
-                    float fy = (float)yy + (sy + 0.5f) / SS;
-                    float ex = (float)cx_off - fx;      // distance from corner center
-                    float ey = (float)cy_off - fy;
-                    if (ex*ex + ey*ey <= rr2) inside++; // count samples inside the circle
-                }
-            }
-            if (!inside) continue;                      // fully outside
-            int cov = inside * 255 / (SS * SS);         // convert sample count to coverage
-            if (cov >= 255) blend_px(ox + xx, oy + yy, c);
-            else            blend_px_cov(ox + xx, oy + yy, c, cov);
-        }
-    }
-}
+// corner coverage atlas
+typedef struct {
+    int      r;              // radius this entry was built for, 0 = empty
+    uint8_t* fill_cov;       // r*r coverage, top-left corner, filled arc
+    uint8_t* stroke_cov;     // r*r coverage, top-left corner, 1px stroke band
+} CornerEntry;
 
-// supersamples a rounded corner ring for stroked rounded rectangles
-static void stroke_corner_aa(int ox, int oy, int r, int cx_off, int cy_off, uint32_t c) {
-    if (r <= 0) return;                                 // no corner to draw
-    const int SS = 4;                                   // 4x4 supersampling grid
-    float rr  = (float)r;                               // outer radius
+#define CORNER_CACHE_MAX 16
+static CornerEntry g_corners[CORNER_CACHE_MAX];
+static int         g_corners_count;
+
+// looks up the cache entry for r, building it on first use
+static const CornerEntry* corner_get(int r) {
+    for (int i = 0; i < g_corners_count; i++)
+        if (g_corners[i].r == r) return &g_corners[i];
+    if (g_corners_count >= CORNER_CACHE_MAX) return NULL;
+
+    CornerEntry* e = &g_corners[g_corners_count++];
+    e->r = r;
+    e->fill_cov   = (uint8_t*)malloc((size_t)r * (size_t)r);
+    e->stroke_cov = (uint8_t*)malloc((size_t)r * (size_t)r);
+
+    const int SS = 4;
+    float rr  = (float)r;
     float rr2 = rr * rr;
-    float ri  = rr - 1.0f;                              // inner radius for a 1px stroke
+    float ri  = rr - 1.0f;
     float ri2 = ri > 0 ? ri * ri : 0.0f;
+
     for (int yy = 0; yy < r; yy++) {
         for (int xx = 0; xx < r; xx++) {
-            int inside = 0;                             // samples inside the ring
+            int inside_fill = 0, inside_stroke = 0;
             for (int sy = 0; sy < SS; sy++) {
                 for (int sx = 0; sx < SS; sx++) {
                     float fx = (float)xx + (sx + 0.5f) / SS;
                     float fy = (float)yy + (sy + 0.5f) / SS;
-                    float ex = (float)cx_off - fx;
-                    float ey = (float)cy_off - fy;
-                    float d2 = ex*ex + ey*ey;           // sample distance squared
-                    if (d2 <= rr2 && d2 >= ri2) inside++;  // inside the stroke band
+                    float ex = rr - fx;                 // distance from corner center (r, r)
+                    float ey = rr - fy;
+                    float d2 = ex*ex + ey*ey;
+                    if (d2 <= rr2) inside_fill++;
+                    if (d2 <= rr2 && d2 >= ri2) inside_stroke++;
                 }
             }
-            if (!inside) continue;                      // fully outside
-            int cov = inside * 255 / (SS * SS);         // convert sample count to coverage
-            if (cov >= 255) blend_px(ox + xx, oy + yy, c);
-            else            blend_px_cov(ox + xx, oy + yy, c, cov);
+            e->fill_cov  [(size_t)yy*r + xx] = (uint8_t)(inside_fill   * 255 / (SS * SS));
+            e->stroke_cov[(size_t)yy*r + xx] = (uint8_t)(inside_stroke * 255 / (SS * SS));
         }
     }
+    return e;
+}
+
+// releases the corner cache; called from ui_painter_shutdown
+void ui_painter_shutdown(void) {
+    for (int i = 0; i < g_corners_count; i++) {
+        free(g_corners[i].fill_cov);
+        free(g_corners[i].stroke_cov);
+    }
+    g_corners_count = 0;
+}
+
+// blends an r*r coverage bitmap into the framebuffer at (ox, oy)
+static void blit_corner_cov(const uint8_t* cov, int r, int ox, int oy,
+                            int flip_x, int flip_y, uint32_t c) {
+    for (int yy = 0; yy < r; yy++) {
+        int sy = flip_y ? (r - 1 - yy) : yy;
+        const uint8_t* row = cov + (size_t)sy * r;
+        for (int xx = 0; xx < r; xx++) {
+            int sx = flip_x ? (r - 1 - xx) : xx;
+            uint8_t cv = row[sx];
+            if (cv) blend_px_cov(ox + xx, oy + yy, c, cv);
+        }
+    }
+}
+
+// draws the four rounded corners of a rectangle from the fill bitmap
+static void fill_corners_atlas(int x, int y, int w, int h, int r, uint32_t c) {
+    if (r <= 0) return;
+    const CornerEntry* e = corner_get(r);
+    if (!e) return;
+    blit_corner_cov(e->fill_cov, r, x,       y,       0, 0, c);   // top-left
+    blit_corner_cov(e->fill_cov, r, x + w-r, y,       1, 0, c);   // top-right
+    blit_corner_cov(e->fill_cov, r, x,       y + h-r, 0, 1, c);   // bottom-left
+    blit_corner_cov(e->fill_cov, r, x + w-r, y + h-r, 1, 1, c);   // bottom-right
+}
+
+// draws the four rounded corners of a rectangle from the stroke bitmap
+static void stroke_corners_atlas(int x, int y, int w, int h, int r, uint32_t c) {
+    if (r <= 0) return;
+    const CornerEntry* e = corner_get(r);
+    if (!e) return;
+    blit_corner_cov(e->stroke_cov, r, x,       y,       0, 0, c); // top-left
+    blit_corner_cov(e->stroke_cov, r, x + w-r, y,       1, 0, c); // top-right
+    blit_corner_cov(e->stroke_cov, r, x,       y + h-r, 0, 1, c); // bottom-left
+    blit_corner_cov(e->stroke_cov, r, x + w-r, y + h-r, 1, 1, c); // bottom-right
 }
 
 // fills a rounded rectangle with antialiased corners
@@ -325,10 +365,7 @@ void ui_painter_fill_round(int x, int y, int w, int h, int r, uint32_t c) {
     ui_painter_fill_rect(x+r,   y,     w-2*r, h,     c);          // horizontal middle band
     ui_painter_fill_rect(x,     y+r,   r,     h-2*r, c);          // left middle
     ui_painter_fill_rect(x+w-r, y+r,   r,     h-2*r, c);          // right middle
-    fill_corner_aa(x,     y,     r, r, r, c);                     // top-left corner
-    fill_corner_aa(x+w-r, y,     r, 0, r, c);                     // top-right corner
-    fill_corner_aa(x,     y+h-r, r, r, 0, c);                     // bottom-left corner
-    fill_corner_aa(x+w-r, y+h-r, r, 0, 0, c);                     // bottom-right corner
+    fill_corners_atlas(x, y, w, h, r, c);                         // all four rounded corners
 }
 
 // strokes a 1px axis-aligned rectangle outline
@@ -349,10 +386,7 @@ void ui_painter_stroke_round(int x, int y, int w, int h, int r, uint32_t c) {
     ui_painter_fill_rect(x+r,   y+h-1,   w-2*r, 1,     c);          // bottom edge
     ui_painter_fill_rect(x,     y+r,     1,     h-2*r, c);          // left edge
     ui_painter_fill_rect(x+w-1, y+r,     1,     h-2*r, c);          // right edge
-    stroke_corner_aa(x,     y,     r, r, r, c);                     // top-left corner
-    stroke_corner_aa(x+w-r, y,     r, 0, r, c);                     // top-right corner
-    stroke_corner_aa(x,     y+h-r, r, r, 0, c);                     // bottom-left corner
-    stroke_corner_aa(x+w-r, y+h-r, r, 0, 0, c);                     // bottom-right corner
+    stroke_corners_atlas(x, y, w, h, r, c);                         // all four rounded corners
 }
 
 // damage-aware
