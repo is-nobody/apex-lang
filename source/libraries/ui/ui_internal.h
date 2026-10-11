@@ -149,8 +149,9 @@ typedef struct {
 
 // one memoized text measurement: content hash + size -> advance width
 typedef struct TextMeasureEntry {
-    uint64_t hash;   // 0 = empty slot; nonzero otherwise
-    float    width;  // cached advance width in pixels
+    uint64_t hash;        // 0 = empty slot; nonzero otherwise
+    float    width;       // cached advance width in pixels
+    uint32_t last_frame;  // frame counter when this entry was last touched
 } TextMeasureEntry;
 
 // non-owning view into a string value; ptr is valid while the owning table holds the entry
@@ -212,10 +213,12 @@ typedef struct UiContext {
     int           damage_count;
     int           damage_cap;
 
-    // per-frame text measurement cache; cleared by ui_widgets_reset
-    TextMeasureEntry* text_cache;       // open-addressed (hash, width) slots
-    int               text_cache_count; // live entries
-    int               text_cache_cap;   // power of two, 0 until first use
+    // persistent text measurement cache
+    TextMeasureEntry* text_cache;         // open-addressed (hash, width) slots
+    int               text_cache_count;   // live entries
+    int               text_cache_cap;     // power of two, 0 until first use
+    uint32_t          text_cache_frame;   // monotonic frame counter, bumped by ui_widgets_reset
+    uint32_t          text_cache_swept;   // frame when the last age sweep ran
 } UiContext;                    // per-vm ui session state
 
 // lazily create the ui context on the vm

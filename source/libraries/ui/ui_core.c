@@ -79,10 +79,36 @@ void ui_widgets_reset(UiContext* ctx) {
     ctx->pool_used = 0;                                   // reset pool cursor
     ctx->root = NULL;                                     // drop tree root
     ctx->arena_used = 0;                                  // bulk-free text/group/key_str
-    if (ctx->text_cache_cap > 0) {                        // invalidate memoized measurements:
-        memset(ctx->text_cache, 0,                        // the arena they were keyed against
-               sizeof(TextMeasureEntry) * ctx->text_cache_cap);  // is reset, so stale hits
-        ctx->text_cache_count = 0;                        // would report wrong widths
+
+    // the text-measurement cache is keyed by hash(content, size), not by pointer into the arena
+    ctx->text_cache_frame++;
+    if (ctx->text_cache_cap > 0 && ctx->text_cache_count > 0 &&
+        ctx->text_cache_count * 4 > ctx->text_cache_cap * 3 &&
+        ctx->text_cache_frame - ctx->text_cache_swept >= 30) {
+        ctx->text_cache_swept = ctx->text_cache_frame;
+
+        uint32_t age_cutoff = ctx->text_cache_frame > 120
+                            ? ctx->text_cache_frame - 120
+                            : 1;                      // keep everything on the first sweeps
+
+        TextMeasureEntry* nc =
+            (TextMeasureEntry*)calloc((size_t)ctx->text_cache_cap, sizeof(TextMeasureEntry));
+        if (nc) {
+            uint32_t mask = (uint32_t)(ctx->text_cache_cap - 1);
+            int kept = 0;
+            for (int i = 0; i < ctx->text_cache_cap; i++) {
+                TextMeasureEntry* e = &ctx->text_cache[i];
+                if (e->hash == 0) continue;               // empty slot
+                if (e->last_frame < age_cutoff) continue; // stale: drop
+                uint32_t s = (uint32_t)e->hash & mask;
+                while (nc[s].hash != 0) s = (s + 1) & mask;
+                nc[s] = *e;                               // carries hash, width, last_frame
+                kept++;
+            }
+            free(ctx->text_cache);
+            ctx->text_cache = nc;
+            ctx->text_cache_count = kept;
+        }
     }
 }
 
@@ -236,7 +262,10 @@ float ui_text_measure_cached(UiContext* ctx, const char* s, int len, float size)
         for (;;) {
             TextMeasureEntry* e = &ctx->text_cache[slot];
             if (e->hash == 0) break;                  // empty: miss
-            if (e->hash == key) return e->width;      // hit
+            if (e->hash == key) {                     // hit
+                e->last_frame = ctx->text_cache_frame;  // mark as live for the age sweep
+                return e->width;
+            }
             slot = (slot + 1) & mask;
         }
     }
@@ -265,8 +294,9 @@ float ui_text_measure_cached(UiContext* ctx, const char* s, int len, float size)
         uint32_t mask = (uint32_t)(ctx->text_cache_cap - 1);
         uint32_t slot = (uint32_t)key & mask;
         while (ctx->text_cache[slot].hash != 0) slot = (slot + 1) & mask;
-        ctx->text_cache[slot].hash  = key;
-        ctx->text_cache[slot].width = w;
+        ctx->text_cache[slot].hash       = key;
+        ctx->text_cache[slot].width      = w;
+        ctx->text_cache[slot].last_frame = ctx->text_cache_frame;  // fresh entry is live
         ctx->text_cache_count++;
     }
     return w;
