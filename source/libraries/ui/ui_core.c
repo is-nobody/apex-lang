@@ -568,14 +568,20 @@ void ui_damage_finalize(UiContext* ctx) {
             for (int j = 0; j < out; j++) {
                 DamageRect* o = &ctx->damage[j];
                 if (o->w <= 0) continue;                   // tombstone from an earlier merge
-                if (rects_overlap(o, &r)) {
-                    rect_union(o, o, &r);                  // o becomes the bounding box
-                    r = *o;                                // r absorbs it
-                    o->w = 0;                              // tombstone: compacted below
-                    progress   = true;
-                    merged_any = true;
-                    break;                                 // rescan from the top
-                }
+                if (!rects_overlap(o, &r)) continue;
+
+                DamageRect u;
+                rect_union(&u, o, &r);
+                long a_old = (long)o->w * o->h + (long)r.w * r.h;
+                long a_new = (long)u.w * u.h;
+                if (a_new > a_old * 4) continue;           // union balloons: leave both alone
+
+                *o = u;
+                r  = u;
+                o->w = 0;                                  // tombstone: compacted below
+                progress   = true;
+                merged_any = true;
+                break;                                     // rescan from the top
             }
         }
 

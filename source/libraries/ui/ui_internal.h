@@ -381,6 +381,9 @@ void ui_painter_init(uint32_t* pixels, int w, int h);
 // filled axis-aligned rectangle
 void ui_painter_fill_rect(int x, int y, int w, int h, uint32_t c);
 
+// full-surface clear to an opaque color, using non-temporal stores
+void ui_painter_clear(uint32_t c);
+
 // filled rounded rectangle
 void ui_painter_fill_round(int x, int y, int w, int h, int r, uint32_t c);
 

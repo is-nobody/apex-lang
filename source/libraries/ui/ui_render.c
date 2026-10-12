@@ -417,6 +417,53 @@ static inline void fill_row_simd(uint32_t* row, int n, uint32_t color) {
 }
 #endif
 
+// non-temporal variant, used only for full-window clears
+#ifdef UI_HAVE_AVX2
+static inline void fill_row_stream_simd(uint32_t* row, int n, uint32_t color) {
+    __m256i v = _mm256_set1_epi32((int)color);
+    int i = 0;
+    while (i < n && ((uintptr_t)(row + i) & 31)) row[i++] = color;   // align to 32B
+    for (; i + 8 <= n; i += 8) _mm256_stream_si256((__m256i*)(row + i), v);
+    for (; i < n; i++) row[i] = color;                              // scalar tail
+    // no sfence here: the caller emits one after the whole surface is written
+}
+#elif defined(UI_HAVE_SSE2)
+static inline void fill_row_stream_simd(uint32_t* row, int n, uint32_t color) {
+    __m128i v = _mm_set1_epi32((int)color);
+    int i = 0;
+    while (i < n && ((uintptr_t)(row + i) & 15)) row[i++] = color;   // align to 16B
+    for (; i + 4 <= n; i += 4) _mm_stream_si128((__m128i*)(row + i), v);
+    for (; i < n; i++) row[i] = color;
+    // no sfence here: the caller emits one after the whole surface is written
+}
+#elif defined(UI_HAVE_NEON)
+static inline void fill_row_stream_simd(uint32_t* row, int n, uint32_t color) {
+    // neon has no non-temporal stores
+    uint32x4_t v = vdupq_n_u32(color);
+    int i = 0;
+    for (; i + 4 <= n; i += 4) vst1q_u32(row + i, v);
+    for (; i < n; i++) row[i] = color;
+}
+#else
+static inline void fill_row_stream_simd(uint32_t* row, int n, uint32_t color) {
+    for (int i = 0; i < n; i++) row[i] = color;
+}
+#endif
+
+// clears the whole bound framebuffer to an opaque color using streaming stores
+void ui_painter_clear(uint32_t c) {
+    uint32_t sa = (c >> 24) & 0xFF;
+    if (sa != 255) return;                                          // opaque only
+    uint32_t color = 0xFF000000u | (c & 0x00FFFFFFu);
+    for (int y = 0; y < g_h; y++) {
+        uint32_t* row = g_pixels + (size_t)y * g_w;
+        fill_row_stream_simd(row, g_w, color);
+    }
+#if defined(UI_HAVE_AVX2) || defined(UI_HAVE_SSE2)
+    _mm_sfence();   // one barrier for the whole surface, not one per row
+#endif
+}
+
 // fills an axis-aligned rectangle with the given color
 void ui_painter_fill_rect(int x, int y, int w, int h, uint32_t c) {
     if (w <= 0 || h <= 0) return;                       // degenerate rectangle
@@ -1113,7 +1160,7 @@ void ui_render_titlebar(UiContext* ctx) {
 // clears the surface and paints the titlebar plus the whole widget tree
 void ui_render_frame(UiContext* ctx) {
     ui_painter_init(ctx->pixels, ctx->win_w, ctx->win_h);       // bind the painter to the surface
-    ui_painter_fill_rect(0, 0, ctx->win_w, ctx->win_h, UI_C_BG); // clear with the background color
+    ui_painter_clear(UI_C_BG);                                  // streaming full-surface clear
     ui_render_titlebar(ctx);                                    // custom chrome, if enabled
     if (ctx->root) {
         if (ctx->custom_chrome) {                               // keep the tree out of the titlebar
@@ -1138,7 +1185,12 @@ void ui_render_frame_damage(UiContext* ctx, const DamageRect* rects, int n) {
         const DamageRect* d = &rects[i];                        // current damage rect
         if (ctx->custom_chrome && d->y < UI_TITLEBAR_H) tb_damaged = true;
         ui_painter_push_clip(d->x, d->y, d->w, d->h);           // restrict writes to this rect
-        ui_painter_fill_rect(d->x, d->y, d->w, d->h, UI_C_BG);  // clear rect to background
+        if (d->x == 0 && d->y == 0 &&
+            d->w >= ctx->win_w && d->h >= ctx->win_h) {
+            ui_painter_clear(UI_C_BG);                          // full surface: streaming path
+        } else {
+            ui_painter_fill_rect(d->x, d->y, d->w, d->h, UI_C_BG);  // partial: regular blend
+        }
         if (ctx->root) {
             if (ctx->custom_chrome) {                           // keep the tree out of the titlebar
                 ui_painter_push_clip(0, UI_TITLEBAR_H,

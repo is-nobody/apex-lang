@@ -27,7 +27,6 @@ struct UiWindow {
     HDC       mem_dc;                  // memory dc for offscreen drawing
     HBITMAP   hbm;                     // dib section backing the memory dc
     void*     dib_bits;                // raw pixels of the dib section
-    uint32_t* pixels;                  // cpu-side framebuffer used by the painter
     int       w, h;                    // current framebuffer size
     int       pending_w;               // deferred resize width
     int       pending_h;               // deferred resize height
@@ -132,14 +131,10 @@ static void free_buffer_resources(UiWindow* w) {
     if (w->mem_dc) { DeleteDC(w->mem_dc);  w->mem_dc = NULL; }  // delete the memory dc
     if (w->hbm)    { DeleteObject(w->hbm); w->hbm    = NULL; }  // delete the dib section
     w->dib_bits = NULL;                                  // dangling bits pointer cleared
-    if (w->pixels) { free(w->pixels);      w->pixels = NULL; }  // free the cpu buffer
 }
 
 // allocates a memory dc and dib section sized to nw by nh
 static bool alloc_buffer_resources(UiWindow* w, int nw, int nh) {
-    uint32_t* new_pixels = (uint32_t*)calloc((size_t)nw * (size_t)nh, 4);  // cpu buffer
-    if (!new_pixels) return false;                       // allocation failed
-
     BITMAPINFO bmi;
     memset(&bmi, 0, sizeof(bmi));                        // zero the header
     bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
@@ -152,19 +147,18 @@ static bool alloc_buffer_resources(UiWindow* w, int nw, int nh) {
     HDC screen = GetDC(NULL);                            // reference dc for compatibility
     HDC new_dc = CreateCompatibleDC(screen);             // memory dc
     ReleaseDC(NULL, screen);
-    if (!new_dc) { free(new_pixels); return false; }     // dc creation failed
+    if (!new_dc) return false;                           // dc creation failed
 
     void* new_bits = NULL;                               // dib raw bits pointer
     HBITMAP new_hbm = CreateDIBSection(new_dc, &bmi, DIB_RGB_COLORS,
                                        &new_bits, NULL, 0);
     if (!new_hbm) {                                      // dib creation failed
         DeleteDC(new_dc);
-        free(new_pixels);
         return false;
     }
     SelectObject(new_dc, new_hbm);                       // select the dib into the dc
 
-    w->pixels   = new_pixels;                            // publish all four resources
+    // the dib bits are the one and only framebuffer on win32
     w->mem_dc   = new_dc;
     w->hbm      = new_hbm;
     w->dib_bits = new_bits;
@@ -182,21 +176,18 @@ static void apply_pending_resize(UiWindow* w) {
     w->pending_w = 0;                                    // consume the request
     w->pending_h = 0;
 
-    if (nw == w->w && nh == w->h && w->pixels) return;   // unchanged
+    if (nw == w->w && nh == w->h && w->dib_bits) return; // unchanged
 
-    uint32_t* old_pixels = w->pixels;                    // save old resources for rollback
-    HDC       old_dc     = w->mem_dc;
-    HBITMAP   old_hbm    = w->hbm;
-    void*     old_bits   = w->dib_bits;
-    int       old_w = w->w, old_h = w->h;
+    HDC     old_dc   = w->mem_dc;                        // save old resources for rollback
+    HBITMAP old_hbm  = w->hbm;
+    void*   old_bits = w->dib_bits;
+    int     old_w = w->w, old_h = w->h;
 
-    w->pixels   = NULL;                                  // clear so alloc starts fresh
-    w->mem_dc   = NULL;
+    w->mem_dc   = NULL;                                  // clear so alloc starts fresh
     w->hbm      = NULL;
     w->dib_bits = NULL;
 
     if (!alloc_buffer_resources(w, nw, nh)) {            // alloc failed: restore old state
-        w->pixels   = old_pixels;
         w->mem_dc   = old_dc;
         w->hbm      = old_hbm;
         w->dib_bits = old_bits;
@@ -205,9 +196,8 @@ static void apply_pending_resize(UiWindow* w) {
         return;
     }
 
-    if (old_dc)     DeleteDC(old_dc);                    // release the old resources
-    if (old_hbm)    DeleteObject(old_hbm);
-    if (old_pixels) free(old_pixels);
+    if (old_dc)  DeleteDC(old_dc);                       // release the old resources
+    if (old_hbm) DeleteObject(old_hbm);
 }
 
 // window procedure: translates native messages into pending ui events
@@ -614,7 +604,7 @@ void ui_window_set_paint_callback(UiWindow* w, UiPaintCallback cb, void* user) {
 // returns the current framebuffer, applying any deferred resize first
 uint32_t* ui_window_pixels(UiWindow* w) {
     apply_pending_resize(w);                             // catch up on deferred resizes
-    return w->pixels;
+    return (uint32_t*)w->dib_bits;                       // painter writes straight into the dib
 }
 
 // current window width in pixels
@@ -642,7 +632,7 @@ void ui_window_resize(UiWindow* w, int nw, int nh) {
 void ui_window_present_rects(UiWindow* w, const int* quads, int n) {
     if (!w || n <= 0) return;
     apply_pending_resize(w);                             // catch up on any resize not yet applied
-    if (!w->mem_dc || !w->dib_bits || !w->pixels) return;  // nothing to present
+    if (!w->mem_dc || !w->dib_bits) return;              // nothing to present
 
     RECT r;
     if (!GetClientRect(w->hwnd, &r)) return;             // client rect failed
@@ -665,12 +655,7 @@ void ui_window_present_rects(UiWindow* w, const int* quads, int n) {
         if (y + rh > w->h) rh = w->h - y;
         if (rw <= 0 || rh <= 0) continue;
 
-        // copy only that rect from the cpu buffer into the dib
-        for (int yy = 0; yy < rh; yy++) {
-            memcpy((uint8_t*)w->dib_bits + ((size_t)(y+yy) * w->w + x) * 4,
-                   (uint8_t*)w->pixels   + ((size_t)(y+yy) * w->w + x) * 4,
-                   (size_t)rw * 4);
-        }
+        // the painter already wrote straight into the dib bits
         BitBlt(hdc, x, y, rw, rh, w->mem_dc, x, y, SRCCOPY);
     }
 

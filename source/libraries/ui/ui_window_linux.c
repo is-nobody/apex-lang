@@ -14,6 +14,7 @@
 #include <sys/shm.h>
 #include <sys/ipc.h>
 #include <sys/select.h>
+#include <sys/mman.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -87,6 +88,33 @@ static bool pop_event(UiWindow* w, XEvent* out) {
     return false;                                        // nothing left
 }
 
+// allocates the fallback framebuffer on 2 mb-aligned pages
+static uint32_t* alloc_framebuffer(int w, int h) {
+    size_t need = (size_t)w * (size_t)h * 4;
+    size_t round = (need + (2u << 20) - 1) & ~((size_t)(2u << 20) - 1);
+    void* p = mmap(NULL, round, PROT_READ | PROT_WRITE,
+                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    if (p == MAP_FAILED) {
+        // fall back to plain calloc if mmap fails
+        return (uint32_t*)calloc((size_t)w * (size_t)h, 4);
+    }
+#ifdef MADV_HUGEPAGE
+    madvise(p, round, MADV_HUGEPAGE);        // best-effort; ignored if unsupported
+#endif
+    return (uint32_t*)p;
+}
+
+// releases a framebuffer allocated by alloc_framebuffer
+static void free_framebuffer(uint32_t* p, int w, int h) {
+    if (!p) return;
+    size_t need = (size_t)w * (size_t)h * 4;
+    size_t round = (need + (2u << 20) - 1) & ~((size_t)(2u << 20) - 1);
+    // try munmap first; if the pointer is not mmap-backed it returns EINVAL
+    if (munmap(p, round) != 0) {
+        free(p);                             // must have come from calloc
+    }
+}
+
 // creates and maps a new x11 window, preferring shared memory backing
 UiWindow* ui_window_create(int w, int h, const char* title, bool decorated) {
     UiWindow* win = (UiWindow*)calloc(1, sizeof(UiWindow));  // zeroed window struct
@@ -96,7 +124,7 @@ UiWindow* ui_window_create(int w, int h, const char* title, bool decorated) {
     win->decorated = decorated;                          // remember chrome preference
     win->w = w; win->h = h;
     win->shm.shmid = -1;                                 // sentinel: no live shm segment yet
-    win->pixels = (uint32_t*)calloc((size_t)w*h, 4);     // cpu-side fallback framebuffer
+    win->pixels = NULL;                                  // allocated below only if shm is unavailable
 
     XSetWindowAttributes a = {0};                        // window attribute set
     a.background_pixel = 0xFF1E1E1Eu;                    // match the ui theme background
@@ -176,6 +204,7 @@ UiWindow* ui_window_create(int w, int h, const char* title, bool decorated) {
         }
     }
     if (!win->shm_ok) {                                  // fall back to a plain ximage
+        win->pixels = alloc_framebuffer(w, h);           // 2 MB-aligned, THP-backed
         win->img = XCreateImage(win->dpy,
             DefaultVisual(win->dpy, win->screen),
             (unsigned)DefaultDepth(win->dpy, win->screen),
@@ -210,7 +239,7 @@ void ui_window_destroy(UiWindow* w) {
     if (w->gc)  XFreeGC(w->dpy, w->gc);                  // free the graphics context
     if (w->win) XDestroyWindow(w->dpy, w->win);          // destroy the x window
     if (w->dpy) XCloseDisplay(w->dpy);                   // close the display connection
-    free(w->pixels);                                     // free the cpu-side framebuffer
+    free_framebuffer(w->pixels, w->w, w->h);             // free the mmap'd cpu framebuffer
     free(w->clipboard_text);                             // free our clipboard copy
     free(w->saved);                                      // free the saved-event queue
     free(w);                                             // free the window struct
@@ -240,9 +269,10 @@ int  ui_window_height(UiWindow* w) { return w->h; }
 void ui_window_resize(UiWindow* w, int nw, int nh) {
     if (nw <= 0 || nh <= 0) return;                      // ignore degenerate sizes
     destroy_image(w);                                    // drop the old ximage and shm
+    int old_w = w->w, old_h = w->h;                      // remember for the matching free
     w->w = nw; w->h = nh;                                // record the new size
-    free(w->pixels);                                     // discard the old cpu buffer
-    w->pixels = (uint32_t*)calloc((size_t)nw*nh, 4);     // allocate the new cpu buffer
+    free_framebuffer(w->pixels, old_w, old_h);           // release the old mmap'd buffer
+    w->pixels = NULL;                                    // reallocated below only if shm fails
     if (XShmQueryExtension(w->dpy)) {                    // retry shm at the new size
         w->shm.shmid = shmget(IPC_PRIVATE, (size_t)nw*nh*4, IPC_CREAT|0600);
         if (w->shm.shmid >= 0) {
@@ -265,6 +295,7 @@ void ui_window_resize(UiWindow* w, int nw, int nh) {
         }
     }
     if (!w->shm_ok) {                                    // fall back to a plain ximage
+        w->pixels = alloc_framebuffer(nw, nh);           // 2 MB-aligned, THP-backed
         w->img = XCreateImage(w->dpy,
             DefaultVisual(w->dpy, w->screen),
             (unsigned)DefaultDepth(w->dpy, w->screen),
