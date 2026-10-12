@@ -58,7 +58,7 @@ struct Widget {
     char*      key_str;                  // user-supplied key string, or null
     Str     text;                        // label/content text
 
-    // cached wrapped-line breakdown for wk_text / wk_heading, filled by wrap_measure during layout
+    // cached wrapped-line breakdown for wk_text / wk_heading
     int*    line_starts;                 // byte offset of the first byte on each line
     int*    line_ends;                   // byte offset just past the last byte on each line
     int     line_count;                  // number of cached lines
@@ -176,6 +176,16 @@ typedef struct TextMeasureEntry {
     uint32_t last_frame;  // frame counter when this entry was last touched
 } TextMeasureEntry;
 
+// one memoized wrapped-text breakdown
+typedef struct {
+    uint64_t key;         // hash of (size, max_w, len, text bytes)
+    uint32_t last_frame;  // text_cache_frame value when the entry was last touched
+    int      lines;       // number of wrapped lines
+    float    max_width;   // widest wrapped line in pixels
+    int*     starts;      // malloc'd [lines], byte offset of the first byte on each line
+    int*     ends;        // malloc'd [lines], byte offset just past the last byte on each line
+} WrapCacheEntry;
+
 // non-owning view into a string value; ptr is valid while the owning table holds the entry
 typedef struct { const char* ptr; int len; } StrView;
 
@@ -265,6 +275,11 @@ typedef struct UiContext {
     int               text_cache_cap;     // power of two, 0 until first use
     uint32_t          text_cache_frame;   // monotonic frame counter, bumped by ui_widgets_reset
     uint32_t          text_cache_swept;   // frame when the last age sweep ran
+
+    // persistent wrap cache: (size, wrap width, text) -> line ranges
+    WrapCacheEntry*   wrap_cache;         // linear array of live entries
+    int               wrap_cache_count;   // live entries
+    int               wrap_cache_cap;     // allocated capacity of the array
 } UiContext;                    // per-vm ui session state
 
 // lazily create the ui context on the vm
@@ -335,6 +350,12 @@ void ui_damage_swap(UiContext* ctx);
 
 // release every damage-tracking allocation owned by the context
 void ui_damage_free(UiContext* ctx);
+
+// drop wrap cache entries whose last_frame is older than the cutoff
+void ui_wrap_cache_sweep(UiContext* ctx, uint32_t cutoff);
+
+// release every wrap cache entry owned by the context
+void ui_wrap_cache_free(UiContext* ctx);
 
 // damage-aware render
 void ui_render_frame_damage(UiContext* ctx, const DamageRect* rects, int n);

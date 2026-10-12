@@ -89,6 +89,15 @@ void ui_widgets_reset(UiContext* ctx) {
 
     // the text-measurement cache is keyed by hash(content, size), not by pointer into the arena
     ctx->text_cache_frame++;
+
+    // drop wrap cache entries that no widget has asked for in the last 120 rebuilds
+    {
+        uint32_t age_cutoff = ctx->text_cache_frame > 120
+                            ? ctx->text_cache_frame - 120
+                            : 1;
+        ui_wrap_cache_sweep(ctx, age_cutoff);
+    }
+
     if (ctx->text_cache_cap > 0 && ctx->text_cache_count > 0 &&
         ctx->text_cache_count * 4 > ctx->text_cache_cap * 3 &&
         ctx->text_cache_frame - ctx->text_cache_swept >= 30) {
@@ -999,6 +1008,7 @@ void ui_context_destroy(UiContext* ctx) {
     free(ctx->state.entries);                                     // free the persistent state table
     free(ctx->text_cache);                                        // free the text measurement cache
     free(ctx->state.index);                                       // free the state lookup index
+    ui_wrap_cache_free(ctx);                                      // free the wrap cache and its line arrays
     for (int i = 0; i < ctx->queue.count; i++) free(ctx->queue.events[i].str_value);  // release queued event strings
     free(ctx->queue.events);                                      // free the event queue array
     if (ctx->font)   ui_font_free(ctx->font);                     // release the font

@@ -40,10 +40,93 @@ static void push_line(UiContext* ctx, Widget* w, int start, int end) {
     w->line_count++;
 }
 
-// measures a string, wrapping on spaces to fit max_w, and stores the resulting
+// fnv-1a over a byte range
+static uint64_t wrap_hash64(uint64_t h, const void* p, size_t n) {
+    const uint8_t* b = (const uint8_t*)p;
+    for (size_t i = 0; i < n; i++) {
+        h ^= (uint64_t)b[i];
+        h *= 0x100000001B3ULL;
+    }
+    return h;
+}
+
+// key for a wrapped-text cache entry
+static uint64_t wrap_cache_key(const char* s, int len, float size, float max_w) {
+    uint64_t h = 0xCBF29CE484222325ULL;
+    h = wrap_hash64(h, &size,  sizeof(size));
+    h = wrap_hash64(h, &max_w, sizeof(max_w));
+    h = wrap_hash64(h, &len,   sizeof(len));
+    if (len > 0) h = wrap_hash64(h, s, (size_t)len);
+    return h ? h : 1;
+}
+
+// linear scan; the cache holds on the order of the number of distinct triples in the tree
+static WrapCacheEntry* wrap_cache_lookup(UiContext* ctx, uint64_t key) {
+    for (int i = 0; i < ctx->wrap_cache_count; i++)
+        if (ctx->wrap_cache[i].key == key)
+            return &ctx->wrap_cache[i];
+    return NULL;
+}
+
+// copies starts/ends into malloc'd storage and appends to the cache
+static WrapCacheEntry* wrap_cache_insert(UiContext* ctx, uint64_t key,
+                                         const int* starts, const int* ends,
+                                         int lines, float max_width) {
+    if (lines <= 0) return NULL;
+    if (ctx->wrap_cache_count >= ctx->wrap_cache_cap) {
+        int ncap = ctx->wrap_cache_cap ? ctx->wrap_cache_cap * 2 : 64;
+        WrapCacheEntry* nc = (WrapCacheEntry*)realloc(ctx->wrap_cache,
+                                sizeof(WrapCacheEntry) * (size_t)ncap);
+        if (!nc) return NULL;
+        ctx->wrap_cache     = nc;
+        ctx->wrap_cache_cap = ncap;
+    }
+    int* ns = (int*)malloc(sizeof(int) * (size_t)lines);
+    int* ne = (int*)malloc(sizeof(int) * (size_t)lines);
+    if (!ns || !ne) { free(ns); free(ne); return NULL; }
+    memcpy(ns, starts, sizeof(int) * (size_t)lines);
+    memcpy(ne, ends,   sizeof(int) * (size_t)lines);
+
+    WrapCacheEntry* e = &ctx->wrap_cache[ctx->wrap_cache_count++];
+    e->key        = key;
+    e->last_frame = ctx->text_cache_frame;
+    e->lines      = lines;
+    e->max_width  = max_width;
+    e->starts     = ns;
+    e->ends       = ne;
+    return e;
+}
+
+// drops entries whose last_frame is older than the cutoff
+void ui_wrap_cache_sweep(UiContext* ctx, uint32_t cutoff) {
+    int out = 0;
+    for (int i = 0; i < ctx->wrap_cache_count; i++) {
+        WrapCacheEntry* e = &ctx->wrap_cache[i];
+        if (e->last_frame >= cutoff) {
+            ctx->wrap_cache[out++] = *e;
+        } else {
+            free(e->starts);
+            free(e->ends);
+        }
+    }
+    ctx->wrap_cache_count = out;
+}
+
+// frees every wrap cache entry
+void ui_wrap_cache_free(UiContext* ctx) {
+    for (int i = 0; i < ctx->wrap_cache_count; i++) {
+        free(ctx->wrap_cache[i].starts);
+        free(ctx->wrap_cache[i].ends);
+    }
+    free(ctx->wrap_cache);
+    ctx->wrap_cache       = NULL;
+    ctx->wrap_cache_count = 0;
+    ctx->wrap_cache_cap   = 0;
+}
+
+// measures a string, wrapping on spaces to fit max_w, and stores the resulting line ranges on the widget
 static float wrap_measure(UiContext* ctx, Widget* w, const char* s, int len,
                           float size, float max_w, int* out_lines) {
-    // wrap_measure is called once per text widget per layout
     w->line_count = 0;
 
     if (!ctx->font) {                            // no font: rough estimate, single line
@@ -57,6 +140,21 @@ static float wrap_measure(UiContext* ctx, Widget* w, const char* s, int len,
         if (out_lines) *out_lines = 1;
         return mw;
     }
+
+    // fast path: same text at the same size and the same wrap width as a previous layout
+    uint64_t key = wrap_cache_key(s, len, size, max_w);
+    WrapCacheEntry* ce = wrap_cache_lookup(ctx, key);
+    if (ce) {
+        ce->last_frame = ctx->text_cache_frame;  // mark as live for the age sweep
+        w->line_starts = ce->starts;             // widgets only read these
+        w->line_ends   = ce->ends;
+        w->line_count  = ce->lines;
+        w->line_cap    = ce->lines;
+        if (out_lines) *out_lines = ce->lines;
+        return ce->max_width;
+    }
+
+    // miss: walk the text, measure each word, push line ranges into the arena
     float maxw = 0, cur = 0;                     // widest line so far, current line width
     int lines = 1;                               // line count, at least one
     int i = 0;
@@ -84,6 +182,12 @@ static float wrap_measure(UiContext* ctx, Widget* w, const char* s, int len,
     push_line(ctx, w, line_start, len);          // final line runs to the end
     if (cur > maxw) maxw = cur;                  // record the final line width
     if (out_lines) *out_lines = lines;
+
+    // publish the result so future layouts and other widgets with the same
+    // text at the same size and width hit the cache instead of re-wrapping
+    wrap_cache_insert(ctx, key, w->line_starts, w->line_ends,
+                      w->line_count, maxw);
+
     return maxw;                                 // widest line in the wrapped block
 }
 
