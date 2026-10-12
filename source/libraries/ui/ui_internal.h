@@ -58,6 +58,10 @@ struct Widget {
     char*      key_str;                  // user-supplied key string, or null
     Str     text;                        // label/content text
 
+    // visual-hash memo. the hash is a pure function of the widget's fields
+    uint64_t visual_hash_cache;          // cached full digest, 0 = unset
+    uint64_t visual_hash_fp;             // fingerprint the cache was computed for
+
     // cached wrapped-line breakdown for wk_text / wk_heading
     int*    line_starts;                 // byte offset of the first byte on each line
     int*    line_ends;                   // byte offset just past the last byte on each line
@@ -327,7 +331,7 @@ WidgetState* ui_state_get(UiContext* ctx, uint64_t id);
 void ui_event_push(UiContext* ctx, const UiEvent* ev);
 
 // digest of every visual field of a widget, used for damage detection
-uint64_t ui_visual_hash(const Widget* w);
+uint64_t ui_visual_hash(Widget* w);
 
 // recursively capture the laid-out widget tree into the current snapshot
 void ui_snapshot_capture(UiContext* ctx, Widget* root);

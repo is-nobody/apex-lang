@@ -355,7 +355,28 @@ float ui_text_measure_cached(UiContext* ctx, const char* s, int len, float size)
 }
 
 // digest of every field that affects how a widget renders
-uint64_t ui_visual_hash(const Widget* w) {
+uint64_t ui_visual_hash(Widget* w) {
+    uint64_t nv_bits, sy_bits, ch_bits;
+    memcpy(&nv_bits, &w->num_value, sizeof(nv_bits));   // bit-exact, no aliasing UB
+    memcpy(&sy_bits, &w->scroll_y,  sizeof(sy_bits));
+    memcpy(&ch_bits, &w->content_h, sizeof(ch_bits));
+
+    // fingerprint covers every field below that can change between rebuilds
+    uint64_t fp = 0xCBF29CE484222325ULL;
+    fp ^= (uint64_t)(uint32_t)w->hovered    <<  0;
+    fp ^= (uint64_t)(uint32_t)w->pressed    <<  1;
+    fp ^= (uint64_t)(uint32_t)w->focused    <<  2;
+    fp ^= (uint64_t)(uint32_t)w->cursor     <<  3;
+    fp ^= (uint64_t)(uint32_t)w->sel_anchor << 23;
+    fp ^= nv_bits;
+    fp ^= sy_bits;
+    fp ^= ch_bits;
+    fp ^= (uint64_t)(uintptr_t)w->input_value.ptr;
+    fp ^= (uint64_t)(uint32_t)w->input_value.len << 43;
+
+    if (fp == w->visual_hash_fp && w->visual_hash_cache != 0)
+        return w->visual_hash_cache;                                   // state unchanged
+
     uint64_t h = 0xCBF29CE484222325ULL;                                // fnv-1a offset basis
     h = hash_bytes64(h, &w->kind,      sizeof(w->kind));               // widget kind
     h = hash_bytes64(h, &w->visible,   sizeof(w->visible));            // visibility flag
@@ -375,6 +396,8 @@ uint64_t ui_visual_hash(const Widget* w) {
     h = hash_str_sampled(h, w->input_value.ptr, w->input_value.len);   // input text
     h = hash_str_sampled(h, w->group.ptr,       w->group.len);         // radio group name
 
+    w->visual_hash_fp    = fp;                                         // publish the memo
+    w->visual_hash_cache = h;
     return h;                                                          // final widget digest
 }
 
