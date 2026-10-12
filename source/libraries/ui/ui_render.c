@@ -88,12 +88,6 @@ void ui_painter_reset_clip(void) {
     ui_text_set_clip(0, 0, g_w, g_h);
 }
 
-// returns true when (x, y) lies inside the active scissor rect
-static inline bool in_clip(int x, int y) {
-    return x >= g_clip_x0 && x < g_clip_x1 &&
-           y >= g_clip_y0 && y < g_clip_y1;
-}
-
 // alpha-blends a single pixel into the framebuffer, honoring the active clip
 static inline void blend_px(int x, int y, uint32_t c) {
     if ((unsigned)x >= (unsigned)g_clip_x1 || x < g_clip_x0) return;

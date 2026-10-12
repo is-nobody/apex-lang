@@ -158,7 +158,6 @@ typedef struct {
 
 // uniform grid over the laid-out widget tree, rebuilt after every ui_layout()
 typedef struct {
-    int       cell_size;      // pixels per cell
     int       cols, rows;     // grid dimensions in cells
     int       win_w, win_h;   // window size the grid was built for
     int*      cell_start;     // [cols*rows + 1] prefix-sum offsets into cell_items
@@ -184,6 +183,14 @@ typedef enum {
     UK_COUNT
 } UiKeyId;
 
+// one block of the per-frame string arena
+typedef struct UiArenaBlock {
+    struct UiArenaBlock* next;   // older block, or null
+    int  used;                   // bytes consumed in this block
+    int  cap;                    // usable capacity of data[]
+    char data[];                 // flexible array: payload follows
+} UiArenaBlock;
+
 typedef struct UiContext {
     VM*       vm;               // owner vm, used for interning and refcounts
     UiWindow* window;           // native window handle, null until init
@@ -198,9 +205,7 @@ typedef struct UiContext {
     int     pool_cap;           // allocated capacity of the widget pool
     int     pool_used;          // number of widgets allocated this frame
 
-    char*   arena;              // per-frame bump arena for widget strings
-    int     arena_used;         // bytes consumed in the arena
-    int     arena_cap;          // allocated capacity of the arena
+    UiArenaBlock* arena;        // current (newest) arena block, null when empty
 
     Value last_tree;            // last widget descriptor passed to render()
     bool  has_tree;             // true when last_tree holds a live reference

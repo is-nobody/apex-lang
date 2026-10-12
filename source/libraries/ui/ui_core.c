@@ -80,7 +80,15 @@ void ui_widgets_reset(UiContext* ctx) {
     }
     ctx->pool_used = 0;                                   // reset pool cursor
     ctx->root = NULL;                                     // drop tree root
-    ctx->arena_used = 0;                                  // bulk-free text/group/key_str
+
+    // bulk-free text/group/key_str by releasing every arena block
+    UiArenaBlock* ab = ctx->arena;
+    while (ab) {
+        UiArenaBlock* next = ab->next;
+        free(ab);
+        ab = next;
+    }
+    ctx->arena = NULL;
 
     // the text-measurement cache is keyed by hash(content, size), not by pointer into the arena
     ctx->text_cache_frame++;
@@ -763,20 +771,29 @@ static Str str_dup(const char* s, int n) {
     return r;                                            // return by value
 }
 
+// default payload capacity of one arena block
+#define UI_ARENA_BLOCK_SIZE (64 * 1024)
+
 // copies n bytes of a c string into the context's per-frame arena
 static Str arena_dup(UiContext* ctx, const char* s, int n) {
-    if (ctx->arena_used + n + 1 > ctx->arena_cap) {      // arena full: grow
-        int cap = ctx->arena_cap ? ctx->arena_cap : 64 * 1024;
-        while (ctx->arena_used + n + 1 > cap) cap *= 2;
-        ctx->arena = (char*)realloc(ctx->arena, (size_t)cap);
-        ctx->arena_cap = cap;
+    int need = n + 1;                                    // payload plus null terminator
+    UiArenaBlock* b = ctx->arena;                        // current (newest) block
+    if (!b || b->used + need > b->cap) {                 // no block or no room: allocate one
+        int cap = UI_ARENA_BLOCK_SIZE;
+        if (need > cap) cap = need;                      // oversized string: one-off block
+        UiArenaBlock* nb = (UiArenaBlock*)malloc(sizeof(UiArenaBlock) + (size_t)cap);
+        nb->next = ctx->arena;                           // link older blocks behind
+        nb->used = 0;
+        nb->cap  = cap;
+        ctx->arena = nb;                                 // publish the new head
+        b = nb;
     }
     Str r;
-    r.ptr = ctx->arena + ctx->arena_used;                // bump the cursor
+    r.ptr = b->data + b->used;                           // bump the cursor inside this block
     memcpy(r.ptr, s, n);                                 // copy the payload
     r.ptr[n] = 0;                                        // null terminate
     r.len = n;                                           // record the length
-    ctx->arena_used += n + 1;                            // advance the cursor
+    b->used += need;                                     // advance the block cursor
     return r;                                            // return by value
 }
 
@@ -925,7 +942,6 @@ void ui_context_destroy(UiContext* ctx) {
     }
 
     free(ctx->pool);                                              // free the widget pool array
-    free(ctx->arena);                                             // free the per-frame string arena
     free(ctx->state.entries);                                     // free the persistent state table
     free(ctx->text_cache);                                        // free the text measurement cache
     free(ctx->state.index);                                       // free the state lookup index
@@ -1108,9 +1124,7 @@ static Widget* hit_test(UiContext* ctx, int x, int y) {
 
     if (x < 0 || y < 0 || x >= g->win_w || y >= g->win_h) return NULL;
 
-    int c = x / g->cell_size > 0 ? x / (g->cell_size ? g->cell_size : HIT_CELL_SIZE) : 0;
-    // note: cell_size is constant HIT_CELL_SIZE, no need to store per-grid
-    c = x / HIT_CELL_SIZE;
+    int c = x / HIT_CELL_SIZE;
     int r = y / HIT_CELL_SIZE;
     if (c < 0 || c >= g->cols || r < 0 || r >= g->rows) return NULL;
 
