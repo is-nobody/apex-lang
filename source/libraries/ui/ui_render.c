@@ -674,6 +674,38 @@ void ui_painter_stroke_round(int x, int y, int w, int h, int r, uint32_t c) {
     stroke_corners_atlas(x, y, w, h, r, c);                         // all four rounded corners
 }
 
+// 9x6 checkbox checkmark: symmetric V, 2px thick, no antialiasing
+static const uint8_t k_checkmark_9x6[6][9] = {
+    {255,   0,   0,   0,   0,   0,   0,   0, 255},
+    {255, 255,   0,   0,   0,   0,   0, 255, 255},
+    {  0, 255, 255,   0,   0,   0, 255, 255,   0},
+    {  0,   0, 255, 255,   0, 255, 255,   0,   0},
+    {  0,   0,   0, 255, 255, 255,   0,   0,   0},
+    {  0,   0,   0,   0, 255,   0,   0,   0,   0},
+};
+
+// draws the 9x6 checkmark at (ox, oy)
+static void blit_checkmark(int ox, int oy, uint32_t c) {
+    int x0 = 0, y0 = 0, x1 = 9, y1 = 6;
+    if (ox + x0 < g_clip_x0) x0 = g_clip_x0 - ox;
+    if (oy + y0 < g_clip_y0) y0 = g_clip_y0 - oy;
+    if (ox + x1 > g_clip_x1) x1 = g_clip_x1 - ox;
+    if (oy + y1 > g_clip_y1) y1 = g_clip_y1 - oy;
+    if (x0 >= x1 || y0 >= y1) return;                    // fully clipped
+
+    uint32_t ca = (c >> 24) & 0xFF;
+    if (!ca) return;                                     // fully transparent color
+    uint32_t sr = (c >> 16) & 0xFF;
+    uint32_t sg = (c >>  8) & 0xFF;
+    uint32_t sb =  c        & 0xFF;
+
+    for (int yy = y0; yy < y1; yy++) {
+        const uint8_t* run = k_checkmark_9x6[yy] + x0;
+        uint32_t* dst = g_pixels + (size_t)(oy + yy) * g_w + (ox + x0);
+        blend_cov_row(dst, run, x1 - x0, ca, sr, sg, sb);
+    }
+}
+
 // damage-aware
 static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d);
 
@@ -790,20 +822,9 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                     ui_painter_fill_round(bx, by, sz, sz, UI_RADIUS_SM, fill);
                     ui_painter_stroke_round(bx, by, sz, sz, UI_RADIUS_SM, UI_C_BORDER_S);
 
-                    int cx = bx + sz/2 - 1, cy = by + sz/2 - 2;  // checkmark origin
-
-                    for (int i = 0; i <= 4; i++) {          // downstroke of the checkmark
-                        int px = cx - 4 + i;
-                        int py = cy + i;
-                        blend_px(px, py,     UI_C_ACCENT_T);
-                        blend_px(px, py + 1, UI_C_ACCENT_T);  // 2px thick for legibility
-                    }
-                    for (int i = 0; i <= 4; i++) {          // upstroke of the checkmark
-                        int px = cx + i;
-                        int py = cy + 4 - i;
-                        blend_px(px, py,     UI_C_ACCENT_T);
-                        blend_px(px, py + 1, UI_C_ACCENT_T);
-                    }
+                    // blit a precomputed 9x6 coverage blob
+                    int cx = bx + sz/2 - 1, cy = by + sz/2 - 2;
+                    blit_checkmark(cx - 4, cy, UI_C_ACCENT_T);
                 } else {                                    // unchecked: empty box
                     uint32_t fill = w->hovered ? UI_C_PANEL_ALT : UI_C_INPUT_BG;
                     ui_painter_fill_round(bx, by, sz, sz, UI_RADIUS_SM, fill);
