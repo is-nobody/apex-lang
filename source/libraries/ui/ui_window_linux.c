@@ -272,39 +272,129 @@ void ui_window_resize(UiWindow* w, int nw, int nh) {
     }
 }
 
-// blits only the given rects; each quad is { x, y, w, h }
+// max damage rects we will fold into a single xsetcliprectangles call
+#define UI_XCLIP_MAX_RECTS 64
+
+// blits only the given rects
 void ui_window_present_rects(UiWindow* w, const int* quads, int n) {
     if (!w || !w->img || n <= 0) return;
 
-    if (w->shm_ok) {
-        for (int i = 0; i < n; i++) {
-            const int* q = quads + i*4;
-            int x = q[0], y = q[1], rw = q[2], rh = q[3];
-            if (rw <= 0 || rh <= 0) continue;
-            if (x < 0) { rw += x; x = 0; }                    // clip to the client rect
-            if (y < 0) { rh += y; y = 0; }
-            if (x + rw > w->w) rw = w->w - x;
-            if (y + rh > w->h) rh = w->h - y;
-            if (rw <= 0 || rh <= 0) continue;
+    // fast path: single rect, no clip
+    if (n == 1) {
+        const int* q = quads;
+        int x = q[0], y = q[1], rw = q[2], rh = q[3];
+        if (rw <= 0 || rh <= 0) return;
+        if (x < 0) { rw += x; x = 0; }
+        if (y < 0) { rh += y; y = 0; }
+        if (x + rw > w->w) rw = w->w - x;
+        if (y + rh > w->h) rh = w->h - y;
+        if (rw <= 0 || rh <= 0) return;
+
+        if (w->shm_ok) {
             XShmPutImage(w->dpy, w->win, w->gc, w->img, x, y, x, y,
                          (unsigned)rw, (unsigned)rh, False);
-        }
-        XSync(w->dpy, False);                                 // one sync for the whole batch
-    } else {
-        for (int i = 0; i < n; i++) {
-            const int* q = quads + i*4;
-            int x = q[0], y = q[1], rw = q[2], rh = q[3];
-            if (rw <= 0 || rh <= 0) continue;
-            if (x < 0) { rw += x; x = 0; }
-            if (y < 0) { rh += y; y = 0; }
-            if (x + rw > w->w) rw = w->w - x;
-            if (y + rh > w->h) rh = w->h - y;
-            if (rw <= 0 || rh <= 0) continue;
+            XSync(w->dpy, False);
+        } else {
             XPutImage(w->dpy, w->win, w->gc, w->img, x, y, x, y,
                       (unsigned)rw, (unsigned)rh);
+            XFlush(w->dpy);
         }
+        return;
+    }
+
+    // count surviving rects and compute the bounding box in a single pass
+    int n_live = 0;
+    int bx0 = 0, by0 = 0, bx1 = 0, by1 = 0;
+    for (int i = 0; i < n; i++) {
+        const int* q = quads + i*4;
+        int x = q[0], y = q[1], rw = q[2], rh = q[3];
+        if (rw <= 0 || rh <= 0) continue;
+        if (x < 0) { rw += x; x = 0; }
+        if (y < 0) { rh += y; y = 0; }
+        if (x + rw > w->w) rw = w->w - x;
+        if (y + rh > w->h) rh = w->h - y;
+        if (rw <= 0 || rh <= 0) continue;
+
+        int x1 = x + rw, y1 = y + rh;
+        if (n_live == 0) { bx0 = x; by0 = y; bx1 = x1; by1 = y1; }
+        else {
+            if (x  < bx0) bx0 = x;
+            if (y  < by0) by0 = y;
+            if (x1 > bx1) bx1 = x1;
+            if (y1 > by1) by1 = y1;
+        }
+        n_live++;
+    }
+    if (n_live == 0) return;                                  // everything clipped away
+
+    // small counts or oversized lists: per-rect loop
+    if (n < 4 || n_live > UI_XCLIP_MAX_RECTS) {
+        if (w->shm_ok) {
+            for (int i = 0; i < n; i++) {
+                const int* q = quads + i*4;
+                int x = q[0], y = q[1], rw = q[2], rh = q[3];
+                if (rw <= 0 || rh <= 0) continue;
+                if (x < 0) { rw += x; x = 0; }
+                if (y < 0) { rh += y; y = 0; }
+                if (x + rw > w->w) rw = w->w - x;
+                if (y + rh > w->h) rh = w->h - y;
+                if (rw <= 0 || rh <= 0) continue;
+                XShmPutImage(w->dpy, w->win, w->gc, w->img, x, y, x, y,
+                             (unsigned)rw, (unsigned)rh, False);
+            }
+            XSync(w->dpy, False);
+        } else {
+            for (int i = 0; i < n; i++) {
+                const int* q = quads + i*4;
+                int x = q[0], y = q[1], rw = q[2], rh = q[3];
+                if (rw <= 0 || rh <= 0) continue;
+                if (x < 0) { rw += x; x = 0; }
+                if (y < 0) { rh += y; y = 0; }
+                if (x + rw > w->w) rw = w->w - x;
+                if (y + rh > w->h) rh = w->h - y;
+                if (rw <= 0 || rh <= 0) continue;
+                XPutImage(w->dpy, w->win, w->gc, w->img, x, y, x, y,
+                          (unsigned)rw, (unsigned)rh);
+            }
+            XFlush(w->dpy);
+        }
+        return;
+    }
+
+    // clip path: fill the rect array with the same surviving rects
+    XRectangle rects[UI_XCLIP_MAX_RECTS];
+    int idx = 0;
+    for (int i = 0; i < n; i++) {
+        const int* q = quads + i*4;
+        int x = q[0], y = q[1], rw = q[2], rh = q[3];
+        if (rw <= 0 || rh <= 0) continue;
+        if (x < 0) { rw += x; x = 0; }
+        if (y < 0) { rh += y; y = 0; }
+        if (x + rw > w->w) rw = w->w - x;
+        if (y + rh > w->h) rh = w->h - y;
+        if (rw <= 0 || rh <= 0) continue;
+        rects[idx].x      = (short)x;
+        rects[idx].y      = (short)y;
+        rects[idx].width  = (unsigned short)rw;
+        rects[idx].height = (unsigned short)rh;
+        idx++;
+    }
+
+    XSetClipRectangles(w->dpy, w->gc, 0, 0, rects, n_live, Unsorted);
+
+    int bw = bx1 - bx0, bh = by1 - by0;
+    if (w->shm_ok) {
+        XShmPutImage(w->dpy, w->win, w->gc, w->img, bx0, by0, bx0, by0,
+                     (unsigned)bw, (unsigned)bh, False);
+        XSync(w->dpy, False);
+    } else {
+        XPutImage(w->dpy, w->win, w->gc, w->img, bx0, by0, bx0, by0,
+                  (unsigned)bw, (unsigned)bh);
         XFlush(w->dpy);
     }
+
+    // restore the default "no clip" gc state
+    XSetClipMask(w->dpy, w->gc, None);
 }
 
 // blits the current framebuffer to the window
