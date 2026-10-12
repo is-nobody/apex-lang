@@ -64,6 +64,11 @@ struct Widget {
     int     line_count;                  // number of cached lines
     int     line_cap;                    // allocated capacity of the line arrays
 
+    // cached wrap-cache key for the (text, size, avail_w) triple this widget was last measured against
+    uint64_t wrap_key;
+    float    wrap_avail_w;               // avail_w the cached key was computed for
+    float    wrap_fs;                    // font size the cached key was computed for
+
     bool   hovered, pressed, focused;    // per-frame interaction flags
     bool   checked;                      // checkbox / radio state
     double num_value, num_min, num_max;  // slider / progress numeric state

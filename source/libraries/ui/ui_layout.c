@@ -142,7 +142,17 @@ static float wrap_measure(UiContext* ctx, Widget* w, const char* s, int len,
     }
 
     // fast path: same text at the same size and the same wrap width as a previous layout
-    uint64_t key = wrap_cache_key(s, len, size, max_w);
+    uint64_t key;
+    if (w->wrap_key != 0 &&
+        w->wrap_avail_w == max_w &&
+        w->wrap_fs == size) {
+        key = w->wrap_key;                    // text/size/width unchanged: reuse the digest
+    } else {
+        key = wrap_cache_key(s, len, size, max_w);
+        w->wrap_key     = key;                // publish so the next layout can skip the hash
+        w->wrap_avail_w = max_w;
+        w->wrap_fs      = size;
+    }
     WrapCacheEntry* ce = wrap_cache_lookup(ctx, key);
     if (ce) {
         ce->last_frame = ctx->text_cache_frame;  // mark as live for the age sweep
