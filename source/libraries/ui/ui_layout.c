@@ -22,11 +22,18 @@ static float text_fs(WidgetKind k) {
 }
 
 // appends one [start, end) line range to the widget's cached breakdown
-static void push_line(Widget* w, int start, int end) {
+static void push_line(UiContext* ctx, Widget* w, int start, int end) {
     if (w->line_count >= w->line_cap) {
-        w->line_cap = w->line_cap ? w->line_cap * 2 : 8;
-        w->line_starts = (int*)realloc(w->line_starts, sizeof(int) * (size_t)w->line_cap);
-        w->line_ends   = (int*)realloc(w->line_ends,   sizeof(int) * (size_t)w->line_cap);
+        int new_cap = w->line_cap ? w->line_cap * 2 : 8;
+        int* ns = (int*)ui_arena_alloc(ctx, sizeof(int) * (size_t)new_cap);
+        int* ne = (int*)ui_arena_alloc(ctx, sizeof(int) * (size_t)new_cap);
+        if (w->line_count > 0) {                          // copy the live prefix forward
+            memcpy(ns, w->line_starts, sizeof(int) * (size_t)w->line_count);
+            memcpy(ne, w->line_ends,   sizeof(int) * (size_t)w->line_count);
+        }
+        w->line_starts = ns;                              // old arena block stays alive until frame end
+        w->line_ends   = ne;
+        w->line_cap    = new_cap;
     }
     w->line_starts[w->line_count] = start;
     w->line_ends[w->line_count]   = end;
@@ -41,12 +48,12 @@ static float wrap_measure(UiContext* ctx, Widget* w, const char* s, int len,
 
     if (!ctx->font) {                            // no font: rough estimate, single line
         if (out_lines) *out_lines = 1;
-        push_line(w, 0, len);
+        push_line(ctx, w, 0, len);
         return (float)len * size * 0.5f;
     }
     if (max_w <= 0) {                            // no wrap constraint: single line
         float mw = ui_text_measure_cached(ctx, s, len, size);
-        push_line(w, 0, len);
+        push_line(ctx, w, 0, len);
         if (out_lines) *out_lines = 1;
         return mw;
     }
@@ -63,7 +70,7 @@ static float wrap_measure(UiContext* ctx, Widget* w, const char* s, int len,
         float wd = ui_text_measure_cached(ctx, s + i, j - i, size);  // width of the word
         float sp = cur > 0 ? ui_text_measure_cached(ctx, " ", 1, size) : 0;  // space before it
         if (cur + sp + wd > max_w && cur > 0) {  // would overflow: wrap
-            push_line(w, line_start, i);         // [line_start, i) is this line
+            push_line(ctx, w, line_start, i);    // [line_start, i) is this line
             if (cur > maxw) maxw = cur;          // record the widest so far
             cur = wd;                            // start a new line with the word
             line_start = i;                      // next line starts at this word
@@ -74,7 +81,7 @@ static float wrap_measure(UiContext* ctx, Widget* w, const char* s, int len,
         i = j;                                   // advance past the word
     }
     if (line_start < 0) line_start = len;        // empty text: one empty line
-    push_line(w, line_start, len);               // final line runs to the end
+    push_line(ctx, w, line_start, len);          // final line runs to the end
     if (cur > maxw) maxw = cur;                  // record the final line width
     if (out_lines) *out_lines = lines;
     return maxw;                                 // widest line in the wrapped block

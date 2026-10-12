@@ -36,7 +36,7 @@ struct Widget {
     WidgetKind kind;                     // discriminator for rendering and behavior
     uint64_t   id;                       // stable identity derived from parent + key/index
     Widget*    parent;                   // null for the root
-    Widget**   children;                 // heap array of child pointers
+    Widget**   children;                 // child pointer array, lives in the per-frame arena
     int        child_count;              // number of live children
     int        child_cap;                // allocated capacity of the children array
 
@@ -69,7 +69,7 @@ struct Widget {
     double num_value, num_min, num_max;  // slider / progress numeric state
     Str    group;                        // radio group name
 
-    Str    input_value;                  // owned text buffer for input widgets
+    Str    input_value;                  // non-owning view into WidgetState.input_buf for WK_INPUT
     int    cursor;                       // cursor byte offset into input_value
     int    sel_anchor;                   // selection anchor byte offset, -1 = none
 
@@ -91,6 +91,11 @@ typedef struct {
     int      sel_anchor;        // byte offset of the selection anchor (-1 = no selection)
     double   scroll_y;          // saved scroll offset
     double   blink_phase;       // cursor blink animation phase
+
+    // owned text buffer for wk_input widgets
+    char*      input_buf;       // malloc'd, null terminated, or null
+    int        input_len;       // length of that buffer
+    uint64_t   input_hash;      // hash of the last descriptor value_text synced from
 
     // per-input undo/redo history; null until the first edit
     UndoEntry* undo_stack;      // snapshots that undo can walk back through
@@ -271,6 +276,9 @@ Widget* ui_widget_alloc(UiContext* ctx);
 
 // memoized wrapper around ui_text_measure; safe on null font (returns 0)
 float ui_text_measure_cached(UiContext* ctx, const char* s, int len, float size);
+
+// bump-allocate n bytes from the per-frame arena; valid until ui_widgets_reset
+void* ui_arena_alloc(UiContext* ctx, size_t n);
 
 // free per-widget heap allocations and rewind the pool
 void ui_widgets_reset(UiContext* ctx);

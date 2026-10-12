@@ -72,7 +72,7 @@
 #define UI_C_TB_BTN_ACT   0xFF4A4D51u  // titlebar button active background
 
 #define UI_MIN_W   150                 // default minimum window width in pixels
-#define UI_MIN_H   35                  // default minimum window height in pixels
+#define UI_MIN_H   34                  // default minimum window height in pixels
 
 #define UI_KEY_ESCAPE     0xFF1B  // 65307
 #define UI_KEY_ENTER      0xFF0D  // 65293

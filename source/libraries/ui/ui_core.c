@@ -72,12 +72,7 @@ Widget* ui_widget_alloc(UiContext* ctx) {
 
 // releases every heap allocation owned by pooled widgets and rewinds the pool
 void ui_widgets_reset(UiContext* ctx) {
-    for (int i = 0; i < ctx->pool_used; i++) {            // walk each live widget
-        free(ctx->pool[i].children);                      // free child pointer array
-        free(ctx->pool[i].input_value.ptr);               // free input buffer (heap, mutable)
-        free(ctx->pool[i].line_starts);                   // free cached wrapped-line offsets
-        free(ctx->pool[i].line_ends);                     // parallel end-offset array
-    }
+    // the widget pool no longer owns any heap buffers directly
     ctx->pool_used = 0;                                   // reset pool cursor
     ctx->root = NULL;                                     // drop tree root
     ctx->geometry_dirty = true;                           // fresh tree needs a layout pass
@@ -123,11 +118,18 @@ void ui_widgets_reset(UiContext* ctx) {
     }
 }
 
-// appends a child to a widget, growing the child array as needed
-static void widget_add_child(Widget* p, Widget* c) {
+// forward: defined near arena_dup further down; used here and by push_line
+static void* arena_alloc(UiContext* ctx, size_t n);
+
+// appends a child to a widget, growing the child array from the arena as needed
+static void widget_add_child(UiContext* ctx, Widget* p, Widget* c) {
     if (p->child_count >= p->child_cap) {                 // child array is full
-        p->child_cap = p->child_cap ? p->child_cap * 2 : 4;  // start at 4, then double
-        p->children = (Widget**)realloc(p->children, sizeof(Widget*) * p->child_cap);
+        int new_cap = p->child_cap ? p->child_cap * 2 : 4;   // start at 4, then double
+        Widget** new_arr = (Widget**)arena_alloc(ctx, sizeof(Widget*) * (size_t)new_cap);
+        if (p->children && p->child_count > 0)            // copy the live prefix forward
+            memcpy(new_arr, p->children, sizeof(Widget*) * (size_t)p->child_count);
+        p->children = new_arr;                            // old arena block stays alive until frame end
+        p->child_cap = new_cap;
     }
     p->children[p->child_count++] = c;                    // append at end
     c->parent = p;                                        // back-link to parent
@@ -215,6 +217,7 @@ static void state_gc_sweep(UiContext* ctx) {
             for (int j = 0; j < s->redo_count; j++) free(s->redo_stack[j].text);
             free(s->undo_stack);                          // release the undo history
             free(s->redo_stack);                          // release the redo history
+            free(s->input_buf);                           // release the owned text buffer
         }
     }
     ctx->state.count = out;                               // truncate the tail
@@ -762,26 +765,16 @@ static uint64_t ui_hash_id_view(uint64_t parent, const StrView* kv, int idx) {
     return h ? h : 1;
 }
 
-// duplicates n bytes of a c string into a heap-owned Str
-static Str str_dup(const char* s, int n) {
-    Str r;
-    r.ptr = (char*)malloc(n + 1);                        // allocate room for payload + null
-    memcpy(r.ptr, s, n);                                 // copy bytes
-    r.ptr[n] = 0;                                        // null terminate
-    r.len = n;                                           // record length
-    return r;                                            // return by value
-}
-
 // default payload capacity of one arena block
 #define UI_ARENA_BLOCK_SIZE (64 * 1024)
 
-// copies n bytes of a c string into the context's per-frame arena
-static Str arena_dup(UiContext* ctx, const char* s, int n) {
-    int need = n + 1;                                    // payload plus null terminator
+// allocates n bytes (8-aligned) from the per-frame arena
+static void* arena_alloc(UiContext* ctx, size_t n) {
+    n = (n + 7u) & ~(size_t)7u;                          // round up to 8 bytes
     UiArenaBlock* b = ctx->arena;                        // current (newest) block
-    if (!b || b->used + need > b->cap) {                 // no block or no room: allocate one
+    if (!b || b->used + (int)n > b->cap) {               // no block or no room: allocate one
         int cap = UI_ARENA_BLOCK_SIZE;
-        if (need > cap) cap = need;                      // oversized string: one-off block
+        if ((int)n > cap) cap = (int)n;                  // oversized request: one-off block
         UiArenaBlock* nb = (UiArenaBlock*)malloc(sizeof(UiArenaBlock) + (size_t)cap);
         nb->next = ctx->arena;                           // link older blocks behind
         nb->used = 0;
@@ -789,13 +782,36 @@ static Str arena_dup(UiContext* ctx, const char* s, int n) {
         ctx->arena = nb;                                 // publish the new head
         b = nb;
     }
-    Str r;
-    r.ptr = b->data + b->used;                           // bump the cursor inside this block
-    memcpy(r.ptr, s, n);                                 // copy the payload
-    r.ptr[n] = 0;                                        // null terminate
-    r.len = n;                                           // record the length
-    b->used += need;                                     // advance the block cursor
-    return r;                                            // return by value
+    void* p = b->data + b->used;                         // bump the cursor inside this block
+    b->used += (int)n;                                   // advance the block cursor
+    return p;
+}
+
+// copies n bytes of a c string into the context's per-frame arena
+static Str arena_dup(UiContext* ctx, const char* s, int n) {
+    char* p = (char*)arena_alloc(ctx, (size_t)n + 1);    // payload plus null terminator
+    memcpy(p, s, n);                                     // copy the payload
+    p[n] = 0;                                            // null terminate
+    Str r; r.ptr = p; r.len = n;                         // return by value
+    return r;
+}
+
+// public wrapper so other translation units (ui_layout.c) can allocate from the arena
+void* ui_arena_alloc(UiContext* ctx, size_t n) { return arena_alloc(ctx, n); }
+
+// syncs a widget's input view against the descriptor's value_text
+static void sync_input_buffer(Widget* w, WidgetState* s, const char* sval, int slen) {
+    uint64_t h = hash_bytes64(0xCBF29CE484222325ULL, sval, (size_t)slen);
+    if (!s->input_buf || s->input_hash != h) {           // new widget, or script changed text
+        free(s->input_buf);                              // release the previous buffer
+        s->input_buf = (char*)malloc((size_t)slen + 1);
+        memcpy(s->input_buf, sval, (size_t)slen);
+        s->input_buf[slen] = 0;
+        s->input_len  = slen;
+        s->input_hash = h;
+    }
+    w->input_value.ptr = s->input_buf;                   // publish the view on the widget
+    w->input_value.len = s->input_len;
 }
 
 // recursively builds a Widget subtree from an apex table descriptor
@@ -858,17 +874,18 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
     w->num_min   = table_get_num_key(t, ctx->key_cache[UK_MIN], 0);         // slider/progress min
     w->num_max   = table_get_num_key(t, ctx->key_cache[UK_MAX], 100);       // slider/progress max
 
-    StrView ival;
-    bool has_ival = table_get_str_view(t, ctx->key_cache[UK_VALUE_TEXT], &ival);
-    if (!has_ival && w->kind == WK_INPUT)
-        has_ival = table_get_str_view(t, ctx->key_cache[UK_CONTENT], &ival);
-    if (has_ival) {
-        w->input_value = str_dup(ival.ptr, ival.len);       // copy into owned buffer
-    } else if (w->kind == WK_INPUT) {
-        w->input_value = str_dup("", 0);                    // input widgets always own a buffer
+    WidgetState* st = ui_state_get(ctx, w->id);             // pull persistent state
+
+    if (w->kind == WK_INPUT) {                              // input widgets own text in the state
+        StrView ival;
+        bool has_ival = table_get_str_view(t, ctx->key_cache[UK_VALUE_TEXT], &ival);
+        if (!has_ival)
+            has_ival = table_get_str_view(t, ctx->key_cache[UK_CONTENT], &ival);
+        const char* init_s = has_ival ? ival.ptr : "";
+        int         init_n = has_ival ? ival.len : 0;
+        sync_input_buffer(w, st, init_s, init_n);
     }
 
-    WidgetState* st = ui_state_get(ctx, w->id);             // pull persistent state
     w->hovered = st->hovered;                               // restore hover flag
     w->pressed = st->pressed;                               // restore press flag
     w->focused = (ctx->focused_id == w->id);                // reflect current focus
@@ -887,13 +904,13 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
                     Value vv;
                     if (!table_get(ct, MAKE_NUMBER((double)i), &vv)) break;
                     Widget* ch = ui_build_tree(ctx, vv, w, i - 1);
-                    if (ch) widget_add_child(w, ch);
+                    if (ch) widget_add_child(ctx, w, ch);
                     value_decref(vv);
                 }
             }
         } else if (!IS_NONE(cv)) {                          // single child descriptor
             Widget* ch = ui_build_tree(ctx, cv, w, 0);
-            if (ch) widget_add_child(w, ch);
+            if (ch) widget_add_child(ctx, w, ch);
         }
         value_decref(cv);
     }
@@ -940,6 +957,7 @@ void ui_context_destroy(UiContext* ctx) {
         for (int j = 0; j < s->redo_count; j++) free(s->redo_stack[j].text);
         free(s->undo_stack);
         free(s->redo_stack);
+        free(s->input_buf);                                       // release the owned text buffer
     }
 
     free(ctx->pool);                                              // free the widget pool array
@@ -1216,9 +1234,12 @@ static void input_word_range(Widget* w, int pos, int* out_start, int* out_end) {
 }
 
 // replaces the input buffer with a new heap copy and frees the old one
-static void input_set_buffer(Widget* w, char* buf, int len) {
-    free(w->input_value.ptr);
-    w->input_value.ptr = buf;
+static void input_set_buffer(UiContext* ctx, Widget* w, char* buf, int len) {
+    WidgetState* s = ui_state_get(ctx, w->id);
+    free(s->input_buf);                                     // release the previous buffer
+    s->input_buf = buf;
+    s->input_len = len;
+    w->input_value.ptr = buf;                               // refresh the widget view
     w->input_value.len = len;
 }
 
@@ -1265,8 +1286,10 @@ static void input_undo(UiContext* ctx, Widget* w, WidgetState* s) {
     s->redo_count++;
 
     UndoEntry e = s->undo_stack[--s->undo_count];          // pop the previous state
-    free(w->input_value.ptr);
-    w->input_value.ptr = e.text;
+    free(s->input_buf);                                    // state owns the buffer
+    s->input_buf = e.text;
+    s->input_len = e.len;
+    w->input_value.ptr = e.text;                           // refresh the widget view
     w->input_value.len = e.len;
     s->cursor = e.cursor;
     s->sel_anchor = e.cursor;
@@ -1291,8 +1314,10 @@ static void input_redo(UiContext* ctx, Widget* w, WidgetState* s) {
     s->undo_count++;
 
     UndoEntry e = s->redo_stack[--s->redo_count];          // pop the forward state
-    free(w->input_value.ptr);
-    w->input_value.ptr = e.text;
+    free(s->input_buf);                                    // state owns the buffer
+    s->input_buf = e.text;
+    s->input_len = e.len;
+    w->input_value.ptr = e.text;                           // refresh the widget view
     w->input_value.len = e.len;
     s->cursor = e.cursor;
     s->sel_anchor = e.cursor;
@@ -1311,7 +1336,7 @@ static void input_delete_range(UiContext* ctx, Widget* w, WidgetState* s, int a,
     memcpy(nb, w->input_value.ptr, a);                    // prefix
     memcpy(nb + a, w->input_value.ptr + b, len - b);      // suffix
     nb[new_len] = 0;
-    input_set_buffer(w, nb, new_len);
+    input_set_buffer(ctx, w, nb, new_len);
     s->cursor = a;
     s->sel_anchor = a;
     push_input_change(ctx, w, nb);
@@ -1735,7 +1760,7 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                                     memcpy(nb + cur + tlen,
                                            w->input_value.ptr + cur, len - cur);
                                     nb[need] = 0;
-                                    input_set_buffer(w, nb, need);
+                                    input_set_buffer(ctx, w, nb, need);
                                     s->cursor = cur + tlen;
                                     s->sel_anchor = s->cursor;
                                     push_input_change(ctx, w, nb);
@@ -1794,7 +1819,7 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                             memcpy(nb + cur + e->utf8_len,
                                    w->input_value.ptr + cur, len - cur);
                             nb[need] = 0;
-                            input_set_buffer(w, nb, need);
+                            input_set_buffer(ctx, w, nb, need);
                             s->cursor = cur + e->utf8_len;
                             s->sel_anchor = s->cursor;
                             push_input_change(ctx, w, nb);
@@ -2136,7 +2161,7 @@ static void rebuild_and_draw(UiContext* ctx) {
                         Value vv;
                         if (!table_get(t, MAKE_NUMBER((double)i), &vv)) break;
                         Widget* ch = ui_build_tree(ctx, vv, root, i - 1);
-                        if (ch) widget_add_child(root, ch);
+                        if (ch) widget_add_child(ctx, root, ch);
                         value_decref(vv);
                     }
                     ctx->root = root;
