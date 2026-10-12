@@ -10,7 +10,10 @@
 #include <math.h>
 
 // simd dispatch
-#if defined(__SSE2__) || defined(_M_X64) || \
+#if defined(__AVX2__) || (defined(_M_X64) && defined(__AVX2__))
+#  include <immintrin.h>
+#  define UI_HAVE_AVX2 1
+#elif defined(__SSE2__) || defined(_M_X64) || \
     (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
 #  include <emmintrin.h>
 #  define UI_HAVE_SSE2 1
@@ -130,7 +133,50 @@ static inline void blend_px_cov(int x, int y, uint32_t c, int cov) {
 }
 
 // simd row blenders
-#ifdef UI_HAVE_SSE2
+#ifdef UI_HAVE_AVX2
+// processes 8 pixels at a time
+static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
+    uint32_t sa  = (c >> 24) & 0xFF;
+    uint32_t inv = 255 - sa;
+    uint32_t sr  = (c >> 16) & 0xFF;
+    uint32_t sg  = (c >> 8)  & 0xFF;
+    uint32_t sb  =  c        & 0xFF;
+
+    __m256i k_sa = _mm256_set1_epi32((int)sa);
+    __m256i k_sr = _mm256_set1_epi32((int)(sr * inv + 128));
+    __m256i k_sg = _mm256_set1_epi32((int)(sg * inv + 128));
+    __m256i k_sb = _mm256_set1_epi32((int)(sb * inv + 128));
+    __m256i kFF  = _mm256_set1_epi32(0xFF);
+    __m256i kAA  = _mm256_set1_epi32((int)0xFF000000u);
+
+    int i = 0;
+    for (; i + 8 <= n; i += 8) {
+        __m256i d  = _mm256_loadu_si256((const __m256i*)(row + i));
+        __m256i dr = _mm256_and_si256(_mm256_srli_epi32(d, 16), kFF);
+        __m256i dg = _mm256_and_si256(_mm256_srli_epi32(d, 8),  kFF);
+        __m256i db = _mm256_and_si256(d,                        kFF);
+
+        __m256i r = _mm256_srli_epi32(_mm256_add_epi32(_mm256_mullo_epi16(dr, k_sa), k_sr), 8);
+        __m256i g = _mm256_srli_epi32(_mm256_add_epi32(_mm256_mullo_epi16(dg, k_sa), k_sg), 8);
+        __m256i b = _mm256_srli_epi32(_mm256_add_epi32(_mm256_mullo_epi16(db, k_sa), k_sb), 8);
+
+        __m256i out = _mm256_or_si256(
+            kAA,
+            _mm256_or_si256(
+                _mm256_slli_epi32(r, 16),
+                _mm256_or_si256(_mm256_slli_epi32(g, 8), b)));
+        _mm256_storeu_si256((__m256i*)(row + i), out);
+    }
+    for (; i < n; i++) {                                    // scalar tail
+        uint32_t d  = row[i];
+        uint32_t dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
+        uint32_t r = (dr*sa + sr*inv + 128) >> 8;
+        uint32_t g = (dg*sa + sg*inv + 128) >> 8;
+        uint32_t b = (db*sa + sb*inv + 128) >> 8;
+        row[i] = 0xFF000000u | (r << 16) | (g << 8) | b;
+    }
+}
+#elif defined(UI_HAVE_SSE2)
 // processes 4 pixels at a time. uses epi16 multiplies on epi32 lanes
 // holding one channel each, with a +128>>8 rounding approximation.
 static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
