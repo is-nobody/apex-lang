@@ -1760,12 +1760,11 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     sc = sc->parent;                              // find enclosing scroll container
                 if (sc && sc->kind == WK_SCROLL) {                // vertical scroll container
                     WidgetState* s = ui_state_get(ctx, sc->id);
-                    s->scroll_y += e->scroll_dy * 40.0;           // apply wheel delta
-                    if (s->scroll_y < 0) s->scroll_y = 0;         // clamp to top
+                    s->scroll_target += e->scroll_dy * 40.0;      // push the target, not scroll_y
                     double max = sc->content_h - sc->h;           // max scrollable offset
                     if (max < 0) max = 0;
-                    if (s->scroll_y > max) s->scroll_y = max;     // clamp to bottom
-                    sc->scroll_y = s->scroll_y;                   // mirror to widget for this frame
+                    if (s->scroll_target < 0)   s->scroll_target = 0;    // clamp target to top
+                    if (s->scroll_target > max) s->scroll_target = max;  // clamp target to bottom
                     ctx->geometry_dirty = true;                   // children positions changed
                     ctx->redraw_needed = true;
                 } else {                                          // no container: emit raw scroll event
@@ -2015,28 +2014,81 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
     }
 }
 
+// true while any state entry still has a scroll offset to ease toward its target
+static bool ui_animating(UiContext* ctx) {
+    for (int i = 0; i < ctx->state.count; i++) {
+        WidgetState* s = &ctx->state.entries[i];
+        if (s->scroll_y != s->scroll_target) return true;  // still moving
+    }
+    return false;                                          // all settled
+}
+
 // advances time-based widget state
-//
-// the only time-based state right now is the caret blink of the focused
-// widget. dt is the wall-clock delta since the previous call; a repaint is
-// requested only when the caret crosses the visible/hidden boundary so
-// idle frames stay cheap.
 void ui_tick(UiContext* ctx, double dt) {
-    if (!ctx->focused_id) return;                        // nothing focused: nothing to animate
     if (dt <= 0.0) return;                               // no time passed
+    if (dt > 0.25) dt = 0.25;                            // clamp after a long pause
 
-    WidgetState* s = ui_state_get(ctx, ctx->focused_id);
-    double old_phase = s->blink_phase;                   // remember for boundary detection
-    s->blink_phase += dt;                                // advance the blink clock
-    if (s->blink_phase >= 1.0) s->blink_phase -= 1.0;    // wrap at one second
+    // ease every scroll offset toward its target in fixed 1/60 s substeps
+    const double STEP = 1.0 / 60.0;
+    const double RATE = 28.0;                            // ~36 ms time constant
+    double remaining = dt;
+    while (remaining > 1e-6) {
+        double h = remaining > STEP ? STEP : remaining;
+        remaining -= h;
+        double k = 1.0 - exp(-h * RATE);                 // fraction of distance this substep
+        for (int i = 0; i < ctx->state.count; i++) {
+            WidgetState* s = &ctx->state.entries[i];
+            if (s->scroll_y == s->scroll_target) continue;  // already settled
+            double diff = s->scroll_target - s->scroll_y;
+            if (fabs(diff) < 0.5) {
+                s->scroll_y = s->scroll_target;          // snap: kill the asymptotic tail
+            } else {
+                s->scroll_y += diff * k;                 // ease toward the target
+            }
+        }
+    }
 
-    if ((old_phase < 0.5) != (s->blink_phase < 0.5))     // crossed the visibility edge
-        ctx->redraw_needed = true;                       // schedule a repaint
+    // publish animated offsets onto the live widgets and flag one relayout
+    bool moved = false;
+    for (int i = 0; i < ctx->state.count; i++) {
+        WidgetState* s = &ctx->state.entries[i];
+        for (int j = 0; j < ctx->pool_used; j++) {
+            if (ctx->pool[j].id == s->id && ctx->pool[j].scroll_y != s->scroll_y) {
+                ctx->pool[j].scroll_y = s->scroll_y;     // mirror for this frame's layout
+                moved = true;
+                break;
+            }
+        }
+    }
+    if (moved) {
+        ctx->geometry_dirty = true;                      // scroll containers moved
+        ctx->redraw_needed  = true;                      // schedule a repaint
+    }
+
+    // caret blink: only the focused widget has a phase
+    if (ctx->focused_id) {
+        WidgetState* s = ui_state_get(ctx, ctx->focused_id);
+        double old_phase = s->blink_phase;               // remember for boundary detection
+        s->blink_phase += dt;                            // advance the blink clock
+        if (s->blink_phase >= 1.0) s->blink_phase -= 1.0;// wrap at one second
+        if ((old_phase < 0.5) != (s->blink_phase < 0.5)) // crossed the visibility edge
+            ctx->redraw_needed = true;                   // schedule a repaint
+    }
 }
 
 // pumps the window event loop once, returning true if events were queued
 static bool pump(UiContext* ctx) {
     if (!ctx->window) return false;                               // no window: nothing to pump
+
+    // advance animated state first, before any early return
+    static double s_last_tick = 0.0;                              // previous wall-clock reading
+    double now = apex_now_seconds();
+    double dt = now - s_last_tick;
+    s_last_tick = now;
+    if (dt < 0.0) dt = 0.0;                                       // clock went backwards
+    if (dt > 0.25) dt = 0.25;                                     // clamp after a long pause
+    ui_tick(ctx, dt);
+
     UiWinEvent we;
     while (ui_window_poll(ctx->window, &we)) {                    // drain pending events
         handle_win_event(ctx, &we);
@@ -2047,6 +2099,7 @@ static bool pump(UiContext* ctx) {
 
     int timeout;
     if (ctx->redraw_needed)      timeout = 8;                     // ~120 fps: repaint pending, poll fast
+    else if (ui_animating(ctx))  timeout = 8;                     // ~120 fps: scroll ease in flight
     else if (ctx->focused_id)    timeout = 62;                    // ~16 hz: only needed for caret blink
     else                         timeout = 1000;                  // fully idle: sleep until real input
     if (ui_window_wait(ctx->window, timeout)) {                   // block briefly for input
@@ -2055,14 +2108,6 @@ static bool pump(UiContext* ctx) {
             if (we.kind == UW_EV_CLOSE) break;
         }
     }
-
-    static double s_last_tick = 0.0;                              // previous wall-clock reading
-    double now = apex_now_seconds();
-    double dt = now - s_last_tick;
-    s_last_tick = now;
-    if (dt < 0.0) dt = 0.0;                                       // clock went backwards
-    if (dt > 0.25) dt = 0.25;                                     // clamp after a long pause
-    ui_tick(ctx, dt);
 
     return ctx->queue.count > 0;                                  // true if anything was queued
 }
