@@ -63,6 +63,9 @@ void ui_window_resize(UiWindow* w, int nw, int nh);
 // blit the framebuffer to the screen
 void ui_window_present(UiWindow* w);
 
+// blit only the given rects
+void ui_window_present_rects(UiWindow* w, const int* quads, int n);
+
 // block until input, up to the timeout
 bool ui_window_wait(UiWindow* w, int timeout_ms);
 

@@ -272,19 +272,46 @@ void ui_window_resize(UiWindow* w, int nw, int nh) {
     }
 }
 
-// blits the current framebuffer to the window
-void ui_window_present(UiWindow* w) {
+// blits only the given rects; each quad is { x, y, w, h }
+void ui_window_present_rects(UiWindow* w, const int* quads, int n) {
+    if (!w || !w->img || n <= 0) return;
+
     if (w->shm_ok) {
-        XShmPutImage(w->dpy, w->win, w->gc, w->img, 0,0,0,0,
-                     (unsigned)w->w, (unsigned)w->h, False);
-        // XShmPutImage is asynchronous
-        XSync(w->dpy, False);
+        for (int i = 0; i < n; i++) {
+            const int* q = quads + i*4;
+            int x = q[0], y = q[1], rw = q[2], rh = q[3];
+            if (rw <= 0 || rh <= 0) continue;
+            if (x < 0) { rw += x; x = 0; }                    // clip to the client rect
+            if (y < 0) { rh += y; y = 0; }
+            if (x + rw > w->w) rw = w->w - x;
+            if (y + rh > w->h) rh = w->h - y;
+            if (rw <= 0 || rh <= 0) continue;
+            XShmPutImage(w->dpy, w->win, w->gc, w->img, x, y, x, y,
+                         (unsigned)rw, (unsigned)rh, False);
+        }
+        XSync(w->dpy, False);                                 // one sync for the whole batch
     } else {
-        XPutImage(w->dpy, w->win, w->gc, w->img, 0,0,0,0,
-                  (unsigned)w->w, (unsigned)w->h);
-        // XPutImage copies the pixels into the request body itself
+        for (int i = 0; i < n; i++) {
+            const int* q = quads + i*4;
+            int x = q[0], y = q[1], rw = q[2], rh = q[3];
+            if (rw <= 0 || rh <= 0) continue;
+            if (x < 0) { rw += x; x = 0; }
+            if (y < 0) { rh += y; y = 0; }
+            if (x + rw > w->w) rw = w->w - x;
+            if (y + rh > w->h) rh = w->h - y;
+            if (rw <= 0 || rh <= 0) continue;
+            XPutImage(w->dpy, w->win, w->gc, w->img, x, y, x, y,
+                      (unsigned)rw, (unsigned)rh);
+        }
         XFlush(w->dpy);
     }
+}
+
+// blits the current framebuffer to the window
+void ui_window_present(UiWindow* w) {
+    if (!w) return;
+    int quad[4] = { 0, 0, w->w, w->h };
+    ui_window_present_rects(w, quad, 1);
 }
 
 // blocks until the server has input, or until the timeout expires

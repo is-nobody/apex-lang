@@ -1471,6 +1471,7 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
         }
         case UW_EV_EXPOSE: {                                      // window exposed, needs paint
             ctx->redraw_needed = true;
+            ctx->full_repaint  = true;                            // server may have cleared us
             break;
         }
         case UW_EV_RESIZE: {                                      // window resized
@@ -1478,6 +1479,7 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
             ctx->win_w = e->w;                                    // new width from the event
             ctx->win_h = e->h;                                    // new height from the event
             ctx->geometry_dirty = true;                           // root rect changed: relayout
+            ctx->full_repaint   = true;                           // fresh pixels are undefined
             UiEvent ev; memset(&ev, 0, sizeof(ev));
             ev.kind = EV_RESIZE;
             ev.num_value = e->w;                                  // pack new width in num_value
@@ -2073,6 +2075,7 @@ Value ui_impl_init(VM* vm, int argc, Value* argv) {
     ctx->pixels = ui_window_pixels(ctx->window);                  // cache pixel buffer
 
     ctx->redraw_needed = true;                                    // force first paint
+    ctx->full_repaint  = true;                                    // first frame is undefined
     ui_window_set_min_size(ctx->window, min_w, min_h);            // enforce a floor on resize
     ui_window_set_paint_callback(ctx->window, ui_window_paint_cb, ctx);  // install paint hook
 
@@ -2227,15 +2230,32 @@ static void rebuild_and_draw(UiContext* ctx) {
     // snapshot the freshly laid-out tree, diff against the previous frame to compute damage
     ui_snapshot_capture(ctx, ctx->root);
     ui_damage_begin(ctx);
-    ui_damage_diff(ctx);
-    if (ctx->custom_chrome)                                       // always repaint the titlebar
-        ui_damage_add(ctx, 0, 0, ctx->win_w, UI_TITLEBAR_H);
+    if (ctx->full_repaint) {
+        // the host told us our pixels are undefined (first frame, expose, resize):
+        // repaint the whole window, ignore the damage diff
+        ui_damage_add(ctx, 0, 0, ctx->win_w, ctx->win_h);
+        ctx->full_repaint = false;
+    } else {
+        ui_damage_diff(ctx);
+        if (ctx->custom_chrome)                                   // always repaint the titlebar
+            ui_damage_add(ctx, 0, 0, ctx->win_w, UI_TITLEBAR_H);
+    }
     ui_damage_finalize(ctx);
 
     if (ctx->damage_count > 0) {
+        long total = 0, area = (long)ctx->win_w * (long)ctx->win_h;
+        for (int i = 0; i < ctx->damage_count; i++)
+            total += (long)ctx->damage[i].w * (long)ctx->damage[i].h;
+
         ui_render_frame_damage(ctx, ctx->damage, ctx->damage_count);
+        if (total * 2 >= area) {
+            ui_window_present(ctx->window);                       // big damage: whole-window blit
+        } else {
+            ui_window_present_rects(ctx->window,                  // small damage: per-rect blits
+                                    (const int*)ctx->damage,
+                                    ctx->damage_count);
+        }
     }
-    ui_window_present(ctx->window);
     ui_damage_swap(ctx);
     ctx->redraw_needed = false;                                   // repaint satisfied
 
@@ -2260,6 +2280,7 @@ static void redraw_only(UiContext* ctx) {
     ui_render_frame(ctx);                                         // redraw into the pixel buffer
     ui_window_present(ctx->window);                               // blit to the screen
     ctx->redraw_needed = false;                                   // repaint satisfied
+    ctx->full_repaint  = false;                                   // full repaint satisfied
 }
 
 // host window paint hook: refreshes buffers and repaints the existing tree

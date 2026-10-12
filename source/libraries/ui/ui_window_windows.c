@@ -638,8 +638,9 @@ void ui_window_resize(UiWindow* w, int nw, int nh) {
                  SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
-// blits the cpu framebuffer into the dib section and to the client area
-void ui_window_present(UiWindow* w) {
+// blits only the given rects into the dib and then to the client area
+void ui_window_present_rects(UiWindow* w, const int* quads, int n) {
+    if (!w || n <= 0) return;
     apply_pending_resize(w);                             // catch up on any resize not yet applied
     if (!w->mem_dc || !w->dib_bits || !w->pixels) return;  // nothing to present
 
@@ -649,19 +650,38 @@ void ui_window_present(UiWindow* w) {
     int ch = r.bottom - r.top;                           // client height
     if (cw <= 0 || ch <= 0) return;                      // minimized or degenerate
 
-    int copy_w = cw < w->w ? cw : w->w;                  // clip to the smaller of the two
-    int copy_h = ch < w->h ? ch : w->h;
-    if (copy_w <= 0 || copy_h <= 0) return;              // nothing to copy
+    HDC hdc = GetDC(w->hwnd);                            // window dc
 
-    for (int y = 0; y < copy_h; y++) {                   // copy row by row into the dib
-        memcpy((uint8_t*)w->dib_bits + (size_t)y * (size_t)w->w * 4,
-               (uint8_t*)w->pixels   + (size_t)y * (size_t)w->w * 4,
-               (size_t)copy_w * 4);
+    for (int i = 0; i < n; i++) {
+        const int* q = quads + i*4;
+        int x = q[0], y = q[1], rw = q[2], rh = q[3];
+        if (rw <= 0 || rh <= 0) continue;
+        if (x < 0) { rw += x; x = 0; }                   // clip to the client rect
+        if (y < 0) { rh += y; y = 0; }
+        if (x + rw > cw) rw = cw - x;
+        if (y + rh > ch) rh = ch - y;
+        if (rw <= 0 || rh <= 0) continue;
+        if (x + rw > w->w) rw = w->w - x;                // clip to the dib bounds too
+        if (y + rh > w->h) rh = w->h - y;
+        if (rw <= 0 || rh <= 0) continue;
+
+        // copy only that rect from the cpu buffer into the dib
+        for (int yy = 0; yy < rh; yy++) {
+            memcpy((uint8_t*)w->dib_bits + ((size_t)(y+yy) * w->w + x) * 4,
+                   (uint8_t*)w->pixels   + ((size_t)(y+yy) * w->w + x) * 4,
+                   (size_t)rw * 4);
+        }
+        BitBlt(hdc, x, y, rw, rh, w->mem_dc, x, y, SRCCOPY);
     }
 
-    HDC hdc = GetDC(w->hwnd);                            // window dc
-    BitBlt(hdc, 0, 0, copy_w, copy_h, w->mem_dc, 0, 0, SRCCOPY);  // blit the memory dc
     ReleaseDC(w->hwnd, hdc);
+}
+
+// blits the cpu framebuffer into the dib section and to the client area
+void ui_window_present(UiWindow* w) {
+    if (!w) return;
+    int quad[4] = { 0, 0, w->w, w->h };
+    ui_window_present_rects(w, quad, 1);
 }
 
 // waits for input or the timeout to expire
