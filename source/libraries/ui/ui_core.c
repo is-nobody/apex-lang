@@ -941,16 +941,25 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
     if (table_get(t, ctx->key_cache[UK_CHILDREN], &cv)) {   // child descriptor present?
         if (IS_TABLE(cv)) {
             Table* ct = AS_TABLE(cv);
-            Value probe;
-            if (table_get(ct, MAKE_NUMBER(1.0), &probe)) {  // array-style children list
-                value_decref(probe);
-                for (int i = 1; ; i++) {                    // walk 1-based array part
-                    Value vv;
-                    if (!table_get(ct, MAKE_NUMBER((double)i), &vv)) break;
-                    Widget* ch = ui_build_tree(ctx, vv, w, i - 1);
-                    if (ch) widget_add_child(ctx, w, ch);
-                    value_decref(vv);
-                }
+
+            // fast path: walk the array part directly
+            int i = 1;
+            int n_arr = ct->array_part ? ct->array_count : 0;
+            for (; i <= n_arr; i++) {
+                Value vv = ct->array_part[i - 1];
+                if (IS_NONE(vv)) break;      // hole: fall through to the hash walk below
+                Widget* ch = ui_build_tree(ctx, vv, w, i - 1);
+                if (ch) widget_add_child(ctx, w, ch);
+            }
+
+            // slow path: indices past array_count, or holes inside it that
+            // might still resolve to a numeric hash entry
+            for (;; i++) {
+                Value vv;
+                if (!table_get(ct, MAKE_NUMBER((double)i), &vv)) break;
+                Widget* ch = ui_build_tree(ctx, vv, w, i - 1);
+                if (ch) widget_add_child(ctx, w, ch);
+                value_decref(vv);
             }
         } else if (!IS_NONE(cv)) {                          // single child descriptor
             Widget* ch = ui_build_tree(ctx, cv, w, 0);
@@ -2122,8 +2131,17 @@ static uint64_t hash_descr_value(UiContext* ctx, uint64_t h, Value v);
 
 // recursive hash of a descriptor tree
 static uint64_t hash_descr_table(UiContext* ctx, uint64_t h, Table* t) {
-    // hash array-style numeric keys 1..N first
-    for (int j = 1; ; j++) {
+    // hash array-style numeric keys 1..n first
+    int j = 1;
+    int n_arr = t->array_part ? t->array_count : 0;
+    for (; j <= n_arr; j++) {
+        Value v = t->array_part[j - 1];
+        if (IS_NONE(v)) break;
+        uint64_t idx = (uint64_t)j;
+        h = hash_bytes64(h, &idx, sizeof(idx));
+        h = hash_descr_value(ctx, h, v);
+    }
+    for (;; j++) {
         Value v;
         if (!table_get(t, MAKE_NUMBER((double)j), &v)) break;
         uint64_t idx = (uint64_t)j;
@@ -2138,18 +2156,27 @@ static uint64_t hash_descr_table(UiContext* ctx, uint64_t h, Table* t) {
         h = hash_bytes64(h, &i, sizeof(i));
         if (i == UK_CHILDREN && IS_TABLE(v)) {
             Table* ct = AS_TABLE(v);
-            Value probe;
             int count = 0;
-            if (table_get(ct, MAKE_NUMBER(1.0), &probe)) {
-                value_decref(probe);
-                for (int j = 1; ; j++) {
-                    Value cv;
-                    if (!table_get(ct, MAKE_NUMBER((double)j), &cv)) break;
-                    h = hash_descr_value(ctx, h, cv);
-                    value_decref(cv);
-                    count++;
-                }
-            } else {
+
+            // fast path: direct array walk, same trick as the other two callers.
+            int j = 1;
+            int n_arr = ct->array_part ? ct->array_count : 0;
+            for (; j <= n_arr; j++) {
+                Value cv = ct->array_part[j - 1];
+                if (IS_NONE(cv)) break;
+                h = hash_descr_value(ctx, h, cv);
+                count++;
+            }
+            for (;; j++) {
+                Value cv;
+                if (!table_get(ct, MAKE_NUMBER((double)j), &cv)) break;
+                h = hash_descr_value(ctx, h, cv);
+                value_decref(cv);
+                count++;
+            }
+
+            if (count == 0) {
+                // no iterable children
                 h = hash_descr_value(ctx, h, v);
                 count = 1;
             }
