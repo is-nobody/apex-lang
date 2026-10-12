@@ -75,6 +75,10 @@ typedef struct {
     float    advance;             // horizontal advance in pixels
     uint8_t* cov;                 // coverage bitmap, one byte per pixel
     uint32_t last_use;            // font frame counter when this entry was last touched
+
+    // per-row tight bounding box of nonzero coverage, [row_x0[r], row_x1[r])
+    uint16_t* row_x0;
+    uint16_t* row_x1;
 } CacheEntry;
 
 // glyph cache hash: one open-addressed slot per (gid, size_q) pair
@@ -189,7 +193,11 @@ UiFont* ui_font_load_memory(const uint8_t* data, size_t len) {
 // releases a font and its cached glyphs
 void ui_font_free(UiFont* f) {
     if (!f) return;                                      // null guard
-    for (int i = 0; i < f->cache_count; i++) free(f->cache[i].cov);  // free each coverage bitmap
+    for (int i = 0; i < f->cache_count; i++) {
+        free(f->cache[i].cov);                           // free each coverage bitmap
+        free(f->cache[i].row_x0);                        // free the per-row left edges
+        free(f->cache[i].row_x1);                        // free the per-row right edges
+    }
     free(f->cache);                                      // free the cache array
     for (int i = 0; i < f->adv_table_count; i++)         // free per-size advance tables
         free(f->adv_tables[i].values);
@@ -220,6 +228,8 @@ void ui_font_tick(UiFont* f) {
             f->cache[out++] = f->cache[i];
         } else {
             free(f->cache[i].cov);                       // cold entry: release its bitmap
+            free(f->cache[i].row_x0);                    // and its per-row edges
+            free(f->cache[i].row_x1);
         }
     }
     f->cache_count = out;
@@ -769,6 +779,20 @@ static CacheEntry* glyph_get(UiFont* f, uint16_t gid, uint16_t size_q) {
     e->cov = (uint8_t*)calloc((size_t)W*H, 1);           // allocate the coverage bitmap
     raster_polys(polys, npolys, W, H, ox, oy, e->cov);   // fill it
 
+    // tighten the blit range per row
+    e->row_x0 = (uint16_t*)calloc((size_t)H, sizeof(uint16_t));
+    e->row_x1 = (uint16_t*)calloc((size_t)H, sizeof(uint16_t));
+    for (int r = 0; r < H; r++) {
+        const uint8_t* row = e->cov + (size_t)r * (size_t)W;
+        int x0 = 0;
+        while (x0 < W && row[x0] == 0) x0++;             // first nonzero column
+        if (x0 == W) { e->row_x0[r] = 0; e->row_x1[r] = 0; continue; }
+        int x1 = W;
+        while (x1 > x0 && row[x1 - 1] == 0) x1--;        // one-past-last nonzero column
+        e->row_x0[r] = (uint16_t)x0;
+        e->row_x1[r] = (uint16_t)x1;
+    }
+
     for (int i = 0; i < npolys; i++) free(polys[i].pts); // release temporary polygons
     free(polys);
     f->glyph_hash[insert_at] = f->cache_count;           // publish in the hash
@@ -989,17 +1013,21 @@ float ui_text_draw(UiFont* f, uint32_t* fb, int fbw, int fbh,
         i += adv;
         uint16_t gid = glyph_index_cached(f, cp);        // map to a glyph (O(1) for BMP after first touch)
         CacheEntry* e = glyph_get(f, gid, size_q);       // fetch or rasterize the bitmap
-        if (e->w > 0) {                                  // bitmap present
+        if (e->w > 0 && e->row_x0) {                     // bitmap present
             int px = (int)floorf(pen + 0.5f) + e->off_x; // left edge in framebuffer space
             int py = base_y - e->off_y;                  // baseline row in framebuffer space
             for (int yy = 0; yy < e->h; yy++) {          // coverage bitmap is stored top-down
+                int rx0 = e->row_x0[yy];                 // tight nonzero span of this row
+                int rx1 = e->row_x1[yy];
+                if (rx0 >= rx1) continue;                // fully empty row: skip whole
+
                 int ty = py - yy;                        // font y grows up, framebuffer y grows down
                 if (ty < 0 || ty >= fbh) continue;       // row outside the framebuffer
                 if (g_clip_on && (ty < g_clip_y0 || ty >= g_clip_y1))
                     continue;                            // row outside the scissor
 
-                // clip the row horizontally once, in coverage-bitmap space
-                int x0 = 0, x1 = e->w;
+                // clip the tight span to the framebuffer and the scissor
+                int x0 = rx0, x1 = rx1;
                 if (px + x0 < 0)   x0 = -px;             // clip to the left framebuffer edge
                 if (px + x1 > fbw) x1 = fbw - px;        // clip to the right framebuffer edge
                 if (g_clip_on) {
