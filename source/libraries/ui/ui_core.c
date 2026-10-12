@@ -368,6 +368,8 @@ uint64_t ui_visual_hash(Widget* w) {
     fp ^= (uint64_t)(uint32_t)w->focused    <<  2;
     fp ^= (uint64_t)(uint32_t)w->cursor     <<  3;
     fp ^= (uint64_t)(uint32_t)w->sel_anchor << 23;
+    fp ^= (uint64_t)(uint32_t)w->combo_open     <<  5;
+    fp ^= (uint64_t)(uint32_t)w->combo_selected <<  6;
     fp ^= nv_bits;
     fp ^= sy_bits;
     fp ^= ch_bits;
@@ -390,11 +392,14 @@ uint64_t ui_visual_hash(Widget* w) {
     h = hash_bytes64(h, &w->num_value, sizeof(w->num_value));          // slider/progress value
     h = hash_bytes64(h, &w->scroll_y,  sizeof(w->scroll_y));           // scroll offset
     h = hash_bytes64(h, &w->content_h, sizeof(w->content_h));          // scroll content height
+    h = hash_bytes64(h, &w->combo_open,     sizeof(w->combo_open));    // dropdown expanded
+    h = hash_bytes64(h, &w->combo_selected, sizeof(w->combo_selected));// selected option index
 
     // str fields carry a fresh heap copy each rebuild
     h = hash_str_sampled(h, w->text.ptr,        w->text.len);          // label/content
     h = hash_str_sampled(h, w->input_value.ptr, w->input_value.len);   // input text
     h = hash_str_sampled(h, w->group.ptr,       w->group.len);         // radio group name
+    h = hash_str_sampled(h, w->combo_value.ptr, w->combo_value.len);
 
     w->visual_hash_fp    = fp;                                         // publish the memo
     w->visual_hash_cache = h;
@@ -417,7 +422,10 @@ static void snapshot_walk(Widget* w, SnapshotTable* t) {
     e->x    = (int)floorf(w->x + 0.5f) - SNAP_MARGIN;                  // rounded screen x, padded
     e->y    = (int)floorf(w->y + 0.5f) - SNAP_MARGIN;                  // rounded screen y, padded
     e->w    = (int)floorf(w->w + 0.5f) + 2*SNAP_MARGIN;                // rounded screen width, padded
-    e->h    = (int)floorf(w->h + 0.5f) + 2*SNAP_MARGIN;                // rounded screen height, padded
+    int snap_h = (int)floorf(w->h + 0.5f) + 2*SNAP_MARGIN;             // rounded screen height, padded
+    if (w->kind == WK_COMBOBOX && w->combo_open && w->combo_option_count > 0)
+        snap_h += w->combo_option_count * UI_INPUT_H;                  // include the open dropdown
+    e->h = snap_h;
     e->hash = ui_visual_hash(w);                                       // visual-state digest
     for (int i = 0; i < w->child_count; i++) snapshot_walk(w->children[i], t);  // recurse into children
 }
@@ -636,6 +644,7 @@ static const char* widget_kind_name(WidgetKind k) {
         case WK_PROGRESS: return "progress";
         case WK_INPUT: return "input";
         case WK_BADGE: return "badge";
+        case WK_COMBOBOX: return "combobox";
         case WK_SEPARATOR: return "separator";
         case WK_SPACER: return "spacer";
         case WK_VBOX: return "vbox";
@@ -798,6 +807,7 @@ static WidgetKind kind_from_str_n(const char* s, int n) {
     if (STR_EQ(s,n,"progress"))  return WK_PROGRESS;
     if (STR_EQ(s,n,"input"))     return WK_INPUT;
     if (STR_EQ(s,n,"badge"))     return WK_BADGE;
+    if (STR_EQ(s,n,"combobox"))  return WK_COMBOBOX;
     if (STR_EQ(s,n,"separator")) return WK_SEPARATOR;
     if (STR_EQ(s,n,"spacer"))    return WK_SPACER;
     if (STR_EQ(s,n,"vbox"))      return WK_VBOX;
@@ -949,6 +959,66 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
 
     WidgetState* st = ui_state_get(ctx, w->id);             // pull persistent state
 
+    if (w->kind == WK_COMBOBOX) {                           // combobox reads a string value + option list
+        StrView vval;
+        bool has_vval = table_get_str_view(t, ctx->key_cache[UK_VALUE], &vval);
+        if (has_vval) w->combo_value = arena_dup(ctx, vval.ptr, vval.len);
+
+        Value optv;
+        if (table_get(t, ctx->key_cache[UK_OPTIONS], &optv)) {
+            if (IS_TABLE(optv)) {
+                Table* ot = AS_TABLE(optv);
+
+                int n_arr = ot->array_part ? ot->array_count : 0;
+                int n_opts = 0;
+                for (int i = 0; i < n_arr; i++) {           // array part first
+                    if (IS_NONE(ot->array_part[i])) break;
+                    n_opts++;
+                }
+                for (int i = n_arr + 1; ; i++) {            // then numeric hash entries
+                    Value ov;
+                    if (!table_get(ot, MAKE_NUMBER((double)i), &ov)) break;
+                    value_decref(ov);
+                    n_opts++;
+                }
+
+                w->combo_options = (Str*)arena_alloc(ctx, sizeof(Str) * (size_t)(n_opts ? n_opts : 1));
+                w->combo_option_count = 0;
+
+                for (int i = 0; i < n_arr; i++) {           // copy each option into the arena
+                    Value ov = ot->array_part[i];
+                    if (IS_NONE(ov)) break;
+                    if (IS_STRING(ov)) {
+                        StringObject* s = AS_STRING(ov);
+                        w->combo_options[w->combo_option_count++] = arena_dup(ctx, s->chars, s->length);
+                    }
+                }
+                for (int i = n_arr + 1; ; i++) {
+                    Value ov;
+                    if (!table_get(ot, MAKE_NUMBER((double)i), &ov)) break;
+                    if (IS_STRING(ov)) {
+                        StringObject* s = AS_STRING(ov);
+                        w->combo_options[w->combo_option_count++] = arena_dup(ctx, s->chars, s->length);
+                    }
+                    value_decref(ov);
+                }
+            }
+            value_decref(optv);
+        }
+
+        w->combo_selected = -1;                             // resolve which option matches value
+        if (has_vval) {
+            for (int i = 0; i < w->combo_option_count; i++) {
+                if (w->combo_options[i].len == vval.len &&
+                    memcmp(w->combo_options[i].ptr, vval.ptr, (size_t)vval.len) == 0) {
+                    w->combo_selected = i;
+                    break;
+                }
+            }
+        }
+        w->combo_open = st->combo_open;                     // restore persisted open state
+    }
+
     if (w->kind == WK_INPUT) {                              // input widgets own text in the state
         StrView ival;
         bool has_ival = table_get_str_view(t, ctx->key_cache[UK_VALUE_TEXT], &ival);
@@ -1018,7 +1088,7 @@ UiContext* ui_ensure(VM* vm) {
         "__t", "key", "align", "justify", "gap", "padding", "weight",
         "min_width", "max_width", "disabled", "visible", "on_top",
         "width", "height", "content", "label", "checked", "group",
-        "value", "min", "max", "value_text", "children"
+        "value", "min", "max", "value_text", "children", "options"
     };
     for (int i = 0; i < UK_COUNT; i++)
         ctx->key_cache[i] = intern(vm, kKeyNames[i]);
@@ -1248,7 +1318,7 @@ static Widget* hit_test(UiContext* ctx, int x, int y) {
 // returns true if the widget kind participates in keyboard focus
 static bool widget_focusable(WidgetKind k) {
     return k == WK_BUTTON || k == WK_CHECKBOX || k == WK_RADIO ||
-           k == WK_SLIDER || k == WK_INPUT;
+           k == WK_SLIDER || k == WK_INPUT || k == WK_COMBOBOX;
 }
 
 // collects focusable widgets in draw order into a caller-supplied array
@@ -1596,6 +1666,22 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                 }
             }
 
+            // redraw open combobox dropdowns when the cursor moves over their list
+            for (int i = 0; i < ctx->pool_used; i++) {
+                Widget* w = &ctx->pool[i];
+                if (w->kind != WK_COMBOBOX || !w->combo_open || !w->visible) continue;
+                int bx = (int)floorf(w->x + 0.5f);
+                int by = (int)floorf(w->y + 0.5f);
+                int bw = (int)floorf(w->w + 0.5f);
+                int bh = (int)floorf(w->h + 0.5f);
+                int dh = w->combo_option_count * UI_INPUT_H;
+                if (e->x >= bx && e->x < bx + bw &&
+                    e->y >= by + bh && e->y < by + bh + dh) {
+                    ctx->redraw_needed = true;
+                    break;
+                }
+            }
+
             if (ctx->root) {                                      // update hover state
                 Widget* h = hit_test(ctx, e->x, e->y);
                 uint64_t new_hover = h ? h->id : 0;
@@ -1642,6 +1728,45 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
 
                 ctx->input.lmb = true;                        // record button as held
 
+                // an open combobox dropdown captures the click before anything else
+                Widget* open_combo = NULL;
+                for (int i = 0; i < ctx->pool_used; i++) {
+                    Widget* w = &ctx->pool[i];
+                    if (w->kind != WK_COMBOBOX || !w->combo_open || !w->visible) continue;
+                    int bx = (int)floorf(w->x + 0.5f);
+                    int by = (int)floorf(w->y + 0.5f);
+                    int bw = (int)floorf(w->w + 0.5f);
+                    int bh = (int)floorf(w->h + 0.5f);
+                    int dh = w->combo_option_count * UI_INPUT_H;
+                    if (e->x >= bx && e->x < bx + bw && e->y >= by + bh && e->y < by + bh + dh) {
+                        open_combo = w;
+                        break;
+                    }
+                }
+                if (open_combo) {
+                    int by = (int)floorf(open_combo->y + 0.5f);
+                    int bh = (int)floorf(open_combo->h + 0.5f);
+                    int idx = (e->y - by - bh) / UI_INPUT_H;
+                    if (idx >= 0 && idx < open_combo->combo_option_count) {
+                        Str* opt = &open_combo->combo_options[idx];
+                        UiEvent cev; memset(&cev, 0, sizeof(cev));
+                        cev.kind = EV_CHANGE;
+                        cev.widget_id = open_combo->id;
+                        strncpy(cev.widget_type, "combobox", 15);
+                        if (open_combo->key_str) strncpy(cev.key_name, open_combo->key_str, 63);
+                        cev.str_value = (char*)malloc((size_t)opt->len + 1);
+                        memcpy(cev.str_value, opt->ptr, (size_t)opt->len);
+                        cev.str_value[opt->len] = 0;
+                        ui_event_push(ctx, &cev);
+                    }
+                    WidgetState* s = ui_state_get(ctx, open_combo->id);
+                    s->combo_open = false;
+                    open_combo->combo_open = false;
+                    ctx->redraw_needed = true;
+                    ctx->geometry_dirty = true;
+                    break;
+                }
+
                 int tbtn = titlebar_button_at(ctx, e->x, e->y);
                 if (tbtn) {
                     ctx->tb_active = tbtn;
@@ -1651,8 +1776,29 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
 
                 if (ctx->root) {
                     Widget* h = hit_test(ctx, e->x, e->y);
+                    // a click outside any open combobox closes it
+                    for (int i = 0; i < ctx->pool_used; i++) {
+                        Widget* w = &ctx->pool[i];
+                        if (w->kind != WK_COMBOBOX || !w->combo_open) continue;
+                        if (h == w) continue;               // about to toggle this one: leave it
+                        w->combo_open = false;
+                        WidgetState* ws = ui_state_get(ctx, w->id);
+                        ws->combo_open = false;
+                        ctx->geometry_dirty = true;
+                        ctx->redraw_needed = true;
+                    }
                     if (h) {
                         WidgetState* s = ui_state_get(ctx, h->id);
+                        if (h->kind == WK_COMBOBOX) {            // toggle the dropdown
+                            s->combo_open = !s->combo_open;
+                            h->combo_open = s->combo_open;
+                            ctx->focused_id = h->id;
+                            for (int i = 0; i < ctx->pool_used; i++)
+                                ctx->pool[i].focused = (ctx->pool[i].id == ctx->focused_id);
+                            ctx->redraw_needed = true;
+                            ctx->geometry_dirty = true;
+                            break;
+                        }
                         s->pressed = true;                        // mark pressed
                         h->pressed = true;                        // mirror for this frame
                         // focus follows the click
@@ -1994,6 +2140,24 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     for (int i = 0; i < ctx->pool_used; i++)      // reflect on live widgets
                         ctx->pool[i].focused = (ctx->pool[i].id == ctx->focused_id);
                     ctx->redraw_needed = true;
+                }
+            }
+
+            if (e->key == UI_KEY_ESCAPE) {                        // esc closes any open dropdown
+                bool closed = false;
+                for (int i = 0; i < ctx->pool_used; i++) {
+                    Widget* w = &ctx->pool[i];
+                    if (w->kind == WK_COMBOBOX && w->combo_open) {
+                        w->combo_open = false;
+                        WidgetState* s = ui_state_get(ctx, w->id);
+                        s->combo_open = false;
+                        closed = true;
+                    }
+                }
+                if (closed) {
+                    ctx->redraw_needed = true;
+                    ctx->geometry_dirty = true;
+                    break;
                 }
             }
 

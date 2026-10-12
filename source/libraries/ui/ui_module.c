@@ -159,6 +159,25 @@ static Value ctor_input(VM* vm, int argc, Value* argv) {
     return MAKE_TABLE(t);
 }
 
+// builds a combobox widget descriptor
+static Value ctor_combobox(VM* vm, int argc, Value* argv) {
+    Table* t = table_create(8);
+    tset(vm, t, "__t", intern(vm, "combobox"));
+    if (argc >= 1) tset(vm, t, "value", argv[0]);
+    if (argc >= 2) tset(vm, t, "options", argv[1]);
+    if (argc >= 3 && IS_TABLE(argv[2])) {
+        Table* opts = AS_TABLE(argv[2]);
+        int nk; Value* keys = table_keys(opts, &nk);
+        for (int i = 0; i < nk; i++) {
+            Value vv;
+            if (table_get(opts, keys[i], &vv)) { table_set(t, keys[i], vv); value_decref(vv); }
+            value_decref(keys[i]);
+        }
+        free(keys);
+    }
+    return MAKE_TABLE(t);
+}
+
 // builds a progress bar widget descriptor
 static Value ctor_progress(VM* vm, int argc, Value* argv) {
     Table* t = table_create(8);
@@ -268,7 +287,8 @@ bool ui_call_builtin(VM* vm, const char* name, int argc, Value* argv, Value* res
     if (strcmp(name, "ui.radio") == 0)    { *result = ctor_radio(vm, argc, argv); return true; }                // radio option
     if (strcmp(name, "ui.slider") == 0)   { *result = ctor_slider(vm, argc, argv); return true; }               // numeric slider
     if (strcmp(name, "ui.progress") == 0) { *result = ctor_progress(vm, argc, argv); return true; }             // progress bar
-    if (strcmp(name, "ui.input") == 0){ *result = ctor_input(vm, argc, argv); return true; }               // editable text field
+    if (strcmp(name, "ui.input") == 0){ *result = ctor_input(vm, argc, argv); return true; }                    // editable text field
+    if (strcmp(name, "ui.combobox") == 0) { *result = ctor_combobox(vm, argc, argv); return true; }             // dropdown selector
     if (strcmp(name, "ui.spacer") == 0)   { *result = ctor_spacer(vm, argc, argv); return true; }               // flexible gap
 
     if (strcmp(name, "ui.vbox") == 0)   { *result = ui_ctor_container(vm, argc, argv, "vbox"); return true; }    // vertical stack

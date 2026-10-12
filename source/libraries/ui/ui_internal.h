@@ -22,7 +22,7 @@ typedef struct { char* ptr; int len; } Str;
 
 typedef enum {
     WK_TEXT, WK_HEADING, WK_BUTTON, WK_CHECKBOX, WK_RADIO,
-    WK_SLIDER, WK_PROGRESS, WK_INPUT, WK_BADGE,
+    WK_SLIDER, WK_PROGRESS, WK_INPUT, WK_BADGE, WK_COMBOBOX,
     WK_SEPARATOR, WK_SPACER,
     WK_VBOX, WK_HBOX, WK_PANEL, WK_SCROLL, WK_HSCROLL
 } WidgetKind;  // leaf widget kinds then container kinds
@@ -78,6 +78,13 @@ struct Widget {
     double num_value, num_min, num_max;  // slider / progress numeric state
     Str    group;                        // radio group name
 
+    // wk_combobox state
+    Str*   combo_options;                // arena-owned array of option labels
+    int    combo_option_count;           // number of options in the list
+    int    combo_selected;               // index of the selected option, -1 = none
+    Str    combo_value;                  // display text (usually one of the options)
+    bool   combo_open;                   // dropdown expanded this frame
+
     Str    input_value;                  // non-owning view into WidgetState.input_buf for WK_INPUT
     int    cursor;                       // cursor byte offset into input_value
     int    sel_anchor;                   // selection anchor byte offset, -1 = none
@@ -101,6 +108,7 @@ typedef struct {
     double   scroll_y;          // saved scroll offset, animated toward scroll_target
     double   scroll_target;     // offset the smooth scroll animation eases toward
     double   blink_phase;       // cursor blink animation phase
+    bool     combo_open;        // dropdown expanded state persisted across frames
 
     // owned text buffer for wk_input widgets
     char*      input_buf;       // malloc'd, null terminated, or null
@@ -204,7 +212,7 @@ typedef enum {
     UK_T, UK_KEY, UK_ALIGN, UK_JUSTIFY, UK_GAP, UK_PADDING, UK_WEIGHT,
     UK_MIN_WIDTH, UK_MAX_WIDTH, UK_DISABLED, UK_VISIBLE, UK_ON_TOP,
     UK_WIDTH, UK_HEIGHT, UK_CONTENT, UK_LABEL, UK_CHECKED, UK_GROUP,
-    UK_VALUE, UK_MIN, UK_MAX, UK_VALUE_TEXT, UK_CHILDREN,
+    UK_VALUE, UK_MIN, UK_MAX, UK_VALUE_TEXT, UK_CHILDREN, UK_OPTIONS,
     UK_COUNT
 } UiKeyId;
 
