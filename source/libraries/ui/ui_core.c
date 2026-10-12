@@ -2265,8 +2265,31 @@ static void rebuild_and_draw(UiContext* ctx) {
     ui_damage_swap(ctx);
     ctx->redraw_needed = false;                                   // repaint satisfied
 
-    state_gc_mark(ctx, ctx->root);                                // mark reachable state
-    state_gc_sweep(ctx);                                          // drop the rest
+    // state gc is only needed when the tree was actually rebuilt
+    if (!can_reuse) {
+        state_gc_mark(ctx, ctx->root);                            // mark reachable state
+        state_gc_sweep(ctx);                                      // drop the rest
+
+        // clear interaction ids that no longer match a live widget after the rebuild
+        if (ctx->focused_id) {
+            bool found = false;
+            for (int i = 0; i < ctx->pool_used && !found; i++)
+                if (ctx->pool[i].id == ctx->focused_id) found = true;
+            if (!found) ctx->focused_id = 0;
+        }
+        if (ctx->hovered_id) {
+            bool found = false;
+            for (int i = 0; i < ctx->pool_used && !found; i++)
+                if (ctx->pool[i].id == ctx->hovered_id) found = true;
+            if (!found) ctx->hovered_id = 0;
+        }
+        if (ctx->drag_widget_id) {
+            bool found = false;
+            for (int i = 0; i < ctx->pool_used && !found; i++)
+                if (ctx->pool[i].id == ctx->drag_widget_id) found = true;
+            if (!found) ctx->drag_widget_id = 0;
+        }
+    }
 }
 
 // repaints the existing widget tree without rebuilding it
