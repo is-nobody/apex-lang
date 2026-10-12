@@ -883,6 +883,41 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
     }
 }
 
+// 9x9 close icon: two 1px diagonals, no antialiasing
+static const uint8_t k_close_x_9[9][9] = {
+    {255,  0,  0,  0,  0,  0,  0,  0, 255},
+    {  0,255,  0,  0,  0,  0,  0, 255,  0},
+    {  0,  0,255,  0,  0,  0, 255,  0,  0},
+    {  0,  0,  0,255,  0, 255,  0,  0,  0},
+    {  0,  0,  0,  0,255,  0,  0,  0,  0},
+    {  0,  0,  0,255,  0, 255,  0,  0,  0},
+    {  0,  0,255,  0,  0,  0, 255,  0,  0},
+    {  0,255,  0,  0,  0,  0,  0, 255,  0},
+    {255,  0,  0,  0,  0,  0,  0,  0, 255},
+};
+
+// draws the 9x9 close glyph at (ox, oy)
+static void blit_close_x(int ox, int oy, uint32_t c) {
+    int x0 = 0, y0 = 0, x1 = 9, y1 = 9;
+    if (ox + x0 < g_clip_x0) x0 = g_clip_x0 - ox;
+    if (oy + y0 < g_clip_y0) y0 = g_clip_y0 - oy;
+    if (ox + x1 > g_clip_x1) x1 = g_clip_x1 - ox;
+    if (oy + y1 > g_clip_y1) y1 = g_clip_y1 - oy;
+    if (x0 >= x1 || y0 >= y1) return;                 // fully clipped
+
+    uint32_t ca = (c >> 24) & 0xFF;
+    if (!ca) return;                                  // fully transparent color
+    uint32_t sr = (c >> 16) & 0xFF;
+    uint32_t sg = (c >>  8) & 0xFF;
+    uint32_t sb =  c        & 0xFF;
+
+    for (int yy = y0; yy < y1; yy++) {
+        const uint8_t* run = k_close_x_9[yy] + x0;
+        uint32_t* dst = g_pixels + (size_t)(oy + yy) * g_w + (ox + x0);
+        blend_cov_row(dst, run, x1 - x0, ca, sr, sg, sb);
+    }
+}
+
 // paints the custom titlebar across the top of the framebuffer
 void ui_render_titlebar(UiContext* ctx) {
     if (!ctx->custom_chrome) return;                     // feature disabled
@@ -942,10 +977,8 @@ void ui_render_titlebar(UiContext* ctx) {
                 ui_painter_stroke_rect(cx - 5, cy - 2, 8, 8, fg);   // front
             }
         } else {                                         // close: 9-pixel diagonals, no aa
-            for (int k = 0; k < 9; k++) {
-                ui_painter_fill_rect(cx - 4 + k, cy - 4 + k, 1, 1, fg);
-                ui_painter_fill_rect(cx - 4 + k, cy + 4 - k, 1, 1, fg);
-            }
+            // blit a precomputed 9x9 coverage blob in one pass per row
+            blit_close_x(cx - 4, cy - 4, fg);
         }
     }
 
