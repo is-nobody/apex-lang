@@ -1250,22 +1250,20 @@ static int input_hit_offset(UiContext* ctx, Widget* w, float local_x) {
     int n = w->input_value.len;
     if (!ctx->font || n == 0) return 0;
     if (local_x <= 0) return 0;
-    float full = ui_text_measure_cached(ctx, s, n, UI_FS_BODY);
-    if (local_x >= full) return n;                        // past the end: caret at end
 
-    int best = 0;
+    // walk the text one codepoint at a time, measuring each codepoint's
     float prev = 0;
     int i = 0;
     while (i < n) {
         int next = ui_utf8_next(s, i, n);
-        float w2 = ui_text_measure_cached(ctx, s, next, UI_FS_BODY);
-        float mid = (prev + w2) * 0.5f;                   // midpoint of this codepoint
-        if (local_x < mid) return i;                      // clicked left of the midpoint
+        float adv = ui_text_measure_cached(ctx, s + i, next - i, UI_FS_BODY);
+        float w2 = prev + adv;
+        float mid = (prev + w2) * 0.5f;
+        if (local_x < mid) return i;
         i = next;
         prev = w2;
-        best = i;
     }
-    return best;
+    return n;
 }
 
 // finds the [start, end) byte range of the word containing pos
