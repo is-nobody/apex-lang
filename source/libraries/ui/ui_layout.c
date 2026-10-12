@@ -36,6 +36,9 @@ static void push_line(Widget* w, int start, int end) {
 // measures a string, wrapping on spaces to fit max_w, and stores the resulting
 static float wrap_measure(UiContext* ctx, Widget* w, const char* s, int len,
                           float size, float max_w, int* out_lines) {
+    // wrap_measure is called once per text widget per layout
+    w->line_count = 0;
+
     if (!ctx->font) {                            // no font: rough estimate, single line
         if (out_lines) *out_lines = 1;
         push_line(w, 0, len);

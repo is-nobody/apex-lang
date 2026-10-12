@@ -225,6 +225,17 @@ static void state_gc_sweep(UiContext* ctx) {
 
 // appends an event to the pending event queue
 void ui_event_push(UiContext* ctx, const UiEvent* ev) {
+    if (ev->kind == EV_CHANGE && ev->widget_id != 0) {
+        for (int i = 0; i < ctx->queue.count; i++) {
+            UiEvent* q = &ctx->queue.events[i];
+            if (q->kind == EV_CHANGE && q->widget_id == ev->widget_id) {
+                free(q->str_value);            // release the superseded payload
+                *q = *ev;                      // take ownership of the new one
+                return;
+            }
+        }
+    }
+
     if (ctx->queue.count >= ctx->queue.cap) {             // event queue is full
         ctx->queue.cap = ctx->queue.cap ? ctx->queue.cap * 2 : 32;  // start at 32, then double
         ctx->queue.events = (UiEvent*)realloc(ctx->queue.events,
@@ -1465,10 +1476,20 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     if (ctx->hovered_id) {                        // clear the outgoing widget
                         WidgetState* old = ui_state_get(ctx, ctx->hovered_id);
                         old->hovered = false;
+                        for (int i = 0; i < ctx->pool_used; i++)
+                            if (ctx->pool[i].id == ctx->hovered_id) {
+                                ctx->pool[i].hovered = false;
+                                break;
+                            }
                     }
                     if (new_hover) {                              // mark the incoming widget
                         WidgetState* s = ui_state_get(ctx, new_hover);
                         s->hovered = true;
+                        for (int i = 0; i < ctx->pool_used; i++)
+                            if (ctx->pool[i].id == new_hover) {
+                                ctx->pool[i].hovered = true;
+                                break;
+                            }
                     }
                     ctx->hovered_id = new_hover;
                     ctx->redraw_needed = true;
@@ -1506,9 +1527,12 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     if (h) {
                         WidgetState* s = ui_state_get(ctx, h->id);
                         s->pressed = true;                        // mark pressed
+                        h->pressed = true;                        // mirror for this frame
                         // focus follows the click
                         if (widget_focusable(h->kind)) ctx->focused_id = h->id;
                         else                           ctx->focused_id = 0;
+                        for (int i = 0; i < ctx->pool_used; i++)  // mirror focus to live widgets
+                            ctx->pool[i].focused = (ctx->pool[i].id == ctx->focused_id);
 
                         // clicking inside a text input places the caret
                         if (h->kind == WK_INPUT) {
@@ -1614,6 +1638,7 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     double max = sc->content_h - sc->h;           // max scrollable offset
                     if (max < 0) max = 0;
                     if (s->scroll_y > max) s->scroll_y = max;     // clamp to bottom
+                    sc->scroll_y = s->scroll_y;                   // mirror to widget for this frame
                     ctx->redraw_needed = true;
                 } else {                                          // no container: emit raw scroll event
                     UiEvent ev; memset(&ev, 0, sizeof(ev));
@@ -1999,42 +2024,124 @@ Value ui_impl_render(VM* vm, int argc, Value* argv) {
     return MAKE_NONE();
 }
 
+// mixes a descriptor Value into the running hash
+static uint64_t hash_descr_value(UiContext* ctx, uint64_t h, Value v);
+
+// recursive hash of a descriptor tree
+static uint64_t hash_descr_table(UiContext* ctx, uint64_t h, Table* t) {
+    // hash array-style numeric keys 1..N first
+    for (int j = 1; ; j++) {
+        Value v;
+        if (!table_get(t, MAKE_NUMBER((double)j), &v)) break;
+        uint64_t idx = (uint64_t)j;
+        h = hash_bytes64(h, &idx, sizeof(idx));
+        h = hash_descr_value(ctx, h, v);
+        value_decref(v);
+    }
+
+    for (int i = 0; i < UK_COUNT; i++) {
+        Value v;
+        if (!table_get(t, ctx->key_cache[i], &v)) continue;
+        h = hash_bytes64(h, &i, sizeof(i));
+        if (i == UK_CHILDREN && IS_TABLE(v)) {
+            Table* ct = AS_TABLE(v);
+            Value probe;
+            int count = 0;
+            if (table_get(ct, MAKE_NUMBER(1.0), &probe)) {
+                value_decref(probe);
+                for (int j = 1; ; j++) {
+                    Value cv;
+                    if (!table_get(ct, MAKE_NUMBER((double)j), &cv)) break;
+                    h = hash_descr_value(ctx, h, cv);
+                    value_decref(cv);
+                    count++;
+                }
+            } else {
+                h = hash_descr_value(ctx, h, v);
+                count = 1;
+            }
+            h = hash_bytes64(h, &count, sizeof(count));
+        } else {
+            h = hash_descr_value(ctx, h, v);
+        }
+        value_decref(v);
+    }
+    return h;
+}
+
+static uint64_t hash_descr_value(UiContext* ctx, uint64_t h, Value v) {
+    if (IS_TABLE(v))       return hash_descr_table(ctx, h, AS_TABLE(v));
+    if (IS_STRING(v)) {
+        StringObject* s = AS_STRING(v);
+        return hash_str_sampled(h, s->chars, s->length);
+    }
+    if (IS_NUMBER(v)) { double d = AS_NUMBER(v); return hash_bytes64(h, &d, sizeof(d)); }
+    if (IS_BOOL(v))   { bool b = AS_BOOL(v);    return hash_bytes64(h, &b, sizeof(b)); }
+    return hash_bytes64(h, &v, sizeof(v));                  // none, function, etc.
+}
+
+// public wrapper: hash a whole descriptor Value
+static uint64_t hash_descr_recursive(UiContext* ctx, Value descr) {
+    return hash_descr_value(ctx, 0xCBF29CE484222325ULL, descr);
+}
+
 // rebuilds the widget tree from the last descriptor and paints it
 static void rebuild_and_draw(UiContext* ctx) {
-    ui_widgets_reset(ctx);                                        // drop the previous tree
-    if (ctx->has_tree) {
-        if (IS_TABLE(ctx->last_tree)) {
-            Table* t = AS_TABLE(ctx->last_tree);
-            Value first;
-            if (table_get(t, MAKE_NUMBER(1.0), &first)) {         // array-style: multiple root children
-                value_decref(first);
-                Widget* root = ui_widget_alloc(ctx);              // synthesize a vbox root
-                root->kind = WK_VBOX;
-                root->id = ui_hash_id(0, "__root__", 0);
-                root->padding = UI_PAD_SCREEN;
-                root->gap = UI_GAP;
-                for (int i = 1; ; i++) {                          // walk 1-based array children
-                    Value vv;
-                    if (!table_get(t, MAKE_NUMBER((double)i), &vv)) break;
-                    Widget* ch = ui_build_tree(ctx, vv, root, i - 1);
-                    if (ch) widget_add_child(root, ch);
-                    value_decref(vv);
-                }
-                ctx->root = root;
-            } else {                                              // single descriptor root
-                ctx->root = ui_build_tree(ctx, ctx->last_tree, NULL, 0);
-            }
+    // decide whether we can reuse the tree from the previous frame
+    bool can_reuse = false;
+    uint64_t new_hash = 0;
+
+    if (ctx->has_tree && ctx->descr_hash_valid && ctx->root)
+    {
+        if (ctx->last_tree == ctx->hashed_tree) {
+            new_hash = ctx->last_descr_hash;                      // same Value, cached hash
         } else {
-            ctx->root = ui_build_tree(ctx, ctx->last_tree, NULL, 0);  // non-table descriptor
+            new_hash = hash_descr_recursive(ctx, ctx->last_tree);
         }
+        if (new_hash == ctx->last_descr_hash) can_reuse = true;
     }
-    if (!ctx->root) {                                             // no tree: synthesize an empty root
-        Widget* root = ui_widget_alloc(ctx);
-        root->kind = WK_VBOX;
-        root->id = ui_hash_id(0, "__root__", 0);
-        root->padding = UI_PAD_SCREEN;
-        ctx->root = root;
+
+    if (!can_reuse) {
+        ui_widgets_reset(ctx);                                    // drop the previous tree
+        if (ctx->has_tree) {
+            if (IS_TABLE(ctx->last_tree)) {
+                Table* t = AS_TABLE(ctx->last_tree);
+                Value first;
+                if (table_get(t, MAKE_NUMBER(1.0), &first)) {     // array-style: multiple root children
+                    value_decref(first);
+                    Widget* root = ui_widget_alloc(ctx);          // synthesize a vbox root
+                    root->kind = WK_VBOX;
+                    root->id = ui_hash_id(0, "__root__", 0);
+                    root->padding = UI_PAD_SCREEN;
+                    root->gap = UI_GAP;
+                    for (int i = 1; ; i++) {                      // walk 1-based array children
+                        Value vv;
+                        if (!table_get(t, MAKE_NUMBER((double)i), &vv)) break;
+                        Widget* ch = ui_build_tree(ctx, vv, root, i - 1);
+                        if (ch) widget_add_child(root, ch);
+                        value_decref(vv);
+                    }
+                    ctx->root = root;
+                } else {                                          // single descriptor root
+                    ctx->root = ui_build_tree(ctx, ctx->last_tree, NULL, 0);
+                }
+            } else {
+                ctx->root = ui_build_tree(ctx, ctx->last_tree, NULL, 0);  // non-table descriptor
+            }
+        }
+        if (!ctx->root) {                                         // no tree: synthesize an empty root
+            Widget* root = ui_widget_alloc(ctx);
+            root->kind = WK_VBOX;
+            root->id = ui_hash_id(0, "__root__", 0);
+            root->padding = UI_PAD_SCREEN;
+            ctx->root = root;
+        }
+        // remember what we just built so the next frame can compare
+        ctx->last_descr_hash = new_hash;
+        ctx->hashed_tree     = ctx->last_tree;
+        ctx->descr_hash_valid = true;
     }
+
     int top = ctx->custom_chrome ? UI_TITLEBAR_H : 0;             // reserve room for the titlebar
     ctx->root->x = 0;
     ctx->root->y = (float)top;

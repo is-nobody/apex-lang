@@ -274,11 +274,17 @@ void ui_window_resize(UiWindow* w, int nw, int nh) {
 
 // blits the current framebuffer to the window
 void ui_window_present(UiWindow* w) {
-    if (w->shm_ok) XShmPutImage(w->dpy, w->win, w->gc, w->img, 0,0,0,0,
-                                (unsigned)w->w, (unsigned)w->h, False);  // shm fast path
-    else XPutImage(w->dpy, w->win, w->gc, w->img, 0,0,0,0,
-                   (unsigned)w->w, (unsigned)w->h);                      // plain blit
-    XFlush(w->dpy);                                      // ensure the server sees it now
+    if (w->shm_ok) {
+        XShmPutImage(w->dpy, w->win, w->gc, w->img, 0,0,0,0,
+                     (unsigned)w->w, (unsigned)w->h, False);
+        // XShmPutImage is asynchronous
+        XSync(w->dpy, False);
+    } else {
+        XPutImage(w->dpy, w->win, w->gc, w->img, 0,0,0,0,
+                  (unsigned)w->w, (unsigned)w->h);
+        // XPutImage copies the pixels into the request body itself
+        XFlush(w->dpy);
+    }
 }
 
 // blocks until the server has input, or until the timeout expires

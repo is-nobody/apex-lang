@@ -206,6 +206,11 @@ typedef struct UiContext {
     bool  has_tree;             // true when last_tree holds a live reference
     Value key_cache[UK_COUNT];  // borrowed interned field names
 
+    // hash-guard for skipping the full tree rebuild when the descriptor tree hasn't changed
+    uint64_t last_descr_hash;   // recursive hash of the descriptor tree last built
+    Value    hashed_tree;       // the Value that last_descr_hash was computed for
+    bool     descr_hash_valid;  // false until the first successful rebuild
+
     Widget* root;               // root of the current widget tree
 
     InputState input;           // current pointer and modifier state
