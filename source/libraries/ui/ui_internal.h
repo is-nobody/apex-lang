@@ -139,7 +139,7 @@ typedef struct {
 
 typedef enum {
     EV_NONE, EV_CLOSE, EV_CLICK, EV_CHANGE, EV_KEY, EV_SCROLL,
-    EV_HOVER, EV_RESIZE
+    EV_HOVER, EV_RESIZE, EV_DIALOG
 } EventKind;  // event kind discriminator
 
 typedef struct {
@@ -216,6 +216,77 @@ typedef enum {
     UK_COUNT
 } UiKeyId;
 
+// modal dialog
+typedef struct {
+    char*  key;            // field key (heap-owned)
+    char*  label;          // caption above the input (heap-owned)
+    char*  placeholder;    // placeholder text (heap-owned)
+    char*  input;          // editable buffer (heap-owned)
+    int    input_len;      // byte length
+    int    input_cap;      // allocated capacity
+    int    cursor;         // caret byte offset
+} UiDialogField;
+
+typedef struct {
+    char*  id;             // action id emitted to the script (heap-owned)
+    char*  label;          // button caption (heap-owned)
+    bool   primary;        // render as the accent-filled button
+} UiDialogButton;
+
+typedef struct {
+    bool            active;         // true while a dialog is on screen
+    char*           key;            // script-visible id (heap-owned)
+    char*           title;          // heading (heap-owned)
+    char*           message;        // body text (heap-owned)
+
+    UiDialogField*  fields;         // dynamic array of text fields
+    int             field_count;
+    int             field_cap;
+
+    UiDialogButton* buttons;        // dynamic array of buttons
+    int             button_count;
+    int             button_cap;
+
+    int             hover_btn;      // hovered button index, -1 = none
+    int             active_btn;     // pressed button index, -1 = none
+    int             focused_field;  // focused field index, -1 = none
+    double          blink_phase;    // caret blink phase
+
+    double          anim_t;         // 0 = hidden, 1 = fully visible
+    bool            closing;        // fading out toward anim_t == 0
+    int             pending_btn;    // button chosen at close time
+} UiDialog;
+
+// dialog geometry, recomputed every frame
+typedef struct {
+    int bx, by, bw, bh;             // dialog box
+    int tx, ty;                     // title baseline
+    int mx, my;                     // message origin (first baseline)
+    int field_y;                    // absolute y of the first field row
+    int field_row_h;                // total height of one field row
+    int input_w;                    // width of the input widgets
+    int button_y;                   // y of the button row
+    int button_h;                   // height of a button
+    int btn_x[16];                  // per-button x
+    int btn_w[16];                  // per-button width
+    int btn_count;                  // number of live buttons
+} UiDialogGeom;
+
+// dialog box metrics, shared with ui_render.c
+#define DLG_PAD        26
+#define DLG_RADIUS      8
+#define DLG_TITLE_FS   20
+#define DLG_BODY_FS    13
+#define DLG_LABEL_FS   11
+#define DLG_BTN_H      32
+#define DLG_BTN_PAD    16
+#define DLG_BTN_GAP    10
+#define DLG_INPUT_H    32
+#define DLG_WIDTH     460
+#define DLG_LINE_H     21
+#define DLG_OPEN_SEC   0.14
+#define DLG_CLOSE_SEC  0.10
+
 // one block of the per-frame string arena
 typedef struct UiArenaBlock {
     struct UiArenaBlock* next;   // older block, or null
@@ -267,6 +338,8 @@ typedef struct UiContext {
     StateMap   state;           // persistent per-widget state across frames
     EventQueue queue;           // pending events awaiting the script
 
+    UiDialog   dialog;          // active modal dialog, kind = ui_dlg_none when idle
+
     UiFont*    font;            // loaded font used for text rendering
     int        font_size;       // font size in pixels
 
@@ -299,6 +372,22 @@ typedef struct UiContext {
     int               wrap_cache_count;   // live entries
     int               wrap_cache_cap;     // allocated capacity of the array
 } UiContext;                    // per-vm ui session state
+
+// reads a string field from a table, returns a heap copy or null on miss
+char* table_get_str_dup(VM* vm, Table* t, const char* key);
+
+// releases every heap allocation owned by the dialog and resets it
+void dialog_clear(UiDialog* d);
+
+// begin / append / commit pair used by ui_module.c to fill the dialog
+void dialog_begin(UiContext* ctx, const char* key, const char* title, const char* message);
+void dialog_add_field(UiContext* ctx, const char* field_key, const char* label,
+                      const char* placeholder, const char* def);
+void dialog_add_button(UiContext* ctx, const char* id, const char* label, bool primary);
+void dialog_commit(UiContext* ctx);
+
+// fills g with the current dialog's geometry; safe when !active
+void ui_dialog_geom(UiContext* ctx, UiDialogGeom* g);
 
 // lazily create the ui context on the vm
 UiContext* ui_ensure(VM* vm);
