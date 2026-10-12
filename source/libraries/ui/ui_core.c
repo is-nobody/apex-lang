@@ -523,36 +523,42 @@ void ui_damage_finalize(UiContext* ctx) {
 
     qsort(ctx->damage, (size_t)n, sizeof(DamageRect), cmp_damage_x);
 
-    bool changed = true;
-    while (changed) {
-        changed = false;
-        for (int i = 0; i < n; i++) {
-            DamageRect* a = &ctx->damage[i];
-            if (a->w <= 0) continue;                       // tombstone from a previous pass
-            int a_right = a->x + a->w;
-            for (int j = i + 1; j < n; j++) {
-                DamageRect* b = &ctx->damage[j];
-                if (b->w <= 0) continue;                   // tombstone
-                if (b->x >= a_right) break;                // sorted: nothing further can overlap
-                if (rects_overlap(a, b)) {
-                    rect_union(a, a, b);                   // fold b into a
-                    a_right = a->x + a->w;                 // grow the running right edge
-                    b->w = 0;                              // tombstone: compacted below
-                    changed = true;
+    int out = 0;                                           // number of live entries in [0, out)
+    for (int i = 0; i < n; i++) {
+        DamageRect r = ctx->damage[i];
+        if (r.w <= 0 || r.h <= 0) continue;                // skip degenerate input
+
+        // repeatedly absorb any live output rect that overlaps r
+        bool merged_any = false;
+        bool progress   = true;
+        while (progress) {
+            progress = false;
+            for (int j = 0; j < out; j++) {
+                DamageRect* o = &ctx->damage[j];
+                if (o->w <= 0) continue;                   // tombstone from an earlier merge
+                if (rects_overlap(o, &r)) {
+                    rect_union(o, o, &r);                  // o becomes the bounding box
+                    r = *o;                                // r absorbs it
+                    o->w = 0;                              // tombstone: compacted below
+                    progress   = true;
+                    merged_any = true;
+                    break;                                 // rescan from the top
                 }
             }
         }
-        if (!changed) break;
 
-        int out = 0;                                       // compact tombstones in place
-        for (int i = 0; i < n; i++)
-            if (ctx->damage[i].w > 0)
-                ctx->damage[out++] = ctx->damage[i];
-        n = out;
+        // compact tombstones before appending
+        if (merged_any) {
+            int w = 0;
+            for (int j = 0; j < out; j++)
+                if (ctx->damage[j].w > 0)
+                    ctx->damage[w++] = ctx->damage[j];
+            out = w;
+        }
 
-        qsort(ctx->damage, (size_t)n, sizeof(DamageRect), cmp_damage_x);  // re-sort after unions
+        ctx->damage[out++] = r;                            // publish the merged rect
     }
-    ctx->damage_count = n;
+    ctx->damage_count = out;
 }
 
 // swap cur/prev snapshots so the next frame diffs against this one
