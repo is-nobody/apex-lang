@@ -227,9 +227,10 @@ typedef struct UiContext {
     uint64_t   focused_id;      // widget id with keyboard focus, 0 for none
     uint64_t   drag_widget_id;  // widget currently being dragged (slider or input)
     uint64_t   hovered_id;      // widget id currently hovered, 0 = none; invariant:
-                                // at most one state entry has hovered=true
 
     HitGrid    hit_grid;        // uniform grid for hit testing, rebuilt by ui_layout
+    bool       hit_grid_valid;  // false after pool reset; set true by hit_grid_build
+    uint32_t   geom_gen;        // bumped by arrange whenever any widget box changes
 
     // double-click detection
     double     last_click_time; // wall clock of the previous click

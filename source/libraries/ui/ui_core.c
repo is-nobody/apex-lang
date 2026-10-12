@@ -76,7 +76,7 @@ void ui_widgets_reset(UiContext* ctx) {
     ctx->pool_used = 0;                                   // reset pool cursor
     ctx->root = NULL;                                     // drop tree root
     ctx->geometry_dirty = true;                           // fresh tree needs a layout pass
-    if (ctx->font) ui_font_tick(ctx->font);               // age out cold glyphs
+    ctx->hit_grid_valid = false;                          // grid holds pointers into the old tree
 
     // bulk-free text/group/key_str by releasing every arena block
     UiArenaBlock* ab = ctx->arena;
@@ -1129,7 +1129,9 @@ void hit_grid_build(UiContext* ctx, Widget* root) {
         g->win_w = ww;
         g->win_h = wh;
     }
-    if (!root || !g->cell_start) return;
+    if (!g->cell_start) return;                           // allocation failed: leave the flag clear
+    ctx->hit_grid_valid = true;                           // grid memory is live and shaped for this window
+    if (!root) return;                                    // empty tree: nothing to fill in
 
     // pass 1: per-cell counts
     hit_grid_count(root, 0, 0, ww, wh, g->cell_start, cols);

@@ -183,6 +183,9 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
 
 // assigns final geometry to a widget and lays out its children
 static void arrange(UiContext* ctx, Widget* w, float x, float y, float width, float height) {
+    // a widget that keeps its exact box from the previous layout does not invalidate the hit-test grid
+    if (w->x != x || w->y != y || w->w != width || w->h != height)
+        ctx->geom_gen++;
     w->x = x; w->y = y; w->w = width; w->h = height;     // commit this widget's box
     if (!w->visible) return;                             // nothing more to do
 
@@ -350,7 +353,10 @@ void ui_layout(UiContext* ctx) {
         ctx->root->meas_w = rw;
         ctx->root->meas_h = rh;
     }
+    uint32_t gen0 = ctx->geom_gen;                       // snapshot the geometry generation
     arrange(ctx, ctx->root, rx, ry, rw, rh);             // top-down placement
     compute_subtree_bbox(ctx->root);                     // aggregate bboxes for the damage reject
-    hit_grid_build(ctx, ctx->root);                      // refresh the uniform hit-test grid
+    // only rebuild the grid when the tree was reset
+    if (!ctx->hit_grid_valid || ctx->geom_gen != gen0)
+        hit_grid_build(ctx, ctx->root);                  // refresh the uniform hit-test grid
 }
