@@ -238,6 +238,7 @@ typedef struct UiContext {
 
     bool       redraw_needed;   // set when the tree must be re-laid out and painted
     bool       quit_requested;  // set when the ui should shut down
+    bool       geometry_dirty;  // true when ui_layout must run before the next paint
 
     SnapshotTable snap_cur;     // widgets laid out this frame
     SnapshotTable snap_prev;    // widgets laid out in the previous frame

@@ -762,7 +762,7 @@ float ui_text_draw(UiFont* f, uint32_t* fb, int fbw, int fbh,
     while (i < n) {
         int adv; uint32_t cp = decode_cp(s + i, n - i, &adv);  // decode one codepoint
         i += adv;
-        uint16_t gid = glyph_index(f, cp);               // map to a glyph
+        uint16_t gid = glyph_index_cached(f, cp);        // map to a glyph (O(1) for BMP after first touch)
         CacheEntry* e = glyph_get(f, gid, size_q);       // fetch or rasterize the bitmap
         if (e->w > 0) {                                  // bitmap present
             int px = (int)floorf(pen + 0.5f) + e->off_x; // left edge in framebuffer space

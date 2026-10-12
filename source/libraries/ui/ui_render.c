@@ -269,6 +269,34 @@ static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
 }
 #endif
 
+// simd row fillers for the opaque path: one store per lane, no blending
+#ifdef UI_HAVE_AVX2
+static inline void fill_row_simd(uint32_t* row, int n, uint32_t color) {
+    __m256i v = _mm256_set1_epi32((int)color);
+    int i = 0;
+    for (; i + 8 <= n; i += 8) _mm256_storeu_si256((__m256i*)(row + i), v);
+    for (; i < n; i++) row[i] = color;
+}
+#elif defined(UI_HAVE_SSE2)
+static inline void fill_row_simd(uint32_t* row, int n, uint32_t color) {
+    __m128i v = _mm_set1_epi32((int)color);
+    int i = 0;
+    for (; i + 4 <= n; i += 4) _mm_storeu_si128((__m128i*)(row + i), v);
+    for (; i < n; i++) row[i] = color;
+}
+#elif defined(UI_HAVE_NEON)
+static inline void fill_row_simd(uint32_t* row, int n, uint32_t color) {
+    uint32x4_t v = vdupq_n_u32(color);
+    int i = 0;
+    for (; i + 4 <= n; i += 4) vst1q_u32(row + i, v);
+    for (; i < n; i++) row[i] = color;
+}
+#else
+static inline void fill_row_simd(uint32_t* row, int n, uint32_t color) {
+    for (int i = 0; i < n; i++) row[i] = color;
+}
+#endif
+
 // fills an axis-aligned rectangle with the given color
 void ui_painter_fill_rect(int x, int y, int w, int h, uint32_t c) {
     if (w <= 0 || h <= 0) return;                       // degenerate rectangle
@@ -290,7 +318,7 @@ void ui_painter_fill_rect(int x, int y, int w, int h, uint32_t c) {
         uint32_t color = 0xFF000000u | (c & 0x00FFFFFFu);
         for (int yy = y0; yy < y1; yy++) {
             uint32_t* row = g_pixels + (size_t)yy * g_w + x0;
-            for (int i = 0; i < rw; i++) row[i] = color;
+            fill_row_simd(row, rw, color);
         }
         return;
     }

@@ -80,6 +80,7 @@ void ui_widgets_reset(UiContext* ctx) {
     }
     ctx->pool_used = 0;                                   // reset pool cursor
     ctx->root = NULL;                                     // drop tree root
+    ctx->geometry_dirty = true;                           // fresh tree needs a layout pass
 
     // bulk-free text/group/key_str by releasing every arena block
     UiArenaBlock* ab = ctx->arena;
@@ -1350,6 +1351,7 @@ static void push_input_change(UiContext* ctx, Widget* w, const char* str_val) {
     ev.str_value = (char*)malloc(strlen(str_val) + 1);            // own a copy of the new text
     memcpy(ev.str_value, str_val, strlen(str_val) + 1);
     ui_event_push(ctx, &ev);                                      // enqueue the change
+    ctx->geometry_dirty = true;                                   // input width may have changed
 }
 
 // hit test for titlebar buttons: 0 none, 1 min, 2 max, 3 close
@@ -1421,6 +1423,7 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
             ctx->pixels = ui_window_pixels(ctx->window);          // refresh pixel buffer
             ctx->win_w = e->w;                                    // new width from the event
             ctx->win_h = e->h;                                    // new height from the event
+            ctx->geometry_dirty = true;                           // root rect changed: relayout
             UiEvent ev; memset(&ev, 0, sizeof(ev));
             ev.kind = EV_RESIZE;
             ev.num_value = e->w;                                  // pack new width in num_value
@@ -1653,6 +1656,7 @@ static void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     if (max < 0) max = 0;
                     if (s->scroll_y > max) s->scroll_y = max;     // clamp to bottom
                     sc->scroll_y = s->scroll_y;                   // mirror to widget for this frame
+                    ctx->geometry_dirty = true;                   // children positions changed
                     ctx->redraw_needed = true;
                 } else {                                          // no container: emit raw scroll event
                     UiEvent ev; memset(&ev, 0, sizeof(ev));
@@ -2161,7 +2165,10 @@ static void rebuild_and_draw(UiContext* ctx) {
     ctx->root->y = (float)top;
     ctx->root->w = (float)ctx->win_w;
     ctx->root->h = (float)(ctx->win_h - top);
-    ui_layout(ctx);                                               // compute widget geometry
+    if (ctx->geometry_dirty) {                                    // skip when nothing moved
+        ui_layout(ctx);                                           // compute widget geometry
+        ctx->geometry_dirty = false;
+    }
 
     // snapshot the freshly laid-out tree, diff against the previous frame to compute damage
     ui_snapshot_capture(ctx, ctx->root);
@@ -2192,7 +2199,10 @@ static void redraw_only(UiContext* ctx) {
     ctx->root->w = (float)ctx->win_w;
     ctx->root->h = (float)(ctx->win_h - top);
 
-    ui_layout(ctx);                                               // recompute geometry
+    if (ctx->geometry_dirty) {                                    // skip when nothing moved
+        ui_layout(ctx);                                           // recompute geometry
+        ctx->geometry_dirty = false;
+    }
     ui_render_frame(ctx);                                         // redraw into the pixel buffer
     ui_window_present(ctx->window);                               // blit to the screen
     ctx->redraw_needed = false;                                   // repaint satisfied
@@ -2200,13 +2210,15 @@ static void redraw_only(UiContext* ctx) {
 
 // host window paint hook: refreshes buffers and repaints the existing tree
 static void ui_window_paint_cb(void* user, int w, int h) {
-    (void)w; (void)h;                                             // sizes read from the window itself
     UiContext* ctx = (UiContext*)user;
     if (!ctx || !ctx->window) return;                             // nothing to paint
 
     ctx->pixels = ui_window_pixels(ctx->window);                  // refresh pixel buffer
-    ctx->win_w = ui_window_width(ctx->window);                    // refresh window size
-    ctx->win_h = ui_window_height(ctx->window);
+    if (w != ctx->win_w || h != ctx->win_h) {                     // client rect changed under us
+        ctx->win_w = w;
+        ctx->win_h = h;
+        ctx->geometry_dirty = true;
+    }
 
     redraw_only(ctx);                                             // repaint the current tree
 }
