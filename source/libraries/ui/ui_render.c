@@ -106,24 +106,139 @@ static inline void blend_px(int x, int y, uint32_t c) {
     g_pixels[idx] = 0xFF000000u | (r<<16) | (g<<8) | b;
 }
 
-// alpha-blends a pixel using an extra coverage factor for antialiased edges
-static inline void blend_px_cov(int x, int y, uint32_t c, int cov) {
-    if (cov <= 0) return;                               // no coverage: skip
-    if (cov >= 255) { blend_px(x, y, c); return; }      // full coverage: delegate
-    if ((unsigned)x >= (unsigned)g_clip_x1 || x < g_clip_x0) return;
-    if ((unsigned)y >= (unsigned)g_clip_y1 || y < g_clip_y0) return;
-    uint32_t idx = (uint32_t)y * g_w + x;               // linear pixel index
-    uint32_t ca = (c >> 24) & 0xFF;                     // source alpha
-    uint32_t sa = (ca * (uint32_t)cov + 128) >> 8;      // combined alpha, branchless
-    if (!sa) return;                                    // fully transparent after coverage
-    uint32_t inv = 255 - sa;                            // destination weight
-    uint32_t d  = g_pixels[idx];
-    uint32_t dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
-    uint32_t sr = (c >> 16) & 0xFF, sg = (c >> 8) & 0xFF, sb = c & 0xFF;
-    uint32_t r = (sr*sa + dr*inv + 128) >> 8;
-    uint32_t g = (sg*sa + dg*inv + 128) >> 8;
-    uint32_t b = (sb*sa + db*inv + 128) >> 8;
-    g_pixels[idx] = 0xFF000000u | (r<<16) | (g<<8) | b;
+// blends one run of coverage bytes onto the framebuffer with a solid color
+static void blend_cov_row(uint32_t* dst, const uint8_t* cov, int n,
+                          uint32_t ca, uint32_t sr, uint32_t sg, uint32_t sb) {
+    if (ca == 0 || n <= 0) return;
+    const bool opaque_ca = (ca == 255);
+
+    int i = 0;
+
+#if defined(UI_HAVE_AVX2)
+    const __m256i v_sr   = _mm256_set1_epi32((int)sr);
+    const __m256i v_sg   = _mm256_set1_epi32((int)sg);
+    const __m256i v_sb   = _mm256_set1_epi32((int)sb);
+    const __m256i v_ca   = _mm256_set1_epi32((int)ca);
+    const __m256i v_255  = _mm256_set1_epi32(255);
+    const __m256i v_128  = _mm256_set1_epi32(128);
+    const __m256i v_ff   = _mm256_set1_epi32(0xFF);
+    const __m256i v_aa   = _mm256_set1_epi32((int)0xFF000000u);
+    const __m256i v_zero = _mm256_setzero_si256();
+
+    for (; i + 8 <= n; i += 8) {
+        __m128i cov8 = _mm_loadl_epi64((const __m128i*)(cov + i));
+        __m256i cv   = _mm256_cvtepu8_epi32(cov8);
+
+        __m256i sa;
+        if (opaque_ca) {
+            sa = cv;
+        } else {
+            sa = _mm256_srli_epi32(
+                     _mm256_add_epi32(_mm256_mullo_epi16(cv, v_ca), v_128), 8);
+        }
+        __m256i inv = _mm256_sub_epi32(v_255, sa);
+
+        __m256i d  = _mm256_loadu_si256((const __m256i*)(dst + i));
+        __m256i dr = _mm256_and_si256(_mm256_srli_epi32(d, 16), v_ff);
+        __m256i dg = _mm256_and_si256(_mm256_srli_epi32(d,  8), v_ff);
+        __m256i db = _mm256_and_si256(d,                         v_ff);
+
+        __m256i r = _mm256_srli_epi32(
+            _mm256_add_epi32(
+                _mm256_add_epi32(_mm256_mullo_epi16(v_sr, sa),
+                                 _mm256_mullo_epi16(dr, inv)),
+                v_128), 8);
+        __m256i g = _mm256_srli_epi32(
+            _mm256_add_epi32(
+                _mm256_add_epi32(_mm256_mullo_epi16(v_sg, sa),
+                                 _mm256_mullo_epi16(dg, inv)),
+                v_128), 8);
+        __m256i b = _mm256_srli_epi32(
+            _mm256_add_epi32(
+                _mm256_add_epi32(_mm256_mullo_epi16(v_sb, sa),
+                                 _mm256_mullo_epi16(db, inv)),
+                v_128), 8);
+
+        __m256i out = _mm256_or_si256(v_aa,
+            _mm256_or_si256(_mm256_slli_epi32(r, 16),
+                            _mm256_or_si256(_mm256_slli_epi32(g, 8), b)));
+
+        __m256i skip = _mm256_cmpeq_epi32(sa, v_zero);
+        out = _mm256_blendv_epi8(out, d, skip);
+
+        _mm256_storeu_si256((__m256i*)(dst + i), out);
+    }
+#endif
+
+#if defined(UI_HAVE_AVX2) || defined(UI_HAVE_SSE2)
+    const __m128i v_sr4  = _mm_set1_epi32((int)sr);
+    const __m128i v_sg4  = _mm_set1_epi32((int)sg);
+    const __m128i v_sb4  = _mm_set1_epi32((int)sb);
+    const __m128i v_ca4  = _mm_set1_epi32((int)ca);
+    const __m128i v_2554 = _mm_set1_epi32(255);
+    const __m128i v_1284 = _mm_set1_epi32(128);
+    const __m128i v_ff4  = _mm_set1_epi32(0xFF);
+    const __m128i v_aa4  = _mm_set1_epi32((int)0xFF000000u);
+    const __m128i v_z4   = _mm_setzero_si128();
+
+    for (; i + 4 <= n; i += 4) {
+        int c32;
+        memcpy(&c32, cov + i, 4);                        // unaligned 4-byte load
+        __m128i bytes = _mm_cvtsi32_si128(c32);
+        __m128i cv = _mm_unpacklo_epi8(bytes, v_z4);     // 4x u16 in the low 64 bits
+        cv         = _mm_unpacklo_epi16(cv, v_z4);       // 4x u32
+
+        __m128i sa;
+        if (opaque_ca) {
+            sa = cv;
+        } else {
+            sa = _mm_srli_epi32(
+                     _mm_add_epi32(_mm_mullo_epi16(cv, v_ca4), v_1284), 8);
+        }
+        __m128i inv = _mm_sub_epi32(v_2554, sa);
+
+        __m128i d  = _mm_loadu_si128((const __m128i*)(dst + i));
+        __m128i dr = _mm_and_si128(_mm_srli_epi32(d, 16), v_ff4);
+        __m128i dg = _mm_and_si128(_mm_srli_epi32(d,  8), v_ff4);
+        __m128i db = _mm_and_si128(d,                      v_ff4);
+
+        __m128i r = _mm_srli_epi32(
+            _mm_add_epi32(_mm_add_epi32(_mm_mullo_epi16(v_sr4, sa),
+                                        _mm_mullo_epi16(dr, inv)), v_1284), 8);
+        __m128i g = _mm_srli_epi32(
+            _mm_add_epi32(_mm_add_epi32(_mm_mullo_epi16(v_sg4, sa),
+                                        _mm_mullo_epi16(dg, inv)), v_1284), 8);
+        __m128i b = _mm_srli_epi32(
+            _mm_add_epi32(_mm_add_epi32(_mm_mullo_epi16(v_sb4, sa),
+                                        _mm_mullo_epi16(db, inv)), v_1284), 8);
+
+        __m128i out = _mm_or_si128(v_aa4,
+            _mm_or_si128(_mm_slli_epi32(r, 16),
+                         _mm_or_si128(_mm_slli_epi32(g, 8), b)));
+
+        __m128i skip = _mm_cmpeq_epi32(sa, v_z4);
+        out = _mm_or_si128(_mm_and_si128(skip, d),
+                           _mm_andnot_si128(skip, out));
+
+        _mm_storeu_si128((__m128i*)(dst + i), out);
+    }
+#endif
+
+    for (; i < n; i++) {                                 // scalar tail
+        uint32_t cv = cov[i];
+        if (!cv) continue;
+        uint32_t sa = opaque_ca ? cv : ((ca * cv + 128) >> 8);
+        if (!sa) continue;
+        uint32_t inv = 255 - sa;
+        uint32_t d = dst[i];
+        uint32_t dr = (d >> 16) & 0xFF;
+        uint32_t dg = (d >>  8) & 0xFF;
+        uint32_t db =  d        & 0xFF;
+        uint32_t r  = (sr * sa + dr * inv + 128) >> 8;
+        uint32_t g  = (sg * sa + dg * inv + 128) >> 8;
+        uint32_t b  = (sb * sa + db * inv + 128) >> 8;
+        dst[i] = 0xFF000000u | (r << 16) | (g << 8) | b;
+    }
 }
 
 // simd row blenders
@@ -388,17 +503,62 @@ void ui_painter_shutdown(void) {
     g_corners_count = 0;
 }
 
-// blends an r*r coverage bitmap into the framebuffer at (ox, oy)
+// blends an r*r corner coverage bitmap into the framebuffer at (ox, oy).
 static void blit_corner_cov(const uint8_t* cov, int r, int ox, int oy,
                             int flip_x, int flip_y, uint32_t c) {
-    for (int yy = 0; yy < r; yy++) {
+    if (r <= 0) return;
+
+    // clip the corner rect to the active scissor once
+    int x0 = 0, y0 = 0, x1 = r, y1 = r;
+    if (ox + x0 < g_clip_x0) x0 = g_clip_x0 - ox;
+    if (oy + y0 < g_clip_y0) y0 = g_clip_y0 - oy;
+    if (ox + x1 > g_clip_x1) x1 = g_clip_x1 - ox;
+    if (oy + y1 > g_clip_y1) y1 = g_clip_y1 - oy;
+    if (x0 >= x1 || y0 >= y1) return;                    // fully clipped
+
+    uint32_t ca = (c >> 24) & 0xFF;
+    if (!ca) return;                                     // fully transparent color
+    uint32_t sr = (c >> 16) & 0xFF;
+    uint32_t sg = (c >>  8) & 0xFF;
+    uint32_t sb =  c        & 0xFF;
+
+    uint8_t tmp[128];                                    // scratch for h-flipped rows
+    const bool can_use_tmp = (r <= (int)sizeof(tmp));
+
+    for (int yy = y0; yy < y1; yy++) {
         int sy = flip_y ? (r - 1 - yy) : yy;
-        const uint8_t* row = cov + (size_t)sy * r;
-        for (int xx = 0; xx < r; xx++) {
-            int sx = flip_x ? (r - 1 - xx) : xx;
-            uint8_t cv = row[sx];
-            if (cv) blend_px_cov(ox + xx, oy + yy, c, cv);
+        const uint8_t* src_row = cov + (size_t)sy * r;
+
+        const uint8_t* row;
+        if (!flip_x) {
+            row = src_row;                               // contiguous already
+        } else if (can_use_tmp) {
+            for (int k = 0; k < r; k++) tmp[k] = src_row[r - 1 - k];
+            row = tmp;
+        } else {
+            // oversized radius: scalar per-pixel fallback
+            for (int xx = x0; xx < x1; xx++) {
+                uint32_t cv = src_row[r - 1 - xx];
+                if (!cv) continue;
+                uint32_t sa = (ca * cv + 128) >> 8;
+                if (!sa) continue;
+                uint32_t inv = 255 - sa;
+                uint32_t* p = g_pixels + (size_t)(oy + yy) * g_w + (ox + xx);
+                uint32_t d  = *p;
+                uint32_t dr = (d >> 16) & 0xFF;
+                uint32_t dg = (d >>  8) & 0xFF;
+                uint32_t db =  d        & 0xFF;
+                uint32_t rr = (sr * sa + dr * inv + 128) >> 8;
+                uint32_t gg = (sg * sa + dg * inv + 128) >> 8;
+                uint32_t bb = (sb * sa + db * inv + 128) >> 8;
+                *p = 0xFF000000u | (rr << 16) | (gg << 8) | bb;
+            }
+            continue;
         }
+
+        const uint8_t* run = row + x0;
+        uint32_t* dst = g_pixels + (size_t)(oy + yy) * g_w + (ox + x0);
+        blend_cov_row(dst, run, x1 - x0, ca, sr, sg, sb);
     }
 }
 
