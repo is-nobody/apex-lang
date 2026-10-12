@@ -251,12 +251,13 @@ static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
     uint32_t sg  = (c >> 8)  & 0xFF;
     uint32_t sb  =  c        & 0xFF;
 
-    __m256i k_sa = _mm256_set1_epi32((int)sa);
-    __m256i k_sr = _mm256_set1_epi32((int)(sr * inv + 128));
-    __m256i k_sg = _mm256_set1_epi32((int)(sg * inv + 128));
-    __m256i k_sb = _mm256_set1_epi32((int)(sb * inv + 128));
-    __m256i kFF  = _mm256_set1_epi32(0xFF);
-    __m256i kAA  = _mm256_set1_epi32((int)0xFF000000u);
+    // destination is weighted by inv, source is weighted by sa
+    __m256i k_inv = _mm256_set1_epi32((int)inv);
+    __m256i k_sr  = _mm256_set1_epi32((int)(sr * sa + 128));
+    __m256i k_sg  = _mm256_set1_epi32((int)(sg * sa + 128));
+    __m256i k_sb  = _mm256_set1_epi32((int)(sb * sa + 128));
+    __m256i kFF   = _mm256_set1_epi32(0xFF);
+    __m256i kAA   = _mm256_set1_epi32((int)0xFF000000u);
 
     int i = 0;
     for (; i + 8 <= n; i += 8) {
@@ -265,9 +266,10 @@ static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
         __m256i dg = _mm256_and_si256(_mm256_srli_epi32(d, 8),  kFF);
         __m256i db = _mm256_and_si256(d,                        kFF);
 
-        __m256i r = _mm256_srli_epi32(_mm256_add_epi32(_mm256_mullo_epi16(dr, k_sa), k_sr), 8);
-        __m256i g = _mm256_srli_epi32(_mm256_add_epi32(_mm256_mullo_epi16(dg, k_sa), k_sg), 8);
-        __m256i b = _mm256_srli_epi32(_mm256_add_epi32(_mm256_mullo_epi16(db, k_sa), k_sb), 8);
+        // dst * inv  +  (src * sa + 128)  >>  8
+        __m256i r = _mm256_srli_epi32(_mm256_add_epi32(_mm256_mullo_epi16(dr, k_inv), k_sr), 8);
+        __m256i g = _mm256_srli_epi32(_mm256_add_epi32(_mm256_mullo_epi16(dg, k_inv), k_sg), 8);
+        __m256i b = _mm256_srli_epi32(_mm256_add_epi32(_mm256_mullo_epi16(db, k_inv), k_sb), 8);
 
         __m256i out = _mm256_or_si256(
             kAA,
@@ -279,9 +281,9 @@ static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
     for (; i < n; i++) {                                    // scalar tail
         uint32_t d  = row[i];
         uint32_t dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
-        uint32_t r = (dr*sa + sr*inv + 128) >> 8;
-        uint32_t g = (dg*sa + sg*inv + 128) >> 8;
-        uint32_t b = (db*sa + sb*inv + 128) >> 8;
+        uint32_t r = (sr*sa + dr*inv + 128) >> 8;
+        uint32_t g = (sg*sa + dg*inv + 128) >> 8;
+        uint32_t b = (sb*sa + db*inv + 128) >> 8;
         row[i] = 0xFF000000u | (r << 16) | (g << 8) | b;
     }
 }
@@ -295,12 +297,12 @@ static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
     uint32_t sg  = (c >> 8)  & 0xFF;
     uint32_t sb  =  c        & 0xFF;
 
-    __m128i k_sa = _mm_set1_epi32((int)sa);
-    __m128i k_sr = _mm_set1_epi32((int)(sr * inv + 128));
-    __m128i k_sg = _mm_set1_epi32((int)(sg * inv + 128));
-    __m128i k_sb = _mm_set1_epi32((int)(sb * inv + 128));
-    __m128i kFF  = _mm_set1_epi32(0xFF);
-    __m128i kAA  = _mm_set1_epi32((int)0xFF000000u);
+    __m128i k_inv = _mm_set1_epi32((int)inv);
+    __m128i k_sr  = _mm_set1_epi32((int)(sr * sa + 128));
+    __m128i k_sg  = _mm_set1_epi32((int)(sg * sa + 128));
+    __m128i k_sb  = _mm_set1_epi32((int)(sb * sa + 128));
+    __m128i kFF   = _mm_set1_epi32(0xFF);
+    __m128i kAA   = _mm_set1_epi32((int)0xFF000000u);
 
     int i = 0;
     for (; i + 4 <= n; i += 4) {
@@ -309,9 +311,10 @@ static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
         __m128i dg = _mm_and_si128(_mm_srli_epi32(d, 8),  kFF);
         __m128i db = _mm_and_si128(d,                     kFF);
 
-        __m128i r = _mm_srli_epi32(_mm_add_epi32(_mm_mullo_epi16(dr, k_sa), k_sr), 8);
-        __m128i g = _mm_srli_epi32(_mm_add_epi32(_mm_mullo_epi16(dg, k_sa), k_sg), 8);
-        __m128i b = _mm_srli_epi32(_mm_add_epi32(_mm_mullo_epi16(db, k_sa), k_sb), 8);
+        // dst * inv + (src * sa + 128) >> 8
+        __m128i r = _mm_srli_epi32(_mm_add_epi32(_mm_mullo_epi16(dr, k_inv), k_sr), 8);
+        __m128i g = _mm_srli_epi32(_mm_add_epi32(_mm_mullo_epi16(dg, k_inv), k_sg), 8);
+        __m128i b = _mm_srli_epi32(_mm_add_epi32(_mm_mullo_epi16(db, k_inv), k_sb), 8);
 
         __m128i out = _mm_or_si128(
             kAA,
@@ -323,9 +326,9 @@ static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
     for (; i < n; i++) {                                    // scalar tail
         uint32_t d  = row[i];
         uint32_t dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
-        uint32_t r = (dr*sa + sr*inv + 128) >> 8;
-        uint32_t g = (dg*sa + sg*inv + 128) >> 8;
-        uint32_t b = (db*sa + sb*inv + 128) >> 8;
+        uint32_t r = (sr*sa + dr*inv + 128) >> 8;
+        uint32_t g = (sg*sa + dg*inv + 128) >> 8;
+        uint32_t b = (sb*sa + db*inv + 128) >> 8;
         row[i] = 0xFF000000u | (r << 16) | (g << 8) | b;
     }
 }
@@ -338,18 +341,20 @@ static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
     uint32_t sg  = (c >> 8)  & 0xFF;
     uint32_t sb  =  c        & 0xFF;
 
-    uint16x8_t k_sa = vdupq_n_u16((uint16_t)sa);
-    uint16x8_t k_sr = vdupq_n_u16((uint16_t)(sr * inv + 128));
-    uint16x8_t k_sg = vdupq_n_u16((uint16_t)(sg * inv + 128));
-    uint16x8_t k_sb = vdupq_n_u16((uint16_t)(sb * inv + 128));
-    uint8x8_t  kA8  = vdup_n_u8(0xFF);
+    // vmlaq_u16 computes dst * k + acc
+    uint16x8_t k_inv = vdupq_n_u16((uint16_t)inv);
+    uint16x8_t k_sr  = vdupq_n_u16((uint16_t)(sr * sa + 128));
+    uint16x8_t k_sg  = vdupq_n_u16((uint16_t)(sg * sa + 128));
+    uint16x8_t k_sb  = vdupq_n_u16((uint16_t)(sb * sa + 128));
+    uint8x8_t  kA8   = vdup_n_u8(0xFF);
 
     int i = 0;
     for (; i + 8 <= n; i += 8) {
         uint8x8x4_t d = vld4_u8((const uint8_t*)(row + i));   // [B][G][R][A]
-        uint16x8_t b16 = vmlaq_u16(k_sb, vmovl_u8(d.val[0]), k_sa);
-        uint16x8_t g16 = vmlaq_u16(k_sg, vmovl_u8(d.val[1]), k_sa);
-        uint16x8_t r16 = vmlaq_u16(k_sr, vmovl_u8(d.val[2]), k_sa);
+        // dst * inv + src*sa+128  (was: dst * sa + src*inv+128)
+        uint16x8_t b16 = vmlaq_u16(k_sb, vmovl_u8(d.val[0]), k_inv);
+        uint16x8_t g16 = vmlaq_u16(k_sg, vmovl_u8(d.val[1]), k_inv);
+        uint16x8_t r16 = vmlaq_u16(k_sr, vmovl_u8(d.val[2]), k_inv);
         uint8x8x4_t out;
         out.val[0] = vshrn_n_u16(b16, 8);
         out.val[1] = vshrn_n_u16(g16, 8);
@@ -357,12 +362,12 @@ static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
         out.val[3] = kA8;
         vst4_u8((uint8_t*)(row + i), out);
     }
-    for (; i < n; i++) {
+    for (; i < n; i++) {                                    // scalar tail
         uint32_t d  = row[i];
         uint32_t dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
-        uint32_t r = (dr*sa + sr*inv + 128) >> 8;
-        uint32_t g = (dg*sa + sg*inv + 128) >> 8;
-        uint32_t b = (db*sa + sb*inv + 128) >> 8;
+        uint32_t r = (sr*sa + dr*inv + 128) >> 8;
+        uint32_t g = (sg*sa + dg*inv + 128) >> 8;
+        uint32_t b = (sb*sa + db*inv + 128) >> 8;
         row[i] = 0xFF000000u | (r << 16) | (g << 8) | b;
     }
 }
@@ -376,9 +381,9 @@ static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
     for (int i = 0; i < n; i++) {
         uint32_t d  = row[i];
         uint32_t dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
-        uint32_t r = (dr*sa + sr*inv + 128) >> 8;
-        uint32_t g = (dg*sa + sg*inv + 128) >> 8;
-        uint32_t b = (db*sa + sb*inv + 128) >> 8;
+        uint32_t r = (sr*sa + dr*inv + 128) >> 8;
+        uint32_t g = (sg*sa + dg*inv + 128) >> 8;
+        uint32_t b = (sb*sa + db*inv + 128) >> 8;
         row[i] = 0xFF000000u | (r << 16) | (g << 8) | b;
     }
 }
