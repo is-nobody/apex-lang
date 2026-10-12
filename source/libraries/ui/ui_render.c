@@ -567,10 +567,67 @@ static void fill_corners_atlas(int x, int y, int w, int h, int r, uint32_t c) {
     if (r <= 0) return;
     const CornerEntry* e = corner_get(r);
     if (!e) return;
-    blit_corner_cov(e->fill_cov, r, x,       y,       0, 0, c);   // top-left
-    blit_corner_cov(e->fill_cov, r, x + w-r, y,       1, 0, c);   // top-right
-    blit_corner_cov(e->fill_cov, r, x,       y + h-r, 0, 1, c);   // bottom-left
-    blit_corner_cov(e->fill_cov, r, x + w-r, y + h-r, 1, 1, c);   // bottom-right
+
+    uint8_t tmp[64];
+    if (r > (int)sizeof(tmp)) {
+        // oversized radius (never hit with the current theme)
+        blit_corner_cov(e->fill_cov, r, x,       y,       0, 0, c);
+        blit_corner_cov(e->fill_cov, r, x + w-r, y,       1, 0, c);
+        blit_corner_cov(e->fill_cov, r, x,       y + h-r, 0, 1, c);
+        blit_corner_cov(e->fill_cov, r, x + w-r, y + h-r, 1, 1, c);
+        return;
+    }
+
+    uint32_t ca = (c >> 24) & 0xFF;
+    if (!ca) return;                                     // fully transparent color
+    uint32_t sr = (c >> 16) & 0xFF;
+    uint32_t sg = (c >>  8) & 0xFF;
+    uint32_t sb =  c        & 0xFF;
+
+    // early-out: neither the top block nor the bottom block intersects the scissor vertically
+    bool top_visible = (y < g_clip_y1) && (y + r > g_clip_y0);
+    bool bot_visible = (y + h - r < g_clip_y1) && (y + h > g_clip_y0);
+    if (!top_visible && !bot_visible) return;
+
+    // horizontal clip for the left column [x, x+r) and right column [x+w-r, x+w)
+    int xl0 = 0, xl1 = r;
+    if (x + xl0 < g_clip_x0) xl0 = g_clip_x0 - x;
+    if (x + xl1 > g_clip_x1) xl1 = g_clip_x1 - x;
+    int xr0 = 0, xr1 = r;
+    if (x + w - r + xr0 < g_clip_x0) xr0 = g_clip_x0 - (x + w - r);
+    if (x + w - r + xr1 > g_clip_x1) xr1 = g_clip_x1 - (x + w - r);
+
+    int n_left  = xl1 > xl0 ? xl1 - xl0 : 0;
+    int n_right = xr1 > xr0 ? xr1 - xr0 : 0;
+    if (n_left == 0 && n_right == 0) return;             // fully clipped horizontally
+
+    // one pass over the corner rows
+    for (int i = 0; i < r; i++) {
+        const uint8_t* top_cov = e->fill_cov + (size_t)i * r;
+        const uint8_t* bot_cov = e->fill_cov + (size_t)(r - 1 - i) * r;
+
+        int ty = y + i;
+        int by = y + h - r + i;
+
+        if (n_left > 0) {
+            if (ty >= g_clip_y0 && ty < g_clip_y1)       // top-left
+                blend_cov_row(g_pixels + (size_t)ty * g_w + x + xl0,
+                              top_cov + xl0, n_left, ca, sr, sg, sb);
+            if (by >= g_clip_y0 && by < g_clip_y1)       // bottom-left
+                blend_cov_row(g_pixels + (size_t)by * g_w + x + xl0,
+                              bot_cov + xl0, n_left, ca, sr, sg, sb);
+        }
+        if (n_right > 0) {
+            for (int k = 0; k < r; k++) tmp[k] = top_cov[r - 1 - k];
+            if (ty >= g_clip_y0 && ty < g_clip_y1)       // top-right
+                blend_cov_row(g_pixels + (size_t)ty * g_w + x + w - r + xr0,
+                              tmp + xr0, n_right, ca, sr, sg, sb);
+            for (int k = 0; k < r; k++) tmp[k] = bot_cov[r - 1 - k];
+            if (by >= g_clip_y0 && by < g_clip_y1)       // bottom-right
+                blend_cov_row(g_pixels + (size_t)by * g_w + x + w - r + xr0,
+                              tmp + xr0, n_right, ca, sr, sg, sb);
+        }
+    }
 }
 
 // draws the four rounded corners of a rectangle from the stroke bitmap
