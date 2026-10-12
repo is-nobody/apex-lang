@@ -64,11 +64,16 @@ typedef struct {
     int      w, h, off_x, off_y;  // bitmap size and offsets from pen
     float    advance;             // horizontal advance in pixels
     uint8_t* cov;                 // coverage bitmap, one byte per pixel
+    uint32_t last_use;            // font frame counter when this entry was last touched
 } CacheEntry;
 
 // glyph cache hash: one open-addressed slot per (gid, size_q) pair
 #define GLYPH_HASH_SIZE 2048
 #define GLYPH_HASH_MASK (GLYPH_HASH_SIZE - 1)
+
+// glyph cache eviction thresholds
+#define GLYPH_CACHE_MAX     8192
+#define GLYPH_CACHE_MIN_AGE 120
 
 // loaded TrueType font state and its glyph cache
 struct UiFont {
@@ -84,6 +89,7 @@ struct UiFont {
     int      cmap_fmt;                                   // chosen cmap format (4 or 12)
     CacheEntry* cache;                                   // glyph cache entries
     int cache_count, cache_cap;                          // live count and capacity of the cache
+    uint32_t frame;                                      // bumped by ui_font_tick for eviction ages
 
     // direct bmp cmap: 64K entries, lazily filled
     uint16_t* cmap_bmp;
@@ -184,6 +190,38 @@ void ui_font_free(UiFont* f) {
 
 // returns true when the font pointer is non-null, used by callers as a validity check
 int ui_font_has(UiFont* f) { return f != NULL; }
+
+// forward: defined with the glyph cache further down
+static inline uint32_t glyph_slot(uint16_t gid, uint16_t size_q);
+
+// advances the font's frame counter
+void ui_font_tick(UiFont* f) {
+    if (!f) return;
+    f->frame++;
+    if (f->cache_count < GLYPH_CACHE_MAX) return;        // under the cap: nothing to do
+
+    uint32_t cutoff = f->frame > GLYPH_CACHE_MIN_AGE
+                    ? f->frame - GLYPH_CACHE_MIN_AGE
+                    : 1;                                 // keep everything on the first sweeps
+
+    int out = 0;                                         // compact live entries forward
+    for (int i = 0; i < f->cache_count; i++) {
+        if (f->cache[i].last_use >= cutoff) {
+            f->cache[out++] = f->cache[i];
+        } else {
+            free(f->cache[i].cov);                       // cold entry: release its bitmap
+        }
+    }
+    f->cache_count = out;
+
+    for (int i = 0; i < GLYPH_HASH_SIZE; i++)            // rebuild the id -> index hash
+        f->glyph_hash[i] = -1;
+    for (int i = 0; i < f->cache_count; i++) {
+        uint32_t s = glyph_slot(f->cache[i].gid, f->cache[i].size_q);
+        while (f->glyph_hash[s] >= 0) s = (s + 1) & GLYPH_HASH_MASK;
+        f->glyph_hash[s] = i;
+    }
+}
 
 // maps a unicode codepoint to a glyph index using the chosen cmap subtable
 static uint16_t glyph_index(UiFont* f, uint32_t cp) {
@@ -677,8 +715,10 @@ static CacheEntry* glyph_get(UiFont* f, uint16_t gid, uint16_t size_q) {
         uint32_t s = (slot + probe) & GLYPH_HASH_MASK;   // linear probing
         int idx = f->glyph_hash[s];
         if (idx < 0) { insert_at = s; break; }           // empty: glyph not present
-        if (f->cache[idx].gid == gid && f->cache[idx].size_q == size_q)
+        if (f->cache[idx].gid == gid && f->cache[idx].size_q == size_q) {
+            f->cache[idx].last_use = f->frame;           // stamp the hit for the age sweep
             return &f->cache[idx];                       // hit
+        }
     }
     if (insert_at > GLYPH_HASH_MASK)                     // table is full: bail out
         return NULL;
@@ -689,9 +729,10 @@ static CacheEntry* glyph_get(UiFont* f, uint16_t gid, uint16_t size_q) {
     CacheEntry* e = &f->cache[f->cache_count];           // take the next slot
     memset(e, 0, sizeof(*e));
     e->gid = gid; e->size_q = size_q;
+    e->last_use = f->frame;                              // fresh entry is live this frame
     float size = size_q / 2.0f;                          // undo the half-pixel quantization
     float scale = size / (float)f->upem;                 // font units to pixels
-    e->advance = advance_cached(f, gid, size_q);         // O(1) from the per-size advance table
+    e->advance = advance_cached(f, gid, size_q);         // o(1) from the per-size advance table
 
     Poly* polys = NULL; int npolys = 0;
     int xmin=0, ymin=0, xmax=0, ymax=0;

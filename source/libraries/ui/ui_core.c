@@ -76,6 +76,7 @@ void ui_widgets_reset(UiContext* ctx) {
     ctx->pool_used = 0;                                   // reset pool cursor
     ctx->root = NULL;                                     // drop tree root
     ctx->geometry_dirty = true;                           // fresh tree needs a layout pass
+    if (ctx->font) ui_font_tick(ctx->font);               // age out cold glyphs
 
     // bulk-free text/group/key_str by releasing every arena block
     UiArenaBlock* ab = ctx->arena;
@@ -507,23 +508,51 @@ static void rect_union(DamageRect* out, const DamageRect* a, const DamageRect* b
     out->x = x0; out->y = y0; out->w = x1 - x0; out->h = y1 - y0;      // write bounding union
 }
 
-// collapse overlapping damage rects; n^2 is fine because n stays tiny
+// sort key for the damage sweep: left edge, then top edge for determinism
+static int cmp_damage_x(const void* a, const void* b) {
+    const DamageRect* ra = (const DamageRect*)a;
+    const DamageRect* rb = (const DamageRect*)b;
+    if (ra->x != rb->x) return (ra->x > rb->x) - (ra->x < rb->x);
+    return (ra->y > rb->y) - (ra->y < rb->y);
+}
+
+// collapse overlapping damage rects
 void ui_damage_finalize(UiContext* ctx) {
-    bool merged = true;                                                // keep merging until fixpoint
-    while (merged) {                                                   // repeat while any merge happened
-        merged = false;                                                // reset for this sweep
-        for (int i = 0; i < ctx->damage_count; i++) {                  // scan each rect
-            for (int j = i + 1; j < ctx->damage_count; ) {             // against later rects
-                if (rects_overlap(&ctx->damage[i], &ctx->damage[j])) { // overlapping pair
-                    rect_union(&ctx->damage[i], &ctx->damage[i], &ctx->damage[j]);  // fold into i
-                    ctx->damage[j] = ctx->damage[--ctx->damage_count];  // swap-remove j
-                    merged = true;                                     // remember progress
-                } else {
-                    j++;                                               // no overlap: advance j
+    int n = ctx->damage_count;
+    if (n < 2) return;                                     // nothing to merge
+
+    qsort(ctx->damage, (size_t)n, sizeof(DamageRect), cmp_damage_x);
+
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (int i = 0; i < n; i++) {
+            DamageRect* a = &ctx->damage[i];
+            if (a->w <= 0) continue;                       // tombstone from a previous pass
+            int a_right = a->x + a->w;
+            for (int j = i + 1; j < n; j++) {
+                DamageRect* b = &ctx->damage[j];
+                if (b->w <= 0) continue;                   // tombstone
+                if (b->x >= a_right) break;                // sorted: nothing further can overlap
+                if (rects_overlap(a, b)) {
+                    rect_union(a, a, b);                   // fold b into a
+                    a_right = a->x + a->w;                 // grow the running right edge
+                    b->w = 0;                              // tombstone: compacted below
+                    changed = true;
                 }
             }
         }
+        if (!changed) break;
+
+        int out = 0;                                       // compact tombstones in place
+        for (int i = 0; i < n; i++)
+            if (ctx->damage[i].w > 0)
+                ctx->damage[out++] = ctx->damage[i];
+        n = out;
+
+        qsort(ctx->damage, (size_t)n, sizeof(DamageRect), cmp_damage_x);  // re-sort after unions
     }
+    ctx->damage_count = n;
 }
 
 // swap cur/prev snapshots so the next frame diffs against this one

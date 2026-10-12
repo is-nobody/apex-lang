@@ -23,6 +23,9 @@ void ui_font_free(UiFont* f);
 // true when the font pointer is usable
 int ui_font_has(UiFont* f);
 
+// advance the font's frame counter
+void ui_font_tick(UiFont* f);
+
 // advance width in pixels
 float ui_text_measure(UiFont* f, const char* s, int len, float size);
 
