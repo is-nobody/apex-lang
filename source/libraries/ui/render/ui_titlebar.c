@@ -8,6 +8,57 @@
 #include "ui_window.h"
 #include <string.h>
 
+// draws the window title inside [region_left, region_right], truncating with "..." as needed
+static int draw_title_fitted(UiContext* ctx, int region_left, int region_right,
+                             bool right_align, float baseline, float fs) {
+    int tlen = (int)strlen(ctx->title);
+    if (tlen == 0 || !ctx->font) return 0;
+    int avail = region_right - region_left;
+    if (avail <= 0) return 0;
+
+    float full_w = ui_text_measure_cached(ctx, ctx->title, tlen, fs);
+    if (full_w <= (float)avail) {                             // whole title fits
+        float x = right_align ? (float)region_right - full_w
+                              : (float)region_left;
+        ui_text_draw(ctx->font, ctx->pixels, ctx->win_w, ctx->win_h,
+                     x, baseline, ctx->title, tlen, fs, UI_C_TB_FG);
+        return (int)full_w;
+    }
+
+    static const char ell[] = "...";
+    float ell_w = ui_text_measure_cached(ctx, ell, 3, fs);
+    if ((float)avail <= ell_w) return 0;                      // not even "..." fits
+
+    float budget = (float)avail - ell_w;                      // width left for the prefix
+    int cut = 0;                                              // byte length of the kept prefix
+    float cut_w = 0.0f;
+    int i = 0;
+    while (i < tlen) {                                        // grow the prefix codepoint by codepoint
+        int next = ui_utf8_next(ctx->title, i, tlen);
+        float w  = ui_text_measure_cached(ctx, ctx->title, next, fs);
+        if (w > budget) break;                                // this codepoint would overflow
+        i = next;
+        cut = i;
+        cut_w = w;
+    }
+    if (cut <= 0) {                                           // even one glyph doesn't fit: just "..."
+        float x = right_align ? (float)region_right - ell_w
+                              : (float)region_left;
+        ui_text_draw(ctx->font, ctx->pixels, ctx->win_w, ctx->win_h,
+                     x, baseline, ell, 3, fs, UI_C_TB_FG);
+        return (int)ell_w;
+    }
+
+    float total = cut_w + ell_w;                              // prefix + ellipsis
+    float x = right_align ? (float)region_right - total
+                          : (float)region_left;
+    ui_text_draw(ctx->font, ctx->pixels, ctx->win_w, ctx->win_h,
+                 x, baseline, ctx->title, cut, fs, UI_C_TB_FG);
+    ui_text_draw(ctx->font, ctx->pixels, ctx->win_w, ctx->win_h,
+                 x + cut_w, baseline, ell, 3, fs, UI_C_TB_FG);
+    return (int)total;
+}
+
 // paints the custom titlebar across the top of the framebuffer
 void ui_render_titlebar(UiContext* ctx) {
     if (!ctx->custom_chrome) return;                     // feature disabled
@@ -71,47 +122,25 @@ void ui_render_titlebar(UiContext* ctx) {
         }
     }
 
-    // window title at the left edge, truncated with "..." if it would collide with the buttons
-    int tlen = (int)strlen(ctx->title);
-    if (tlen > 0 && ctx->font) {
-        float fs   = UI_FS_BODY;
-        float base = (h + fs * 0.7f) * 0.5f;
+    // window title placement
+    const int left_pad  = 14;                         // gap from the window edge
+    const int right_pad = 10;                         // gap before the minimize button
+    float fs   = UI_FS_BODY;
+    float base = (h + fs * 0.7f) * 0.5f;
 
-        const int left_pad  = 14;                     // gap from the window edge
-        const int right_pad = 10;                     // gap before the minimize button
-        int avail = bx1 - left_pad - right_pad;       // pixels the title may occupy
-        if (avail < 0) avail = 0;
-
-        float full_w = ui_text_measure_cached(ctx, ctx->title, tlen, fs);
-        if (full_w <= (float)avail) {                 // whole title fits
-            ui_text_draw(ctx->font, ctx->pixels, ctx->win_w, ctx->win_h,
-                         (float)left_pad, base, ctx->title, tlen, fs, UI_C_TB_FG);
-        } else {
-            static const char ell[] = "...";
-            float ell_w = ui_text_measure_cached(ctx, ell, 3, fs);
-            if ((float)avail > ell_w) {
-                float budget = (float)avail - ell_w;  // width left for the prefix
-                int cut = 0;                          // byte length of the kept prefix
-                float cut_w = 0.0f;
-                int i = 0;
-                while (i < tlen) {                    // grow the prefix codepoint by codepoint
-                    int next = ui_utf8_next(ctx->title, i, tlen);
-                    float w  = ui_text_measure_cached(ctx, ctx->title, next, fs);
-                    if (w > budget) break;            // this codepoint would overflow
-                    i = next;
-                    cut = i;
-                    cut_w = w;
-                }
-                if (cut > 0) {                        // draw prefix then the ellipsis after it
-                    ui_text_draw(ctx->font, ctx->pixels, ctx->win_w, ctx->win_h,
-                                 (float)left_pad, base, ctx->title, cut, fs, UI_C_TB_FG);
-                    ui_text_draw(ctx->font, ctx->pixels, ctx->win_w, ctx->win_h,
-                                 (float)left_pad + cut_w, base, ell, 3, fs, UI_C_TB_FG);
-                } else {                              // even a single glyph doesn't fit: just "..."
-                    ui_text_draw(ctx->font, ctx->pixels, ctx->win_w, ctx->win_h,
-                                 (float)left_pad, base, ell, 3, fs, UI_C_TB_FG);
-                }
-            }
-        }
+    if (ctx->menubar) {
+        int region_right = bx1 - right_pad;           // right edge of the title area
+        int region_left  = left_pad + ui_menubar_preferred_width(ctx)
+                                    + UI_MENU_BAR_TITLE_GAP;
+        if (region_left > region_right) region_left = region_right;  // squeezed window
+        int drawn_w = draw_title_fitted(ctx, region_left, region_right,
+                                        true, base, fs);             // right-aligned
+        ctx->title_end_x = (drawn_w > 0) ? (region_right - drawn_w - 4)
+                                         : region_right;
+    } else {
+        int region_left  = left_pad;
+        int region_right = bx1 - right_pad;
+        draw_title_fitted(ctx, region_left, region_right, false, base, fs);  // left-aligned
+        ctx->title_end_x = 0;                          // unused without a menubar
     }
 }

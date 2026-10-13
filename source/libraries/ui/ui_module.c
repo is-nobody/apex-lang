@@ -312,6 +312,19 @@ static Value ctor_notification(VM* vm, int argc, Value* argv) {
     return MAKE_NONE();
 }
 
+// ui.menubar(table) — set the window menu bar; non-table or missing clears it
+static Value ctor_menubar(VM* vm, int argc, Value* argv) {
+    UiContext* ctx = ui_ensure(vm);                             // ensure the context exists
+    if (argc >= 1 && IS_TABLE(argv[0])) {
+        ui_menubar_set(ctx, argv[0]);                           // install the new bar
+    } else {
+        ui_menubar_free(ctx);                                   // clear any existing bar
+        ctx->redraw_needed = true;
+        ctx->full_repaint  = true;
+    }
+    return MAKE_NONE();                                         // builders return no value
+}
+
 // named key constants exposed to scripts as ui.key_*()
 static const struct { const char* name; int value; } UI_KEY_TABLE[] = {
     {"ui.key_escape",    UI_KEY_ESCAPE},
@@ -369,6 +382,7 @@ bool ui_call_builtin(VM* vm, const char* name, int argc, Value* argv, Value* res
     if (strcmp(name, "ui.window_size") == 0)   { *result = ui_impl_window_size(vm, argc, argv); return true; }  // query the window size
     if (strcmp(name, "ui.dialog") == 0)        { *result = ctor_dialog(vm, argc, argv); return true; }          // generic modal dialog
     if (strcmp(name, "ui.notification") == 0)  { *result = ctor_notification(vm, argc, argv); return true; }    // desktop notification
+    if (strcmp(name, "ui.menubar") == 0)       { *result = ctor_menubar(vm, argc, argv); return true; }         // window menu bar
 
     if (strcmp(name, "ui.text") == 0)     { *result = make_leaf(vm, "text", argc, argv); return true; }         // plain text block
     if (strcmp(name, "ui.heading") == 0)  { *result = make_leaf(vm, "heading", argc, argv); return true; }      // section heading

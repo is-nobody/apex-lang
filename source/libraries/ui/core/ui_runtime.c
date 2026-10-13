@@ -16,6 +16,12 @@
 
 // rebuilds the widget tree from the last descriptor and paints it
 void rebuild_and_draw(UiContext* ctx) {
+    if (!ctx->window) {                                           // window is gone: nothing to draw into
+        ctx->redraw_needed = false;
+        ctx->full_repaint  = false;
+        return;
+    }
+
     // decide whether we can reuse the tree from the previous frame
     bool can_reuse = false;
     uint64_t new_hash = 0;
@@ -71,11 +77,13 @@ void rebuild_and_draw(UiContext* ctx) {
         ctx->descr_hash_valid = true;
     }
 
-    int top = ctx->custom_chrome ? UI_TITLEBAR_H : 0;             // reserve room for the titlebar
+    int top       = ctx->custom_chrome ? UI_TITLEBAR_H : 0;       // titlebar reserved at the top
+    int mb_h      = ui_menubar_height(ctx);                       // menu bar reserved below it
+    int content_t = top + mb_h;                                   // top edge of the widget tree
     ctx->root->x = 0;
-    ctx->root->y = (float)top;
+    ctx->root->y = (float)content_t;
     ctx->root->w = (float)ctx->win_w;
-    ctx->root->h = (float)(ctx->win_h - top);
+    ctx->root->h = (float)(ctx->win_h - content_t);
     if (ctx->geometry_dirty) {                                    // skip when nothing moved
         ui_layout(ctx);                                           // compute widget geometry
         ctx->geometry_dirty = false;
@@ -144,12 +152,19 @@ void rebuild_and_draw(UiContext* ctx) {
 // repaints the existing widget tree without rebuilding it
 void redraw_only(UiContext* ctx) {
     if (!ctx->root) return;                                       // nothing to draw
+    if (!ctx->window) {                                           // window is gone: nothing to blit
+        ctx->redraw_needed = false;
+        ctx->full_repaint  = false;
+        return;
+    }
 
-    int top = ctx->custom_chrome ? UI_TITLEBAR_H : 0;             // reserve room for the titlebar
+    int top       = ctx->custom_chrome ? UI_TITLEBAR_H : 0;       // titlebar reserved at the top
+    int mb_h      = ui_menubar_height(ctx);                       // menu bar reserved below it
+    int content_t = top + mb_h;                                   // top edge of the widget tree
     ctx->root->x = 0;
-    ctx->root->y = (float)top;
+    ctx->root->y = (float)content_t;
     ctx->root->w = (float)ctx->win_w;
-    ctx->root->h = (float)(ctx->win_h - top);
+    ctx->root->h = (float)(ctx->win_h - content_t);
 
     if (ctx->geometry_dirty) {                                    // skip when nothing moved
         ui_layout(ctx);                                           // recompute geometry
@@ -338,7 +353,11 @@ Value ui_impl_run(VM* vm, int argc, Value* argv) {
             } else {
                 value_decref(result);                 // none or non-table: drop it
             }
+
+            if (ctx->quit_requested) break;           // callback shut down: stop the batch
         }
+
+        if (ctx->quit_requested) break;               // bail before any render pass
 
         if (rebuilt || ctx->redraw_needed)            // one rebuild per batch
             rebuild_and_draw(ctx);
@@ -353,8 +372,12 @@ Value ui_impl_shutdown(VM* vm, int argc, Value* argv) {
     (void)argc; (void)argv;                                       // no arguments
     UiContext* ctx = ui_ensure(vm);                               // ensure the context exists
     if (ctx->window) {                                            // tear down the window if present
-        ui_window_destroy(ctx->window);
-        ctx->window = NULL;
+        ui_window_destroy(ctx->window);                           // releases the framebuffer too
+        ctx->window = NULL;                                       // drop the handle
+        ctx->pixels = NULL;                                       // buffer is freed with the window
+        ctx->redraw_needed = false;                               // no render pass should run now
+        ctx->full_repaint  = false;
+        ctx->geometry_dirty = false;
     }
     ctx->quit_requested = true;                                   // mark the context as quit
     return MAKE_NONE();

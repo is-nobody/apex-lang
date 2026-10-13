@@ -17,6 +17,9 @@ typedef struct UiWindow UiWindow;
 // opaque loaded font handle
 typedef struct UiFont UiFont;
 
+// opaque menu bar state, defined in ui_menubar.c
+typedef struct UiMenuBar UiMenuBar;
+
 // length-tagged heap string (may contain nulls)
 typedef struct { char* ptr; int len; } Str;
 
@@ -368,6 +371,7 @@ typedef struct UiContext {
 
     UiFont*    font;            // loaded font used for text rendering
     int        font_size;       // font size in pixels
+    int        title_end_x;     // right edge of the rendered window title
 
     bool       redraw_needed;   // set when the tree must be re-laid out and painted
     bool       quit_requested;  // set when the ui should shut down
@@ -402,6 +406,8 @@ typedef struct UiContext {
     UiNotification**  notifs;             // array of owned notification pointers
     int               notif_count;        // live entries
     int               notif_cap;          // allocated capacity of the array
+
+    UiMenuBar*        menubar;            // top-of-window menu bar, or null
 } UiContext;                    // per-vm ui session state
 
 // reads a string field from a table, returns a heap copy or null on miss
@@ -558,5 +564,32 @@ void ui_notification_pump(UiContext* ctx);
 
 // paint one notification into its own framebuffer and blit
 void ui_render_notification(UiNotification* n);
+
+// install or replace the menu bar from a descriptor table
+void ui_menubar_set(UiContext* ctx, Value descr);
+
+// release the menu bar and every owned string
+void ui_menubar_free(UiContext* ctx);
+
+// height reserved at the top of the client area; zero, the bar lives in the titlebar
+int ui_menubar_height(UiContext* ctx);
+
+// total horizontal space the bar would like, for reserving room in the titlebar
+int ui_menubar_preferred_width(UiContext* ctx);
+
+// true while a dropdown is expanded
+bool ui_menubar_has_open(UiContext* ctx);
+
+// paint the top bar inside the titlebar and any open dropdowns below it
+void ui_menubar_render(UiContext* ctx);
+
+// pointer moved: returns true when the bar absorbed the event
+bool ui_menubar_handle_mousemove(UiContext* ctx, int x, int y);
+
+// pointer pressed: returns true when the bar consumed the click
+bool ui_menubar_handle_mousedown(UiContext* ctx, int x, int y);
+
+// escape pressed: returns true when a dropdown was closed
+bool ui_menubar_handle_escape(UiContext* ctx);
 
 #endif

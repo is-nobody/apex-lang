@@ -310,11 +310,13 @@ static void draw_combobox_popups(UiContext* ctx, const DamageRect* d) {
 void ui_render_frame(UiContext* ctx) {
     ui_painter_init(ctx->pixels, ctx->win_w, ctx->win_h);       // bind the painter to the surface
     ui_painter_clear(UI_C_BG);                                  // streaming full-surface clear
-    ui_render_titlebar(ctx);                                    // custom chrome, if enabled
+    ui_render_titlebar(ctx);                                    // sets ctx->title_end_x
+
+    int top = ctx->custom_chrome ? UI_TITLEBAR_H : 0;           // top edge of the widget tree
+
     if (ctx->root) {
-        if (ctx->custom_chrome) {                               // keep the tree out of the titlebar
-            ui_painter_push_clip(0, UI_TITLEBAR_H,
-                                 ctx->win_w, ctx->win_h - UI_TITLEBAR_H);
+        if (top > 0) {                                          // keep the tree out of chrome
+            ui_painter_push_clip(0, top, ctx->win_w, ctx->win_h - top);
             draw_widget(ctx, ctx->root, NULL);
             draw_combobox_popups(ctx, NULL);
             ui_painter_pop_clip();
@@ -323,12 +325,19 @@ void ui_render_frame(UiContext* ctx) {
             draw_combobox_popups(ctx, NULL);
         }
     }
+
+    // draw the bar inside the titlebar, after the tree so dropdowns sit on top
+    if (ctx->menubar) ui_menubar_render(ctx);
     ui_render_dialog(ctx);                                      // modal dialog on top of everything
 }
 
 // repaints only the given damage rectangles, plus the titlebar when it is affected
 void ui_render_frame_damage(UiContext* ctx, const DamageRect* rects, int n) {
     if (ctx->dialog.active) {                                   // modal dialog: repaint whole window
+        ui_render_frame(ctx);
+        return;
+    }
+    if (ctx->menubar) {                                         // menu bar uses the full-repaint path
         ui_render_frame(ctx);
         return;
     }

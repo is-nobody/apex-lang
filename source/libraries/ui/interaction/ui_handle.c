@@ -102,7 +102,8 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                 break;
             }
 
-            if (ctx->custom_chrome) {                         // update titlebar hover feedback
+            // resize edges and window buttons live on the window frame
+            if (ctx->custom_chrome) {
                 const char* edge = titlebar_resize_edge(ctx, e->x, e->y);
                 ui_window_set_resize_cursor(ctx->window, edge);
                 int hot = titlebar_button_at(ctx, e->x, e->y);
@@ -111,6 +112,10 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     ctx->redraw_needed = true;
                 }
             }
+
+            // the menubar runs after the frame handlers
+            if (ui_menubar_handle_mousemove(ctx, e->x, e->y))
+                break;
 
             if (ctx->input.lmb && ctx->drag_widget_id) {          // dragging something
                 Widget* dw = NULL;
@@ -205,6 +210,9 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     dialog_mouse_down(ctx, e->x, e->y);
                     break;
                 }
+
+                if (ui_menubar_handle_mousedown(ctx, e->x, e->y)) // menu bar consumes the click
+                    break;
 
                 // wm-owned gestures win over anything we draw
                 const char* redge = titlebar_resize_edge(ctx, e->x, e->y);
@@ -425,6 +433,8 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                 dialog_key_down(ctx, e);
                 break;
             }
+            if (e->key == UI_KEY_ESCAPE && ui_menubar_handle_escape(ctx))
+                break;                                            // menu bar ate escape
             if (ctx->focused_id && ctx->root) {                   // deliver to focused widget
                 for (int i = 0; i < ctx->pool_used; i++) {
                     Widget* w = &ctx->pool[i];

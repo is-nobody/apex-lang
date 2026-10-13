@@ -128,4 +128,25 @@
 #define UI_C_NOTIF_CLOSE     0xFF9D9D9Du
 #define UI_C_NOTIF_CLOSE_HOV 0xFF4A4D51u
 
+// menu bar metrics
+#define UI_MENUBAR_H             UI_TITLEBAR_H  // bar shares the titlebar height
+#define UI_MENU_BAR_PAD          8              // lead-in from the window's left edge
+#define UI_MENU_BAR_ITEM_PAD     10             // horizontal padding inside a top label
+#define UI_MENU_BAR_GAP          2              // gap between top labels
+#define UI_MENU_BAR_TITLE_GAP    16             // gap between the title text and the bar
+#define UI_MENU_ITEM_H           26             // dropdown item row height
+#define UI_MENU_SEP_H            9              // separator row height
+#define UI_MENU_DROP_PAD         6              // vertical padding of a dropdown panel
+#define UI_MENU_ITEM_PAD         12             // horizontal padding inside a dropdown item
+#define UI_MENU_DROP_W_MIN       140            // minimum dropdown width
+
+// menu bar colors
+#define UI_C_MENUBAR_BG        UI_C_TB_BG       // matches the titlebar strip
+#define UI_C_MENUBAR_FG        UI_C_TB_FG       // matches the titlebar text
+#define UI_C_MENU_HOVER_BG     UI_C_TB_BTN_HOV  // matches the titlebar button hover
+#define UI_C_MENU_DROP_BG      UI_C_TB_BG       // dropdown panel fill, matches the tray
+#define UI_C_MENU_DROP_BORDER  UI_C_BORDER      // dropdown outline
+#define UI_C_MENU_SEP          UI_C_BORDER      // separator line
+#define UI_C_MENU_ITEM_FG      UI_C_TB_FG       // dropdown item text, matches the tray
+
 #endif
