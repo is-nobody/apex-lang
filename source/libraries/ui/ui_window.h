@@ -105,4 +105,16 @@ void ui_window_clipboard_set(UiWindow* w, const char* text, int len);
 // fetch the current clipboard contents as utf-8
 bool ui_window_clipboard_get(UiWindow* w, char** out_text, int* out_len);
 
+// create a frameless, always-on-top popup for notifications
+UiWindow* ui_window_create_popup(int x, int y, int w, int h, const char* title);
+
+// move a window to the given screen position
+void ui_window_move(UiWindow* w, int x, int y);
+
+// fetch the work area of the monitor the window sits on
+void ui_window_work_area(UiWindow* w, int* ox, int* oy, int* ow, int* oh);
+
+// ask the host to repaint the window
+void ui_window_invalidate(UiWindow* w);
+
 #endif

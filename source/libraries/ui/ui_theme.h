@@ -106,4 +106,26 @@
 #define UI_MOD_CTRL       2       // control held
 #define UI_MOD_ALT        4       // alt / option held
 
+// notification popup
+#define UI_NOTIF_W          340   // default notification width
+#define UI_NOTIF_PAD        14    // inner padding
+#define UI_NOTIF_RADIUS     10    // corner radius
+#define UI_NOTIF_TITLE_FS   14    // title font size
+#define UI_NOTIF_BODY_FS    13    // body font size
+#define UI_NOTIF_LINE_H     18    // body line height
+#define UI_NOTIF_CLOSE_SZ   20    // close button hitbox size
+#define UI_NOTIF_MARGIN     18    // distance from screen edge
+#define UI_NOTIF_GAP        10    // gap between stacked notifications
+#define UI_NOTIF_MAX        6     // maximum live notifications
+#define UI_NOTIF_OPEN_SEC   0.11  // slide-in duration
+#define UI_NOTIF_CLOSE_SEC  0.08  // slide-out duration
+#define UI_NOTIF_SLIDE_MAX  60    // pixels the popup slides in from the right
+
+#define UI_C_NOTIF_BG        0xFF2A2D2Eu
+#define UI_C_NOTIF_BORDER    0xFF454545u
+#define UI_C_NOTIF_TITLE     0xFFE8E8E8u
+#define UI_C_NOTIF_BODY      0xFFB0B0B0u
+#define UI_C_NOTIF_CLOSE     0xFF9D9D9Du
+#define UI_C_NOTIF_CLOSE_HOV 0xFF4A4D51u
+
 #endif

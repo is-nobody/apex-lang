@@ -290,6 +290,28 @@ static Value ctor_spacer(VM* vm, int argc, Value* argv) {
     return MAKE_TABLE(t);
 }
 
+// ui.notification(table) — show a desktop notification popup
+static Value ctor_notification(VM* vm, int argc, Value* argv) {
+    UiContext* ctx = ui_ensure(vm);
+    if (argc < 1 || !IS_TABLE(argv[0])) return MAKE_NONE();
+
+    Table* t = AS_TABLE(argv[0]);
+    char* key     = table_get_str_dup(vm, t, "key");
+    char* title   = table_get_str_dup(vm, t, "title");
+    char* message = table_get_str_dup(vm, t, "message");
+    double timeout = table_get_num(vm, t, "timeout", 4.0);
+    bool show_close = table_get_bool(vm, t, "close", true);
+
+    ui_notification_show(ctx,
+                         key     ? key     : "",
+                         title   ? title   : "",
+                         message ? message : "",
+                         timeout, show_close);
+
+    free(key); free(title); free(message);
+    return MAKE_NONE();
+}
+
 // named key constants exposed to scripts as ui.key_*()
 static const struct { const char* name; int value; } UI_KEY_TABLE[] = {
     {"ui.key_escape",    UI_KEY_ESCAPE},
@@ -346,6 +368,7 @@ bool ui_call_builtin(VM* vm, const char* name, int argc, Value* argv, Value* res
     if (strcmp(name, "ui.set_title") == 0)     { *result = ui_impl_set_title(vm, argc, argv); return true; }    // change the window title
     if (strcmp(name, "ui.window_size") == 0)   { *result = ui_impl_window_size(vm, argc, argv); return true; }  // query the window size
     if (strcmp(name, "ui.dialog") == 0)        { *result = ctor_dialog(vm, argc, argv); return true; }          // generic modal dialog
+    if (strcmp(name, "ui.notification") == 0)  { *result = ctor_notification(vm, argc, argv); return true; }    // desktop notification
 
     if (strcmp(name, "ui.text") == 0)     { *result = make_leaf(vm, "text", argc, argv); return true; }         // plain text block
     if (strcmp(name, "ui.heading") == 0)  { *result = make_leaf(vm, "heading", argc, argv); return true; }      // section heading

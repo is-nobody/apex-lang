@@ -139,7 +139,7 @@ typedef struct {
 
 typedef enum {
     EV_NONE, EV_CLOSE, EV_CLICK, EV_CHANGE, EV_KEY, EV_SCROLL,
-    EV_HOVER, EV_RESIZE, EV_DIALOG
+    EV_HOVER, EV_RESIZE, EV_DIALOG, EV_NOTIFICATION
 } EventKind;  // event kind discriminator
 
 typedef struct {
@@ -287,6 +287,32 @@ typedef struct {
 #define DLG_OPEN_SEC   0.14
 #define DLG_CLOSE_SEC  0.10
 
+// one live notification popup with its own native window
+typedef struct UiNotification {
+    bool      active;             // true while on screen
+    char*     key;                // heap-owned script key, or null
+    char*     title;              // heap-owned title, or null
+    char*     message;            // heap-owned body, or null
+    bool      show_close;         // draw the close button
+
+    UiWindow* window;             // owned native popup window
+    int       win_w, win_h;       // popup client size
+
+    double    timeout;            // seconds until auto close, 0 = manual only
+    double    elapsed;            // seconds since shown
+    double    anim_t;             // 0..1 open/close phase
+    bool      closing;            // fading out
+
+    bool      hover_close;        // pointer over the close button
+    bool      press_close;        // held on the close button
+
+    int       slot;               // vertical stack slot, 0 = bottom-most
+    int       work_x, work_y;     // cached monitor work area top-left
+    int       work_w, work_h;     // cached monitor work area size
+    int       last_x, last_y;     // last placed screen position, avoid server churn
+    struct UiContext* ctx;        // back-pointer for the paint hook
+} UiNotification;
+
 // one block of the per-frame string arena
 typedef struct UiArenaBlock {
     struct UiArenaBlock* next;   // older block, or null
@@ -371,10 +397,21 @@ typedef struct UiContext {
     WrapCacheEntry*   wrap_cache;         // linear array of live entries
     int               wrap_cache_count;   // live entries
     int               wrap_cache_cap;     // allocated capacity of the array
+
+    // live notification popups
+    UiNotification**  notifs;             // array of owned notification pointers
+    int               notif_count;        // live entries
+    int               notif_cap;          // allocated capacity of the array
 } UiContext;                    // per-vm ui session state
 
 // reads a string field from a table, returns a heap copy or null on miss
 char* table_get_str_dup(VM* vm, Table* t, const char* key);
+
+// reads a number field from a table, returns def on miss or wrong type
+double table_get_num(VM* vm, Table* t, const char* key, double def);
+
+// reads a boolean field from a table, returns def on miss or wrong type
+bool table_get_bool(VM* vm, Table* t, const char* key, bool def);
 
 // releases every heap allocation owned by the dialog and resets it
 void dialog_clear(UiDialog* d);
@@ -502,5 +539,24 @@ void ui_painter_reset_clip(void);
 
 // releases the corner-coverage cache owned by the painter
 void ui_painter_shutdown(void);
+
+// show a new notification popup; key/title/message may be null
+void ui_notification_show(UiContext* ctx, const char* key, const char* title,
+                          const char* message, double timeout, bool show_close);
+
+// advance every notification's animation and auto-close timers
+void ui_notification_tick(UiContext* ctx, double dt);
+
+// close a notification by index, emitting its dialog-style event
+void ui_notification_close(UiContext* ctx, int index, bool emit);
+
+// release every live notification and its native popup
+void ui_notification_destroy(UiContext* ctx);
+
+// pump events coming from every notification popup window
+void ui_notification_pump(UiContext* ctx);
+
+// paint one notification into its own framebuffer and blit
+void ui_render_notification(UiNotification* n);
 
 #endif

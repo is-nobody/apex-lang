@@ -37,6 +37,11 @@ static void push_input_change(UiContext* ctx, Widget* w, const char* str_val);
 // forward: dialog helpers defined further down
 void dialog_clear(UiDialog* d);
 
+// notification helpers defined further down
+static void notif_clear(UiNotification* n);
+static void notif_place_all(UiContext* ctx);
+static void notif_emit_close(UiContext* ctx, UiNotification* n);
+
 // fnv-1a hash of parent id + key (or index) to produce a stable widget id
 uint64_t ui_hash_id(uint64_t parent, const char* key, int idx) {
     uint64_t h = 0xCBF29CE484222325ULL ^ parent;     // fold parent id into the seed
@@ -751,7 +756,7 @@ char* table_get_str_dup(VM* vm, Table* t, const char* key) {
 }
 
 // reads a number field from a table, returns default on miss or wrong type
-static double table_get_num(VM* vm, Table* t, const char* key, double def) {
+double table_get_num(VM* vm, Table* t, const char* key, double def) {
     Value k = intern(vm, key), v;
     if (!table_get(t, k, &v)) { value_decref(k); return def; }   // key absent
     value_decref(k);
@@ -761,7 +766,7 @@ static double table_get_num(VM* vm, Table* t, const char* key, double def) {
 }
 
 // reads a boolean field from a table, returns default on miss or wrong type
-static bool table_get_bool(VM* vm, Table* t, const char* key, bool def) {
+bool table_get_bool(VM* vm, Table* t, const char* key, bool def) {
     Value k = intern(vm, key), v;
     if (!table_get(t, k, &v)) { value_decref(k); return def; }   // key absent
     value_decref(k);
@@ -1122,6 +1127,7 @@ void ui_context_destroy(UiContext* ctx) {
         free(s->input_buf);                                       // release the owned text buffer
     }
 
+    ui_notification_destroy(ctx);                                 // tear down notification popups
     free(ctx->pool);                                              // free the widget pool array
     free(ctx->state.entries);                                     // free the persistent state table
     free(ctx->text_cache);                                        // free the text measurement cache
@@ -1139,6 +1145,267 @@ void ui_context_destroy(UiContext* ctx) {
     ui_damage_free(ctx);                                          // free ui damage
     free(ctx);                                                    // free the context itself
     if (saved_vm) saved_vm->ui = NULL;                            // drop the vm's back-pointer
+}
+
+// duplicates a c string, mapping null to ""
+static char* notif_dup(const char* s) {
+    if (!s) s = "";                                      // null guard: treat as empty
+    size_t n = strlen(s);                                // payload length
+    char* out = (char*)malloc(n + 1);                    // payload plus terminator
+    if (!out) return NULL;                               // oom: hand back null
+    memcpy(out, s, n + 1);                               // copy bytes and null
+    return out;                                          // caller owns the copy
+}
+
+// releases every owned allocation and zeroes the notification
+static void notif_clear(UiNotification* n) {
+    if (!n) return;                                      // null guard
+    if (n->window) ui_window_destroy(n->window);         // tear down the popup window
+    free(n->key);                                        // release the script key
+    free(n->title);                                      // release the title
+    free(n->message);                                    // release the body text
+    memset(n, 0, sizeof(*n));                            // wipe every field
+}
+
+// places every live notification stacked from the bottom-right corner
+static void notif_place_all(UiContext* ctx) {
+    int from_bottom = 0;                                 // running vertical offset from the bottom
+    for (int i = ctx->notif_count - 1; i >= 0; i--) {    // newest first: sits closest to the corner
+        UiNotification* n = ctx->notifs[i];
+        if (!n->window) continue;                        // skip entries without a live window
+
+        int px = n->work_x + n->work_w - n->win_w - UI_NOTIF_MARGIN;  // right edge of the work area
+        int py = n->work_y + n->work_h - n->win_h - UI_NOTIF_MARGIN - from_bottom;  // stacked upward
+
+        // ease-out cubic: fast takeoff, settles gently into place
+        double t = n->anim_t;                            // 0 = off-screen, 1 = settled
+        if (t < 0) t = 0;                                // clamp low
+        if (t > 1) t = 1;                                // clamp high
+        double inv  = 1.0 - t;                           // complement of the phase
+        double ease = 1.0 - inv*inv*inv;                 // cubic ease-out curve
+
+        if (!n->closing && t < 1.0)                      // still sliding in
+            px += (int)((1.0 - ease) * UI_NOTIF_SLIDE_MAX);  // offset shrinks as ease climbs
+
+        if (px != n->last_x || py != n->last_y) {        // only move when the target changed
+            ui_window_move(n->window, px, py);           // push the new position
+            n->last_x = px;                              // remember what we set
+            n->last_y = py;
+        }
+        n->slot = from_bottom;                           // record the slot for debug or future use
+        from_bottom += n->win_h + UI_NOTIF_GAP;          // advance the stack cursor
+    }
+}
+
+// emits a notification close event to the script queue
+static void notif_emit_close(UiContext* ctx, UiNotification* n) {
+    UiEvent ev; memset(&ev, 0, sizeof(ev));              // zero the event
+    ev.kind = EV_NOTIFICATION;                           // notification kind
+    strncpy(ev.widget_type, "notification", 15);         // widget type name
+    if (n->key) strncpy(ev.key_name, n->key, 63);        // propagate the script key
+    ev.bool_value = true;                                // closed
+    ui_event_push(ctx, &ev);                             // enqueue the event
+}
+
+// computes the intrinsic size of a notification box
+static void notif_measure(UiContext* ctx, UiNotification* n, int* out_w, int* out_h) {
+    int w = UI_NOTIF_W;                                  // fixed outer width
+    int h = UI_NOTIF_PAD;                                // start with top padding
+
+    float title_h = 0;                                   // vertical space reserved for the title
+    if (n->title && *n->title) title_h = UI_NOTIF_TITLE_FS + 6;  // line box plus gap
+    h += (int)title_h;                                   // add to the running height
+
+    // message: count wrapped lines against the inner width
+    int inner = w - 2*UI_NOTIF_PAD;                      // usable width inside the padding
+    if (n->show_close) inner -= UI_NOTIF_CLOSE_SZ + 6;   // reserve room for the close button
+
+    int lines = 0;                                       // wrapped line count
+    if (n->message && *n->message) {                     // only when there is body text
+        const char* s = n->message;
+        int len = (int)strlen(s);
+        float cur = 0;                                   // width of the current line
+        int i = 0;
+        lines = 1;                                       // assume at least one line
+        while (i < len) {
+            while (i < len && (s[i] == ' ' || s[i] == '\t')) i++;  // skip leading whitespace
+            if (i >= len) break;                         // nothing left to scan
+            int ws = i;                                  // first byte of this word
+            while (i < len && s[i] != ' ' && s[i] != '\t') i++;  // advance past the word
+            float ww = ui_text_measure_cached(ctx, s + ws, i - ws, UI_NOTIF_BODY_FS);  // word width
+            float sp = cur > 0 ? ui_text_measure_cached(ctx, " ", 1, UI_NOTIF_BODY_FS) : 0;  // space before it
+            if (cur + sp + ww > (float)inner && cur > 0) { lines++; cur = ww; }  // wrap: start new line
+            else                                          { cur += sp + ww; }   // append to current line
+        }
+    }
+    h += lines * UI_NOTIF_LINE_H;                        // add the wrapped block height
+    h += UI_NOTIF_PAD;                                   // bottom padding
+
+    if (h < 60) h = 60;                                  // enforce a minimum box height
+    *out_w = w;                                          // publish the width
+    *out_h = h;                                          // publish the height
+}
+
+// creates and queues a new notification, sliding it in
+void ui_notification_show(UiContext* ctx, const char* key, const char* title,
+                          const char* message, double timeout, bool show_close) {
+    if (ctx->notif_count >= UI_NOTIF_MAX) {              // cap reached: evict the oldest
+        notif_clear(ctx->notifs[0]);                     // release its resources
+        free(ctx->notifs[0]);                            // free the struct
+        memmove(&ctx->notifs[0], &ctx->notifs[1],        // shift the rest forward
+                sizeof(UiNotification*) * (ctx->notif_count - 1));
+        ctx->notif_count--;                              // one fewer live entry
+    }
+
+    UiNotification* n = (UiNotification*)calloc(1, sizeof(UiNotification));  // zeroed struct
+    if (!n) return;                                      // oom: give up
+
+    n->ctx         = ctx;                                // back-pointer for later calls
+    n->key         = key    ? notif_dup(key)     : NULL; // copy the script key
+    n->title       = title  ? notif_dup(title)   : NULL; // copy the title
+    n->message     = message ? notif_dup(message) : NULL; // copy the body text
+    n->timeout     = timeout > 0 ? timeout : 0;          // non-positive means manual close
+    n->elapsed     = 0;                                  // no time elapsed yet
+    n->anim_t      = 0;                                  // start fully transparent and offset
+    n->closing     = false;                              // not fading out
+    n->show_close  = show_close;                         // honour the close button flag
+
+    notif_measure(ctx, n, &n->win_w, &n->win_h);         // resolve the popup size
+
+    // resolve and cache the work area once; later frames skip the x roundtrip
+    int wx = 0, wy = 0, ww = 1920, wh = 1080;            // sane defaults for headless
+    if (ctx->window) ui_window_work_area(ctx->window, &wx, &wy, &ww, &wh);  // live query
+    n->work_x = wx; n->work_y = wy;                      // cache the origin
+    n->work_w = ww; n->work_h = wh;                      // cache the size
+
+    // start off-screen to the right so the slide-in is visible from frame 0
+    int final_x   = wx + ww - n->win_w - UI_NOTIF_MARGIN;  // resting position
+    int final_y   = wy + wh - n->win_h - UI_NOTIF_MARGIN;  // bottom-right corner
+    int initial_x = final_x + UI_NOTIF_SLIDE_MAX;          // offset start for the slide
+
+    n->window = ui_window_create_popup(initial_x, final_y, n->win_w, n->win_h,
+                                       (n->title && *n->title) ? n->title : "notification");
+    if (!n->window) { notif_clear(n); free(n); return; } // creation failed: bail out
+    n->last_x = initial_x;                               // remember the spawn position
+    n->last_y = final_y;
+
+    if (ctx->notif_count >= ctx->notif_cap) {            // grow the pointer array
+        ctx->notif_cap = ctx->notif_cap ? ctx->notif_cap * 2 : 4;  // double, or start at 4
+        ctx->notifs = (UiNotification**)realloc(ctx->notifs,
+                        sizeof(UiNotification*) * ctx->notif_cap);  // grow
+    }
+    ctx->notifs[ctx->notif_count++] = n;                 // publish the new entry
+
+    // draw the first frame immediately, then stack everyone
+    ui_render_notification(n);                           // paint the initial state
+    notif_place_all(ctx);                                // place it and re-flow the stack
+}
+
+// closes a notification, optionally emitting a script event
+void ui_notification_close(UiContext* ctx, int index, bool emit) {
+    if (index < 0 || index >= ctx->notif_count) return;  // bounds check
+    UiNotification* n = ctx->notifs[index];
+    if (!n->closing) {                                   // ignore if already closing
+        n->closing = true;                               // start fade-out
+        if (emit) notif_emit_close(ctx, n);              // notify the script
+    }
+}
+
+// pumps events from every notification popup window
+void ui_notification_pump(UiContext* ctx) {
+    for (int i = 0; i < ctx->notif_count; i++) {         // walk every live notification
+        UiNotification* n = ctx->notifs[i];
+        if (!n->window) continue;                        // no window: nothing to pump
+
+        UiWinEvent we;
+        while (ui_window_poll(n->window, &we)) {         // drain this window's queue
+            switch (we.kind) {
+                case UW_EV_CLOSE:                        // system close request
+                    ui_notification_close(ctx, i, true); // fade out and emit
+                    break;
+                case UW_EV_EXPOSE:                       // window needs a repaint
+                    ui_render_notification(n);           // redraw into its framebuffer
+                    break;
+                case UW_EV_MOUSEMOVE: {                  // pointer moved over the popup
+                    int cx = n->win_w - UI_NOTIF_PAD - UI_NOTIF_CLOSE_SZ / 2;  // close center x
+                    int cy = UI_NOTIF_PAD + UI_NOTIF_CLOSE_SZ / 2;             // close center y
+                    int dx = we.x - cx, dy = we.y - cy;  // offset from the close center
+                    bool over = n->show_close &&         // is the pointer over the close glyph?
+                                (dx*dx + dy*dy) < (UI_NOTIF_CLOSE_SZ * UI_NOTIF_CLOSE_SZ / 4);
+                    if (over != n->hover_close) {        // hover state changed
+                        n->hover_close = over;           // store the new flag
+                        ui_render_notification(n);       // repaint to show the highlight
+                    }
+                    break;
+                }
+                case UW_EV_MOUSEDOWN:                    // press inside the popup
+                    if (we.button == 1 && n->hover_close) {  // left click on the close button
+                        n->press_close = true;           // latch the pressed state
+                        ui_render_notification(n);       // repaint
+                    }
+                    break;
+                case UW_EV_MOUSEUP:                      // release inside the popup
+                    if (we.button == 1) {                // left button only
+                        bool was = n->press_close;       // remember the press state
+                        n->press_close = false;          // clear it
+                        if (was && n->hover_close)       // released on the close button
+                            ui_notification_close(ctx, i, true);  // accept the close
+                        ui_render_notification(n);       // repaint either way
+                    }
+                    break;
+                default: break;                          // ignore everything else
+            }
+        }
+    }
+}
+
+// advances fade timers, auto-close, and pops finished notifications
+void ui_notification_tick(UiContext* ctx, double dt) {
+    for (int i = 0; i < ctx->notif_count; ) {            // manual index: entries may be removed
+        UiNotification* n = ctx->notifs[i];
+        bool dirty = false;                              // did anything change this tick?
+
+        if (n->closing) {                                // fading out
+            n->anim_t -= dt / UI_NOTIF_CLOSE_SEC;        // shrink the phase
+            if (n->anim_t <= 0.0) {                      // fully faded: remove it
+                notif_clear(n);                          // release resources
+                free(n);                                 // free the struct
+                memmove(&ctx->notifs[i], &ctx->notifs[i + 1],
+                        sizeof(UiNotification*) * (ctx->notif_count - i - 1));  // shift the tail
+                ctx->notif_count--;                      // one fewer entry
+                notif_place_all(ctx);                    // re-flow the stack
+                continue;                                // do not advance i: same slot has a new entry
+            }
+            dirty = true;                                // still animating: repaint
+        } else {
+            if (n->anim_t < 1.0) {                       // still sliding in
+                n->anim_t += dt / UI_NOTIF_OPEN_SEC;     // grow the phase
+                if (n->anim_t > 1.0) n->anim_t = 1.0;    // clamp at fully open
+                dirty = true;                            // repaint
+                notif_place_all(ctx);                    // recompute the slide offset
+            }
+            n->elapsed += dt;                            // accumulate open time
+            if (n->timeout > 0 && n->elapsed >= n->timeout) {  // auto-close window elapsed
+                n->closing = true;                       // start fade-out silently
+                dirty = true;                            // repaint
+            }
+        }
+
+        if (dirty) ui_render_notification(n);            // only repaint when something moved
+        i++;                                             // advance to the next entry
+    }
+}
+
+// releases every live notification and their popup windows
+void ui_notification_destroy(UiContext* ctx) {
+    for (int i = 0; i < ctx->notif_count; i++) {         // walk every live notification
+        notif_clear(ctx->notifs[i]);                     // release its resources
+        free(ctx->notifs[i]);                            // free the struct
+    }
+    ctx->notif_count = 0;                                // no more live entries
+    free(ctx->notifs);                                   // free the pointer array
+    ctx->notifs = NULL;                                  // clear dangling pointer
+    ctx->notif_cap = 0;                                  // reset capacity
 }
 
 // grid cell size in pixels. 64 keeps typical widget bboxes confined to 1-2 cells.
@@ -2705,6 +2972,11 @@ static bool ui_animating(UiContext* ctx) {
         WidgetState* s = &ctx->state.entries[i];
         if (s->scroll_y != s->scroll_target) return true;  // still moving
     }
+    for (int i = 0; i < ctx->notif_count; i++) {
+        UiNotification* n = ctx->notifs[i];
+        if (n->closing && n->anim_t > 0.0) return true;    // fading out
+        if (!n->closing && n->anim_t < 1.0) return true;   // sliding in
+    }
     return false;                                          // all settled
 }
 
@@ -2760,6 +3032,9 @@ void ui_tick(UiContext* ctx, double dt) {
             ctx->redraw_needed = true;                   // schedule a repaint
     }
 
+    // notification fade and auto-close timers
+    ui_notification_tick(ctx, dt);
+
     // dialog open/close animation + caret blink
     if (ctx->dialog.active) {
         UiDialog* d = &ctx->dialog;
@@ -2803,15 +3078,17 @@ static bool pump(UiContext* ctx) {
         handle_win_event(ctx, &we);
         if (we.kind == UW_EV_CLOSE) break;                        // stop on close
     }
+    ui_notification_pump(ctx);                                    // pump popup events too
     if (ctx->queue.count > 0) return true;                        // events already queued
     if (!ui_window_is_open(ctx->window)) return false;            // window closed
 
     int timeout;
-    if (ctx->redraw_needed)      timeout = 8;                     // ~120 fps: repaint pending, poll fast
-    else if (ui_animating(ctx))  timeout = 8;                     // ~120 fps: scroll ease in flight
-    else if (ctx->focused_id)    timeout = 62;                    // ~16 hz: only needed for caret blink
-    else if (ctx->dialog.active) timeout = 62;                    // dialog animation / caret blink
-    else                         timeout = 1000;                  // fully idle: sleep until real input
+    if (ctx->redraw_needed)        timeout = 8;                   // ~120 fps: repaint pending
+    else if (ui_animating(ctx))    timeout = 8;                   // ~120 fps: scroll or notif ease
+    else if (ctx->focused_id)      timeout = 62;                  // ~16 hz: only caret blink
+    else if (ctx->dialog.active)   timeout = 62;                  // dialog animation / blink
+    else if (ctx->notif_count > 0) timeout = 62;                  // idle notifications: poll close btn
+    else                           timeout = 1000;                // fully idle
     if (ui_window_wait(ctx->window, timeout)) {                   // block briefly for input
         while (ui_window_poll(ctx->window, &we)) {                // drain newly arrived events
             handle_win_event(ctx, &we);

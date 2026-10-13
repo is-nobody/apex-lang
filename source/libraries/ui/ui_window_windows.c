@@ -840,4 +840,82 @@ bool ui_window_clipboard_get(UiWindow* w, char** out_text, int* out_len) {
     return true;
 }
 
+// creates a frameless, always-on-top popup window used for notifications
+UiWindow* ui_window_create_popup(int x, int y, int w, int h, const char* title) {
+    HINSTANCE hInst = GetModuleHandleW(NULL);             // module handle for the window class
+
+    WNDCLASSEXW wc;
+    memset(&wc, 0, sizeof(wc));                           // zero the class struct
+    wc.cbSize        = sizeof(wc);
+    wc.style         = CS_HREDRAW | CS_VREDRAW;           // full repaint on resize
+    wc.lpfnWndProc   = wnd_proc;                          // shared window procedure
+    wc.hInstance     = hInst;
+    wc.hCursor       = LoadCursorW(NULL, IDC_ARROW);      // default arrow cursor
+    wc.hbrBackground = NULL;                              // we paint the whole client area
+    wc.lpszClassName = kClassName;
+    RegisterClassExW(&wc);                                // idempotent across runs
+
+    WCHAR wtitle[512];                                    // window title in wide chars
+    MultiByteToWideChar(CP_UTF8, 0, title ? title : "", -1,
+                        wtitle, (int)(sizeof(wtitle)/sizeof(wtitle[0])));
+
+    UiWindow* win = (UiWindow*)calloc(1, sizeof(UiWindow));  // zeroed window struct
+    if (!win) return NULL;                                // oom: bail out
+    win->w = w; win->h = h;                               // seed real size before window exists
+    win->decorated = false;                               // no system chrome
+
+    HWND hwnd = CreateWindowExW(
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,  // above all, no taskbar, no focus steal
+        kClassName, wtitle,
+        WS_POPUP,                                         // bare popup: no caption, no borders
+        x, y, w, h,
+        NULL, NULL, hInst, win);                          // pass win as lpCreateParams
+    if (!hwnd) { free(win); return NULL; }                // creation failed
+    win->hwnd = hwnd;
+
+    if (!alloc_buffer_resources(win, w, h)) {             // allocate the offscreen buffer
+        DestroyWindow(hwnd);                              // undo the window creation
+        free(win);
+        return NULL;
+    }
+
+    ShowWindow(hwnd, SW_SHOWNOACTIVATE);                  // show without stealing focus
+    UpdateWindow(hwnd);                                   // force the first paint now
+    win->open = true;
+    return win;
+}
+
+// moves a window to an absolute screen position
+void ui_window_move(UiWindow* w, int x, int y) {
+    if (!w || !w->hwnd) return;                           // null guard
+    SetWindowPos(w->hwnd, HWND_TOPMOST, x, y, 0, 0,       // move only: keep size, order and focus
+                 SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
+// returns the monitor work area the window sits on
+void ui_window_work_area(UiWindow* w, int* ox, int* oy, int* ow, int* oh) {
+    HMONITOR mon = MonitorFromWindow(w && w->hwnd ? w->hwnd : NULL,
+                                     MONITOR_DEFAULTTONEAREST);  // nearest monitor to the window
+    MONITORINFO mi;
+    memset(&mi, 0, sizeof(mi));                           // zero the info struct
+    mi.cbSize = sizeof(MONITORINFO);
+    if (GetMonitorInfoW(mon, &mi)) {                      // query succeeded
+        *ox = mi.rcWork.left;                             // work area left edge
+        *oy = mi.rcWork.top;                              // work area top edge
+        *ow = mi.rcWork.right  - mi.rcWork.left;          // work area width
+        *oh = mi.rcWork.bottom - mi.rcWork.top;           // work area height
+    } else {                                              // fall back to the primary screen
+        *ox = 0; *oy = 0;
+        *ow = GetSystemMetrics(SM_CXSCREEN);              // full screen width
+        *oh = GetSystemMetrics(SM_CYSCREEN);              // full screen height
+    }
+}
+
+// forces an immediate repaint of the window
+void ui_window_invalidate(UiWindow* w) {
+    if (!w || !w->hwnd) return;                           // null guard
+    InvalidateRect(w->hwnd, NULL, FALSE);                 // mark the whole client area dirty
+    UpdateWindow(w->hwnd);                                // deliver WM_PAINT synchronously
+}
+
 #endif

@@ -842,4 +842,105 @@ bool ui_window_clipboard_get(UiWindow* w, char** out_text, int* out_len) {
     return false;                                        // no reply from the owner
 }
 
+// creates a frameless, always-on-top popup window used for notifications
+UiWindow* ui_window_create_popup(int x, int y, int w, int h, const char* title) {
+    UiWindow* win = (UiWindow*)calloc(1, sizeof(UiWindow));   // zeroed window struct
+    win->dpy = XOpenDisplay(NULL);                            // connect to the default display
+    if (!win->dpy) { free(win); return NULL; }                // no display: give up
+    win->screen = DefaultScreen(win->dpy);                    // default screen index
+    win->decorated = false;                                   // no system chrome
+    win->w = w; win->h = h;                                   // record the requested size
+    win->shm.shmid = -1;                                      // sentinel: no live shm segment
+
+    XSetWindowAttributes a = {0};                             // window attribute set
+    a.background_pixel  = 0xFF1E1E1Eu;                        // match the ui theme background
+    a.bit_gravity       = NorthWestGravity;                   // anchor contents at the top-left
+    a.override_redirect = True;                               // bypass the wm entirely
+
+    win->win = XCreateWindow(win->dpy, RootWindow(win->dpy, win->screen),
+        x, y, (unsigned)w, (unsigned)h, 0,
+        CopyFromParent, InputOutput, CopyFromParent,
+        CWBackPixel | CWBitGravity | CWOverrideRedirect, &a);
+    XStoreName(win->dpy, win->win, title ? title : "");       // set the window title
+
+    // hint the wm: this is a notification, keep it above everything
+    Atom wtype = XInternAtom(win->dpy, "_NET_WM_WINDOW_TYPE", False);        // property atom
+    Atom ntype = XInternAtom(win->dpy, "_NET_WM_WINDOW_TYPE_NOTIFICATION", False);  // value
+    XChangeProperty(win->dpy, win->win, wtype, XA_ATOM, 32, PropModeReplace,
+                    (unsigned char*)&ntype, 1);               // publish the window type
+    Atom state = XInternAtom(win->dpy, "_NET_WM_STATE", False);              // state atom
+    Atom above = XInternAtom(win->dpy, "_NET_WM_STATE_ABOVE", False);        // value
+    XChangeProperty(win->dpy, win->win, state, XA_ATOM, 32, PropModeReplace,
+                    (unsigned char*)&above, 1);               // ask to stay above
+
+    XSelectInput(win->dpy, win->win,
+        ExposureMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask);  // events we want
+
+    XMapWindow(win->dpy, win->win);                           // make the window visible
+    win->gc = XCreateGC(win->dpy, win->win, 0, NULL);         // graphics context for blits
+
+    if (XShmQueryExtension(win->dpy)) {                       // try shared memory first
+        win->shm.shmid = shmget(IPC_PRIVATE, (size_t)w*h*4, IPC_CREAT|0600);  // create segment
+        if (win->shm.shmid >= 0) {                            // segment allocated
+            win->shm.shmaddr = (char*)shmat(win->shm.shmid, NULL, 0);  // map into our address space
+            if (win->shm.shmaddr != (char*)-1) {              // mapping succeeded
+                win->shm.readOnly = False;                    // we write into it
+                win->img = XShmCreateImage(win->dpy,
+                    DefaultVisual(win->dpy, win->screen),
+                    (unsigned)DefaultDepth(win->dpy, win->screen),
+                    ZPixmap, NULL, &win->shm, (unsigned)w, (unsigned)h);  // ximage over shm
+                if (win->img) {                               // image created
+                    win->img->data = win->shm.shmaddr;        // point it at the mapping
+                    int (*old)(Display*,XErrorEvent*) = XSetErrorHandler(xerr);  // suppress errors
+                    XShmAttach(win->dpy, &win->shm);          // tell the server about it
+                    XSync(win->dpy, False);                   // flush and observe errors
+                    XSetErrorHandler(old);                    // restore the previous handler
+                    win->shm_ok = true;                       // mark shm as live
+                }
+            }
+        }
+    }
+    if (!win->shm_ok) {                                       // fall back to a plain ximage
+        win->pixels = alloc_framebuffer(w, h);                // 2 MB-aligned, THP-backed
+        win->img = XCreateImage(win->dpy,
+            DefaultVisual(win->dpy, win->screen),
+            (unsigned)DefaultDepth(win->dpy, win->screen),
+            ZPixmap, 0, (char*)win->pixels, (unsigned)w, (unsigned)h, 32, 0);
+    }
+    win->open = true;                                         // window is live
+    return win;                                               // hand it to the caller
+}
+
+// moves a window to an absolute screen position
+void ui_window_move(UiWindow* w, int x, int y) {
+    if (!w || !w->dpy) return;                                // null guard
+    XMoveWindow(w->dpy, w->win, x, y);                        // reposition the x window
+    XFlush(w->dpy);                                           // push the request out now
+}
+
+// returns the monitor work area the window sits on
+void ui_window_work_area(UiWindow* w, int* ox, int* oy, int* ow, int* oh) {
+    int sx = 0, sy = 0;                                       // work area origin
+    int sw = DisplayWidth(w->dpy, w->screen);                 // fallback width: full screen
+    int sh = DisplayHeight(w->dpy, w->screen);                // fallback height: full screen
+    Atom wa = XInternAtom(w->dpy, "_NET_WORKAREA", False);    // work area property
+    Atom actual; int fmt; unsigned long n, after;             // property reply fields
+    unsigned char* data = NULL;                               // property payload
+    if (XGetWindowProperty(w->dpy, RootWindow(w->dpy, w->screen), wa,
+                           0, 4, False, XA_CARDINAL,
+                           &actual, &fmt, &n, &after, &data) == Success && data) {  // query ok
+        long* v = (long*)data;                                // cardinals as longs
+        if (n >= 4) { sx = (int)v[0]; sy = (int)v[1]; sw = (int)v[2]; sh = (int)v[3]; }  // unpack
+        XFree(data);                                          // release the reply
+    }
+    *ox = sx; *oy = sy; *ow = sw; *oh = sh;                   // publish the result
+}
+
+// forces an immediate repaint of the window
+void ui_window_invalidate(UiWindow* w) {
+    if (!w || !w->dpy) return;                                // null guard
+    XClearArea(w->dpy, w->win, 0, 0, 0, 0, True);             // True: generate expose events
+    XFlush(w->dpy);                                           // push the request out now
+}
+
 #endif
