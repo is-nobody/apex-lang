@@ -119,6 +119,7 @@ const char* widget_kind_name(WidgetKind k) {
         case WK_INPUT: return "input";
         case WK_BADGE: return "badge";
         case WK_COMBOBOX: return "combobox";
+        case WK_TABLE: return "table";
         case WK_SEPARATOR: return "separator";
         case WK_SPACER: return "spacer";
         case WK_VBOX: return "vbox";

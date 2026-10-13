@@ -27,6 +27,7 @@ static WidgetKind kind_from_str_n(const char* s, int n) {
     if (STR_EQ(s,n,"input"))     return WK_INPUT;
     if (STR_EQ(s,n,"badge"))     return WK_BADGE;
     if (STR_EQ(s,n,"combobox"))  return WK_COMBOBOX;
+    if (STR_EQ(s,n,"table"))     return WK_TABLE;
     if (STR_EQ(s,n,"separator")) return WK_SEPARATOR;
     if (STR_EQ(s,n,"spacer"))    return WK_SPACER;
     if (STR_EQ(s,n,"vbox"))      return WK_VBOX;
@@ -195,6 +196,162 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
         const char* init_s = has_ival ? ival.ptr : "";
         int         init_n = has_ival ? ival.len : 0;
         sync_input_buffer(w, st, init_s, init_n);
+    }
+
+    if (w->kind == WK_TABLE) {                              // table reads a column list and a row list
+        Value cols_v;
+        if (table_get(t, ctx->key_cache[UK_COLUMNS], &cols_v)) {
+            if (IS_TABLE(cols_v)) {
+                Table* ct = AS_TABLE(cols_v);
+                // array literals live in array_part, not in the numeric hash;
+                // walk array_part first, then fall through to numeric keys
+                int n_arr = ct->array_part ? ct->array_count : 0;
+                int nc = n_arr;
+                for (int i = n_arr + 1; ; i++) {            // any numeric hash entries past the array
+                    Value cv;
+                    if (!table_get(ct, MAKE_NUMBER((double)i), &cv)) break;
+                    value_decref(cv);
+                    nc++;
+                }
+                if (nc > 0) {
+                    w->table_cols = (TableColumn*)ui_arena_alloc(ctx,
+                                      sizeof(TableColumn) * (size_t)nc);
+                    memset(w->table_cols, 0, sizeof(TableColumn) * (size_t)nc);
+                    w->table_col_count = 0;
+
+                    for (int i = 0; i < n_arr; i++) {       // array part first
+                        Value cv = ct->array_part[i];
+                        TableColumn* col = &w->table_cols[w->table_col_count];
+                        col->align = AL_START;              // default alignment
+                        col->width = 0;                     // 0 = auto-fit
+                        if (IS_STRING(cv)) {                // bare string: just a label
+                            StringObject* s = AS_STRING(cv);
+                            col->label = arena_dup(ctx, s->chars, s->length);
+                        } else if (IS_TABLE(cv)) {          // table: label/align/width fields
+                            Table* cc = AS_TABLE(cv);
+                            Value fv;
+                            if (table_get(cc, ctx->key_cache[UK_LABEL], &fv)) {
+                                if (IS_STRING(fv)) {
+                                    StringObject* s = AS_STRING(fv);
+                                    col->label = arena_dup(ctx, s->chars, s->length);
+                                }
+                                value_decref(fv);
+                            }
+                            if (table_get(cc, ctx->key_cache[UK_ALIGN], &fv)) {
+                                if (IS_STRING(fv)) {
+                                    StringObject* s = AS_STRING(fv);
+                                    col->align = parse_align_n(s->chars, s->length);
+                                }
+                                value_decref(fv);
+                            }
+                            if (table_get(cc, ctx->key_cache[UK_WIDTH], &fv)) {
+                                if (IS_NUMBER(fv)) col->width = (float)AS_NUMBER(fv);
+                                value_decref(fv);
+                            }
+                        }
+                        w->table_col_count++;
+                    }
+                    for (int i = n_arr + 1; i <= nc; i++) { // then any numeric hash entries
+                        Value cv;
+                        if (!table_get(ct, MAKE_NUMBER((double)i), &cv)) break;
+                        TableColumn* col = &w->table_cols[w->table_col_count];
+                        col->align = AL_START;
+                        col->width = 0;
+                        if (IS_STRING(cv)) {
+                            StringObject* s = AS_STRING(cv);
+                            col->label = arena_dup(ctx, s->chars, s->length);
+                        } else if (IS_TABLE(cv)) {
+                            Table* cc = AS_TABLE(cv);
+                            Value fv;
+                            if (table_get(cc, ctx->key_cache[UK_LABEL], &fv)) {
+                                if (IS_STRING(fv)) {
+                                    StringObject* s = AS_STRING(fv);
+                                    col->label = arena_dup(ctx, s->chars, s->length);
+                                }
+                                value_decref(fv);
+                            }
+                            if (table_get(cc, ctx->key_cache[UK_ALIGN], &fv)) {
+                                if (IS_STRING(fv)) {
+                                    StringObject* s = AS_STRING(fv);
+                                    col->align = parse_align_n(s->chars, s->length);
+                                }
+                                value_decref(fv);
+                            }
+                            if (table_get(cc, ctx->key_cache[UK_WIDTH], &fv)) {
+                                if (IS_NUMBER(fv)) col->width = (float)AS_NUMBER(fv);
+                                value_decref(fv);
+                            }
+                        }
+                        w->table_col_count++;
+                        value_decref(cv);
+                    }
+                }
+            }
+            value_decref(cols_v);
+        }
+
+        Value rows_v;
+        if (table_get(t, ctx->key_cache[UK_ROWS], &rows_v)) {
+            if (IS_TABLE(rows_v)) {
+                Table* rt = AS_TABLE(rows_v);
+                int nc = w->table_col_count;
+                int n_arr = rt->array_part ? rt->array_count : 0;
+                int nr = n_arr;
+                for (int i = n_arr + 1; ; i++) {            // numeric hash entries past the array
+                    Value rv;
+                    if (!table_get(rt, MAKE_NUMBER((double)i), &rv)) break;
+                    value_decref(rv);
+                    nr++;
+                }
+                if (nc > 0 && nr > 0) {                     // allocate the flat cell array
+                    size_t ncell = (size_t)nc * (size_t)nr;
+                    w->table_cells = (Str*)ui_arena_alloc(ctx, sizeof(Str) * ncell);
+                    memset(w->table_cells, 0, sizeof(Str) * ncell);
+                }
+                w->table_row_count = 0;
+
+                for (int i = 0; i < n_arr; i++) {           // array part first
+                    Value rv = rt->array_part[i];
+                    if (IS_TABLE(rv)) {
+                        Table* rct = AS_TABLE(rv);
+                        int n_cells = rct->array_part ? rct->array_count : 0;
+                        if (n_cells > nc) n_cells = nc;     // extra cells: ignore
+                        for (int c = 0; c < n_cells; c++) {
+                            Value cell_v = rct->array_part[c];
+                            if (IS_STRING(cell_v)) {
+                                StringObject* s = AS_STRING(cell_v);
+                                w->table_cells[(size_t)w->table_row_count * (size_t)nc + (size_t)c] =
+                                    arena_dup(ctx, s->chars, s->length);
+                            }
+                        }
+                    }
+                    w->table_row_count++;
+                }
+                for (int i = n_arr + 1; i <= nr; i++) {     // then any numeric hash entries
+                    Value rv;
+                    if (!table_get(rt, MAKE_NUMBER((double)i), &rv)) break;
+                    if (IS_TABLE(rv)) {
+                        Table* rct = AS_TABLE(rv);
+                        int n_cells = rct->array_part ? rct->array_count : 0;
+                        if (n_cells > nc) n_cells = nc;
+                        for (int c = 0; c < n_cells; c++) {
+                            Value cell_v = rct->array_part[c];
+                            if (IS_STRING(cell_v)) {
+                                StringObject* s = AS_STRING(cell_v);
+                                w->table_cells[(size_t)w->table_row_count * (size_t)nc + (size_t)c] =
+                                    arena_dup(ctx, s->chars, s->length);
+                            }
+                        }
+                    }
+                    w->table_row_count++;
+                    value_decref(rv);
+                }
+            }
+            value_decref(rows_v);
+        }
+
+        w->table_header = table_get_bool_key(t, ctx->key_cache[UK_HEADER], true);
+        w->table_stripe = table_get_bool_key(t, ctx->key_cache[UK_STRIPE], false);
     }
 
     w->hovered = st->hovered;                               // restore hover flag

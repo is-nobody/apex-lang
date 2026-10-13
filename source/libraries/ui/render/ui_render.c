@@ -5,6 +5,7 @@
 
 #include "ui_render.h"
 #include "ui_text.h"
+#include "ui_widgets.h"
 #include "ui_window.h"
 #include <string.h>
 #include <math.h>
@@ -222,6 +223,77 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 for (int i = 0; i < 4; i++) {
                     ui_painter_fill_rect(cx + i,     cy + i, 1, 1, UI_C_FG_DIM);
                     ui_painter_fill_rect(cx + 6 - i, cy + i, 1, 1, UI_C_FG_DIM);
+                }
+                break;
+            }
+            case WK_TABLE: {
+                int nc = w->table_col_count;
+                if (nc <= 0) break;                         // empty table: nothing to draw
+                if (nc > 64) nc = 64;                       // stack-array cap
+
+                int nr = w->table_row_count;
+                int row_h = UI_TABLE_ROW_H;
+                int rows_drawn = (w->table_header ? 1 : 0) + nr;
+                int total_h = rows_drawn * row_h;
+
+                float cw[64];                               // resolved per-column widths
+                table_resolve_widths(ctx, w, (float)ww, cw);
+
+                ui_painter_fill_round(x, y, ww, total_h, UI_RADIUS_SM, UI_C_PANEL);   // body
+                ui_painter_stroke_round(x, y, ww, total_h, UI_RADIUS_SM, UI_C_BORDER); // outline
+
+                int cur = 0;                                // running row index
+
+                if (w->table_header) {                      // header band
+                    int hy = y;
+                    ui_painter_fill_rect(x + 1, hy + 1, ww - 2, row_h, UI_C_PANEL_ALT);
+
+                    float cx = (float)x;                    // running column x
+                    for (int c = 0; c < nc; c++) {
+                        TableColumn* col = &w->table_cols[c];
+                        if (col->label.ptr && col->label.len > 0) {
+                            float tw = ui_text_measure_cached(ctx, col->label.ptr,
+                                                              col->label.len, UI_FS_BODY);
+                            float tx = cx + UI_TABLE_CELL_PAD;                     // start-aligned
+                            if (col->align == AL_END)         tx = cx + cw[c] - UI_TABLE_CELL_PAD - tw;
+                            else if (col->align == AL_CENTER) tx = cx + (cw[c] - tw) * 0.5f;
+                            float base = hy + (row_h + UI_FS_BODY * 0.7f) * 0.5f;  // vertically centered
+                            ui_draw_text_at(ctx, tx, base, col->label.ptr, col->label.len,
+                                            UI_FS_BODY, UI_C_FG);
+                        }
+                        cx += cw[c];
+                        if (c < nc - 1)                     // column separator
+                            ui_painter_fill_rect((int)cx, hy + 1, 1, row_h, UI_C_BORDER);
+                    }
+                    ui_painter_fill_rect(x + 1, hy + row_h, ww - 2, 1, UI_C_BORDER);  // header underline
+                    cur++;
+                }
+
+                for (int r = 0; r < nr; r++) {              // body rows
+                    int ry = y + cur * row_h;
+                    if (w->table_stripe && (r & 1))         // alternating band
+                        ui_painter_fill_rect(x + 1, ry, ww - 2, row_h, UI_C_PANEL_ALT);
+
+                    float cx = (float)x;
+                    for (int c = 0; c < nc; c++) {
+                        Str cell = w->table_cells[(size_t)r * (size_t)nc + (size_t)c];
+                        if (cell.ptr && cell.len > 0) {
+                            TableColumn* col = &w->table_cols[c];
+                            float tw = ui_text_measure_cached(ctx, cell.ptr, cell.len, UI_FS_BODY);
+                            float tx = cx + UI_TABLE_CELL_PAD;
+                            if (col->align == AL_END)         tx = cx + cw[c] - UI_TABLE_CELL_PAD - tw;
+                            else if (col->align == AL_CENTER) tx = cx + (cw[c] - tw) * 0.5f;
+                            float base = ry + (row_h + UI_FS_BODY * 0.7f) * 0.5f;
+                            ui_draw_text_at(ctx, tx, base, cell.ptr, cell.len,
+                                            UI_FS_BODY, UI_C_FG);
+                        }
+                        cx += cw[c];
+                        if (c < nc - 1)                     // column separator
+                            ui_painter_fill_rect((int)cx, ry, 1, row_h, UI_C_BORDER);
+                    }
+                    if (r < nr - 1)                         // row separator
+                        ui_painter_fill_rect(x + 1, ry + row_h - 1, ww - 2, 1, UI_C_BORDER);
+                    cur++;
                 }
                 break;
             }

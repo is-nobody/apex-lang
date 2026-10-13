@@ -3,8 +3,9 @@
 // https://github.com/is-nobody/apex-lang
 // MIT license
 
-#include "../ui_internal.h"
-#include "../render/ui_text.h"
+#include "ui_internal.h"
+#include "ui_text.h"
+#include "ui_widgets.h"
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
@@ -262,6 +263,19 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
             w->meas_w = maxw + 32;                           // text + side padding + chevron
             if (w->meas_w < 120) w->meas_w = 120;
             w->meas_h = UI_INPUT_H;
+            break;
+        }
+        case WK_TABLE: {                                     // columns of text rows
+            int nc = w->table_col_count;
+            if (nc == 0) { w->meas_w = 0; w->meas_h = 0; break; }
+            if (nc > 64) nc = 64;                            // match the render cap
+            float cw[64];
+            table_natural_widths(ctx, w, cw);                // content-hugging widths
+            float total = 2;                                 // outer border
+            for (int c = 0; c < nc; c++) total += cw[c];
+            w->meas_w = total;
+            int rows_drawn = (w->table_header ? 1 : 0) + w->table_row_count;
+            w->meas_h = (float)rows_drawn * UI_TABLE_ROW_H + 2;
             break;
         }
         case WK_SEPARATOR:                                   // full-width rule

@@ -55,6 +55,8 @@
 #define UI_BTN_H        30             // button height in pixels
 #define UI_INPUT_H      30             // input field height in pixels
 #define UI_CB_SIZE      16             // checkbox/radio box size
+#define UI_TABLE_ROW_H    28           // table row height in pixels
+#define UI_TABLE_CELL_PAD 10           // horizontal padding inside a cell
 #define UI_SCROLL_W     10             // scrollbar width in pixels
 #define UI_FOCUS_W      2              // focus ring width in pixels
 

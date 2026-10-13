@@ -26,13 +26,20 @@ typedef struct { char* ptr; int len; } Str;
 typedef enum {
     WK_TEXT, WK_HEADING, WK_BUTTON, WK_CHECKBOX, WK_RADIO,
     WK_SLIDER, WK_PROGRESS, WK_INPUT, WK_BADGE, WK_COMBOBOX,
-    WK_SEPARATOR, WK_SPACER,
+    WK_SEPARATOR, WK_SPACER, WK_TABLE,
     WK_VBOX, WK_HBOX, WK_PANEL, WK_SCROLL, WK_HSCROLL
 } WidgetKind;  // leaf widget kinds then container kinds
 
 typedef enum { AL_START, AL_CENTER, AL_END, AL_STRETCH } Align;  // cross-axis child placement
 typedef enum { JU_START, JU_CENTER, JU_END,
                JU_SPACE_BETWEEN, JU_SPACE_AROUND, JU_SPACE_EVENLY } Justify;  // main-axis packing
+
+// one column of a wk_table widget
+typedef struct {
+    Str   label;    // header caption, may be empty
+    Align align;    // text alignment within the column
+    float width;    // fixed width in pixels, 0 = auto-fit to content
+} TableColumn;
 
 typedef struct Widget Widget;            // forward declaration for self-reference
 struct Widget {
@@ -91,6 +98,14 @@ struct Widget {
     Str    input_value;                  // non-owning view into WidgetState.input_buf for WK_INPUT
     int    cursor;                       // cursor byte offset into input_value
     int    sel_anchor;                   // selection anchor byte offset, -1 = none
+
+    // wk_table state
+    TableColumn* table_cols;             // arena-owned array of column metadata
+    int          table_col_count;        // number of columns
+    Str*         table_cells;            // arena-owned flat row-major cell array
+    int          table_row_count;        // number of body rows
+    bool         table_stripe;           // alternate row background bands
+    bool         table_header;           // draw the header row
 
     double scroll_y, content_h;          // vertical scroll offset and content height
 };
@@ -216,7 +231,7 @@ typedef enum {
     UK_MIN_WIDTH, UK_MAX_WIDTH, UK_DISABLED, UK_VISIBLE, UK_ON_TOP,
     UK_WIDTH, UK_HEIGHT, UK_CONTENT, UK_LABEL, UK_CHECKED, UK_GROUP,
     UK_VALUE, UK_MIN, UK_MAX, UK_VALUE_TEXT, UK_CHILDREN, UK_OPTIONS,
-    UK_COUNT
+    UK_COLUMNS, UK_ROWS, UK_STRIPE, UK_HEADER, UK_COUNT
 } UiKeyId;
 
 // modal dialog

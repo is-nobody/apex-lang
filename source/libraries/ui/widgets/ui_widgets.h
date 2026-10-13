@@ -72,4 +72,10 @@ void notif_place_all(UiContext* ctx);
 // emits a notification close event to the script queue
 void notif_emit_close(UiContext* ctx, UiNotification* n);
 
+// computes the natural (content-hugging) width of every column into out[]
+void table_natural_widths(UiContext* ctx, Widget* w, float* out);
+
+// resolves the final per-column widths so the table fits into avail pixels
+void table_resolve_widths(UiContext* ctx, Widget* w, float avail, float* out);
+
 #endif
