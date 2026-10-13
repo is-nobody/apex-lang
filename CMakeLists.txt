@@ -39,12 +39,15 @@ else()
     set(APEX_JIT_AVAILABLE FALSE)
 endif()
 
+# platform window backend + libs
 set(APEX_UI_WINDOW_SOURCES)
 set(APEX_UI_PLATFORM_LIBS)
 
 if(WIN32)
     list(APPEND APEX_UI_WINDOW_SOURCES
-        source/libraries/ui/ui_window_windows.c)
+        source/libraries/ui/platform/windows/ui_window_windows.c
+        source/libraries/ui/platform/windows/ui_window_windows_event.c
+        source/libraries/ui/platform/windows/ui_window_windows_clipboard.c)
     list(APPEND APEX_UI_PLATFORM_LIBS shlwapi ws2_32 dwrite)
 elseif(APPLE)
     # ui_window_macos.c is not implemented yet. When it lands, add it here.
@@ -53,7 +56,9 @@ elseif(APPLE)
         "-framework CoreFoundation")
 else()
     list(APPEND APEX_UI_WINDOW_SOURCES
-        source/libraries/ui/ui_window_linux.c)
+        source/libraries/ui/platform/linux/ui_window_linux.c
+        source/libraries/ui/platform/linux/ui_window_linux_event.c
+        source/libraries/ui/platform/linux/ui_window_linux_clipboard.c)
     find_package(X11 REQUIRED)
     find_package(Fontconfig REQUIRED)
     list(APPEND APEX_UI_PLATFORM_LIBS
@@ -62,6 +67,41 @@ else()
         X11::Xext
         Fontconfig::Fontconfig)
 endif()
+
+# ui library portable sources
+set(APEX_UI_SOURCES
+    source/libraries/ui/ui_module.c
+
+    source/libraries/ui/common/ui_hash.c
+    source/libraries/ui/common/ui_arena.c
+    source/libraries/ui/common/ui_table.c
+
+    source/libraries/ui/core/ui_context.c
+    source/libraries/ui/core/ui_state.c
+    source/libraries/ui/core/ui_events.c
+    source/libraries/ui/core/ui_widget.c
+    source/libraries/ui/core/ui_build.c
+    source/libraries/ui/core/ui_runtime.c
+
+    source/libraries/ui/widgets/ui_input.c
+    source/libraries/ui/widgets/ui_dialog.c
+    source/libraries/ui/widgets/ui_notif.c
+
+    source/libraries/ui/interaction/ui_hitgrid.c
+    source/libraries/ui/interaction/ui_damage.c
+    source/libraries/ui/interaction/ui_handle.c
+
+    source/libraries/ui/layout/ui_layout.c
+
+    source/libraries/ui/render/ui_painter.c
+    source/libraries/ui/render/ui_render.c
+    source/libraries/ui/render/ui_render_dialog.c
+    source/libraries/ui/render/ui_render_notif.c
+    source/libraries/ui/render/ui_titlebar.c
+    source/libraries/ui/render/ui_text.c
+    source/libraries/ui/render/ui_font.c
+    source/libraries/ui/render/ui_font_system.c
+)
 
 # sources
 set(SOURCES
@@ -110,13 +150,6 @@ set(SOURCES
     source/libraries/zip_module.c
     source/libraries/datetime_module.c
 
-    source/libraries/ui/ui_module.c
-    source/libraries/ui/ui_core.c
-    source/libraries/ui/ui_layout.c
-    source/libraries/ui/ui_render.c
-    source/libraries/ui/ui_text.c
-    source/libraries/ui/ui_font_system.c
-
     source/utils/execute.c
     source/utils/error.c
     source/utils/emit.c
@@ -129,7 +162,8 @@ set(SOURCES
     source/utils/apex_api.c
 )
 
-# platform window backend (x11; win/macos when implemented)
+# ui library (portable + platform backend)
+list(APPEND SOURCES ${APEX_UI_SOURCES})
 list(APPEND SOURCES ${APEX_UI_WINDOW_SOURCES})
 
 if(APEX_JIT_AVAILABLE)
@@ -166,6 +200,14 @@ target_include_directories(apex PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/source/compiler
     ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries
     ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui/common
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui/core
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui/widgets
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui/interaction
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui/layout
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui/render
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui/platform/linux
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui/platform/windows
     ${CMAKE_CURRENT_SOURCE_DIR}/source/utils
     ${CMAKE_CURRENT_SOURCE_DIR}/source/jit
     ${CMAKE_CURRENT_SOURCE_DIR}/source/jit/x86-64

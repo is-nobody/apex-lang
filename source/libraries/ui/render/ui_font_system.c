@@ -1,9 +1,8 @@
-// source/libraries/ui/ui_font_system.c
+// source/libraries/ui/render/ui_font_system.c
 // Implementation of system font discovery for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
 
-#include "ui_internal.h"
 #include "ui_text.h"
 #include <stdlib.h>
 #include <string.h>

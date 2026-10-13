@@ -1,10 +1,10 @@
-// source/libraries/ui/ui_layout.c
+// source/libraries/ui/layout/ui_layout.c
 // Implementation of UI layout engine for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
 
-#include "ui_internal.h"
-#include "ui_text.h"
+#include "../ui_internal.h"
+#include "../render/ui_text.h"
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>

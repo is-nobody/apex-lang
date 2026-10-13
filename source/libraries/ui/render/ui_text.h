@@ -1,4 +1,4 @@
-// source/libraries/ui/ui_text.h
+// source/libraries/ui/render/ui_text.h
 // Public declarations for Apex text rendering
 // https://github.com/is-nobody/apex-lang
 // MIT license
