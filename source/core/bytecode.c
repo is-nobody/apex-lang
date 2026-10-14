@@ -270,10 +270,34 @@ int bytecode_emit_line(BytecodeChunk* chunk, Instruction inst, int line) {
     return offset;                                                 // return offset of emitted instruction
 }
 
+// compares two const_table constants by structure
+static bool const_table_equal(const Constant* a, const Constant* b) {
+    if (a->table.array_count != b->table.array_count) return false;
+    if (a->table.hash_count  != b->table.hash_count)  return false;
+    if (a->table.array_capacity != b->table.array_capacity) return false;
+    int total = a->table.array_count + a->table.hash_count;
+    if (total > 0 && memcmp(a->table.value_indices, b->table.value_indices,
+                            sizeof(int) * total) != 0) return false;
+    if (a->table.hash_count > 0 &&
+        memcmp(a->table.key_indices, b->table.key_indices,
+               sizeof(int) * a->table.hash_count) != 0) return false;
+    return true;
+}
+
 // adds a constant to the pool, deduplicating identical values to save space
 int bytecode_add_constant(BytecodeChunk* chunk, Constant constant) {
+    if (constant.type == CONST_TABLE) {                            // try to merge with an existing table literal
+        for (int i = 0; i < chunk->const_count; i++) {
+            Constant* e = &chunk->constants[i];
+            if (e->type != CONST_TABLE) continue;
+            if (!const_table_equal(e, &constant)) continue;
+            free(constant.table.key_indices);                      // drop the duplicate's backing arrays
+            free(constant.table.value_indices);
+            return i;                                              // reuse existing pool entry
+        }
+    }
     if (constant.type == CONST_JUMP_TABLE ||
-        constant.type == CONST_TABLE) {                            // jump tables and table literals are unique
+        constant.type == CONST_TABLE) {                            // jump tables stay unique; tables that missed dedup
         if (chunk->const_count >= chunk->const_capacity) {
             chunk->const_capacity *= 2;
             chunk->constants = (Constant*)realloc(chunk->constants,
