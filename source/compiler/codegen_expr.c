@@ -508,6 +508,112 @@ static bool is_const_table_literal(ASTNode* node) {
     }
 }
 
+// forward decl: const_table_slot is defined below, used by the partial path
+static int const_table_slot(CodeGenerator* cg, ASTNode* node);
+
+// true when at least one entry of a table literal folds to a pool constant
+static bool table_has_const_entries(ASTNode* node) {
+    for (int i = 0; i < node->table_literal.items->count; i++) {
+        if (is_const_table_literal(node->table_literal.items->nodes[i])) return true;
+    }
+    for (int i = 0; i < node->table_literal.key_values->count; i++) {
+        ASTNode* kv = node->table_literal.key_values->nodes[i];
+        if (is_const_table_literal(kv->binary.left) &&
+            is_const_table_literal(kv->binary.right)) return true;
+    }
+    return false;
+}
+
+// builds a partial const_table from the const entries of a table literal
+static int const_table_slot_partial(CodeGenerator* cg, ASTNode* node) {
+    int n_items = node->table_literal.items->count;             // positional item count
+    int n_kv    = node->table_literal.key_values->count;        // key-value pair count
+
+    int const_kv = 0;                                           // kv pairs that fully fold
+    for (int i = 0; i < n_kv; i++) {
+        ASTNode* kv = node->table_literal.key_values->nodes[i];
+        if (is_const_table_literal(kv->binary.left) &&
+            is_const_table_literal(kv->binary.right)) const_kv++;
+    }
+
+    Constant c;
+    memset(&c, 0, sizeof(c));
+    c.type              = CONST_TABLE;
+    c.table.array_count = n_items;                              // keep full length; holes become none
+    c.table.hash_count  = const_kv;
+    c.table.key_indices   = const_kv ? (int*)malloc(sizeof(int) * const_kv) : NULL;
+    c.table.value_indices = (n_items + const_kv) > 0
+                            ? (int*)malloc(sizeof(int) * (n_items + const_kv))
+                            : NULL;
+    c.table.array_capacity = 0;                                 // let materialize pick the default
+
+    for (int i = 0; i < n_items; i++) {                         // positional slots, const or placeholder
+        ASTNode* item = node->table_literal.items->nodes[i];
+        if (is_const_table_literal(item)) {
+            c.table.value_indices[i] = const_table_slot(cg, item);
+        } else {
+            c.table.value_indices[i] = bytecode_add_none_constant(cg->chunk);
+        }
+    }
+    int kv_w = 0;                                               // write cursor for const kv pairs
+    for (int i = 0; i < n_kv; i++) {
+        ASTNode* kv = node->table_literal.key_values->nodes[i];
+        if (!is_const_table_literal(kv->binary.left) ||
+            !is_const_table_literal(kv->binary.right)) continue;
+        c.table.key_indices[kv_w] = const_table_slot(cg, kv->binary.left);
+        c.table.value_indices[n_items + kv_w] = const_table_slot(cg, kv->binary.right);
+        kv_w++;
+    }
+    return bytecode_add_constant(cg->chunk, c);
+}
+
+// emits a partial table: op_load_table for the folded const part
+static int codegen_partial_const_table(CodeGenerator* cg, ASTNode* node, int dest_hint) {
+    int idx = const_table_slot_partial(cg, node);
+    int table_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);
+    emit(cg, INST(OP_LOAD_TABLE, table_reg, idx, 0), node->line);
+
+    for (int i = 0; i < node->table_literal.items->count; i++) {          // positional: overwrite placeholder
+        ASTNode* item = node->table_literal.items->nodes[i];
+        if (is_const_table_literal(item)) continue;
+        int value_reg = codegen_expression(cg, item);
+        emit(cg, INST(OP_TABLE_SET_INT, table_reg, i + 1, value_reg), node->line);
+        free_register(cg, value_reg);
+    }
+
+    for (int i = 0; i < node->table_literal.key_values->count; i++) {     // kv: same ladder as imperative path
+        ASTNode* kv = node->table_literal.key_values->nodes[i];
+        bool const_key   = is_const_table_literal(kv->binary.left);
+        bool const_value = is_const_table_literal(kv->binary.right);
+        if (const_key && const_value) continue;                           // already baked into the pool
+        ASTNode* key   = kv->binary.left;
+        ASTNode* value = kv->binary.right;
+
+        int value_reg = codegen_expression(cg, value);
+        if (key->type == AST_LITERAL_NUMBER) {
+            double key_val = key->literal_number.number_value;
+            if (key_val == (int)key_val && key_val >= 1 && key_val <= 65535) {
+                emit(cg, INST(OP_TABLE_SET_INT, table_reg, (int)key_val, value_reg), node->line);
+            } else {
+                int key_reg = codegen_expression(cg, key);
+                emit(cg, INST(OP_TABLE_SET, table_reg, key_reg, value_reg), node->line);
+                free_register(cg, key_reg);
+            }
+        } else if (key->type == AST_LITERAL_STRING) {
+            const char* key_str = key->literal_string.string_value;
+            int key_idx = bytecode_add_string_constant(cg->chunk, key_str);
+            emit(cg, INST(OP_TABLE_SET_CONST, table_reg, key_idx, value_reg), node->line);
+        } else {
+            int key_reg = codegen_expression(cg, key);
+            emit(cg, INST(OP_TABLE_SET, table_reg, key_reg, value_reg), node->line);
+            free_register(cg, key_reg);
+        }
+        free_register(cg, value_reg);
+    }
+
+    return table_reg;
+}
+
 // folds a constant subtree into the pool, returns its constant index
 static int const_table_slot(CodeGenerator* cg, ASTNode* node) {
     if (node->type == AST_LITERAL_NUMBER) {
@@ -1117,6 +1223,9 @@ int codegen_expression_into(CodeGenerator* cg, ASTNode* node, int dest_hint) {
         case AST_TABLE_LITERAL: {                                                        // table literal
             if (is_const_table_literal(node)) {                                          // fully known at compile time
                 return codegen_const_table(cg, node, dest_hint);
+            }
+            if (table_has_const_entries(node)) {                                         // some entries fold
+                return codegen_partial_const_table(cg, node, dest_hint);
             }
             int table_reg = dest_hint >= 0 ? dest_hint : alloc_register(cg);             // table dest
             emit(cg, INST(OP_NEW_TABLE, table_reg, 0, 0), node->line);                   // create table
