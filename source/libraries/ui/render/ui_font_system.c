@@ -11,9 +11,7 @@
 #ifdef __linux__
 #  include <fontconfig/fontconfig.h>
 #elif defined(_WIN32)
-#  include <initguid.h>
 #  include <windows.h>
-#  include <dwrite.h>
 #  include <shlwapi.h>
 #elif defined(__APPLE__)
 #  include <CoreText/CoreText.h>
@@ -73,130 +71,32 @@ static char* system_font_path_linux(void) {
 
 #elif defined(_WIN32)
 
-// walks a directwrite font file object to obtain its utf-8 filesystem path
-static char* dwrite_file_to_path(IDWriteFontFile* file) {
-    IDWriteFontFileLoader* loader = NULL;
-    if (FAILED(file->lpVtbl->GetLoader(file, &loader))) return NULL;  // loader lookup failed
-    if (!loader) return NULL;                                         // no loader attached
-
-    IDWriteLocalFontFileLoader* local = NULL;                         // try to specialise the loader
-    HRESULT hr = loader->lpVtbl->QueryInterface(loader, &IID_IDWriteLocalFontFileLoader, (void**)&local);
-    loader->lpVtbl->Release(loader);                                  // interface acquired, drop base
-    if (FAILED(hr) || !local) return NULL;                            // not a local file loader
-
-    const void* key = NULL;                                           // opaque reference key
-    UINT32 key_size = 0;
-    if (FAILED(file->lpVtbl->GetReferenceKey(file, &key, &key_size))) {  // fetch key
-        local->lpVtbl->Release(local);
-        return NULL;
-    }
-
-    UINT32 path_len = 0;                                              // length of the path in wchars
-    if (FAILED(local->lpVtbl->GetFilePathLengthFromKey(local, key, key_size, &path_len))) {
-        local->lpVtbl->Release(local);
-        return NULL;
-    }
-
-    wchar_t* wpath = (wchar_t*)malloc(sizeof(wchar_t) * (path_len + 1));  // wide path buffer
-    if (!wpath) { local->lpVtbl->Release(local); return NULL; }           // allocation failed
-
-    if (FAILED(local->lpVtbl->GetFilePathFromKey(local, key, key_size, wpath, path_len + 1))) {
-        free(wpath);                                                  // path fetch failed
-        local->lpVtbl->Release(local);
-        return NULL;
-    }
-    local->lpVtbl->Release(local);                                    // done with the loader
-
-    int utf8_len = WideCharToMultiByte(CP_UTF8, 0, wpath, -1, NULL, 0, NULL, NULL);  // measure utf-8
-    char* utf8 = (char*)malloc((size_t)utf8_len);                     // allocate utf-8 buffer
-    if (!utf8) { free(wpath); return NULL; }                          // allocation failed
-    WideCharToMultiByte(CP_UTF8, 0, wpath, -1, utf8, utf8_len, NULL, NULL);  // convert
-    free(wpath);                                                      // release wide buffer
-    return utf8;                                                      // caller owns the utf-8 path
-}
-
-// resolves the path of the system segoe ui font via directwrite
+// resolves the path of the system segoe ui font via the windows fonts directory
 static char* system_font_path_windows(void) {
-    IDWriteFactory* factory = NULL;                                   // directwrite factory
-    HRESULT hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,
-                                     &IID_IDWriteFactory,
-                                     (IUnknown**)&factory);
-    if (FAILED(hr) || !factory) return NULL;                          // factory creation failed
+    // segoe ui is the default ui font on vista and later
+    static const char* const candidates[] = {
+        "segoeui.ttf",       // vista, 7, 8, 10, 11 default ui font
+        "tahoma.ttf",        // 2000 / xp default ui font
+        "arial.ttf",         // universal fallback on every install
+        "verdana.ttf",       // rarely missing
+    };
 
-    IDWriteFontCollection* collection = NULL;                         // system font collection
-    hr = factory->lpVtbl->GetSystemFontCollection(factory, &collection, FALSE);
-    if (FAILED(hr) || !collection) {
-        factory->lpVtbl->Release(factory);
-        return NULL;
+    char windir[MAX_PATH];                                   // %windir% buffer
+    UINT n = GetWindowsDirectoryA(windir, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) return NULL;                // no windows directory: bail
+
+    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
+        char path[MAX_PATH];                                 // candidate path buffer
+        int written = snprintf(path, MAX_PATH, "%s\\Fonts\\%s", windir, candidates[i]);
+        if (written <= 0 || written >= MAX_PATH) continue;    // overflow: skip
+
+        DWORD attrs = GetFileAttributesA(path);
+        if (attrs == INVALID_FILE_ATTRIBUTES) continue;       // missing: try next
+        if (attrs & FILE_ATTRIBUTE_DIRECTORY) continue;       // directory: skip
+
+        return strdup(path);                                 // found: hand back the path
     }
-
-    UINT32 index = 0;                                                 // family index for segoe ui
-    BOOL exists = FALSE;
-    hr = collection->lpVtbl->FindFamilyName(collection, L"Segoe UI", &index, &exists);
-    if (FAILED(hr) || !exists) {                                      // family not present
-        collection->lpVtbl->Release(collection);
-        factory->lpVtbl->Release(factory);
-        return NULL;
-    }
-
-    IDWriteFontFamily* family = NULL;                                 // family object
-    hr = collection->lpVtbl->GetFontFamily(collection, index, &family);
-    if (FAILED(hr) || !family) {
-        collection->lpVtbl->Release(collection);
-        factory->lpVtbl->Release(factory);
-        return NULL;
-    }
-
-    IDWriteFont* font = NULL;                                         // regular weight style
-    hr = family->lpVtbl->GetFirstMatchingFont(family,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, &font);
-    if (FAILED(hr) || !font) {
-        family->lpVtbl->Release(family);
-        collection->lpVtbl->Release(collection);
-        factory->lpVtbl->Release(factory);
-        return NULL;
-    }
-
-    IDWriteFontFace* face = NULL;                                     // concrete font face
-    hr = font->lpVtbl->CreateFontFace(font, &face);
-    if (FAILED(hr) || !face) {
-        font->lpVtbl->Release(font);
-        family->lpVtbl->Release(family);
-        collection->lpVtbl->Release(collection);
-        factory->lpVtbl->Release(factory);
-        return NULL;
-    }
-
-    UINT32 file_count = 0;                                            // first probe: just count files
-    hr = face->lpVtbl->GetFiles(face, &file_count, NULL);
-    if (FAILED(hr) || file_count == 0) {                              // no backing files
-        face->lpVtbl->Release(face);
-        font->lpVtbl->Release(font);
-        family->lpVtbl->Release(family);
-        collection->lpVtbl->Release(collection);
-        factory->lpVtbl->Release(factory);
-        return NULL;
-    }
-
-    IDWriteFontFile* file = NULL;                                     // second probe: fetch first file
-    hr = face->lpVtbl->GetFiles(face, &file_count, &file);
-    if (FAILED(hr) || !file) {
-        face->lpVtbl->Release(face);
-        font->lpVtbl->Release(font);
-        family->lpVtbl->Release(family);
-        collection->lpVtbl->Release(collection);
-        factory->lpVtbl->Release(factory);
-        return NULL;
-    }
-
-    char* path = dwrite_file_to_path(file);                           // convert file object to path
-    file->lpVtbl->Release(file);                                      // release file
-    face->lpVtbl->Release(face);                                      // release face
-    font->lpVtbl->Release(font);                                      // release font
-    family->lpVtbl->Release(family);                                  // release family
-    collection->lpVtbl->Release(collection);                          // release collection
-    factory->lpVtbl->Release(factory);                                // release factory
-    return path;                                                      // caller owns the path
+    return NULL;                                             // nothing matched
 }
 
 #elif defined(__APPLE__)
@@ -227,7 +127,7 @@ UiFont* ui_font_load_system(void) {
 #if defined(__linux__)
     path = system_font_path_linux();                         // fontconfig lookup
 #elif defined(_WIN32)
-    path = system_font_path_windows();                       // directwrite lookup
+    path = system_font_path_windows();                       // windows fonts directory lookup
 #elif defined(__APPLE__)
     path = system_font_path_macos();                         // coretext lookup
 #endif
