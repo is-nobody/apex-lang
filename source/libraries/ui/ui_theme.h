@@ -60,6 +60,9 @@
 #define UI_SCROLL_W     10             // scrollbar width in pixels
 #define UI_FOCUS_W      2              // focus ring width in pixels
 
+#define UI_LIST_ITEM_H    32           // list row height in pixels
+#define UI_LIST_ITEM_PAD  12           // horizontal padding inside a list row
+
 #define UI_TITLEBAR_H     35           // custom titlebar height in pixels
 #define UI_TB_RESIZE      5            // resize border thickness in pixels
 

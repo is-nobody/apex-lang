@@ -278,6 +278,15 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
             w->meas_h = (float)rows_drawn * UI_TABLE_ROW_H + 2;
             break;
         }
+        case WK_LIST_ITEM: {                                 // single-line row
+            float fs = UI_FS_BODY;
+            float lw = ctx->font ? ui_text_measure_cached(ctx, w->text.ptr,
+                                                          w->text.len, fs)
+                                 : w->text.len * 8.0f;
+            w->meas_w = lw + UI_LIST_ITEM_PAD * 2;
+            w->meas_h = UI_LIST_ITEM_H;
+            break;
+        }
         case WK_SEPARATOR:                                   // full-width rule
             w->meas_w = avail_w > 0 ? avail_w : 100;
             w->meas_h = 1;
@@ -311,7 +320,6 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
                 w->meas_w = main_sum + pad*2;
                 w->meas_h = cross_max + pad*2;
             }
-            if (w->kind == WK_PANEL) { w->meas_w += 8; w->meas_h += 8; }  // panels add a bit of frame
             break;
         }
     }

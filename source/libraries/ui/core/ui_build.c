@@ -28,6 +28,7 @@ static WidgetKind kind_from_str_n(const char* s, int n) {
     if (STR_EQ(s,n,"badge"))     return WK_BADGE;
     if (STR_EQ(s,n,"combobox"))  return WK_COMBOBOX;
     if (STR_EQ(s,n,"table"))     return WK_TABLE;
+    if (STR_EQ(s,n,"list_item")) return WK_LIST_ITEM;
     if (STR_EQ(s,n,"separator")) return WK_SEPARATOR;
     if (STR_EQ(s,n,"spacer"))    return WK_SPACER;
     if (STR_EQ(s,n,"vbox"))      return WK_VBOX;
@@ -366,26 +367,36 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
         if (IS_TABLE(cv)) {
             Table* ct = AS_TABLE(cv);
 
-            // fast path: walk the array part directly
-            int i = 1;
-            int n_arr = ct->array_part ? ct->array_count : 0;
-            for (; i <= n_arr; i++) {
-                Value vv = ct->array_part[i - 1];
-                if (IS_NONE(vv)) break;      // hole: fall through to the hash walk below
-                Widget* ch = ui_build_tree(ctx, vv, w, i - 1);
-                if (ch) widget_add_child(ctx, w, ch);
-            }
+            // if this table is itself a widget descriptor (has a "__t" of its own),
+            // it is a single child, not an array-like container of children
+            StrView tv;
+            bool is_descr = table_get_str_view(ct, ctx->key_cache[UK_T], &tv);
 
-            // slow path: indices past array_count, or holes inside it that
-            // might still resolve to a numeric hash entry
-            for (;; i++) {
-                Value vv;
-                if (!table_get(ct, MAKE_NUMBER((double)i), &vv)) break;
-                Widget* ch = ui_build_tree(ctx, vv, w, i - 1);
+            if (is_descr) {
+                Widget* ch = ui_build_tree(ctx, cv, w, 0);
                 if (ch) widget_add_child(ctx, w, ch);
-                value_decref(vv);
+            } else {
+                // fast path: walk the array part directly
+                int i = 1;
+                int n_arr = ct->array_part ? ct->array_count : 0;
+                for (; i <= n_arr; i++) {
+                    Value vv = ct->array_part[i - 1];
+                    if (IS_NONE(vv)) break;  // hole: fall through to the hash walk below
+                    Widget* ch = ui_build_tree(ctx, vv, w, i - 1);
+                    if (ch) widget_add_child(ctx, w, ch);
+                }
+
+                // slow path: indices past array_count, or holes inside it that
+                // might still resolve to a numeric hash entry
+                for (;; i++) {
+                    Value vv;
+                    if (!table_get(ct, MAKE_NUMBER((double)i), &vv)) break;
+                    Widget* ch = ui_build_tree(ctx, vv, w, i - 1);
+                    if (ch) widget_add_child(ctx, w, ch);
+                    value_decref(vv);
+                }
             }
-        } else if (!IS_NONE(cv)) {                          // single child descriptor
+        } else if (!IS_NONE(cv)) {                          // single non-table child
             Widget* ch = ui_build_tree(ctx, cv, w, 0);
             if (ch) widget_add_child(ctx, w, ch);
         }
