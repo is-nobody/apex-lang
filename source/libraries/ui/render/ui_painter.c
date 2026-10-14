@@ -5,6 +5,7 @@
 
 #include "ui_render.h"
 #include "ui_text.h"
+#include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
