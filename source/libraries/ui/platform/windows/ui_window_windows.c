@@ -10,12 +10,6 @@
 #include <string.h>
 #include <stdio.h>
 
-// single slot for the next event
-UiWinEvent g_pending;
-
-// true when the slot is populated
-bool       g_pending_set = false;
-
 static const WCHAR kClassName[] = L"ApexUiWindowClass";  // registered class name
 
 // encodes one unicode codepoint as utf-8 into out, returns the byte count
@@ -446,6 +440,7 @@ UiWindow* ui_window_create_popup(int x, int y, int w, int h, const char* title) 
     if (!win) return NULL;                                // oom: bail out
     win->w = w; win->h = h;                               // seed real size before window exists
     win->decorated = false;                               // no system chrome
+    win->is_popup  = true;                                // no resizing, no HTCAPTION
 
     HWND hwnd = CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,  // above all, no taskbar, no focus steal

@@ -40,15 +40,13 @@ struct UiWindow {
     int       pending_vk;              // virtual key held for a follow-up WM_CHAR
     int       pending_mods;            // modifier state held for the same
 
+    bool       is_popup;               // true for frameless notification popups
+    UiWinEvent pending;                // pending event for *this* window
+    bool       pending_set;            // whether pending is populated
+
     UiPaintCallback paint_cb;          // host paint callback, or null
     void*           paint_user;        // opaque pointer passed to the callback
 };
-
-// single slot for the next event
-extern UiWinEvent g_pending;
-
-// true when the slot is populated
-extern bool       g_pending_set;
 
 // encodes one unicode codepoint as utf-8 into out, returns the byte count
 int encode_utf8(uint32_t cp, char* out);

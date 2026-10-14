@@ -44,7 +44,7 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             break;
 
         case WM_NCHITTEST: {
-            if (!w || w->decorated)
+            if (!w || w->decorated || w->is_popup)
                 return DefWindowProcW(hwnd, msg, wp, lp);
             if (IsZoomed(hwnd)) return HTCLIENT;         // no borders while maximized
 
@@ -83,7 +83,7 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     if (pt.x >= bx2 && pt.x < bx2 + sz) return HTCLIENT;
                     if (pt.x >= bx3 && pt.x < bx3 + sz) return HTCLIENT;
                 }
-                return HTCAPTION;                        // draggable: system runs the move loop natively
+                return HTCLIENT;                         // let the client see menubar/drag clicks
             }
             return HTCLIENT;
         }
@@ -112,13 +112,13 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
 
         case WM_CLOSE:                                   // user or system close request
-            g_pending.kind = UW_EV_CLOSE;
-            g_pending_set = true;
+            w->pending.kind = UW_EV_CLOSE;
+            w->pending_set = true;
             w->open = false;
             return 0;
 
         case WM_DESTROY:                                 // window being destroyed
-            PostQuitMessage(0);
+            // do not call postquitmessage(0): it is thread-wide
             return 0;
 
         case WM_ERASEBKGND:
@@ -129,10 +129,10 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (w->paint_cb) {
                 w->paint_cb(w->paint_user, w->w, w->h);  // let the host redraw into the buffer
             } else {
-                g_pending.kind = UW_EV_EXPOSE;           // otherwise ask the renderer to redraw
-                g_pending.w = w->w;
-                g_pending.h = w->h;
-                g_pending_set = true;
+                w->pending.kind = UW_EV_EXPOSE;          // otherwise ask the renderer to redraw
+                w->pending.w = w->w;
+                w->pending.h = w->h;
+                w->pending_set = true;
             }
             return 0;
         }
@@ -145,10 +145,10 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     w->pending_w = nw;                   // stash the request
                     w->pending_h = nh;
                     apply_pending_resize(w);             // realloc now: we are not inside a paint
-                    g_pending.kind = UW_EV_RESIZE;
-                    g_pending.w = nw;
-                    g_pending.h = nh;
-                    g_pending_set = true;
+                    w->pending.kind = UW_EV_RESIZE;
+                    w->pending.w = nw;
+                    w->pending.h = nh;
+                    w->pending_set = true;
 
                     // force an immediate, erasing repaint so the freshly exposed
                     // region is never shown uninitialised by dwm
@@ -186,11 +186,11 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 return 0;
             }
 
-            g_pending.kind = UW_EV_KEYDOWN;              // no text: emit a bare key event
-            g_pending.key = map_vk_to_keysym(vk);
-            g_pending.mods = mods;
-            g_pending.utf8_len = 0;
-            g_pending_set = true;
+            w->pending.kind = UW_EV_KEYDOWN;             // no text: emit a bare key event
+            w->pending.key = map_vk_to_keysym(vk);
+            w->pending.mods = mods;
+            w->pending.utf8_len = 0;
+            w->pending_set = true;
             return 0;
         }
 
@@ -223,54 +223,54 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             if (utf8_len == 0) return 0;                 // nothing to emit
 
-            g_pending.kind = UW_EV_KEYDOWN;              // emit the text event
-            g_pending.key = vk ? map_vk_to_keysym(vk) : 0;
-            g_pending.mods = mods;
-            g_pending.utf8_len = utf8_len;
-            memcpy(g_pending.utf8, utf8, utf8_len);
-            g_pending_set = true;
+            w->pending.kind = UW_EV_KEYDOWN;             // emit the text event
+            w->pending.key = vk ? map_vk_to_keysym(vk) : 0;
+            w->pending.mods = mods;
+            w->pending.utf8_len = utf8_len;
+            memcpy(w->pending.utf8, utf8, utf8_len);
+            w->pending_set = true;
             return 0;
         }
 
         case WM_MOUSEMOVE:                               // pointer moved
-            g_pending.kind = UW_EV_MOUSEMOVE;
-            g_pending.x = GET_X_LPARAM(lp);
-            g_pending.y = GET_Y_LPARAM(lp);
-            g_pending_set = true;
+            w->pending.kind = UW_EV_MOUSEMOVE;
+            w->pending.x = GET_X_LPARAM(lp);
+            w->pending.y = GET_Y_LPARAM(lp);
+            w->pending_set = true;
             return 0;
 
         case WM_LBUTTONDOWN:                             // left button pressed
             SetCapture(hwnd);                            // capture so drags outside still reach us
-            g_pending.kind = UW_EV_MOUSEDOWN;
-            g_pending.x = GET_X_LPARAM(lp);
-            g_pending.y = GET_Y_LPARAM(lp);
-            g_pending.button = 1;
-            g_pending_set = true;
+            w->pending.kind = UW_EV_MOUSEDOWN;
+            w->pending.x = GET_X_LPARAM(lp);
+            w->pending.y = GET_Y_LPARAM(lp);
+            w->pending.button = 1;
+            w->pending_set = true;
             return 0;
 
         case WM_LBUTTONUP:                               // left button released
             ReleaseCapture();
-            g_pending.kind = UW_EV_MOUSEUP;
-            g_pending.x = GET_X_LPARAM(lp);
-            g_pending.y = GET_Y_LPARAM(lp);
-            g_pending.button = 1;
-            g_pending_set = true;
+            w->pending.kind = UW_EV_MOUSEUP;
+            w->pending.x = GET_X_LPARAM(lp);
+            w->pending.y = GET_Y_LPARAM(lp);
+            w->pending.button = 1;
+            w->pending_set = true;
             return 0;
 
         case WM_RBUTTONDOWN:                             // right button pressed
-            g_pending.kind = UW_EV_MOUSEDOWN;
-            g_pending.x = GET_X_LPARAM(lp);
-            g_pending.y = GET_Y_LPARAM(lp);
-            g_pending.button = 3;
-            g_pending_set = true;
+            w->pending.kind = UW_EV_MOUSEDOWN;
+            w->pending.x = GET_X_LPARAM(lp);
+            w->pending.y = GET_Y_LPARAM(lp);
+            w->pending.button = 3;
+            w->pending_set = true;
             return 0;
 
         case WM_RBUTTONUP:                               // right button released
-            g_pending.kind = UW_EV_MOUSEUP;
-            g_pending.x = GET_X_LPARAM(lp);
-            g_pending.y = GET_Y_LPARAM(lp);
-            g_pending.button = 3;
-            g_pending_set = true;
+            w->pending.kind = UW_EV_MOUSEUP;
+            w->pending.x = GET_X_LPARAM(lp);
+            w->pending.y = GET_Y_LPARAM(lp);
+            w->pending.button = 3;
+            w->pending_set = true;
             return 0;
 
         case WM_MOUSEWHEEL: {                            // wheel scrolled
@@ -279,11 +279,11 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             pt.x = GET_X_LPARAM(lp);                     // screen coordinates
             pt.y = GET_Y_LPARAM(lp);
             ScreenToClient(hwnd, &pt);                   // convert to client coordinates
-            g_pending.kind = UW_EV_SCROLL;
-            g_pending.x = pt.x;
-            g_pending.y = pt.y;
-            g_pending.scroll_dy = -(double)delta / 120.0;  // wheel up is negative in our convention
-            g_pending_set = true;
+            w->pending.kind = UW_EV_SCROLL;
+            w->pending.x = pt.x;
+            w->pending.y = pt.y;
+            w->pending.scroll_dy = -(double)delta / 120.0;  // wheel up is negative in our convention
+            w->pending_set = true;
             return 0;
         }
 
@@ -300,8 +300,7 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
 // waits for input or the timeout to expire
 bool ui_window_wait(UiWindow* w, int timeout_ms) {
-    (void)w;
-    if (g_pending_set) return true;                      // already have an event
+    if (w->pending_set) return true;                     // already have an event
     DWORD ret = MsgWaitForMultipleObjects(0, NULL, FALSE,
                                           (DWORD)timeout_ms, QS_ALLINPUT);
     return ret == WAIT_OBJECT_0;                         // true when input is available
@@ -311,7 +310,7 @@ bool ui_window_wait(UiWindow* w, int timeout_ms) {
 bool ui_window_poll(UiWindow* w, UiWinEvent* out) {
     out->kind = UW_EV_NONE;                              // default to nothing
 
-    if (!g_pending_set && w->hwnd) {                     // synthesize a resize if the client changed
+    if (!w->pending_set && w->hwnd) {                    // synthesize a resize if the client changed
         RECT r;
         if (GetClientRect(w->hwnd, &r)) {
             int cw = r.right - r.left;
@@ -319,35 +318,30 @@ bool ui_window_poll(UiWindow* w, UiWinEvent* out) {
             if (cw > 0 && ch > 0 && (cw != w->w || ch != w->h)) {
                 w->pending_w = cw;
                 w->pending_h = ch;
-                g_pending.kind = UW_EV_RESIZE;
-                g_pending.w = cw;
-                g_pending.h = ch;
-                g_pending_set = true;
+                w->pending.kind = UW_EV_RESIZE;
+                w->pending.w = cw;
+                w->pending.h = ch;
+                w->pending_set = true;
             }
         }
     }
 
     MSG msg;
-    while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {  // drain the message queue
-        if (msg.message == WM_QUIT) {                    // application quit
-            out->kind = UW_EV_CLOSE;
-            w->open = false;
-            return true;
-        }
+    while (PeekMessageW(&msg, w->hwnd, 0, 0, PM_REMOVE)) {  // drain THIS window's queue only
         TranslateMessage(&msg);                          // let windows synthesize WM_CHAR
         DispatchMessageW(&msg);                          // dispatch to our window procedure
-        if (g_pending_set) {                             // window procedure produced an event
-            *out = g_pending;
-            g_pending_set = false;
-            g_pending.kind = UW_EV_NONE;
+        if (w->pending_set) {                            // window procedure produced an event
+            *out = w->pending;
+            w->pending_set = false;
+            w->pending.kind = UW_EV_NONE;
             return true;
         }
     }
 
-    if (g_pending_set) {                                 // event posted outside the loop
-        *out = g_pending;
-        g_pending_set = false;
-        g_pending.kind = UW_EV_NONE;
+    if (w->pending_set) {                                // event posted outside the loop
+        *out = w->pending;
+        w->pending_set = false;
+        w->pending.kind = UW_EV_NONE;
         return true;
     }
     return false;                                        // nothing to report
