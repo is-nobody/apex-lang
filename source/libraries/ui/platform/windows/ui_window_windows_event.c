@@ -65,8 +65,8 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (bottom && right) return HTBOTTOMRIGHT;
             if (left)            return HTLEFT;
             if (right)           return HTRIGHT;
+            if (top)             return HTTOP;
             if (bottom)          return HTBOTTOM;
-            // top-middle is intentionally left as HTCAPTION so snap-to-maximize works
 
             if (pt.y < UI_TITLEBAR_H) {                  // inside the custom titlebar
                 // the three window buttons live in the client; hit test them as HTCLIENT
