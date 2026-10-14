@@ -43,9 +43,11 @@ static void jit_trace_first_entry(JitLoopInfo* info, int pc, uint64_t* regs,
 }
 #else
 // release build: everything collapses to nothing
-static inline bool jit_trace_enabled(void) { return false; }
+static inline bool __attribute__((unused))
+jit_trace_enabled(void) { return false; }
 
-static inline void jit_trace_first_entry(JitLoopInfo* info, int pc, uint64_t* regs,
+static inline void __attribute__((unused))
+jit_trace_first_entry(JitLoopInfo* info, int pc, uint64_t* regs,
                                          bool counter_write) {
     (void)info; (void)pc; (void)regs; (void)counter_write;
 }

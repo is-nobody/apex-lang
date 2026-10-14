@@ -104,51 +104,6 @@ void ui_painter_reset_clip(void) {
     ui_text_set_clip(0, 0, g_w, g_h);
 }
 
-// alpha-blends a single pixel into the framebuffer, honoring the active clip
-static inline void blend_px(int x, int y, uint32_t c) {
-    if ((unsigned)x >= (unsigned)g_clip_x1 || x < g_clip_x0) return;
-    if ((unsigned)y >= (unsigned)g_clip_y1 || y < g_clip_y0) return;
-    uint32_t sa = (c >> 24) & 0xFF;                     // source alpha
-    if (!sa) return;                                    // fully transparent: nothing to do
-    uint32_t idx = (uint32_t)y * g_w + x;               // linear pixel index
-    uint32_t sr = (c >> 16) & 0xFF, sg = (c >> 8) & 0xFF, sb = c & 0xFF;
-
-    if (g_alpha_canvas) {
-        uint32_t d  = g_pixels[idx];
-        uint32_t da = (d >> 24) & 0xFF;
-        if (da == 0) {                                  // empty dest: copy source
-            g_pixels[idx] = (sa << 24) | (sr << 16) | (sg << 8) | sb;
-            return;
-        }
-        if (sa == 255) {                                // opaque source: replace
-            g_pixels[idx] = 0xFF000000u | (sr << 16) | (sg << 8) | sb;
-            return;
-        }
-        uint32_t w_da  = (da * (255 - sa) + 127) / 255;
-        uint32_t out_a = sa + w_da;
-        if (out_a > 255) out_a = 255;
-        if (!out_a) { g_pixels[idx] = 0; return; }
-        uint32_t dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
-        uint32_t r = (sr * sa + dr * w_da + out_a / 2) / out_a;
-        uint32_t g = (sg * sa + dg * w_da + out_a / 2) / out_a;
-        uint32_t b = (sb * sa + db * w_da + out_a / 2) / out_a;
-        if (r > 255) r = 255;
-        if (g > 255) g = 255;
-        if (b > 255) b = 255;
-        g_pixels[idx] = (out_a << 24) | (r << 16) | (g << 8) | b;
-        return;
-    }
-
-    if (sa == 255) { g_pixels[idx] = 0xFF000000u | (c & 0x00FFFFFFu); return; }
-    uint32_t inv = 255 - sa;                            // destination weight
-    uint32_t d  = g_pixels[idx];
-    uint32_t dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
-    uint32_t r = (sr*sa + dr*inv + 128) >> 8;
-    uint32_t g = (sg*sa + dg*inv + 128) >> 8;
-    uint32_t b = (sb*sa + db*inv + 128) >> 8;
-    g_pixels[idx] = 0xFF000000u | (r<<16) | (g<<8) | b;
-}
-
 // blends one run of coverage bytes onto the framebuffer with a solid color
 static void blend_cov_row(uint32_t* dst, const uint8_t* cov, int n,
                           uint32_t ca, uint32_t sr, uint32_t sg, uint32_t sb) {
