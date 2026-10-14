@@ -74,9 +74,11 @@ uint32_t state_hash(uint64_t id) {
 // digest of every field that affects how a widget renders
 uint64_t ui_visual_hash(Widget* w) {
     uint64_t nv_bits, sy_bits, ch_bits;
+    uint32_t sk_bits;
     memcpy(&nv_bits, &w->num_value, sizeof(nv_bits));   // bit-exact, no aliasing UB
     memcpy(&sy_bits, &w->scroll_y,  sizeof(sy_bits));
     memcpy(&ch_bits, &w->content_h, sizeof(ch_bits));
+    memcpy(&sk_bits, &w->switch_knob, sizeof(sk_bits)); // wk_switch knob is animated live
 
     // fingerprint covers every field below that can change between rebuilds
     uint64_t fp = 0xCBF29CE484222325ULL;
@@ -90,6 +92,7 @@ uint64_t ui_visual_hash(Widget* w) {
     fp ^= nv_bits;
     fp ^= sy_bits;
     fp ^= ch_bits;
+    fp ^= (uint64_t)sk_bits << 32;                      // knob bits, high half
     fp ^= (uint64_t)(uintptr_t)w->input_value.ptr;
     fp ^= (uint64_t)(uint32_t)w->input_value.len << 43;
 
@@ -109,6 +112,7 @@ uint64_t ui_visual_hash(Widget* w) {
     h = hash_bytes64(h, &w->num_value, sizeof(w->num_value));          // slider/progress value
     h = hash_bytes64(h, &w->scroll_y,  sizeof(w->scroll_y));           // scroll offset
     h = hash_bytes64(h, &w->content_h, sizeof(w->content_h));          // scroll content height
+    h = hash_bytes64(h, &w->switch_knob, sizeof(w->switch_knob));      // wk_switch knob position
     h = hash_bytes64(h, &w->combo_open,     sizeof(w->combo_open));    // dropdown expanded
     h = hash_bytes64(h, &w->combo_selected, sizeof(w->combo_selected));// selected option index
 

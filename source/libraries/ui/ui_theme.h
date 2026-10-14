@@ -36,6 +36,13 @@
 #define UI_C_INPUT_BG   0xFF252526u    // input field background
 #define UI_C_SEL_BG     0xFF3E3E42u    // text selection background
 
+#define UI_C_SWITCH_OFF    0xFF252526u    // switch track, off: input field grey
+#define UI_C_SWITCH_OFF_H  0xFF2A2D2Eu    // switch track, off, hovered: panel alt
+#define UI_C_SWITCH_ON     0xFF4A4D51u    // switch track, on: accent hover grey
+#define UI_C_SWITCH_ON_H   0xFF5A5D61u    // switch track, on, hovered: one step brighter
+#define UI_C_SWITCH_KNOB   0xFFD4D4D4u    // knob fill: theme foreground
+#define UI_C_SWITCH_KNOB_D 0xFF6E6E6Eu    // knob fill, disabled: theme muted
+
 #define UI_C_SCROLL_T   0x00000000u    // scrollbar track (transparent)
 #define UI_C_SCROLL_H   0x66797979u    // scrollbar thumb
 #define UI_C_SCROLL_A   0x80B4B4B4u    // scrollbar thumb, active
@@ -62,6 +69,11 @@
 
 #define UI_LIST_ITEM_H    32           // list row height in pixels
 #define UI_LIST_ITEM_PAD  12           // horizontal padding inside a list row
+
+#define UI_SWITCH_W       40           // switch track width in pixels
+#define UI_SWITCH_H       22           // switch track height in pixels
+#define UI_SWITCH_PAD     3            // gap between the knob and the track edge
+#define UI_SWITCH_ANIM_SEC 0.1         // knob ease duration in seconds
 
 #define UI_TITLEBAR_H     35           // custom titlebar height in pixels
 #define UI_TB_RESIZE      5            // resize border thickness in pixels

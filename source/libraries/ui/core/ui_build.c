@@ -29,6 +29,7 @@ static WidgetKind kind_from_str_n(const char* s, int n) {
     if (STR_EQ(s,n,"combobox"))  return WK_COMBOBOX;
     if (STR_EQ(s,n,"table"))     return WK_TABLE;
     if (STR_EQ(s,n,"list_item")) return WK_LIST_ITEM;
+    if (STR_EQ(s,n,"switch"))    return WK_SWITCH;
     if (STR_EQ(s,n,"separator")) return WK_SEPARATOR;
     if (STR_EQ(s,n,"spacer"))    return WK_SPACER;
     if (STR_EQ(s,n,"vbox"))      return WK_VBOX;
@@ -128,6 +129,11 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
     w->num_max   = table_get_num_key(t, ctx->key_cache[UK_MAX], 100);       // slider/progress max
 
     WidgetState* st = ui_state_get(ctx, w->id);             // pull persistent state
+
+    if (w->kind == WK_SWITCH && !st->switch_init) {         // seed the knob on the first build
+        st->switch_knob = w->checked ? 1.0f : 0.0f;         // start at rest, no flash
+        st->switch_init = true;
+    }
 
     if (w->kind == WK_COMBOBOX) {                           // combobox reads a string value + option list
         StrView vval;
@@ -361,6 +367,7 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
     w->cursor  = st->cursor < 0 ? (int)w->input_value.len : st->cursor;
     w->sel_anchor = st->sel_anchor;                         // restore the selection anchor
     w->scroll_y = st->scroll_y;                             // restore scroll offset
+    w->switch_knob = st->switch_knob;                       // restore switch knob position
 
     Value cv;
     if (table_get(t, ctx->key_cache[UK_CHILDREN], &cv)) {   // child descriptor present?

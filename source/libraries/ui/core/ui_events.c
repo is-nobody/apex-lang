@@ -113,13 +113,13 @@ void fire_click(UiContext* ctx, Widget* w) {
     ev.mouse_y = ctx->input.y;
     ui_event_push(ctx, &ev);                                      // enqueue the click
 
-    if (w->kind == WK_CHECKBOX) {                                 // checkboxes also fire change
+    if (w->kind == WK_CHECKBOX || w->kind == WK_SWITCH) {          // both fire change on toggle
         UiEvent cev; memset(&cev, 0, sizeof(cev));
         cev.kind = EV_CHANGE;
         cev.widget_id = w->id;
-        strncpy(cev.widget_type, "checkbox", 15);
+        strncpy(cev.widget_type, widget_kind_name(w->kind), 15);   // "checkbox" or "switch"
         if (w->key_str) strncpy(cev.key_name, w->key_str, 63);
-        cev.bool_value = !w->checked;                             // new value is the inverse
+        cev.bool_value = !w->checked;                              // new value is the inverse
         ui_event_push(ctx, &cev);
     }
     ctx->redraw_needed = true;                                    // force a repaint

@@ -384,6 +384,7 @@ static const BuiltinSig BUILTINS[] = {
     {"ui.badge",            1, 2, TYPE_ANY},
     {"ui.separator",        0, 1, TYPE_ANY},
     {"ui.checkbox",         2, 3, TYPE_ANY},
+    {"ui.switch",           2, 3, TYPE_ANY},
     {"ui.radio",            3, 4, TYPE_ANY},
     {"ui.table",            2, 3, TYPE_ANY},
     {"ui.list",             1, 2, TYPE_ANY},

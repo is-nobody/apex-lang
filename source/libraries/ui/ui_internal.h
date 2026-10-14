@@ -26,7 +26,7 @@ typedef struct { char* ptr; int len; } Str;
 typedef enum {
     WK_TEXT, WK_HEADING, WK_BUTTON, WK_CHECKBOX, WK_RADIO,
     WK_SLIDER, WK_PROGRESS, WK_INPUT, WK_BADGE, WK_COMBOBOX,
-    WK_SEPARATOR, WK_SPACER, WK_TABLE, WK_LIST_ITEM,
+    WK_SEPARATOR, WK_SPACER, WK_TABLE, WK_LIST_ITEM, WK_SWITCH,
     WK_VBOX, WK_HBOX, WK_PANEL, WK_SCROLL, WK_HSCROLL
 } WidgetKind;  // leaf widget kinds then container kinds
 
@@ -108,6 +108,7 @@ struct Widget {
     bool         table_header;           // draw the header row
 
     double scroll_y, content_h;          // vertical scroll offset and content height
+    float  switch_knob;                  // wk_switch: 0 = off, 1 = on, mirrored from state
 };
 
 // one snapshot in an input widget's undo/redo history
@@ -127,6 +128,10 @@ typedef struct {
     double   scroll_target;     // offset the smooth scroll animation eases toward
     double   blink_phase;       // cursor blink animation phase
     bool     combo_open;        // dropdown expanded state persisted across frames
+
+    // wk_switch animation
+    float    switch_knob;       // 0 = off, 1 = on, eased toward checked
+    bool     switch_init;       // true once the initial knob position was seeded
 
     // owned text buffer for wk_input widgets
     char*      input_buf;       // malloc'd, null terminated, or null
