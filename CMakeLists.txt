@@ -48,7 +48,7 @@ if(WIN32)
         source/libraries/ui/platform/windows/ui_window_windows.c
         source/libraries/ui/platform/windows/ui_window_windows_event.c
         source/libraries/ui/platform/windows/ui_window_windows_clipboard.c)
-    list(APPEND APEX_UI_PLATFORM_LIBS shlwapi ws2_32 dwrite)
+    list(APPEND APEX_UI_PLATFORM_LIBS shlwapi ws2_32)
 elseif(APPLE)
     list(APPEND APEX_UI_WINDOW_SOURCES
         source/libraries/ui/platform/macos/ui_window_macos.c
