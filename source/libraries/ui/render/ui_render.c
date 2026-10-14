@@ -271,8 +271,7 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
 
                 for (int r = 0; r < nr; r++) {              // body rows
                     int ry = y + cur * row_h;
-                    if (w->table_stripe && (r & 1))         // alternating band
-                        ui_painter_fill_rect(x + 1, ry, ww - 2, row_h, UI_C_PANEL_ALT);
+                    // body rows keep the dark ui_c_panel fill from the table body above
 
                     float cx = (float)x;
                     for (int c = 0; c < nc; c++) {
