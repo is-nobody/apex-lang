@@ -8,13 +8,6 @@
 #include "ui_window.h"
 #include <string.h>
 
-// fades any 0xAARRGGBB color by a 0..1 factor
-static uint32_t dlg_fade_static(uint32_t c, double t) {
-    uint32_t a = (c >> 24) & 0xFF;                       // extract the source alpha
-    a = (uint32_t)(a * t + 0.5);                         // scale by the phase, rounded
-    return (c & 0x00FFFFFFu) | (a << 24);                // reassemble rgb with the new alpha
-}
-
 // paints one notification into its own framebuffer and blits to its window
 void ui_render_notification(UiNotification* n) {
     if (!n || !n->window) return;                        // null guard
@@ -25,19 +18,15 @@ void ui_render_notification(UiNotification* n) {
     uint32_t* px = ui_window_pixels(n->window);          // popup framebuffer
     if (!px) return;                                     // no surface: nothing to paint
 
-    ui_painter_init(px, w, h);                           // bind the painter to this surface
+    ui_painter_init_alpha(px, w, h);                     // bind with per-pixel alpha
     ui_painter_clear(0x00000000u);                       // transparent: no window background
 
-    // fade factor
-    double t = n->anim_t;                                // 0 = hidden, 1 = fully visible
-    if (t < 0) t = 0;                                    // clamp low
-    if (t > 1) t = 1;                                    // clamp high
-
-    uint32_t bg     = dlg_fade_static(UI_C_NOTIF_BG,     t);  // panel background, faded
-    uint32_t border = dlg_fade_static(UI_C_NOTIF_BORDER, t);  // panel border, faded
-    uint32_t title  = dlg_fade_static(UI_C_NOTIF_TITLE,  t);  // title text, faded
-    uint32_t body   = dlg_fade_static(UI_C_NOTIF_BODY,   t);  // body text, faded
-    uint32_t fgcl   = dlg_fade_static(UI_C_NOTIF_CLOSE,  t);  // close glyph, faded
+    // notifications are always fully opaque
+    uint32_t bg     = UI_C_NOTIF_BG;
+    uint32_t border = UI_C_NOTIF_BORDER;
+    uint32_t title  = UI_C_NOTIF_TITLE;
+    uint32_t body   = UI_C_NOTIF_BODY;
+    uint32_t fgcl   = UI_C_NOTIF_CLOSE;
 
     // panel with rounded corners
     ui_painter_fill_round(0, 0, w, h, UI_NOTIF_RADIUS, bg);        // filled rounded body
@@ -51,12 +40,12 @@ void ui_render_notification(UiNotification* n) {
             ui_painter_fill_round(cx - UI_NOTIF_CLOSE_SZ/2, cy - UI_NOTIF_CLOSE_SZ/2,
                                   UI_NOTIF_CLOSE_SZ, UI_NOTIF_CLOSE_SZ,
                                   UI_NOTIF_CLOSE_SZ/2,
-                                  dlg_fade_static(UI_C_NOTIF_CLOSE_HOV, t));  // round hover chip
+                                  UI_C_NOTIF_CLOSE_HOV);  // round hover chip
         else if (n->hover_close)                         // hover: same chip, softer state
             ui_painter_fill_round(cx - UI_NOTIF_CLOSE_SZ/2, cy - UI_NOTIF_CLOSE_SZ/2,
                                   UI_NOTIF_CLOSE_SZ, UI_NOTIF_CLOSE_SZ,
                                   UI_NOTIF_CLOSE_SZ/2,
-                                  dlg_fade_static(UI_C_NOTIF_CLOSE_HOV, t));  // round hover chip
+                                  UI_C_NOTIF_CLOSE_HOV);  // round hover chip
         blit_close_x_shared(cx - 4, cy - 4, fgcl);       // 9x9 close glyph, centered on the chip
     }
 

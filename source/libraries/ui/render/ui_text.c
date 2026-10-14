@@ -20,6 +20,9 @@
 #  define UI_TEXT_HAVE_SSE2 1
 #endif
 
+// set true by ui_text.c when the destination surface carries per-pixel alpha
+extern bool g_text_dst_alpha_used;
+
 // opaque handle to the cache entry internals; layout matches ui_font.c
 typedef struct CacheEntry CacheEntry;
 
@@ -41,6 +44,34 @@ static void blend_glyph_row(uint32_t* dst, const uint8_t* cov, int n,
                             uint32_t sr, uint32_t sg, uint32_t sb, uint32_t ca) {
     if (ca == 0 || n <= 0) return;                       // fully transparent or empty row
     const bool opaque_ca = (ca == 255);                  // common case: no alpha multiply
+
+    if (ca < 255 || g_text_dst_alpha_used) {
+        for (int i = 0; i < n; i++) {
+            uint32_t cv = cov[i];
+            if (!cv) continue;
+            uint32_t sa = opaque_ca ? cv : ((ca * cv + 128) >> 8);
+            if (!sa) continue;
+            uint32_t d  = dst[i];
+            uint32_t da = (d >> 24) & 0xFF;
+            if (da == 0) {
+                dst[i] = (sa << 24) | (sr << 16) | (sg << 8) | sb;
+                continue;
+            }
+            uint32_t w_da  = (da * (255 - sa) + 127) / 255;
+            uint32_t out_a = sa + w_da;
+            if (out_a > 255) out_a = 255;
+            if (!out_a) { dst[i] = 0; continue; }
+            uint32_t dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
+            uint32_t r = (sr * sa + dr * w_da + out_a / 2) / out_a;
+            uint32_t g = (sg * sa + dg * w_da + out_a / 2) / out_a;
+            uint32_t b = (sb * sa + db * w_da + out_a / 2) / out_a;
+            if (r > 255) r = 255;
+            if (g > 255) g = 255;
+            if (b > 255) b = 255;
+            dst[i] = (out_a << 24) | (r << 16) | (g << 8) | b;
+        }
+        return;
+    }
 
 #if defined(UI_TEXT_HAVE_AVX2)
     const __m256i v_sr   = _mm256_set1_epi32((int)sr);

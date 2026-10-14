@@ -47,8 +47,8 @@ void notif_place_all(UiContext* ctx) {
         double inv  = 1.0 - t;                           // complement of the phase
         double ease = 1.0 - inv*inv*inv;                 // cubic ease-out curve
 
-        if (!n->closing && t < 1.0)                      // still sliding in
-            px += (int)((1.0 - ease) * UI_NOTIF_SLIDE_MAX);  // offset shrinks as ease climbs
+        // slide in from the right while opening, slide out to the right while closing
+        px += (int)((1.0 - ease) * UI_NOTIF_SLIDE_MAX);
 
         if (px != n->last_x || py != n->last_y) {        // only move when the target changed
             ui_window_move(n->window, px, py);           // push the new position
@@ -168,10 +168,9 @@ void ui_notification_show(UiContext* ctx, const char* key, const char* title,
 void ui_notification_close(UiContext* ctx, int index, bool emit) {
     if (index < 0 || index >= ctx->notif_count) return;  // bounds check
     UiNotification* n = ctx->notifs[index];
-    if (!n->closing) {                                   // ignore if already closing
-        n->closing = true;                               // start fade-out
-        if (emit) notif_emit_close(ctx, n);              // notify the script
-    }
+    if (n->closing) return;                              // already closing
+    n->closing = true;                                   // start the slide-out
+    if (emit) notif_emit_close(ctx, n);                  // notify the script
 }
 
 // pumps events from every notification popup window
@@ -222,19 +221,21 @@ void ui_notification_pump(UiContext* ctx) {
     }
 }
 
-// advances fade timers, auto-close, and pops finished notifications
+// advances slide-in, slide-out and auto-close timers
 void ui_notification_tick(UiContext* ctx, double dt) {
     for (int i = 0; i < ctx->notif_count; ) {            // manual index: entries may be removed
         UiNotification* n = ctx->notifs[i];
         bool dirty = false;                              // did anything change this tick?
 
-        if (n->closing) {                                // fading out
+        if (n->closing) {                                // sliding out to the right
             n->anim_t -= dt / UI_NOTIF_CLOSE_SEC;        // shrink the phase
-            if (n->anim_t <= 0.0) {                      // fully faded: remove it
+            if (n->anim_t <= 0.0) {                      // fully off-screen: remove it
+                n->anim_t = 0.0;
+                ui_render_notification(n);               // paint one last empty frame
                 notif_clear(n);                          // release resources
                 free(n);                                 // free the struct
                 memmove(&ctx->notifs[i], &ctx->notifs[i + 1],
-                        sizeof(UiNotification*) * (ctx->notif_count - i - 1));  // shift the tail
+                        sizeof(UiNotification*) * (ctx->notif_count - i - 1));
                 ctx->notif_count--;                      // one fewer entry
                 notif_place_all(ctx);                    // re-flow the stack
                 continue;                                // do not advance i: same slot has a new entry
@@ -245,16 +246,18 @@ void ui_notification_tick(UiContext* ctx, double dt) {
                 n->anim_t += dt / UI_NOTIF_OPEN_SEC;     // grow the phase
                 if (n->anim_t > 1.0) n->anim_t = 1.0;    // clamp at fully open
                 dirty = true;                            // repaint
-                notif_place_all(ctx);                    // recompute the slide offset
             }
             n->elapsed += dt;                            // accumulate open time
             if (n->timeout > 0 && n->elapsed >= n->timeout) {  // auto-close window elapsed
-                n->closing = true;                       // start fade-out silently
+                n->closing = true;                       // start the slide-out silently
                 dirty = true;                            // repaint
             }
         }
 
-        if (dirty) ui_render_notification(n);            // only repaint when something moved
+        if (dirty) {
+            notif_place_all(ctx);                        // recompute the slide offset
+            ui_render_notification(n);                   // repaint this popup
+        }
         i++;                                             // advance to the next entry
     }
 }

@@ -73,6 +73,7 @@ UiWindow* ui_window_create(int w, int h, const char* title, bool decorated) {
     win->dpy = XOpenDisplay(NULL);                       // connect to the default display
     if (!win->dpy) { free(win); return NULL; }           // no display: give up
     win->screen = DefaultScreen(win->dpy);               // default screen
+    win->depth  = DefaultDepth(win->dpy, win->screen);   // inherited visual depth
     win->decorated = decorated;                          // remember chrome preference
     win->w = w; win->h = h;
     win->shm.shmid = -1;                                 // sentinel: no live shm segment yet
@@ -544,15 +545,33 @@ UiWindow* ui_window_create_popup(int x, int y, int w, int h, const char* title) 
     win->w = w; win->h = h;                                   // record the requested size
     win->shm.shmid = -1;                                      // sentinel: no live shm segment
 
+    XVisualInfo vinfo;
+    Visual* visual = NULL;
+    Colormap cmap  = 0;
+    int     depth  = DefaultDepth(win->dpy, win->screen);
+
+    if (XMatchVisualInfo(win->dpy, win->screen, 32, TrueColor, &vinfo)) {
+        visual = vinfo.visual;
+        depth  = vinfo.depth;
+        cmap   = XCreateColormap(win->dpy,
+                                 RootWindow(win->dpy, win->screen),
+                                 visual, AllocNone);
+    } else {
+        visual = DefaultVisual(win->dpy, win->screen);
+    }
+    win->depth = depth;
+
     XSetWindowAttributes a = {0};                             // window attribute set
-    a.background_pixel  = 0xFF1E1E1Eu;                        // match the ui theme background
+    a.background_pixel  = 0;                                  // transparent black in ARGB
     a.bit_gravity       = NorthWestGravity;                   // anchor contents at the top-left
     a.override_redirect = True;                               // bypass the wm entirely
+    a.border_pixel      = 0;
+    unsigned long mask = CWBackPixel | CWBitGravity | CWOverrideRedirect | CWBorderPixel;
+    if (cmap) { a.colormap = cmap; mask |= CWColormap; }
 
     win->win = XCreateWindow(win->dpy, RootWindow(win->dpy, win->screen),
         x, y, (unsigned)w, (unsigned)h, 0,
-        CopyFromParent, InputOutput, CopyFromParent,
-        CWBackPixel | CWBitGravity | CWOverrideRedirect, &a);
+        depth, InputOutput, visual, mask, &a);
     XStoreName(win->dpy, win->win, title ? title : "");       // set the window title
 
     // hint the wm: this is a notification, keep it above everything
@@ -578,9 +597,9 @@ UiWindow* ui_window_create_popup(int x, int y, int w, int h, const char* title) 
             if (win->shm.shmaddr != (char*)-1) {              // mapping succeeded
                 win->shm.readOnly = False;                    // we write into it
                 win->img = XShmCreateImage(win->dpy,
-                    DefaultVisual(win->dpy, win->screen),
-                    (unsigned)DefaultDepth(win->dpy, win->screen),
-                    ZPixmap, NULL, &win->shm, (unsigned)w, (unsigned)h);  // ximage over shm
+                    visual,
+                    (unsigned)depth,
+                    ZPixmap, NULL, &win->shm, (unsigned)w, (unsigned)h);
                 if (win->img) {                               // image created
                     win->img->data = win->shm.shmaddr;        // point it at the mapping
                     int (*old)(Display*,XErrorEvent*) = XSetErrorHandler(xerr);  // suppress errors
@@ -595,8 +614,8 @@ UiWindow* ui_window_create_popup(int x, int y, int w, int h, const char* title) 
     if (!win->shm_ok) {                                       // fall back to a plain ximage
         win->pixels = alloc_framebuffer(w, h);                // 2 MB-aligned, THP-backed
         win->img = XCreateImage(win->dpy,
-            DefaultVisual(win->dpy, win->screen),
-            (unsigned)DefaultDepth(win->dpy, win->screen),
+            visual,
+            (unsigned)depth,
             ZPixmap, 0, (char*)win->pixels, (unsigned)w, (unsigned)h, 32, 0);
     }
     win->open = true;                                         // window is live

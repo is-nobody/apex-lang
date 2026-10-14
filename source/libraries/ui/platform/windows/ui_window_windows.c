@@ -251,8 +251,12 @@ UiWindow* ui_window_create(int w, int h, const char* title, bool decorated) {
 // destroys the window and releases the offscreen buffer
 void ui_window_destroy(UiWindow* w) {
     if (!w) return;                                      // null guard
+    if (w->hwnd) {
+        // a layered popup must be hidden before it is destroyed
+        if (w->is_popup) ShowWindow(w->hwnd, SW_HIDE);
+        DestroyWindow(w->hwnd);
+    }
     free_buffer_resources(w);                            // release the memory dc and dib
-    if (w->hwnd) DestroyWindow(w->hwnd);                 // destroy the native window
     free(w);                                             // free the window struct
 }
 
@@ -306,6 +310,35 @@ void ui_window_present_rects(UiWindow* w, const int* quads, int n) {
     if (!w || n <= 0) return;
     apply_pending_resize(w);                             // catch up on any resize not yet applied
     if (!w->mem_dc || !w->dib_bits) return;              // nothing to present
+
+    if (w->is_popup) {
+        uint32_t* px = (uint32_t*)w->dib_bits;
+        size_t count = (size_t)w->w * (size_t)w->h;
+        for (size_t i = 0; i < count; i++) {
+            uint32_t c = px[i];
+            uint32_t a = (c >> 24) & 0xFF;
+            if (a == 255) continue;
+            if (a == 0) { px[i] = 0; continue; }
+            uint32_t r = (c >> 16) & 0xFF;
+            uint32_t g = (c >>  8) & 0xFF;
+            uint32_t b =  c        & 0xFF;
+            r = (r * a + 127) / 255;
+            g = (g * a + 127) / 255;
+            b = (b * a + 127) / 255;
+            px[i] = (a << 24) | (r << 16) | (g << 8) | b;
+        }
+
+        POINT pt_src = { 0, 0 };
+        SIZE  sz     = { w->w, w->h };
+        BLENDFUNCTION bf;
+        bf.BlendOp             = AC_SRC_OVER;
+        bf.BlendFlags          = 0;
+        bf.SourceConstantAlpha = 255;
+        bf.AlphaFormat         = AC_SRC_ALPHA;
+        UpdateLayeredWindow(w->hwnd, NULL, NULL, &sz,
+                            w->mem_dc, &pt_src, 0, &bf, ULW_ALPHA);
+        return;
+    }
 
     RECT r;
     if (!GetClientRect(w->hwnd, &r)) return;             // client rect failed
@@ -443,11 +476,11 @@ UiWindow* ui_window_create_popup(int x, int y, int w, int h, const char* title) 
     win->is_popup  = true;                                // no resizing, no HTCAPTION
 
     HWND hwnd = CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,  // above all, no taskbar, no focus steal
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED,
         kClassName, wtitle,
-        WS_POPUP,                                         // bare popup: no caption, no borders
+        WS_POPUP,
         x, y, w, h,
-        NULL, NULL, hInst, win);                          // pass win as lpCreateParams
+        NULL, NULL, hInst, win);
     if (!hwnd) { free(win); return NULL; }                // creation failed
     win->hwnd = hwnd;
 

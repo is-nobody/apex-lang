@@ -24,11 +24,16 @@
 // active framebuffer and its dimensions
 static uint32_t* g_pixels; static int g_w, g_h;
 
+// true when the target surface carries per-pixel alpha (notification popups)
+static bool g_alpha_canvas;
+
+// mirrored from g_alpha_canvas so ui_text.c can pick its glyph-blit path
+bool g_text_dst_alpha_used = false;
+
 // nested scissor rectangles
 static int clip_stack[16][4]; static int clip_depth;
 
-// top-of-stack clip cached as (x0, y0, x1, y1). refreshed on every push/pop
-// so the hot pixel loops read two globals instead of chasing the stack.
+// top-of-stack clip cached as (x0, y0, x1, y1)
 static int g_clip_x0, g_clip_y0, g_clip_x1, g_clip_y1;
 
 // refresh the cached clip from the current top of the stack
@@ -47,8 +52,19 @@ static inline void clip_refresh(void) {
 // binds the painter to a framebuffer and clears the clip stack
 void ui_painter_init(uint32_t* p, int w, int h) {
     g_pixels = p; g_w = w; g_h = h; clip_depth = 0;
+    g_alpha_canvas = false;
+    g_text_dst_alpha_used = false;
     clip_refresh();
     ui_text_set_clip(0, 0, w, h);                        // whole surface: nothing clipped
+}
+
+// binds the painter to a framebuffer that must preserve per-pixel alpha
+void ui_painter_init_alpha(uint32_t* p, int w, int h) {
+    g_pixels = p; g_w = w; g_h = h; clip_depth = 0;
+    g_alpha_canvas = true;
+    g_text_dst_alpha_used = true;
+    clip_refresh();
+    ui_text_set_clip(0, 0, w, h);
 }
 
 // pushes a scissor rect, intersected with the current top of the stack
@@ -94,11 +110,38 @@ static inline void blend_px(int x, int y, uint32_t c) {
     uint32_t sa = (c >> 24) & 0xFF;                     // source alpha
     if (!sa) return;                                    // fully transparent: nothing to do
     uint32_t idx = (uint32_t)y * g_w + x;               // linear pixel index
+    uint32_t sr = (c >> 16) & 0xFF, sg = (c >> 8) & 0xFF, sb = c & 0xFF;
+
+    if (g_alpha_canvas) {
+        uint32_t d  = g_pixels[idx];
+        uint32_t da = (d >> 24) & 0xFF;
+        if (da == 0) {                                  // empty dest: copy source
+            g_pixels[idx] = (sa << 24) | (sr << 16) | (sg << 8) | sb;
+            return;
+        }
+        if (sa == 255) {                                // opaque source: replace
+            g_pixels[idx] = 0xFF000000u | (sr << 16) | (sg << 8) | sb;
+            return;
+        }
+        uint32_t w_da  = (da * (255 - sa) + 127) / 255;
+        uint32_t out_a = sa + w_da;
+        if (out_a > 255) out_a = 255;
+        if (!out_a) { g_pixels[idx] = 0; return; }
+        uint32_t dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
+        uint32_t r = (sr * sa + dr * w_da + out_a / 2) / out_a;
+        uint32_t g = (sg * sa + dg * w_da + out_a / 2) / out_a;
+        uint32_t b = (sb * sa + db * w_da + out_a / 2) / out_a;
+        if (r > 255) r = 255;
+        if (g > 255) g = 255;
+        if (b > 255) b = 255;
+        g_pixels[idx] = (out_a << 24) | (r << 16) | (g << 8) | b;
+        return;
+    }
+
     if (sa == 255) { g_pixels[idx] = 0xFF000000u | (c & 0x00FFFFFFu); return; }
     uint32_t inv = 255 - sa;                            // destination weight
     uint32_t d  = g_pixels[idx];
     uint32_t dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
-    uint32_t sr = (c >> 16) & 0xFF, sg = (c >> 8) & 0xFF, sb = c & 0xFF;
     uint32_t r = (sr*sa + dr*inv + 128) >> 8;
     uint32_t g = (sg*sa + dg*inv + 128) >> 8;
     uint32_t b = (sb*sa + db*inv + 128) >> 8;
@@ -113,6 +156,7 @@ static void blend_cov_row(uint32_t* dst, const uint8_t* cov, int n,
 
     int i = 0;
 
+    if (!g_alpha_canvas) {
 #if defined(UI_HAVE_AVX2)
     const __m256i v_sr   = _mm256_set1_epi32((int)sr);
     const __m256i v_sg   = _mm256_set1_epi32((int)sg);
@@ -222,14 +266,39 @@ static void blend_cov_row(uint32_t* dst, const uint8_t* cov, int n,
         _mm_storeu_si128((__m128i*)(dst + i), out);
     }
 #endif
+    }
 
     for (; i < n; i++) {                                 // scalar tail
         uint32_t cv = cov[i];
         if (!cv) continue;
         uint32_t sa = opaque_ca ? cv : ((ca * cv + 128) >> 8);
         if (!sa) continue;
+        uint32_t d  = dst[i];
+
+        if (g_alpha_canvas) {
+            uint32_t da = (d >> 24) & 0xFF;
+            uint32_t dr = (d >> 16) & 0xFF;
+            uint32_t dg = (d >>  8) & 0xFF;
+            uint32_t db =  d        & 0xFF;
+            if (da == 0) {
+                dst[i] = (sa << 24) | (sr << 16) | (sg << 8) | sb;
+                continue;
+            }
+            uint32_t w_da  = (da * (255 - sa) + 127) / 255;
+            uint32_t out_a = sa + w_da;
+            if (out_a > 255) out_a = 255;
+            if (!out_a) { dst[i] = 0; continue; }
+            uint32_t r = (sr * sa + dr * w_da + out_a / 2) / out_a;
+            uint32_t g = (sg * sa + dg * w_da + out_a / 2) / out_a;
+            uint32_t b = (sb * sa + db * w_da + out_a / 2) / out_a;
+            if (r > 255) r = 255;
+            if (g > 255) g = 255;
+            if (b > 255) b = 255;
+            dst[i] = (out_a << 24) | (r << 16) | (g << 8) | b;
+            continue;
+        }
+
         uint32_t inv = 255 - sa;
-        uint32_t d = dst[i];
         uint32_t dr = (d >> 16) & 0xFF;
         uint32_t dg = (d >>  8) & 0xFF;
         uint32_t db =  d        & 0xFF;
@@ -245,10 +314,35 @@ static void blend_cov_row(uint32_t* dst, const uint8_t* cov, int n,
 // processes 8 pixels at a time
 static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
     uint32_t sa  = (c >> 24) & 0xFF;
+    if (!sa) return;
     uint32_t inv = 255 - sa;
     uint32_t sr  = (c >> 16) & 0xFF;
     uint32_t sg  = (c >> 8)  & 0xFF;
     uint32_t sb  =  c        & 0xFF;
+
+    if (g_alpha_canvas) {
+        for (int i = 0; i < n; i++) {
+            uint32_t d  = row[i];
+            uint32_t da = (d >> 24) & 0xFF;
+            if (da == 0) {
+                row[i] = (sa << 24) | (sr << 16) | (sg << 8) | sb;
+                continue;
+            }
+            uint32_t w_da  = (da * (255 - sa) + 127) / 255;
+            uint32_t out_a = sa + w_da;
+            if (out_a > 255) out_a = 255;
+            if (!out_a) { row[i] = 0; continue; }
+            uint32_t dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
+            uint32_t r = (sr * sa + dr * w_da + out_a / 2) / out_a;
+            uint32_t g = (sg * sa + dg * w_da + out_a / 2) / out_a;
+            uint32_t b = (sb * sa + db * w_da + out_a / 2) / out_a;
+            if (r > 255) r = 255;
+            if (g > 255) g = 255;
+            if (b > 255) b = 255;
+            row[i] = (out_a << 24) | (r << 16) | (g << 8) | b;
+        }
+        return;
+    }
 
     // destination is weighted by inv, source is weighted by sa
     __m256i k_inv = _mm256_set1_epi32((int)inv);
@@ -291,10 +385,35 @@ static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
 // holding one channel each, with a +128>>8 rounding approximation.
 static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
     uint32_t sa  = (c >> 24) & 0xFF;
+    if (!sa) return;
     uint32_t inv = 255 - sa;
     uint32_t sr  = (c >> 16) & 0xFF;
     uint32_t sg  = (c >> 8)  & 0xFF;
     uint32_t sb  =  c        & 0xFF;
+
+    if (g_alpha_canvas) {
+        for (int i = 0; i < n; i++) {
+            uint32_t d  = row[i];
+            uint32_t da = (d >> 24) & 0xFF;
+            if (da == 0) {
+                row[i] = (sa << 24) | (sr << 16) | (sg << 8) | sb;
+                continue;
+            }
+            uint32_t w_da  = (da * (255 - sa) + 127) / 255;
+            uint32_t out_a = sa + w_da;
+            if (out_a > 255) out_a = 255;
+            if (!out_a) { row[i] = 0; continue; }
+            uint32_t dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
+            uint32_t r = (sr * sa + dr * w_da + out_a / 2) / out_a;
+            uint32_t g = (sg * sa + dg * w_da + out_a / 2) / out_a;
+            uint32_t b = (sb * sa + db * w_da + out_a / 2) / out_a;
+            if (r > 255) r = 255;
+            if (g > 255) g = 255;
+            if (b > 255) b = 255;
+            row[i] = (out_a << 24) | (r << 16) | (g << 8) | b;
+        }
+        return;
+    }
 
     __m128i k_inv = _mm_set1_epi32((int)inv);
     __m128i k_sr  = _mm_set1_epi32((int)(sr * sa + 128));
@@ -332,13 +451,38 @@ static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
     }
 }
 #elif defined(UI_HAVE_NEON)
-// processes 8 pixels at a time via vld4/vst4 deinterleave.
+// processes 8 pixels at a time via vld4/vst4 deinterleave
 static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
     uint32_t sa  = (c >> 24) & 0xFF;
+    if (!sa) return;
     uint32_t inv = 255 - sa;
     uint32_t sr  = (c >> 16) & 0xFF;
     uint32_t sg  = (c >> 8)  & 0xFF;
     uint32_t sb  =  c        & 0xFF;
+
+    if (g_alpha_canvas) {
+        for (int i = 0; i < n; i++) {
+            uint32_t d  = row[i];
+            uint32_t da = (d >> 24) & 0xFF;
+            if (da == 0) {
+                row[i] = (sa << 24) | (sr << 16) | (sg << 8) | sb;
+                continue;
+            }
+            uint32_t w_da  = (da * (255 - sa) + 127) / 255;
+            uint32_t out_a = sa + w_da;
+            if (out_a > 255) out_a = 255;
+            if (!out_a) { row[i] = 0; continue; }
+            uint32_t dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
+            uint32_t r = (sr * sa + dr * w_da + out_a / 2) / out_a;
+            uint32_t g = (sg * sa + dg * w_da + out_a / 2) / out_a;
+            uint32_t b = (sb * sa + db * w_da + out_a / 2) / out_a;
+            if (r > 255) r = 255;
+            if (g > 255) g = 255;
+            if (b > 255) b = 255;
+            row[i] = (out_a << 24) | (r << 16) | (g << 8) | b;
+        }
+        return;
+    }
 
     // vmlaq_u16 computes dst * k + acc
     uint16x8_t k_inv = vdupq_n_u16((uint16_t)inv);
@@ -373,10 +517,36 @@ static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
 #else
 static inline void blend_row_simd(uint32_t* row, int n, uint32_t c) {
     uint32_t sa  = (c >> 24) & 0xFF;
+    if (!sa) return;
     uint32_t inv = 255 - sa;
     uint32_t sr  = (c >> 16) & 0xFF;
     uint32_t sg  = (c >> 8)  & 0xFF;
     uint32_t sb  =  c        & 0xFF;
+
+    if (g_alpha_canvas) {
+        for (int i = 0; i < n; i++) {
+            uint32_t d  = row[i];
+            uint32_t da = (d >> 24) & 0xFF;
+            if (da == 0) {
+                row[i] = (sa << 24) | (sr << 16) | (sg << 8) | sb;
+                continue;
+            }
+            uint32_t w_da  = (da * (255 - sa) + 127) / 255;
+            uint32_t out_a = sa + w_da;
+            if (out_a > 255) out_a = 255;
+            if (!out_a) { row[i] = 0; continue; }
+            uint32_t dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
+            uint32_t r = (sr * sa + dr * w_da + out_a / 2) / out_a;
+            uint32_t g = (sg * sa + dg * w_da + out_a / 2) / out_a;
+            uint32_t b = (sb * sa + db * w_da + out_a / 2) / out_a;
+            if (r > 255) r = 255;
+            if (g > 255) g = 255;
+            if (b > 255) b = 255;
+            row[i] = (out_a << 24) | (r << 16) | (g << 8) | b;
+        }
+        return;
+    }
+
     for (int i = 0; i < n; i++) {
         uint32_t d  = row[i];
         uint32_t dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
@@ -451,6 +621,13 @@ static inline void fill_row_stream_simd(uint32_t* row, int n, uint32_t color) {
 
 // clears the whole bound framebuffer to an opaque color using streaming stores
 void ui_painter_clear(uint32_t c) {
+    if (g_alpha_canvas) {
+        for (int y = 0; y < g_h; y++) {
+            uint32_t* row = g_pixels + (size_t)y * g_w;
+            for (int x = 0; x < g_w; x++) row[x] = c;
+        }
+        return;
+    }
     uint32_t sa = (c >> 24) & 0xFF;
     if (sa != 255) return;                                          // opaque only
     uint32_t color = 0xFF000000u | (c & 0x00FFFFFFu);
@@ -481,7 +658,9 @@ void ui_painter_fill_rect(int x, int y, int w, int h, uint32_t c) {
     int rw = x1 - x0;
 
     if (sa == 255) {                                    // opaque fast path: row-wise store
-        uint32_t color = 0xFF000000u | (c & 0x00FFFFFFu);
+        uint32_t color = g_alpha_canvas
+                       ? c
+                       : (0xFF000000u | (c & 0x00FFFFFFu));
         for (int yy = y0; yy < y1; yy++) {
             uint32_t* row = g_pixels + (size_t)yy * g_w + x0;
             fill_row_simd(row, rw, color);

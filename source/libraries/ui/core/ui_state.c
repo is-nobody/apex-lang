@@ -117,7 +117,7 @@ bool ui_animating(UiContext* ctx) {
     }
     for (int i = 0; i < ctx->notif_count; i++) {
         UiNotification* n = ctx->notifs[i];
-        if (n->closing && n->anim_t > 0.0) return true;    // fading out
+        if (n->closing && n->anim_t > 0.0) return true;    // sliding out
         if (!n->closing && n->anim_t < 1.0) return true;   // sliding in
     }
     return false;                                          // all settled

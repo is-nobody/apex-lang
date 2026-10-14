@@ -11,6 +11,9 @@
 // binds the painter to a framebuffer and clears the clip stack
 void ui_painter_init(uint32_t* pixels, int w, int h);
 
+// binds the painter to a framebuffer with per-pixel alpha compositing
+void ui_painter_init_alpha(uint32_t* pixels, int w, int h);
+
 // fills an axis-aligned rectangle with the given color
 void ui_painter_fill_rect(int x, int y, int w, int h, uint32_t c);
 

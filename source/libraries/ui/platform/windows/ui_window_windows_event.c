@@ -128,7 +128,7 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             ValidateRect(hwnd, NULL);
             if (w->paint_cb) {
                 w->paint_cb(w->paint_user, w->w, w->h);  // let the host redraw into the buffer
-            } else {
+            } else if (!w->is_popup) {
                 w->pending.kind = UW_EV_EXPOSE;          // otherwise ask the renderer to redraw
                 w->pending.w = w->w;
                 w->pending.h = w->h;
