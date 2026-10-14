@@ -172,7 +172,7 @@ bool expr_only_uses_params(ASTNode* node, ASTNodeList* params) {
     }
 }
 
-// total AST node count of an expression; used for the code-bloat cap
+// total ast node count of an expression or statement
 static int ast_node_count(ASTNode* node) {
     if (!node) return 0;
     switch (node->type) {
@@ -183,9 +183,21 @@ static int ast_node_count(ASTNode* node) {
         case AST_IDENTIFIER:
             return 1;
         case AST_BINARY:
-            return 1 + ast_node_count(node->binary.left) + ast_node_count(node->binary.right);
+            return 1 + ast_node_count(node->binary.left)
+                     + ast_node_count(node->binary.right);
         case AST_UNARY:
             return 1 + ast_node_count(node->unary.operand);
+        case AST_AWAIT:
+            return 1 + ast_node_count(node->await_expr.expression);
+        case AST_CALL: {
+            int c = 1 + ast_node_count(node->call.callee);
+            for (int i = 0; i < node->call.arguments->count; i++)
+                c += ast_node_count(node->call.arguments->nodes[i]);
+            return c;
+        }
+        case AST_INDEX_ACCESS:
+            return 1 + ast_node_count(node->access.object)
+                     + ast_node_count(node->access.member);
         case AST_TERNARY:
             return 1 + ast_node_count(node->ternary.condition)
                      + ast_node_count(node->ternary.true_expr)
@@ -202,10 +214,48 @@ static int ast_node_count(ASTNode* node) {
                 c += ast_node_count(node->table_literal.items->nodes[i]);
             for (int i = 0; i < node->table_literal.key_values->count; i++) {
                 ASTNode* kv = node->table_literal.key_values->nodes[i];
-                c += 1 + ast_node_count(kv->binary.left) + ast_node_count(kv->binary.right);
+                c += 1 + ast_node_count(kv->binary.left)
+                         + ast_node_count(kv->binary.right);
             }
             return c;
         }
+        case AST_VAR_DECL:
+        case AST_ASSIGN:
+            return 1 + ast_node_count(node->var_assign.value)
+                     + (node->var_assign.access_path
+                        ? ast_node_count(node->var_assign.access_path) : 0);
+        case AST_EXPR_STMT:
+            return 1 + ast_node_count(node->expr_stmt.expression);
+        case AST_RETURN_STMT:
+            return 1 + ast_node_count(node->return_stmt.value);
+        case AST_IF_STMT:
+            return 1 + ast_node_count(node->if_stmt.condition)
+                     + ast_node_count(node->if_stmt.then_branch)
+                     + ast_node_count(node->if_stmt.elif_chain)
+                     + ast_node_count(node->if_stmt.else_branch);
+        case AST_FOR_STMT:
+            return 1 + ast_node_count(node->for_stmt.start)
+                     + ast_node_count(node->for_stmt.end)
+                     + ast_node_count(node->for_stmt.step)
+                     + ast_node_count(node->for_stmt.condition)
+                     + ast_node_count(node->for_stmt.body);
+        case AST_BLOCK:
+        case AST_PROGRAM: {
+            int c = 1;
+            for (int i = 0; i < node->block.statements->count; i++)
+                c += ast_node_count(node->block.statements->nodes[i]);
+            return c;
+        }
+        case AST_MATCH_STMT: {
+            int c = 1 + ast_node_count(node->match_stmt.subject);
+            for (int i = 0; i < node->match_stmt.cases->count; i++)
+                c += ast_node_count(node->match_stmt.cases->nodes[i]);
+            c += ast_node_count(node->match_stmt.default_case);
+            return c;
+        }
+        case AST_CASE:
+            return 1 + ast_node_count(node->case_stmt.pattern)
+                     + ast_node_count(node->case_stmt.body);
         default:
             return 1;
     }
