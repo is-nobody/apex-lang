@@ -131,6 +131,9 @@ typedef struct {
 
     // wk_switch animation
     float    switch_knob;       // 0 = off, 1 = on, eased toward checked
+    float    switch_from;       // knob position at the start of the current animation
+    float    switch_to;         // knob target of the current animation
+    float    switch_anim_t;     // elapsed seconds in the current animation
     bool     switch_init;       // true once the initial knob position was seeded
 
     // owned text buffer for wk_input widgets

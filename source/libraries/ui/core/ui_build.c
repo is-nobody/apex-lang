@@ -131,8 +131,11 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
     WidgetState* st = ui_state_get(ctx, w->id);             // pull persistent state
 
     if (w->kind == WK_SWITCH && !st->switch_init) {         // seed the knob on the first build
-        st->switch_knob = w->checked ? 1.0f : 0.0f;         // start at rest, no flash
-        st->switch_init = true;
+        st->switch_knob   = w->checked ? 1.0f : 0.0f;       // start at rest, no flash
+        st->switch_from   = st->switch_knob;                // no animation in flight
+        st->switch_to     = st->switch_knob;
+        st->switch_anim_t = UI_SWITCH_ANIM_SEC;             // already settled
+        st->switch_init   = true;
     }
 
     if (w->kind == WK_COMBOBOX) {                           // combobox reads a string value + option list

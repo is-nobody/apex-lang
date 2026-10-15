@@ -114,7 +114,7 @@ bool ui_animating(UiContext* ctx) {
     for (int i = 0; i < ctx->state.count; i++) {
         WidgetState* s = &ctx->state.entries[i];
         if (s->scroll_y != s->scroll_target) return true;  // still moving
-        if (s->switch_init && s->switch_knob > 0.0f && s->switch_knob < 1.0f)
+        if (s->switch_init && s->switch_anim_t < UI_SWITCH_ANIM_SEC)
             return true;                                   // knob is mid-flight
     }
     for (int i = 0; i < ctx->notif_count; i++) {
@@ -177,22 +177,32 @@ void ui_tick(UiContext* ctx, double dt) {
             ctx->redraw_needed = true;                   // schedule a repaint
     }
 
-    // switch knobs ease toward the current checked state
+    // switch knobs run a fixed-duration ease-out toward the checked state
     {
-        float k = (float)(dt / UI_SWITCH_ANIM_SEC);      // fraction of the track per tick
-        if (k > 1.0f) k = 1.0f;
         bool switch_moved = false;
         for (int i = 0; i < ctx->pool_used; i++) {
             Widget* w = &ctx->pool[i];
             if (w->kind != WK_SWITCH) continue;
             WidgetState* s = ui_state_get(ctx, w->id);
             float target = w->checked ? 1.0f : 0.0f;
-            if (s->switch_knob != target) {              // still easing
-                float diff = target - s->switch_knob;
-                s->switch_knob += diff * k;              // exponential ease toward the target
-                if (fabsf(s->switch_knob - target) < 0.005f)
-                    s->switch_knob = target;             // snap: kill the asymptotic tail
+
+            if (s->switch_to != target) {                // checked flipped: restart the ease
+                s->switch_from   = s->switch_knob;       // start from wherever we are
+                s->switch_to     = target;
+                s->switch_anim_t = 0.0f;
+            }
+
+            if (s->switch_anim_t < UI_SWITCH_ANIM_SEC) {
+                s->switch_anim_t += (float)dt;           // advance the animation clock
+                float t = s->switch_anim_t / UI_SWITCH_ANIM_SEC;
+                if (t > 1.0f) t = 1.0f;
+                float u = 1.0f - t;
+                float eased = 1.0f - u * u * u;          // ease-out cubic
+                s->switch_knob = s->switch_from
+                               + (s->switch_to - s->switch_from) * eased;
                 switch_moved = true;
+            } else {
+                s->switch_knob = target;                 // settled: no per-frame churn
             }
             w->switch_knob = s->switch_knob;             // publish for hash, damage, render
         }

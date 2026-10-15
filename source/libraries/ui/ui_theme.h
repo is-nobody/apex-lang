@@ -73,7 +73,7 @@
 #define UI_SWITCH_W       40           // switch track width in pixels
 #define UI_SWITCH_H       22           // switch track height in pixels
 #define UI_SWITCH_PAD     3            // gap between the knob and the track edge
-#define UI_SWITCH_ANIM_SEC 0.1         // knob ease duration in seconds
+#define UI_SWITCH_ANIM_SEC 0.25         // knob ease duration in seconds
 
 #define UI_TITLEBAR_H     35           // custom titlebar height in pixels
 #define UI_TB_RESIZE      5            // resize border thickness in pixels
