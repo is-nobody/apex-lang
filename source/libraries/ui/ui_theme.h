@@ -155,6 +155,7 @@
 #define UI_MENU_SEP_H            9              // separator row height
 #define UI_MENU_DROP_PAD         6              // vertical padding of a dropdown panel
 #define UI_MENU_ITEM_PAD         12             // horizontal padding inside a dropdown item
+#define UI_MENU_SHORTCUT_GAP     24             // gap between a row label and its right-aligned shortcut
 #define UI_MENU_DROP_W_MIN       140            // minimum dropdown width
 
 // soft, modern dropdown metrics (menubar only)

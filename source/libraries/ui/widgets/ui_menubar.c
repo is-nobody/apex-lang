@@ -19,6 +19,7 @@ typedef struct UiMenuItem {
     UiMenuItemKind kind;                      // item vs separator
     char*          label;                     // heap-owned, null for separators
     char*          key;                       // heap-owned, null for separators
+    char*          shortcut;                  // right-aligned hint, null when absent
     struct UiMenuItem* submenu;               // null when this row is a leaf
     int            submenu_count;             // live entries in submenu
     int            submenu_cap;               // allocated capacity of submenu
@@ -68,6 +69,16 @@ static int label_width(UiContext* ctx, const char* label) {
                                        (int)strlen(label), UI_FS_BODY);
 }
 
+// horizontal space one dropdown row needs: label, optional shortcut, optional arrow
+static int item_row_width(UiContext* ctx, UiMenuItem* it) {
+    int w = label_width(ctx, it->label);
+    if (it->shortcut && *it->shortcut)
+        w += UI_MENU_SHORTCUT_GAP + label_width(ctx, it->shortcut);
+    if (it->submenu_count > 0)
+        w += 20;                                            // room for the right-pointing arrow
+    return w;
+}
+
 // clear path slots from keep onward
 static void reset_path(UiMenuBar* mb, int keep) {
     mb->path_len = keep;                      // keep the live prefix
@@ -85,9 +96,10 @@ static bool mb_parse_item(VM* vm, Value item_v, UiMenuItem* out) {
 
     if (is_sep) { out->kind = MI_SEPARATOR; return true; }
 
-    out->kind  = MI_ITEM;
-    out->label = table_get_str_dup(vm, t, "label");
-    out->key   = table_get_str_dup(vm, t, "key");
+    out->kind     = MI_ITEM;
+    out->label    = table_get_str_dup(vm, t, "label");
+    out->key      = table_get_str_dup(vm, t, "key");
+    out->shortcut = table_get_str_dup(vm, t, "shortcut");   // optional, null when absent
 
     Value items_v;
     Value k_items = ui_intern(vm, "items");
@@ -178,6 +190,7 @@ void ui_menubar_set(UiContext* ctx, Value descr) {
                                       ? strdup(mb->menus[i].label)
                                       : NULL;
                 row->key              = NULL;                   // the parent's key carries through
+                row->shortcut         = NULL;                   // top-level menus carry no hint
                 row->submenu          = mb->menus[i].items;     // borrowed
                 row->submenu_count    = mb->menus[i].item_count;
                 row->submenu_cap      = mb->menus[i].item_count;
@@ -198,6 +211,7 @@ void ui_menubar_set(UiContext* ctx, Value descr) {
 static void menuitem_free(UiMenuItem* it) {
     free(it->label);
     free(it->key);
+    free(it->shortcut);                                     // release the hint
     if (!it->borrowed_submenu) {
         for (int i = 0; i < it->submenu_count; i++) menuitem_free(&it->submenu[i]);
         free(it->submenu);
@@ -349,8 +363,7 @@ static int measure_dropdown(UiContext* ctx, UiMenuBar* mb, int mi,
     int h = UI_MENU_DROP_PAD * 2;                               // top and bottom padding
     for (int i = 0; i < count; i++) {
         if (items[i].kind == MI_SEPARATOR) { h += UI_MENU_SEP_H; continue; }
-        int w = label_width(ctx, items[i].label);
-        if (items[i].submenu_count > 0) w += 20;                // room for the arrow
+        int w = item_row_width(ctx, &items[i]);
         if (w > max_w) max_w = w;
         h += UI_MENU_ITEM_H;
     }
@@ -379,8 +392,7 @@ static int measure_overflow_panel(UiContext* ctx, UiMenuBar* mb,
     int h = UI_MENU_DROP_PAD * 2;
     for (int i = 0; i < count; i++) {
         if (items[i].kind == MI_SEPARATOR) { h += UI_MENU_SEP_H; continue; }
-        int w = label_width(ctx, items[i].label);
-        if (items[i].submenu_count > 0) w += 20;                // room for the arrow
+        int w = item_row_width(ctx, &items[i]);
         if (w > max_w) max_w = w;
         h += UI_MENU_ITEM_H;
     }
@@ -416,8 +428,7 @@ static int measure_submenu(UiContext* ctx, UiMenuItem* items, int idx,
     int h = UI_MENU_DROP_PAD * 2;
     for (int i = 0; i < n; i++) {
         if (sub[i].kind == MI_SEPARATOR) { h += UI_MENU_SEP_H; continue; }
-        int w = label_width(ctx, sub[i].label);
-        if (sub[i].submenu_count > 0) w += 20;
+        int w = item_row_width(ctx, &sub[i]);
         if (w > max_w) max_w = w;
         h += UI_MENU_ITEM_H;
     }
@@ -508,9 +519,20 @@ static void draw_dropdown_panel(UiContext* ctx, UiMenuItem* items, int count,
                             UI_C_MENU_ITEM_FG);
         }
 
-        if (items[i].submenu_count > 0)
-            draw_arrow_right(px + pw - UI_MENU_ITEM_PAD - 6,
-                             y + UI_MENU_ITEM_H / 2, UI_C_FG_DIM);
+        // right side, anchored to the panel's inner right edge
+        int right_x = px + pw - UI_MENU_ITEM_PAD;
+        if (items[i].submenu_count > 0) {
+            draw_arrow_right(right_x - 6, y + UI_MENU_ITEM_H / 2, UI_C_FG_DIM);
+            right_x -= 20;                                  // hint sits to the left of the arrow
+        }
+        if (items[i].shortcut && *items[i].shortcut) {
+            int   sw   = label_width(ctx, items[i].shortcut);
+            float tx   = (float)(right_x - sw);
+            float base = y + (UI_MENU_ITEM_H + UI_FS_BODY * 0.7f) * 0.5f;
+            ui_draw_text_at(ctx, tx, base, items[i].shortcut,
+                            (int)strlen(items[i].shortcut), UI_FS_BODY,
+                            UI_C_FG_DIM);                   // secondary text, matches the theme
+        }
 
         y += UI_MENU_ITEM_H;
     }
