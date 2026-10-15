@@ -80,17 +80,32 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
             break;
         }
         case UW_EV_RESIZE: {                                      // window resized
+#ifdef _WIN32
+            // win32: the paint callback fires synchronously
+            bool already_done = (ctx->win_w == e->w &&
+                                 ctx->win_h == e->h &&
+                                 !ctx->geometry_dirty);
+#else
+            bool already_done = false;
+#endif
+
             ctx->pixels = ui_window_pixels(ctx->window);          // refresh pixel buffer
             ctx->win_w = e->w;                                    // new width from the event
             ctx->win_h = e->h;                                    // new height from the event
-            ctx->geometry_dirty = true;                           // root rect changed: relayout
-            ctx->full_repaint   = true;                           // fresh pixels are undefined
+
+            if (!already_done) {
+                ctx->geometry_dirty = true;                       // root rect changed: relayout
+                ctx->full_repaint   = true;                       // fresh pixels are undefined
+            }
+
             UiEvent ev; memset(&ev, 0, sizeof(ev));
             ev.kind = EV_RESIZE;
             ev.num_value = e->w;                                  // pack new width in num_value
             ev.scroll_dy = e->h;                                  // pack new height in scroll_dy
             ui_event_push(ctx, &ev);
-            ctx->redraw_needed = true;
+
+            if (!already_done)
+                ctx->redraw_needed = true;
             break;
         }
         case UW_EV_MOUSEMOVE: {                                   // pointer moved

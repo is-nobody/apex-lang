@@ -42,6 +42,16 @@ bool ui_window_poll(UiWindow* w, UiWinEvent* out) {
                 if ((Atom)e.xclient.data.l[0] == w->wm_delete) {  // window-manager close
                     out->kind = UW_EV_CLOSE; w->open = false; return true;
                 }
+                if ((Atom)e.xclient.data.l[0] == w->sync_request) {
+                    // WM wants frame N on screen before committing the resize
+                    XSyncIntsToValue(&w->sync_value,
+                                     (unsigned int)e.xclient.data.l[2],
+                                     (int)e.xclient.data.l[3]);
+                    w->sync_pending = true;
+                    out->kind = UW_EV_EXPOSE;
+                    out->w = w->w; out->h = w->h;
+                    return true;
+                }
                 break;
             case ConfigureNotify:
                 if (e.xconfigure.width != w->w || e.xconfigure.height != w->h) {  // size changed

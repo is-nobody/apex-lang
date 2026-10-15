@@ -117,4 +117,7 @@ void ui_window_work_area(UiWindow* w, int* ox, int* oy, int* ow, int* oh);
 // ask the host to repaint the window
 void ui_window_invalidate(UiWindow* w);
 
+// acks a pending resize synchronization (X11 only; no-op elsewhere)
+void ui_window_sync_ack(UiWindow* w);
+
 #endif

@@ -15,6 +15,7 @@
 #include <X11/keysym.h>
 #include <X11/cursorfont.h>
 #include <X11/extensions/XShm.h>
+#include <X11/extensions/sync.h>
 #include <sys/shm.h>
 #include <sys/ipc.h>
 #include <stdbool.h>
@@ -27,6 +28,13 @@ struct UiWindow {
     Window   win;         // x11 window id
     GC       gc;          // graphics context for blits
     Atom     wm_delete;   // WM_DELETE_WINDOW protocol atom
+
+    // EWMH resize synchronization (_NET_WM_SYNC_REQUEST)
+    Atom         sync_request;       // _NET_WM_SYNC_REQUEST
+    Atom         sync_counter_atom;  // _NET_WM_SYNC_REQUEST_COUNTER
+    XSyncCounter sync_counter;       // server-side counter object
+    XSyncValue   sync_value;         // value the WM is currently waiting for
+    bool         sync_pending;       // true between request and ack
 
     XIM      im;          // input method, null when unavailable
     XIC      ic;          // input context, null when unavailable

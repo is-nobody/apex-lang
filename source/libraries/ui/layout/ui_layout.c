@@ -355,6 +355,14 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
 
 // assigns final geometry to a widget and lays out its children
 static void arrange(UiContext* ctx, Widget* w, float x, float y, float width, float height) {
+    // snap to whole pixels
+    x      = floorf(x      + 0.5f);
+    y      = floorf(y      + 0.5f);
+    width  = floorf(width  + 0.5f);
+    height = floorf(height + 0.5f);
+    if (width  < 1.0f) width  = 1.0f;
+    if (height < 1.0f) height = 1.0f;
+
     // a widget that keeps its exact box from the previous layout does not invalidate the hit-test grid
     if (w->x != x || w->y != y || w->w != width || w->h != height)
         ctx->geom_gen++;
@@ -390,26 +398,38 @@ static void arrange(UiContext* ctx, Widget* w, float x, float y, float width, fl
     }
 
     if (free_main > 0 && tw > 0) {                       // distribute leftover to weighted children
+        // integer accumulation (Bresenham-style)
+        int free_int = (int)floorf(free_main + 0.5f);
+        int given = 0;
+        float accum = 0.0f;
         for (int i = 0; i < n; i++) {
             Widget* c = w->children[i];
             if (!c->visible) continue;
-            float add = free_main * (c->weight / tw);    // proportional to weight
-            if (vert) c->meas_h += add; else c->meas_w += add;
+            accum += free_int * (c->weight / tw);
+            int upto = (int)floorf(accum + 0.5f);
+            int share = upto - given;
+            if (vert) c->meas_h += share; else c->meas_w += share;
+            given = upto;
         }
         free_main = 0;                                   // consumed all free space
     } else if (free_main < 0 && tw > 0) {
-        float deficit = -free_main;
+        int deficit_int = (int)floorf(-free_main + 0.5f);
+        int taken = 0;
+        float accum = 0.0f;
         for (int i = 0; i < n; i++) {
             Widget* c = w->children[i];
             if (!c->visible || c->weight <= 0) continue;
-            float shrink = deficit * (c->weight / tw);
+            accum += deficit_int * (c->weight / tw);
+            int upto = (int)floorf(accum + 0.5f);
+            int share = upto - taken;
             if (vert) {
-                c->meas_h -= shrink;
-                if (c->meas_h < 0.f) c->meas_h = 0.f;
+                c->meas_h -= share;
+                if (c->meas_h < 1.f) c->meas_h = 1.f;
             } else {
-                c->meas_w -= shrink;
-                if (c->meas_w < 0.f) c->meas_w = 0.f;
+                c->meas_w -= share;
+                if (c->meas_w < 1.f) c->meas_w = 1.f;
             }
+            taken = upto;
         }
     }
 

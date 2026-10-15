@@ -119,6 +119,7 @@ void rebuild_and_draw(UiContext* ctx) {
                                     ctx->damage_count);
         }
     }
+    if (ctx->window) ui_window_sync_ack(ctx->window);             // ack the pending resize
     ui_damage_swap(ctx);
     ctx->redraw_needed = false;                                   // repaint satisfied
 
@@ -172,6 +173,7 @@ void redraw_only(UiContext* ctx) {
     }
     ui_render_frame(ctx);                                         // redraw into the pixel buffer
     ui_window_present(ctx->window);                               // blit to the screen
+    if (ctx->window) ui_window_sync_ack(ctx->window);             // ack the pending resize
     ctx->redraw_needed = false;                                   // repaint satisfied
     ctx->full_repaint  = false;                                   // full repaint satisfied
 }

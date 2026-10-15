@@ -91,7 +91,21 @@ UiWindow* ui_window_create(int w, int h, const char* title, bool decorated) {
         ButtonPressMask|ButtonReleaseMask|PointerMotionMask|
         FocusChangeMask);                                // focus mask feeds xim
     win->wm_delete = XInternAtom(win->dpy, "WM_DELETE_WINDOW", False);
-    XSetWMProtocols(win->dpy, win->win, &win->wm_delete, 1);  // receive close requests
+
+    // EWMH resize sync: create the counter, publish it, and add both protocols
+    win->sync_request      = XInternAtom(win->dpy, "_NET_WM_SYNC_REQUEST", False);
+    win->sync_counter_atom = XInternAtom(win->dpy, "_NET_WM_SYNC_REQUEST_COUNTER", False);
+    XSyncValue zero;
+    XSyncIntToValue(&zero, 0);
+    win->sync_counter = XSyncCreateCounter(win->dpy, zero);
+    win->sync_value   = zero;
+    win->sync_pending = false;
+    XID ctr_id = (XID)win->sync_counter;
+    XChangeProperty(win->dpy, win->win, win->sync_counter_atom, XA_CARDINAL, 32,
+                    PropModeReplace, (unsigned char*)&ctr_id, 1);
+
+    Atom protocols[2] = { win->wm_delete, win->sync_request };
+    XSetWMProtocols(win->dpy, win->win, protocols, 2);
 
     if (!decorated) {
         // ask the wm to drop its own decorations; we draw a custom titlebar
@@ -190,6 +204,8 @@ void ui_window_destroy(UiWindow* w) {
     if (w->ic)  { XDestroyIC(w->ic);  w->ic = NULL; }    // release the input context
     if (w->im)  { XCloseIM(w->im);    w->im = NULL; }    // close the input method
     if (w->gc)  XFreeGC(w->dpy, w->gc);                  // free the graphics context
+    if (w->sync_counter && w->dpy)
+        XSyncDestroyCounter(w->dpy, w->sync_counter);    // release the resize sync counter
     if (w->win) XDestroyWindow(w->dpy, w->win);          // destroy the x window
     if (w->dpy) XCloseDisplay(w->dpy);                   // close the display connection
     free_framebuffer(w->pixels, w->w, w->h);             // free the mmap'd cpu framebuffer
@@ -652,6 +668,14 @@ void ui_window_invalidate(UiWindow* w) {
     if (!w || !w->dpy) return;                                // null guard
     XClearArea(w->dpy, w->win, 0, 0, 0, 0, True);             // True: generate expose events
     XFlush(w->dpy);                                           // push the request out now
+}
+
+// acks a pending _NET_WM_SYNC_REQUEST so the WM may commit the resize
+void ui_window_sync_ack(UiWindow* w) {
+    if (!w || !w->dpy || !w->sync_pending) return;
+    XSyncSetCounter(w->dpy, w->sync_counter, w->sync_value);
+    XFlush(w->dpy);
+    w->sync_pending = false;
 }
 
 #endif

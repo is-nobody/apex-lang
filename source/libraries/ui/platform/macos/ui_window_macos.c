@@ -586,4 +586,7 @@ void ui_window_invalidate(UiWindow* w) {
     if (w->paint_cb) w->paint_cb(w->paint_user, w->w, w->h); // and let the host redraw
 }
 
+// no-op on macos; resize sync is x11-only
+void ui_window_sync_ack(UiWindow* w) { (void)w; }
+
 #endif

@@ -217,7 +217,7 @@ UiWindow* ui_window_create(int w, int h, const char* title, bool decorated) {
     win->decorated = decorated;                          // must be set before WM_NCCALCSIZE fires
 
     HWND hwnd = CreateWindowExW(
-        WS_EX_APPWINDOW,                                 // show up in the taskbar as a top-level window
+        WS_EX_APPWINDOW | WS_EX_COMPOSITED,              // composited: DWM holds the frame
         kClassName, wtitle,
         style,
         pos_x, pos_y,                                    // centred inside the work area
@@ -308,7 +308,6 @@ void ui_window_resize(UiWindow* w, int nw, int nh) {
 // blits only the given rects into the dib and then to the client area
 void ui_window_present_rects(UiWindow* w, const int* quads, int n) {
     if (!w || n <= 0) return;
-    apply_pending_resize(w);                             // catch up on any resize not yet applied
     if (!w->mem_dc || !w->dib_bits) return;              // nothing to present
 
     if (w->is_popup) {
@@ -528,5 +527,8 @@ void ui_window_invalidate(UiWindow* w) {
     InvalidateRect(w->hwnd, NULL, FALSE);                 // mark the whole client area dirty
     UpdateWindow(w->hwnd);                                // deliver WM_PAINT synchronously
 }
+
+// no-op on win32; resize sync is x11-only
+void ui_window_sync_ack(UiWindow* w) { (void)w; }
 
 #endif
