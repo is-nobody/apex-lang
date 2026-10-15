@@ -159,14 +159,12 @@
 
 // soft, modern dropdown metrics
 #define UI_MENU_DROP_RADIUS      6              // outer panel corner radius
-#define UI_MENU_ITEM_RADIUS      5              // hovered-item corner radius
-#define UI_MENU_ITEM_INSET_X     4              // highlight inset from the panel side edges
-#define UI_MENU_ITEM_INSET_Y     1              // highlight inset from the row's top/bottom
+#define UI_MENU_ITEM_RADIUS      5              // top-bar chip corner radius
 
 // menu bar colors
 #define UI_C_MENUBAR_BG        UI_C_TB_BG       // matches the titlebar strip
 #define UI_C_MENUBAR_FG        UI_C_TB_FG       // matches the titlebar text
-#define UI_C_MENU_HOVER_BG     UI_C_TB_BTN_HOV  // matches the titlebar button hover
+#define UI_C_MENU_HOVER_BG     UI_C_TB_BTN_HOV  // top-bar chip hover
 #define UI_C_MENU_DROP_BG      UI_C_TB_BG       // dropdown panel fill, matches the tray
 #define UI_C_MENU_DROP_BORDER  UI_C_BORDER      // dropdown outline
 #define UI_C_MENU_SEP          UI_C_BORDER      // separator line

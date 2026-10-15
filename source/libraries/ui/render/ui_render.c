@@ -445,8 +445,11 @@ static void draw_combobox_popups(UiContext* ctx, const DamageRect* d) {
             int oy = dy + j * UI_INPUT_H;
             bool hot = (ctx->input.x >= x && ctx->input.x < x + ww &&
                         ctx->input.y >= oy && ctx->input.y < oy + UI_INPUT_H);
-            if (j == w->combo_selected || hot)
-                ui_painter_fill_rect(x + 1, oy + 1, ww - 2, UI_INPUT_H - 2, UI_C_PANEL_ALT);
+            // same state coloring as wk_list_item: selected = ui_c_accent, hovered = ui_c_panel_alt
+            if (j == w->combo_selected)
+                ui_painter_fill_rect(x + 1, oy, ww - 2, UI_INPUT_H, UI_C_ACCENT);
+            else if (hot)
+                ui_painter_fill_rect(x + 1, oy, ww - 2, UI_INPUT_H, UI_C_PANEL_ALT);
             float fs = UI_FS_BODY;
             float base = oy + (UI_INPUT_H + fs * 0.7f) * 0.5f;
             ui_draw_text_at(ctx, (float)(x + 8), base,
