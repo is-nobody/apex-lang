@@ -307,6 +307,14 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
             if (w->meas_h < fs + 4) w->meas_h = fs + 4;      // at least tall enough for the label
             break;
         }
+        case WK_TABS: {                                      // horizontal tab strip
+            // preferred width is content-driven
+            float natural = tabs_natural_width(ctx, w);
+            if (avail_w > 0 && natural > avail_w) natural = avail_w;
+            w->meas_w = natural;
+            w->meas_h = UI_TABS_H;
+            break;
+        }
         case WK_SEPARATOR:                                   // full-width rule
             w->meas_w = avail_w > 0 ? avail_w : 100;
             w->meas_h = 1;

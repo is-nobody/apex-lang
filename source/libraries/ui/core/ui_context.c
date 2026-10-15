@@ -36,7 +36,8 @@ UiContext* ui_ensure(VM* vm) {
         "width", "height", "content", "label", "checked", "group",
         "value", "min", "max", "value_text", "children", "options",
         "columns", "rows", "stripe", "header",
-        "nodes", "selected", "indent", "expanded"
+        "nodes", "selected", "indent", "expanded",
+        "tabs", "closeable", "add_button", "reorder"
     };
     for (int i = 0; i < UK_COUNT; i++)
         ctx->key_cache[i] = ui_intern(vm, kKeyNames[i]);
@@ -52,6 +53,8 @@ static void free_state_entry(WidgetState* s) {
     free(s->undo_stack);
     free(s->redo_stack);
     free(s->input_buf);
+    free(s->tab_anim_x);
+    free(s->tab_anim_w);
 }
 
 // tears down the ui context and clears the vm's back-pointer

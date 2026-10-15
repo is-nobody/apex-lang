@@ -31,6 +31,7 @@ static WidgetKind kind_from_str_n(const char* s, int n) {
     if (STR_EQ(s,n,"list_item")) return WK_LIST_ITEM;
     if (STR_EQ(s,n,"switch"))    return WK_SWITCH;
     if (STR_EQ(s,n,"tree"))      return WK_TREE;
+    if (STR_EQ(s,n,"tabs"))      return WK_TABS;
     if (STR_EQ(s,n,"separator")) return WK_SEPARATOR;
     if (STR_EQ(s,n,"spacer"))    return WK_SPACER;
     if (STR_EQ(s,n,"vbox"))      return WK_VBOX;
@@ -382,6 +383,45 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
         }
     }
 
+    if (w->kind == WK_TABS) {                                    // tabs widget: read its descriptor
+        StrView sv;                                              // scratch for string views
+        if (table_get_str_view(t, ctx->key_cache[UK_SELECTED], &sv))
+            w->tab_selected = arena_dup(ctx, sv.ptr, sv.len);    // key of the selected tab
+
+        // must run before tabs_build_items, which reads tab_default_closeable
+        w->tab_show_add          = table_get_bool_key(t, ctx->key_cache[UK_ADD_BUTTON], true);  // render the "+" button
+        w->tab_reorder           = table_get_bool_key(t, ctx->key_cache[UK_REORDER],    true);  // allow drag-to-reorder
+        w->tab_default_closeable = table_get_bool_key(t, ctx->key_cache[UK_CLOSEABLE],  true);  // per-widget closeable default
+
+        Value tv = MAKE_NONE();                                  // tab array slot
+        if (table_get(t, ctx->key_cache[UK_TABS], &tv)) {        // "tabs" field present?
+            if (IS_TABLE(tv)) tabs_build_items(ctx, w, AS_TABLE(tv));  // flatten the array into w->tabs
+            value_decref(tv);                                    // release the tab array value
+        }
+
+        w->tab_hover_idx    = -1;                                // hovered tab index, -1 for none
+        w->tab_press_idx    = -1;                                // pressed tab index, -1 for none
+        w->tab_press_close  = false;                             // press was not on a close button
+        w->tab_hover_close  = false;                             // hover is not on a close button
+        w->tab_drag_idx     = -1;                                // no tab being dragged
+        w->tab_drag_target  = -1;                                // no drag target slot yet
+        w->tab_drag_start_x = 0;                                 // pointer x at press time
+        w->tab_drag_cur_x   = 0;                                 // most recent pointer x
+        w->tab_drag_grab_dx = 0;                                 // pointer offset from the tab's left edge
+        w->tab_add_hover    = false;                             // "+" button not hovered
+        w->tab_add_press    = false;                             // "+" button not pressed
+
+        // publish the drag-animation arrays from the persistent state
+        w->tab_anim_x = NULL;                                    // no eased x positions yet
+        w->tab_anim_w = NULL;                                    // no eased widths yet
+        w->tab_anim_n = 0;                                       // no eased entries
+        if (st->tab_anim_init && st->tab_anim_n == w->tab_count) {  // animation live and still matching
+            w->tab_anim_x = st->tab_anim_x;                      // hand the state's x array to the renderer
+            w->tab_anim_w = st->tab_anim_w;                      // hand the state's w array to the renderer
+            w->tab_anim_n = st->tab_anim_n;                      // publish the entry count
+        }
+    }
+
     w->hovered   = st->hovered;                             // restore hover flag
     w->hover_row = st->hover_row;                           // restore tree row hover
     w->pressed   = st->pressed;                             // restore press flag
@@ -396,8 +436,7 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
         if (IS_TABLE(cv)) {
             Table* ct = AS_TABLE(cv);
 
-            // if this table is itself a widget descriptor (has a "__t" of its own),
-            // it is a single child, not an array-like container of children
+            // if this table is itself a widget descriptor (has a "__t" of its own), it is a single child
             StrView tv;
             bool is_descr = table_get_str_view(ct, ctx->key_cache[UK_T], &tv);
 

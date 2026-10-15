@@ -180,4 +180,30 @@
 #define UI_TREE_INNER_PAD   6   // left inset of the first indent slot
 #define UI_TREE_DISC_W     14   // width of the disclosure triangle's click slot
 
+// tab strip metrics
+#define UI_TABS_H          35   // tab strip height
+#define UI_TAB_MIN_W       40   // minimum tab width
+#define UI_TAB_MAX_W      170   // maximum tab width (~20 characters of body text)
+#define UI_TAB_PAD_X        8   // left inset before the label
+#define UI_TAB_PAD_R        4   // right inset after the close button
+#define UI_TAB_LABEL_GAP    6   // gap between the label and the close button
+#define UI_TAB_GAP          2   // gap between tabs
+#define UI_TAB_RADIUS       6   // tab corner radius
+#define UI_TAB_CLOSE_SZ    16   // close glyph hitbox size
+#define UI_TAB_ADD_SZ      28   // "+" button square size
+#define UI_TAB_DRAG_THRESH  4   // pixels moved before a press becomes a drag
+
+// tab strip colors
+#define UI_C_TABS_BG       0xFF181818u  // tab bar strip background
+#define UI_C_TAB_BG        0xFF1E1E1Eu  // inactive tab fill
+#define UI_C_TAB_BG_HOV    0xFF2A2D2Eu  // hovered tab fill
+#define UI_C_TAB_BG_ACT    0xFF2A2D2Eu  // active tab fill
+#define UI_C_TAB_FG        0xFF969696u  // inactive label
+#define UI_C_TAB_FG_HOV    0xFFCCCCCCu  // hovered label
+#define UI_C_TAB_FG_ACT    0xFFFFFFFFu  // active label
+#define UI_C_TAB_CLOSE     0xFF969696u  // close glyph
+#define UI_C_TAB_CLOSE_HOV 0xFFFFFFFFu  // close glyph, hovered
+#define UI_C_TAB_CLOSE_BG  0xFF3A3D41u  // close button hover chip
+#define UI_C_TAB_DRAG_BG   0xFF3A3D41u  // tab being dragged
+
 #endif

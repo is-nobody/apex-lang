@@ -378,6 +378,9 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
             case WK_TREE:
                 tree_render(ctx, w, x, y, ww, hh);
                 break;
+            case WK_TABS:
+                tabs_render(ctx, w, x, y, ww, hh);
+                break;
             case WK_SEPARATOR:
                 ui_painter_fill_rect(x, y, ww, 1, UI_C_BORDER);  // 1px horizontal rule
                 break;

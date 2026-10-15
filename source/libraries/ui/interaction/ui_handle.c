@@ -229,6 +229,25 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                         ctx->redraw_needed = true;
                     }
                 }
+
+                // wk_tabs: feed the hovered widget, plus any tabs widget with an active drag
+                if (h && h->kind == WK_TABS) {
+                    if (tabs_handle_mousemove(ctx, h, e->x, e->y))
+                        ctx->redraw_needed = true;
+                }
+                for (int i = 0; i < ctx->pool_used; i++) {
+                    Widget* tw = &ctx->pool[i];
+                    if (tw->kind != WK_TABS) continue;
+                    if (tw == h) continue;              // already fed above
+                    if (tw->tab_drag_idx >= 0) {
+                        if (tabs_handle_mousemove(ctx, tw, e->x, e->y))
+                            ctx->redraw_needed = true;
+                    } else if (tw->tab_hover_idx >= 0) {
+                        tw->tab_hover_idx   = -1;
+                        tw->tab_hover_close = false;
+                        ctx->redraw_needed  = true;
+                    }
+                }
             }
             break;
         }
@@ -381,6 +400,10 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                             cev.num_value = v;
                             ui_event_push(ctx, &cev);
                         }
+
+                        if (h->kind == WK_TABS) {                 // record which tab was pressed
+                            tabs_handle_mousedown(ctx, h, e->x, e->y);
+                        }
                         ctx->redraw_needed = true;
                     } else {
                         ctx->focused_id = 0;                      // clicked outside any widget
@@ -416,19 +439,39 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     break;
                 }
 
+                // finish any active tab drag first
+                bool tab_drag_consumed = false;
+                if (ctx->root) {
+                    for (int i = 0; i < ctx->pool_used; i++) {
+                        Widget* tw = &ctx->pool[i];
+                        if (tw->kind != WK_TABS) continue;
+                        if (tw->tab_drag_idx >= 0) {
+                            if (tabs_handle_mouseup(ctx, tw, e->x, e->y))
+                                tab_drag_consumed = true;
+                        }
+                    }
+                }
+
                 ctx->drag_widget_id = 0;                          // end any drag
                 if (ctx->root) {
                     Widget* h = hit_test(ctx, e->x, e->y);
                     for (int i = 0; i < ctx->state.count; i++) {  // release all pressed flags
                         if (ctx->state.entries[i].pressed) {
                             ctx->state.entries[i].pressed = false;
-                            if (h && h->id == ctx->state.entries[i].id) {
+                            if (!tab_drag_consumed &&
+                                h && h->id == ctx->state.entries[i].id) {
                                 fire_click(ctx, h);               // click only if released on same widget
                             }
                         }
                     }
-                    for (int i = 0; i < ctx->pool_used; i++)      // clear pool press flags
+                    for (int i = 0; i < ctx->pool_used; i++) {    // clear pool press flags
                         ctx->pool[i].pressed = false;
+                        if (ctx->pool[i].kind == WK_TABS) {
+                            ctx->pool[i].tab_press_idx   = -1;
+                            ctx->pool[i].tab_press_close = false;
+                            ctx->pool[i].tab_add_press   = false;
+                        }
+                    }
                     ctx->redraw_needed = true;
                 }
             }

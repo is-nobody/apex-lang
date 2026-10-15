@@ -90,6 +90,13 @@ uint64_t ui_visual_hash(Widget* w) {
     fp ^= (uint64_t)(uint32_t)w->sel_anchor << 23;
     fp ^= (uint64_t)(uint32_t)w->combo_open     <<  5;
     fp ^= (uint64_t)(uint32_t)w->combo_selected <<  6;
+    fp ^= (uint64_t)(uint32_t)(w->tab_hover_idx + 1) <<  7;  // +1 so -1 doesn't collapse
+    fp ^= (uint64_t)(uint32_t)w->tab_hover_close <<  8;
+    fp ^= (uint64_t)(uint32_t)w->tab_add_hover   <<  9;
+    fp ^= (uint64_t)(uint32_t)w->tab_add_press   << 10;
+    fp ^= (uint64_t)(uint32_t)w->tab_press_close << 24;
+    fp ^= (uint64_t)(uint32_t)(w->tab_drag_idx + 1)   << 25;  // +1 so -1 doesn't collapse
+    fp ^= (uint64_t)(uint32_t)(w->tab_drag_target + 1) << 27;
     fp ^= nv_bits;
     fp ^= sy_bits;
     fp ^= ch_bits;
@@ -98,25 +105,32 @@ uint64_t ui_visual_hash(Widget* w) {
     fp ^= (uint64_t)(uint32_t)w->input_value.len << 43;
 
     if (fp == w->visual_hash_fp && w->visual_hash_cache != 0)
-        return w->visual_hash_cache;                                   // state unchanged
+        return w->visual_hash_cache;                                       // state unchanged
 
-    uint64_t h = 0xCBF29CE484222325ULL;                                // fnv-1a offset basis
-    h = hash_bytes64(h, &w->kind,      sizeof(w->kind));               // widget kind
-    h = hash_bytes64(h, &w->visible,   sizeof(w->visible));            // visibility flag
-    h = hash_bytes64(h, &w->disabled,  sizeof(w->disabled));           // disabled flag
-    h = hash_bytes64(h, &w->hovered,   sizeof(w->hovered));            // hover flag
-    h = hash_bytes64(h, &w->hover_row, sizeof(w->hover_row));          // tree hovered row
-    h = hash_bytes64(h, &w->pressed,   sizeof(w->pressed));            // pressed flag
-    h = hash_bytes64(h, &w->focused,   sizeof(w->focused));            // focus flag
-    h = hash_bytes64(h, &w->checked,   sizeof(w->checked));            // checkbox/radio state
-    h = hash_bytes64(h, &w->cursor,    sizeof(w->cursor));             // input caret position
-    h = hash_bytes64(h, &w->sel_anchor, sizeof(w->sel_anchor));        // input selection anchor
-    h = hash_bytes64(h, &w->num_value, sizeof(w->num_value));          // slider/progress value
-    h = hash_bytes64(h, &w->scroll_y,  sizeof(w->scroll_y));           // scroll offset
-    h = hash_bytes64(h, &w->content_h, sizeof(w->content_h));          // scroll content height
-    h = hash_bytes64(h, &w->switch_knob, sizeof(w->switch_knob));      // wk_switch knob position
-    h = hash_bytes64(h, &w->combo_open,     sizeof(w->combo_open));    // dropdown expanded
-    h = hash_bytes64(h, &w->combo_selected, sizeof(w->combo_selected));// selected option index
+    uint64_t h = 0xCBF29CE484222325ULL;                                    // fnv-1a offset basis
+    h = hash_bytes64(h, &w->kind,            sizeof(w->kind));             // widget kind
+    h = hash_bytes64(h, &w->visible,         sizeof(w->visible));          // visibility flag
+    h = hash_bytes64(h, &w->disabled,        sizeof(w->disabled));         // disabled flag
+    h = hash_bytes64(h, &w->hovered,         sizeof(w->hovered));          // hover flag
+    h = hash_bytes64(h, &w->hover_row,       sizeof(w->hover_row));        // tree hovered row
+    h = hash_bytes64(h, &w->pressed,         sizeof(w->pressed));          // pressed flag
+    h = hash_bytes64(h, &w->focused,         sizeof(w->focused));          // focus flag
+    h = hash_bytes64(h, &w->checked,         sizeof(w->checked));          // checkbox/radio state
+    h = hash_bytes64(h, &w->cursor,          sizeof(w->cursor));           // input caret position
+    h = hash_bytes64(h, &w->sel_anchor,      sizeof(w->sel_anchor));       // input selection anchor
+    h = hash_bytes64(h, &w->num_value,       sizeof(w->num_value));        // slider/progress value
+    h = hash_bytes64(h, &w->scroll_y,        sizeof(w->scroll_y));         // scroll offset
+    h = hash_bytes64(h, &w->content_h,       sizeof(w->content_h));        // scroll content height
+    h = hash_bytes64(h, &w->switch_knob,     sizeof(w->switch_knob));      // wk_switch knob position
+    h = hash_bytes64(h, &w->combo_open,      sizeof(w->combo_open));       // dropdown expanded
+    h = hash_bytes64(h, &w->combo_selected,  sizeof(w->combo_selected));   // selected option index
+    h = hash_bytes64(h, &w->tab_hover_idx,   sizeof(w->tab_hover_idx));    // hovered tab
+    h = hash_bytes64(h, &w->tab_hover_close, sizeof(w->tab_hover_close));  // hover is on the hovered tab's close button
+    h = hash_bytes64(h, &w->tab_add_hover,   sizeof(w->tab_add_hover));    // "+" button hovered
+    h = hash_bytes64(h, &w->tab_add_press,   sizeof(w->tab_add_press));    // "+" button pressed
+    h = hash_bytes64(h, &w->tab_press_close, sizeof(w->tab_press_close));  // press was on a tab's close button
+    h = hash_bytes64(h, &w->tab_drag_idx,    sizeof(w->tab_drag_idx));     // tab being dragged, -1 for none
+    h = hash_bytes64(h, &w->tab_drag_target, sizeof(w->tab_drag_target));  // target slot during a drag
 
     // str fields carry a fresh heap copy each rebuild
     h = hash_str_sampled(h, w->text.ptr,        w->text.len);          // label/content

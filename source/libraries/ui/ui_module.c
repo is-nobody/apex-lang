@@ -305,6 +305,27 @@ static Value ctor_tree(VM* vm, int argc, Value* argv) {
     return MAKE_TABLE(t);
 }
 
+// builds a tabs widget descriptor from a tabs array and options
+static Value ctor_tabs(VM* vm, int argc, Value* argv) {
+    Table* t = table_create(8);                                  // descriptor table for the tabs widget
+    tset(vm, t, "__t", intern(vm, "tabs"));                      // "__t" discriminates the widget kind
+    if (argc >= 1) tset(vm, t, "tabs", argv[0]);                 // array of tab descriptors
+    if (argc >= 2 && IS_TABLE(argv[1])) {                        // merge options fields
+        Table* opts = AS_TABLE(argv[1]);                         // the options table
+        int nk; Value* keys = table_keys(opts, &nk);             // snapshot option keys
+        for (int i = 0; i < nk; i++) {                           // one pass per option key
+            Value vv;                                            // value slot
+            if (table_get(opts, keys[i], &vv)) {                 // read the option value
+                table_set(t, keys[i], vv);                       // copy it into the descriptor
+                value_decref(vv);                                // release our local reference
+            }
+            value_decref(keys[i]);                               // release each key from the snapshot
+        }
+        free(keys);                                              // free the key snapshot array
+    }
+    return MAKE_TABLE(t);                                        // caller owns the descriptor
+}
+
 // builds a progress bar widget descriptor
 static Value ctor_progress(VM* vm, int argc, Value* argv) {
     Table* t = table_create(8);
@@ -515,6 +536,7 @@ bool ui_call_builtin(VM* vm, const char* name, int argc, Value* argv, Value* res
     if (strcmp(name, "ui.combobox") == 0) { *result = ctor_combobox(vm, argc, argv); return true; }             // dropdown selector
     if (strcmp(name, "ui.table") == 0)    { *result = ctor_table(vm, argc, argv); return true; }                // columned table
     if (strcmp(name, "ui.tree") == 0)     { *result = ctor_tree(vm, argc, argv); return true; }                 // hierarchical tree
+    if (strcmp(name, "ui.tabs") == 0)     { *result = ctor_tabs(vm, argc, argv); return true; }                 // tab strip
     if (strcmp(name, "ui.spacer") == 0)   { *result = ctor_spacer(vm, argc, argv); return true; }               // flexible gap
 
     if (strcmp(name, "ui.vbox") == 0)   { *result = ui_ctor_container(vm, argc, argv, "vbox"); return true; }    // vertical stack

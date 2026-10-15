@@ -93,6 +93,8 @@ void state_gc_sweep(UiContext* ctx) {
             free(s->undo_stack);                          // release the undo history
             free(s->redo_stack);                          // release the redo history
             free(s->input_buf);                           // release the owned text buffer
+            free(s->tab_anim_x);                          // release the tab animation
+            free(s->tab_anim_w);
         }
     }
     ctx->state.count = out;                               // truncate the tail
@@ -117,6 +119,7 @@ bool ui_animating(UiContext* ctx) {
         if (s->scroll_y != s->scroll_target) return true;  // still moving
         if (s->switch_init && s->switch_anim_t < UI_SWITCH_ANIM_SEC)
             return true;                                   // knob is mid-flight
+        if (s->tab_anim_init) return true;                 // tab strip easing
     }
     for (int i = 0; i < ctx->notif_count; i++) {
         UiNotification* n = ctx->notifs[i];
@@ -208,6 +211,109 @@ void ui_tick(UiContext* ctx, double dt) {
             w->switch_knob = s->switch_knob;             // publish for hash, damage, render
         }
         if (switch_moved) ctx->redraw_needed = true;
+    }
+
+    // wk_tabs drag animation
+    {
+        bool tabs_moved = false;
+
+        for (int i = 0; i < ctx->pool_used; i++) {
+            Widget* w = &ctx->pool[i];
+            if (w->kind != WK_TABS) continue;
+
+            WidgetState* s = ui_state_get(ctx, w->id);
+            int n = w->tab_count;
+            if (n > 256) n = 256;
+            if (n <= 0) { s->tab_anim_init = false; continue; }
+
+            bool drag_active = (w->tab_drag_idx >= 0);
+
+            // while a drag is active the tab under the cursor is drawn at the pointer position
+            if (drag_active) tabs_moved = true;
+
+            // start the animation on the first tick of a drag
+            if (drag_active && !s->tab_anim_init) {
+                free(s->tab_anim_x);
+                free(s->tab_anim_w);
+                s->tab_anim_x = (float*)calloc((size_t)n, sizeof(float));
+                s->tab_anim_w = (float*)calloc((size_t)n, sizeof(float));
+                s->tab_anim_n = n;
+                s->tab_anim_init = true;
+
+                int saved_idx = w->tab_drag_idx;
+                int saved_tgt = w->tab_drag_target;
+                w->tab_drag_idx    = -1;
+                w->tab_drag_target = -1;
+
+                float sx[256], sw[256];
+                tabs_target_positions(ctx, w, sx, sw);
+                for (int j = 0; j < n; j++) {
+                    s->tab_anim_x[j] = sx[j];
+                    s->tab_anim_w[j] = sw[j];
+                }
+
+                w->tab_drag_idx    = saved_idx;
+                w->tab_drag_target = saved_tgt;
+
+                tabs_moved = true;
+            }
+
+            if (!s->tab_anim_init) continue;
+
+            // resize on tab count change (add / close) — just snap to layout
+            if (s->tab_anim_n != n) {
+                free(s->tab_anim_x);
+                free(s->tab_anim_w);
+                s->tab_anim_x = (float*)calloc((size_t)n, sizeof(float));
+                s->tab_anim_w = (float*)calloc((size_t)n, sizeof(float));
+                s->tab_anim_n = n;
+
+                float sx[256], sw[256];
+                tabs_target_positions(ctx, w, sx, sw);
+                for (int j = 0; j < n; j++) {
+                    s->tab_anim_x[j] = sx[j];
+                    s->tab_anim_w[j] = sw[j];
+                }
+                tabs_moved = true;
+            }
+
+            // ease toward the current targets
+            float tx[256], tw[256];
+            tabs_target_positions(ctx, w, tx, tw);
+
+            const float RATE = 32.0f;   // ~31 ms time constant
+            float k = 1.0f - expf((float)-dt * RATE);
+
+            bool settled = true;
+            for (int j = 0; j < n; j++) {
+                float dx = tx[j] - s->tab_anim_x[j];
+                float dw = tw[j] - s->tab_anim_w[j];
+                if (fabsf(dx) < 0.5f) s->tab_anim_x[j] = tx[j];
+                else { s->tab_anim_x[j] += dx * k; settled = false; }
+                if (fabsf(dw) < 0.5f) s->tab_anim_w[j] = tw[j];
+                else { s->tab_anim_w[j] += dw * k; settled = false; }
+            }
+
+            if (!settled) tabs_moved = true;
+
+            // mirror onto the live widget for the renderer
+            w->tab_anim_x = s->tab_anim_x;
+            w->tab_anim_w = s->tab_anim_w;
+            w->tab_anim_n = s->tab_anim_n;
+
+            // once the drag ends and the animation settles
+            if (!drag_active && settled) {
+                s->tab_anim_init = false;
+                w->tab_anim_x = NULL;
+                w->tab_anim_w = NULL;
+                w->tab_anim_n = 0;
+            }
+        }
+
+        if (tabs_moved) {
+            ctx->redraw_needed = true;
+            ctx->full_repaint  = true;   // transient: only during a drag
+        }
     }
 
     // notification fade and auto-close timers

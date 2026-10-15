@@ -123,6 +123,7 @@ const char* widget_kind_name(WidgetKind k) {
         case WK_LIST_ITEM: return "list_item";
         case WK_SWITCH: return "switch";
         case WK_TREE:   return "tree";
+        case WK_TABS:   return "tabs";
         case WK_SEPARATOR: return "separator";
         case WK_SPACER: return "spacer";
         case WK_VBOX: return "vbox";

@@ -87,4 +87,29 @@ void tree_render(UiContext* ctx, Widget* w, int x, int y, int ww, int hh);
 // emits the appropriate click or change event for a press on a wk_tree
 void tree_handle_press(UiContext* ctx, Widget* w);
 
+// flattens a wk_tabs descriptor's "tabs" array into w->tabs
+void tabs_build_items(UiContext* ctx, Widget* w, Table* arr);
+
+// content-driven preferred width of a wk_tabs widget (tabs + gaps + "+" button)
+float tabs_natural_width(UiContext* ctx, Widget* w);
+
+// fills out_x/out_w with the current layout target for each tab
+void tabs_target_positions(UiContext* ctx, Widget* w,
+                           float* out_x, float* out_w);
+
+// draws the wk_tabs strip into its own rectangle
+void tabs_render(UiContext* ctx, Widget* w, int x, int y, int ww, int hh);
+
+// records the pressed tab / "+" button and the pointer x at press time
+void tabs_handle_mousedown(UiContext* ctx, Widget* w, int x, int y);
+
+// refreshes hover + drag state; returns true if anything changed
+bool tabs_handle_mousemove(UiContext* ctx, Widget* w, int x, int y);
+
+// finishes a drag and emits tab_move; returns true when it consumed the mouseup
+bool tabs_handle_mouseup(UiContext* ctx, Widget* w, int x, int y);
+
+// emits the select / close / add event matching the recorded press
+void tabs_handle_click(UiContext* ctx, Widget* w);
+
 #endif

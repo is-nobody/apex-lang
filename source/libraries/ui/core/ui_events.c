@@ -68,8 +68,9 @@ Value ui_event_to_table(VM* vm, const UiEvent* ev) {
     k = ui_intern(vm, "value");                              // "value" = event payload, type varies
     if (ev->str_value) {
         v = MAKE_STRING(string_create(ev->str_value, (int)strlen(ev->str_value)));
-    } else if (strcmp(ev->widget_type, "slider") == 0 ||
+    } else if (strcmp(ev->widget_type, "slider")   == 0 ||
                strcmp(ev->widget_type, "progress") == 0 ||
+               strcmp(ev->widget_type, "tab_move") == 0 ||   // num_value = destination slot
                ev->kind == EV_SCROLL) {
         v = MAKE_NUMBER(ev->num_value);                   // numeric payload
     } else {
@@ -86,6 +87,10 @@ Value ui_event_to_table(VM* vm, const UiEvent* ev) {
     }
     if (ev->kind == EV_SCROLL) {                          // extra field for scroll events
         k = ui_intern(vm, "scroll_dy"); v = MAKE_NUMBER(ev->scroll_dy);
+        table_set(t, k, v); value_decref(k);
+    }
+    if (strcmp(ev->widget_type, "tab_move") == 0) {       // source slot for tab reorders
+        k = ui_intern(vm, "from"); v = MAKE_NUMBER(ev->scroll_dy);
         table_set(t, k, v); value_decref(k);
     }
     if (ev->kind == EV_CLICK || ev->kind == EV_HOVER) {   // extra fields for pointer events
@@ -107,6 +112,10 @@ Value ui_event_to_table(VM* vm, const UiEvent* ev) {
 void fire_click(UiContext* ctx, Widget* w) {
     if (w->kind == WK_TREE) {                                     // per-row dispatch
         tree_handle_press(ctx, w);
+        return;
+    }
+    if (w->kind == WK_TABS) {                                     // per-tab dispatch
+        tabs_handle_click(ctx, w);
         return;
     }
 

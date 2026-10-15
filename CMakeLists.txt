@@ -95,6 +95,7 @@ set(APEX_UI_SOURCES
     source/libraries/ui/widgets/ui_menubar.c
     source/libraries/ui/widgets/ui_table.c
     source/libraries/ui/widgets/ui_tree.c
+    source/libraries/ui/widgets/ui_tabs.c
 
     source/libraries/ui/interaction/ui_hitgrid.c
     source/libraries/ui/interaction/ui_damage.c

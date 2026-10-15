@@ -27,7 +27,7 @@ typedef enum {
     WK_TEXT, WK_HEADING, WK_BUTTON, WK_CHECKBOX, WK_RADIO,
     WK_SLIDER, WK_PROGRESS, WK_INPUT, WK_BADGE, WK_COMBOBOX,
     WK_SEPARATOR, WK_SPACER, WK_TABLE, WK_LIST_ITEM, WK_SWITCH, WK_TREE,
-    WK_VBOX, WK_HBOX, WK_PANEL, WK_SCROLL, WK_HSCROLL
+    WK_TABS, WK_VBOX, WK_HBOX, WK_PANEL, WK_SCROLL, WK_HSCROLL
 } WidgetKind;  // leaf widget kinds then container kinds
 
 typedef enum { AL_START, AL_CENTER, AL_END, AL_STRETCH } Align;  // cross-axis child placement
@@ -49,6 +49,13 @@ typedef struct {
     bool has_children;  // true when this node carries a non-empty nodes array
     bool expanded;      // true when children are visible
 } TreeNode;
+
+// one tab in a wk_tabs strip
+typedef struct {
+    Str  label;         // display text
+    Str  key;           // event key for this tab
+    bool closeable;     // true when the tab shows a close button
+} TabItem;
 
 typedef struct Widget Widget;            // forward declaration for self-reference
 struct Widget {
@@ -123,6 +130,30 @@ struct Widget {
     Str       tree_selected;   // key of the selected node, empty for none
     int       tree_indent;     // pixels per indentation level
 
+    // wk_tabs state
+    TabItem* tabs;             // arena-owned array of tab items
+    int      tab_count;        // number of tabs
+    Str      tab_selected;     // key of the selected tab, empty for none
+    int      tab_hover_idx;    // hovered tab index, -1 for none
+    bool     tab_hover_close;  // hover is on the hovered tab's close button
+    int      tab_press_idx;    // index of the tab that was pressed, -1 for none
+    bool     tab_press_close;  // press was on that tab's close button
+    int      tab_drag_idx;     // tab being dragged, -1 for none
+    int      tab_drag_target;  // target slot during a drag
+    int      tab_drag_start_x; // pointer x at the moment the press landed
+    int      tab_drag_cur_x;   // most recent pointer x during a drag
+    int      tab_drag_grab_dx; // pointer offset from the tab's left edge at press
+    bool     tab_show_add;     // render the "+" button
+    bool     tab_reorder;      // allow drag-to-reorder
+    bool     tab_add_hover;    // "+" button hovered
+    bool     tab_add_press;    // "+" button pressed
+    bool     tab_default_closeable;  // per-widget default for closeable
+
+    // wk_tabs animation pointers
+    float*   tab_anim_x;
+    float*   tab_anim_w;
+    int      tab_anim_n;
+
     double scroll_y, content_h;          // vertical scroll offset and content height
     float  switch_knob;                  // wk_switch: 0 = off, 1 = on, mirrored from state
 };
@@ -165,6 +196,12 @@ typedef struct {
     UndoEntry* redo_stack;      // snapshots that redo can walk forward through
     int        redo_count;      // live entries in the redo stack
     int        redo_cap;        // allocated capacity of the redo stack
+
+    // wk_tabs drag animation
+    float* tab_anim_x;
+    float* tab_anim_w;
+    int    tab_anim_n;
+    bool   tab_anim_init;       // true while the animation is running
 } WidgetState;                  // per-widget persistent state across frames
 
 typedef struct {
@@ -257,7 +294,8 @@ typedef enum {
     UK_WIDTH, UK_HEIGHT, UK_CONTENT, UK_LABEL, UK_CHECKED, UK_GROUP,
     UK_VALUE, UK_MIN, UK_MAX, UK_VALUE_TEXT, UK_CHILDREN, UK_OPTIONS,
     UK_COLUMNS, UK_ROWS, UK_STRIPE, UK_HEADER, UK_NODES, UK_SELECTED,
-    UK_INDENT, UK_EXPANDED, UK_COUNT
+    UK_INDENT, UK_EXPANDED, UK_TABS, UK_CLOSEABLE, UK_ADD_BUTTON, UK_REORDER,
+    UK_COUNT
 } UiKeyId;
 
 // modal dialog
