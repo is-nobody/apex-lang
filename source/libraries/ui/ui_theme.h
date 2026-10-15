@@ -157,6 +157,12 @@
 #define UI_MENU_ITEM_PAD         12             // horizontal padding inside a dropdown item
 #define UI_MENU_DROP_W_MIN       140            // minimum dropdown width
 
+// soft, modern dropdown metrics
+#define UI_MENU_DROP_RADIUS      6              // outer panel corner radius
+#define UI_MENU_ITEM_RADIUS      5              // hovered-item corner radius
+#define UI_MENU_ITEM_INSET_X     4              // highlight inset from the panel side edges
+#define UI_MENU_ITEM_INSET_Y     1              // highlight inset from the row's top/bottom
+
 // menu bar colors
 #define UI_C_MENUBAR_BG        UI_C_TB_BG       // matches the titlebar strip
 #define UI_C_MENUBAR_FG        UI_C_TB_FG       // matches the titlebar text

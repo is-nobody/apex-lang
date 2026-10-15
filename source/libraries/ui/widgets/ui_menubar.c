@@ -473,8 +473,8 @@ static void draw_arrow_right(int cx, int cy, uint32_t c) {
 static void draw_dropdown_panel(UiContext* ctx, UiMenuItem* items, int count,
                                 int px, int py, int pw, int ph,
                                 int hover_idx, int open_submenu_idx) {
-    ui_painter_fill_round(px, py, pw, ph, UI_RADIUS_SM, UI_C_MENU_DROP_BG);
-    ui_painter_stroke_round(px, py, pw, ph, UI_RADIUS_SM, UI_C_MENU_DROP_BORDER);
+    ui_painter_fill_round(px, py, pw, ph, UI_MENU_DROP_RADIUS, UI_C_MENU_DROP_BG);
+    ui_painter_stroke_round(px, py, pw, ph, UI_MENU_DROP_RADIUS, UI_C_MENU_DROP_BORDER);
 
     int y = py + UI_MENU_DROP_PAD;
     for (int i = 0; i < count; i++) {
@@ -488,7 +488,12 @@ static void draw_dropdown_panel(UiContext* ctx, UiMenuItem* items, int count,
 
         bool hot = (i == hover_idx) || (i == open_submenu_idx);
         if (hot)
-            ui_painter_fill_rect(px + 1, y, pw - 2, UI_MENU_ITEM_H, UI_C_MENU_HOVER_BG);
+            ui_painter_fill_round(px + UI_MENU_ITEM_INSET_X,
+                                  y + UI_MENU_ITEM_INSET_Y,
+                                  pw - 2 * UI_MENU_ITEM_INSET_X,
+                                  UI_MENU_ITEM_H - 2 * UI_MENU_ITEM_INSET_Y,
+                                  UI_MENU_ITEM_RADIUS,
+                                  UI_C_MENU_HOVER_BG);
 
         if (items[i].label) {
             float tx   = (float)(px + UI_MENU_ITEM_PAD);
@@ -544,8 +549,8 @@ void ui_menubar_render(UiContext* ctx) {
         int w = mb->menu_w[i];
         bool hot = (i == mb->hover_menu) || (i == mb->open_menu);
         if (hot)
-            ui_painter_fill_round(x, 4, w, UI_TITLEBAR_H - 8,
-                                  UI_RADIUS_SM, UI_C_MENU_HOVER_BG);
+            ui_painter_fill_round(x + 1, 5, w - 2, UI_TITLEBAR_H - 10,
+                                  UI_MENU_ITEM_RADIUS, UI_C_MENU_HOVER_BG);
 
         const char* lbl = mb->menus[i].label ? mb->menus[i].label : "";
         int lw = label_width(ctx, lbl);
@@ -561,8 +566,8 @@ void ui_menubar_render(UiContext* ctx) {
         bool hot = (mb->hover_menu == MENU_OVERFLOW) ||
                    (mb->open_menu  == MENU_OVERFLOW);
         if (hot)
-            ui_painter_fill_round(x, 4, w, UI_TITLEBAR_H - 8,
-                                  UI_RADIUS_SM, UI_C_MENU_HOVER_BG);
+            ui_painter_fill_round(x + 1, 5, w - 2, UI_TITLEBAR_H - 10,
+                                  UI_MENU_ITEM_RADIUS, UI_C_MENU_HOVER_BG);
         const char* lbl = "...";
         int lw = label_width(ctx, lbl);
         float tx   = x + (w - lw) * 0.5f;
