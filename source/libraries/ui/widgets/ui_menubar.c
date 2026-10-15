@@ -486,11 +486,19 @@ static void draw_dropdown_panel(UiContext* ctx, UiMenuItem* items, int count,
             continue;
         }
 
-        // same state coloring as wk_list_item
+        // soft floating highlight, menubar style
         if (i == open_submenu_idx)
-            ui_painter_fill_rect(px + 1, y, pw - 2, UI_MENU_ITEM_H, UI_C_ACCENT);
+            ui_painter_fill_round(px + UI_MENU_ITEM_INSET_X,
+                                  y  + UI_MENU_ITEM_INSET_Y,
+                                  pw - 2 * UI_MENU_ITEM_INSET_X,
+                                  UI_MENU_ITEM_H - 2 * UI_MENU_ITEM_INSET_Y,
+                                  UI_MENU_ROW_RADIUS, UI_C_ACCENT);
         else if (i == hover_idx)
-            ui_painter_fill_rect(px + 1, y, pw - 2, UI_MENU_ITEM_H, UI_C_PANEL_ALT);
+            ui_painter_fill_round(px + UI_MENU_ITEM_INSET_X,
+                                  y  + UI_MENU_ITEM_INSET_Y,
+                                  pw - 2 * UI_MENU_ITEM_INSET_X,
+                                  UI_MENU_ITEM_H - 2 * UI_MENU_ITEM_INSET_Y,
+                                  UI_MENU_ROW_RADIUS, UI_C_PANEL_ALT);
 
         if (items[i].label) {
             float tx   = (float)(px + UI_MENU_ITEM_PAD);

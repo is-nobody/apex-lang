@@ -445,7 +445,7 @@ static void draw_combobox_popups(UiContext* ctx, const DamageRect* d) {
             int oy = dy + j * UI_INPUT_H;
             bool hot = (ctx->input.x >= x && ctx->input.x < x + ww &&
                         ctx->input.y >= oy && ctx->input.y < oy + UI_INPUT_H);
-            // same state coloring as wk_list_item: selected = ui_c_accent, hovered = ui_c_panel_alt
+            // flat full-width highlight, exactly like ui.list
             if (j == w->combo_selected)
                 ui_painter_fill_rect(x + 1, oy, ww - 2, UI_INPUT_H, UI_C_ACCENT);
             else if (hot)
