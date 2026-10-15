@@ -78,4 +78,13 @@ void table_natural_widths(UiContext* ctx, Widget* w, float* out);
 // resolves the final per-column widths so the table fits into avail pixels
 void table_resolve_widths(UiContext* ctx, Widget* w, float avail, float* out);
 
+// flattens a wk_tree descriptor's "nodes" array into w->tree_nodes
+void tree_build_nodes(UiContext* ctx, Widget* w, Table* arr);
+
+// draws the wk_tree widget into its own rectangle
+void tree_render(UiContext* ctx, Widget* w, int x, int y, int ww, int hh);
+
+// emits the appropriate click or change event for a press on a wk_tree
+void tree_handle_press(UiContext* ctx, Widget* w);
+
 #endif

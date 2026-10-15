@@ -35,7 +35,8 @@ UiContext* ui_ensure(VM* vm) {
         "min_width", "max_width", "disabled", "visible", "on_top",
         "width", "height", "content", "label", "checked", "group",
         "value", "min", "max", "value_text", "children", "options",
-        "columns", "rows", "stripe", "header"
+        "columns", "rows", "stripe", "header",
+        "nodes", "selected", "indent", "expanded"
     };
     for (int i = 0; i < UK_COUNT; i++)
         ctx->key_cache[i] = ui_intern(vm, kKeyNames[i]);

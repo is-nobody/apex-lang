@@ -198,6 +198,22 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     ctx->hovered_id = new_hover;
                     ctx->redraw_needed = true;
                 }
+
+                // wk_tree: track which row is under the pointer
+                if (h && h->kind == WK_TREE) {
+                    int local_y = e->y - (int)h->y - 1;       // skip the 1px top border
+                    int row = -1;
+                    if (local_y >= 0 && h->tree_node_count > 0) {
+                        row = local_y / UI_TREE_ROW_H;
+                        if (row >= h->tree_node_count) row = -1;
+                    }
+                    WidgetState* ts = ui_state_get(ctx, h->id);
+                    if (ts->hover_row != row) {
+                        ts->hover_row = row;
+                        h->hover_row  = row;
+                        ctx->redraw_needed = true;
+                    }
+                }
             }
             break;
         }

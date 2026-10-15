@@ -59,6 +59,7 @@ WidgetState* ui_state_get(UiContext* ctx, uint64_t id) {
     s->id = id;                                                 // bind to the widget id
     s->cursor = -1;                                             // no cursor override yet
     s->sel_anchor = -1;                                         // no active selection
+    s->hover_row = -1;                                          // wk_tree: no row hovered
     s->seen = false;                                            // marked when the gc touches it
     ctx->state.index[slot] = ctx->state.count;                  // publish index -> entry mapping
     ctx->state.count++;                                         // advance the entry cursor

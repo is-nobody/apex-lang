@@ -6,6 +6,7 @@
 #include "ui_core.h"
 #include "ui_table.h"
 #include "ui_hash.h"
+#include "ui_widgets.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -104,6 +105,11 @@ Value ui_event_to_table(VM* vm, const UiEvent* ev) {
 
 // emits a click event for a widget, plus a change event for checkboxes
 void fire_click(UiContext* ctx, Widget* w) {
+    if (w->kind == WK_TREE) {                                     // per-row dispatch
+        tree_handle_press(ctx, w);
+        return;
+    }
+
     UiEvent ev; memset(&ev, 0, sizeof(ev));                       // zero the event
     ev.kind = EV_CLICK;                                           // click kind
     ev.widget_id = w->id;                                         // source widget id

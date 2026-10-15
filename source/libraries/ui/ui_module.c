@@ -287,6 +287,24 @@ static Value ctor_table(VM* vm, int argc, Value* argv) {
     return MAKE_TABLE(t);
 }
 
+// builds a tree widget descriptor from a node array and options
+static Value ctor_tree(VM* vm, int argc, Value* argv) {
+    Table* t = table_create(8);
+    tset(vm, t, "__t", intern(vm, "tree"));
+    if (argc >= 1) tset(vm, t, "nodes", argv[0]);
+    if (argc >= 2 && IS_TABLE(argv[1])) {
+        Table* opts = AS_TABLE(argv[1]);
+        int nk; Value* keys = table_keys(opts, &nk);
+        for (int i = 0; i < nk; i++) {
+            Value vv;
+            if (table_get(opts, keys[i], &vv)) { table_set(t, keys[i], vv); value_decref(vv); }
+            value_decref(keys[i]);
+        }
+        free(keys);
+    }
+    return MAKE_TABLE(t);
+}
+
 // builds a progress bar widget descriptor
 static Value ctor_progress(VM* vm, int argc, Value* argv) {
     Table* t = table_create(8);
@@ -496,6 +514,7 @@ bool ui_call_builtin(VM* vm, const char* name, int argc, Value* argv, Value* res
     if (strcmp(name, "ui.input") == 0){ *result = ctor_input(vm, argc, argv); return true; }                    // editable text field
     if (strcmp(name, "ui.combobox") == 0) { *result = ctor_combobox(vm, argc, argv); return true; }             // dropdown selector
     if (strcmp(name, "ui.table") == 0)    { *result = ctor_table(vm, argc, argv); return true; }                // columned table
+    if (strcmp(name, "ui.tree") == 0)     { *result = ctor_tree(vm, argc, argv); return true; }                 // hierarchical tree
     if (strcmp(name, "ui.spacer") == 0)   { *result = ctor_spacer(vm, argc, argv); return true; }               // flexible gap
 
     if (strcmp(name, "ui.vbox") == 0)   { *result = ui_ctor_container(vm, argc, argv, "vbox"); return true; }    // vertical stack

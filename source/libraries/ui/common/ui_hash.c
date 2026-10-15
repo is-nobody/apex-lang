@@ -83,6 +83,7 @@ uint64_t ui_visual_hash(Widget* w) {
     // fingerprint covers every field below that can change between rebuilds
     uint64_t fp = 0xCBF29CE484222325ULL;
     fp ^= (uint64_t)(uint32_t)w->hovered    <<  0;
+    fp ^= (uint64_t)(uint32_t)(w->hover_row + 1) << 11;   // +1 so -1 doesn't collapse to 0
     fp ^= (uint64_t)(uint32_t)w->pressed    <<  1;
     fp ^= (uint64_t)(uint32_t)w->focused    <<  2;
     fp ^= (uint64_t)(uint32_t)w->cursor     <<  3;
@@ -104,6 +105,7 @@ uint64_t ui_visual_hash(Widget* w) {
     h = hash_bytes64(h, &w->visible,   sizeof(w->visible));            // visibility flag
     h = hash_bytes64(h, &w->disabled,  sizeof(w->disabled));           // disabled flag
     h = hash_bytes64(h, &w->hovered,   sizeof(w->hovered));            // hover flag
+    h = hash_bytes64(h, &w->hover_row, sizeof(w->hover_row));          // tree hovered row
     h = hash_bytes64(h, &w->pressed,   sizeof(w->pressed));            // pressed flag
     h = hash_bytes64(h, &w->focused,   sizeof(w->focused));            // focus flag
     h = hash_bytes64(h, &w->checked,   sizeof(w->checked));            // checkbox/radio state

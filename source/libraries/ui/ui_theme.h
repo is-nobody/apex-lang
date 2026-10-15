@@ -174,4 +174,10 @@
 #define UI_C_MENU_SEP          UI_C_BORDER      // separator line
 #define UI_C_MENU_ITEM_FG      UI_C_TB_FG       // dropdown item text, matches the tray
 
+// tree colors
+#define UI_TREE_ROW_H      28   // tree row height in pixels
+#define UI_TREE_INDENT     16   // default pixels per indentation level
+#define UI_TREE_INNER_PAD   6   // left inset of the first indent slot
+#define UI_TREE_DISC_W     14   // width of the disclosure triangle's click slot
+
 #endif

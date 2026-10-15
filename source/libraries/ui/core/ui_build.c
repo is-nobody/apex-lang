@@ -30,6 +30,7 @@ static WidgetKind kind_from_str_n(const char* s, int n) {
     if (STR_EQ(s,n,"table"))     return WK_TABLE;
     if (STR_EQ(s,n,"list_item")) return WK_LIST_ITEM;
     if (STR_EQ(s,n,"switch"))    return WK_SWITCH;
+    if (STR_EQ(s,n,"tree"))      return WK_TREE;
     if (STR_EQ(s,n,"separator")) return WK_SEPARATOR;
     if (STR_EQ(s,n,"spacer"))    return WK_SPACER;
     if (STR_EQ(s,n,"vbox"))      return WK_VBOX;
@@ -364,8 +365,26 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
         w->table_stripe = table_get_bool_key(t, ctx->key_cache[UK_STRIPE], false);
     }
 
-    w->hovered = st->hovered;                               // restore hover flag
-    w->pressed = st->pressed;                               // restore press flag
+    if (w->kind == WK_TREE) {
+        w->tree_indent = (int)table_get_num_key(t, ctx->key_cache[UK_INDENT],
+                                                UI_TREE_INDENT);
+        if (w->tree_indent < 4)  w->tree_indent = 4;
+        if (w->tree_indent > 64) w->tree_indent = 64;
+
+        StrView sv;
+        if (table_get_str_view(t, ctx->key_cache[UK_SELECTED], &sv))
+            w->tree_selected = arena_dup(ctx, sv.ptr, sv.len);
+
+        Value nv = MAKE_NONE();
+        if (table_get(t, ctx->key_cache[UK_NODES], &nv)) {
+            if (IS_TABLE(nv)) tree_build_nodes(ctx, w, AS_TABLE(nv));
+            value_decref(nv);
+        }
+    }
+
+    w->hovered   = st->hovered;                             // restore hover flag
+    w->hover_row = st->hover_row;                           // restore tree row hover
+    w->pressed   = st->pressed;                             // restore press flag
     w->focused = (ctx->focused_id == w->id);                // reflect current focus
     w->cursor  = st->cursor < 0 ? (int)w->input_value.len : st->cursor;
     w->sel_anchor = st->sel_anchor;                         // restore the selection anchor
