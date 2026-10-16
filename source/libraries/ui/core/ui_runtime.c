@@ -92,14 +92,19 @@ void rebuild_and_draw(UiContext* ctx) {
     // snapshot the freshly laid-out tree, diff against the previous frame to compute damage
     ui_snapshot_capture(ctx, ctx->root);
     ui_damage_begin(ctx);
-    if (ctx->full_repaint) {
-        // the host told us our pixels are undefined (first frame, expose, resize):
-        // repaint the whole window, ignore the damage diff
+
+    // the modal dialog is painted on top of everything
+    bool dlg_animating =
+        ctx->dialog.active &&
+        ((ctx->dialog.closing && ctx->dialog.anim_t > 0.0) ||
+         (!ctx->dialog.closing && ctx->dialog.anim_t < 1.0));
+
+    if (ctx->full_repaint || dlg_animating) {
         ui_damage_add(ctx, 0, 0, ctx->win_w, ctx->win_h);
         ctx->full_repaint = false;
     } else {
         ui_damage_diff(ctx);
-        if (ctx->custom_chrome)                                   // always repaint the titlebar
+        if (ctx->custom_chrome)
             ui_damage_add(ctx, 0, 0, ctx->win_w, UI_TITLEBAR_H);
     }
     ui_damage_finalize(ctx);

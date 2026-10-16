@@ -337,6 +337,7 @@ typedef struct {
     double          anim_t;         // 0 = hidden, 1 = fully visible
     bool            closing;        // fading out toward anim_t == 0
     int             pending_btn;    // button chosen at close time
+    double          open_started_at;// wall-clock seconds when fade-in was anchored, 0 = unset
 } UiDialog;
 
 // dialog geometry, recomputed every frame
@@ -366,7 +367,7 @@ typedef struct {
 #define DLG_INPUT_H    32
 #define DLG_WIDTH     460
 #define DLG_LINE_H     21
-#define DLG_OPEN_SEC   0.14
+#define DLG_OPEN_SEC   0.10
 #define DLG_CLOSE_SEC  0.10
 
 // one live notification popup with its own native window

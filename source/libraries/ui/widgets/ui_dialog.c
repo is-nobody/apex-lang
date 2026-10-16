@@ -57,6 +57,7 @@ void dialog_begin(UiContext* ctx, const char* key, const char* title, const char
     d->message = dlg_dup(message);                                              // copy the body text
     d->active  = true;                                                          // mark the dialog live
     d->anim_t  = 0.0;                                                           // start fully transparent
+    d->open_started_at = 0.0;                                                   // anchor on first tick
     d->closing = false;                                                         // not fading out yet
     d->pending_btn   = -1;                                                      // no pending action
     d->hover_btn     = -1;                                                      // no hovered button

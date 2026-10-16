@@ -126,6 +126,10 @@ bool ui_animating(UiContext* ctx) {
         if (n->closing && n->anim_t > 0.0) return true;    // sliding out
         if (!n->closing && n->anim_t < 1.0) return true;   // sliding in
     }
+    if (ctx->dialog.active) {                              // dialog fade in or out
+        if (ctx->dialog.closing && ctx->dialog.anim_t > 0.0) return true;
+        if (!ctx->dialog.closing && ctx->dialog.anim_t < 1.0) return true;
+    }
     return false;                                          // all settled
 }
 
@@ -330,9 +334,18 @@ void ui_tick(UiContext* ctx, double dt) {
                 if (d->anim_t == 0.0) dialog_finish_close(ctx);  // fade done: emit + drop
             }
         } else if (d->anim_t < 1.0) {
-            d->anim_t += dt / DLG_OPEN_SEC;                      // fade in toward 1
-            if (d->anim_t > 1.0) d->anim_t = 1.0;                // clamp: fully opaque
-            ctx->redraw_needed = true;                           // schedule a repaint
+            double now = apex_now_seconds();
+            if (d->open_started_at == 0.0) {
+                d->open_started_at = now;                        // anchor: don't advance yet
+                ctx->redraw_needed = true;                       // make the next tick soon
+            } else {
+                double t = (now - d->open_started_at) / DLG_OPEN_SEC;
+                if (t > 1.0) t = 1.0;                            // clamp: fully opaque
+                if (t != d->anim_t) {
+                    d->anim_t = t;
+                    ctx->redraw_needed = true;                   // schedule a repaint
+                }
+            }
         }
         if (!d->closing && d->focused_field >= 0 && d->focused_field < d->field_count) {
             double old_phase = d->blink_phase;                   // remember for boundary detection
