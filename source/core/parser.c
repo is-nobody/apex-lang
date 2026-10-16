@@ -377,6 +377,7 @@ static const BuiltinSig BUILTINS[] = {
     {"ui.window_size",      0, 0, TYPE_ANY},
     {"ui.open_file",        0, 1, TYPE_ANY},
     {"ui.open_folder",      0, 1, TYPE_ANY},
+    {"ui.fullscreen",       0, 1, TYPE_ANY},
     {"ui.dialog",           1, 1, TYPE_ANY},
     {"ui.notification",     1, 1, TYPE_ANY},
     {"ui.menubar",          0, 1, TYPE_ANY},

@@ -49,6 +49,7 @@ struct UiWindow {
     bool     decorated;              // false = custom titlebar
     bool     is_popup;               // true for frameless notification popups
     bool     maximized;              // cached maximize state
+    bool     fullscreen;             // cached fullscreen state
 
     int      min_w, min_h;           // minimum client size, 0 = unset
 

@@ -437,6 +437,10 @@ typedef struct UiContext {
     uint64_t   drag_widget_id;  // widget currently being dragged (slider or input)
     uint64_t   hovered_id;      // widget id currently hovered, 0 = none; invariant:
 
+    // a titlebar press that landed while the window was fullscreen
+    bool       pending_fullscreen_drag;
+    int        pending_drag_x, pending_drag_y;  // pointer position at press
+
     HitGrid    hit_grid;        // uniform grid for hit testing, rebuilt by ui_layout
     bool       hit_grid_valid;  // false after pool reset; set true by hit_grid_build
     uint32_t   geom_gen;        // bumped by arrange whenever any widget box changes

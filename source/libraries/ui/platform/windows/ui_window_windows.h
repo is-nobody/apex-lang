@@ -41,6 +41,9 @@ struct UiWindow {
     int       pending_mods;            // modifier state held for the same
 
     bool       is_popup;               // true for frameless notification popups
+    bool       fullscreen;             // true while in fullscreen mode
+    DWORD      fs_style;               // saved window style before fullscreen
+    WINDOWPLACEMENT fs_placement;      // saved window placement before fullscreen
     UiWinEvent pending;                // pending event for *this* window
     bool       pending_set;            // whether pending is populated
 

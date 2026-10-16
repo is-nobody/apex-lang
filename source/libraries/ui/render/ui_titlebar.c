@@ -104,8 +104,11 @@ void ui_render_titlebar(UiContext* ctx) {
 
         if (id == 1) {                                   // minimize: 10x1 pixel line
             ui_painter_fill_rect(cx - 5, cy, 10, 1, fg);
-        } else if (id == 2) {                            // maximize / restore
-            bool maxed = ctx->window && ui_window_is_maximized(ctx->window);
+        } else if (id == 2) {                            // maximize / restore / fullscreen
+            // fullscreen and maximize share the same "restore" glyph
+            bool maxed = ctx->window &&
+                         (ui_window_is_maximized(ctx->window) ||
+                          ui_window_is_fullscreen(ctx->window));
             if (!maxed) {
                 // 9x9 pixel outline, 1px stroke, no aa
                 ui_painter_stroke_rect(cx - 4, cy - 4, 9, 9, fg);

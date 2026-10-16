@@ -62,11 +62,12 @@ bool ui_window_poll(UiWindow* w, UiWinEvent* out) {
                 }
                 break;
             case PropertyNotify:
-                // track _NET_WM_STATE so the titlebar can reflect maximize state
+                // track _NET_WM_STATE so the titlebar can reflect maximize and fullscreen state
                 {
                     Atom net_state = XInternAtom(w->dpy, "_NET_WM_STATE", False);
                     Atom hz = XInternAtom(w->dpy, "_NET_WM_STATE_MAXIMIZED_HORZ", False);
                     Atom vt = XInternAtom(w->dpy, "_NET_WM_STATE_MAXIMIZED_VERT", False);
+                    Atom fs = XInternAtom(w->dpy, "_NET_WM_STATE_FULLSCREEN", False);
                     if (e.xproperty.atom == net_state && e.xproperty.state == PropertyNewValue) {
                         Atom* atoms = NULL; int n = 0;
                         Atom actual; int fmt; unsigned long nitems, after;
@@ -76,12 +77,14 @@ bool ui_window_poll(UiWindow* w, UiWinEvent* out) {
                                                &actual, &fmt, &nitems, &after, &data) == Success) {
                             atoms = (Atom*)data; n = (int)nitems;
                         }
-                        bool mh = false, mv = false;
+                        bool mh = false, mv = false, f = false;
                         for (int i = 0; i < n; i++) {
                             if (atoms[i] == hz) mh = true;
                             if (atoms[i] == vt) mv = true;
+                            if (atoms[i] == fs) f  = true;
                         }
-                        w->maximized = mh && mv;
+                        w->maximized  = mh && mv;
+                        w->fullscreen = f;
                         if (data) XFree(data);
                     }
                 }

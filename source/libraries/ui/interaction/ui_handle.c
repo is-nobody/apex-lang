@@ -48,6 +48,8 @@ static bool titlebar_is_drag(UiContext* ctx, int x, int y) {
 // returns the resize edge name at (x, y), or null
 static const char* titlebar_resize_edge(UiContext* ctx, int x, int y) {
     if (!ctx->custom_chrome) return NULL;
+    if (ctx->window && ui_window_is_fullscreen(ctx->window))
+        return NULL;                                          // no resize edges in fullscreen
     int w = ctx->win_w, h = ctx->win_h;
     bool left   = x < UI_TB_RESIZE;
     bool right  = x >= w - UI_TB_RESIZE;
@@ -111,6 +113,27 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
         case UW_EV_MOUSEMOVE: {                                   // pointer moved
             ctx->input.x = e->x;                                  // track current pointer
             ctx->input.y = e->y;
+
+            // a fullscreen titlebar press is waiting for real movement before it restores the window
+            if (ctx->pending_fullscreen_drag) {
+                if (!ctx->input.lmb) {
+                    ctx->pending_fullscreen_drag = false;         // button was released
+                } else {
+                    int dx = e->x - ctx->pending_drag_x;
+                    int dy = e->y - ctx->pending_drag_y;
+                    if (dx < 0) dx = -dx;                         // absolute displacement
+                    if (dy < 0) dy = -dy;
+                    if (dx > UI_TAB_DRAG_THRESH || dy > UI_TAB_DRAG_THRESH) {
+                        ctx->pending_fullscreen_drag = false;     // consume the gesture
+                        ui_window_toggle_fullscreen(ctx->window);
+                        ctx->geometry_dirty = true;
+                        ctx->full_repaint   = true;
+                        ctx->redraw_needed  = true;
+                        ui_window_begin_drag(ctx->window);        // hand off to the WM
+                    }
+                }
+                break;                                            // never fall through to hover
+            }
 
             if (ctx->dialog.active) {                             // modal dialog captures the pointer
                 dialog_mouse_move(ctx, e->x, e->y);
@@ -271,7 +294,15 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     break;
                 }
                 if (titlebar_is_drag(ctx, e->x, e->y)) {
-                    ui_window_begin_drag(ctx->window);
+                    // in fullscreen a titlebar press must not restore the window by itself
+                    if (ctx->window && ui_window_is_fullscreen(ctx->window)) {
+                        ctx->pending_fullscreen_drag = true;
+                        ctx->pending_drag_x = e->x;
+                        ctx->pending_drag_y = e->y;
+                        ctx->input.lmb = true;            // track that the button is held
+                    } else {
+                        ui_window_begin_drag(ctx->window);
+                    }
                     break;
                 }
 
@@ -415,6 +446,12 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
             if (e->button == 1) {                                 // left button released
                 ctx->input.lmb = false;
 
+                // a fullscreen titlebar press that never moved is a plain click
+                if (ctx->pending_fullscreen_drag) {
+                    ctx->pending_fullscreen_drag = false;
+                    break;
+                }
+
                 if (ctx->dialog.active) {                         // modal dialog is on top
                     dialog_mouse_up(ctx, e->x, e->y);
                     break;
@@ -427,7 +464,13 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     ctx->tb_active = 0;
                     if (hot == was) {
                         if (was == 1)      ui_window_minimize(ctx->window);
-                        else if (was == 2) ui_window_toggle_maximize(ctx->window);
+                        else if (was == 2) {
+                            // while fullscreen the middle button exits fullscreen
+                            if (ui_window_is_fullscreen(ctx->window))
+                                ui_window_toggle_fullscreen(ctx->window);
+                            else
+                                ui_window_toggle_maximize(ctx->window);
+                        }
                         else if (was == 3) {
                             UiEvent cev; memset(&cev, 0, sizeof(cev));
                             cev.kind = EV_CLOSE;

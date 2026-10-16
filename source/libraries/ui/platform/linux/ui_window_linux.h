@@ -60,6 +60,7 @@ struct UiWindow {
     int      mods;        // last observed modifier bitmask
 
     bool     maximized;              // cached maximize state
+    bool     fullscreen;             // cached fullscreen state
     bool     decorated;              // false when we draw our own titlebar
     int      min_w;                  // minimum client width from wm hints
     int      min_h;                  // minimum client height from wm hints

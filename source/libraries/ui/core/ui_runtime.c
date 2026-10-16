@@ -512,3 +512,22 @@ Value ui_impl_open_folder(VM* vm, int argc, Value* argv) {
     free(picked);
     return v;
 }
+
+// builtin: ui.fullscreen(opts?) — toggle or set the window's fullscreen state
+Value ui_impl_fullscreen(VM* vm, int argc, Value* argv) {
+    UiContext* ctx = ui_ensure(vm);                       // ensure the context exists
+    if (!ctx->window) return MAKE_BOOL(false);            // no window: nothing to do
+
+    bool want = !ui_window_is_fullscreen(ctx->window);    // default: flip the current state
+    if (argc >= 1 && IS_BOOL(argv[0]))                    // explicit state wins
+        want = AS_BOOL(argv[0]);
+
+    if (want != ui_window_is_fullscreen(ctx->window))     // only toggle when the state differs
+        ui_window_toggle_fullscreen(ctx->window);
+
+    ctx->geometry_dirty = true;                           // client area changed
+    ctx->redraw_needed  = true;                           // schedule a repaint
+    ctx->full_repaint   = true;                           // no prior pixels for the new size
+
+    return MAKE_BOOL(ui_window_is_fullscreen(ctx->window));
+}

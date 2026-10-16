@@ -678,4 +678,30 @@ void ui_window_sync_ack(UiWindow* w) {
     w->sync_pending = false;
 }
 
+// toggles the window between fullscreen and windowed via _NET_WM_STATE
+void ui_window_toggle_fullscreen(UiWindow* w) {
+    if (!w || !w->dpy) return;                           // null guard
+    Atom state = XInternAtom(w->dpy, "_NET_WM_STATE", False);
+    Atom fs    = XInternAtom(w->dpy, "_NET_WM_STATE_FULLSCREEN", False);
+    XEvent xev;
+    memset(&xev, 0, sizeof(xev));
+    xev.type                 = ClientMessage;
+    xev.xclient.window       = w->win;
+    xev.xclient.message_type = state;
+    xev.xclient.format       = 32;
+    xev.xclient.data.l[0]    = w->fullscreen ? 0 : 1;    // 0=remove, 1=add
+    xev.xclient.data.l[1]    = (long)fs;
+    xev.xclient.data.l[2]    = 0;
+    xev.xclient.data.l[3]    = 1;
+    XSendEvent(w->dpy, DefaultRootWindow(w->dpy), False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &xev);
+    w->fullscreen = !w->fullscreen;                      // optimistic flip; PropertyNotify confirms
+    XFlush(w->dpy);
+}
+
+// true when the window is currently fullscreen
+bool ui_window_is_fullscreen(UiWindow* w) {
+    return w && w->fullscreen;
+}
+
 #endif

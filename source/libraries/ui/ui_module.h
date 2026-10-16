@@ -36,6 +36,9 @@ Value ui_impl_window_size(VM* vm, int argc, Value* argv);
 Value ui_impl_open_file(VM* vm, int argc, Value* argv);
 Value ui_impl_open_folder(VM* vm, int argc, Value* argv);
 
+// toggle or set the window's fullscreen state
+Value ui_impl_fullscreen(VM* vm, int argc, Value* argv);
+
 // release every ui-owned allocation
 void  ui_context_destroy(struct UiContext* ctx);
 

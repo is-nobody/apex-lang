@@ -531,4 +531,42 @@ void ui_window_invalidate(UiWindow* w) {
 // no-op on win32; resize sync is x11-only
 void ui_window_sync_ack(UiWindow* w) { (void)w; }
 
+// toggles the window between fullscreen and windowed
+void ui_window_toggle_fullscreen(UiWindow* w) {
+    if (!w || !w->hwnd) return;                          // null guard
+
+    if (!w->fullscreen) {                                // entering fullscreen
+        w->fs_style = GetWindowLongW(w->hwnd, GWL_STYLE);
+        w->fs_placement.length = sizeof(w->fs_placement);
+        GetWindowPlacement(w->hwnd, &w->fs_placement);   // remember where we were
+
+        MONITORINFO mi;
+        memset(&mi, 0, sizeof(mi));
+        mi.cbSize = sizeof(mi);
+        if (!GetMonitorInfoW(MonitorFromWindow(w->hwnd, MONITOR_DEFAULTTONEAREST), &mi))
+            return;                                      // no monitor info: bail out
+
+        SetWindowLongW(w->hwnd, GWL_STYLE,               // strip the chrome bits
+                       w->fs_style & ~WS_OVERLAPPEDWINDOW);
+        SetWindowPos(w->hwnd, HWND_TOP,
+                     mi.rcMonitor.left, mi.rcMonitor.top,
+                     mi.rcMonitor.right - mi.rcMonitor.left,
+                     mi.rcMonitor.bottom - mi.rcMonitor.top,
+                     SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+        w->fullscreen = true;
+    } else {                                             // leaving fullscreen
+        SetWindowLongW(w->hwnd, GWL_STYLE, w->fs_style); // restore the saved style
+        SetWindowPlacement(w->hwnd, &w->fs_placement);   // restore the saved placement
+        SetWindowPos(w->hwnd, NULL, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                     SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+        w->fullscreen = false;
+    }
+}
+
+// true when the window is currently fullscreen
+bool ui_window_is_fullscreen(UiWindow* w) {
+    return w && w->fullscreen;
+}
+
 #endif

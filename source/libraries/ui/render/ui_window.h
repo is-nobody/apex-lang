@@ -120,6 +120,12 @@ void ui_window_invalidate(UiWindow* w);
 // acks a pending resize synchronization (X11 only; no-op elsewhere)
 void ui_window_sync_ack(UiWindow* w);
 
+// toggles the window between fullscreen and windowed
+void ui_window_toggle_fullscreen(UiWindow* w);
+
+// true when the window is currently fullscreen
+bool ui_window_is_fullscreen(UiWindow* w);
+
 // one filter row for the native open-file dialog
 typedef struct {
     const char* name;     // display name, e.g. "Images"

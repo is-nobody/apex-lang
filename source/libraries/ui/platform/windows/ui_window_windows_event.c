@@ -46,7 +46,8 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_NCHITTEST: {
             if (!w || w->decorated || w->is_popup)
                 return DefWindowProcW(hwnd, msg, wp, lp);
-            if (IsZoomed(hwnd)) return HTCLIENT;         // no borders while maximized
+            if (IsZoomed(hwnd) || w->fullscreen)
+                return HTCLIENT;                         // no borders while maximized or fullscreen
 
             POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
             ScreenToClient(hwnd, &pt);

@@ -589,4 +589,17 @@ void ui_window_invalidate(UiWindow* w) {
 // no-op on macos; resize sync is x11-only
 void ui_window_sync_ack(UiWindow* w) { (void)w; }
 
+// toggles the window between fullscreen and windowed
+void ui_window_toggle_fullscreen(UiWindow* w) {
+    if (!w || !w->ns_window) return;                     // null guard
+    // appkit animates the transition itself and runs the standard fullscreen machinery
+    MSG_void1(w->ns_window, OBJC_SEL("toggleFullScreen:"), (id)nil);
+    w->fullscreen = !w->fullscreen;
+}
+
+// true when the window is currently fullscreen
+bool ui_window_is_fullscreen(UiWindow* w) {
+    return w && w->fullscreen;
+}
+
 #endif

@@ -518,6 +518,7 @@ bool ui_call_builtin(VM* vm, const char* name, int argc, Value* argv, Value* res
     if (strcmp(name, "ui.window_size") == 0)   { *result = ui_impl_window_size(vm, argc, argv); return true; }  // query the window size
     if (strcmp(name, "ui.open_file") == 0)     { *result = ui_impl_open_file(vm, argc, argv); return true; }    // native file picker
     if (strcmp(name, "ui.open_folder") == 0)   { *result = ui_impl_open_folder(vm, argc, argv); return true; }  // native folder picker
+    if (strcmp(name, "ui.fullscreen") == 0)    { *result = ui_impl_fullscreen(vm, argc, argv); return true; }   // toggle/set fullscreen
     if (strcmp(name, "ui.dialog") == 0)        { *result = ctor_dialog(vm, argc, argv); return true; }          // generic modal dialog
     if (strcmp(name, "ui.notification") == 0)  { *result = ctor_notification(vm, argc, argv); return true; }    // desktop notification
     if (strcmp(name, "ui.menubar") == 0)       { *result = ctor_menubar(vm, argc, argv); return true; }         // window menu bar
