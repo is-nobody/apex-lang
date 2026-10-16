@@ -149,10 +149,27 @@ void compact_bytecode(CodeGenerator* cg) {
 
     for (int i = 0; i < cg->chunk->const_count; i++) {            // jump table target addresses
         Constant* c = &cg->chunk->constants[i];
-        if (c->type != CONST_JUMP_TABLE) continue;
-        for (int j = 0; j < c->jump_table.count; j++) {
-            int old = c->jump_table.addresses[j];
-            if (old >= 0 && old <= total) c->jump_table.addresses[j] = map[old];
+        if (c->type == CONST_JUMP_TABLE) {
+            for (int j = 0; j < c->jump_table.count; j++) {
+                int old = c->jump_table.addresses[j];
+                if (old >= 0 && old <= total) c->jump_table.addresses[j] = map[old];
+            }
+        }
+        if (c->type == CONST_STR_SWITCH) {                        // string switch case bodies + default
+            for (int j = 0; j <= c->str_switch.mask; j++) {
+                int old = c->str_switch.entries[j].target;
+                if (old >= 0 && old <= total) c->str_switch.entries[j].target = map[old];
+            }
+            int od = c->str_switch.default_pc;
+            if (od >= 0 && od <= total) c->str_switch.default_pc = map[od];
+        }
+        if (c->type == CONST_NUM_SWITCH) {                        // numeric switch case bodies + default
+            for (int j = 0; j <= c->num_switch.mask; j++) {
+                int old = c->num_switch.entries[j].target;
+                if (old >= 0 && old <= total) c->num_switch.entries[j].target = map[old];
+            }
+            int od = c->num_switch.default_pc;
+            if (od >= 0 && od <= total) c->num_switch.default_pc = map[od];
         }
     }
 
@@ -168,9 +185,23 @@ void compact_bytecode(CodeGenerator* cg) {
         }
         for (int i = 0; i < cg->chunk->const_count; i++) {
             Constant* c = &cg->chunk->constants[i];
-            if (c->type != CONST_JUMP_TABLE) continue;
-            for (int j = 0; j < c->jump_table.count; j++) {
-                mark_jump_target(cg, c->jump_table.addresses[j]);
+            if (c->type == CONST_JUMP_TABLE) {
+                for (int j = 0; j < c->jump_table.count; j++)
+                    mark_jump_target(cg, c->jump_table.addresses[j]);
+            }
+            if (c->type == CONST_STR_SWITCH) {
+                for (int j = 0; j <= c->str_switch.mask; j++)
+                    if (c->str_switch.entries[j].target >= 0)
+                        mark_jump_target(cg, c->str_switch.entries[j].target);
+                if (c->str_switch.default_pc >= 0)
+                    mark_jump_target(cg, c->str_switch.default_pc);
+            }
+            if (c->type == CONST_NUM_SWITCH) {
+                for (int j = 0; j <= c->num_switch.mask; j++)
+                    if (c->num_switch.entries[j].target >= 0)
+                        mark_jump_target(cg, c->num_switch.entries[j].target);
+                if (c->num_switch.default_pc >= 0)
+                    mark_jump_target(cg, c->num_switch.default_pc);
             }
         }
     }
@@ -255,6 +286,11 @@ static void compact_functions_and_constants(CodeGenerator* cg, uint8_t* used_fun
                 if (ci >= 0 && ci < nc) used_c[ci] = 1;
                 break;
             }
+            case OP_SWITCH_STR: case OP_SWITCH_NUM: {              // switch table in operands[1]
+                int ci = in->operands[1];
+                if (ci >= 0 && ci < nc) used_c[ci] = 1;
+                break;
+            }
             default: break;
         }
     }
@@ -267,6 +303,16 @@ static void compact_functions_and_constants(CodeGenerator* cg, uint8_t* used_fun
         while (wn > 0) {
             int ci = wl[--wn];
             Constant* c = &cg->chunk->constants[ci];
+            if (c->type == CONST_STR_SWITCH) {                     // keep every case string alive
+                for (int i = 0; i <= c->str_switch.mask; i++) {
+                    int ki = c->str_switch.entries[i].case_const_idx;
+                    if (ki >= 0 && ki < nc && !used_c[ki]) {
+                        used_c[ki] = 1;
+                        wl[wn++] = ki;
+                    }
+                }
+                continue;
+            }
             if (c->type != CONST_TABLE) continue;
             for (int i = 0; i < c->table.hash_count; i++) {
                 int ki = c->table.key_indices[i];
@@ -317,6 +363,11 @@ static void compact_functions_and_constants(CodeGenerator* cg, uint8_t* used_fun
                         in->operands[2] = (cmap[ci] << 16) | num_reg;
                     break;
                 }
+                case OP_SWITCH_STR: case OP_SWITCH_NUM: {
+                    int ci = in->operands[1];
+                    if (ci >= 0 && ci < nc && cmap[ci] >= 0) in->operands[1] = cmap[ci];
+                    break;
+                }
                 default: break;
             }
         }
@@ -324,6 +375,14 @@ static void compact_functions_and_constants(CodeGenerator* cg, uint8_t* used_fun
         for (int i = 0; i < nc; i++) {                            // remap table-internal refs
             if (!used_c[i]) continue;
             Constant* c = &cg->chunk->constants[i];
+            if (c->type == CONST_STR_SWITCH) {                    // remap case-string pool indices
+                for (int k = 0; k <= c->str_switch.mask; k++) {
+                    int ki = c->str_switch.entries[k].case_const_idx;
+                    if (ki >= 0 && ki < nc && cmap[ki] >= 0)
+                        c->str_switch.entries[k].case_const_idx = cmap[ki];
+                }
+                continue;
+            }
             if (c->type != CONST_TABLE) continue;
             for (int k = 0; k < c->table.hash_count; k++) {
                 int ki = c->table.key_indices[k];
@@ -346,6 +405,14 @@ static void compact_functions_and_constants(CodeGenerator* cg, uint8_t* used_fun
                 free(c->table.value_indices);
                 c->table.key_indices = NULL;
                 c->table.value_indices = NULL;
+            }
+            if (c->type == CONST_STR_SWITCH) {                    // release switch entry arrays
+                free(c->str_switch.entries);
+                c->str_switch.entries = NULL;
+            }
+            if (c->type == CONST_NUM_SWITCH) {
+                free(c->num_switch.entries);
+                c->num_switch.entries = NULL;
             }
         }
 

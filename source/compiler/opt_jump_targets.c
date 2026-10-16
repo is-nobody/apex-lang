@@ -77,14 +77,47 @@ void thread_jumps(CodeGenerator* cg) {
     }
     for (int i = 0; i < cg->chunk->const_count; i++) {
         Constant* c = &cg->chunk->constants[i];
-        if (c->type != CONST_JUMP_TABLE) continue;
-        for (int j = 0; j < c->jump_table.count; j++) {
-            int old = c->jump_table.addresses[j];
-            if (old < 0 || old >= n) continue;
-            int th = thread_target(cg, old);
-            if (th != old) {
-                c->jump_table.addresses[j] = th;
-                mark_jump_target(cg, th);
+        if (c->type == CONST_JUMP_TABLE) {
+            for (int j = 0; j < c->jump_table.count; j++) {
+                int old = c->jump_table.addresses[j];
+                if (old < 0 || old >= n) continue;
+                int th = thread_target(cg, old);
+                if (th != old) {
+                    c->jump_table.addresses[j] = th;
+                    mark_jump_target(cg, th);
+                }
+            }
+        }
+        if (c->type == CONST_STR_SWITCH) {
+            for (int j = 0; j <= c->str_switch.mask; j++) {
+                int old = c->str_switch.entries[j].target;
+                if (old < 0 || old >= n) continue;
+                int th = thread_target(cg, old);
+                if (th != old) {
+                    c->str_switch.entries[j].target = th;
+                    mark_jump_target(cg, th);
+                }
+            }
+            int od = c->str_switch.default_pc;
+            if (od >= 0 && od < n) {
+                int th = thread_target(cg, od);
+                if (th != od) { c->str_switch.default_pc = th; mark_jump_target(cg, th); }
+            }
+        }
+        if (c->type == CONST_NUM_SWITCH) {
+            for (int j = 0; j <= c->num_switch.mask; j++) {
+                int old = c->num_switch.entries[j].target;
+                if (old < 0 || old >= n) continue;
+                int th = thread_target(cg, old);
+                if (th != old) {
+                    c->num_switch.entries[j].target = th;
+                    mark_jump_target(cg, th);
+                }
+            }
+            int od = c->num_switch.default_pc;
+            if (od >= 0 && od < n) {
+                int th = thread_target(cg, od);
+                if (th != od) { c->num_switch.default_pc = th; mark_jump_target(cg, th); }
             }
         }
     }

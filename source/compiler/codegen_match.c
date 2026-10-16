@@ -46,6 +46,62 @@ static void invalidate_consts_for_body(CodeGenerator* cg, ASTNode* body) {
     }
 }
 
+// minimum case count to justify building a perfect-hash switch table
+#define MATCH_SWITCH_THRESHOLD 4
+
+// djb2 hash matching intern_hash / string_get_hash (must stay identical)
+static uint32_t sw_djb2(const char* s, int len) {
+    uint32_t h = 5381;
+    for (int i = 0; i < len; i++) h = ((h << 5) + h) + (uint8_t)s[i];
+    return h;
+}
+
+// search for an XOR addend such that (hash ^ addend) & mask is injective over `hashes`
+static bool sw_find_perfect_addend(const uint32_t* hashes, int n, uint32_t mask,
+                                    uint32_t* out_addend) {
+    for (uint32_t addend = 0; addend < 65536u; addend++) {       // wider cap: masks can now grow
+        bool ok = true;
+        for (int i = 0; i < n && ok; i++) {
+            uint32_t hi = (hashes[i] ^ addend) & mask;
+            for (int j = 0; j < i; j++) {
+                uint32_t hj = (hashes[j] ^ addend) & mask;
+                if (hi == hj) { ok = false; break; }
+            }
+        }
+        if (ok) { *out_addend = addend; return true; }
+    }
+    return false;
+}
+
+// canonical IEEE-754 bits: collapse -0.0 to +0.0
+static uint64_t canonical_double_bits(double n) {
+    if (n == 0.0) n = 0.0;
+    uint64_t bits; memcpy(&bits, &n, 8);
+    return bits;
+}
+
+// FNV-1a over the 64-bit bit pattern; must match hash_value_key's numeric branch
+static uint32_t num_sw_hash(uint64_t bits) {
+    uint32_t h = 2166136261u;
+    h ^= (uint32_t)bits;             h *= 16777619u;
+    h ^= (uint32_t)(bits >> 32);     h *= 16777619u;
+    return h;
+}
+
+// extract a double from a constant numeric pattern (literal or -literal)
+static bool pattern_num_value(ASTNode* pattern, double* out) {
+    if (pattern->type == AST_LITERAL_NUMBER) {
+        *out = pattern->literal_number.number_value;
+        return true;
+    }
+    if (pattern->type == AST_UNARY && pattern->unary.op == TOKEN_MINUS &&
+        pattern->unary.operand->type == AST_LITERAL_NUMBER) {
+        *out = -pattern->unary.operand->literal_number.number_value;
+        return true;
+    }
+    return false;
+}
+
 // extracts an integer from a constant match pattern; returns false for anything else
 static bool pattern_int_value(ASTNode* pattern, int* out) {
     double v;
@@ -177,6 +233,245 @@ static bool try_match_jump_table(CodeGenerator* cg, int subject_reg,
     return true;
 }
 
+// emits an OP_SWITCH_STR dispatch when all cases are string literals
+static bool try_match_str_switch(CodeGenerator* cg, int subject_reg,
+                                 ASTNodeList* cases, ASTNode* default_case,
+                                 int case_count, int line,
+                                 LocalNumSnap match_before,
+                                 int saved_num_count, int saved_str_count) {
+    if (case_count < MATCH_SWITCH_THRESHOLD) return false;
+    for (int i = 0; i < case_count; i++) {
+        if (cases->nodes[i]->case_stmt.pattern->type != AST_LITERAL_STRING) return false;
+    }
+
+    uint32_t* hashes = (uint32_t*)malloc(sizeof(uint32_t) * case_count);
+    int*      consts = (int*)malloc(sizeof(int) * case_count);
+    for (int i = 0; i < case_count; i++) {
+        const char* s = cases->nodes[i]->case_stmt.pattern->literal_string.string_value;
+        int len = (int)strlen(s);
+        hashes[i] = sw_djb2(s, len);
+        consts[i] = bytecode_add_string_constant(cg->chunk, s);
+    }
+
+    int cap = 8;
+    while (cap < case_count * 4) cap <<= 1;
+    uint32_t addend = 0;
+    uint32_t mask = (uint32_t)cap - 1;
+    bool found = false;
+    for (int bump = 0; bump < 10; bump++) {                  // 10 bumps = up to mask 32767
+        if (sw_find_perfect_addend(hashes, case_count, mask, &addend)) {
+            found = true;
+            break;
+        }
+        cap <<= 1;
+        mask = (uint32_t)cap - 1;
+        if (cap > 4096) break;                               // absolute cap: 4096 slots max
+    }
+    if (!found) { free(hashes); free(consts); return false; }
+
+    StringSwitchEntry* entries = (StringSwitchEntry*)malloc(sizeof(StringSwitchEntry) * cap);
+    for (int i = 0; i < cap; i++) {
+        entries[i].hash = 0;
+        entries[i].target = -1;
+        entries[i].case_const_idx = -1;
+    }
+    for (int i = 0; i < case_count; i++) {
+        uint32_t idx = (hashes[i] ^ addend) & mask;
+        entries[idx].hash = hashes[i];
+        entries[idx].case_const_idx = consts[i];
+    }
+
+    Constant cc;
+    memset(&cc, 0, sizeof(cc));
+    cc.type              = CONST_STR_SWITCH;
+    cc.str_switch.mask        = (int)mask;
+    cc.str_switch.addend      = addend;
+    cc.str_switch.count       = case_count;
+    cc.str_switch.entries     = entries;
+    cc.str_switch.default_pc  = -1;                             // patched after bodies
+    int table_idx = bytecode_add_constant(cg->chunk, cc);
+
+    emit(cg, INST(OP_SWITCH_STR, subject_reg, table_idx, 0), line);
+
+    int prev_floor = cg->register_floor;
+    int new_floor = subject_reg + 1;
+    if (new_floor < prev_floor) new_floor = prev_floor;
+    cg->register_floor = new_floor;
+
+    int* end_jumps = (int*)malloc(sizeof(int) * (case_count + 2));
+    int  end_jump_count = 0;
+
+    for (int i = 0; i < case_count; i++) {
+        ASTNode* case_node = cases->nodes[i];
+        restore_numbers(cg, match_before);
+        num_cache_truncate(cg, saved_num_count);
+        str_cache_truncate(cg, saved_str_count);
+
+        int body_start = bytecode_current_offset(cg->chunk);
+        uint32_t idx = (hashes[i] ^ addend) & mask;
+        entries[idx].target = body_start;                       // publish through shared pointer
+
+        codegen_block(cg, case_node->case_stmt.body);
+        if (!stmt_always_exits(case_node->case_stmt.body)) {
+            end_jumps[end_jump_count++] = emit(cg, INST(OP_JUMP, 0, 0, 0), line);
+        }
+    }
+
+    int default_addr = -1;
+    if (default_case) {
+        restore_numbers(cg, match_before);
+        num_cache_truncate(cg, saved_num_count);
+        str_cache_truncate(cg, saved_str_count);
+        default_addr = bytecode_current_offset(cg->chunk);
+        codegen_block(cg, default_case->case_stmt.body);
+        if (!stmt_always_exits(default_case->case_stmt.body)) {
+            end_jumps[end_jump_count++] = emit(cg, INST(OP_JUMP, 0, 0, 0), line);
+        }
+    }
+
+    cg->register_floor = prev_floor;
+
+    restore_numbers(cg, match_before);
+    for (int i = 0; i < case_count; i++)
+        invalidate_consts_for_body(cg, cases->nodes[i]->case_stmt.body);
+    if (default_case) invalidate_consts_for_body(cg, default_case->case_stmt.body);
+    num_cache_truncate(cg, saved_num_count);
+    str_cache_truncate(cg, saved_str_count);
+
+    int end_addr = bytecode_current_offset(cg->chunk);
+    int fallback = (default_addr >= 0) ? default_addr : end_addr;
+    cg->chunk->constants[table_idx].str_switch.default_pc = fallback;
+
+    for (int i = 0; i < end_jump_count; i++) PATCH_JUMP(cg, end_jumps[i], end_addr);
+
+    free(hashes); free(consts); free(end_jumps);
+    free_register(cg, subject_reg);
+    cg->imm_lvn.count = 0;
+    return true;
+}
+
+// emits an OP_SWITCH_NUM dispatch when all cases are numeric literals
+static bool try_match_num_switch(CodeGenerator* cg, int subject_reg,
+                                 ASTNodeList* cases, ASTNode* default_case,
+                                 int case_count, int line,
+                                 LocalNumSnap match_before,
+                                 int saved_num_count, int saved_str_count) {
+    if (case_count < MATCH_SWITCH_THRESHOLD) return false;
+
+    double* values = (double*)malloc(sizeof(double) * case_count);
+    for (int i = 0; i < case_count; i++) {
+        if (!pattern_num_value(cases->nodes[i]->case_stmt.pattern, &values[i])) {
+            free(values); return false;
+        }
+        if (values[i] != values[i]) { free(values); return false; }   // reject NaN
+    }
+    for (int i = 0; i < case_count; i++) {                             // reject duplicates
+        for (int j = i + 1; j < case_count; j++) {
+            if (canonical_double_bits(values[i]) == canonical_double_bits(values[j])) {
+                free(values); return false;
+            }
+        }
+    }
+
+    int cap = 8;
+    while (cap < case_count * 4) cap <<= 1;
+    uint32_t mask = (uint32_t)cap - 1;
+
+    uint32_t* hashes  = (uint32_t*)malloc(sizeof(uint32_t) * case_count);
+    uint64_t* bitsarr = (uint64_t*)malloc(sizeof(uint64_t) * case_count);
+    for (int i = 0; i < case_count; i++) {
+        bitsarr[i] = canonical_double_bits(values[i]);
+        hashes[i]  = num_sw_hash(bitsarr[i]);
+    }
+
+    uint32_t addend = 0;
+    bool found = false;
+    for (int bump = 0; bump < 10; bump++) {
+        if (sw_find_perfect_addend(hashes, case_count, mask, &addend)) {
+            found = true;
+            break;
+        }
+        cap <<= 1;
+        mask = (uint32_t)cap - 1;
+        if (cap > 4096) break;
+    }
+    if (!found) { free(values); free(hashes); free(bitsarr); return false; }
+
+    NumSwitchEntry* entries = (NumSwitchEntry*)malloc(sizeof(NumSwitchEntry) * cap);
+    for (int i = 0; i < cap; i++) { entries[i].bits = 0; entries[i].target = -1; }
+    for (int i = 0; i < case_count; i++) {
+        uint32_t idx = (hashes[i] ^ addend) & mask;
+        entries[idx].bits = bitsarr[i];
+    }
+
+    Constant cc;
+    memset(&cc, 0, sizeof(cc));
+    cc.type                    = CONST_NUM_SWITCH;
+    cc.num_switch.mask         = (int)mask;
+    cc.num_switch.addend       = addend;
+    cc.num_switch.count        = case_count;
+    cc.num_switch.entries      = entries;
+    cc.num_switch.default_pc   = -1;
+    int table_idx = bytecode_add_constant(cg->chunk, cc);
+
+    emit(cg, INST(OP_SWITCH_NUM, subject_reg, table_idx, 0), line);
+
+    int prev_floor = cg->register_floor;
+    int new_floor = subject_reg + 1;
+    if (new_floor < prev_floor) new_floor = prev_floor;
+    cg->register_floor = new_floor;
+
+    int* end_jumps = (int*)malloc(sizeof(int) * (case_count + 2));
+    int  end_jump_count = 0;
+
+    for (int i = 0; i < case_count; i++) {
+        ASTNode* case_node = cases->nodes[i];
+        restore_numbers(cg, match_before);
+        num_cache_truncate(cg, saved_num_count);
+        str_cache_truncate(cg, saved_str_count);
+
+        int body_start = bytecode_current_offset(cg->chunk);
+        uint32_t idx = (hashes[i] ^ addend) & mask;
+        entries[idx].target = body_start;
+
+        codegen_block(cg, case_node->case_stmt.body);
+        if (!stmt_always_exits(case_node->case_stmt.body)) {
+            end_jumps[end_jump_count++] = emit(cg, INST(OP_JUMP, 0, 0, 0), line);
+        }
+    }
+
+    int default_addr = -1;
+    if (default_case) {
+        restore_numbers(cg, match_before);
+        num_cache_truncate(cg, saved_num_count);
+        str_cache_truncate(cg, saved_str_count);
+        default_addr = bytecode_current_offset(cg->chunk);
+        codegen_block(cg, default_case->case_stmt.body);
+        if (!stmt_always_exits(default_case->case_stmt.body)) {
+            end_jumps[end_jump_count++] = emit(cg, INST(OP_JUMP, 0, 0, 0), line);
+        }
+    }
+
+    cg->register_floor = prev_floor;
+    restore_numbers(cg, match_before);
+    for (int i = 0; i < case_count; i++)
+        invalidate_consts_for_body(cg, cases->nodes[i]->case_stmt.body);
+    if (default_case) invalidate_consts_for_body(cg, default_case->case_stmt.body);
+    num_cache_truncate(cg, saved_num_count);
+    str_cache_truncate(cg, saved_str_count);
+
+    int end_addr = bytecode_current_offset(cg->chunk);
+    int fallback = (default_addr >= 0) ? default_addr : end_addr;
+    cg->chunk->constants[table_idx].num_switch.default_pc = fallback;
+
+    for (int i = 0; i < end_jump_count; i++) PATCH_JUMP(cg, end_jumps[i], end_addr);
+
+    free(values); free(hashes); free(bitsarr); free(end_jumps);
+    free_register(cg, subject_reg);
+    cg->imm_lvn.count = 0;
+    return true;
+}
+
 // emits a match statement as a chain of fused constant checks and jumps
 void codegen_match_statement(CodeGenerator* cg, ASTNode* node) {
     LocalNumSnap match_before = snap_numbers(cg);                        // snapshot before any case body
@@ -195,6 +490,22 @@ void codegen_match_statement(CodeGenerator* cg, ASTNode* node) {
                              case_count, line, match_before,
                              saved_num_count, saved_str_count)) {
         free_snap(match_before);                                         // helper consumed everything
+        return;
+    }
+
+    // all-string cases: perfect-hash dispatch
+    if (try_match_str_switch(cg, subject_reg, cases, default_case,
+                             case_count, line, match_before,
+                             saved_num_count, saved_str_count)) {
+        free_snap(match_before);
+        return;
+    }
+
+    // all-numeric cases (non-dense or fractional): perfect-hash dispatch
+    if (try_match_num_switch(cg, subject_reg, cases, default_case,
+                             case_count, line, match_before,
+                             saved_num_count, saved_str_count)) {
+        free_snap(match_before);
         return;
     }
 

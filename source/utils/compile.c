@@ -111,6 +111,34 @@ static void write_constant(FILE* f, Constant* c) {
             }
             break;
         }
+        case CONST_STR_SWITCH: {
+            write_u32(f, (uint32_t)c->str_switch.mask);
+            write_u32(f, (uint32_t)c->str_switch.addend);
+            write_u32(f, (uint32_t)c->str_switch.count);
+            write_u32(f, (uint32_t)c->str_switch.default_pc);
+            for (int i = 0; i <= c->str_switch.mask; i++) {   // only live slots
+                StringSwitchEntry* e = &c->str_switch.entries[i];
+                if (e->target < 0) continue;
+                write_u32(f, e->hash);
+                write_u32(f, (uint32_t)e->target);
+                write_u32(f, (uint32_t)e->case_const_idx);
+            }
+            break;
+        }
+        case CONST_NUM_SWITCH: {
+            write_u32(f, (uint32_t)c->num_switch.mask);
+            write_u32(f, (uint32_t)c->num_switch.addend);
+            write_u32(f, (uint32_t)c->num_switch.count);
+            write_u32(f, (uint32_t)c->num_switch.default_pc);
+            for (int i = 0; i <= c->num_switch.mask; i++) {
+                NumSwitchEntry* e = &c->num_switch.entries[i];
+                if (e->target < 0) continue;
+                write_u32(f, (uint32_t)(e->bits & 0xFFFFFFFFULL));  // low 32 bits
+                write_u32(f, (uint32_t)(e->bits >> 32));            // high 32 bits
+                write_u32(f, (uint32_t)e->target);
+            }
+            break;
+        }
         default:
             break;
     }

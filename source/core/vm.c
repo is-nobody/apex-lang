@@ -2058,6 +2058,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         [OP_JUMP_MATCH_BOOL]    = &&OP_JUMP_MATCH_BOOL_LABEL,
         [OP_JUMP_MATCH_NONE]    = &&OP_JUMP_MATCH_NONE_LABEL,
         [OP_JUMP_TABLE]         = &&OP_JUMP_TABLE_LABEL,
+        [OP_SWITCH_STR]         = &&OP_SWITCH_STR_LABEL,
+        [OP_SWITCH_NUM]         = &&OP_SWITCH_NUM_LABEL,
 
         [OP_CMP_EQ]             = &&OP_CMP_EQ_LABEL,
         [OP_CMP_NEQ]            = &&OP_CMP_NEQ_LABEL,
@@ -2788,6 +2790,63 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             }
         }
         ip++; goto *dispatch_table[ip->opcode];        // miss: fall through to no_match JUMP
+    }
+    OP_SWITCH_STR_LABEL: {
+        int subj_reg  = ip->operands[0];               // register holding the subject
+        int table_idx = ip->operands[1];               // constant pool index of CONST_STR_SWITCH
+        Constant* c   = &chunk->constants[table_idx];
+        Value subj = regs[subj_reg];
+
+        if (likely(IS_STRING(subj))) {                             // strings only
+            StringObject* s = AS_STRING(subj);
+            uint32_t h = s->hash;
+            if (unlikely(!s->hash_computed)) {                     // lazy compute (matches string_get_hash)
+                h = 5381;
+                for (int i = 0; i < s->length; i++)
+                    h = ((h << 5) + h) + (uint8_t)s->chars[i];
+                s->hash = h;
+                s->hash_computed = true;
+            }
+            int idx = (int)((h ^ c->str_switch.addend) & (uint32_t)c->str_switch.mask);
+            StringSwitchEntry* e = &c->str_switch.entries[idx];
+            if (e->target >= 0 && e->hash == h) {                  // slot live and hash matches
+                StringObject* cs = (StringObject*)chunk->constants[e->case_const_idx].cached_str;
+                if (cs == s ||                                     // interned-identity fast path
+                    (cs->length == s->length &&
+                     memcmp(cs->chars, s->chars, s->length) == 0)) {
+                    ip = &vm->code[e->target];
+                    goto *dispatch_table[ip->opcode];
+                }
+            }
+        }
+        ip = &vm->code[c->str_switch.default_pc];                  // miss / non-string: default arm
+        goto *dispatch_table[ip->opcode];
+    }
+    OP_SWITCH_NUM_LABEL: {
+        int subj_reg  = ip->operands[0];
+        int table_idx = ip->operands[1];
+        Constant* c   = &chunk->constants[table_idx];
+        Value subj = regs[subj_reg];
+
+        if (likely(IS_NUMBER(subj))) {
+            double n = AS_NUMBER(subj);
+            if (likely(n == n)) {                                  // reject NaN before hashing
+                if (n == 0.0) n = 0.0;                             // canonicalize -0.0 -> +0.0
+                uint64_t bits;
+                memcpy(&bits, &n, 8);
+                uint32_t h = 2166136261u;                          // FNV-1a on 64-bit pattern
+                h ^= (uint32_t)bits;             h *= 16777619u;
+                h ^= (uint32_t)(bits >> 32);     h *= 16777619u;
+                int idx = (int)((h ^ c->num_switch.addend) & (uint32_t)c->num_switch.mask);
+                NumSwitchEntry* e = &c->num_switch.entries[idx];
+                if (e->target >= 0 && e->bits == bits) {           // 64-bit bit-pattern equality
+                    ip = &vm->code[e->target];
+                    goto *dispatch_table[ip->opcode];
+                }
+            }
+        }
+        ip = &vm->code[c->num_switch.default_pc];                  // miss / non-number: default arm
+        goto *dispatch_table[ip->opcode];
     }
 
     OP_CMP_EQ_LABEL: {

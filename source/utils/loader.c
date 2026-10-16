@@ -139,8 +139,7 @@ static Constant read_constant(FILE* f, long file_size) {
             uint32_t n_kv  = read_u32(f);                       // kv count
             uint32_t cap   = read_u32(f);                       // growth hint
 
-            // total indices read = n_kv keys + (n_arr + n_kv) values, 4 bytes each.
-            // use uint64 to detect an n_arr + n_kv wrap before touching the file.
+            // total indices read = n_kv keys + (n_arr + n_kv) values, 4 bytes each
             uint64_t total_values = (uint64_t)n_arr + (uint64_t)n_kv;    // detect wrap
             if (total_values > 0xFFFFFFFFULL) {                          // wrapped sum: reject
                 c.type = CONST_NONE;
@@ -186,6 +185,90 @@ static Constant read_constant(FILE* f, long file_size) {
             for (uint32_t i = 0; i < total_values; i++) {
                 c.table.value_indices[i] = (int)read_u32(f);            // each value pool index
             }
+            break;
+        }
+        case CONST_STR_SWITCH: {
+            uint32_t mask   = read_u32(f);
+            uint32_t addend = read_u32(f);
+            uint32_t count  = read_u32(f);
+            uint32_t defpc  = read_u32(f);
+            if (mask == 0 || ((mask + 1) & mask) != 0 || count > mask + 1) {
+                c.type = CONST_NONE;                            // malformed: reject
+                break;
+            }
+            if (!fits_in_file(f, file_size, count, 12)) {       // 3 u32 per live entry
+                c.type = CONST_NONE;
+                break;
+            }
+            int cap = (int)mask + 1;
+            StringSwitchEntry* entries = (StringSwitchEntry*)malloc(
+                sizeof(StringSwitchEntry) * cap);
+            if (!entries) { c.type = CONST_NONE; break; }
+            for (int i = 0; i < cap; i++) {                     // init all slots empty
+                entries[i].hash = 0;
+                entries[i].target = -1;
+                entries[i].case_const_idx = -1;
+            }
+            bool bad = false;
+            for (uint32_t i = 0; i < count; i++) {
+                uint32_t h = read_u32(f);
+                int tgt    = (int)read_u32(f);
+                int cidx   = (int)read_u32(f);
+                uint32_t idx = (h ^ addend) & mask;             // reconstruct slot
+                if (entries[idx].target >= 0) { bad = true; break; }  // collision: forged file
+                entries[idx].hash         = h;
+                entries[idx].target       = tgt;
+                entries[idx].case_const_idx = cidx;
+            }
+            if (bad) { free(entries); c.type = CONST_NONE; break; }
+            c.str_switch.mask        = (int)mask;
+            c.str_switch.addend      = addend;
+            c.str_switch.count       = (int)count;
+            c.str_switch.default_pc  = (int)defpc;
+            c.str_switch.entries     = entries;
+            break;
+        }
+        case CONST_NUM_SWITCH: {
+            uint32_t mask   = read_u32(f);
+            uint32_t addend = read_u32(f);
+            uint32_t count  = read_u32(f);
+            uint32_t defpc  = read_u32(f);
+            if (mask == 0 || ((mask + 1) & mask) != 0 || count > mask + 1) {
+                c.type = CONST_NONE;
+                break;
+            }
+            if (!fits_in_file(f, file_size, count, 12)) {       // 3 u32 per live entry
+                c.type = CONST_NONE;
+                break;
+            }
+            int cap = (int)mask + 1;
+            NumSwitchEntry* entries = (NumSwitchEntry*)malloc(
+                sizeof(NumSwitchEntry) * cap);
+            if (!entries) { c.type = CONST_NONE; break; }
+            for (int i = 0; i < cap; i++) {
+                entries[i].bits = 0;
+                entries[i].target = -1;
+            }
+            bool bad = false;
+            for (uint32_t i = 0; i < count; i++) {
+                uint32_t lo = read_u32(f);
+                uint32_t hi = read_u32(f);
+                int tgt     = (int)read_u32(f);
+                uint64_t bits = ((uint64_t)hi << 32) | (uint64_t)lo;
+                uint32_t h = 2166136261u;                       // must match num_sw_hash
+                h ^= (uint32_t)bits;             h *= 16777619u;
+                h ^= (uint32_t)(bits >> 32);     h *= 16777619u;
+                uint32_t idx = (h ^ addend) & mask;
+                if (entries[idx].target >= 0) { bad = true; break; }
+                entries[idx].bits   = bits;
+                entries[idx].target = tgt;
+            }
+            if (bad) { free(entries); c.type = CONST_NONE; break; }
+            c.num_switch.mask        = (int)mask;
+            c.num_switch.addend      = addend;
+            c.num_switch.count       = (int)count;
+            c.num_switch.default_pc  = (int)defpc;
+            c.num_switch.entries     = entries;
             break;
         }
         default: {

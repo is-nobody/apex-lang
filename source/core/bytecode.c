@@ -66,6 +66,8 @@ static const char* opcode_names[] = {
     [OP_JUMP_MATCH_BOOL]    = "JUMP_MATCH_BOOL",
     [OP_JUMP_MATCH_NONE]    = "JUMP_MATCH_NONE",
     [OP_JUMP_TABLE]         = "JUMP_TABLE",
+    [OP_SWITCH_STR]         = "SWITCH_STR",
+    [OP_SWITCH_NUM]         = "SWITCH_NUM",
 
     [OP_CMP_EQ]             = "CMP_EQ",
     [OP_CMP_NEQ]            = "CMP_NEQ",
@@ -186,6 +188,14 @@ void bytecode_destroy(BytecodeChunk* chunk) {
             chunk->constants[i].table.key_indices = NULL;
             chunk->constants[i].table.value_indices = NULL;
         }
+        if (chunk->constants[i].type == CONST_STR_SWITCH) {           // string switch owns entry array
+            free(chunk->constants[i].str_switch.entries);
+            chunk->constants[i].str_switch.entries = NULL;
+        }
+        if (chunk->constants[i].type == CONST_NUM_SWITCH) {           // numeric switch owns entry array
+            free(chunk->constants[i].num_switch.entries);
+            chunk->constants[i].num_switch.entries = NULL;
+        }
         if (chunk->constants[i].type == CONST_STRING) {               // check if constant is a string
             if (chunk->constants[i].string_value) {                   // check if string value exists
                 bool in_pool = false;                                 // flag to track if string is in pool
@@ -297,7 +307,9 @@ int bytecode_add_constant(BytecodeChunk* chunk, Constant constant) {
         }
     }
     if (constant.type == CONST_JUMP_TABLE ||
-        constant.type == CONST_TABLE) {                            // jump tables stay unique; tables that missed dedup
+        constant.type == CONST_TABLE       ||
+        constant.type == CONST_STR_SWITCH  ||                     // switch tables own heap, stay unique
+        constant.type == CONST_NUM_SWITCH) {
         if (chunk->const_count >= chunk->const_capacity) {
             chunk->const_capacity *= 2;
             chunk->constants = (Constant*)realloc(chunk->constants,

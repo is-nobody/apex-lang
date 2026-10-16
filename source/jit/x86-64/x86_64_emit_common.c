@@ -16,7 +16,9 @@ bool op_is_terminator(Opcode op) {
     return op == OP_JUMP ||
            op == OP_RETURN || op == OP_RETURN_NUM ||
            op == OP_RETURN_BOOL || op == OP_RETURN_NONE ||
-           op == OP_RETURN_NUM_IMM;
+           op == OP_RETURN_NUM_IMM ||
+           op == OP_SWITCH_STR ||                            // always jumps (case or default)
+           op == OP_SWITCH_NUM;                              // always jumps (case or default)
 }
 
 // captures the current cache into a compact snapshot
@@ -70,6 +72,49 @@ int jit_match_str(Value subj, StringObject* case_str) {
     if (!s || !case_str) return 0;
     if (s->length != case_str->length) return 0;             // different lengths
     return memcmp(s->chars, case_str->chars, s->length) == 0;
+}
+
+// returns the target bytecode pc for a string switch dispatch, or -1 on miss/default
+int jit_switch_str(Value subj, BytecodeChunk* chunk, int table_idx) {
+    if (!IS_STRING(subj)) return -1;                         // non-string subject -> default
+    StringObject* s = AS_STRING(subj);                       // unwrap the interned string
+    uint32_t h = s->hash;
+    if (!s->hash_computed) {                                 // lazy hash (matches interpreter)
+        h = 5381;
+        for (int i = 0; i < s->length; i++)
+            h = ((h << 5) + h) + (uint8_t)s->chars[i];
+        s->hash = h;
+        s->hash_computed = true;
+    }
+    Constant* c = &chunk->constants[table_idx];              // CONST_STR_SWITCH entry
+    int idx = (int)((h ^ c->str_switch.addend) & (uint32_t)c->str_switch.mask);
+    StringSwitchEntry* e = &c->str_switch.entries[idx];      // slot lookup
+    if (e->target < 0 || e->hash != h) return -1;            // empty slot or hash mismatch
+    StringObject* cs =
+        (StringObject*)chunk->constants[e->case_const_idx].cached_str;
+    if (cs == s) return e->target;                           // pointer-identity fast path
+    if (cs->length != s->length) return -1;                  // length mismatch
+    if (memcmp(cs->chars, s->chars, s->length) == 0)         // content match
+        return e->target;
+    return -1;                                               // hash collision, contents differ
+}
+
+// returns the target bytecode pc for a numeric switch dispatch, or -1 on miss/default
+int jit_switch_num(Value subj, BytecodeChunk* chunk, int table_idx) {
+    if (!IS_NUMBER(subj)) return -1;                         // non-number subject -> default
+    double n = AS_NUMBER(subj);                              // unbox
+    if (n != n) return -1;                                   // NaN never matches a case
+    if (n == 0.0) n = 0.0;                                   // canonicalize -0.0 -> +0.0
+    uint64_t bits;
+    memcpy(&bits, &n, 8);                                    // raw IEEE-754 bit pattern
+    uint32_t h = 2166136261u;                                // FNV-1a (must match codegen)
+    h ^= (uint32_t)bits;             h *= 16777619u;
+    h ^= (uint32_t)(bits >> 32);     h *= 16777619u;
+    Constant* c = &chunk->constants[table_idx];
+    int idx = (int)((h ^ c->num_switch.addend) & (uint32_t)c->num_switch.mask);
+    NumSwitchEntry* e = &c->num_switch.entries[idx];
+    if (e->target < 0 || e->bits != bits) return -1;         // empty slot or bits mismatch
+    return e->target;
 }
 
 // replace *dst with new_val
@@ -275,6 +320,9 @@ bool slot_read_before_write(BytecodeChunk* chunk, int pc_after, int end, int s) 
             case OP_JUMP_MATCH_NUM: case OP_JUMP_MATCH_STR:      // reads subject in a
             case OP_JUMP_MATCH_BOOL: case OP_JUMP_MATCH_NONE:
                 reads = (a == s);
+                break;
+            case OP_SWITCH_STR: case OP_SWITCH_NUM:              // reads subject in operands[0]
+                reads = (d == s);
                 break;
             case OP_RETURN: case OP_RETURN_NUM:                  // reads d
             case OP_RETURN_BOOL:                                 // incl. boolean

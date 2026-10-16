@@ -114,6 +114,72 @@ static void print_const_value(BytecodeChunk* chunk, int idx, FILE* out) {  // ch
             fputs(C_CYAN "]" C_RESET, out);                       // closing bracket
             break;
         }
+        case CONST_STR_SWITCH: {                                  // perfect-hash string switch
+            fputs(C_CYAN "[", out);                               // opening bracket
+            const int max_show = 6;                               // cap entries per line
+            int live = 0, shown = 0;
+            for (int i = 0; i <= c->str_switch.mask; i++) {       // count live slots first
+                if (c->str_switch.entries[i].target >= 0) live++;
+            }
+            for (int i = 0; i <= c->str_switch.mask && shown < max_show; i++) {
+                StringSwitchEntry* e = &c->str_switch.entries[i];
+                if (e->target < 0) continue;                      // skip empty slots
+                if (shown > 0) fputs(", ", out);                  // separator
+                print_const_value(chunk, e->case_const_idx, out); // the case string
+                fputs(" " C_BLUE "->" C_RESET " " C_GRAY, out);   // arrow
+                fprintf(out, "%d" C_RESET, e->target);            // case body pc
+                shown++;
+            }
+            if (live > shown)                                     // truncation indicator
+                fprintf(out, ", " C_GRAY "...+%d more" C_RESET, live - shown);
+            fputs(C_CYAN "]" C_RESET, out);                       // closing bracket
+            break;
+        }
+        case CONST_NUM_SWITCH: {                                  // perfect-hash numeric switch
+            fputs(C_CYAN "[", out);
+            const int max_show = 6;
+            int live = 0, shown = 0;
+            for (int i = 0; i <= c->num_switch.mask; i++) {
+                if (c->num_switch.entries[i].target >= 0) live++;
+            }
+            for (int i = 0; i <= c->num_switch.mask && shown < max_show; i++) {
+                NumSwitchEntry* e = &c->num_switch.entries[i];
+                if (e->target < 0) continue;
+                if (shown > 0) fputs(", ", out);
+                double d;                                         // decode IEEE-754 bits
+                memcpy(&d, &e->bits, 8);
+                if (fabs(d) >= 1e6 || fabs(d - (long long)d) < 1e-9)
+                    fprintf(out, C_MAGENTA "%.0f" C_RESET, d);    // whole or huge
+                else
+                    fprintf(out, C_MAGENTA "%.15g" C_RESET, d);   // general
+                fputs(" " C_BLUE "->" C_RESET " " C_GRAY, out);
+                fprintf(out, "%d" C_RESET, e->target);
+                shown++;
+            }
+            if (live > shown)
+                fprintf(out, ", " C_GRAY "...+%d more" C_RESET, live - shown);
+            fputs(C_CYAN "]" C_RESET, out);
+            break;
+        }
+        case CONST_JUMP_TABLE: {                                  // dense integer dispatch
+            fputs(C_CYAN "[", out);                               // opening bracket
+            const int max_show = 8;                               // slots per line
+            int shown = 0;
+            for (int i = 0; i < c->jump_table.count && shown < max_show; i++) {
+                if (shown > 0) fputs(", ", out);
+                int tgt = c->jump_table.addresses[i];
+                if (tgt >= 0)
+                    fprintf(out, C_GRAY "%d" C_RESET, tgt);       // target pc
+                else
+                    fputs(C_RED "-1" C_RESET, out);               // hole (routed to default)
+                shown++;
+            }
+            if (c->jump_table.count > shown)
+                fprintf(out, ", " C_GRAY "...+%d more" C_RESET,
+                        c->jump_table.count - shown);
+            fputs(C_CYAN "]" C_RESET, out);
+            break;
+        }
         default:                                                  // unknown type
             fputs(C_RED "<?>" C_RESET, out);                      // red unknown marker
             break;
@@ -282,7 +348,51 @@ static void emit_instruction(BytecodeChunk* chunk, int offset, FILE* out) {  // 
             fprintf(out, C_BLUE "->" C_RESET " " C_GRAY "%d" C_RESET " if ", a); REG(b);  // -> target if subj ==
             fputs(" == " C_MAGENTA "none" C_RESET, out);          // none literal
             break;
-
+        case OP_SWITCH_STR: {                                     // perfect-hash string dispatch
+            Constant* cn = (b >= 0 && b < chunk->const_count) ? &chunk->constants[b] : NULL;
+            REG(a); fputs(" switch ", out);
+            if (cn && cn->type == CONST_STR_SWITCH)
+                print_const_value(chunk, b, out);                 // expanded inline
+            else
+                fputs(C_RED "<?>" C_RESET, out);
+            break;
+        }
+        case OP_SWITCH_NUM: {                                     // perfect-hash numeric dispatch
+            Constant* cn = (b >= 0 && b < chunk->const_count) ? &chunk->constants[b] : NULL;
+            REG(a); fputs(" switch ", out);
+            if (cn && cn->type == CONST_NUM_SWITCH)
+                print_const_value(chunk, b, out);                 // expanded inline
+            else
+                fputs(C_RED "<?>" C_RESET, out);
+            break;
+        }
+        case OP_JUMP_TABLE: {                                     // dense integer dispatch
+            Constant* cn = (c >= 0 && c < chunk->const_count) ? &chunk->constants[c] : NULL;
+            REG(a); fputs(" switch ", out);
+            if (cn && cn->type == CONST_JUMP_TABLE) {
+                fputs(C_CYAN "[", out);
+                const int max_show = 6;
+                int shown = 0;
+                for (int i = 0; i < cn->jump_table.count && shown < max_show; i++) {
+                    if (shown > 0) fputs(", ", out);
+                    fprintf(out, C_MAGENTA "%d" C_RESET, b + i);  // case value = min + i
+                    fputs(" " C_BLUE "->" C_RESET " ", out);
+                    int tgt = cn->jump_table.addresses[i];
+                    if (tgt >= 0)
+                        fprintf(out, C_GRAY "%d" C_RESET, tgt);
+                    else
+                        fputs(C_RED "-1" C_RESET, out);           // hole -> default
+                    shown++;
+                }
+                if (cn->jump_table.count > shown)
+                    fprintf(out, ", " C_GRAY "...+%d more" C_RESET,
+                            cn->jump_table.count - shown);
+                fputs(C_CYAN "]" C_RESET, out);
+            } else {
+                fputs(C_RED "<?>" C_RESET, out);
+            }
+            break;
+        }
         case OP_CMP_EQ:      REG(a); fputs(" <- (", out); REG(b); fputs(" == ", out); REG(c); fputs(")", out); break;  // dst <- (a == b)
         case OP_CMP_NEQ:     REG(a); fputs(" <- (", out); REG(b); fputs(" != ", out); REG(c); fputs(")", out); break;  // dst <- (a != b)
         case OP_CMP_EQ_NUM:  REG(a); fputs(" <- (", out); REG(b); fputs(" == ", out); REG(c); fputs(")", out);         // dst <- (a == b)
@@ -556,6 +666,9 @@ int emit_command(int argc, char** argv) {                         // argc/argv: 
                 case CONST_NONE:     fputs(C_MAGENTA "NONE"     C_RESET "     ", stdout); break;  // none label
                 case CONST_FUNCTION: fputs(C_YELLOW  "FUNCTION" C_RESET " ", stdout); break;  // function label
                 case CONST_TABLE:    fputs(C_CYAN    "TABLE"    C_RESET "    ", stdout); break;  // table label
+                case CONST_JUMP_TABLE: fputs(C_CYAN  "JMPTAB"   C_RESET "   ", stdout); break;  // jump table label
+                case CONST_STR_SWITCH: fputs(C_CYAN  "SW_STR"   C_RESET "   ", stdout); break;  // string switch label
+                case CONST_NUM_SWITCH: fputs(C_CYAN  "SW_NUM"   C_RESET "   ", stdout); break;  // numeric switch label
                 default:             fputs(C_RED     "?"        C_RESET "        ", stdout); break;  // unknown label
             }
             print_const_value(chunk, i, stdout);                  // print value

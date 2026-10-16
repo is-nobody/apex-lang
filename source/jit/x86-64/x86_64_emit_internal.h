@@ -47,6 +47,12 @@ void x86_cache_restore(XmmCache* c, const JitCacheSnap* snap);
 // helper for op_jump_match_str: returns 1 if the subject is a string whose
 int jit_match_str(Value subj, StringObject* case_str);
 
+// returns the target bytecode pc for a string switch dispatch, or -1 on miss/default
+int jit_switch_str(Value subj, BytecodeChunk* chunk, int table_idx);
+
+// returns the target bytecode pc for a numeric switch dispatch, or -1 on miss/default
+int jit_switch_num(Value subj, BytecodeChunk* chunk, int table_idx);
+
 // replace *dst with new_val
 void jit_store_slot(Value* dst, Value new_val);
 

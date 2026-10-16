@@ -1015,6 +1015,167 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 did_flush = true;                                // cache already flushed above
                 break;
             }
+            case OP_SWITCH_STR: {                                // perfect-hash string dispatch
+                int subj_reg  = inst->operands[0];               // subject register
+                int table_idx = inst->operands[1];               // constant pool index
+                Constant* c = &chunk->constants[table_idx];
+                if (c->type != CONST_STR_SWITCH)
+                    JIT_FATAL("OP_SWITCH_STR without CONST_STR_SWITCH (func=%d pc=%d)",
+                              func_idx, pc);
+
+                // budget: one cmp+je (10 bytes) per unique target + one jmp + slack
+                size_t needed = (size_t)c->str_switch.count * 16 + 128;
+                if (cb->len + needed > cb->cap)
+                    JIT_FATAL("code buffer too small for SWITCH_STR (func=%d pc=%d)",
+                              func_idx, pc);
+                if (fixup_count + c->str_switch.count + 1 >
+                    (int)ctx->chunk->code_count)
+                    JIT_FATAL("fixup buffer too small for SWITCH_STR (func=%d pc=%d)",
+                              func_idx, pc);
+
+                x86_cache_flush(&cache, cb);                     // spill before the helper call
+
+                // arg0 = subject (sysv: rdi, win64: rcx)
+                x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(subj_reg));
+#if defined(_WIN32) || defined(_WIN64)
+                x86_emit_mov_r64_r64(cb, X86_RCX, X86_RAX);
+#else
+                x86_emit_mov_r64_r64(cb, X86_RDI, X86_RAX);
+#endif
+
+                // arg1 = chunk pointer (sysv: rsi, win64: rdx); arg2 = table_idx
+                x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)chunk);
+#if defined(_WIN32) || defined(_WIN64)
+                x86_emit_mov_r64_r64(cb, X86_RDX, X86_RAX);
+                emit_u8(cb, 0x41); emit_u8(cb, 0xB8);            // mov r8d, imm32
+                emit_u32(cb, (uint32_t)table_idx);
+#else
+                x86_emit_mov_r64_r64(cb, X86_RSI, X86_RAX);
+                emit_u8(cb, 0xBA);                                // mov edx, imm32
+                emit_u32(cb, (uint32_t)table_idx);
+#endif
+
+                // call the helper
+                x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_switch_str);
+                emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);            // call rax
+
+                x86_cache_clear(&cache);                         // callee clobbered all xmm
+
+                // rax = target pc (or -1 on miss); one cmp+je per unique target
+                int seen[256];
+                int n_seen = 0;
+                for (int i = 0; i <= c->str_switch.mask && n_seen < 256; i++) {
+                    int tgt = c->str_switch.entries[i].target;
+                    if (tgt < 0) continue;                       // empty slot
+                    if (tgt < start || tgt >= end)
+                        JIT_FATAL("SWITCH_STR target out of range (func=%d pc=%d tgt=%d)",
+                                  func_idx, pc, tgt);
+                    bool dup = false;                            // dedupe identical bodies
+                    for (int j = 0; j < n_seen; j++)
+                        if (seen[j] == tgt) { dup = true; break; }
+                    if (dup) continue;
+                    seen[n_seen++] = tgt;
+
+                    emit_u8(cb, 0x3D);                           // cmp eax, imm32
+                    emit_u32(cb, (uint32_t)tgt);
+                    emit_u8(cb, 0x0F); emit_u8(cb, 0x84);        // je rel32
+                    fixups[fixup_count].patch_at  = cb->len;
+                    fixups[fixup_count].target_pc = tgt;
+                    fixup_count++;
+                    emit_i32(cb, 0);                             // placeholder
+                }
+
+                int def = c->str_switch.default_pc;              // fallthrough: default arm
+                if (def < start || def > end)
+                    JIT_FATAL("SWITCH_STR default out of range (func=%d pc=%d def=%d)",
+                              func_idx, pc, def);
+                emit_u8(cb, 0xE9);                               // jmp rel32
+                fixups[fixup_count].patch_at  = cb->len;
+                fixups[fixup_count].target_pc = def;
+                fixup_count++;
+                emit_i32(cb, 0);                                 // placeholder
+
+                did_flush = true;                                // suppress merge flush
+                break;
+            }
+            case OP_SWITCH_NUM: {                                // perfect-hash numeric dispatch
+                int subj_reg  = inst->operands[0];
+                int table_idx = inst->operands[1];
+                Constant* c = &chunk->constants[table_idx];
+                if (c->type != CONST_NUM_SWITCH)
+                    JIT_FATAL("OP_SWITCH_NUM without CONST_NUM_SWITCH (func=%d pc=%d)",
+                              func_idx, pc);
+
+                size_t needed = (size_t)c->num_switch.count * 16 + 128;
+                if (cb->len + needed > cb->cap)
+                    JIT_FATAL("code buffer too small for SWITCH_NUM (func=%d pc=%d)",
+                              func_idx, pc);
+                if (fixup_count + c->num_switch.count + 1 >
+                    (int)ctx->chunk->code_count)
+                    JIT_FATAL("fixup buffer too small for SWITCH_NUM (func=%d pc=%d)",
+                              func_idx, pc);
+
+                x86_cache_flush(&cache, cb);
+
+                x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(subj_reg));
+#if defined(_WIN32) || defined(_WIN64)
+                x86_emit_mov_r64_r64(cb, X86_RCX, X86_RAX);
+#else
+                x86_emit_mov_r64_r64(cb, X86_RDI, X86_RAX);
+#endif
+
+                x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)chunk);
+#if defined(_WIN32) || defined(_WIN64)
+                x86_emit_mov_r64_r64(cb, X86_RDX, X86_RAX);
+                emit_u8(cb, 0x41); emit_u8(cb, 0xB8);
+                emit_u32(cb, (uint32_t)table_idx);
+#else
+                x86_emit_mov_r64_r64(cb, X86_RSI, X86_RAX);
+                emit_u8(cb, 0xBA);
+                emit_u32(cb, (uint32_t)table_idx);
+#endif
+
+                x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_switch_num);
+                emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);
+
+                x86_cache_clear(&cache);
+
+                int seen[256];
+                int n_seen = 0;
+                for (int i = 0; i <= c->num_switch.mask && n_seen < 256; i++) {
+                    int tgt = c->num_switch.entries[i].target;
+                    if (tgt < 0) continue;
+                    if (tgt < start || tgt >= end)
+                        JIT_FATAL("SWITCH_NUM target out of range (func=%d pc=%d tgt=%d)",
+                                  func_idx, pc, tgt);
+                    bool dup = false;
+                    for (int j = 0; j < n_seen; j++)
+                        if (seen[j] == tgt) { dup = true; break; }
+                    if (dup) continue;
+                    seen[n_seen++] = tgt;
+
+                    emit_u8(cb, 0x3D);                           // cmp eax, imm32
+                    emit_u32(cb, (uint32_t)tgt);
+                    emit_u8(cb, 0x0F); emit_u8(cb, 0x84);        // je rel32
+                    fixups[fixup_count].patch_at  = cb->len;
+                    fixups[fixup_count].target_pc = tgt;
+                    fixup_count++;
+                    emit_i32(cb, 0);
+                }
+
+                int def = c->num_switch.default_pc;
+                if (def < start || def > end)
+                    JIT_FATAL("SWITCH_NUM default out of range (func=%d pc=%d def=%d)",
+                              func_idx, pc, def);
+                emit_u8(cb, 0xE9);
+                fixups[fixup_count].patch_at  = cb->len;
+                fixups[fixup_count].target_pc = def;
+                fixup_count++;
+                emit_i32(cb, 0);
+
+                did_flush = true;
+                break;
+            }
             case OP_CALL_0: {                                    // call with no args
                 x86_cache_flush(&cache, cb);                     // spill everything before call
                 emit_call_or_self(cb, ctx, a, func_idx, mark);   // direct self-call or via table

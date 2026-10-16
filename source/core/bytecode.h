@@ -57,6 +57,8 @@ typedef enum {
     OP_JUMP_MATCH_BOOL,    // jump if subject equals boolean constant
     OP_JUMP_MATCH_NONE,    // jump if subject is none
     OP_JUMP_TABLE,         // jump to jump_table[subject - min]
+    OP_SWITCH_STR,         // perfect-hash dispatch over string cases
+    OP_SWITCH_NUM,         // perfect-hash dispatch over numeric cases (sparse/fractional)
 
     OP_CMP_EQ,             // equality comparison: rdst = (rleft == rright)
     OP_CMP_NEQ,            // inequality: rdst = (rleft != rright)
@@ -137,7 +139,22 @@ typedef enum {
     CONST_FUNCTION,      // function index into the function table
     CONST_TABLE,         // compile-time table literal
     CONST_JUMP_TABLE,    // dense integer match dispatch table
+    CONST_STR_SWITCH,    // perfect-hash string switch
+    CONST_NUM_SWITCH,    // perfect-hash numeric switch
 } ConstantType;
+
+// one slot in a perfect-hash string switch table
+typedef struct StringSwitchEntry {
+    uint32_t hash;            // original djb2 hash of the case string (pre-XOR)
+    int      target;          // case body pc, or -1 for empty slot
+    int      case_const_idx;  // pool index of the CONST_STRING for this case
+} StringSwitchEntry;
+
+// one slot in a perfect-hash numeric switch table
+typedef struct NumSwitchEntry {
+    uint64_t bits;            // canonical IEEE-754 bits (see canonical_double_bits)
+    int      target;          // case body pc, or -1 for empty slot
+} NumSwitchEntry;
 
 // a constant pool entry with a type and a type-specific value
 typedef struct {
@@ -158,8 +175,22 @@ typedef struct {
             int* value_indices;  // const pool indices, first array_count positional, then hash_count kv
             int  array_capacity; // hint for table_create/array_part_grow
         } table;                 // CONST_TABLE: compile-time table literal
+        struct {
+            int      mask;        // capacity - 1 (capacity is a power of two)
+            uint32_t addend;      // XOR addend searched at compile time
+            int      count;       // number of live cases
+            int      default_pc;  // fall-through target (patched after bodies are emitted)
+            StringSwitchEntry* entries;  // size == mask + 1
+        } str_switch;             // CONST_STR_SWITCH
+        struct {
+            int      mask;        // capacity - 1 (capacity is a power of two)
+            uint32_t addend;      // XOR addend searched at compile time
+            int      count;       // number of live cases
+            int      default_pc;  // fall-through target (patched after bodies are emitted)
+            NumSwitchEntry* entries;  // size == mask + 1
+        } num_switch;             // CONST_NUM_SWITCH
     };
-    void* cached_str;            // cached StringObject* for CONST_STRING, set at vm_execute
+    void* cached_str;             // cached StringObject* for CONST_STRING, set at vm_execute
 } Constant;
 
 // global variable entry with a name and its index in the globals table

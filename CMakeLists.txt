@@ -11,7 +11,7 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
 
-# enables the numeric-pure jit
+# enables the jit
 option(APEX_JIT_ENABLED "Enable the JIT compiler" ON)
 
 # enables debug tracing of the jit
@@ -20,17 +20,15 @@ option(APEX_JIT_TRACE "Enable JIT debug tracing" OFF)
 # normalizes the target cpu name into a short arch tag
 string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" APEX_PROC_LOWER)
 if(APEX_PROC_LOWER MATCHES "^(x86_64|amd64)")
-    set(APEX_HOST_ARCH "x86_64")
+    set(APEX_HOST_ARCH "x86-64")
 elseif(APEX_PROC_LOWER MATCHES "^(aarch64|arm64)")
     set(APEX_HOST_ARCH "aarch64")
-elseif(APEX_PROC_LOWER MATCHES "^(i[3-6]86|x86)")
-    set(APEX_HOST_ARCH "x86")
 else()
     set(APEX_HOST_ARCH "${APEX_PROC_LOWER}")
 endif()
 
 # checks if the jit backend is supported on this target
-if(APEX_JIT_ENABLED AND APEX_HOST_ARCH STREQUAL "x86_64" AND
+if(APEX_JIT_ENABLED AND APEX_HOST_ARCH STREQUAL "x86-64" AND
    (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
     CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR
     WIN32))

@@ -105,6 +105,34 @@ static bool jump_table_in_range(BytecodeChunk* chunk, int idx, int start, int en
     return true;
 }
 
+// true when every case and default target of a switch table lies within [start, end]
+static bool switch_targets_in_range(BytecodeChunk* chunk, int table_idx,
+                                    int start, int end) {
+    if (table_idx < 0 || table_idx >= chunk->const_count) return false;
+    Constant* c = &chunk->constants[table_idx];
+    if (c->type == CONST_STR_SWITCH) {
+        for (int i = 0; i <= c->str_switch.mask; i++) {
+            int tgt = c->str_switch.entries[i].target;
+            if (tgt < 0) continue;                               // empty slot, skipped
+            if (tgt < start || tgt >= end) return false;         // case body out of range
+        }
+        int def = c->str_switch.default_pc;
+        if (def < start || def > end) return false;              // end is a valid fallthrough
+        return true;
+    }
+    if (c->type == CONST_NUM_SWITCH) {
+        for (int i = 0; i <= c->num_switch.mask; i++) {
+            int tgt = c->num_switch.entries[i].target;
+            if (tgt < 0) continue;
+            if (tgt < start || tgt >= end) return false;
+        }
+        int def = c->num_switch.default_pc;
+        if (def < start || def > end) return false;
+        return true;
+    }
+    return false;                                                // wrong constant kind
+}
+
 // checks if a function contains only numeric ops and in-range jumps
 static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
     BytecodeChunk* chunk = ctx->chunk;
@@ -179,8 +207,15 @@ static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
                 break;
             }
 
+            case OP_SWITCH_STR:                                  // perfect-hash string dispatch
+            case OP_SWITCH_NUM: {                                // perfect-hash numeric dispatch
+                int idx = inst->operands[1];                     // constant pool index
+                if (!switch_targets_in_range(chunk, idx, start, end)) return false;
+                break;
+            }
+
             case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:  // call targets validated
-                break;                                       // by the fixpoint pass
+                break;                                       // by the fixpoint pass                                    // by the fixpoint pass
 
             default:
                 return false;                                // any other op: reject

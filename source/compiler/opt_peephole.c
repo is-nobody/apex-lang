@@ -53,6 +53,8 @@ bool inst_reads_reg(Instruction* inst, int reg) {
             return inst->operands[1] == reg || inst->operands[2] == reg;
         case OP_TABLE_GET_INT:
             return inst->operands[1] == reg;
+        case OP_SWITCH_STR: case OP_SWITCH_NUM:
+            return inst->operands[0] == reg;                    // only the subject is read
         case OP_PUSH_ARG:
             return inst->operands[0] == reg;                    // reads its one operand
         case OP_STORE_GLOBAL:
