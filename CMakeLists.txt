@@ -45,13 +45,15 @@ if(WIN32)
     list(APPEND APEX_UI_WINDOW_SOURCES
         source/libraries/ui/platform/windows/ui_window_windows.c
         source/libraries/ui/platform/windows/ui_window_windows_event.c
-        source/libraries/ui/platform/windows/ui_window_windows_clipboard.c)
-    list(APPEND APEX_UI_PLATFORM_LIBS shlwapi ws2_32)
+        source/libraries/ui/platform/windows/ui_window_windows_clipboard.c
+        source/libraries/ui/platform/windows/ui_window_windows_filedialog.c)
+    list(APPEND APEX_UI_PLATFORM_LIBS shlwapi ws2_32 ole32 shell32)
 elseif(APPLE)
     list(APPEND APEX_UI_WINDOW_SOURCES
         source/libraries/ui/platform/macos/ui_window_macos.c
         source/libraries/ui/platform/macos/ui_window_macos_event.c
-        source/libraries/ui/platform/macos/ui_window_macos_clipboard.c)
+        source/libraries/ui/platform/macos/ui_window_macos_clipboard.c
+        source/libraries/ui/platform/macos/ui_window_macos_filedialog.c)
     list(APPEND APEX_UI_PLATFORM_LIBS
         "-framework AppKit"
         "-framework Cocoa"
@@ -62,7 +64,8 @@ else()
     list(APPEND APEX_UI_WINDOW_SOURCES
         source/libraries/ui/platform/linux/ui_window_linux.c
         source/libraries/ui/platform/linux/ui_window_linux_event.c
-        source/libraries/ui/platform/linux/ui_window_linux_clipboard.c)
+        source/libraries/ui/platform/linux/ui_window_linux_clipboard.c
+        source/libraries/ui/platform/linux/ui_window_linux_filedialog.c)
     find_package(X11 REQUIRED)
     find_package(Fontconfig REQUIRED)
     list(APPEND APEX_UI_PLATFORM_LIBS

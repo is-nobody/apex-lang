@@ -416,3 +416,99 @@ Value ui_impl_window_size(VM* vm, int argc, Value* argv) {
     table_set(t, k, v); value_decref(k);
     return MAKE_TABLE(t);                                         // hand the table to the caller
 }
+
+// parses the optional options table shared by the two pickers
+static void parse_picker_opts(VM* vm, int argc, Value* argv,
+                              char** out_title, char** out_default,
+                              UiFileFilter** out_filters, int* out_filter_count) {
+    *out_title = NULL;
+    *out_default = NULL;
+    *out_filters = NULL;
+    *out_filter_count = 0;
+    if (argc < 1 || !IS_TABLE(argv[0])) return;
+
+    Table* t = AS_TABLE(argv[0]);
+    *out_title   = table_get_str_dup(vm, t, "title");
+    *out_default = table_get_str_dup(vm, t, "default");
+
+    Value fv;
+    Value k_filters = ui_intern(vm, "filters");
+    if (!table_get(t, k_filters, &fv)) { value_decref(k_filters); return; }
+    value_decref(k_filters);
+
+    if (IS_TABLE(fv)) {
+        Table* ft = AS_TABLE(fv);
+        int n = ft->array_part ? ft->array_count : 0;
+        UiFileFilter* arr = (UiFileFilter*)calloc((size_t)n + 1, sizeof(UiFileFilter));
+        if (arr) {
+            for (int i = 0; i < n; i++) {
+                Value item = ft->array_part[i];
+                if (!IS_TABLE(item)) continue;
+                Table* it = AS_TABLE(item);
+                char* name = table_get_str_dup(vm, it, "name");
+                char* pat  = table_get_str_dup(vm, it, "pattern");
+                if (name && pat) {
+                    arr[*out_filter_count].name    = name;
+                    arr[*out_filter_count].pattern = pat;
+                    (*out_filter_count)++;
+                } else {
+                    free(name); free(pat);
+                }
+            }
+            *out_filters = arr;
+        }
+    }
+    value_decref(fv);
+}
+
+static void free_picker_opts(char* title, char* def,
+                             UiFileFilter* filters, int count) {
+    for (int i = 0; i < count; i++) {
+        free((void*)filters[i].name);
+        free((void*)filters[i].pattern);
+    }
+    free(filters);
+    free(title);
+    free(def);
+}
+
+// builtin: ui.open_file(opts?) — native "open file" dialog
+Value ui_impl_open_file(VM* vm, int argc, Value* argv) {
+    UiContext* ctx = ui_ensure(vm);
+    if (!ctx->window) return MAKE_NONE();                 // no native window: nothing to anchor to
+
+    char* title = NULL;
+    char* def   = NULL;
+    UiFileFilter* filters = NULL;
+    int filter_count = 0;
+    parse_picker_opts(vm, argc, argv, &title, &def, &filters, &filter_count);
+
+    char* picked = ui_window_open_file(ctx->window, title, def, filters);
+    free_picker_opts(title, def, filters, filter_count);
+
+    if (!picked) return MAKE_NONE();                      // cancelled or unavailable
+    Value v = MAKE_STRING(string_create(picked, (int)strlen(picked)));
+    free(picked);
+    return v;
+}
+
+// builtin: ui.open_folder(opts?) — native "open folder" dialog
+Value ui_impl_open_folder(VM* vm, int argc, Value* argv) {
+    UiContext* ctx = ui_ensure(vm);
+    if (!ctx->window) return MAKE_NONE();
+
+    char* title = NULL;
+    char* def   = NULL;
+    UiFileFilter* filters = NULL;
+    int filter_count = 0;
+    parse_picker_opts(vm, argc, argv, &title, &def, &filters, &filter_count);
+
+    // filters are meaningless for a folder picker
+    char* picked = ui_window_open_folder(ctx->window, title, def);
+    free_picker_opts(title, def, filters, filter_count);
+
+    if (!picked) return MAKE_NONE();
+    Value v = MAKE_STRING(string_create(picked, (int)strlen(picked)));
+    free(picked);
+    return v;
+}

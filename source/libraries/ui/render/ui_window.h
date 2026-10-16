@@ -120,4 +120,19 @@ void ui_window_invalidate(UiWindow* w);
 // acks a pending resize synchronization (X11 only; no-op elsewhere)
 void ui_window_sync_ack(UiWindow* w);
 
+// one filter row for the native open-file dialog
+typedef struct {
+    const char* name;     // display name, e.g. "Images"
+    const char* pattern;  // semicolon-separated globs, e.g. "*.png;*.jpg"
+} UiFileFilter;
+
+// shows the native "open file" picker
+char* ui_window_open_file(UiWindow* w, const char* title,
+                          const char* default_path,
+                          const UiFileFilter* filters);
+
+// shows the native "open folder" picker. same ownership rules
+char* ui_window_open_folder(UiWindow* w, const char* title,
+                            const char* default_path);
+
 #endif

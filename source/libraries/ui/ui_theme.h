@@ -134,8 +134,8 @@
 #define UI_NOTIF_MARGIN     18    // distance from screen edge
 #define UI_NOTIF_GAP        10    // gap between stacked notifications
 #define UI_NOTIF_MAX        6     // maximum live notifications
-#define UI_NOTIF_OPEN_SEC   0.11  // slide-in duration
-#define UI_NOTIF_CLOSE_SEC  0.08  // slide-out duration
+#define UI_NOTIF_OPEN_SEC   0.1   // slide-in duration
+#define UI_NOTIF_CLOSE_SEC  0.1   // slide-out duration
 #define UI_NOTIF_SLIDE_MAX  60    // pixels the popup slides in from the right
 
 #define UI_C_NOTIF_BG        0xFF2A2D2Eu

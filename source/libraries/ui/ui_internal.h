@@ -385,6 +385,7 @@ typedef struct UiNotification {
     double    elapsed;            // seconds since shown
     double    anim_t;             // 0..1 open/close phase
     bool      closing;            // fading out
+    double    anim_started_at;    // wall-clock seconds the current fade phase began
 
     bool      hover_close;        // pointer over the close button
     bool      press_close;        // held on the close button

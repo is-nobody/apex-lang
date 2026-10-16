@@ -32,6 +32,10 @@ Value ui_impl_set_title(VM* vm, int argc, Value* argv);
 // query the current window size
 Value ui_impl_window_size(VM* vm, int argc, Value* argv);
 
+// show the native "open file" / "open folder" picker
+Value ui_impl_open_file(VM* vm, int argc, Value* argv);
+Value ui_impl_open_folder(VM* vm, int argc, Value* argv);
+
 // release every ui-owned allocation
 void  ui_context_destroy(struct UiContext* ctx);
 

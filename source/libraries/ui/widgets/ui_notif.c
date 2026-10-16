@@ -131,6 +131,7 @@ void ui_notification_show(UiContext* ctx, const char* key, const char* title,
     n->elapsed     = 0;                                  // no time elapsed yet
     n->anim_t      = 0;                                  // start fully transparent and offset
     n->closing     = false;                              // not fading out
+    n->anim_started_at = apex_now_seconds();             // anchor the open on wall-clock time
     n->show_close  = show_close;                         // honour the close button flag
 
     notif_measure(ctx, n, &n->win_w, &n->win_h);         // resolve the popup size
@@ -170,6 +171,7 @@ void ui_notification_close(UiContext* ctx, int index, bool emit) {
     UiNotification* n = ctx->notifs[index];
     if (n->closing) return;                              // already closing
     n->closing = true;                                   // start the slide-out
+    n->anim_started_at = apex_now_seconds();             // anchor the close on wall-clock time
     if (emit) notif_emit_close(ctx, n);                  // notify the script
 }
 
@@ -223,13 +225,15 @@ void ui_notification_pump(UiContext* ctx) {
 
 // advances slide-in, slide-out and auto-close timers
 void ui_notification_tick(UiContext* ctx, double dt) {
+    double now = apex_now_seconds();                     // one wall-clock sample for the whole pass
     for (int i = 0; i < ctx->notif_count; ) {            // manual index: entries may be removed
         UiNotification* n = ctx->notifs[i];
         bool dirty = false;                              // did anything change this tick?
 
         if (n->closing) {                                // sliding out to the right
-            n->anim_t -= dt / UI_NOTIF_CLOSE_SEC;        // shrink the phase
-            if (n->anim_t <= 0.0) {                      // fully off-screen: remove it
+            // derive the phase from wall-clock time
+            double t = 1.0 - (now - n->anim_started_at) / UI_NOTIF_CLOSE_SEC;
+            if (t <= 0.0) {                              // fully off-screen: remove it
                 n->anim_t = 0.0;
                 ui_render_notification(n);               // paint one last empty frame
                 notif_clear(n);                          // release resources
@@ -240,16 +244,25 @@ void ui_notification_tick(UiContext* ctx, double dt) {
                 notif_place_all(ctx);                    // re-flow the stack
                 continue;                                // do not advance i: same slot has a new entry
             }
-            dirty = true;                                // still animating: repaint
+            if (t > 1.0) t = 1.0;                        // clamp at fully open
+            if (t != n->anim_t) {                        // phase changed
+                n->anim_t = t;
+                dirty = true;                            // repaint
+            }
         } else {
             if (n->anim_t < 1.0) {                       // still sliding in
-                n->anim_t += dt / UI_NOTIF_OPEN_SEC;     // grow the phase
-                if (n->anim_t > 1.0) n->anim_t = 1.0;    // clamp at fully open
-                dirty = true;                            // repaint
+                // anim_started_at was seeded in ui_notification_show
+                double t = (now - n->anim_started_at) / UI_NOTIF_OPEN_SEC;
+                if (t > 1.0) t = 1.0;                    // clamp at fully open
+                if (t != n->anim_t) {                    // phase changed
+                    n->anim_t = t;
+                    dirty = true;                        // repaint
+                }
             }
             n->elapsed += dt;                            // accumulate open time
             if (n->timeout > 0 && n->elapsed >= n->timeout) {  // auto-close window elapsed
                 n->closing = true;                       // start the slide-out silently
+                n->anim_started_at = now;                // anchor the close from this tick
                 dirty = true;                            // repaint
             }
         }
