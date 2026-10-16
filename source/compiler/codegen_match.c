@@ -80,11 +80,14 @@ static uint64_t canonical_double_bits(double n) {
     return bits;
 }
 
-// FNV-1a over the 64-bit bit pattern; must match hash_value_key's numeric branch
+// fnv-1a over the 64-bit bit pattern; must match hash_value_key's numeric branch
 static uint32_t num_sw_hash(uint64_t bits) {
     uint32_t h = 2166136261u;
     h ^= (uint32_t)bits;             h *= 16777619u;
     h ^= (uint32_t)(bits >> 32);     h *= 16777619u;
+    h ^= h >> 15;                              // final avalanche step
+    h *= 2246822519u;
+    h ^= h >> 13;
     return h;
 }
 
