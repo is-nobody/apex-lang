@@ -144,7 +144,7 @@ static bool try_match_jump_table(CodeGenerator* cg, int subject_reg,
     }
 
     long long range = (long long)max_v - (long long)min_v + 1;
-    if (range > 4LL * case_count || range > 64) {                // density and absolute caps
+    if (range > 16LL * case_count || range > 512) {              // density and absolute caps
         free(values);
         return false;
     }
