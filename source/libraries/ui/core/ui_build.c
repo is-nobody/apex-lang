@@ -8,6 +8,7 @@
 #include "ui_table.h"
 #include "ui_widgets.h"
 #include <string.h>
+#include <stdio.h>
 
 // length-exact comparison against a string literal, no allocation
 static inline bool str_eq_n(const char* s, int n, const char* lit, int lit_n) {
@@ -39,6 +40,7 @@ static WidgetKind kind_from_str_n(const char* s, int n) {
     if (STR_EQ(s,n,"panel"))     return WK_PANEL;
     if (STR_EQ(s,n,"scroll"))    return WK_SCROLL;
     if (STR_EQ(s,n,"hscroll"))   return WK_HSCROLL;
+    if (STR_EQ(s,n,"number_input")) return WK_NUMBER_INPUT;
     return WK_TEXT;
 }
 
@@ -200,14 +202,35 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
         w->combo_open = st->combo_open;                     // restore persisted open state
     }
 
-    if (w->kind == WK_INPUT) {                              // input widgets own text in the state
+    if (w->kind == WK_INPUT || w->kind == WK_NUMBER_INPUT) {
         StrView ival;
         bool has_ival = table_get_str_view(t, ctx->key_cache[UK_VALUE_TEXT], &ival);
-        if (!has_ival)
-            has_ival = table_get_str_view(t, ctx->key_cache[UK_CONTENT], &ival);
-        const char* init_s = has_ival ? ival.ptr : "";
-        int         init_n = has_ival ? ival.len : 0;
-        sync_input_buffer(w, st, init_s, init_n);
+        if (!has_ival) has_ival = table_get_str_view(t, ctx->key_cache[UK_CONTENT], &ival);
+
+        if (w->kind == WK_NUMBER_INPUT) {
+            w->num_min = table_get_num_key(t, ctx->key_cache[UK_MIN], -1e15);
+            w->num_max = table_get_num_key(t, ctx->key_cache[UK_MAX], 1e15);
+            if (!has_ival) {
+                Value val_v = MAKE_NONE();
+                if (table_get(t, ctx->key_cache[UK_VALUE], &val_v) && IS_NUMBER(val_v)) {
+                    char tmp[64];
+                    snprintf(tmp, sizeof(tmp), "%g", AS_NUMBER(val_v));
+                    sync_input_buffer(w, st, tmp, (int)strlen(tmp)); // use actual string length!
+                    has_ival = true;
+                } else if (IS_STRING(val_v)) {
+                    StringObject* s = AS_STRING(val_v);
+                    sync_input_buffer(w, st, s->chars, s->length);
+                    has_ival = true;
+                }
+                if ((val_v & QNAN) == QNAN) value_decref(val_v);
+            }
+        }
+
+        if (!has_ival) {
+            sync_input_buffer(w, st, "", 0);
+        } else if (w->input_value.ptr == NULL) {
+            sync_input_buffer(w, st, ival.ptr, ival.len);
+        }
     }
 
     if (w->kind == WK_TABLE) {                              // table reads a column list and a row list
@@ -215,8 +238,7 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
         if (table_get(t, ctx->key_cache[UK_COLUMNS], &cols_v)) {
             if (IS_TABLE(cols_v)) {
                 Table* ct = AS_TABLE(cols_v);
-                // array literals live in array_part, not in the numeric hash;
-                // walk array_part first, then fall through to numeric keys
+                // array literals live in array_part, not in the numeric hash
                 int n_arr = ct->array_part ? ct->array_count : 0;
                 int nc = n_arr;
                 for (int i = n_arr + 1; ; i++) {            // any numeric hash entries past the array

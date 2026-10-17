@@ -131,6 +131,7 @@ const char* widget_kind_name(WidgetKind k) {
         case WK_PANEL: return "panel";
         case WK_SCROLL: return "scroll";
         case WK_HSCROLL: return "hscroll";
+        case WK_NUMBER_INPUT: return "number_input";
     }
     return "widget";                                      // fallback for unknown kinds
 }
@@ -138,7 +139,7 @@ const char* widget_kind_name(WidgetKind k) {
 // returns true if the widget kind participates in keyboard focus
 bool widget_focusable(WidgetKind k) {
     return k == WK_BUTTON || k == WK_CHECKBOX || k == WK_RADIO ||
-           k == WK_SLIDER || k == WK_INPUT || k == WK_COMBOBOX ||
+           k == WK_SLIDER || k == WK_INPUT || k == WK_NUMBER_INPUT || k == WK_COMBOBOX ||
            k == WK_SWITCH;
 }
 

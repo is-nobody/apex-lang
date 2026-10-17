@@ -249,6 +249,15 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
             w->meas_h = UI_INPUT_H;
             break;
         }
+        case WK_NUMBER_INPUT: {                              // numeric input with step buttons
+            float fs = UI_FS_BODY;
+            float tw = ctx->font ? ui_text_measure_cached(ctx, w->input_value.ptr,
+                                                          w->input_value.len, fs) : w->input_value.len*8.0f;
+            w->meas_w = tw + 80;                             // text + buttons + gaps
+            if (w->meas_w < 140) w->meas_w = 140;            // minimum width
+            w->meas_h = UI_INPUT_H;
+            break;
+        }
         case WK_COMBOBOX: {                                  // button plus hidden dropdown
             float fs = UI_FS_BODY;
             float maxw = 0;

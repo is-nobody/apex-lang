@@ -185,10 +185,11 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     ui_event_push(ctx, &cev);
 
                     ctx->redraw_needed = true;
-                } else if (dw && dw->kind == WK_INPUT) {          // input: extend selection
+                } else if (dw && (dw->kind == WK_INPUT || dw->kind == WK_NUMBER_INPUT)) { // input: extend selection
                     WidgetState* s = ui_state_get(ctx, dw->id);
                     if (s->sel_anchor < 0) s->sel_anchor = s->cursor;  // first drag: seed anchor
-                    float local_x = (float)e->x - dw->x - 8.0f;        // into text coordinates
+                    int offset_x = (dw->kind == WK_NUMBER_INPUT) ? 28 : 0;
+                    float local_x = (float)e->x - dw->x - offset_x - 8.0f;        // into text coordinates
                     int off = input_hit_offset(ctx, dw, local_x);
                     s->cursor = off;                                   // head follows the pointer
                     ctx->redraw_needed = true;
@@ -388,8 +389,27 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                             ctx->pool[i].focused = (ctx->pool[i].id == ctx->focused_id);
 
                         // clicking inside a text input places the caret
-                        if (h->kind == WK_INPUT) {
-                            float local_x = (float)e->x - h->x - 8.0f;
+                        if (h->kind == WK_NUMBER_INPUT) {
+                            int bw = 24;
+                            int left_btn_end = (int)h->x + bw;
+                            int right_btn_start = (int)h->x + (int)h->w - bw;
+                            
+                            if (e->x >= left_btn_end && e->x < right_btn_start) {
+                                // clicked the text field, fall through to normal input handling
+                            } else {
+                                // clicked the left/right step buttons
+                                double step = (e->x >= right_btn_start) ? 1.0 : -1.0;
+                                ui_number_step(ctx, h, step);
+                                ctx->focused_id = h->id;
+                                for (int i = 0; i < ctx->pool_used; i++)
+                                    ctx->pool[i].focused = (ctx->pool[i].id == ctx->focused_id);
+                                ctx->redraw_needed = true;
+                                break;
+                            }
+                        }
+                        if (h->kind == WK_INPUT || h->kind == WK_NUMBER_INPUT) {
+                            int offset_x = (h->kind == WK_NUMBER_INPUT) ? 28 : 0; // bw + gap
+                            float local_x = (float)e->x - h->x - offset_x - 8.0f;
                             int off = input_hit_offset(ctx, h, local_x);
 
                             double now = apex_now_seconds();
@@ -522,6 +542,14 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
         case UW_EV_SCROLL: {                                      // wheel scrolled
             if (ctx->root) {
                 Widget* h = hit_test(ctx, e->x, e->y);
+                if (h && h->kind == WK_NUMBER_INPUT) {
+                    ui_number_step(ctx, h, -e->scroll_dy);   // wheel up increments, wheel down decrements
+                    ctx->focused_id = h->id;
+                    for (int i = 0; i < ctx->pool_used; i++)
+                        ctx->pool[i].focused = (ctx->pool[i].id == ctx->focused_id);
+                    ctx->redraw_needed = true;
+                    break;
+                }
                 Widget* sc = h;
                 while (sc && sc->kind != WK_SCROLL && sc->kind != WK_HSCROLL)
                     sc = sc->parent;                              // find enclosing scroll container
@@ -557,7 +585,11 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     Widget* w = &ctx->pool[i];
                     if (w->id != ctx->focused_id) continue;       // skip non-focused
 
-                    if (w->kind == WK_INPUT) {                    // input field editing
+                    if (w->kind == WK_NUMBER_INPUT) {
+                        if (e->key == UI_KEY_UP) { ui_number_step(ctx, w, 1.0); break; }
+                        if (e->key == UI_KEY_DOWN) { ui_number_step(ctx, w, -1.0); break; }
+                    }
+                    if (w->kind == WK_INPUT || w->kind == WK_NUMBER_INPUT) { // input field editing
                         WidgetState* s = ui_state_get(ctx, w->id);
                         int len = (int)w->input_value.len;
                         // the cursor can be one frame ahead of the buffer
@@ -601,12 +633,31 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                                 if (ui_window_clipboard_get(ctx->window, &text, &tlen)
                                     && text && tlen > 0)
                                 {
+                                    if (w->kind == WK_NUMBER_INPUT) {
+                                        int a = cur, b = cur;
+                                        if (input_has_selection(s)) input_sel_range(s, &a, &b);
+                                        int new_len = len - (b - a) + tlen;
+                                        char* tmp = (char*)malloc((size_t)new_len + 1);
+                                        if (tmp && new_len >= 0) {
+                                            memcpy(tmp, w->input_value.ptr, a);
+                                            memcpy(tmp + a, text, tlen);
+                                            memcpy(tmp + a + tlen, w->input_value.ptr + b, len - b);
+                                            tmp[new_len] = 0;
+                                            if (!ui_number_is_valid_text(tmp, new_len, w->num_min, w->num_max)) {
+                                                free(tmp);
+                                                free(text);
+                                                break; // reject the paste entirely
+                                            }
+                                            free(tmp);
+                                        }
+                                    }
                                     input_push_undo(s, w->input_value.ptr, len, cur);
 
                                     if (input_has_selection(s)) {  // drop the selection first
                                         int a, b;
                                         input_sel_range(s, &a, &b);
                                         input_delete_range(ctx, w, s, a, b);
+                                        s = ui_state_get(ctx, w->id); // re-fetch
                                         cur = s->cursor;
                                         len = (int)w->input_value.len;
                                     }
@@ -618,6 +669,7 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                                            w->input_value.ptr + cur, len - cur);
                                     nb[need] = 0;
                                     input_set_buffer(ctx, w, nb, need);
+                                    s = ui_state_get(ctx, w->id); // re-fetch
                                     s->cursor = cur + tlen;
                                     s->sel_anchor = s->cursor;
                                     push_input_change(ctx, w, nb);
@@ -661,11 +713,26 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
 
                         // printable text: replaces any active selection first
                         if (e->utf8_len > 0) {
+                            if (w->kind == WK_NUMBER_INPUT) {
+                                int a = cur, b = cur;
+                                if (input_has_selection(s)) input_sel_range(s, &a, &b);
+                                int check_len = len - (b - a) + e->utf8_len;
+                                char tmp[256];
+                                if (check_len >= 0 && check_len < 256) {
+                                    memcpy(tmp, w->input_value.ptr, a);
+                                    memcpy(tmp + a, e->utf8, e->utf8_len);
+                                    memcpy(tmp + a + e->utf8_len, w->input_value.ptr + b, len - b);
+                                    if (!ui_number_is_valid_text(tmp, check_len, w->num_min, w->num_max)) {
+                                        break; // reject the keypress completely
+                                    }
+                                }
+                            }
                             input_push_undo(s, w->input_value.ptr, len, cur);
                             if (input_has_selection(s)) {
                                 int a, b;
                                 input_sel_range(s, &a, &b);
                                 input_delete_range(ctx, w, s, a, b);
+                                s = ui_state_get(ctx, w->id); // re-fetch
                                 cur = s->cursor;
                                 len = (int)w->input_value.len;
                             }
@@ -677,6 +744,7 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                                    w->input_value.ptr + cur, len - cur);
                             nb[need] = 0;
                             input_set_buffer(ctx, w, nb, need);
+                            s = ui_state_get(ctx, w->id); // re-fetch
                             s->cursor = cur + e->utf8_len;
                             s->sel_anchor = s->cursor;
                             push_input_change(ctx, w, nb);

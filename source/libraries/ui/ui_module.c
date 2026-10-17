@@ -461,6 +461,24 @@ static Value ctor_list(VM* vm, int argc, Value* argv) {
     return MAKE_TABLE(panel_t);
 }
 
+// builds a number input widget descriptor
+static Value ctor_number_input(VM* vm, int argc, Value* argv) {
+    Table* t = table_create(8);
+    tset(vm, t, "__t", intern(vm, "number_input"));
+    if (argc >= 1) tset(vm, t, "value", argv[0]);
+    if (argc >= 2 && IS_TABLE(argv[1])) {
+        Table* opts = AS_TABLE(argv[1]);
+        int nk; Value* keys = table_keys(opts, &nk);
+        for (int i = 0; i < nk; i++) {
+            Value vv;
+            if (table_get(opts, keys[i], &vv)) { table_set(t, keys[i], vv); value_decref(vv); }
+            value_decref(keys[i]);
+        }
+        free(keys);
+    }
+    return MAKE_TABLE(t);
+}
+
 // named key constants exposed to scripts as ui.key_*()
 static const struct { const char* name; int value; } UI_KEY_TABLE[] = {
     {"ui.key_escape",    UI_KEY_ESCAPE},
@@ -536,6 +554,7 @@ bool ui_call_builtin(VM* vm, const char* name, int argc, Value* argv, Value* res
     if (strcmp(name, "ui.slider") == 0)   { *result = ctor_slider(vm, argc, argv); return true; }               // numeric slider
     if (strcmp(name, "ui.progress") == 0) { *result = ctor_progress(vm, argc, argv); return true; }             // progress bar
     if (strcmp(name, "ui.input") == 0){ *result = ctor_input(vm, argc, argv); return true; }                    // editable text field
+    if (strcmp(name, "ui.number_input") == 0) { *result = ctor_number_input(vm, argc, argv); return true; }     // numeric input
     if (strcmp(name, "ui.combobox") == 0) { *result = ctor_combobox(vm, argc, argv); return true; }             // dropdown selector
     if (strcmp(name, "ui.table") == 0)    { *result = ctor_table(vm, argc, argv); return true; }                // columned table
     if (strcmp(name, "ui.tree") == 0)     { *result = ctor_tree(vm, argc, argv); return true; }                 // hierarchical tree

@@ -112,4 +112,10 @@ bool tabs_handle_mouseup(UiContext* ctx, Widget* w, int x, int y);
 // emits the select / close / add event matching the recorded press
 void tabs_handle_click(UiContext* ctx, Widget* w);
 
+// steps a number_input by the given amount
+void ui_number_step(UiContext* ctx, Widget* w, double step);
+
+// checks if the given string is a valid number and within bounds
+bool ui_number_is_valid_text(const char* s, int len, double min, double max);
+
 #endif

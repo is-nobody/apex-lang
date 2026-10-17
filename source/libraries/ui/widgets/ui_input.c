@@ -27,13 +27,13 @@ void sync_input_buffer(Widget* w, WidgetState* s, const char* sval, int slen) {
 
 // true when the state has a live non-empty selection
 bool input_has_selection(WidgetState* s) {
-    return s->sel_anchor >= 0 && s->sel_anchor != s->cursor;
+    return s->sel_anchor >= 0 && s->cursor >= 0 && s->sel_anchor != s->cursor;
 }
 
 // returns the [min, max) byte range covered by the selection
 void input_sel_range(WidgetState* s, int* out_min, int* out_max) {
-    int a = s->sel_anchor;
-    int b = s->cursor;
+    int a = s->sel_anchor >= 0 ? s->sel_anchor : 0;
+    int b = s->cursor >= 0 ? s->cursor : 0;
     if (a > b) { int t = a; a = b; b = t; }
     *out_min = a;
     *out_max = b;
@@ -186,6 +186,7 @@ void input_delete_range(UiContext* ctx, Widget* w, WidgetState* s, int a, int b)
     memcpy(nb + a, w->input_value.ptr + b, len - b);      // suffix
     nb[new_len] = 0;
     input_set_buffer(ctx, w, nb, new_len);
+    s = ui_state_get(ctx, w->id); // re-fetch the valid pointer
     s->cursor = a;
     s->sel_anchor = a;
     push_input_change(ctx, w, nb);

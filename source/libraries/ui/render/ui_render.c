@@ -211,6 +211,63 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 }
                 break;
             }
+            case WK_NUMBER_INPUT: {
+                int bw = 24;
+                int gap = 4;
+                int fw = ww - bw * 2 - gap * 2;
+                if (fw < 10) fw = 10; // safety fallback
+
+                int cx = x;
+                // [-] button
+                ui_painter_fill_round(cx, y, bw, hh, UI_RADIUS, UI_C_PANEL_ALT);
+                ui_painter_stroke_round(cx, y, bw, hh, UI_RADIUS, UI_C_BORDER);
+                ui_painter_fill_rect(cx + 7, y + hh / 2, 10, 1, UI_C_FG_DIM); // minus line
+
+                cx += bw + gap;
+
+                // input field
+                ui_painter_fill_round(cx, y, fw, hh, UI_RADIUS, UI_C_INPUT_BG);
+                ui_painter_stroke_round(cx, y, fw, hh, UI_RADIUS, UI_C_BORDER);
+                
+                float fs = UI_FS_BODY;
+                float base = y + (hh + fs * 0.7f) * 0.5f;
+
+                WidgetState* s = ui_state_get(ctx, w->id);
+                int lim = w->input_value.len;
+                int cur_off = s->cursor < 0 ? lim : s->cursor;
+                if (cur_off > lim) cur_off = lim;
+                int anc_off = s->sel_anchor < 0 ? lim : s->sel_anchor;
+                if (anc_off > lim) anc_off = lim;
+
+                if (w->focused && anc_off != cur_off) {
+                    int a = anc_off < cur_off ? anc_off : cur_off;
+                    int b = anc_off < cur_off ? cur_off : anc_off;
+                    float x0 = cx + 8.0f;
+                    float x1 = cx + 8.0f;
+                    if (ctx->font) {
+                        x0 += ui_text_measure_cached(ctx, w->input_value.ptr, a, fs);
+                        x1 += ui_text_measure_cached(ctx, w->input_value.ptr, b, fs);
+                    }
+                    ui_painter_fill_rect((int)x0, y + 5, (int)(x1 - x0), hh - 10, UI_C_SEL_BG);
+                }
+
+                ui_draw_text_at(ctx, (float)(cx + 8), base, w->input_value.ptr, w->input_value.len, fs, UI_C_FG);
+
+                if (w->focused && s->blink_phase < 0.5) {
+                    float tx = cx + 8;
+                    if (ctx->font) tx += ui_text_measure_cached(ctx, w->input_value.ptr, cur_off, fs);
+                    ui_painter_fill_rect((int)tx, y + 6, 1, hh - 12, UI_C_FG);
+                }
+
+                cx += fw + gap;
+
+                // [+] button
+                ui_painter_fill_round(cx, y, bw, hh, UI_RADIUS, UI_C_PANEL_ALT);
+                ui_painter_stroke_round(cx, y, bw, hh, UI_RADIUS, UI_C_BORDER);
+                ui_painter_fill_rect(cx + 7, y + hh / 2, 10, 1, UI_C_FG_DIM); // plus horizontal
+                ui_painter_fill_rect(cx + 12, y + hh / 2 - 5, 1, 10, UI_C_FG_DIM); // plus vertical
+                break;
+            }
             case WK_COMBOBOX: {
                 ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_INPUT_BG);
                 ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);

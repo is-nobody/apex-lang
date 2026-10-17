@@ -396,6 +396,7 @@ static const BuiltinSig BUILTINS[] = {
     {"ui.slider",           3, 4, TYPE_ANY},
     {"ui.progress",         1, 2, TYPE_ANY},
     {"ui.input",            1, 2, TYPE_ANY},
+    {"ui.number_input",     1, 2, TYPE_ANY},
     {"ui.combobox",         2, 3, TYPE_ANY},
     {"ui.spacer",           0, 2, TYPE_ANY},
     {"ui.vbox",             1, 2, TYPE_ANY},

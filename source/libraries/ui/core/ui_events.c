@@ -66,15 +66,16 @@ Value ui_event_to_table(VM* vm, const UiEvent* ev) {
     table_set(t, k, v); value_decref(k); value_decref(v);
 
     k = ui_intern(vm, "value");                              // "value" = event payload, type varies
-    if (ev->str_value) {
+    if (strcmp(ev->widget_type, "slider")       == 0 ||
+        strcmp(ev->widget_type, "progress")     == 0 ||
+        strcmp(ev->widget_type, "number_input") == 0 ||
+        strcmp(ev->widget_type, "tab_move")     == 0 ||
+        ev->kind == EV_SCROLL) {
+        v = MAKE_NUMBER(ev->num_value);                   // numeric widget: value is a number
+    } else if (ev->str_value) {
         v = MAKE_STRING(string_create(ev->str_value, (int)strlen(ev->str_value)));
-    } else if (strcmp(ev->widget_type, "slider")   == 0 ||
-               strcmp(ev->widget_type, "progress") == 0 ||
-               strcmp(ev->widget_type, "tab_move") == 0 ||   // num_value = destination slot
-               ev->kind == EV_SCROLL) {
-        v = MAKE_NUMBER(ev->num_value);                   // numeric payload
     } else {
-        v = MAKE_BOOL(ev->bool_value);                    // default to boolean payload
+        v = MAKE_BOOL(ev->bool_value);
     }
     table_set(t, k, v); value_decref(k);
     if ((v & QNAN) == QNAN) value_decref(v);              // release heap-tagged payload
