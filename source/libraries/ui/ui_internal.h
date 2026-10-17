@@ -494,6 +494,10 @@ typedef struct UiContext {
     double     last_click_time; // wall clock of the previous click
     uint64_t   last_click_id;   // widget id of the previous click
 
+    uint64_t   scrollbar_drag_id;           // scroll container whose thumb is dragged, 0 = none
+    int        scrollbar_drag_start_y;      // pointer y at press time
+    double     scrollbar_drag_start_scroll; // scroll offset at press time
+
     StateMap   state;           // persistent per-widget state across frames
     EventQueue queue;           // pending events awaiting the script
 

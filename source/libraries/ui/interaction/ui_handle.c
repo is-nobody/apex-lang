@@ -176,6 +176,82 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
             if (ui_menubar_handle_mousemove(ctx, e->x, e->y))
                 break;
 
+            if (ctx->input.lmb && ctx->scrollbar_drag_id) {       // dragging a scrollbar thumb
+                Widget* sc = NULL;
+                for (int i = 0; i < ctx->pool_used; i++) {
+                    if (ctx->pool[i].id == ctx->scrollbar_drag_id) {
+                        sc = &ctx->pool[i];
+                        break;
+                    }
+                }
+
+                if (sc) {
+                    if (sc->kind == WK_SCROLL) {
+                        int hh = (int)floorf(sc->h + 0.5f);
+                        double maxs = sc->content_h - hh;
+                        if (maxs > 0) {
+                            int th = (int)(hh * (hh / sc->content_h));
+                            if (th < 24) th = 24;
+                            int track_h = hh - th;
+                            int dy = e->y - ctx->scrollbar_drag_start_y;
+
+                            if (track_h > 0) {
+                                double scroll_delta = ((double)dy / track_h) * maxs;
+                                double new_scroll = ctx->scrollbar_drag_start_scroll + scroll_delta;
+                                
+                                if (new_scroll < 0) new_scroll = 0;
+                                if (new_scroll > maxs) new_scroll = maxs;
+
+                                WidgetState* s = ui_state_get(ctx, sc->id);
+                                s->scroll_target = new_scroll;
+                                s->scroll_y      = new_scroll;
+                                sc->scroll_y     = new_scroll;
+                                
+                                ctx->geometry_dirty = true;
+                                ctx->redraw_needed  = true;
+                            }
+                        }
+                    } else if (sc->kind == WK_TEXT_AREA) {
+                        int hh = (int)floorf(sc->h + 0.5f);
+                        int line_count = 1;
+                        for (int j = 0; j < sc->input_value.len; j++)
+                            if (sc->input_value.ptr[j] == '\n') line_count++;
+                        int content_h = line_count * UI_LINE_H;
+                        int inner_h = hh - 12;
+                        if (inner_h < UI_LINE_H) inner_h = UI_LINE_H;
+                        
+                        double maxs = content_h - inner_h;
+                        if (maxs > 0) {
+                            int th = (int)((hh - 4) * (inner_h / (double)content_h));
+                            if (th < 24) th = 24;
+                            int track_h = (hh - 4) - th;
+                            int dy = e->y - ctx->scrollbar_drag_start_y;
+
+                            if (track_h > 0) {
+                                double scroll_delta = ((double)dy / track_h) * maxs;
+                                double new_scroll = ctx->scrollbar_drag_start_scroll + scroll_delta;
+                                
+                                if (new_scroll < 0) new_scroll = 0;
+                                if (new_scroll > maxs) new_scroll = maxs;
+
+                                WidgetState* s = ui_state_get(ctx, sc->id);
+                                s->scroll_target = new_scroll;
+                                s->scroll_y      = new_scroll;
+                                sc->scroll_y     = new_scroll;
+                                
+                                ctx->geometry_dirty = true;
+                                ctx->redraw_needed  = true;
+                            }
+                        }
+                    } else {
+                        ctx->scrollbar_drag_id = 0;
+                    }
+                } else {
+                    ctx->scrollbar_drag_id = 0;
+                }
+                break;
+            }
+
             if (ctx->input.lmb && ctx->drag_widget_id) {          // dragging something
                 Widget* dw = NULL;
                 for (int i = 0; i < ctx->pool_used; i++)
@@ -345,6 +421,66 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
 
                 if (ui_menubar_handle_mousedown(ctx, e->x, e->y)) // menu bar consumes the click
                     break;
+
+                // scrollbar thumb: record the drag start if the press landed on one
+                bool hit_scrollbar = false;
+                for (int i = ctx->pool_used - 1; i >= 0; i--) {
+                    Widget* w = &ctx->pool[i];
+                    if (!w->visible) continue;
+                    
+                    int wx = (int)floorf(w->x + 0.5f);
+                    int wy = (int)floorf(w->y + 0.5f);
+                    int ww = (int)floorf(w->w + 0.5f);
+                    int hh = (int)floorf(w->h + 0.5f);
+
+                    if (w->kind == WK_SCROLL && w->content_h > (float)hh) {
+                        int sb_x = wx + ww - UI_SCROLL_W;
+                        double maxs = w->content_h - hh;
+                        double t = maxs > 0 ? w->scroll_y / maxs : 0;
+                        int th = (int)(hh * (hh / w->content_h));
+                        if (th < 24) th = 24;
+                        int ty = wy + (int)(t * (hh - th));
+                        
+                        if (e->x >= sb_x && e->x < sb_x + UI_SCROLL_W &&
+                            e->y >= ty && e->y < ty + th) {
+                            ctx->scrollbar_drag_id = w->id;
+                            ctx->scrollbar_drag_start_y = e->y;
+                            ctx->scrollbar_drag_start_scroll = w->scroll_y;
+                            ctx->input.lmb = true;
+                            hit_scrollbar = true;
+                            break;
+                        }
+                    } else if (w->kind == WK_TEXT_AREA) {
+                        int line_count = 1;
+                        for (int j = 0; j < w->input_value.len; j++)
+                            if (w->input_value.ptr[j] == '\n') line_count++;
+                        int content_h = line_count * UI_LINE_H;
+                        int inner_h = hh - 12;
+                        if (inner_h < UI_LINE_H) inner_h = UI_LINE_H;
+                        
+                        if (content_h > inner_h) {
+                            int sb_x = wx + ww - UI_SCROLL_W - 2;
+                            double maxs = content_h - inner_h;
+                            double t = maxs > 0 ? w->scroll_y / maxs : 0;
+                            if (t < 0) t = 0;
+                            if (t > 1) t = 1;
+                            int th = (int)((hh - 4) * (inner_h / (double)content_h));
+                            if (th < 24) th = 24;
+                            int ty = wy + 2 + (int)(t * ((hh - 4) - th));
+                            
+                            if (e->x >= sb_x && e->x < sb_x + UI_SCROLL_W &&
+                                e->y >= ty && e->y < ty + th) {
+                                ctx->scrollbar_drag_id = w->id;
+                                ctx->scrollbar_drag_start_y = e->y;
+                                ctx->scrollbar_drag_start_scroll = w->scroll_y;
+                                ctx->input.lmb = true;
+                                hit_scrollbar = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (hit_scrollbar) break;
 
                 // wm-owned gestures win over anything we draw
                 const char* redge = titlebar_resize_edge(ctx, e->x, e->y);
@@ -530,6 +666,11 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
         case UW_EV_MOUSEUP:
             if (e->button == 1) {                                 // left button released
                 ctx->input.lmb = false;
+
+                if (ctx->scrollbar_drag_id) {                     // finish a scrollbar drag
+                    ctx->scrollbar_drag_id = 0;
+                    break;
+                }
 
                 // a fullscreen titlebar press that never moved is a plain click
                 if (ctx->pending_fullscreen_drag) {
