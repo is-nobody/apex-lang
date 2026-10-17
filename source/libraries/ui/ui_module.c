@@ -493,6 +493,8 @@ static Value ctor_list(VM* vm, int argc, Value* argv) {
                                                               // frame evenly top and bottom
     { Value cv = MAKE_TABLE(vbox_t);
       tset(vm, panel_t, "children", cv); value_decref(cv); }
+      
+    free(sel);                                                // release the optional selection copy
     return MAKE_TABLE(panel_t);
 }
 
