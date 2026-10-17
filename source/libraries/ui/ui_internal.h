@@ -177,6 +177,7 @@ typedef struct {
     bool     seen;              // marked during the current frame by the state gc
     int      cursor;            // saved cursor position (-1 = unset)
     int      sel_anchor;        // byte offset of the selection anchor (-1 = no selection)
+    int      last_ensure_cursor;// cursor position at last ensure_visible tick
     double   scroll_y;          // saved scroll offset, animated toward scroll_target
     double   scroll_target;     // offset the smooth scroll animation eases toward
     double   blink_phase;       // cursor blink animation phase

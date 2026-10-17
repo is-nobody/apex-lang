@@ -630,7 +630,7 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     int max_scroll = content_h - inner_h;
                     if (max_scroll > 0) {                     // only eat the wheel if it scrolls
                         WidgetState* s = ui_state_get(ctx, h->id);
-                        s->scroll_target -= e->scroll_dy * UI_LINE_H;
+                        s->scroll_target += e->scroll_dy * UI_LINE_H;
                         if (s->scroll_target < 0)          s->scroll_target = 0;
                         if (s->scroll_target > max_scroll) s->scroll_target = max_scroll;
                         ctx->redraw_needed = true;
@@ -721,6 +721,22 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                             text_area_move_vertical(ctx, w, s,
                                 e->key == UI_KEY_DOWN ? 1 : -1,
                                 (e->mods & 1) != 0);
+                            ctx->redraw_needed = true;
+                            break;
+                        }
+
+                        // text_area: Page Up/Down move the caret by a full viewport
+                        if (w->kind == WK_TEXT_AREA &&
+                            (e->key == UI_KEY_PAGE_UP || e->key == UI_KEY_PAGE_DOWN)) {
+                            int inner_h = (int)w->h - 12;
+                            if (inner_h < UI_LINE_H) inner_h = UI_LINE_H;
+                            int page_lines = inner_h / UI_LINE_H;
+                            if (page_lines < 1) page_lines = 1;
+                            int dir = (e->key == UI_KEY_PAGE_DOWN) ? 1 : -1;
+                            for (int k = 0; k < page_lines; k++)
+                                text_area_move_vertical(ctx, w, s, dir,
+                                                        (e->mods & 1) != 0);
+                            text_area_ensure_visible(ctx, w);      // scroll to follow
                             ctx->redraw_needed = true;
                             break;
                         }

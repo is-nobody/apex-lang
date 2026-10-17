@@ -276,12 +276,22 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 int inner_h = hh - pad_y * 2;
                 if (inner_h < lh) inner_h = lh;
 
+                // count lines up front
+                int line_count = 1;
+                const char* sb_buf = w->input_value.ptr;
+                int sb_len = w->input_value.len;
+                for (int i = 0; i < sb_len; i++)
+                    if (sb_buf[i] == '\n') line_count++;
+                int content_h = line_count * lh;
+                bool has_sb   = content_h > inner_h;
+                int  sb_w     = has_sb ? UI_SCROLL_W : 0;
+
                 ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_INPUT_BG);
                 ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);
                 if (w->focused)
                     ui_painter_stroke_round(x-2, y-2, ww+4, hh+4, UI_RADIUS+2, UI_C_FOCUS);
 
-                ui_painter_push_clip(x + 1, y + 1, ww - 2, hh - 2);
+                ui_painter_push_clip(x + 1, y + 1, ww - 2 - sb_w, hh - 2);
 
                 WidgetState* s = ui_state_get(ctx, w->id);
                 const char* buf = w->input_value.ptr;
@@ -341,6 +351,21 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 }
 
                 ui_painter_pop_clip();
+
+                // scrollbar: proportional thumb, same visual language as WK_SCROLL
+                if (has_sb) {
+                    int sb_x = x + ww - sb_w - 2;
+                    ui_painter_fill_rect(sb_x, y + 2, sb_w, hh - 4, UI_C_SCROLL_T);
+                    double maxs = content_h - inner_h;
+                    double t = maxs > 0 ? scroll / maxs : 0;
+                    if (t < 0) t = 0;
+                    if (t > 1) t = 1;
+                    int th = (int)((hh - 4) * (inner_h / (double)content_h));
+                    if (th < 24) th = 24;
+                    int ty = y + 2 + (int)(t * ((hh - 4) - th));
+                    ui_painter_fill_round(sb_x + 2, ty + 2, sb_w - 4, th - 4,
+                                          (sb_w - 4) / 2, UI_C_SCROLL_H);
+                }
                 break;
             }
             case WK_COMBOBOX: {
