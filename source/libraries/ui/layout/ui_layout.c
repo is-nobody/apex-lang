@@ -241,6 +241,12 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
             w->meas_w = 200; w->meas_h = 10;
             break;
         }
+        case WK_TEXT_AREA: {                                 // multi-line editor
+            int rows = w->text_area_rows > 0 ? w->text_area_rows : 6;
+            w->meas_w = 300;                                 // fixed default width
+            w->meas_h = (float)(rows * UI_LINE_H + 16);      // rows plus top/bottom pad
+            break;
+        }
         case WK_INPUT: {                                     // editable single line
             float fs = UI_FS_BODY;
             float tw = ctx->font ? ui_text_measure_cached(ctx, w->input_value.ptr,

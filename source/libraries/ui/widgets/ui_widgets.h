@@ -115,6 +115,15 @@ void tabs_handle_click(UiContext* ctx, Widget* w);
 // steps a number_input by the given amount
 void ui_number_step(UiContext* ctx, Widget* w, double step);
 
+// maps (local_x, local_y) inside a WK_TEXT_AREA to a byte offset in its text
+int  text_area_hit_offset(UiContext* ctx, Widget* w, float local_x, float local_y);
+
+// ensures the focused text_area's cursor is visible; called from ui_tick and keydown
+void text_area_ensure_visible(UiContext* ctx, Widget* w);
+
+// moves the cursor one line up (dir=-1) or down (dir=+1); extend = shift held
+void text_area_move_vertical(UiContext* ctx, Widget* w, WidgetState* s, int dir, bool extend);
+
 // checks if the given string is a valid number and within bounds
 bool ui_number_is_valid_text(const char* s, int len, double min, double max);
 

@@ -34,6 +34,18 @@ static void snapshot_walk(Widget* w, SnapshotTable* t) {
 }
 
 void ui_snapshot_capture(UiContext* ctx, Widget* root) {
+    // input, number_input and text_area widgets keep their caret and selection in WidgetState
+    for (int i = 0; i < ctx->pool_used; i++) {
+        Widget* w = &ctx->pool[i];
+        if (w->kind != WK_INPUT && w->kind != WK_NUMBER_INPUT && w->kind != WK_TEXT_AREA)
+            continue;
+        WidgetState* s = ui_state_get(ctx, w->id);
+        w->cursor     = s->cursor < 0 ? (int)w->input_value.len : s->cursor;
+        w->sel_anchor = s->sel_anchor;
+        // caret blink: mirror the phase into the widget
+        w->blink_on   = (w->focused && s->blink_phase < 0.5);
+    }
+
     ctx->snap_cur.count = 0;                                           // rewind the current snapshot
     snapshot_walk(root, &ctx->snap_cur);                               // walk the whole tree
 }

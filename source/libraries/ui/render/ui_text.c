@@ -278,6 +278,15 @@ float ui_text_draw(UiFont* f, uint32_t* fb, int fbw, int fbh,
     while (i < n) {
         int adv; uint32_t cp = ui_font_decode_cp(s + i, n - i, &adv);  // decode one codepoint
         i += adv;
+
+        // control characters (LF, CR, TAB, ...) have no glyph
+        if (cp < 0x20 || cp == 0x7F) {
+            uint16_t sp_gid = ui_font_glyph_index_cached(f, ' ');
+            CacheEntry* sp = ui_font_glyph_get(f, sp_gid, size_q);
+            pen += ui_font_cache_advance(sp);
+            continue;
+        }
+
         uint16_t gid = ui_font_glyph_index_cached(f, cp);  // map to a glyph (O(1) for BMP after first touch)
         CacheEntry* e = ui_font_glyph_get(f, gid, size_q); // fetch or rasterize the bitmap
         int ew = ui_font_cache_w(e);

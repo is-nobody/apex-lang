@@ -41,6 +41,7 @@ static WidgetKind kind_from_str_n(const char* s, int n) {
     if (STR_EQ(s,n,"scroll"))    return WK_SCROLL;
     if (STR_EQ(s,n,"hscroll"))   return WK_HSCROLL;
     if (STR_EQ(s,n,"number_input")) return WK_NUMBER_INPUT;
+    if (STR_EQ(s,n,"text_area"))    return WK_TEXT_AREA;
     return WK_TEXT;
 }
 
@@ -208,7 +209,7 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
         w->combo_open = st->combo_open;                     // restore persisted open state
     }
 
-    if (w->kind == WK_INPUT || w->kind == WK_NUMBER_INPUT) {
+    if (w->kind == WK_INPUT || w->kind == WK_NUMBER_INPUT || w->kind == WK_TEXT_AREA) {
         StrView ival;
         bool has_ival = table_get_str_view(t, ctx->key_cache[UK_VALUE_TEXT], &ival);
         if (!has_ival) has_ival = table_get_str_view(t, ctx->key_cache[UK_CONTENT], &ival);
@@ -236,6 +237,19 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
             sync_input_buffer(w, st, "", 0);
         } else if (w->input_value.ptr == NULL) {
             sync_input_buffer(w, st, ival.ptr, ival.len);
+        }
+    }
+
+    if (w->kind == WK_TEXT_AREA) {
+        Value rows_v;
+        if (table_get(t, ctx->key_cache[UK_ROWS], &rows_v)) {   // "rows" = visible row count
+            if (IS_NUMBER(rows_v)) {
+                int rows = (int)AS_NUMBER(rows_v);
+                if (rows < 2)  rows = 2;                        // keep it usable
+                if (rows > 20) rows = 20;                       // cap so it stays a widget
+                w->text_area_rows = rows;
+            }
+            value_decref(rows_v);
         }
     }
 

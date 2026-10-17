@@ -88,6 +88,7 @@ uint64_t ui_visual_hash(Widget* w) {
     fp ^= (uint64_t)(uint32_t)w->focused    <<  2;
     fp ^= (uint64_t)(uint32_t)w->cursor     <<  3;
     fp ^= (uint64_t)(uint32_t)w->sel_anchor << 23;
+    fp ^= (uint64_t)(uint32_t)w->blink_on   <<  4;
     fp ^= (uint64_t)(uint32_t)w->combo_open     <<  5;
     fp ^= (uint64_t)(uint32_t)w->combo_selected <<  6;
     fp ^= (uint64_t)(uint32_t)(w->tab_hover_idx + 1) <<  7;  // +1 so -1 doesn't collapse
@@ -118,6 +119,7 @@ uint64_t ui_visual_hash(Widget* w) {
     h = hash_bytes64(h, &w->checked,         sizeof(w->checked));          // checkbox/radio state
     h = hash_bytes64(h, &w->cursor,          sizeof(w->cursor));           // input caret position
     h = hash_bytes64(h, &w->sel_anchor,      sizeof(w->sel_anchor));       // input selection anchor
+    h = hash_bytes64(h, &w->blink_on,        sizeof(w->blink_on));         // input caret blink
     h = hash_bytes64(h, &w->num_value,       sizeof(w->num_value));        // slider/progress value
     h = hash_bytes64(h, &w->scroll_y,        sizeof(w->scroll_y));         // scroll offset
     h = hash_bytes64(h, &w->content_h,       sizeof(w->content_h));        // scroll content height

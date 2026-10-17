@@ -374,6 +374,12 @@ void ui_tick(UiContext* ctx, double dt) {
         }
     }
 
+    // text_area: keep the focused caret visible across edits, focus change, etc.
+    for (int i = 0; i < ctx->pool_used; i++) {
+        if (ctx->pool[i].kind == WK_TEXT_AREA && ctx->pool[i].focused)
+            text_area_ensure_visible(ctx, &ctx->pool[i]);
+    }
+
     // notification fade and auto-close timers
     ui_notification_tick(ctx, dt);
 

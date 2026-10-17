@@ -180,6 +180,24 @@ static Value ctor_input(VM* vm, int argc, Value* argv) {
     return MAKE_TABLE(t);
 }
 
+// builds a multi-line text area descriptor
+static Value ctor_text_area(VM* vm, int argc, Value* argv) {
+    Table* t = table_create(8);
+    tset(vm, t, "__t", intern(vm, "text_area"));            // discriminator
+    if (argc >= 1) tset(vm, t, "value_text", argv[0]);      // initial content
+    if (argc >= 2 && IS_TABLE(argv[1])) {                   // merge options
+        Table* opts = AS_TABLE(argv[1]);
+        int nk; Value* keys = table_keys(opts, &nk);
+        for (int i = 0; i < nk; i++) {
+            Value vv;
+            if (table_get(opts, keys[i], &vv)) { table_set(t, keys[i], vv); value_decref(vv); }
+            value_decref(keys[i]);
+        }
+        free(keys);
+    }
+    return MAKE_TABLE(t);
+}
+
 // builds a combobox widget descriptor
 static Value ctor_combobox(VM* vm, int argc, Value* argv) {
     Table* t = table_create(8);
@@ -564,6 +582,7 @@ bool ui_call_builtin(VM* vm, const char* name, int argc, Value* argv, Value* res
     if (strcmp(name, "ui.progress") == 0) { *result = ctor_progress(vm, argc, argv); return true; }             // progress bar
     if (strcmp(name, "ui.input") == 0){ *result = ctor_input(vm, argc, argv); return true; }                    // editable text field
     if (strcmp(name, "ui.number_input") == 0) { *result = ctor_number_input(vm, argc, argv); return true; }     // numeric input
+    if (strcmp(name, "ui.text_area") == 0) { *result = ctor_text_area(vm, argc, argv); return true; }           // multi-line editor
     if (strcmp(name, "ui.combobox") == 0) { *result = ctor_combobox(vm, argc, argv); return true; }             // dropdown selector
     if (strcmp(name, "ui.table") == 0)    { *result = ctor_table(vm, argc, argv); return true; }                // columned table
     if (strcmp(name, "ui.tree") == 0)     { *result = ctor_tree(vm, argc, argv); return true; }                 // hierarchical tree

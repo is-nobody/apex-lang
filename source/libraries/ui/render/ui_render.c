@@ -268,6 +268,81 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 ui_painter_fill_rect(cx + 12, y + hh / 2 - 5, 1, 10, UI_C_FG_DIM); // plus vertical
                 break;
             }
+            case WK_TEXT_AREA: {
+                float fs = UI_FS_BODY;
+                int   lh = UI_LINE_H;
+                int pad_x = 8;
+                int pad_y = 6;
+                int inner_h = hh - pad_y * 2;
+                if (inner_h < lh) inner_h = lh;
+
+                ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_INPUT_BG);
+                ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);
+                if (w->focused)
+                    ui_painter_stroke_round(x-2, y-2, ww+4, hh+4, UI_RADIUS+2, UI_C_FOCUS);
+
+                ui_painter_push_clip(x + 1, y + 1, ww - 2, hh - 2);
+
+                WidgetState* s = ui_state_get(ctx, w->id);
+                const char* buf = w->input_value.ptr;
+                int len = w->input_value.len;
+                int cur = s->cursor < 0 ? len : s->cursor;
+                if (cur > len) cur = len;
+                int anc = s->sel_anchor < 0 ? len : s->sel_anchor;
+                if (anc > len) anc = len;
+                double scroll = w->scroll_y;
+
+                int sel_start = anc < cur ? anc : cur;
+                int sel_end   = anc < cur ? cur : anc;
+                bool has_sel  = (sel_start < sel_end);
+
+                int line_start = 0;
+                int line_idx   = 0;
+                while (line_start <= len) {
+                    int line_end = line_start;
+                    while (line_end < len && buf[line_end] != '\n') line_end++;
+
+                    int ly = y + pad_y + line_idx * lh - (int)scroll;
+                    if (ly + lh > y && ly < y + hh) {
+                        if (has_sel) {
+                            int s0 = sel_start > line_start ? sel_start : line_start;
+                            int s1 = sel_end   < line_end   ? sel_end   : line_end;
+                            if (sel_end > line_end && sel_start <= line_end) s1 = line_end;
+                            if (s0 < s1) {
+                                float x0 = x + pad_x + ui_text_measure_cached(ctx, buf + line_start, s0 - line_start, fs);
+                                float x1 = x + pad_x + ui_text_measure_cached(ctx, buf + line_start, s1 - line_start, fs);
+                                ui_painter_fill_rect((int)x0, ly, (int)(x1 - x0), lh, UI_C_SEL_BG);
+                            }
+                        }
+                        if (line_end > line_start) {
+                            float base = ly + (lh + fs * 0.7f) * 0.5f;
+                            ui_draw_text_at(ctx, (float)(x + pad_x), base,
+                                            buf + line_start, line_end - line_start,
+                                            fs, UI_C_FG);
+                        }
+                    }
+                    line_idx++;
+                    if (line_end >= len) break;
+                    line_start = line_end + 1;
+                }
+
+                if (w->focused && s->blink_phase < 0.5) {
+                    int cursor_line = 0;
+                    int cursor_line_start = 0;
+                    for (int i = 0; i < cur; i++) {
+                        if (buf[i] == '\n') { cursor_line++; cursor_line_start = i + 1; }
+                    }
+                    float cx = x + pad_x +
+                        ui_text_measure_cached(ctx, buf + cursor_line_start,
+                                               cur - cursor_line_start, fs);
+                    int cy = y + pad_y + cursor_line * lh - (int)scroll;
+                    if (cy + lh > y + 1 && cy < y + hh - 1)
+                        ui_painter_fill_rect((int)cx, cy + 4, 1, lh - 6, UI_C_FG);
+                }
+
+                ui_painter_pop_clip();
+                break;
+            }
             case WK_COMBOBOX: {
                 ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_INPUT_BG);
                 ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);

@@ -331,6 +331,17 @@ float ui_text_measure(UiFont* f, const char* s, int n, float size) {
     while (i < n) {
         int adv; uint32_t cp = decode_cp(s + i, n - i, &adv);  // decode one codepoint
         i += adv;
+
+        // control characters advance as a space
+        if (cp < 0x20 || cp == 0x7F) {
+            uint16_t sp_gid = glyph_index_cached(f, ' ');
+            if (adv_tbl && sp_gid < f->num_glyphs)
+                w += adv_tbl[sp_gid];
+            else
+                w += advance_raw(f, sp_gid) * fallback_scale;
+            continue;
+        }
+
         uint16_t gid = glyph_index_cached(f, cp);        // O(1) after first touch of cp
         if (adv_tbl && gid < f->num_glyphs)
             w += adv_tbl[gid];                           // O(1) table lookup

@@ -28,7 +28,7 @@ typedef enum {
     WK_SLIDER, WK_PROGRESS, WK_INPUT, WK_BADGE, WK_COMBOBOX,
     WK_SEPARATOR, WK_SPACER, WK_TABLE, WK_LIST_ITEM, WK_SWITCH, WK_TREE,
     WK_TABS, WK_VBOX, WK_HBOX, WK_PANEL, WK_SCROLL, WK_HSCROLL,
-    WK_NUMBER_INPUT
+    WK_NUMBER_INPUT, WK_TEXT_AREA
 } WidgetKind;  // leaf widget kinds then container kinds
 
 typedef enum { AL_START, AL_CENTER, AL_END, AL_STRETCH } Align;  // cross-axis child placement
@@ -118,6 +118,8 @@ struct Widget {
     Str    input_value;                  // non-owning view into WidgetState.input_buf for WK_INPUT
     int    cursor;                       // cursor byte offset into input_value
     int    sel_anchor;                   // selection anchor byte offset, -1 = none
+    bool   blink_on;                     // caret visible this frame (derived from state)
+    int    text_area_rows;               // visible row count for WK_TEXT_AREA, 0 = default
 
     // wk_table state
     TableColumn* table_cols;             // arena-owned array of column metadata

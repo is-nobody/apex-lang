@@ -198,10 +198,128 @@ void push_input_change(UiContext* ctx, Widget* w, const char* str_val) {
     UiEvent ev; memset(&ev, 0, sizeof(ev));                       // zero the event
     ev.kind = EV_CHANGE;                                          // change kind
     ev.widget_id = w->id;                                         // source widget id
-    strncpy(ev.widget_type, "input", 15);                         // widget type name
+    strncpy(ev.widget_type, (w->kind == WK_TEXT_AREA) ? "text_area" : "input", 15);
     if (w->key_str) strncpy(ev.key_name, w->key_str, 63);         // user key if present
     ev.str_value = (char*)malloc(strlen(str_val) + 1);            // own a copy of the new text
     memcpy(ev.str_value, str_val, strlen(str_val) + 1);
     ui_event_push(ctx, &ev);                                      // enqueue the change
     ctx->geometry_dirty = true;                                   // input width may have changed
+}
+
+// maps (local_x, local_y) inside a WK_TEXT_AREA to a byte offset in its text
+int text_area_hit_offset(UiContext* ctx, Widget* w, float local_x, float local_y) {
+    const char* buf = w->input_value.ptr;
+    int len = w->input_value.len;
+    int lh  = UI_LINE_H;
+    double scroll = w->scroll_y;
+
+    // content-space y of the click
+    int target_line = (int)((local_y + scroll) / lh);
+    if (target_line < 0) target_line = 0;
+
+    int line = 0;
+    int line_start = 0;
+    for (int i = 0; i <= len; i++) {
+        if (i == len || buf[i] == '\n') {                     // end of a line
+            if (line == target_line) {
+                float prev = 0;
+                int j = line_start;
+                while (j < i) {
+                    int next = ui_utf8_next(buf, j, i);
+                    float adv = ui_text_measure_cached(ctx, buf + j, next - j, UI_FS_BODY);
+                    float w2  = prev + adv;
+                    if (local_x < (prev + w2) * 0.5f) return j;
+                    j = next;
+                    prev = w2;
+                }
+                return i;
+            }
+            line++;
+            line_start = i + 1;
+        }
+    }
+    return len;
+}
+
+// ensures the focused text_area's cursor is visible
+void text_area_ensure_visible(UiContext* ctx, Widget* w) {
+    if (!w || w->kind != WK_TEXT_AREA) return;                // wrong kind: no-op
+    if (!w->focused) return;                                  // only follow the caret
+
+    WidgetState* s = ui_state_get(ctx, w->id);
+    const char* buf = w->input_value.ptr;
+    int len = w->input_value.len;
+    int cur = s->cursor < 0 ? len : s->cursor;
+    if (cur > len) cur = len;
+
+    int cursor_line = 0;
+    for (int i = 0; i < cur; i++) if (buf[i] == '\n') cursor_line++;
+
+    int lh     = UI_LINE_H;
+    int pad_y  = 6;
+    int inner_h = (int)w->h - pad_y * 2;
+    if (inner_h < lh) inner_h = lh;
+
+    int line_count = 1;
+    for (int i = 0; i < len; i++) if (buf[i] == '\n') line_count++;
+    int content_h = line_count * lh;
+    int max_scroll = content_h - inner_h;
+    if (max_scroll < 0) max_scroll = 0;
+
+    double cy     = (double)cursor_line * lh;
+    double scroll = s->scroll_y;
+    double target = scroll;
+    if (cy < scroll)                             target = cy;
+    else if (cy + lh > scroll + inner_h)         target = cy + lh - inner_h;
+    if (target < 0)           target = 0;
+    if (target > max_scroll)  target = max_scroll;
+
+    if (target != scroll) {
+        s->scroll_y      = target;
+        s->scroll_target = target;
+        w->scroll_y      = target;
+        ctx->redraw_needed = true;
+    }
+}
+
+// moves the cursor one line up (dir=-1) or down (dir=+1); extend = shift held
+void text_area_move_vertical(UiContext* ctx, Widget* w, WidgetState* s, int dir, bool extend) {
+    const char* buf = w->input_value.ptr;
+    int len = w->input_value.len;
+    int cur = s->cursor < 0 ? len : s->cursor;
+    if (cur > len) cur = len;
+
+    int line_start = 0;
+    for (int i = 0; i < cur; i++) if (buf[i] == '\n') line_start = i + 1;
+    int offset_in_line = cur - line_start;
+    float x_target = ui_text_measure_cached(ctx, buf + line_start, offset_in_line, UI_FS_BODY);
+
+    int target_start;
+    if (dir > 0) {                                            // next line
+        int i = cur;
+        while (i < len && buf[i] != '\n') i++;
+        if (i >= len) return;                                 // no line below
+        target_start = i + 1;
+    } else {                                                  // previous line
+        if (line_start == 0) return;                          // already on the first line
+        target_start = line_start - 1;
+        while (target_start > 0 && buf[target_start - 1] != '\n') target_start--;
+    }
+    int target_end = target_start;
+    while (target_end < len && buf[target_end] != '\n') target_end++;
+
+    float prev = 0;
+    int j = target_start;
+    int new_cur = target_end;
+    while (j < target_end) {
+        int next = ui_utf8_next(buf, j, target_end);
+        float adv = ui_text_measure_cached(ctx, buf + j, next - j, UI_FS_BODY);
+        float w2  = prev + adv;
+        if (x_target < (prev + w2) * 0.5f) { new_cur = j; break; }
+        j = next;
+        prev = w2;
+    }
+
+    s->cursor = new_cur;
+    if (!extend) s->sel_anchor = new_cur;
 }

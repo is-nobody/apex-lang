@@ -132,6 +132,7 @@ const char* widget_kind_name(WidgetKind k) {
         case WK_SCROLL: return "scroll";
         case WK_HSCROLL: return "hscroll";
         case WK_NUMBER_INPUT: return "number_input";
+        case WK_TEXT_AREA:    return "text_area";
     }
     return "widget";                                      // fallback for unknown kinds
 }
@@ -140,7 +141,7 @@ const char* widget_kind_name(WidgetKind k) {
 bool widget_focusable(WidgetKind k) {
     return k == WK_BUTTON || k == WK_CHECKBOX || k == WK_RADIO ||
            k == WK_SLIDER || k == WK_INPUT || k == WK_NUMBER_INPUT || k == WK_COMBOBOX ||
-           k == WK_SWITCH;
+           k == WK_SWITCH || k == WK_TEXT_AREA;
 }
 
 // collects focusable widgets in draw order into a caller-supplied array
