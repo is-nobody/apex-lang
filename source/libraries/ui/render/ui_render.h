@@ -60,6 +60,9 @@ void ui_render_frame(UiContext* ctx);
 // repaints only the given damage rectangles
 void ui_render_frame_damage(UiContext* ctx, const DamageRect* rects, int n);
 
+// draws the currently open tooltip, if any
+void ui_tooltip_render(UiContext* ctx);
+
 // draws the currently open modal dialog on top of everything else
 void ui_render_dialog(UiContext* ctx);
 

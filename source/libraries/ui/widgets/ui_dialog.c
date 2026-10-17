@@ -51,6 +51,7 @@ static char* dlg_dup(const char* s) {
 // begins a dialog: clears any previous one and stages a fresh empty one
 void dialog_begin(UiContext* ctx, const char* key, const char* title, const char* message) {
     ui_context_menu_close(ctx);                                                 // menus never coexist with dialogs
+    ctx->tooltip_shown_id = 0;                                                  // dialogs sit above tooltips
     dialog_clear(&ctx->dialog);                                                 // drop any previous dialog
     UiDialog* d = &ctx->dialog;                                                 // working pointer
     d->key     = dlg_dup(key);                                                  // copy the script key

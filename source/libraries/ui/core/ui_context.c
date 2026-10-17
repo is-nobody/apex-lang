@@ -37,7 +37,8 @@ UiContext* ui_ensure(VM* vm) {
         "value", "min", "max", "value_text", "children", "options",
         "columns", "rows", "stripe", "header",
         "nodes", "selected", "indent", "expanded",
-        "tabs", "closeable", "add_button", "reorder"
+        "tabs", "closeable", "add_button", "reorder",
+        "tooltip", "tooltip_delay"
     };
     for (int i = 0; i < UK_COUNT; i++)
         ctx->key_cache[i] = ui_intern(vm, kKeyNames[i]);

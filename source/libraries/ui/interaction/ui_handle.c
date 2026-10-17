@@ -114,6 +114,21 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
             ctx->input.x = e->x;                                  // track current pointer
             ctx->input.y = e->y;
 
+            // any pointer motion hides a shown tooltip and restarts the
+            // hover timer for the widget still under the cursor
+            if (ctx->tooltip_shown_id) {
+                ctx->tooltip_shown_id = 0;
+                ctx->full_repaint     = true;                     // erase the stale box
+                ctx->redraw_needed    = true;
+            }
+            if (ctx->hovered_id) {
+                for (int i = 0; i < ctx->state.count; i++)
+                    if (ctx->state.entries[i].id == ctx->hovered_id) {
+                        ctx->state.entries[i].tooltip_hover_start = apex_now_seconds();
+                        break;
+                    }
+            }
+
             // an open context menu swallows hover before anything else sees it
             if (ctx->context_menu.active) {
                 ui_context_menu_handle_mousemove(ctx, e->x, e->y);
@@ -282,6 +297,20 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
             break;
         }
         case UW_EV_MOUSEDOWN:
+            // any click dismisses a shown tooltip
+            if (ctx->tooltip_shown_id) {
+                ctx->tooltip_shown_id = 0;
+                ctx->full_repaint     = true;                     // erase the stale box
+                ctx->redraw_needed    = true;
+            }
+            if (ctx->hovered_id) {
+                for (int i = 0; i < ctx->state.count; i++)
+                    if (ctx->state.entries[i].id == ctx->hovered_id) {
+                        ctx->state.entries[i].tooltip_hover_start = apex_now_seconds();
+                        break;
+                    }
+            }
+
             if (e->button == 3) {                                 // right button
                 ctx->input.x = e->x;
                 ctx->input.y = e->y;
@@ -562,6 +591,20 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
             }
             break;
         case UW_EV_SCROLL: {                                      // wheel scrolled
+            // any scroll dismisses a shown tooltip
+            if (ctx->tooltip_shown_id) {
+                ctx->tooltip_shown_id = 0;
+                ctx->full_repaint     = true;                     // erase the stale box
+                ctx->redraw_needed    = true;
+            }
+            if (ctx->hovered_id) {
+                for (int i = 0; i < ctx->state.count; i++)
+                    if (ctx->state.entries[i].id == ctx->hovered_id) {
+                        ctx->state.entries[i].tooltip_hover_start = apex_now_seconds();
+                        break;
+                    }
+            }
+
             if (ctx->root) {
                 Widget* h = hit_test(ctx, e->x, e->y);
                 if (h && h->kind == WK_NUMBER_INPUT) {

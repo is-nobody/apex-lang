@@ -62,6 +62,8 @@ void ui_context_menu_set(UiContext* ctx, Value items_descr, int px, int py) {
     cm->anim_t     = 0.0;
     cm->open_started_at = apex_now_seconds();
 
+    ctx->tooltip_shown_id = 0;                              // menus sit above tooltips
+
     if (ui_menubar_has_open(ctx)) ui_menubar_handle_escape(ctx);  // exclusive with menubar
 
     ctx->redraw_needed = true;

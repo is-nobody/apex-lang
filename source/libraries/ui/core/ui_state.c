@@ -120,6 +120,9 @@ bool ui_animating(UiContext* ctx) {
         if (s->switch_init && s->switch_anim_t < UI_SWITCH_ANIM_SEC)
             return true;                                   // knob is mid-flight
         if (s->tab_anim_init) return true;                 // tab strip easing
+        if (!ctx->tooltip_shown_id &&
+            s->id == ctx->hovered_id && s->tooltip_hover_start > 0)
+            return true;                                   // tooltip timer running
     }
     for (int i = 0; i < ctx->notif_count; i++) {
         UiNotification* n = ctx->notifs[i];
@@ -137,6 +140,57 @@ bool ui_animating(UiContext* ctx) {
 void ui_tick(UiContext* ctx, double dt) {
     if (dt <= 0.0) return;                               // no time passed
     if (dt > 0.25) dt = 0.25;                            // clamp after a long pause
+
+    // tooltip: fire the pending timer, or drop a stale one
+    {
+        double now = apex_now_seconds();
+        if (ctx->tooltip_shown_id) {
+            // a shown tooltip is only valid while its widget is alive and visible
+            bool found = false;
+            for (int i = 0; i < ctx->pool_used; i++)
+                if (ctx->pool[i].id == ctx->tooltip_shown_id &&
+                    ctx->pool[i].visible &&
+                    ctx->pool[i].tooltip.len > 0) {
+                    found = true;
+                    break;
+                }
+            if (!found) {
+                ctx->tooltip_shown_id = 0;
+                ctx->full_repaint = true;
+                ctx->redraw_needed = true;
+            }
+        } else if (ctx->hovered_id &&
+                   !ctx->context_menu.active &&
+                   !ctx->dialog.active) {
+            // pending timer for the hovered widget?
+            WidgetState* s = NULL;
+            for (int i = 0; i < ctx->state.count; i++)
+                if (ctx->state.entries[i].id == ctx->hovered_id) {
+                    s = &ctx->state.entries[i];
+                    break;
+                }
+            if (s && s->tooltip_hover_start > 0) {
+                Widget* hw = NULL;
+                for (int i = 0; i < ctx->pool_used; i++)
+                    if (ctx->pool[i].id == ctx->hovered_id) {
+                        hw = &ctx->pool[i];
+                        break;
+                    }
+                if (hw && hw->visible && hw->tooltip.len > 0) {
+                    float delay = hw->tooltip_delay > 0
+                                ? hw->tooltip_delay
+                                : UI_TOOLTIP_DELAY_DEFAULT;
+                    if (now - s->tooltip_hover_start >= delay) {
+                        ctx->tooltip_shown_id = ctx->hovered_id;
+                        ctx->tooltip_x = ctx->input.x;
+                        ctx->tooltip_y = ctx->input.y;
+                        ctx->full_repaint = true;         // tooltip draws over the tree
+                        ctx->redraw_needed = true;
+                    }
+                }
+            }
+        }
+    }
 
     // ease every scroll offset toward its target in fixed 1/60 s substeps
     const double STEP = 1.0 / 60.0;

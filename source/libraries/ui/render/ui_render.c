@@ -522,6 +522,52 @@ static void draw_combobox_popups(UiContext* ctx, const DamageRect* d) {
     }
 }
 
+// paints the active tooltip above the tree, menubar and context menu
+void ui_tooltip_render(UiContext* ctx) {
+    if (!ctx->tooltip_shown_id) return;                  // nothing to draw
+    if (!ctx->font) return;                              // no font: skip text
+
+    Widget* w = NULL;
+    for (int i = 0; i < ctx->pool_used; i++)
+        if (ctx->pool[i].id == ctx->tooltip_shown_id &&
+            ctx->pool[i].visible) {
+            w = &ctx->pool[i];
+            break;
+        }
+    if (!w || w->tooltip.len == 0) return;               // widget vanished or empty
+
+    float fs = UI_FS_SMALL;
+    float tw = ui_text_measure_cached(ctx, w->tooltip.ptr, w->tooltip.len, fs);
+
+    int bw = (int)tw + UI_TOOLTIP_PAD_X * 2;
+    int bh = (int)fs + UI_TOOLTIP_PAD_Y * 2 + 2;
+
+    // below-right of the frozen cursor position
+    int bx = ctx->tooltip_x + UI_TOOLTIP_OFFSET_X;
+    int by = ctx->tooltip_y + UI_TOOLTIP_OFFSET_Y;
+
+    // clamp to the window
+    if (bx + bw > ctx->win_w - 4) bx = ctx->win_w - 4 - bw;
+    if (by + bh > ctx->win_h - 4) by = ctx->win_h - 4 - bh;
+    if (bx < 4) bx = 4;
+    if (by < 4) by = 4;
+
+    ui_painter_fill_round(bx, by, bw, bh, UI_TOOLTIP_RADIUS, UI_C_TOOLTIP_BG);
+    ui_painter_stroke_round(bx, by, bw, bh, UI_TOOLTIP_RADIUS, UI_C_TOOLTIP_BORDER);
+
+    // clip the text to the box so long strings never spill
+    ui_painter_push_clip(bx + UI_TOOLTIP_PAD_X, by + UI_TOOLTIP_PAD_Y,
+                         bw - 2 * UI_TOOLTIP_PAD_X,
+                         bh - 2 * UI_TOOLTIP_PAD_Y);
+
+    float tx   = (float)(bx + UI_TOOLTIP_PAD_X);
+    float base = by + (bh + fs * 0.7f) * 0.5f;
+    ui_draw_text_at(ctx, tx, base, w->tooltip.ptr, w->tooltip.len,
+                    fs, UI_C_TOOLTIP_FG);
+
+    ui_painter_pop_clip();
+}
+
 // clears the surface and paints the titlebar plus the whole widget tree
 void ui_render_frame(UiContext* ctx) {
     ui_painter_init(ctx->pixels, ctx->win_w, ctx->win_h);       // bind the painter to the surface
@@ -545,6 +591,7 @@ void ui_render_frame(UiContext* ctx) {
     // draw the bar inside the titlebar, after the tree so dropdowns sit on top
     if (ctx->menubar) ui_menubar_render(ctx);
     ui_context_menu_render(ctx);                                // context menu above the tree
+    ui_tooltip_render(ctx);                                     // tooltip above menu
     ui_render_dialog(ctx);                                      // modal dialog on top of everything
 }
 
@@ -559,6 +606,10 @@ void ui_render_frame_damage(UiContext* ctx, const DamageRect* rects, int n) {
         return;
     }
     if (ctx->context_menu.active) {                             // context menu also uses full repaint
+        ui_render_frame(ctx);
+        return;
+    }
+    if (ctx->tooltip_shown_id) {                                // tooltip also uses full repaint
         ui_render_frame(ctx);
         return;
     }

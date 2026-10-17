@@ -84,6 +84,8 @@ struct Widget {
 
     char*      key_str;                  // user-supplied key string, or null
     Str     text;                        // label/content text
+    Str     tooltip;                     // tooltip text, empty for none
+    float   tooltip_delay;               // hover seconds before showing
 
     // visual-hash memo. the hash is a pure function of the widget's fields
     uint64_t visual_hash_cache;          // cached full digest, 0 = unset
@@ -176,6 +178,7 @@ typedef struct {
     double   scroll_y;          // saved scroll offset, animated toward scroll_target
     double   scroll_target;     // offset the smooth scroll animation eases toward
     double   blink_phase;       // cursor blink animation phase
+    double   tooltip_hover_start;// wall-clock when hovering started, 0 = idle
     bool     combo_open;        // dropdown expanded state persisted across frames
 
     // wk_switch animation
@@ -330,6 +333,7 @@ typedef enum {
     UK_VALUE, UK_MIN, UK_MAX, UK_VALUE_TEXT, UK_CHILDREN, UK_OPTIONS,
     UK_COLUMNS, UK_ROWS, UK_STRIPE, UK_HEADER, UK_NODES, UK_SELECTED,
     UK_INDENT, UK_EXPANDED, UK_TABS, UK_CLOSEABLE, UK_ADD_BUTTON, UK_REORDER,
+    UK_TOOLTIP, UK_TOOLTIP_DELAY,
     UK_COUNT
 } UiKeyId;
 
@@ -471,6 +475,9 @@ typedef struct UiContext {
     uint64_t   focused_id;      // widget id with keyboard focus, 0 for none
     uint64_t   drag_widget_id;  // widget currently being dragged (slider or input)
     uint64_t   hovered_id;      // widget id currently hovered, 0 = none; invariant:
+    uint64_t   tooltip_shown_id;// widget whose tooltip is visible, 0 = none
+    int        tooltip_x;       // frozen cursor x when tooltip appeared
+    int        tooltip_y;       // frozen cursor y when tooltip appeared
 
     // a titlebar press that landed while the window was fullscreen
     bool       pending_fullscreen_drag;

@@ -122,6 +122,12 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
     if (!has_txt) has_txt = table_get_str_view(t, ctx->key_cache[UK_LABEL], &txt);  // "label" fallback
     if (has_txt) w->text = arena_dup(ctx, txt.ptr, txt.len);
 
+    StrView ttv;
+    if (table_get_str_view(t, ctx->key_cache[UK_TOOLTIP], &ttv))            // "tooltip" text
+        w->tooltip = arena_dup(ctx, ttv.ptr, ttv.len);
+    w->tooltip_delay = (float)table_get_num_key(t, ctx->key_cache[UK_TOOLTIP_DELAY],
+                                                UI_TOOLTIP_DELAY_DEFAULT);  // hover delay
+
     w->checked = table_get_bool_key(t, ctx->key_cache[UK_CHECKED], false);  // checkbox/radio state
 
     StrView grp;

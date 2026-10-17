@@ -206,4 +206,15 @@
 #define UI_C_TAB_CLOSE_BG  0xFF3A3D41u  // close button hover chip
 #define UI_C_TAB_DRAG_BG   0xFF3A3D41u  // tab being dragged
 
+// tooltip
+#define UI_TOOLTIP_DELAY_DEFAULT  0.5f   // seconds of hover before showing
+#define UI_TOOLTIP_PAD_X          10     // horizontal inner padding
+#define UI_TOOLTIP_PAD_Y          6      // vertical inner padding
+#define UI_TOOLTIP_OFFSET_X       12     // cursor x -> box x
+#define UI_TOOLTIP_OFFSET_Y       20     // cursor y -> box y
+#define UI_TOOLTIP_RADIUS         4      // corner radius
+#define UI_C_TOOLTIP_BG           UI_C_PANEL     // matches the rest of the panels
+#define UI_C_TOOLTIP_BORDER       UI_C_BORDER_S  // subtle outline
+#define UI_C_TOOLTIP_FG           UI_C_FG        // primary text color
+
 #endif
