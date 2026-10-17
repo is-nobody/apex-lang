@@ -84,8 +84,8 @@ void tree_build_nodes(UiContext* ctx, Widget* w, Table* arr);
 // draws the wk_tree widget into its own rectangle
 void tree_render(UiContext* ctx, Widget* w, int x, int y, int ww, int hh);
 
-// emits the appropriate click or change event for a press on a wk_tree
-void tree_handle_press(UiContext* ctx, Widget* w);
+// emits the click, right-click or change event for a press on a wk_tree
+void tree_handle_press(UiContext* ctx, Widget* w, int button);
 
 // flattens a wk_tabs descriptor's "tabs" array into w->tabs
 void tabs_build_items(UiContext* ctx, Widget* w, Table* arr);

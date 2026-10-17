@@ -117,8 +117,8 @@ static void tree_draw_disclosure(int x, int y, bool expanded, uint32_t c) {
     }
 }
 
-// emits the click or change event for a press on the tree widget
-void tree_handle_press(UiContext* ctx, Widget* w) {
+// emits the click, right-click or change event for a press on the tree widget
+void tree_handle_press(UiContext* ctx, Widget* w, int button) {
     int ly = ctx->input.y - (int)w->y;
     int row = tree_row_at(w, ly);
     if (row < 0) return;
@@ -136,7 +136,9 @@ void tree_handle_press(UiContext* ctx, Widget* w) {
         ev.key_name[copy] = 0;
     }
 
-    if (n->has_children) {
+    if (button == 3) {
+        ev.kind = EV_RIGHT_CLICK;                        // never toggle on right-click
+    } else if (n->has_children) {
         ev.kind       = EV_CHANGE;                       // whole row toggles for parents
         ev.bool_value = !n->expanded;
     } else {

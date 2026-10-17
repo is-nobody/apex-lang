@@ -93,7 +93,9 @@ set(APEX_UI_SOURCES
     source/libraries/ui/widgets/ui_input.c
     source/libraries/ui/widgets/ui_dialog.c
     source/libraries/ui/widgets/ui_notif.c
+    source/libraries/ui/widgets/ui_menu.c
     source/libraries/ui/widgets/ui_menubar.c
+    source/libraries/ui/widgets/ui_context_menu.c
     source/libraries/ui/widgets/ui_table.c
     source/libraries/ui/widgets/ui_tree.c
     source/libraries/ui/widgets/ui_tabs.c

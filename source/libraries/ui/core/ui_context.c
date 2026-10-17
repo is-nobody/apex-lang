@@ -62,6 +62,7 @@ void ui_context_destroy(UiContext* ctx) {
     if (!ctx) return;                                             // null guard
     VM* saved_vm = ctx->vm;                                       // remember vm for back-pointer clear
     ui_widgets_reset(ctx);                                        // free all per-widget allocations
+    ui_context_menu_free(ctx);                                    // release any open context menu
     ui_menubar_free(ctx);                                         // release the menu bar
 
     for (int i = 0; i < ctx->state.count; i++)                    // release per-state history

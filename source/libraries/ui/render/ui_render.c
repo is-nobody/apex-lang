@@ -544,6 +544,7 @@ void ui_render_frame(UiContext* ctx) {
 
     // draw the bar inside the titlebar, after the tree so dropdowns sit on top
     if (ctx->menubar) ui_menubar_render(ctx);
+    ui_context_menu_render(ctx);                                // context menu above the tree
     ui_render_dialog(ctx);                                      // modal dialog on top of everything
 }
 
@@ -554,6 +555,10 @@ void ui_render_frame_damage(UiContext* ctx, const DamageRect* rects, int n) {
         return;
     }
     if (ctx->menubar) {                                         // menu bar uses the full-repaint path
+        ui_render_frame(ctx);
+        return;
+    }
+    if (ctx->context_menu.active) {                             // context menu also uses full repaint
         ui_render_frame(ctx);
         return;
     }

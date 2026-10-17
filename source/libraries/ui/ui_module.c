@@ -404,6 +404,23 @@ static Value ctor_menubar(VM* vm, int argc, Value* argv) {
     return MAKE_NONE();                                         // builders return no value
 }
 
+// ui.context_menu(items?, x?, y?) — open at cursor / at (x, y); none or no arg closes
+static Value ctor_context_menu(VM* vm, int argc, Value* argv) {
+    UiContext* ctx = ui_ensure(vm);                                         // ensure the context exists
+    if (argc < 1 || !IS_TABLE(argv[0])) {
+        ui_context_menu_close(ctx);                                         // none or non-table: close
+        return MAKE_NONE();
+    }
+    int px = ctx->input.x;                                                  // default: cursor position
+    int py = ctx->input.y;
+    if (argc >= 3 && IS_NUMBER(argv[1]) && IS_NUMBER(argv[2])) {
+        px = (int)AS_NUMBER(argv[1]);                                       // explicit position wins
+        py = (int)AS_NUMBER(argv[2]);
+    }
+    ui_context_menu_set(ctx, argv[0], px, py);                              // build and open
+    return MAKE_NONE();                                                     // builders return no value
+}
+
 // ui.list(items, opts) — a plain vertical list of clickable text rows
 static Value ctor_list(VM* vm, int argc, Value* argv) {
     if (argc < 1 || !IS_TABLE(argv[0])) return MAKE_NONE();   // items array required
@@ -531,6 +548,7 @@ bool ui_call_builtin(VM* vm, const char* name, int argc, Value* argv, Value* res
     if (strcmp(name, "ui.dialog") == 0)        { *result = ctor_dialog(vm, argc, argv); return true; }          // generic modal dialog
     if (strcmp(name, "ui.notification") == 0)  { *result = ctor_notification(vm, argc, argv); return true; }    // desktop notification
     if (strcmp(name, "ui.menubar") == 0)       { *result = ctor_menubar(vm, argc, argv); return true; }         // window menu bar
+    if (strcmp(name, "ui.context_menu") == 0)  { *result = ctor_context_menu(vm, argc, argv); return true; }    // right-click menu
     if (strcmp(name, "ui.list") == 0)          { *result = ctor_list(vm, argc, argv); return true; }            // compositional list
 
     if (strcmp(name, "ui.text") == 0)     { *result = make_leaf(vm, "text", argc, argv); return true; }         // plain text block

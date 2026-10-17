@@ -114,6 +114,12 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
             ctx->input.x = e->x;                                  // track current pointer
             ctx->input.y = e->y;
 
+            // an open context menu swallows hover before anything else sees it
+            if (ctx->context_menu.active) {
+                ui_context_menu_handle_mousemove(ctx, e->x, e->y);
+                break;
+            }
+
             // a fullscreen titlebar press is waiting for real movement before it restores the window
             if (ctx->pending_fullscreen_drag) {
                 if (!ctx->input.lmb) {
@@ -276,9 +282,25 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
             break;
         }
         case UW_EV_MOUSEDOWN:
+            if (e->button == 3) {                                 // right button
+                ctx->input.x = e->x;
+                ctx->input.y = e->y;
+
+                if (ui_context_menu_handle_mousedown(ctx, e->x, e->y))
+                    break;                                        // menu dismissed or handled
+
+                if (ctx->dialog.active) break;                    // dialog eats everything else
+
+                Widget* h = ctx->root ? hit_test(ctx, e->x, e->y) : NULL;
+                if (h) fire_click_b(ctx, h, 3);                   // emit right_click
+                break;
+            }
             if (e->button == 1) {                                 // left button only
                 ctx->input.x = e->x;
                 ctx->input.y = e->y;
+
+                if (ui_context_menu_handle_mousedown(ctx, e->x, e->y))
+                    break;                                        // left-click also dismisses a menu
 
                 if (ctx->dialog.active) {                         // modal dialog is on top
                     dialog_mouse_down(ctx, e->x, e->y);
@@ -578,6 +600,8 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                 dialog_key_down(ctx, e);
                 break;
             }
+            if (e->key == UI_KEY_ESCAPE && ui_context_menu_handle_escape(ctx))
+                break;                                            // context menu ate escape
             if (e->key == UI_KEY_ESCAPE && ui_menubar_handle_escape(ctx))
                 break;                                            // menu bar ate escape
             if (ctx->focused_id && ctx->root) {                   // deliver to focused widget

@@ -219,7 +219,7 @@ typedef struct {
 } InputState;   // aggregated pointer and modifier state
 
 typedef enum {
-    EV_NONE, EV_CLOSE, EV_CLICK, EV_CHANGE, EV_KEY, EV_SCROLL,
+    EV_NONE, EV_CLOSE, EV_CLICK, EV_RIGHT_CLICK, EV_CHANGE, EV_KEY, EV_SCROLL,
     EV_HOVER, EV_RESIZE, EV_DIALOG, EV_NOTIFICATION
 } EventKind;  // event kind discriminator
 
@@ -287,6 +287,40 @@ typedef struct {
 
 // non-owning view into a string value; ptr is valid while the owning table holds the entry
 typedef struct { const char* ptr; int len; } StrView;
+
+// menu item kinds: a normal row or a horizontal rule
+typedef enum { MI_ITEM = 0, MI_SEPARATOR = 1 } UiMenuItemKind;
+
+// one row in a dropdown, optionally carrying a submenu
+typedef struct UiMenuItem {
+    UiMenuItemKind kind;                    // item vs separator
+    char*          label;                   // heap-owned, null for separators
+    char*          key;                     // heap-owned, null for separators
+    char*          shortcut;                // right-aligned hint, null when absent
+    struct UiMenuItem* submenu;             // null when this row is a leaf
+    int            submenu_count;           // live entries in submenu
+    int            submenu_cap;             // allocated capacity of submenu
+    bool           borrowed_submenu;        // submenu is aliased; free() must not recurse
+} UiMenuItem;
+
+// per-depth open submenu path, shared by the menubar and context menu
+typedef struct UiMenuPath {
+    int idx[8];                             // per-depth open index, -1 = closed
+    int len;                                // number of live slots
+} UiMenuPath;
+
+// one open context menu; only one at a time
+typedef struct UiContextMenu {
+    bool         active;           // true while a menu is on screen
+    UiMenuItem*  items;            // top-level items (heap-owned)
+    int          item_count;       // live entries
+    int          item_cap;         // allocated capacity
+    int          px, py;           // panel top-left in window space (pre-clamp)
+    UiMenuPath   path;             // open submenu chain
+    int          hover_idx;        // hovered top-level item, -1 for none
+    double       anim_t;           // 0..1 fade-in phase
+    double       open_started_at;  // wall-clock anchor for anim_t
+} UiContextMenu;
 
 // cached interned key ids for hot descriptor-field lookups
 typedef enum {
@@ -494,6 +528,7 @@ typedef struct UiContext {
     int               notif_cap;          // allocated capacity of the array
 
     UiMenuBar*        menubar;            // top-of-window menu bar, or null
+    UiContextMenu     context_menu;       // one context menu at a time, zeroed when idle
 } UiContext;                    // per-vm ui session state
 
 // reads a string field from a table, returns a heap copy or null on miss
@@ -677,5 +712,29 @@ bool ui_menubar_handle_mousedown(UiContext* ctx, int x, int y);
 
 // escape pressed: returns true when a dropdown was closed
 bool ui_menubar_handle_escape(UiContext* ctx);
+
+// opens a context menu from a descriptor at (px, py)
+void ui_context_menu_set(UiContext* ctx, Value items_descr, int px, int py);
+
+// closes any open context menu
+void ui_context_menu_close(UiContext* ctx);
+
+// releases every allocation and zeroes the menu (shutdown path)
+void ui_context_menu_free(UiContext* ctx);
+
+// true when a context menu is currently on screen
+bool ui_context_menu_has_open(UiContext* ctx);
+
+// paints the open context menu and its submenu chain
+void ui_context_menu_render(UiContext* ctx);
+
+// handles a pointer move while the menu is open; always consumes
+void ui_context_menu_handle_mousemove(UiContext* ctx, int x, int y);
+
+// handles a pointer press while the menu is open; always consumes
+bool ui_context_menu_handle_mousedown(UiContext* ctx, int x, int y);
+
+// handles escape while a menu is open; returns true when consumed
+bool ui_context_menu_handle_escape(UiContext* ctx);
 
 #endif

@@ -378,6 +378,7 @@ Value ui_impl_run(VM* vm, int argc, Value* argv) {
 Value ui_impl_shutdown(VM* vm, int argc, Value* argv) {
     (void)argc; (void)argv;                                       // no arguments
     UiContext* ctx = ui_ensure(vm);                               // ensure the context exists
+    if (ctx->context_menu.active) ui_context_menu_close(ctx);     // drop any open menu first
     if (ctx->window) {                                            // tear down the window if present
         ui_window_destroy(ctx->window);                           // releases the framebuffer too
         ctx->window = NULL;                                       // drop the handle

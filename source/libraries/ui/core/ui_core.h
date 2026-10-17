@@ -39,6 +39,7 @@ void  ui_event_push(UiContext* ctx, const UiEvent* ev);
 Value ui_event_to_table(VM* vm, const UiEvent* ev);
 Value apex_call_function(VM* vm, Value func, int argc, Value* argv);
 void  fire_click(UiContext* ctx, Widget* w);
+void  fire_click_b(UiContext* ctx, Widget* w, int button);
 
 // animation
 void ui_tick(UiContext* ctx, double dt);

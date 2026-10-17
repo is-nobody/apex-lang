@@ -37,14 +37,15 @@ Value ui_event_to_table(VM* vm, const UiEvent* ev) {
     Value k, v;
     const char* ty = "none";                              // default type string
     switch (ev->kind) {
-        case EV_CLOSE:  ty = "close";  break;
-        case EV_CLICK:  ty = "click";  break;
-        case EV_CHANGE: ty = "change"; break;
-        case EV_KEY:    ty = "key";    break;
-        case EV_SCROLL: ty = "scroll"; break;
-        case EV_HOVER:  ty = "hover";  break;
-        case EV_RESIZE: ty = "resize"; break;
-        case EV_DIALOG: ty = "dialog"; break;
+        case EV_CLOSE:       ty = "close";       break;
+        case EV_CLICK:       ty = "click";       break;
+        case EV_RIGHT_CLICK: ty = "right_click"; break;
+        case EV_CHANGE:      ty = "change";      break;
+        case EV_KEY:         ty = "key";         break;
+        case EV_SCROLL:      ty = "scroll";      break;
+        case EV_HOVER:       ty = "hover";       break;
+        case EV_RESIZE:      ty = "resize";      break;
+        case EV_DIALOG:      ty = "dialog";      break;
         default: break;
     }
 
@@ -109,10 +110,27 @@ Value ui_event_to_table(VM* vm, const UiEvent* ev) {
     return MAKE_TABLE(t);                                 // hand the event table to the caller
 }
 
-// emits a click event for a widget, plus a change event for checkboxes
-void fire_click(UiContext* ctx, Widget* w) {
+// emits a click (button 1) or right-click (button 3) event for a widget
+void fire_click_b(UiContext* ctx, Widget* w, int button) {
+    if (button == 3) {                                            // right-click: never toggles state
+        if (w->kind == WK_TREE) {                                 // per-row dispatch
+            tree_handle_press(ctx, w, 3);
+            return;
+        }
+        UiEvent ev; memset(&ev, 0, sizeof(ev));
+        ev.kind = EV_RIGHT_CLICK;
+        ev.widget_id = w->id;
+        strncpy(ev.widget_type, widget_kind_name(w->kind), 15);
+        if (w->key_str) strncpy(ev.key_name, w->key_str, 63);
+        ev.mouse_x = ctx->input.x;
+        ev.mouse_y = ctx->input.y;
+        ui_event_push(ctx, &ev);
+        ctx->redraw_needed = true;
+        return;
+    }
+
     if (w->kind == WK_TREE) {                                     // per-row dispatch
-        tree_handle_press(ctx, w);
+        tree_handle_press(ctx, w, 1);
         return;
     }
     if (w->kind == WK_TABS) {                                     // per-tab dispatch
@@ -140,6 +158,9 @@ void fire_click(UiContext* ctx, Widget* w) {
     }
     ctx->redraw_needed = true;                                    // force a repaint
 }
+
+// emits a left-click event for a widget
+void fire_click(UiContext* ctx, Widget* w) { fire_click_b(ctx, w, 1); }
 
 // calls an apex function value synchronously by running it as a one-shot coroutine
 Value apex_call_function(VM* vm, Value func, int argc, Value* argv) {
