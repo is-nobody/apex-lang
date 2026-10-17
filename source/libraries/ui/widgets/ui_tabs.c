@@ -47,7 +47,7 @@ float tabs_natural_width(UiContext* ctx, Widget* w) {
     if (!w) return 0.0f;                                     // null guard
     int n = w->tab_count;                                    // live tab count
     if (n > TABS_MAX) n = TABS_MAX;                          // respect the hard cap
-    int total = 0;                                           // running total width
+    int total = UI_TAB_STRIP_PAD_X * 2;                      // start with left and right padding
     for (int i = 0; i < n; i++) total += tabs_pref_width(ctx, w, i);  // sum every tab's pref
     if (n > 1) total += (n - 1) * UI_TAB_GAP;                // add the gaps between tabs
     if (w->tab_show_add) total += UI_TAB_GAP + UI_TAB_ADD_SZ;  // reserve the "+" button slot
@@ -65,7 +65,7 @@ static int tabs_fit(UiContext* ctx, Widget* w, int wx, int ww, int* out) {
     }
     int tab_gaps    = (n > 1) ? (n - 1) * UI_TAB_GAP : 0;    // space eaten by inter-tab gaps
     int add_reserve = w->tab_show_add ? (UI_TAB_GAP + UI_TAB_ADD_SZ) : 0;  // space for the "+" button
-    int avail = ww - tab_gaps - add_reserve;                 // usable width for the tabs
+    int avail = ww - tab_gaps - add_reserve - (UI_TAB_STRIP_PAD_X * 2); // usable width for the tabs
     if (avail < 1) avail = 1;                                // guard against a degenerate strip
 
     if (sum > avail) {                                       // strip overflows: shrink the tabs
@@ -117,7 +117,7 @@ static int tabs_layout(UiContext* ctx, Widget* w, int wx, int ww,
     tabs_fit(ctx, w, wx, ww, prefs);                         // resolve fitted widths
 
     // assign slots
-    int cx = wx;                                             // running x cursor
+    int cx = wx + UI_TAB_STRIP_PAD_X;                        // running x cursor
     for (int i = 0; i < n; i++) {                            // one slot per position
         int ti = perm[i];                                    // the tab drawn in this slot
         out_slot_tab[i] = ti;                                // publish the tab index
@@ -203,7 +203,8 @@ static bool tabs_close_hit(UiContext* ctx, Widget* w, int wx, int wy, int ww,
     int tx = slot_x[slot];                                   // slot left edge
     int tw = slot_w[slot];                                   // slot width
     int cb_x = tx + tw - UI_TAB_CLOSE_SZ - UI_TAB_PAD_R;     // close button left edge
-    int cb_y = wy + ((UI_TABS_H - 7) - UI_TAB_CLOSE_SZ) / 2 + 2;  // close button top edge
+    int tab_h = UI_TABS_H - UI_TAB_TOP_PAD - UI_TAB_BOTTOM_PAD;
+    int cb_y = wy + UI_TAB_TOP_PAD + (tab_h - UI_TAB_CLOSE_SZ) / 2;
     return mx >= cb_x && mx < cb_x + UI_TAB_CLOSE_SZ &&      // inside on x
            my >= cb_y && my < cb_y + UI_TAB_CLOSE_SZ;        // and on y
 }
@@ -232,7 +233,7 @@ static int tabs_drag_target(UiContext* ctx, Widget* w, int wx, int ww, int mx) {
     int prefs[TABS_MAX];                                         // fitted pixel width per tab
     tabs_fit(ctx, w, wx, ww, prefs);                             // resolve fitted widths
 
-    int cx = wx;                                                 // running x cursor
+    int cx = wx + UI_TAB_STRIP_PAD_X;                            // running x cursor
     int count = 0;                                               // slots the pointer has passed
     for (int i = 0; i < n; i++) {                                // one check per tab
         if (i != from) {                                         // skip the dragged tab itself
@@ -518,7 +519,8 @@ static void tabs_draw_one(UiContext* ctx, Widget* w, int idx,
     else if (active)  bg = UI_C_TAB_BG_ACT;                      // active tab: filled
     else if (hovered) bg = UI_C_TAB_BG_HOV;                      // hovered tab: lighter fill
     else              bg = UI_C_TAB_BG;                          // idle tab: default fill
-    ui_painter_fill_round(tx, ty, tw, UI_TABS_H - 7, UI_TAB_RADIUS, bg);  // rounded tab body
+    int tab_h = UI_TABS_H - UI_TAB_TOP_PAD - UI_TAB_BOTTOM_PAD;
+    ui_painter_fill_round(tx, ty + UI_TAB_TOP_PAD, tw, tab_h, UI_TAB_RADIUS, bg);  // rounded tab body
 
     // foreground priority mirrors the background
     uint32_t fg;                                                 // resolved foreground color
@@ -539,7 +541,7 @@ static void tabs_draw_one(UiContext* ctx, Widget* w, int idx,
 
     if (t->label.ptr && t->label.len > 0 && ctx->font) {         // draw only when there is text
         float full_w = ui_text_measure_cached(ctx, t->label.ptr, t->label.len, UI_FS_BODY);  // full label width
-        float base = ty + (UI_TABS_H - 7 + UI_FS_BODY * 0.7f) * 0.5f;  // vertically centered baseline
+        float base = ty + UI_TAB_TOP_PAD + (tab_h + UI_FS_BODY * 0.7f) * 0.5f;  // vertically centered baseline
 
         if (full_w <= (float)label_max_w + 0.5f) {               // whole label fits
             ui_draw_text_at(ctx, (float)label_x, base,
@@ -574,7 +576,7 @@ static void tabs_draw_one(UiContext* ctx, Widget* w, int idx,
 
     // close chip: optional hover background, then the shared 9x9 glyph
     int cx = tx + tw - UI_TAB_CLOSE_SZ - UI_TAB_PAD_R;           // close button left edge
-    int cy = ty + ((UI_TABS_H - 7) - UI_TAB_CLOSE_SZ) / 2 + 2;   // close button top edge
+    int cy = ty + UI_TAB_TOP_PAD + (tab_h - UI_TAB_CLOSE_SZ) / 2; // close button top edge
 
     if (close_hov)                                               // pointer over the glyph
         ui_painter_fill_round(cx, cy, UI_TAB_CLOSE_SZ, UI_TAB_CLOSE_SZ,
@@ -604,7 +606,9 @@ void tabs_render(UiContext* ctx, Widget* w, int x, int y, int ww, int hh) {
     (void)hh;                                                    // height not used: strip height is fixed
     if (ww <= 0) return;                                         // degenerate strip: nothing to draw
 
-    ui_painter_fill_rect(x, y, ww, UI_TABS_H, UI_C_TABS_BG);     // strip background
+    // strip background with a subtle 1px outline
+    ui_painter_fill_rect(x, y, ww, UI_TABS_H, UI_C_TABS_BG);
+    ui_painter_stroke_rect(x, y, ww, UI_TABS_H, UI_C_BORDER);
 
     int n = w->tab_count;                                        // live tab count
     if (n > TABS_MAX) n = TABS_MAX;                              // respect the hard cap
@@ -664,6 +668,5 @@ void tabs_render(UiContext* ctx, Widget* w, int x, int y, int ww, int hh) {
         tabs_draw_add(w, end_x, ay);                             // draw it at the end of the strip
     }
 
-    // bottom hairline separating the strip from the tree below
-    ui_painter_fill_rect(x, y + UI_TABS_H - 1, ww, 1, UI_C_BORDER);  // 1px bottom rule
+    // the stroke_rect above already draws the bottom hairline, so we skip the manual fill
 }

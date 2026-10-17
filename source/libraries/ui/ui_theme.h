@@ -192,6 +192,9 @@
 #define UI_TAB_CLOSE_SZ    16   // close glyph hitbox size
 #define UI_TAB_ADD_SZ      28   // "+" button square size
 #define UI_TAB_DRAG_THRESH  4   // pixels moved before a press becomes a drag
+#define UI_TAB_TOP_PAD      4   // top padding inside the tab strip
+#define UI_TAB_BOTTOM_PAD   4   // bottom padding inside the tab strip
+#define UI_TAB_STRIP_PAD_X  4   // left and right edge padding of the strip
 
 // tab strip colors
 #define UI_C_TABS_BG       0xFF181818u  // tab bar strip background

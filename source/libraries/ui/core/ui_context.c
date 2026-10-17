@@ -32,7 +32,7 @@ UiContext* ui_ensure(VM* vm) {
     // pre-intern every descriptor field name once; saves a hash + lookup per field per widget
     static const char* const kKeyNames[UK_COUNT] = {
         "__t", "key", "align", "justify", "gap", "padding", "weight",
-        "min_width", "max_width", "disabled", "visible", "on_top",
+        "min_width", "max_width", "disabled", "visible", "on_top", "bare",
         "width", "height", "content", "label", "checked", "group",
         "value", "min", "max", "value_text", "children", "options",
         "columns", "rows", "stripe", "header",

@@ -81,6 +81,7 @@ struct Widget {
     float   gap, padding;                // child spacing and inner padding
     bool    visible, disabled;           // visibility and interaction flags
     bool    on_top;                      // if true, draw subtree after siblings
+    bool    bare;                        // draw without borders and background fill
 
     char*      key_str;                  // user-supplied key string, or null
     Str     text;                        // label/content text
@@ -331,7 +332,7 @@ typedef struct UiContextMenu {
 // cached interned key ids for hot descriptor-field lookups
 typedef enum {
     UK_T, UK_KEY, UK_ALIGN, UK_JUSTIFY, UK_GAP, UK_PADDING, UK_WEIGHT,
-    UK_MIN_WIDTH, UK_MAX_WIDTH, UK_DISABLED, UK_VISIBLE, UK_ON_TOP,
+    UK_MIN_WIDTH, UK_MAX_WIDTH, UK_DISABLED, UK_VISIBLE, UK_ON_TOP, UK_BARE,
     UK_WIDTH, UK_HEIGHT, UK_CONTENT, UK_LABEL, UK_CHECKED, UK_GROUP,
     UK_VALUE, UK_MIN, UK_MAX, UK_VALUE_TEXT, UK_CHILDREN, UK_OPTIONS,
     UK_COLUMNS, UK_ROWS, UK_STRIPE, UK_HEADER, UK_NODES, UK_SELECTED,

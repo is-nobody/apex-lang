@@ -273,6 +273,10 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 int   lh = UI_LINE_H;
                 int pad_x = 8;
                 int pad_y = 6;
+                if (w->bare) {
+                    pad_x = 12;
+                    pad_y = 8;
+                }
                 int inner_h = hh - pad_y * 2;
                 if (inner_h < lh) inner_h = lh;
 
@@ -286,10 +290,14 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 bool has_sb   = content_h > inner_h;
                 int  sb_w     = has_sb ? UI_SCROLL_W : 0;
 
-                ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_INPUT_BG);
-                ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);
-                if (w->focused)
-                    ui_painter_stroke_round(x-2, y-2, ww+4, hh+4, UI_RADIUS+2, UI_C_FOCUS);
+                if (!w->bare) {
+                    ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_INPUT_BG);
+                    ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);
+                    if (w->focused)
+                        ui_painter_stroke_round(x-2, y-2, ww+4, hh+4, UI_RADIUS+2, UI_C_FOCUS);
+                } else {
+                    ui_painter_fill_rect(x, y, ww, hh, UI_C_BG);
+                }
 
                 ui_painter_push_clip(x + 1, y + 1, ww - 2 - sb_w, hh - 2);
 
