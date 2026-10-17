@@ -479,54 +479,45 @@ static Value ctor_number_input(VM* vm, int argc, Value* argv) {
     return MAKE_TABLE(t);
 }
 
-// named key constants exposed to scripts as ui.key_*()
-static const struct { const char* name; int value; } UI_KEY_TABLE[] = {
-    {"ui.key_escape",    UI_KEY_ESCAPE},
-    {"ui.key_enter",     UI_KEY_ENTER},
-    {"ui.key_tab",       UI_KEY_TAB},
-    {"ui.key_backspace", UI_KEY_BACKSPACE},
-    {"ui.key_delete",    UI_KEY_DELETE},
-    {"ui.key_insert",    UI_KEY_INSERT},
-    {"ui.key_home",      UI_KEY_HOME},
-    {"ui.key_end",       UI_KEY_END},
-    {"ui.key_page_up",   UI_KEY_PAGE_UP},
-    {"ui.key_page_down", UI_KEY_PAGE_DOWN},
-    {"ui.key_left",      UI_KEY_LEFT},
-    {"ui.key_right",     UI_KEY_RIGHT},
-    {"ui.key_up",        UI_KEY_UP},
-    {"ui.key_down",      UI_KEY_DOWN},
-    {"ui.key_space",     UI_KEY_SPACE},
-    {"ui.key_f1",        UI_KEY_F1},
-    {"ui.key_f2",        UI_KEY_F2},
-    {"ui.key_f3",        UI_KEY_F3},
-    {"ui.key_f4",        UI_KEY_F4},
-    {"ui.key_f5",        UI_KEY_F5},
-    {"ui.key_f6",        UI_KEY_F6},
-    {"ui.key_f7",        UI_KEY_F7},
-    {"ui.key_f8",        UI_KEY_F8},
-    {"ui.key_f9",        UI_KEY_F9},
-    {"ui.key_f10",       UI_KEY_F10},
-    {"ui.key_f11",       UI_KEY_F11},
-    {"ui.key_f12",       UI_KEY_F12},
-    {"ui.mod_shift",     UI_MOD_SHIFT},
-    {"ui.mod_ctrl",      UI_MOD_CTRL},
-    {"ui.mod_alt",       UI_MOD_ALT},
-};
-
-// looks up a ui.key_* / ui.mod_* constant; writes the value and returns true on hit
-static bool ui_key_lookup(const char* name, Value* out) {
-    for (size_t i = 0; i < sizeof(UI_KEY_TABLE) / sizeof(UI_KEY_TABLE[0]); i++) {
-        if (strcmp(name, UI_KEY_TABLE[i].name) == 0) {
-            *out = MAKE_NUMBER((double)UI_KEY_TABLE[i].value);
-            return true;
-        }
-    }
-    return false;
+// builds the ui.key table of named key / modifier constants
+static Value ctor_key_table(VM* vm) {
+    Table* t = table_create(32);                                        // room for every entry
+    tset(vm, t, "esc",       MAKE_NUMBER((double)UI_KEY_ESCAPE));       // escape
+    tset(vm, t, "enter",     MAKE_NUMBER((double)UI_KEY_ENTER));        // return / enter
+    tset(vm, t, "tab",       MAKE_NUMBER((double)UI_KEY_TAB));          // tab
+    tset(vm, t, "backspace", MAKE_NUMBER((double)UI_KEY_BACKSPACE));    // backspace
+    tset(vm, t, "delete",    MAKE_NUMBER((double)UI_KEY_DELETE));       // forward delete
+    tset(vm, t, "insert",    MAKE_NUMBER((double)UI_KEY_INSERT));       // insert
+    tset(vm, t, "home",      MAKE_NUMBER((double)UI_KEY_HOME));         // home
+    tset(vm, t, "end",       MAKE_NUMBER((double)UI_KEY_END));          // end
+    tset(vm, t, "page_up",   MAKE_NUMBER((double)UI_KEY_PAGE_UP));      // page up
+    tset(vm, t, "page_down", MAKE_NUMBER((double)UI_KEY_PAGE_DOWN));    // page down
+    tset(vm, t, "left",      MAKE_NUMBER((double)UI_KEY_LEFT));         // left arrow
+    tset(vm, t, "right",     MAKE_NUMBER((double)UI_KEY_RIGHT));        // right arrow
+    tset(vm, t, "up",        MAKE_NUMBER((double)UI_KEY_UP));           // up arrow
+    tset(vm, t, "down",      MAKE_NUMBER((double)UI_KEY_DOWN));         // down arrow
+    tset(vm, t, "space",     MAKE_NUMBER((double)UI_KEY_SPACE));        // space
+    tset(vm, t, "f1",        MAKE_NUMBER((double)UI_KEY_F1));           // function keys
+    tset(vm, t, "f2",        MAKE_NUMBER((double)UI_KEY_F2));
+    tset(vm, t, "f3",        MAKE_NUMBER((double)UI_KEY_F3));
+    tset(vm, t, "f4",        MAKE_NUMBER((double)UI_KEY_F4));
+    tset(vm, t, "f5",        MAKE_NUMBER((double)UI_KEY_F5));
+    tset(vm, t, "f6",        MAKE_NUMBER((double)UI_KEY_F6));
+    tset(vm, t, "f7",        MAKE_NUMBER((double)UI_KEY_F7));
+    tset(vm, t, "f8",        MAKE_NUMBER((double)UI_KEY_F8));
+    tset(vm, t, "f9",        MAKE_NUMBER((double)UI_KEY_F9));
+    tset(vm, t, "f10",       MAKE_NUMBER((double)UI_KEY_F10));
+    tset(vm, t, "f11",       MAKE_NUMBER((double)UI_KEY_F11));
+    tset(vm, t, "f12",       MAKE_NUMBER((double)UI_KEY_F12));
+    tset(vm, t, "shift",     MAKE_NUMBER((double)UI_MOD_SHIFT));        // modifier bitmasks
+    tset(vm, t, "ctrl",      MAKE_NUMBER((double)UI_MOD_CTRL));
+    tset(vm, t, "alt",       MAKE_NUMBER((double)UI_MOD_ALT));
+    return MAKE_TABLE(t);                                               // caller owns the table
 }
 
 // dispatches ui.* builtin calls from the vm into the ui library
 bool ui_call_builtin(VM* vm, const char* name, int argc, Value* argv, Value* result) {
-    if (ui_key_lookup(name, result)) return true;   // ui.key_* / ui.mod_* constants
+    if (strcmp(name, "ui.key") == 0) { *result = ctor_key_table(vm); return true; }  // named key / mod table
     if (strcmp(name, "ui.init") == 0)          { *result = ui_impl_init(vm, argc, argv); return true; }         // open the native window
     if (strcmp(name, "ui.shutdown") == 0)      { *result = ui_impl_shutdown(vm, argc, argv); return true; }     // close the native window
     if (strcmp(name, "ui.render") == 0)        { *result = ui_impl_render(vm, argc, argv); return true; }       // set the current widget tree
