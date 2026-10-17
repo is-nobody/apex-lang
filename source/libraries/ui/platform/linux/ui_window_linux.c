@@ -85,7 +85,18 @@ UiWindow* ui_window_create(int w, int h, const char* title, bool decorated) {
     win->win = XCreateWindow(win->dpy, RootWindow(win->dpy, win->screen),
         0,0,(unsigned)w,(unsigned)h,0, CopyFromParent, InputOutput, CopyFromParent,
         CWBackPixel|CWBitGravity, &a);
-    XStoreName(win->dpy, win->win, title);               // set the window title
+    // set the window title for modern window managers
+    XStoreName(win->dpy, win->win, title);
+    Atom net_wm_name = XInternAtom(win->dpy, "_NET_WM_NAME", False);
+    Atom utf8_string = XInternAtom(win->dpy, "UTF8_STRING", False);
+    XChangeProperty(win->dpy, win->win, net_wm_name, utf8_string, 8,
+                    PropModeReplace, (const unsigned char*)title, (int)strlen(title));
+
+    // set WM_CLASS so GNOME Shell uses the title for the top bar text
+    XClassHint class_hint;
+    class_hint.res_name  = (char*)"apex-ui";    // process/binary name
+    class_hint.res_class = (char*)title;        // GNOME displays this in the top bar
+    XSetClassHint(win->dpy, win->win, &class_hint);
     XSelectInput(win->dpy, win->win,
         ExposureMask|KeyPressMask|StructureNotifyMask|
         ButtonPressMask|ButtonReleaseMask|PointerMotionMask|
@@ -215,7 +226,23 @@ void ui_window_destroy(UiWindow* w) {
 }
 
 // updates the window title
-void ui_window_set_title(UiWindow* w, const char* t) { XStoreName(w->dpy, w->win, t); }
+void ui_window_set_title(UiWindow* w, const char* t) {
+    if (!t) t = "";
+    XStoreName(w->dpy, w->win, t);
+    
+    Atom net_wm_name = XInternAtom(w->dpy, "_NET_WM_NAME", False);
+    Atom utf8_string = XInternAtom(w->dpy, "UTF8_STRING", False);
+    XChangeProperty(w->dpy, w->win, net_wm_name, utf8_string, 8,
+                    PropModeReplace, (const unsigned char*)t, (int)strlen(t));
+    
+    // update WM_CLASS dynamically
+    XClassHint class_hint;
+    class_hint.res_name  = (char*)"apex-ui";
+    class_hint.res_class = (char*)t;
+    XSetClassHint(w->dpy, w->win, &class_hint);
+    
+    XFlush(w->dpy);
+}
 
 // paint callback is unused on x11, which repaints on expose
 void ui_window_set_paint_callback(UiWindow* w, UiPaintCallback cb, void* user) {
@@ -588,7 +615,18 @@ UiWindow* ui_window_create_popup(int x, int y, int w, int h, const char* title) 
     win->win = XCreateWindow(win->dpy, RootWindow(win->dpy, win->screen),
         x, y, (unsigned)w, (unsigned)h, 0,
         depth, InputOutput, visual, mask, &a);
-    XStoreName(win->dpy, win->win, title ? title : "");       // set the window title
+    const char* ptitle = title ? title : "";
+    XStoreName(win->dpy, win->win, ptitle);
+    
+    Atom net_wm_name = XInternAtom(win->dpy, "_NET_WM_NAME", False);
+    Atom utf8_string = XInternAtom(win->dpy, "UTF8_STRING", False);
+    XChangeProperty(win->dpy, win->win, net_wm_name, utf8_string, 8,
+                    PropModeReplace, (const unsigned char*)ptitle, (int)strlen(ptitle));
+
+    XClassHint class_hint;
+    class_hint.res_name  = (char*)"apex-ui";
+    class_hint.res_class = (char*)ptitle;
+    XSetClassHint(win->dpy, win->win, &class_hint);
 
     // hint the wm: this is a notification, keep it above everything
     Atom wtype = XInternAtom(win->dpy, "_NET_WM_WINDOW_TYPE", False);        // property atom
