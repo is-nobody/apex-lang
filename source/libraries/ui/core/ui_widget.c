@@ -133,6 +133,8 @@ const char* widget_kind_name(WidgetKind k) {
         case WK_HSCROLL: return "hscroll";
         case WK_NUMBER_INPUT: return "number_input";
         case WK_TEXT_AREA:    return "text_area";
+        case WK_STATUSBAR:    return "statusbar";
+        case WK_STATUS_ITEM:  return "status_item";
     }
     return "widget";                                      // fallback for unknown kinds
 }

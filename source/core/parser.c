@@ -388,6 +388,7 @@ static const BuiltinSig BUILTINS[] = {
     {"ui.scroll",           1, 2, TYPE_ANY},      {"ui.hscroll",          1, 2, TYPE_ANY},
     {"ui.context_menu",     0, 3, TYPE_ANY},      {"ui.key",              0, 0, TYPE_ANY},
     {"ui.text_area",        1, 2, TYPE_ANY},      {"ui.save_as",          1, 2, TYPE_ANY},
+    {"ui.statusbar",        1, 1, TYPE_ANY},
 
     {"number", 1, 1, TYPE_ANY}, {"string", 1, 1, TYPE_ANY}, {"type", 1, 1, TYPE_ANY}
 };

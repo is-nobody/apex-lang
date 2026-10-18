@@ -209,6 +209,13 @@
 #define UI_C_TAB_CLOSE_BG  0xFF3A3D41u  // close button hover chip
 #define UI_C_TAB_DRAG_BG   0xFF3A3D41u  // tab being dragged
 
+// status bar
+#define UI_STATUSBAR_H     26           // status bar height in pixels
+#define UI_STATUS_ITEM_PAD 8            // horizontal padding inside a status item
+#define UI_C_STATUSBAR_BG  0xFF181818u  // matches the titlebar
+#define UI_C_STATUSBAR_FG  0xFF969696u  // dimmer than body text
+#define UI_C_STATUSBAR_HOV 0xFF2A2D2Eu  // hover background for clickable items
+
 // tooltip
 #define UI_TOOLTIP_DELAY_DEFAULT  0.5f   // seconds of hover before showing
 #define UI_TOOLTIP_PAD_X          10     // horizontal inner padding

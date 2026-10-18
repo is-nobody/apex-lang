@@ -54,4 +54,7 @@ Value ui_ctor_button(VM* vm, int argc, Value* argv);
 // build a container descriptor
 Value ui_ctor_container(VM* vm, int argc, Value* argv, const char* type);
 
+// build a status bar descriptor
+Value ui_ctor_statusbar(VM* vm, int argc, Value* argv);
+
 #endif

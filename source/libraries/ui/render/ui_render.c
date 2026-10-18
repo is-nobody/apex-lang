@@ -543,6 +543,20 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
             case WK_TREE:
                 tree_render(ctx, w, x, y, ww, hh);
                 break;
+            case WK_STATUSBAR:
+                ui_painter_fill_rect(x, y, ww, hh, UI_C_STATUSBAR_BG);
+                ui_painter_fill_rect(x, y, ww, 1, UI_C_BORDER);  // top separator line
+                break;
+            case WK_STATUS_ITEM: {
+                if (w->hovered)
+                    ui_painter_fill_round(x + 2, y + 2, ww - 4, hh - 4, 3, UI_C_STATUSBAR_HOV);
+                float fs = UI_FS_SMALL;
+                float base = y + (hh + fs * 0.7f) * 0.5f;
+                float tw = ctx->font ? ui_text_measure_cached(ctx, w->text.ptr, w->text.len, fs) : w->text.len * 8.0f;
+                float tx = x + (ww - tw) * 0.5f;
+                ui_draw_text_at(ctx, tx, base, w->text.ptr, w->text.len, fs, UI_C_STATUSBAR_FG);
+                break;
+            }
             case WK_TABS:
                 tabs_render(ctx, w, x, y, ww, hh);
                 break;

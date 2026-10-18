@@ -42,6 +42,8 @@ static WidgetKind kind_from_str_n(const char* s, int n) {
     if (STR_EQ(s,n,"hscroll"))   return WK_HSCROLL;
     if (STR_EQ(s,n,"number_input")) return WK_NUMBER_INPUT;
     if (STR_EQ(s,n,"text_area"))    return WK_TEXT_AREA;
+    if (STR_EQ(s,n,"statusbar"))    return WK_STATUSBAR;
+    if (STR_EQ(s,n,"status_item"))  return WK_STATUS_ITEM;
     return WK_TEXT;
 }
 
@@ -71,6 +73,48 @@ static Str arena_dup(UiContext* ctx, const char* s, int n) {
     p[n] = 0;                                            // null terminate
     Str r; r.ptr = p; r.len = n;                         // return by value
     return r;
+}
+
+// parses a left/right array into WK_STATUS_ITEM children under `parent`
+static void build_status_items(UiContext* ctx, Widget* parent, Table* arr) {
+    int n = arr->array_part ? arr->array_count : 0;
+    for (int i = 0; i < n; i++) {
+        Value item = arr->array_part[i];
+        if (!IS_TABLE(item)) continue;
+        Table* it = AS_TABLE(item);
+
+        Widget* c = ui_widget_alloc(ctx);
+        c->kind = WK_STATUS_ITEM;
+
+        StrView tv;
+        if (table_get_str_view(it, ctx->key_cache[UK_TEXT], &tv))
+            c->text = arena_dup(ctx, tv.ptr, tv.len);
+        else if (table_get_str_view(it, ctx->key_cache[UK_CONTENT], &tv))
+            c->text = arena_dup(ctx, tv.ptr, tv.len);
+        else if (table_get_str_view(it, ctx->key_cache[UK_LABEL], &tv))
+            c->text = arena_dup(ctx, tv.ptr, tv.len);
+
+        StrView kv;
+        if (table_get_str_view(it, ctx->key_cache[UK_KEY], &kv)) {
+            c->key_str = arena_dup(ctx, kv.ptr, kv.len).ptr;
+            c->id = ui_hash_id_view(parent->id, &kv, i);
+        } else {
+            c->id = ui_hash_id(parent->id, NULL, i);
+        }
+
+        // restore persistent state (hover, press, focus) so the rebuild
+        // doesn't visually reset the widget while the mouse is still over it
+        WidgetState* st = ui_state_get(ctx, c->id);
+        c->hovered = st->hovered;
+        c->pressed = st->pressed;
+        c->focused = (ctx->focused_id == c->id);
+
+        StrView ttv;
+        if (table_get_str_view(it, ctx->key_cache[UK_TOOLTIP], &ttv))
+            c->tooltip = arena_dup(ctx, ttv.ptr, ttv.len);
+
+        widget_add_child(ctx, parent, c);
+    }
 }
 
 // recursively builds a Widget subtree from an apex table descriptor
@@ -462,6 +506,36 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
             w->tab_anim_x = st->tab_anim_x;                      // hand the state's x array to the renderer
             w->tab_anim_w = st->tab_anim_w;                      // hand the state's w array to the renderer
             w->tab_anim_n = st->tab_anim_n;                      // publish the entry count
+        }
+    }
+
+    if (w->kind == WK_STATUSBAR) {
+        Widget* left = ui_widget_alloc(ctx);
+        left->kind = WK_HBOX;
+        left->id = ui_hash_id(w->id, "__left__", 0);
+        left->padding = 4; left->gap = 2;
+        widget_add_child(ctx, w, left);
+
+        Widget* spacer = ui_widget_alloc(ctx);
+        spacer->kind = WK_SPACER;
+        spacer->weight = 1;
+        spacer->id = ui_hash_id(w->id, "__spacer__", 0);
+        widget_add_child(ctx, w, spacer);
+
+        Widget* right = ui_widget_alloc(ctx);
+        right->kind = WK_HBOX;
+        right->id = ui_hash_id(w->id, "__right__", 0);
+        right->padding = 4; right->gap = 2;
+        widget_add_child(ctx, w, right);
+
+        Value lv, rv;
+        if (table_get(t, ctx->key_cache[UK_LEFT], &lv)) {
+            if (IS_TABLE(lv)) build_status_items(ctx, left, AS_TABLE(lv));
+            value_decref(lv);
+        }
+        if (table_get(t, ctx->key_cache[UK_RIGHT], &rv)) {
+            if (IS_TABLE(rv)) build_status_items(ctx, right, AS_TABLE(rv));
+            value_decref(rv);
         }
     }
 

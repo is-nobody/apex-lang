@@ -362,6 +362,23 @@ static Value ctor_progress(VM* vm, int argc, Value* argv) {
     return MAKE_TABLE(t);
 }
 
+// builds a statusbar widget descriptor
+Value ui_ctor_statusbar(VM* vm, int argc, Value* argv) {
+    Table* t = table_create(8);
+    tset(vm, t, "__t", intern(vm, "statusbar"));
+    if (argc >= 1 && IS_TABLE(argv[0])) {
+        Table* opts = AS_TABLE(argv[0]);
+        int nk; Value* keys = table_keys(opts, &nk);
+        for (int i = 0; i < nk; i++) {
+            Value vv;
+            if (table_get(opts, keys[i], &vv)) { table_set(t, keys[i], vv); value_decref(vv); }
+            value_decref(keys[i]);
+        }
+        free(keys);
+    }
+    return MAKE_TABLE(t);
+}
+
 // builds a flexible spacer widget descriptor
 static Value ctor_spacer(VM* vm, int argc, Value* argv) {
     Table* t = table_create(4);
@@ -570,6 +587,7 @@ bool ui_call_builtin(VM* vm, const char* name, int argc, Value* argv, Value* res
     if (strcmp(name, "ui.notification") == 0)  { *result = ctor_notification(vm, argc, argv); return true; }    // desktop notification
     if (strcmp(name, "ui.menubar") == 0)       { *result = ctor_menubar(vm, argc, argv); return true; }         // window menu bar
     if (strcmp(name, "ui.context_menu") == 0)  { *result = ctor_context_menu(vm, argc, argv); return true; }    // right-click menu
+    if (strcmp(name, "ui.statusbar") == 0)     { *result = ui_ctor_statusbar(vm, argc, argv); return true; }    // bottom status bar
     if (strcmp(name, "ui.list") == 0)          { *result = ctor_list(vm, argc, argv); return true; }            // compositional list
 
     if (strcmp(name, "ui.text") == 0)     { *result = make_leaf(vm, "text", argc, argv); return true; }         // plain text block

@@ -322,6 +322,30 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
             if (w->meas_h < fs + 4) w->meas_h = fs + 4;      // at least tall enough for the label
             break;
         }
+        case WK_STATUSBAR: {
+            float h = UI_STATUSBAR_H;
+            float pad = w->padding;
+            float inner_w = avail_w - pad*2;
+            if (inner_w < 0) inner_w = 0;
+            float main_sum = 0;
+            int n = w->child_count;
+            for (int i = 0; i < n; i++) {
+                Widget* c = w->children[i];
+                if (!c->visible) continue;
+                measure(ctx, c, inner_w);
+                main_sum += c->meas_w;
+            }
+            w->meas_w = avail_w > 0 ? avail_w : main_sum;
+            w->meas_h = h;
+            break;
+        }
+        case WK_STATUS_ITEM: {
+            float fs = UI_FS_SMALL;
+            float tw = ctx->font ? ui_text_measure_cached(ctx, w->text.ptr, w->text.len, fs) : w->text.len * 8.0f;
+            w->meas_w = tw + UI_STATUS_ITEM_PAD * 2;
+            w->meas_h = UI_STATUSBAR_H;
+            break;
+        }
         case WK_TABS: {                                      // horizontal tab strip
             // preferred width is content-driven
             float natural = tabs_natural_width(ctx, w);
@@ -394,7 +418,8 @@ static void arrange(UiContext* ctx, Widget* w, float x, float y, float width, fl
 
     bool vert = (w->kind == WK_VBOX || w->kind == WK_PANEL ||
                  w->kind == WK_SCROLL);                      // vertical container kinds
-    bool horiz = (w->kind == WK_HBOX || w->kind == WK_HSCROLL);  // horizontal container kinds
+    bool horiz = (w->kind == WK_HBOX || w->kind == WK_HSCROLL ||
+                  w->kind == WK_STATUSBAR);                  // horizontal container kinds
     if (!vert && !horiz) return;                         // leaf widgets have no children to place
 
     float pad = w->padding;
