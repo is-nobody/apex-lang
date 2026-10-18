@@ -9,6 +9,7 @@
 #include "ui_window.h"
 #include <string.h>
 #include <math.h>
+#include <stdio.h>
 
 // returns the font size used for a text-bearing widget kind
 static float text_fs(WidgetKind k) { return k == WK_HEADING ? UI_FS_H1 : UI_FS_BODY; }
@@ -287,6 +288,11 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 int line_count = s->line_count;
                 if (line_count < 1) line_count = 1;
 
+                int cur = s->cursor < 0 ? len : s->cursor;
+                if (cur > len) cur = len;
+                int cursor_line = ta_line_cache_find(s, cur);
+
+                int gutter_w = ta_gutter_width(ctx, w, pad_x); // uses pad_x now
                 int content_h = line_count * lh;
                 bool has_sb   = content_h > inner_h;
                 int  sb_w     = has_sb ? UI_SCROLL_W : 0;
@@ -300,10 +306,10 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                     ui_painter_fill_rect(x, y, ww, hh, UI_C_BG);
                 }
 
-                ui_painter_push_clip(x + 1, y + 1, ww - 2 - sb_w, hh - 2);
+                if (w->gutter) {
+                    ui_painter_fill_rect(x + 1, y + 1, gutter_w, hh - 2, UI_C_GUTTER_BG);
+                }
 
-                int cur = s->cursor < 0 ? len : s->cursor;
-                if (cur > len) cur = len;
                 int anc = s->sel_anchor < 0 ? len : s->sel_anchor;
                 if (anc > len) anc = len;
                 double scroll = w->scroll_y;
@@ -315,7 +321,6 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 int scroll_i = (int)scroll;
                 if (scroll_i < 0) scroll_i = 0;
 
-                // locate first visible line via direct calculation (pixels / line-height)
                 int first_visible = scroll_i / lh;
                 if (first_visible < 0) first_visible = 0;
                 if (first_visible > s->line_count) first_visible = s->line_count;
@@ -323,7 +328,25 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 int last_visible = first_visible + (inner_h / lh) + 2;
                 if (last_visible > s->line_count) last_visible = s->line_count;
 
-                // selection line range (only computed when a selection exists)
+                // draw line numbers before pushing the text clip
+                if (w->gutter) {
+                    for (int li = first_visible; li < last_visible; li++) {
+                        int ly = y + pad_y + li * lh - scroll_i;
+                        char num_buf[32];
+                        int nlen = snprintf(num_buf, sizeof(num_buf), "%d", li + 1);
+                        float nw = ui_text_measure_cached(ctx, num_buf, nlen, UI_FS_SMALL);
+                        float num_x = x + gutter_w - nw; // right-aligned within the gutter
+                        float num_base = ly + (lh + UI_FS_SMALL * 0.7f) * 0.5f;
+                        
+                        uint32_t num_color = (w->focused && li == cursor_line) 
+                                           ? UI_C_GUTTER_FG_ACT 
+                                           : UI_C_GUTTER_FG;
+                        ui_draw_text_at(ctx, num_x, num_base, num_buf, nlen, UI_FS_SMALL, num_color);
+                    }
+                }
+
+                ui_painter_push_clip(x + 1 + gutter_w, y + 1, ww - 2 - sb_w - gutter_w, hh - 2);
+
                 int sel_first_line = 0, sel_last_line = -1;
                 if (has_sel) {
                     sel_first_line = ta_line_cache_find(s, sel_start);
@@ -343,24 +366,23 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                         int s0 = sel_start > line_start ? sel_start : line_start;
                         int s1 = sel_end   < line_end   ? sel_end   : line_end;
                         if (s0 < s1) {
-                            float x0 = x + pad_x + ui_text_measure_cached(ctx, buf + line_start, s0 - line_start, fs);
-                            float x1 = x + pad_x + ui_text_measure_cached(ctx, buf + line_start, s1 - line_start, fs);
+                            float x0 = x + pad_x + gutter_w + ui_text_measure_cached(ctx, buf + line_start, s0 - line_start, fs);
+                            float x1 = x + pad_x + gutter_w + ui_text_measure_cached(ctx, buf + line_start, s1 - line_start, fs);
                             ui_painter_fill_rect((int)x0, ly, (int)(x1 - x0), lh, UI_C_SEL_BG);
                         }
                     }
 
                     if (line_end > line_start) {
                         float base = ly + (lh + fs * 0.7f) * 0.5f;
-                        ui_draw_text_at(ctx, (float)(x + pad_x), base,
+                        ui_draw_text_at(ctx, (float)(x + pad_x + gutter_w), base,
                                         buf + line_start, line_end - line_start,
                                         fs, UI_C_FG);
                     }
                 }
 
                 if (w->focused && s->blink_phase < 0.5) {
-                    int cursor_line = ta_line_cache_find(s, cur);
                     int cursor_line_start = s->line_starts[cursor_line];
-                    float cx = x + pad_x +
+                    float cx = x + pad_x + gutter_w +
                         ui_text_measure_cached(ctx, buf + cursor_line_start,
                                                cur - cursor_line_start, fs);
                     int cy = y + pad_y + cursor_line * lh - scroll_i;
@@ -370,7 +392,6 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
 
                 ui_painter_pop_clip();
 
-                // scrollbar: proportional thumb, same visual language as WK_SCROLL
                 if (has_sb) {
                     int sb_x = x + ww - sb_w - 2;
                     ui_painter_fill_rect(sb_x, y + 2, sb_w, hh - 4, UI_C_SCROLL_T);

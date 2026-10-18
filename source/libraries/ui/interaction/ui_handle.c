@@ -288,8 +288,14 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     WidgetState* s = ui_state_get(ctx, dw->id);
                     if (s->sel_anchor < 0) s->sel_anchor = s->cursor;  // first drag: seed anchor
                     int offset_x = (dw->kind == WK_NUMBER_INPUT) ? 28 : 0;
-                    int offset_y = (dw->kind == WK_TEXT_AREA) ? 6 : 0;
-                    float local_x = (float)e->x - dw->x - offset_x - 8.0f;  // into text coordinates
+                    int offset_y = (dw->kind == WK_TEXT_AREA) ? (dw->bare ? 8 : 6) : 0;
+                    if (dw->kind == WK_TEXT_AREA) {
+                        int px = dw->bare ? 12 : 8;
+                        offset_x += ta_gutter_width(ctx, dw, px) + px;
+                    } else if (dw->kind == WK_INPUT) {
+                        offset_x += 8;
+                    }
+                    float local_x = (float)e->x - dw->x - offset_x;
                     float local_y = (float)e->y - dw->y - offset_y;
                     int off;
                     if (dw->kind == WK_TEXT_AREA)
@@ -629,8 +635,14 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                         if (h->kind == WK_INPUT || h->kind == WK_NUMBER_INPUT ||
                             h->kind == WK_TEXT_AREA) {
                             int offset_x = (h->kind == WK_NUMBER_INPUT) ? 28 : 0;
-                            int offset_y = (h->kind == WK_TEXT_AREA) ? 6 : 0;
-                            float local_x = (float)e->x - h->x - offset_x - 8.0f;
+                            int offset_y = (h->kind == WK_TEXT_AREA) ? (h->bare ? 8 : 6) : 0;
+                            if (h->kind == WK_TEXT_AREA) {
+                                int px = h->bare ? 12 : 8;
+                                offset_x += ta_gutter_width(ctx, h, px) + px;
+                            } else if (h->kind == WK_INPUT) {
+                                offset_x += 8;
+                            }
+                            float local_x = (float)e->x - h->x - offset_x;
                             float local_y = (float)e->y - h->y - offset_y;
                             int off;
                             if (h->kind == WK_TEXT_AREA)

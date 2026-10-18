@@ -51,6 +51,20 @@ int ta_line_cache_find(const WidgetState* s, int byte_pos) {
     return lo;
 }
 
+int ta_gutter_width(UiContext* ctx, Widget* w, int pad_x) {
+    if (!w->gutter) return 0;
+    WidgetState* s = ui_state_get(ctx, w->id);
+    ta_line_cache_ensure(s, w->input_value.ptr, w->input_value.len);
+    int line_count = s->line_count > 0 ? s->line_count : 1;
+    int digits = 1;
+    while (line_count >= 10) { digits++; line_count /= 10; }
+    char buf[32];
+    for (int i = 0; i < digits; i++) buf[i] = '0';
+    buf[digits] = 0;
+    float ww = ui_text_measure_cached(ctx, buf, digits, UI_FS_SMALL);
+    return (int)(ww + 0.5f) + pad_x;
+}
+
 // syncs a widget's input view against the descriptor's value_text
 void sync_input_buffer(Widget* w, WidgetState* s, const char* sval, int slen) {
     // o(1) sampled hash: length + first 16 + last 16 bytes

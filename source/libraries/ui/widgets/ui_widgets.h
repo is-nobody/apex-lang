@@ -118,6 +118,9 @@ void ui_number_step(UiContext* ctx, Widget* w, double step);
 // ensures the text_area line cache is valid; rebuilds if dirty. no-op otherwise.
 void ta_line_cache_ensure(WidgetState* s, const char* buf, int len);
 
+// calculates the width of the gutter (line numbers) in pixels
+int  ta_gutter_width(UiContext* ctx, Widget* w, int pad_x);
+
 // returns the line index containing byte_pos via binary search (cache must be valid)
 int  ta_line_cache_find(const WidgetState* s, int byte_pos);
 

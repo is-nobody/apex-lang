@@ -152,6 +152,7 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
     w->visible  = table_get_bool_key(t, ctx->key_cache[UK_VISIBLE], true);          // visibility flag
     w->on_top   = table_get_bool_key(t, ctx->key_cache[UK_ON_TOP], false);          // draw after siblings
     w->bare     = table_get_bool_key(t, ctx->key_cache[UK_BARE], false);            // borderless flag
+    w->gutter   = table_get_bool_key(t, ctx->key_cache[UK_GUTTER], false);          // line numbers flag
 
     Value wv;
     if (table_get(t, ctx->key_cache[UK_WIDTH], &wv)) {   // explicit width override

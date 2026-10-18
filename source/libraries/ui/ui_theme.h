@@ -233,4 +233,10 @@
 #define UI_C_TOOLTIP_BORDER       UI_C_BORDER_S  // subtle outline
 #define UI_C_TOOLTIP_FG           UI_C_FG        // primary text color
 
+// editor gutter
+#define UI_GUTTER_PAD       10           // horizontal padding inside the gutter
+#define UI_C_GUTTER_BG      0xFF1E1E1Eu  // matches the editor background
+#define UI_C_GUTTER_FG      0xFF6E6E6Eu  // inactive line numbers (muted)
+#define UI_C_GUTTER_FG_ACT  0xFFD4D4D4u  // active line number (white)
+
 #endif
