@@ -235,6 +235,18 @@ bool pump(UiContext* ctx) {
         }
     }
 
+    // deliver a single ev_resize after the user has stopped dragging
+    #define RESIZE_DEBOUNCE_SEC 0.08
+    if (ctx->pending_resize &&
+        apex_now_seconds() - ctx->pending_resize_at > RESIZE_DEBOUNCE_SEC) {
+        UiEvent ev; memset(&ev, 0, sizeof(ev));
+        ev.kind      = EV_RESIZE;
+        ev.num_value = (double)ctx->pending_resize_w;
+        ev.scroll_dy = (double)ctx->pending_resize_h;
+        ui_event_push(ctx, &ev);
+        ctx->pending_resize = false;
+    }
+
     return ctx->queue.count > 0;                                  // true if anything was queued
 }
 

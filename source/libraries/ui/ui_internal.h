@@ -526,6 +526,12 @@ typedef struct UiContext {
 
     bool       redraw_needed;   // set when the tree must be re-laid out and painted
     bool       quit_requested;  // set when the ui should shut down
+
+    // debounced resize notification
+    bool       pending_resize;
+    int        pending_resize_w;
+    int        pending_resize_h;
+    double     pending_resize_at;
     bool       geometry_dirty;  // true when ui_layout must run before the next paint
     bool       full_repaint;    // next frame must repaint the whole window, ignoring damage diff
 

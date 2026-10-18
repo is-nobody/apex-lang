@@ -100,11 +100,11 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                 ctx->full_repaint   = true;                       // fresh pixels are undefined
             }
 
-            UiEvent ev; memset(&ev, 0, sizeof(ev));
-            ev.kind = EV_RESIZE;
-            ev.num_value = e->w;                                  // pack new width in num_value
-            ev.scroll_dy = e->h;                                  // pack new height in scroll_dy
-            ui_event_push(ctx, &ev);
+            // do not push ev_resize on every wm step
+            ctx->pending_resize    = true;
+            ctx->pending_resize_w  = e->w;
+            ctx->pending_resize_h  = e->h;
+            ctx->pending_resize_at = apex_now_seconds();
 
             if (!already_done)
                 ctx->redraw_needed = true;
@@ -114,8 +114,7 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
             ctx->input.x = e->x;                                  // track current pointer
             ctx->input.y = e->y;
 
-            // any pointer motion hides a shown tooltip and restarts the
-            // hover timer for the widget still under the cursor
+            // any pointer motion hides a shown tooltip
             if (ctx->tooltip_shown_id) {
                 ctx->tooltip_shown_id = 0;
                 ctx->full_repaint     = true;                     // erase the stale box
