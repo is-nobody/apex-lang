@@ -73,13 +73,21 @@ Value ui_event_to_table(VM* vm, const UiEvent* ev) {
         strcmp(ev->widget_type, "tab_move")     == 0 ||
         ev->kind == EV_SCROLL) {
         v = MAKE_NUMBER(ev->num_value);                   // numeric widget: value is a number
-    } else if (ev->str_value) {
+    } else if (ev->str_value && strcmp(ev->widget_type, "tab_close") != 0) {
         v = MAKE_STRING(string_create(ev->str_value, (int)strlen(ev->str_value)));
     } else {
         v = MAKE_BOOL(ev->bool_value);
     }
     table_set(t, k, v); value_decref(k);
     if ((v & QNAN) == QNAN) value_decref(v);              // release heap-tagged payload
+
+    // key of the tab that should take over selection
+    if (strcmp(ev->widget_type, "tab_close") == 0) {
+        k = ui_intern(vm, "next");
+        const char* nxt = ev->str_value ? ev->str_value : "";
+        v = MAKE_STRING(string_create(nxt, (int)strlen(nxt)));
+        table_set(t, k, v); value_decref(k); value_decref(v);
+    }
 
     if (ev->kind == EV_KEY) {                             // extra fields for key events
         k = ui_intern(vm, "key_code"); v = MAKE_NUMBER((double)ev->key_code);

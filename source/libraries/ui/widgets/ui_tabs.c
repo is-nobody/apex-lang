@@ -493,6 +493,20 @@ void tabs_handle_click(UiContext* ctx, Widget* w) {
         ev.kind = EV_CHANGE;                                     // close emits a change event
         strncpy(ev.widget_type, "tab_close", 15);                // widget type name
         ev.bool_value = true;                                    // always true for close
+
+        // after the close, the tab immediately to the left should take over selection
+        int next = (idx > 0) ? idx - 1 : 0;
+        if (next == idx && idx + 1 < w->tab_count) next = idx + 1;
+        if (next != idx) {
+            TabItem* nt = &w->tabs[next];
+            if (nt->key.ptr && nt->key.len > 0) {
+                ev.str_value = (char*)malloc((size_t)nt->key.len + 1);
+                if (ev.str_value) {
+                    memcpy(ev.str_value, nt->key.ptr, (size_t)nt->key.len);
+                    ev.str_value[nt->key.len] = 0;
+                }
+            }
+        }
     } else {                                                     // plain tab press
         ev.kind = EV_CLICK;                                      // select emits a click event
         strncpy(ev.widget_type, "tab", 15);                      // widget type name
@@ -576,7 +590,7 @@ static void tabs_draw_one(UiContext* ctx, Widget* w, int idx,
 
     // close chip: optional hover background, then the shared 9x9 glyph
     int cx = tx + tw - UI_TAB_CLOSE_SZ - UI_TAB_PAD_R;           // close button left edge
-    int cy = ty + UI_TAB_TOP_PAD + (tab_h - UI_TAB_CLOSE_SZ) / 2; // close button top edge
+    int cy = ty + UI_TAB_TOP_PAD + (tab_h - UI_TAB_CLOSE_SZ) / 2 + 1; // close button top edge
 
     if (close_hov)                                               // pointer over the glyph
         ui_painter_fill_round(cx, cy, UI_TAB_CLOSE_SZ, UI_TAB_CLOSE_SZ,
@@ -584,7 +598,7 @@ static void tabs_draw_one(UiContext* ctx, Widget* w, int idx,
 
     uint32_t close_fg = close_hov ? UI_C_TAB_CLOSE_HOV : UI_C_TAB_CLOSE;  // glyph color by state
     blit_close_x_shared(cx + (UI_TAB_CLOSE_SZ - 9) / 2,          // centered 9x9 close glyph
-                        cy + (UI_TAB_CLOSE_SZ - 9) / 2,
+                        cy + (UI_TAB_CLOSE_SZ - 9 + 1) / 2,
                         close_fg);
 }
 
