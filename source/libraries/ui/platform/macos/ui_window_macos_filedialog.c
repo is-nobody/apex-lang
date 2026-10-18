@@ -123,4 +123,48 @@ char* ui_window_open_folder(UiWindow* w, const char* title,
     return panel_result_path(panel);                      // extract the picked path
 }
 
+// shows the native "save file" panel and returns the picked utf-8 path
+char* ui_window_save_file(UiWindow* w, const char* title,
+                          const char* default_path,
+                          const UiFileFilter* filters) {
+    (void)w;                                              // panel is not window-modal on this backend
+    id panel = MSG_id0(OBJC_CLS("NSSavePanel"), OBJC_SEL("savePanel"));
+    if (!panel) return NULL;                              // no shared panel: bail out
+
+    apply_title(panel, title);                            // optional dialog caption
+
+    // default_path can be a bare filename or a full path
+    if (default_path && *default_path) {
+        const char* slash = strrchr(default_path, '/');
+        if (slash) {
+            char dirbuf[4096];                            // parent directory copy
+            size_t dlen = (size_t)(slash - default_path);
+            if (dlen < sizeof(dirbuf)) {
+                memcpy(dirbuf, default_path, dlen);
+                dirbuf[dlen] = 0;
+                if (dlen > 0) apply_default_path(panel, dirbuf);  // point at the parent
+            }
+            const char* name = slash + 1;                 // filename after the separator
+            id nsname = macos_nsstring_from_utf8(name);
+            if (nsname) {
+                MSG_void1(panel, OBJC_SEL("setNameFieldStringValue:"), nsname);
+                MSG_void0(nsname, OBJC_SEL("release"));
+            }
+        } else {
+            id nsname = macos_nsstring_from_utf8(default_path);
+            if (nsname) {
+                MSG_void1(panel, OBJC_SEL("setNameFieldStringValue:"), nsname);
+                MSG_void0(nsname, OBJC_SEL("release"));
+            }
+        }
+    }
+
+    id types = make_allowed_types_from_filters(filters);  // optional extension filter
+    if (types) MSG_void1(panel, OBJC_SEL("setAllowedFileTypes:"), types);
+
+    NSInteger resp = MSG_int0(panel, OBJC_SEL("runModal"));  // run the modal picker
+    if (resp != 1) return NULL;                           // NSModalResponseOK == 1
+    return panel_result_path(panel);                      // extract the picked path
+}
+
 #endif

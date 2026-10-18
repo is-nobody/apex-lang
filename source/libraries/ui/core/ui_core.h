@@ -58,6 +58,7 @@ Value ui_impl_set_title(VM* vm, int argc, Value* argv);
 Value ui_impl_window_size(VM* vm, int argc, Value* argv);
 Value ui_impl_open_file(VM* vm, int argc, Value* argv);
 Value ui_impl_open_folder(VM* vm, int argc, Value* argv);
+Value ui_impl_save_as(VM* vm, int argc, Value* argv);
 Value ui_impl_fullscreen(VM* vm, int argc, Value* argv);
 
 // host paint hook

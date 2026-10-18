@@ -145,4 +145,51 @@ char* ui_window_open_folder(UiWindow* w, const char* title,
     return run_and_capture(cmd);                          // run it and hand back the path
 }
 
+// shows the native "save file" dialog and returns the picked utf-8 path
+char* ui_window_save_file(UiWindow* w, const char* title,
+                          const char* default_path,
+                          const UiFileFilter* filters) {
+    (void)w;                                              // pickers are external processes, no parent
+    char cmd[8192] = {0};                                 // assembled shell command line
+
+    if (command_exists("zenity")) {                       // prefer zenity when installed
+        strcpy(cmd, "zenity --file-selection --save");
+        if (title && *title) {                            // optional dialog caption
+            strcat(cmd, " --title=");
+            append_quoted(cmd, sizeof(cmd), title);
+        }
+        if (default_path && *default_path) {              // optional suggested filename
+            strcat(cmd, " --filename=");
+            append_quoted(cmd, sizeof(cmd), default_path);
+        }
+        if (filters) {                                    // optional filter list
+            for (int i = 0; filters[i].name; i++) {       // one entry per filter
+                char f[512];                              // "name | pattern" pair
+                snprintf(f, sizeof(f), "%s | %s", filters[i].name, filters[i].pattern);
+                strcat(cmd, " --file-filter=");
+                append_quoted(cmd, sizeof(cmd), f);       // append the quoted filter
+            }
+        }
+    } else if (command_exists("kdialog")) {               // fall back to kdialog
+        strcpy(cmd, "kdialog --getsavefilename");         // base invocation
+        strcat(cmd, " ");                                 // separate the starting path
+        append_quoted(cmd, sizeof(cmd),
+                      (default_path && *default_path) ? default_path : ".");
+        if (filters && filters[0].name && filters[0].pattern) {  // first filter only
+            char f[512];                                  // "pattern|name" pair, kdialog order
+            snprintf(f, sizeof(f), "%s|%s", filters[0].pattern, filters[0].name);
+            strcat(cmd, " ");
+            append_quoted(cmd, sizeof(cmd), f);           // append the quoted filter
+        }
+        if (title && *title) {                            // optional dialog caption
+            strcat(cmd, " --title=");
+            append_quoted(cmd, sizeof(cmd), title);
+        }
+    } else {
+        return NULL;                                      // no supported picker available
+    }
+
+    return run_and_capture(cmd);                          // run it and hand back the path
+}
+
 #endif

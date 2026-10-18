@@ -36,6 +36,9 @@ Value ui_impl_window_size(VM* vm, int argc, Value* argv);
 Value ui_impl_open_file(VM* vm, int argc, Value* argv);
 Value ui_impl_open_folder(VM* vm, int argc, Value* argv);
 
+// show the native "save file" picker and write the content
+Value ui_impl_save_as(VM* vm, int argc, Value* argv);
+
 // toggle or set the window's fullscreen state
 Value ui_impl_fullscreen(VM* vm, int argc, Value* argv);
 

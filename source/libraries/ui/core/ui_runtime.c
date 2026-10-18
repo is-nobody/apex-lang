@@ -13,6 +13,7 @@
 #include "ui_text.h"
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 // rebuilds the widget tree from the last descriptor and paints it
 void rebuild_and_draw(UiContext* ctx) {
@@ -512,6 +513,46 @@ Value ui_impl_open_folder(VM* vm, int argc, Value* argv) {
     Value v = MAKE_STRING(string_create(picked, (int)strlen(picked)));
     free(picked);
     return v;
+}
+
+// writes `len` bytes to `path` verbatim; returns true on success
+static bool save_write_file(const char* path, const char* content, int len) {
+    FILE* f = fopen(path, "wb");                    // binary: exact bytes, no newline translation
+    if (!f) return false;
+    size_t got = len > 0 ? fwrite(content, 1, (size_t)len, f) : 0;
+    int    rc  = fclose(f);                         // 0 on success, EOF on flush error
+    return rc == 0 && got == (size_t)len;
+}
+
+// builtin: ui.save_as(content, opts?) — native "save file" dialog + write
+Value ui_impl_save_as(VM* vm, int argc, Value* argv) {
+    UiContext* ctx = ui_ensure(vm);
+    if (!ctx->window) return MAKE_NONE();                 // no native window: nothing to anchor to
+
+    if (argc < 1 || !IS_STRING(argv[0])) return MAKE_NONE();  // content must be a string
+    StringObject* content = AS_STRING(argv[0]);
+
+    char* title = NULL;
+    char* def   = NULL;
+    UiFileFilter* filters = NULL;
+    int filter_count = 0;
+    if (argc >= 2 && IS_TABLE(argv[1]))                   // argv[1] is the opts table
+        parse_picker_opts(vm, 1, argv + 1, &title, &def, &filters, &filter_count);
+
+    char* picked = ui_window_save_file(ctx->window, title, def, filters);
+    free_picker_opts(title, def, filters, filter_count);
+
+    if (!picked) return MAKE_NONE();                      // cancelled or unavailable
+
+    bool ok = save_write_file(picked, content->chars, content->length);
+    if (!ok) {                                            // write failed: do not leak the path
+        free(picked);
+        return MAKE_NONE();
+    }
+
+    Value v = MAKE_STRING(string_create(picked, (int)strlen(picked)));
+    free(picked);
+    return v;                                             // caller owns the path string
 }
 
 // builtin: ui.fullscreen(opts?) — toggle or set the window's fullscreen state

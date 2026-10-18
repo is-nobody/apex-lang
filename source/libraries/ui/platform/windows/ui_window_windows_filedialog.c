@@ -63,15 +63,20 @@ static void free_specs(COMDLG_FILTERSPEC* specs, int count) {
 
 // shared picker. `folder` selects FOS_PICKFOLDERS instead of FOS_FILEMUSTEXIST
 static char* show_picker(UiWindow* w, const char* title, const char* default_path,
-                         const UiFileFilter* filters, bool folder) {
+                         const UiFileFilter* filters, bool folder, bool save) {
     // the common item dialog requires an sta thread
     HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     if (hr == RPC_E_CHANGED_MODE) return NULL;            // wrong apartment: bail out
     bool did_init = SUCCEEDED(hr);                        // only uninit if we initialized
 
-    IFileOpenDialog* dlg = NULL;
-    hr = CoCreateInstance(&CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER,
-                          &IID_IFileOpenDialog, (void**)&dlg);
+    IFileDialog* dlg = NULL;
+    if (save) {
+        hr = CoCreateInstance(&CLSID_FileSaveDialog, NULL, CLSCTX_INPROC_SERVER,
+                              &IID_IFileSaveDialog, (void**)&dlg);
+    } else {
+        hr = CoCreateInstance(&CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER,
+                              &IID_IFileOpenDialog, (void**)&dlg);
+    }
     if (FAILED(hr)) {                                     // creation failed
         if (did_init) CoUninitialize();                   // undo our com init
         return NULL;
@@ -80,8 +85,9 @@ static char* show_picker(UiWindow* w, const char* title, const char* default_pat
     DWORD opts = 0;
     dlg->lpVtbl->GetOptions(dlg, &opts);                  // start from the current flags
     opts |= FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR;
-    if (folder) opts |= FOS_PICKFOLDERS;                  // folder mode: pick directories
-    else        opts |= FOS_FILEMUSTEXIST;                // file mode: file must exist
+    if (save)        opts |= FOS_OVERWRITEPROMPT;         // save mode: confirm overwrite
+    else if (folder) opts |= FOS_PICKFOLDERS;             // folder mode: pick directories
+    else             opts |= FOS_FILEMUSTEXIST;           // file mode: file must exist
     dlg->lpVtbl->SetOptions(dlg, opts);                   // publish the merged flags
 
     if (title && *title) {                                // optional dialog caption
@@ -96,30 +102,51 @@ static char* show_picker(UiWindow* w, const char* title, const char* default_pat
         // default_path can be a file or a folder
         WCHAR* wd = utf8_to_wide_dup(default_path);
         if (wd) {
-            DWORD attrs = GetFileAttributesW(wd);         // probe the filesystem
-            if (attrs != INVALID_FILE_ATTRIBUTES &&
-                !(attrs & FILE_ATTRIBUTE_DIRECTORY)) {
-                // existing file: split into parent folder and filename
+            if (save) {
+                // save mode: default_path is a suggested filename or full path
                 WCHAR* slash = wcsrchr(wd, L'\\');
                 if (!slash) slash = wcsrchr(wd, L'/');    // tolerate forward slashes
                 if (slash) {
                     const WCHAR* fname = slash + 1;       // filename after the separator
                     *slash = 0;                           // truncate to the parent folder
+                    if (wd[0]) {                          // non-empty parent
+                        IShellItem* folder_item = NULL;
+                        if (SUCCEEDED(SHCreateItemFromParsingName(wd, NULL,
+                                        &IID_IShellItem, (void**)&folder_item))) {
+                            dlg->lpVtbl->SetFolder(dlg, folder_item);
+                            folder_item->lpVtbl->Release(folder_item);
+                        }
+                    }
+                    if (fname[0]) dlg->lpVtbl->SetFileName(dlg, fname);
+                } else if (wd[0]) {
+                    dlg->lpVtbl->SetFileName(dlg, wd);    // bare filename: pre-fill the box
+                }
+            } else {
+                DWORD attrs = GetFileAttributesW(wd);     // probe the filesystem
+                if (attrs != INVALID_FILE_ATTRIBUTES &&
+                    !(attrs & FILE_ATTRIBUTE_DIRECTORY)) {
+                    // existing file: split into parent folder and filename
+                    WCHAR* slash = wcsrchr(wd, L'\\');
+                    if (!slash) slash = wcsrchr(wd, L'/'); // tolerate forward slashes
+                    if (slash) {
+                        const WCHAR* fname = slash + 1;    // filename after the separator
+                        *slash = 0;                        // truncate to the parent folder
+                        IShellItem* folder_item = NULL;
+                        if (SUCCEEDED(SHCreateItemFromParsingName(wd, NULL,
+                                        &IID_IShellItem, (void**)&folder_item))) {
+                            dlg->lpVtbl->SetFolder(dlg, folder_item);  // point at the parent
+                            folder_item->lpVtbl->Release(folder_item); // release the shell item
+                        }
+                        dlg->lpVtbl->SetFileName(dlg, fname); // pre-fill the filename box
+                    }
+                } else {
+                    // treat as a folder: open the picker there
                     IShellItem* folder_item = NULL;
                     if (SUCCEEDED(SHCreateItemFromParsingName(wd, NULL,
                                     &IID_IShellItem, (void**)&folder_item))) {
-                        dlg->lpVtbl->SetFolder(dlg, folder_item);  // point at the parent
+                        dlg->lpVtbl->SetFolder(dlg, folder_item);  // point at that folder
                         folder_item->lpVtbl->Release(folder_item); // release the shell item
                     }
-                    dlg->lpVtbl->SetFileName(dlg, fname); // pre-fill the filename box
-                }
-            } else {
-                // treat as a folder: open the picker there
-                IShellItem* folder_item = NULL;
-                if (SUCCEEDED(SHCreateItemFromParsingName(wd, NULL,
-                                &IID_IShellItem, (void**)&folder_item))) {
-                    dlg->lpVtbl->SetFolder(dlg, folder_item);  // point at that folder
-                    folder_item->lpVtbl->Release(folder_item); // release the shell item
                 }
             }
             free(wd);                                     // release the wide path copy
@@ -130,8 +157,21 @@ static char* show_picker(UiWindow* w, const char* title, const char* default_pat
     COMDLG_FILTERSPEC* specs = NULL;
     if (!folder) {                                        // filters only make sense for files
         specs = build_specs(filters, &spec_count);
-        if (specs && spec_count > 0)                      // only if any were built
+        if (specs && spec_count > 0) {                    // only if any were built
             dlg->lpVtbl->SetFileTypes(dlg, (UINT)spec_count, specs);
+            if (save && specs[0].pszSpec) {               // save mode: default extension
+                const WCHAR* spec = specs[0].pszSpec;
+                while (*spec && *spec != L'*') spec++;    // skip to the first '*'
+                if (*spec == L'*' && *(spec + 1) == L'.') {
+                    spec += 2;                            // past "*."
+                    WCHAR ext[32];
+                    int i = 0;
+                    while (*spec && *spec != L';' && i < 31) ext[i++] = *spec++;
+                    ext[i] = 0;
+                    if (i > 0) dlg->lpVtbl->SetDefaultExtension(dlg, ext);
+                }
+            }
+        }
     }
 
     char* result = NULL;                                  // default: user cancelled
@@ -160,13 +200,20 @@ static char* show_picker(UiWindow* w, const char* title, const char* default_pat
 char* ui_window_open_file(UiWindow* w, const char* title,
                           const char* default_path,
                           const UiFileFilter* filters) {
-    return show_picker(w, title, default_path, filters, false);  // file mode
+    return show_picker(w, title, default_path, filters, false, false);  // file mode
 }
 
 // shows the native "open folder" dialog and returns the picked utf-8 path
 char* ui_window_open_folder(UiWindow* w, const char* title,
                             const char* default_path) {
-    return show_picker(w, title, default_path, NULL, true);      // folder mode, no filters
+    return show_picker(w, title, default_path, NULL, true, false);      // folder mode, no filters
+}
+
+// shows the native "save file" dialog and returns the picked utf-8 path
+char* ui_window_save_file(UiWindow* w, const char* title,
+                          const char* default_path,
+                          const UiFileFilter* filters) {
+    return show_picker(w, title, default_path, filters, false, true);   // save mode
 }
 
 #endif

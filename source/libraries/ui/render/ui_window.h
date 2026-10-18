@@ -141,4 +141,9 @@ char* ui_window_open_file(UiWindow* w, const char* title,
 char* ui_window_open_folder(UiWindow* w, const char* title,
                             const char* default_path);
 
+// shows the native "save file" picker; returns the picked path, or null
+char* ui_window_save_file(UiWindow* w, const char* title,
+                          const char* default_path,
+                          const UiFileFilter* filters);
+
 #endif
