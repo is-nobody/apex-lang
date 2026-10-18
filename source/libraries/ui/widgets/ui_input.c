@@ -51,6 +51,76 @@ int ta_line_cache_find(const WidgetState* s, int byte_pos) {
     return lo;
 }
 
+// grows line_starts capacity if the new count would overflow it
+static int line_cache_reserve(WidgetState* s, int want) {
+    if (want <= s->line_cap) return 1;
+    int new_cap = s->line_cap > 0 ? s->line_cap * 2 : 64;
+    while (new_cap < want) new_cap *= 2;
+    int* nb = (int*)realloc(s->line_starts, (size_t)new_cap * sizeof(int));
+    if (!nb) return 0;
+    s->line_starts = nb;
+    s->line_cap    = new_cap;
+    return 1;
+}
+
+// adjusts the line-start cache for [offset, offset+len) being replaced by the text at `text`
+static void line_cache_splice(WidgetState* s, int offset,
+                              const char* text, int len,
+                              int removed, int removed_newlines) {
+    if (!s->line_cache_valid) return;                      // cold cache: rebuild on demand
+
+    int line_idx = ta_line_cache_find(s, offset);
+
+    int newlines = 0;
+    for (int i = 0; i < len; i++) if (text[i] == '\n') newlines++;
+
+    if (newlines == 0 && removed_newlines == 0) {
+        // no line boundaries touched: just shift the surviving tail
+        int delta = len - removed;
+        for (int i = line_idx + 1; i < s->line_count; i++)
+            s->line_starts[i] += delta;
+        return;
+    }
+
+    // drop the entries for any '\n' that was inside the removed range.
+    // those are exactly the entries immediately after line_idx.
+    if (removed_newlines > 0) {
+        int lo = line_idx + 1;
+        int to_remove = removed_newlines;
+        if (lo + to_remove > s->line_count) to_remove = s->line_count - lo;
+        if (to_remove > 0) {
+            memmove(&s->line_starts[lo],
+                    &s->line_starts[lo + to_remove],
+                    (size_t)(s->line_count - lo - to_remove) * sizeof(int));
+            s->line_count -= to_remove;
+        }
+    }
+
+    // shift every surviving tail entry by the net byte delta
+    int delta = len - removed;
+    for (int i = line_idx + 1; i < s->line_count; i++)
+        s->line_starts[i] += delta;
+
+    // splice in the new entries for '\n's in the inserted text
+    if (newlines > 0) {
+        if (!line_cache_reserve(s, s->line_count + newlines)) {
+            s->line_cache_valid = false;
+            return;
+        }
+        int tail = s->line_count - (line_idx + 1);
+        memmove(&s->line_starts[line_idx + 1 + newlines],
+                &s->line_starts[line_idx + 1],
+                (size_t)tail * sizeof(int));
+        int insert_idx = line_idx + 1;
+        int cur = offset;
+        for (int i = 0; i < len; i++) {
+            cur++;
+            if (text[i] == '\n') s->line_starts[insert_idx++] = cur;
+        }
+        s->line_count += newlines;
+    }
+}
+
 int ta_gutter_width(UiContext* ctx, Widget* w, int pad_x) {
     if (!w->gutter) return 0;
     WidgetState* s = ui_state_get(ctx, w->id);
@@ -67,17 +137,35 @@ int ta_gutter_width(UiContext* ctx, Widget* w, int pad_x) {
 
 // syncs a widget's input view against the descriptor's value_text
 void sync_input_buffer(Widget* w, WidgetState* s, const char* sval, int slen) {
-    // o(1) sampled hash: length + first 16 + last 16 bytes
-    uint64_t h = hash_str_sampled(0xCBF29CE484222325ULL, sval, slen);
-    if (!s->input_buf || s->input_hash != h) {
-        free(s->input_buf);
-        s->input_buf = (char*)malloc((size_t)slen + 1);
-        memcpy(s->input_buf, sval, (size_t)slen);
-        s->input_buf[slen] = 0;
-        s->input_len  = slen;
-        s->input_hash = h;
-        s->line_cache_valid = false;                     // buffer changed: rebuild lazily
+    uint64_t h_desc = hash_str_sampled(0xCBF29CE484222325ULL, sval, slen);
+
+    // descriptor matches the buffer: already in sync, remember the descriptor hash
+    if (h_desc == s->input_hash) {
+        s->desc_hash = h_desc;
+        w->input_value.ptr = s->input_buf;
+        w->input_value.len = s->input_len;
+        return;
     }
+
+    // descriptor has not changed since the last sync (user edit beat the
+    // script to it): keep the buffer, do not copy the stale descriptor back
+    if (h_desc == s->desc_hash && s->input_buf) {
+        w->input_value.ptr = s->input_buf;
+        w->input_value.len = s->input_len;
+        return;
+    }
+
+    // descriptor changed programmatically: adopt it
+    int cap = slen + 64;
+    free(s->input_buf);
+    s->input_buf = (char*)malloc((size_t)cap);
+    memcpy(s->input_buf, sval, (size_t)slen);
+    s->input_buf[slen] = 0;
+    s->input_len  = slen;
+    s->input_cap  = cap;
+    s->input_hash = h_desc;
+    s->desc_hash  = h_desc;
+    s->line_cache_valid = false;
     w->input_value.ptr = s->input_buf;
     w->input_value.len = s->input_len;
 }
@@ -145,128 +233,193 @@ void input_set_buffer(UiContext* ctx, Widget* w, char* buf, int len) {
     free(s->input_buf);
     s->input_buf = buf;
     s->input_len = len;
+    s->input_cap = len + 1;                                 // buf was malloc'd at len + 1
     s->input_hash = hash_str_sampled(0xCBF29CE484222325ULL, buf, len);
+    s->desc_hash  = s->input_hash;
     s->line_cache_valid = false;                            // buffer changed: rebuild lazily
     w->input_value.ptr = buf;
     w->input_value.len = len;
 }
 
-// pushes a snapshot of the current buffer onto the undo stack
+// cap on the number of diffs held in the undo stack
 #define INPUT_UNDO_MAX 128
-void input_push_undo(WidgetState* s, const char* text, int len, int cursor) {
-    if (s->undo_count >= INPUT_UNDO_MAX) {                 // drop the oldest snapshot
-        free(s->undo_stack[0].text);
+
+// frees one diff entry's owned buffers
+static void diff_free(DiffEntry* e) {
+    free(e->removed);
+    free(e->inserted);
+    e->removed = NULL;
+    e->inserted = NULL;
+}
+
+// pushes a new diff onto the undo stack and clears the redo stack
+static void record_diff(WidgetState* s, int offset,
+                        const char* removed_ptr, int removed_len,
+                        const char* inserted_ptr, int inserted_len) {
+    while (s->undo_count >= INPUT_UNDO_MAX) {              // drop oldest
+        diff_free(&s->undo_stack[0]);
         memmove(&s->undo_stack[0], &s->undo_stack[1],
-                sizeof(UndoEntry) * (s->undo_count - 1));
+                sizeof(DiffEntry) * (s->undo_count - 1));
         s->undo_count--;
     }
-    if (s->undo_count >= s->undo_cap) {                    // grow the undo stack
+    if (s->undo_count >= s->undo_cap) {
         s->undo_cap = s->undo_cap ? s->undo_cap * 2 : 16;
-        s->undo_stack = (UndoEntry*)realloc(s->undo_stack,
-                                            sizeof(UndoEntry) * s->undo_cap);
+        s->undo_stack = (DiffEntry*)realloc(s->undo_stack,
+                                            sizeof(DiffEntry) * s->undo_cap);
     }
-    char* copy = (char*)malloc((size_t)len + 1);           // snapshot the text
-    memcpy(copy, text, len);
-    copy[len] = 0;
-    s->undo_stack[s->undo_count].text   = copy;
-    s->undo_stack[s->undo_count].len    = len;
-    s->undo_stack[s->undo_count].cursor = cursor;
-    s->undo_count++;
+    DiffEntry* e = &s->undo_stack[s->undo_count++];
+    e->offset        = offset;
+    e->n_removed     = removed_len;
+    e->n_inserted    = inserted_len;
+    e->removed       = NULL;
+    e->inserted      = NULL;
+    if (removed_len > 0) {
+        e->removed = (char*)malloc((size_t)removed_len);
+        memcpy(e->removed, removed_ptr, (size_t)removed_len);
+    }
+    if (inserted_len > 0) {
+        e->inserted = (char*)malloc((size_t)inserted_len);
+        memcpy(e->inserted, inserted_ptr, (size_t)inserted_len);
+    }
+    e->cursor_before = s->cursor < 0 ? s->input_len : s->cursor;
+    e->cursor_after  = offset + inserted_len;
 
-    for (int i = 0; i < s->redo_count; i++) free(s->redo_stack[i].text);  // invalidate redo
+    for (int i = 0; i < s->redo_count; i++) diff_free(&s->redo_stack[i]);
     s->redo_count = 0;
 }
 
-// steps the buffer back one snapshot, moving the current state onto redo
+// buffer + hash + line-cache splice; no cursor, no event, no undo record
+static void apply_splice(WidgetState* s, int a, int b,
+                         const char* text, int len) {
+    int old_len = s->input_len;
+    int removed = b - a;
+    if (removed < 0) removed = 0;
+    int new_len = old_len - removed + len;
+    if (new_len < 0) new_len = 0;
+
+    // count '\n' inside the range being removed, BEFORE the buffer is mutated
+    int removed_newlines = 0;
+    for (int i = a; i < b; i++)
+        if (s->input_buf[i] == '\n') removed_newlines++;
+
+    if (s->input_cap < new_len + 1) {
+        int new_cap = s->input_cap ? s->input_cap * 2 : 64;
+        while (new_cap < new_len + 1) new_cap *= 2;
+        s->input_buf = (char*)realloc(s->input_buf, (size_t)new_cap);
+        s->input_cap = new_cap;
+    }
+
+    if (len != removed) {
+        memmove(s->input_buf + a + len, s->input_buf + b,
+                (size_t)(old_len - b + 1));
+    }
+    if (len > 0) {
+        memcpy(s->input_buf + a, text, (size_t)len);
+    }
+
+    s->input_len  = new_len;
+    s->input_hash = hash_str_sampled(0xCBF29CE484222325ULL, s->input_buf, new_len);
+    // desc_hash is intentionally not updated here
+    line_cache_splice(s, a, text ? text : "", len, removed, removed_newlines);
+}
+
+// steps the buffer back one diff, moving it onto redo
 void input_undo(UiContext* ctx, Widget* w, WidgetState* s) {
-    if (s->undo_count == 0) return;                        // nothing to undo
-    if (s->redo_count >= s->redo_cap) {                    // grow redo
+    if (s->undo_count == 0) return;
+    DiffEntry e = s->undo_stack[--s->undo_count];
+
+    // undo: replace the inserted region with the removed bytes
+    apply_splice(s, e.offset, e.offset + e.n_inserted, e.removed, e.n_removed);
+
+    if (s->redo_count >= s->redo_cap) {
         s->redo_cap = s->redo_cap ? s->redo_cap * 2 : 16;
-        s->redo_stack = (UndoEntry*)realloc(s->redo_stack,
-                                            sizeof(UndoEntry) * s->redo_cap);
+        s->redo_stack = (DiffEntry*)realloc(s->redo_stack,
+                                            sizeof(DiffEntry) * s->redo_cap);
     }
-    char* cur = (char*)malloc((size_t)w->input_value.len + 1);  // snapshot current
-    memcpy(cur, w->input_value.ptr, w->input_value.len);
-    cur[w->input_value.len] = 0;
-    s->redo_stack[s->redo_count].text   = cur;
-    s->redo_stack[s->redo_count].len    = w->input_value.len;
-    s->redo_stack[s->redo_count].cursor = s->cursor;
-    s->redo_count++;
+    s->redo_stack[s->redo_count++] = e;                    // ownership transfers to redo
 
-    UndoEntry e = s->undo_stack[--s->undo_count];          // pop the previous state
-    free(s->input_buf);                                    // state owns the buffer
-    s->input_buf = e.text;
-    s->input_len = e.len;
-    s->input_hash = hash_str_sampled(0xCBF29CE484222325ULL, e.text, e.len);
-    s->line_cache_valid = false;                           // buffer changed: rebuild lazily
-    w->input_value.ptr = e.text;                           // refresh the widget view
-    w->input_value.len = e.len;
-    s->cursor = e.cursor;
-    s->sel_anchor = e.cursor;
-    push_input_change(ctx, w, e.text);
+    w->input_value.ptr = s->input_buf;
+    w->input_value.len = s->input_len;
+    s->cursor = e.cursor_before;
+    if (s->cursor < 0 || s->cursor > s->input_len) s->cursor = s->input_len;
+    s->sel_anchor = s->cursor;
+    push_input_change_ex(ctx, w, true);
     ctx->redraw_needed = true;
 }
 
-// steps the buffer forward one snapshot, moving the current state back to undo
+// steps the buffer forward one diff, moving it back onto undo
 void input_redo(UiContext* ctx, Widget* w, WidgetState* s) {
-    if (s->redo_count == 0) return;                        // nothing to redo
-    if (s->undo_count >= s->undo_cap) {                    // grow undo
+    if (s->redo_count == 0) return;
+    DiffEntry e = s->redo_stack[--s->redo_count];
+
+    // redo: replace the removed region with the inserted bytes
+    apply_splice(s, e.offset, e.offset + e.n_removed, e.inserted, e.n_inserted);
+
+    if (s->undo_count >= s->undo_cap) {
         s->undo_cap = s->undo_cap ? s->undo_cap * 2 : 16;
-        s->undo_stack = (UndoEntry*)realloc(s->undo_stack,
-                                            sizeof(UndoEntry) * s->undo_cap);
+        s->undo_stack = (DiffEntry*)realloc(s->undo_stack,
+                                            sizeof(DiffEntry) * s->undo_cap);
     }
-    char* cur = (char*)malloc((size_t)w->input_value.len + 1);  // snapshot current
-    memcpy(cur, w->input_value.ptr, w->input_value.len);
-    cur[w->input_value.len] = 0;
-    s->undo_stack[s->undo_count].text   = cur;
-    s->undo_stack[s->undo_count].len    = w->input_value.len;
-    s->undo_stack[s->undo_count].cursor = s->cursor;
-    s->undo_count++;
+    s->undo_stack[s->undo_count++] = e;                    // ownership transfers to undo
 
-    UndoEntry e = s->redo_stack[--s->redo_count];          // pop the forward state
-    free(s->input_buf);                                    // state owns the buffer
-    s->input_buf = e.text;
-    s->input_len = e.len;
-    s->input_hash = hash_str_sampled(0xCBF29CE484222325ULL, e.text, e.len);
-    s->line_cache_valid = false;                           // buffer changed: rebuild lazily
-    w->input_value.ptr = e.text;                           // refresh the widget view
-    w->input_value.len = e.len;
-    s->cursor = e.cursor;
-    s->sel_anchor = e.cursor;
-    push_input_change(ctx, w, e.text);
+    w->input_value.ptr = s->input_buf;
+    w->input_value.len = s->input_len;
+    s->cursor = e.cursor_after;
+    if (s->cursor < 0 || s->cursor > s->input_len) s->cursor = s->input_len;
+    s->sel_anchor = s->cursor;
+    push_input_change_ex(ctx, w, true);
     ctx->redraw_needed = true;
 }
 
-// deletes [a, b) from the input buffer, moving the caret to a
+// deletes [a, b) from the input buffer via input_splice_inplace
 void input_delete_range(UiContext* ctx, Widget* w, WidgetState* s, int a, int b) {
-    int len = (int)w->input_value.len;
+    (void)s;
+    input_splice_inplace(ctx, w, a, b, NULL, 0);
+}
+
+// in-place replace: overwrites [a, b) with text[len] without copying the whole buffer
+void input_splice_inplace(UiContext* ctx, Widget* w, int a, int b,
+                          const char* text, int len) {
+    WidgetState* s = ui_state_get(ctx, w->id);
+    int old_len = s->input_len;
     if (a < 0) a = 0;
-    if (b > len) b = len;
-    if (b <= a) return;                                   // nothing to remove
-    int new_len = len - (b - a);
-    char* nb = (char*)malloc((size_t)new_len + 1);
-    memcpy(nb, w->input_value.ptr, a);                    // prefix
-    memcpy(nb + a, w->input_value.ptr + b, len - b);      // suffix
-    nb[new_len] = 0;
-    input_set_buffer(ctx, w, nb, new_len);
-    s = ui_state_get(ctx, w->id); // re-fetch the valid pointer
-    s->cursor = a;
-    s->sel_anchor = a;
-    push_input_change(ctx, w, nb);
+    if (b > old_len) b = old_len;
+    if (b < a) b = a;
+    int removed = b - a;
+    if (removed == 0 && len == 0) return;                  // no-op edit
+
+    // record what is about to change BEFORE mutating the buffer
+    record_diff(s, a,
+                s->input_buf + a, removed,
+                text, len);
+
+    apply_splice(s, a, b, text, len);
+
+    w->input_value.ptr = s->input_buf;
+    w->input_value.len = s->input_len;
+    s->cursor    = a + len;
+    s->sel_anchor = s->cursor;
+    push_input_change_ex(ctx, w, false);
     ctx->redraw_needed = true;
 }
 
-// emits a change event for an input widget, copying the new string
-void push_input_change(UiContext* ctx, Widget* w, const char* str_val) {
-    UiEvent ev; memset(&ev, 0, sizeof(ev));                       // zero the event
-    ev.kind = EV_CHANGE;                                          // change kind
-    ev.widget_id = w->id;                                         // source widget id
+// emits a change event for an input widget
+#define PUSH_INPUT_SKIP_PAYLOAD_BYTES (4 * 1024 * 1024)        // skip copy above 4 MB
+
+void push_input_change_ex(UiContext* ctx, Widget* w, bool undo_redo) {
+    UiEvent ev; memset(&ev, 0, sizeof(ev));
+    ev.kind = EV_CHANGE;
+    ev.widget_id = w->id;
     strncpy(ev.widget_type, (w->kind == WK_TEXT_AREA) ? "text_area" : "input", 15);
-    if (w->key_str) strncpy(ev.key_name, w->key_str, 63);         // user key if present
-    ev.str_value = (char*)malloc(strlen(str_val) + 1);            // own a copy of the new text
-    memcpy(ev.str_value, str_val, strlen(str_val) + 1);
-    ui_event_push(ctx, &ev);                                      // enqueue the change
-    ctx->geometry_dirty = true;                                   // input width may have changed
+    if (w->key_str) strncpy(ev.key_name, w->key_str, 63);
+    ev.str_value = NULL;
+    ev.num_value = (double)w->input_value.len;
+    if (undo_redo && (w->kind == WK_TEXT_AREA) &&
+        w->input_value.len > PUSH_INPUT_SKIP_PAYLOAD_BYTES) {
+        ev.payload_skipped = true;
+    }
+    ui_event_push(ctx, &ev);
+    ctx->geometry_dirty = true;
 }
 
 // maps (local_x, local_y) inside a WK_TEXT_AREA to a byte offset in its text

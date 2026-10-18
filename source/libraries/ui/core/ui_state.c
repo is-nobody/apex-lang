@@ -88,8 +88,14 @@ void state_gc_sweep(UiContext* ctx) {
             s->seen = false;                              // clear for the next frame
             ctx->state.entries[out++] = *s;               // compact live entry forward
         } else {
-            for (int j = 0; j < s->undo_count; j++) free(s->undo_stack[j].text);
-            for (int j = 0; j < s->redo_count; j++) free(s->redo_stack[j].text);
+            for (int j = 0; j < s->undo_count; j++) {
+                free(s->undo_stack[j].removed);
+                free(s->undo_stack[j].inserted);
+            }
+            for (int j = 0; j < s->redo_count; j++) {
+                free(s->redo_stack[j].removed);
+                free(s->redo_stack[j].inserted);
+            }
             free(s->undo_stack);                          // release the undo history
             free(s->redo_stack);                          // release the redo history
             free(s->input_buf);                           // release the owned text buffer

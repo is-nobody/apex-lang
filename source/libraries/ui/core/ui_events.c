@@ -75,6 +75,27 @@ Value ui_event_to_table(VM* vm, const UiEvent* ev) {
         v = MAKE_NUMBER(ev->num_value);                   // numeric widget: value is a number
     } else if (ev->str_value && strcmp(ev->widget_type, "tab_close") != 0) {
         v = MAKE_STRING(string_create(ev->str_value, (int)strlen(ev->str_value)));
+    } else if (ev->payload_skipped) {
+        // huge text_area, undo/redo path: do not allocate a full copy
+        v = MAKE_STRING(string_create("", 0));
+    } else if (ev->str_value == NULL &&
+               ev->kind == EV_CHANGE &&
+               (strcmp(ev->widget_type, "input")     == 0 ||
+                strcmp(ev->widget_type, "text_area") == 0)) {
+        WidgetState* ws = NULL;
+        UiContext*   cx = vm->ui;
+        if (cx) {
+            for (int i = 0; i < cx->state.count; i++) {
+                if (cx->state.entries[i].id == ev->widget_id) {
+                    ws = &cx->state.entries[i];
+                    break;
+                }
+            }
+        }
+        if (ws && ws->input_buf && ws->input_len > 0)
+            v = MAKE_STRING(string_create(ws->input_buf, ws->input_len));
+        else
+            v = MAKE_STRING(string_create("", 0));
     } else {
         v = MAKE_BOOL(ev->bool_value);
     }

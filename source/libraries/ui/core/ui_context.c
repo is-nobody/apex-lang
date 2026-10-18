@@ -49,8 +49,14 @@ UiContext* ui_ensure(VM* vm) {
 
 // releases every heap allocation owned by one persistent state entry
 static void free_state_entry(WidgetState* s) {
-    for (int j = 0; j < s->undo_count; j++) free(s->undo_stack[j].text);
-    for (int j = 0; j < s->redo_count; j++) free(s->redo_stack[j].text);
+    for (int j = 0; j < s->undo_count; j++) {
+        free(s->undo_stack[j].removed);
+        free(s->undo_stack[j].inserted);
+    }
+    for (int j = 0; j < s->redo_count; j++) {
+        free(s->redo_stack[j].removed);
+        free(s->redo_stack[j].inserted);
+    }
     free(s->undo_stack);
     free(s->redo_stack);
     free(s->input_buf);

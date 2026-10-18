@@ -166,12 +166,16 @@ struct Widget {
     float  switch_knob;                  // wk_switch: 0 = off, 1 = on, mirrored from state
 };
 
-// one snapshot in an input widget's undo/redo history
+// one entry in an input widget's undo/redo history
 typedef struct {
-    char* text;    // owned copy of the input buffer
-    int   len;     // length of that copy
-    int   cursor;  // caret position at snapshot time
-} UndoEntry;
+    int   offset;        // where the edit happened in the buffer
+    int   n_removed;     // bytes removed at offset
+    int   n_inserted;    // bytes inserted at offset
+    char* removed;       // owned copy of the removed bytes, or NULL
+    char* inserted;      // owned copy of the inserted bytes, or NULL
+    int   cursor_before; // caret position before the edit
+    int   cursor_after;  // caret position after the edit
+} DiffEntry;
 
 typedef struct {
     uint64_t id;                // widget identity this state belongs to
@@ -198,13 +202,15 @@ typedef struct {
     // owned text buffer for wk_input widgets
     char*      input_buf;       // malloc'd, null terminated, or null
     int        input_len;       // length of that buffer
-    uint64_t   input_hash;      // hash of the last descriptor value_text synced from
+    int        input_cap;       // allocated capacity of input_buf, >= input_len + 1
+    uint64_t   input_hash;      // hash of the current buffer contents
+    uint64_t   desc_hash;       // hash of the descriptor value_text at the last sync
 
     // per-input undo/redo history; null until the first edit
-    UndoEntry* undo_stack;      // snapshots that undo can walk back through
+    DiffEntry* undo_stack;      // diffs that undo can walk back through
     int        undo_count;      // live entries in the undo stack
     int        undo_cap;        // allocated capacity of the undo stack
-    UndoEntry* redo_stack;      // snapshots that redo can walk forward through
+    DiffEntry* redo_stack;      // diffs that redo can walk forward through
     int        redo_count;      // live entries in the redo stack
     int        redo_cap;        // allocated capacity of the redo stack
 
@@ -247,6 +253,7 @@ typedef struct {
     double    num_value;         // numeric payload (slider, scroll)
     bool      bool_value;        // boolean payload (checkbox)
     char*     str_value;         // heap-owned string payload, or null
+    bool      payload_skipped;   // internal: change came from undo/redo on a huge buffer
     int       key_code;          // platform key code for key events
     int       mods;              // modifier bitmask for key events
     int       mouse_x, mouse_y;  // pointer position for pointer events

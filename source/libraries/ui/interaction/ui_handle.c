@@ -876,19 +876,7 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                         // text_area: Enter inserts a newline
                         if (w->kind == WK_TEXT_AREA &&
                             e->key == UI_KEY_ENTER && !(e->mods & 2)) {
-                            input_push_undo(s, w->input_value.ptr, len, cur);
-                            int need = len + 1;
-                            char* nb = (char*)malloc((size_t)need + 1);
-                            memcpy(nb, w->input_value.ptr, cur);
-                            nb[cur] = '\n';
-                            memcpy(nb + cur + 1, w->input_value.ptr + cur, len - cur);
-                            nb[need] = 0;
-                            input_set_buffer(ctx, w, nb, need);
-                            s = ui_state_get(ctx, w->id);
-                            s->cursor = cur + 1;
-                            s->sel_anchor = s->cursor;
-                            push_input_change(ctx, w, nb);
-                            ctx->redraw_needed = true;
+                            input_splice_inplace(ctx, w, cur, cur, "\n", 1);
                             break;
                         }
 
@@ -967,7 +955,6 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                                     input_sel_range(s, &a, &b);
                                     ui_window_clipboard_set(ctx->window,
                                         w->input_value.ptr + a, b - a);
-                                    input_push_undo(s, w->input_value.ptr, len, cur);
                                     input_delete_range(ctx, w, s, a, b);
                                 }
                                 break;
@@ -996,29 +983,14 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                                             free(tmp);
                                         }
                                     }
-                                    input_push_undo(s, w->input_value.ptr, len, cur);
-
-                                    if (input_has_selection(s)) {  // drop the selection first
+                                    int del_a = cur, del_b = cur;
+                                    if (input_has_selection(s)) {
                                         int a, b;
                                         input_sel_range(s, &a, &b);
-                                        input_delete_range(ctx, w, s, a, b);
-                                        s = ui_state_get(ctx, w->id); // re-fetch
-                                        cur = s->cursor;
-                                        len = (int)w->input_value.len;
+                                        del_a = a; del_b = b;
                                     }
-                                    int need = len + tlen;
-                                    char* nb = (char*)malloc((size_t)need + 1);
-                                    memcpy(nb, w->input_value.ptr, cur);
-                                    memcpy(nb + cur, text, tlen);
-                                    memcpy(nb + cur + tlen,
-                                           w->input_value.ptr + cur, len - cur);
-                                    nb[need] = 0;
-                                    input_set_buffer(ctx, w, nb, need);
-                                    s = ui_state_get(ctx, w->id); // re-fetch
-                                    s->cursor = cur + tlen;
-                                    s->sel_anchor = s->cursor;
-                                    push_input_change(ctx, w, nb);
-                                    ctx->redraw_needed = true;
+                                    input_splice_inplace(ctx, w, del_a, del_b,
+                                                         text, tlen);
                                 }
                                 free(text);
                                 break;
@@ -1036,7 +1008,6 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                                 if (input_has_selection(s)) {
                                     int a, b;
                                     input_sel_range(s, &a, &b);
-                                    input_push_undo(s, w->input_value.ptr, len, cur);
                                     input_delete_range(ctx, w, s, a, b);
                                 } else if (cur > 0) {
                                     int word_start = cur;
@@ -1047,7 +1018,6 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                                         word_start = prev;
                                     }
                                     if (word_start < cur) {
-                                        input_push_undo(s, w->input_value.ptr, len, cur);
                                         input_delete_range(ctx, w, s, word_start, cur);
                                     }
                                 }
@@ -1079,28 +1049,14 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                                     }
                                 }
                             }
-                            input_push_undo(s, w->input_value.ptr, len, cur);
+                            int del_a = cur, del_b = cur;
                             if (input_has_selection(s)) {
                                 int a, b;
                                 input_sel_range(s, &a, &b);
-                                input_delete_range(ctx, w, s, a, b);
-                                s = ui_state_get(ctx, w->id); // re-fetch
-                                cur = s->cursor;
-                                len = (int)w->input_value.len;
+                                del_a = a; del_b = b;
                             }
-                            int need = len + e->utf8_len;
-                            char* nb = (char*)malloc((size_t)need + 1);
-                            memcpy(nb, w->input_value.ptr, cur);
-                            memcpy(nb + cur, e->utf8, e->utf8_len);
-                            memcpy(nb + cur + e->utf8_len,
-                                   w->input_value.ptr + cur, len - cur);
-                            nb[need] = 0;
-                            input_set_buffer(ctx, w, nb, need);
-                            s = ui_state_get(ctx, w->id); // re-fetch
-                            s->cursor = cur + e->utf8_len;
-                            s->sel_anchor = s->cursor;
-                            push_input_change(ctx, w, nb);
-                            ctx->redraw_needed = true;
+                            input_splice_inplace(ctx, w, del_a, del_b,
+                                                 e->utf8, e->utf8_len);
                             break;
                         }
 
@@ -1108,11 +1064,9 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                             if (input_has_selection(s)) {
                                 int a, b;
                                 input_sel_range(s, &a, &b);
-                                input_push_undo(s, w->input_value.ptr, len, cur);
                                 input_delete_range(ctx, w, s, a, b);
                             } else if (cur > 0) {
                                 int prev = ui_utf8_prev(w->input_value.ptr, cur);
-                                input_push_undo(s, w->input_value.ptr, len, cur);
                                 input_delete_range(ctx, w, s, prev, cur);
                             }
                             break;
@@ -1121,11 +1075,9 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                             if (input_has_selection(s)) {
                                 int a, b;
                                 input_sel_range(s, &a, &b);
-                                input_push_undo(s, w->input_value.ptr, len, cur);
                                 input_delete_range(ctx, w, s, a, b);
                             } else if (cur < len) {
                                 int next = ui_utf8_next(w->input_value.ptr, cur, len);
-                                input_push_undo(s, w->input_value.ptr, len, cur);
                                 input_delete_range(ctx, w, s, cur, next);
                             }
                             break;
