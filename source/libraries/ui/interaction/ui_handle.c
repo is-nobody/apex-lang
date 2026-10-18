@@ -551,6 +551,29 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
 
                 if (ctx->root) {
                     Widget* h = hit_test(ctx, e->x, e->y);
+                    
+                    // dock panel header click toggles collapse
+                    if (h && h->kind == WK_PANEL && h->text.len > 0) {
+                        int local_y = e->y - (int)h->y;
+                        if (local_y >= 0 && local_y < UI_DOCK_HEADER_H) {
+                            h->collapsed = !h->collapsed;
+                            WidgetState* s = ui_state_get(ctx, h->id);
+                            s->collapsed = h->collapsed;
+                            
+                            UiEvent cev; memset(&cev, 0, sizeof(cev));
+                            cev.kind = EV_CHANGE;
+                            cev.widget_id = h->id;
+                            strncpy(cev.widget_type, "panel_collapse", 15);
+                            if (h->key_str) strncpy(cev.key_name, h->key_str, 63);
+                            cev.bool_value = h->collapsed;
+                            ui_event_push(ctx, &cev);
+                            
+                            ctx->geometry_dirty = true;
+                            ctx->redraw_needed = true;
+                            break; // consume the click
+                        }
+                    }
+
                     // a click outside any open combobox closes it
                     for (int i = 0; i < ctx->pool_used; i++) {
                         Widget* w = &ctx->pool[i];

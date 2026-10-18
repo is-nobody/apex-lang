@@ -369,20 +369,29 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
             if (inner_w < 0) inner_w = 0;
             float main_sum = 0, cross_max = 0;               // total main size, widest cross size
             int n = w->child_count;
-            for (int i = 0; i < n; i++) {
-                Widget* c = w->children[i];
-                if (!c->visible) continue;                   // skip invisible children
-                float ch_avail = vert ? inner_w : (avail_w > 0 ? 1e6f : inner_w);  // children of hbox measure unconstrained
-                measure(ctx, c, ch_avail);                   // recurse
-                if (c->req_w >= 0) c->meas_w = c->req_w;     // explicit size overrides measurement
-                if (c->req_h >= 0) c->meas_h = c->req_h;
-                if (vert) { main_sum += c->meas_h; if (c->meas_w > cross_max) cross_max = c->meas_w; }
-                else      { main_sum += c->meas_w; if (c->meas_h > cross_max) cross_max = c->meas_h; }
+            
+            bool skip_children = (w->kind == WK_PANEL && w->collapsed);
+            if (!skip_children) {
+                for (int i = 0; i < n; i++) {
+                    Widget* c = w->children[i];
+                    if (!c->visible) continue;                   // skip invisible children
+                    float ch_avail = vert ? inner_w : (avail_w > 0 ? 1e6f : inner_w);  // children of hbox measure unconstrained
+                    measure(ctx, c, ch_avail);                   // recurse
+                    if (c->req_w >= 0) c->meas_w = c->req_w;     // explicit size overrides measurement
+                    if (c->req_h >= 0) c->meas_h = c->req_h;
+                    if (vert) { main_sum += c->meas_h; if (c->meas_w > cross_max) cross_max = c->meas_w; }
+                    else      { main_sum += c->meas_w; if (c->meas_h > cross_max) cross_max = c->meas_h; }
+                }
+                if (n > 1) main_sum += w->gap * (n - 1);         // add inter-child gaps
             }
-            if (n > 1) main_sum += w->gap * (n - 1);         // add inter-child gaps
+            
             if (vert) {
                 w->meas_w = cross_max + pad*2;               // cross size is the widest child
                 w->meas_h = main_sum + pad*2;                // main size is the summed children
+                if (w->kind == WK_PANEL && w->text.len > 0) {
+                    w->meas_h += UI_DOCK_HEADER_H;
+                    if (w->collapsed) w->meas_h = UI_DOCK_HEADER_H + pad*2;
+                }
             } else {
                 w->meas_w = main_sum + pad*2;
                 w->meas_h = cross_max + pad*2;
@@ -427,6 +436,14 @@ static void arrange(UiContext* ctx, Widget* w, float x, float y, float width, fl
     float iw = width - pad*2, ih = height - pad*2;       // inner size
     if (iw < 0) iw = 0;
     if (ih < 0) ih = 0;
+
+    if (w->kind == WK_PANEL && w->text.len > 0) {
+        iy += UI_DOCK_HEADER_H;
+        ih -= UI_DOCK_HEADER_H;
+        if (ih < 0) ih = 0;
+    }
+    if (w->kind == WK_PANEL && w->collapsed) return;     // nothing to arrange
+
     int n = w->child_count;
 
     int nvis = 0; float fixed = 0, tw = 0;               // visible count, fixed size, total weight

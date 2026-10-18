@@ -209,6 +209,12 @@
 #define UI_C_TAB_CLOSE_BG  0xFF3A3D41u  // close button hover chip
 #define UI_C_TAB_DRAG_BG   0xFF3A3D41u  // tab being dragged
 
+// dock panel
+#define UI_DOCK_HEADER_H   28           // height of the panel's title header
+#define UI_C_DOCK_BG       0xFF252526u  // body background (matches panel)
+#define UI_C_DOCK_HEADER   0xFF2A2D2Eu  // header background
+#define UI_C_DOCK_HOV      0xFF3A3D41u  // header background on hover
+
 // status bar
 #define UI_STATUSBAR_H     26           // status bar height in pixels
 #define UI_STATUS_ITEM_PAD 8            // horizontal padding inside a status item

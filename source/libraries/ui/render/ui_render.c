@@ -564,8 +564,39 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 ui_painter_fill_rect(x, y, ww, 1, UI_C_BORDER);  // 1px horizontal rule
                 break;
             case WK_PANEL: {
-                ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_PANEL);      // panel background
-                ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);   // panel outline
+                ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_DOCK_BG);
+                ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);
+                
+                if (w->text.len > 0) {
+                    // header background (highlight on hover)
+                    int local_y = ctx->input.y - y;
+                    bool header_hover = w->hovered && (local_y >= 0 && local_y < UI_DOCK_HEADER_H);
+                    uint32_t hbg = header_hover ? UI_C_DOCK_HOV : UI_C_DOCK_HEADER;
+                    
+                    ui_painter_fill_round(x, y, ww, UI_DOCK_HEADER_H, UI_RADIUS, hbg);
+                    ui_painter_fill_rect(x, y + UI_RADIUS, ww, UI_DOCK_HEADER_H - UI_RADIUS, hbg);
+                    ui_painter_fill_rect(x, y + UI_DOCK_HEADER_H - 1, ww, 1, UI_C_BORDER);
+                    
+                    // title text
+                    float base = y + (UI_DOCK_HEADER_H + UI_FS_BODY * 0.7f) * 0.5f;
+                    ui_draw_text_at(ctx, (float)x + 12, base, w->text.ptr, w->text.len, UI_FS_BODY, UI_C_FG);
+                    
+                    // disclosure chevron
+                    int cx = x + ww - 16;
+                    int cy = y + UI_DOCK_HEADER_H / 2;
+                    uint32_t col = UI_C_FG_DIM;
+                    if (w->collapsed) {
+                        ui_painter_fill_rect(cx, cy - 3, 1, 7, col);
+                        ui_painter_fill_rect(cx + 1, cy - 2, 1, 5, col);
+                        ui_painter_fill_rect(cx + 2, cy - 1, 1, 3, col);
+                        ui_painter_fill_rect(cx + 3, cy, 1, 1, col);
+                    } else {
+                        ui_painter_fill_rect(cx - 3, cy - 1, 7, 1, col);
+                        ui_painter_fill_rect(cx - 2, cy, 5, 1, col);
+                        ui_painter_fill_rect(cx - 1, cy + 1, 3, 1, col);
+                        ui_painter_fill_rect(cx, cy + 2, 1, 1, col);
+                    }
+                }
                 break;
             }
             case WK_SPACER:

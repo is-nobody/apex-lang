@@ -509,6 +509,24 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
         }
     }
 
+    if (w->kind == WK_PANEL) {
+        StrView ttv;
+        if (table_get_str_view(t, ctx->key_cache[UK_TITLE], &ttv))
+            w->text = arena_dup(ctx, ttv.ptr, ttv.len);
+
+        WidgetState* st = ui_state_get(ctx, w->id);
+        Value cv;
+        if (table_get(t, ctx->key_cache[UK_COLLAPSED], &cv)) {
+            if (IS_BOOL(cv)) {
+                w->collapsed = AS_BOOL(cv);
+                st->collapsed = w->collapsed; // keep script and C in sync
+            }
+            value_decref(cv);
+        } else {
+            w->collapsed = st->collapsed;     // fallback to internal state
+        }
+    }
+
     if (w->kind == WK_STATUSBAR) {
         Widget* left = ui_widget_alloc(ctx);
         left->kind = WK_HBOX;
