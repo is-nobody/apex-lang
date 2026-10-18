@@ -11,8 +11,14 @@
 // binds the painter to a framebuffer and clears the clip stack
 void ui_painter_init(uint32_t* pixels, int w, int h);
 
+// binds the painter to a framebuffer with an explicit row stride
+void ui_painter_init_stride(uint32_t* pixels, int w, int h, int stride);
+
 // binds the painter to a framebuffer with per-pixel alpha compositing
 void ui_painter_init_alpha(uint32_t* pixels, int w, int h);
+
+// binds the painter to an alpha framebuffer with an explicit row stride
+void ui_painter_init_alpha_stride(uint32_t* pixels, int w, int h, int stride);
 
 // fills an axis-aligned rectangle with the given color
 void ui_painter_fill_rect(int x, int y, int w, int h, uint32_t c);

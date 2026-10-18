@@ -18,7 +18,8 @@ void ui_render_notification(UiNotification* n) {
     uint32_t* px = ui_window_pixels(n->window);          // popup framebuffer
     if (!px) return;                                     // no surface: nothing to paint
 
-    ui_painter_init_alpha(px, w, h);                     // bind with per-pixel alpha
+    ui_painter_init_alpha_stride(px, w, h,
+                                 ui_window_stride(n->window));  // stride covers any slack in the buffer
     ui_painter_clear(0x00000000u);                       // transparent: no window background
 
     // notifications are always fully opaque

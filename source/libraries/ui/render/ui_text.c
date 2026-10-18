@@ -250,11 +250,20 @@ static void blend_glyph_row(uint32_t* dst, const uint8_t* cov, int n,
 static int  g_clip_x0 = 0, g_clip_y0 = 0, g_clip_x1 = 0, g_clip_y1 = 0;
 static bool g_clip_on = false;
 
+// row pitch in pixels. defaults to fbw and is overridden by ui_painter_init_stride
+// when the backing buffer is larger than the visible window.
+static int  g_text_stride = 0;
+
 // sets the scissor rect used by ui_text_draw
 void ui_text_set_clip(int x0, int y0, int x1, int y1) {
     g_clip_x0 = x0; g_clip_y0 = y0;
     g_clip_x1 = x1; g_clip_y1 = y1;
     g_clip_on = true;
+}
+
+// sets the row pitch used by ui_text_draw
+void ui_text_set_stride(int stride) {
+    g_text_stride = stride > 0 ? stride : 0;             // 0 means "fall back to fbw"
 }
 
 // draws a utf-8 string into the framebuffer and returns the advance width in pixels
@@ -275,6 +284,7 @@ float ui_text_draw(UiFont* f, uint32_t* fb, int fbw, int fbh,
     float pen = x;                                       // running pen position
     int i = 0;
     int base_y = (int)floorf(baseline + 0.5f);           // rounded baseline row
+    int stride = g_text_stride > 0 ? g_text_stride : fbw; // row pitch in pixels
     while (i < n) {
         int adv; uint32_t cp = ui_font_decode_cp(s + i, n - i, &adv);  // decode one codepoint
         i += adv;
@@ -320,7 +330,7 @@ float ui_text_draw(UiFont* f, uint32_t* fb, int fbw, int fbh,
                 if (x0 >= x1) continue;                  // row fully clipped
 
                 const uint8_t* cov_row = cov + (size_t)yy * ew + x0;
-                uint32_t* dst = fb + (size_t)ty * fbw + px + x0;
+                uint32_t* dst = fb + (size_t)ty * stride + px + x0;
                 blend_glyph_row(dst, cov_row, x1 - x0, sr, sg, sb, ca);
             }
         }

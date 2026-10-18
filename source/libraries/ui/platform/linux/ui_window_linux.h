@@ -51,6 +51,7 @@ struct UiWindow {
     int      saved_cap;       // capacity of the saved-event array
 
     int      w, h;        // window size in pixels
+    int      buf_w, buf_h; // pixel pitch of the shm/ximage backing (>= w, h)
     int      depth;       // visual depth: 24 for the main window, 32 for ARGB popups
     bool     open;        // false once the window is closed
     uint32_t* pixels;     // fallback cpu-side framebuffer

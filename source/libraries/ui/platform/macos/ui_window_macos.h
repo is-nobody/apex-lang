@@ -38,7 +38,8 @@ struct UiWindow {
     id       ns_delegate;            // apexuiwindowdelegate (windowshouldclose etc.)
 
     uint32_t* pixels;                // owned pixel buffer (bgra, non-premultiplied)
-    int       w, h;                  // pixel dimensions of the buffer
+    int       w, h;                  // visible window size in pixels
+    int       buf_w, buf_h;          // pixel pitch of the buffer (>= w, h)
     int       point_w;               // requested point size (== pixel size for us)
     int       point_h;
     double    backing_scale;         // always 1.0 for now

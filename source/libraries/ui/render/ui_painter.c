@@ -22,8 +22,10 @@
 #  define UI_HAVE_NEON 1
 #endif
 
-// active framebuffer and its dimensions
-static uint32_t* g_pixels; static int g_w, g_h;
+// active framebuffer and its dimensions. g_stride is the row pitch in
+// pixels: it can exceed g_w when the backing buffer is larger than the
+// window, which lets us avoid reallocating on every resize.
+static uint32_t* g_pixels; static int g_w, g_h, g_stride;
 
 // true when the target surface carries per-pixel alpha (notification popups)
 static bool g_alpha_canvas;
@@ -51,21 +53,33 @@ static inline void clip_refresh(void) {
 }
 
 // binds the painter to a framebuffer and clears the clip stack
-void ui_painter_init(uint32_t* p, int w, int h) {
-    g_pixels = p; g_w = w; g_h = h; clip_depth = 0;
+void ui_painter_init_stride(uint32_t* p, int w, int h, int stride) {
+    g_pixels = p; g_w = w; g_h = h; g_stride = stride; clip_depth = 0;
     g_alpha_canvas = false;
     g_text_dst_alpha_used = false;
     clip_refresh();
     ui_text_set_clip(0, 0, w, h);                        // whole surface: nothing clipped
+    ui_text_set_stride(stride);
 }
 
-// binds the painter to a framebuffer that must preserve per-pixel alpha
-void ui_painter_init_alpha(uint32_t* p, int w, int h) {
-    g_pixels = p; g_w = w; g_h = h; clip_depth = 0;
+// binds the painter to a framebuffer and clears the clip stack
+void ui_painter_init(uint32_t* p, int w, int h) {
+    ui_painter_init_stride(p, w, h, w);                  // stride matches width: tight buffer
+}
+
+// binds the painter to an alpha framebuffer with an explicit row stride
+void ui_painter_init_alpha_stride(uint32_t* p, int w, int h, int stride) {
+    g_pixels = p; g_w = w; g_h = h; g_stride = stride; clip_depth = 0;
     g_alpha_canvas = true;
     g_text_dst_alpha_used = true;
     clip_refresh();
     ui_text_set_clip(0, 0, w, h);
+    ui_text_set_stride(stride);
+}
+
+// binds the painter to a framebuffer that must preserve per-pixel alpha
+void ui_painter_init_alpha(uint32_t* p, int w, int h) {
+    ui_painter_init_alpha_stride(p, w, h, w);            // stride matches width: tight buffer
 }
 
 // pushes a scissor rect, intersected with the current top of the stack
@@ -579,7 +593,7 @@ static inline void fill_row_stream_simd(uint32_t* row, int n, uint32_t color) {
 void ui_painter_clear(uint32_t c) {
     if (g_alpha_canvas) {
         for (int y = 0; y < g_h; y++) {
-            uint32_t* row = g_pixels + (size_t)y * g_w;
+            uint32_t* row = g_pixels + (size_t)y * g_stride;
             for (int x = 0; x < g_w; x++) row[x] = c;
         }
         return;
@@ -588,7 +602,7 @@ void ui_painter_clear(uint32_t c) {
     if (sa != 255) return;                                          // opaque only
     uint32_t color = 0xFF000000u | (c & 0x00FFFFFFu);
     for (int y = 0; y < g_h; y++) {
-        uint32_t* row = g_pixels + (size_t)y * g_w;
+        uint32_t* row = g_pixels + (size_t)y * g_stride;
         fill_row_stream_simd(row, g_w, color);
     }
 #if defined(UI_HAVE_AVX2) || defined(UI_HAVE_SSE2)
@@ -618,7 +632,7 @@ void ui_painter_fill_rect(int x, int y, int w, int h, uint32_t c) {
                        ? c
                        : (0xFF000000u | (c & 0x00FFFFFFu));
         for (int yy = y0; yy < y1; yy++) {
-            uint32_t* row = g_pixels + (size_t)yy * g_w + x0;
+            uint32_t* row = g_pixels + (size_t)yy * g_stride + x0;
             fill_row_simd(row, rw, color);
         }
         return;
@@ -626,7 +640,7 @@ void ui_painter_fill_rect(int x, int y, int w, int h, uint32_t c) {
 
     // alpha path: one SIMD (or scalar) sweep per row
     for (int yy = y0; yy < y1; yy++) {
-        uint32_t* row = g_pixels + (size_t)yy * g_w + x0;
+        uint32_t* row = g_pixels + (size_t)yy * g_stride + x0;
         blend_row_simd(row, rw, c);
     }
 }
@@ -729,7 +743,7 @@ static void blit_corner_cov(const uint8_t* cov, int r, int ox, int oy,
                 uint32_t sa = (ca * cv + 128) >> 8;
                 if (!sa) continue;
                 uint32_t inv = 255 - sa;
-                uint32_t* p = g_pixels + (size_t)(oy + yy) * g_w + (ox + xx);
+                uint32_t* p = g_pixels + (size_t)(oy + yy) * g_stride + (ox + xx);
                 uint32_t d  = *p;
                 uint32_t dr = (d >> 16) & 0xFF;
                 uint32_t dg = (d >>  8) & 0xFF;
@@ -743,7 +757,7 @@ static void blit_corner_cov(const uint8_t* cov, int r, int ox, int oy,
         }
 
         const uint8_t* run = row + x0;
-        uint32_t* dst = g_pixels + (size_t)(oy + yy) * g_w + (ox + x0);
+        uint32_t* dst = g_pixels + (size_t)(oy + yy) * g_stride + (ox + x0);
         blend_cov_row(dst, run, x1 - x0, ca, sr, sg, sb);
     }
 }
@@ -797,20 +811,20 @@ static void fill_corners_atlas(int x, int y, int w, int h, int r, uint32_t c) {
 
         if (n_left > 0) {
             if (ty >= g_clip_y0 && ty < g_clip_y1)       // top-left
-                blend_cov_row(g_pixels + (size_t)ty * g_w + x + xl0,
+                blend_cov_row(g_pixels + (size_t)ty * g_stride + x + xl0,
                               top_cov + xl0, n_left, ca, sr, sg, sb);
             if (by >= g_clip_y0 && by < g_clip_y1)       // bottom-left
-                blend_cov_row(g_pixels + (size_t)by * g_w + x + xl0,
+                blend_cov_row(g_pixels + (size_t)by * g_stride + x + xl0,
                               bot_cov + xl0, n_left, ca, sr, sg, sb);
         }
         if (n_right > 0) {
             for (int k = 0; k < r; k++) tmp[k] = top_cov[r - 1 - k];
             if (ty >= g_clip_y0 && ty < g_clip_y1)       // top-right
-                blend_cov_row(g_pixels + (size_t)ty * g_w + x + w - r + xr0,
+                blend_cov_row(g_pixels + (size_t)ty * g_stride + x + w - r + xr0,
                               tmp + xr0, n_right, ca, sr, sg, sb);
             for (int k = 0; k < r; k++) tmp[k] = bot_cov[r - 1 - k];
             if (by >= g_clip_y0 && by < g_clip_y1)       // bottom-right
-                blend_cov_row(g_pixels + (size_t)by * g_w + x + w - r + xr0,
+                blend_cov_row(g_pixels + (size_t)by * g_stride + x + w - r + xr0,
                               tmp + xr0, n_right, ca, sr, sg, sb);
         }
     }
@@ -887,7 +901,7 @@ void blit_checkmark_shared(int ox, int oy, uint32_t c) {
 
     for (int yy = y0; yy < y1; yy++) {
         const uint8_t* run = k_checkmark_9x6[yy] + x0;
-        uint32_t* dst = g_pixels + (size_t)(oy + yy) * g_w + (ox + x0);
+        uint32_t* dst = g_pixels + (size_t)(oy + yy) * g_stride + (ox + x0);
         blend_cov_row(dst, run, x1 - x0, ca, sr, sg, sb);
     }
 }
@@ -922,7 +936,7 @@ void blit_close_x_shared(int ox, int oy, uint32_t c) {
 
     for (int yy = y0; yy < y1; yy++) {
         const uint8_t* run = k_close_x_9[yy] + x0;
-        uint32_t* dst = g_pixels + (size_t)(oy + yy) * g_w + (ox + x0);
+        uint32_t* dst = g_pixels + (size_t)(oy + yy) * g_stride + (ox + x0);
         blend_cov_row(dst, run, x1 - x0, ca, sr, sg, sb);
     }
 }

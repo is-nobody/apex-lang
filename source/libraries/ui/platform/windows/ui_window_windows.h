@@ -28,7 +28,8 @@ struct UiWindow {
     HDC       mem_dc;                  // memory dc for offscreen drawing
     HBITMAP   hbm;                     // dib section backing the memory dc
     void*     dib_bits;                // raw pixels of the dib section
-    int       w, h;                    // current framebuffer size
+    int       w, h;                    // current window size in pixels
+    int       buf_w, buf_h;            // pixel pitch of the dib backing (>= w, h)
     int       pending_w;               // deferred resize width
     int       pending_h;               // deferred resize height
     bool      open;                    // false once the window is closed

@@ -121,12 +121,11 @@ bool alloc_buffer_resources(UiWindow* w, int nw, int nh) {
     }
     SelectObject(new_dc, new_hbm);                       // select the dib into the dc
 
-    // the dib bits are the one and only framebuffer on win32
+    // the dib bits are the one and only framebuffer on win32. the caller
+    // owns w/h and buf_w/buf_h: this function only (re)creates the dib.
     w->mem_dc   = new_dc;
     w->hbm      = new_hbm;
     w->dib_bits = new_bits;
-    w->w        = nw;
-    w->h        = nh;
     return true;
 }
 
@@ -141,21 +140,35 @@ void apply_pending_resize(UiWindow* w) {
 
     if (nw == w->w && nh == w->h && w->dib_bits) return; // unchanged
 
+    w->w = nw; w->h = nh;                                // record the new visible size
+
+    // the dib already covers the new size: keep it. the painter and
+    // BitBlt both take buf_w as the row pitch, so a dib larger than the
+    // window is harmless and the resize becomes a metadata-only update.
+    if (w->dib_bits && nw <= w->buf_w && nh <= w->buf_h) return;
+
+    // outgrew the dib: reallocate at 1.5x the request so a few more growth
+    // steps land in slack rather than in another allocation
+    int cap_w = nw * 3 / 2; if (cap_w < nw + 64) cap_w = nw + 64;
+    int cap_h = nh * 3 / 2; if (cap_h < nh + 64) cap_h = nh + 64;
+
     HDC     old_dc   = w->mem_dc;                        // save old resources for rollback
     HBITMAP old_hbm  = w->hbm;
     void*   old_bits = w->dib_bits;
-    int     old_w = w->w, old_h = w->h;
+    int     old_bw = w->buf_w, old_bh = w->buf_h;
 
     w->mem_dc   = NULL;                                  // clear so alloc starts fresh
     w->hbm      = NULL;
     w->dib_bits = NULL;
+    w->buf_w    = cap_w;
+    w->buf_h    = cap_h;
 
-    if (!alloc_buffer_resources(w, nw, nh)) {            // alloc failed: restore old state
+    if (!alloc_buffer_resources(w, w->buf_w, w->buf_h)) {  // alloc failed: restore old state
         w->mem_dc   = old_dc;
         w->hbm      = old_hbm;
         w->dib_bits = old_bits;
-        w->w        = old_w;
-        w->h        = old_h;
+        w->buf_w    = old_bw;
+        w->buf_h    = old_bh;
         return;
     }
 
@@ -214,6 +227,7 @@ UiWindow* ui_window_create(int w, int h, const char* title, bool decorated) {
     if (!win) return NULL;
     win->w = w;                                          // seed real size before the window exists
     win->h = h;
+    win->buf_w = w; win->buf_h = h;                      // backing buffer starts at the window size
     win->decorated = decorated;                          // must be set before WM_NCCALCSIZE fires
 
     HWND hwnd = CreateWindowExW(
@@ -228,7 +242,7 @@ UiWindow* ui_window_create(int w, int h, const char* title, bool decorated) {
 
     if (!decorated) enable_round_corners(hwnd);          // win11 rounded corners
 
-    if (!alloc_buffer_resources(win, w, h)) {            // allocate the offscreen buffer
+    if (!alloc_buffer_resources(win, win->buf_w, win->buf_h)) {  // allocate the offscreen buffer
         DestroyWindow(hwnd);
         free(win);
         return NULL;
@@ -284,6 +298,11 @@ uint32_t* ui_window_pixels(UiWindow* w) {
     return (uint32_t*)w->dib_bits;                       // painter writes straight into the dib
 }
 
+// row pitch of the framebuffer in pixels; can exceed the window width
+int ui_window_stride(UiWindow* w) {
+    return w ? w->buf_w : 0;
+}
+
 // current window width in pixels
 int ui_window_width(UiWindow* w)  { return w->w; }
 
@@ -312,19 +331,21 @@ void ui_window_present_rects(UiWindow* w, const int* quads, int n) {
 
     if (w->is_popup) {
         uint32_t* px = (uint32_t*)w->dib_bits;
-        size_t count = (size_t)w->w * (size_t)w->h;
-        for (size_t i = 0; i < count; i++) {
-            uint32_t c = px[i];
-            uint32_t a = (c >> 24) & 0xFF;
-            if (a == 255) continue;
-            if (a == 0) { px[i] = 0; continue; }
-            uint32_t r = (c >> 16) & 0xFF;
-            uint32_t g = (c >>  8) & 0xFF;
-            uint32_t b =  c        & 0xFF;
-            r = (r * a + 127) / 255;
-            g = (g * a + 127) / 255;
-            b = (b * a + 127) / 255;
-            px[i] = (a << 24) | (r << 16) | (g << 8) | b;
+        for (int yy = 0; yy < w->h; yy++) {              // row by row: dib pitch is buf_w
+            uint32_t* row = px + (size_t)yy * w->buf_w;
+            for (int xx = 0; xx < w->w; xx++) {
+                uint32_t c = row[xx];
+                uint32_t a = (c >> 24) & 0xFF;
+                if (a == 255) continue;
+                if (a == 0) { row[xx] = 0; continue; }
+                uint32_t r = (c >> 16) & 0xFF;
+                uint32_t g = (c >>  8) & 0xFF;
+                uint32_t b =  c        & 0xFF;
+                r = (r * a + 127) / 255;
+                g = (g * a + 127) / 255;
+                b = (b * a + 127) / 255;
+                row[xx] = (a << 24) | (r << 16) | (g << 8) | b;
+            }
         }
 
         POINT pt_src = { 0, 0 };
@@ -471,6 +492,7 @@ UiWindow* ui_window_create_popup(int x, int y, int w, int h, const char* title) 
     UiWindow* win = (UiWindow*)calloc(1, sizeof(UiWindow));  // zeroed window struct
     if (!win) return NULL;                                // oom: bail out
     win->w = w; win->h = h;                               // seed real size before window exists
+    win->buf_w = w; win->buf_h = h;                       // backing buffer starts at the window size
     win->decorated = false;                               // no system chrome
     win->is_popup  = true;                                // no resizing, no HTCAPTION
 
@@ -483,7 +505,7 @@ UiWindow* ui_window_create_popup(int x, int y, int w, int h, const char* title) 
     if (!hwnd) { free(win); return NULL; }                // creation failed
     win->hwnd = hwnd;
 
-    if (!alloc_buffer_resources(win, w, h)) {             // allocate the offscreen buffer
+    if (!alloc_buffer_resources(win, win->buf_w, win->buf_h)) {  // allocate the offscreen buffer
         DestroyWindow(hwnd);                              // undo the window creation
         free(win);
         return NULL;

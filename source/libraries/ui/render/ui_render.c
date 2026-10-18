@@ -754,7 +754,8 @@ void ui_tooltip_render(UiContext* ctx) {
 
 // clears the surface and paints the titlebar plus the whole widget tree
 void ui_render_frame(UiContext* ctx) {
-    ui_painter_init(ctx->pixels, ctx->win_w, ctx->win_h);       // bind the painter to the surface
+    ui_painter_init_stride(ctx->pixels, ctx->win_w, ctx->win_h,
+                           ui_window_stride(ctx->window));    // stride covers any slack in the buffer
     ui_painter_clear(UI_C_BG);                                  // streaming full-surface clear
     ui_render_titlebar(ctx);                                    // sets ctx->title_end_x
 
@@ -798,7 +799,8 @@ void ui_render_frame_damage(UiContext* ctx, const DamageRect* rects, int n) {
         return;
     }
     if (n <= 0) return;                                         // nothing damaged, no work
-    ui_painter_init(ctx->pixels, ctx->win_w, ctx->win_h);       // bind painter to the framebuffer
+    ui_painter_init_stride(ctx->pixels, ctx->win_w, ctx->win_h,
+                           ui_window_stride(ctx->window));      // stride covers any slack in the buffer
 
     bool tb_damaged = false;                                    // did any rect touch the titlebar?
 

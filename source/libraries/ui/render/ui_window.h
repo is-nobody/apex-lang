@@ -51,6 +51,9 @@ void ui_window_set_paint_callback(UiWindow* w, UiPaintCallback cb, void* user);
 // framebuffer the painter should write into
 uint32_t* ui_window_pixels(UiWindow* w);
 
+// row pitch of the framebuffer in pixels; can exceed the window width
+int ui_window_stride(UiWindow* w);
+
 // current client width in pixels
 int ui_window_width(UiWindow* w);
 

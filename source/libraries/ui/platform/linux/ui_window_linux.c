@@ -76,6 +76,7 @@ UiWindow* ui_window_create(int w, int h, const char* title, bool decorated) {
     win->depth  = DefaultDepth(win->dpy, win->screen);   // inherited visual depth
     win->decorated = decorated;                          // remember chrome preference
     win->w = w; win->h = h;
+    win->buf_w = w; win->buf_h = h;                      // backing buffer starts at the window size
     win->shm.shmid = -1;                                 // sentinel: no live shm segment yet
     win->pixels = NULL;                                  // allocated below only if shm is unavailable
 
@@ -161,7 +162,7 @@ UiWindow* ui_window_create(int w, int h, const char* title, bool decorated) {
     }
 
     if (XShmQueryExtension(win->dpy)) {                  // try shared memory first
-        win->shm.shmid = shmget(IPC_PRIVATE, (size_t)w*h*4, IPC_CREAT|0600);
+        win->shm.shmid = shmget(IPC_PRIVATE, (size_t)win->buf_w*win->buf_h*4, IPC_CREAT|0600);
         if (win->shm.shmid >= 0) {
             win->shm.shmaddr = (char*)shmat(win->shm.shmid, NULL, 0);
             if (win->shm.shmaddr != (char*)-1) {
@@ -169,7 +170,7 @@ UiWindow* ui_window_create(int w, int h, const char* title, bool decorated) {
                 win->img = XShmCreateImage(win->dpy,
                     DefaultVisual(win->dpy, win->screen),
                     (unsigned)DefaultDepth(win->dpy, win->screen),
-                    ZPixmap, NULL, &win->shm, (unsigned)w, (unsigned)h);
+                    ZPixmap, NULL, &win->shm, (unsigned)win->buf_w, (unsigned)win->buf_h);
                 if (win->img) {
                     win->img->data = win->shm.shmaddr;
                     int (*old)(Display*,XErrorEvent*) = XSetErrorHandler(xerr);  // suppress shm errors
@@ -182,11 +183,11 @@ UiWindow* ui_window_create(int w, int h, const char* title, bool decorated) {
         }
     }
     if (!win->shm_ok) {                                  // fall back to a plain ximage
-        win->pixels = alloc_framebuffer(w, h);           // 2 MB-aligned, THP-backed
+        win->pixels = alloc_framebuffer(win->buf_w, win->buf_h);  // 2 MB-aligned, THP-backed
         win->img = XCreateImage(win->dpy,
             DefaultVisual(win->dpy, win->screen),
             (unsigned)DefaultDepth(win->dpy, win->screen),
-            ZPixmap, 0, (char*)win->pixels, (unsigned)w, (unsigned)h, 32, 0);
+            ZPixmap, 0, (char*)win->pixels, (unsigned)win->buf_w, (unsigned)win->buf_h, 32, 0);
     }
     win->open = true;
     return win;
@@ -219,7 +220,7 @@ void ui_window_destroy(UiWindow* w) {
         XSyncDestroyCounter(w->dpy, w->sync_counter);    // release the resize sync counter
     if (w->win) XDestroyWindow(w->dpy, w->win);          // destroy the x window
     if (w->dpy) XCloseDisplay(w->dpy);                   // close the display connection
-    free_framebuffer(w->pixels, w->w, w->h);             // free the mmap'd cpu framebuffer
+    free_framebuffer(w->pixels, w->buf_w, w->buf_h);     // free the mmap'd cpu framebuffer
     free(w->clipboard_text);                             // free our clipboard copy
     free(w->saved);                                      // free the saved-event queue
     free(w);                                             // free the window struct
@@ -255,6 +256,11 @@ uint32_t* ui_window_pixels(UiWindow* w) {
     return w->pixels;                                    // otherwise the cpu-side buffer
 }
 
+// row pitch of the framebuffer in pixels; can exceed the window width
+int ui_window_stride(UiWindow* w) {
+    return w ? w->buf_w : 0;
+}
+
 // current window width in pixels
 int  ui_window_width(UiWindow* w)  { return w->w; }
 
@@ -264,13 +270,27 @@ int  ui_window_height(UiWindow* w) { return w->h; }
 // resizes the window's backing storage to new pixel dimensions
 void ui_window_resize(UiWindow* w, int nw, int nh) {
     if (nw <= 0 || nh <= 0) return;                      // ignore degenerate sizes
+    if (nw == w->w && nh == w->h) return;                // unchanged: nothing to do
+    w->w = nw; w->h = nh;                                // record the new visible size
+
+    // the backing buffer already covers the new size: keep it as-is. the
+    // painter and XShmPutImage both take buf_w as the row pitch, so a
+    // larger-than-window buffer is harmless and the resize becomes a
+    // metadata-only update with no realloc and no syscalls.
+    if (nw <= w->buf_w && nh <= w->buf_h) return;
+
+    // the new size outgrows the buffer: reallocate at 1.5x the request so
+    // the next few growth steps land in slack, not in another allocation
+    int cap_w = nw * 3 / 2; if (cap_w < nw + 64) cap_w = nw + 64;
+    int cap_h = nh * 3 / 2; if (cap_h < nh + 64) cap_h = nh + 64;
+
     destroy_image(w);                                    // drop the old ximage and shm
-    int old_w = w->w, old_h = w->h;                      // remember for the matching free
-    w->w = nw; w->h = nh;                                // record the new size
-    free_framebuffer(w->pixels, old_w, old_h);           // release the old mmap'd buffer
+    int old_bw = w->buf_w, old_bh = w->buf_h;            // remember for the matching free
+    w->buf_w = cap_w; w->buf_h = cap_h;                  // record the new buffer size
+    free_framebuffer(w->pixels, old_bw, old_bh);         // release the old mmap'd buffer
     w->pixels = NULL;                                    // reallocated below only if shm fails
     if (XShmQueryExtension(w->dpy)) {                    // retry shm at the new size
-        w->shm.shmid = shmget(IPC_PRIVATE, (size_t)nw*nh*4, IPC_CREAT|0600);
+        w->shm.shmid = shmget(IPC_PRIVATE, (size_t)cap_w*cap_h*4, IPC_CREAT|0600);
         if (w->shm.shmid >= 0) {
             w->shm.shmaddr = (char*)shmat(w->shm.shmid, NULL, 0);
             if (w->shm.shmaddr != (char*)-1) {
@@ -278,7 +298,7 @@ void ui_window_resize(UiWindow* w, int nw, int nh) {
                 w->img = XShmCreateImage(w->dpy,
                     DefaultVisual(w->dpy, w->screen),
                     (unsigned)DefaultDepth(w->dpy, w->screen),
-                    ZPixmap, NULL, &w->shm, (unsigned)nw, (unsigned)nh);
+                    ZPixmap, NULL, &w->shm, (unsigned)cap_w, (unsigned)cap_h);
                 if (w->img) {
                     w->img->data = w->shm.shmaddr;
                     int (*old)(Display*,XErrorEvent*) = XSetErrorHandler(xerr);  // suppress shm errors
@@ -291,11 +311,11 @@ void ui_window_resize(UiWindow* w, int nw, int nh) {
         }
     }
     if (!w->shm_ok) {                                    // fall back to a plain ximage
-        w->pixels = alloc_framebuffer(nw, nh);           // 2 MB-aligned, THP-backed
+        w->pixels = alloc_framebuffer(cap_w, cap_h);     // 2 MB-aligned, THP-backed
         w->img = XCreateImage(w->dpy,
             DefaultVisual(w->dpy, w->screen),
             (unsigned)DefaultDepth(w->dpy, w->screen),
-            ZPixmap, 0, (char*)w->pixels, (unsigned)nw, (unsigned)nh, 32, 0);
+            ZPixmap, 0, (char*)w->pixels, (unsigned)cap_w, (unsigned)cap_h, 32, 0);
     }
 }
 
@@ -586,6 +606,7 @@ UiWindow* ui_window_create_popup(int x, int y, int w, int h, const char* title) 
     win->screen = DefaultScreen(win->dpy);                    // default screen index
     win->decorated = false;                                   // no system chrome
     win->w = w; win->h = h;                                   // record the requested size
+    win->buf_w = w; win->buf_h = h;                           // backing buffer starts at the window size
     win->shm.shmid = -1;                                      // sentinel: no live shm segment
 
     XVisualInfo vinfo;
@@ -645,7 +666,7 @@ UiWindow* ui_window_create_popup(int x, int y, int w, int h, const char* title) 
     win->gc = XCreateGC(win->dpy, win->win, 0, NULL);         // graphics context for blits
 
     if (XShmQueryExtension(win->dpy)) {                       // try shared memory first
-        win->shm.shmid = shmget(IPC_PRIVATE, (size_t)w*h*4, IPC_CREAT|0600);  // create segment
+        win->shm.shmid = shmget(IPC_PRIVATE, (size_t)win->buf_w*win->buf_h*4, IPC_CREAT|0600);
         if (win->shm.shmid >= 0) {                            // segment allocated
             win->shm.shmaddr = (char*)shmat(win->shm.shmid, NULL, 0);  // map into our address space
             if (win->shm.shmaddr != (char*)-1) {              // mapping succeeded
@@ -653,7 +674,7 @@ UiWindow* ui_window_create_popup(int x, int y, int w, int h, const char* title) 
                 win->img = XShmCreateImage(win->dpy,
                     visual,
                     (unsigned)depth,
-                    ZPixmap, NULL, &win->shm, (unsigned)w, (unsigned)h);
+                    ZPixmap, NULL, &win->shm, (unsigned)win->buf_w, (unsigned)win->buf_h);
                 if (win->img) {                               // image created
                     win->img->data = win->shm.shmaddr;        // point it at the mapping
                     int (*old)(Display*,XErrorEvent*) = XSetErrorHandler(xerr);  // suppress errors
@@ -666,11 +687,11 @@ UiWindow* ui_window_create_popup(int x, int y, int w, int h, const char* title) 
         }
     }
     if (!win->shm_ok) {                                       // fall back to a plain ximage
-        win->pixels = alloc_framebuffer(w, h);                // 2 MB-aligned, THP-backed
+        win->pixels = alloc_framebuffer(win->buf_w, win->buf_h);  // 2 MB-aligned, THP-backed
         win->img = XCreateImage(win->dpy,
             visual,
             (unsigned)depth,
-            ZPixmap, 0, (char*)win->pixels, (unsigned)w, (unsigned)h, 32, 0);
+            ZPixmap, 0, (char*)win->pixels, (unsigned)win->buf_w, (unsigned)win->buf_h, 32, 0);
     }
     win->open = true;                                         // window is live
     return win;                                               // hand it to the caller

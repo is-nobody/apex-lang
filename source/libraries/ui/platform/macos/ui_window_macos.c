@@ -220,8 +220,8 @@ char* macos_utf8_from_nsstring(id nsstr) {
 static int alloc_pixels(UiWindow* w, int pw, int ph) {
     w->pixels = (uint32_t*)calloc((size_t)pw * (size_t)ph, 4);  // bgra buffer
     if (!w->pixels) return 0;                                // oom
-    w->w = pw;
-    w->h = ph;
+    w->buf_w = pw;
+    w->buf_h = ph;
     return 1;
 }
 
@@ -244,6 +244,8 @@ UiWindow* ui_window_create(int w, int h, const char* title, bool decorated) {
     win->backing_scale = 1.0;
     win->point_w       = w;
     win->point_h       = h;
+    win->w             = w;
+    win->h             = h;
 
     if (!alloc_pixels(win, w, h)) { free(win); return NULL; }  // allocate the bgra buffer
 
@@ -343,6 +345,11 @@ void ui_window_set_paint_callback(UiWindow* w, UiPaintCallback cb, void* user) {
 // returns a pointer to the current framebuffer
 uint32_t* ui_window_pixels(UiWindow* w) { return w ? w->pixels : NULL; }
 
+// row pitch of the framebuffer in pixels; can exceed the window width
+int ui_window_stride(UiWindow* w) {
+    return w ? w->buf_w : 0;
+}
+
 // current window width in pixels
 int ui_window_width (UiWindow* w)       { return w ? w->w : 0; }
 
@@ -354,10 +361,19 @@ void ui_window_resize(UiWindow* w, int nw, int nh) {
     if (!w || nw <= 0 || nh <= 0) return;                    // ignore degenerate sizes
     if (nw == w->w && nh == w->h) return;                    // unchanged
 
-    free_pixels(w);                                          // drop the old buffer
-    if (!alloc_pixels(w, nw, nh)) return;                    // allocate the new one
+    w->w = nw; w->h = nh;                                    // record the new visible size
     w->point_w = nw;
     w->point_h = nh;
+
+    // the buffer already covers the new size: keep it. the presenter emits
+    // a cgimage whose bytes-per-row is buf_w * 4, so the painter's row pitch
+    // matches and the resize becomes a metadata-only update.
+    if (nw > w->buf_w || nh > w->buf_h || !w->pixels) {
+        int cap_w = nw * 3 / 2; if (cap_w < nw + 64) cap_w = nw + 64;
+        int cap_h = nh * 3 / 2; if (cap_h < nh + 64) cap_h = nh + 64;
+        free_pixels(w);                                      // drop the old buffer
+        if (!alloc_pixels(w, cap_w, cap_h)) return;          // allocate the new one
+    }
 
     if (w->ns_window) {
         ApexNSRect sz = { 0, 0, (double)nw, (double)nh };    // new content size
@@ -378,7 +394,7 @@ void ui_window_present_rects(UiWindow* w, const int* quads, int n) {
     }
 
     CGDataProviderRef provider = CGDataProviderCreateWithData(
-        NULL, w->pixels, (size_t)w->w * (size_t)w->h * 4, NULL);  // wrap the cpu buffer
+        NULL, w->pixels, (size_t)w->buf_w * (size_t)w->buf_h * 4, NULL);  // wrap the full buffer
     if (!provider) return;                                   // provider alloc failed
 
     CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();      // device rgb colorspace
@@ -390,7 +406,7 @@ void ui_window_present_rects(UiWindow* w, const int* quads, int n) {
     CGBitmapInfo info = kCGImageAlphaFirst | kCGBitmapByteOrder32Little;
 
     CGImageRef img = CGImageCreate(
-        w->w, w->h, 8, 32, (size_t)w->w * 4,                // dims, bpc, bpp, bytes-per-row
+        w->w, w->h, 8, 32, (size_t)w->buf_w * 4,            // bytes-per-row follows the buffer pitch
         cs, info, provider, NULL, false, kCGRenderingIntentDefault);
     CGColorSpaceRelease(cs);                                 // release the colorspace
     CGDataProviderRelease(provider);                         // release the provider
@@ -478,6 +494,8 @@ UiWindow* ui_window_create_popup(int x, int y, int w, int h, const char* title) 
     win->backing_scale = 1.0;
     win->point_w       = w;
     win->point_h       = h;
+    win->w             = w;
+    win->h             = h;
 
     if (!alloc_pixels(win, w, h)) { free(win); return NULL; }  // allocate the bgra buffer
 
