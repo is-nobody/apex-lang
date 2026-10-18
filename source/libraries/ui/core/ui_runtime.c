@@ -379,8 +379,19 @@ Value ui_impl_run(VM* vm, int argc, Value* argv) {
 
         if (ctx->quit_requested) break;               // bail before any render pass
 
-        if (rebuilt || ctx->redraw_needed)            // one rebuild per batch
-            rebuild_and_draw(ctx);
+        if (rebuilt || ctx->redraw_needed) {          // one rebuild per batch
+            // during a resize burst, an rbd that is not backed by a queue event
+            bool recently_resized = (apex_now_seconds() - ctx->last_resize_at) < 0.050;
+            bool skip = (!rebuilt &&
+                         recently_resized &&
+                         ctx->last_rbd_w == ctx->win_w &&
+                         ctx->last_rbd_h == ctx->win_h);
+            if (!skip) {
+                ctx->last_rbd_w = ctx->win_w;
+                ctx->last_rbd_h = ctx->win_h;
+                rebuild_and_draw(ctx);
+            }
+        }
     }
 
     value_decref(callback);                           // release the callback

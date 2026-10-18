@@ -526,6 +526,9 @@ typedef struct UiContext {
 
     bool       redraw_needed;   // set when the tree must be re-laid out and painted
     bool       quit_requested;  // set when the ui should shut down
+    double     last_resize_at;  // wall clock of the most recent UW_EV_RESIZE
+    int        last_rbd_w;      // ctx->win_w at the previous rebuild_and_draw
+    int        last_rbd_h;      // ctx->win_h at the previous rebuild_and_draw
 
     // debounced resize notification
     bool       pending_resize;

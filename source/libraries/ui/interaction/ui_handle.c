@@ -82,6 +82,7 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
             break;
         }
         case UW_EV_RESIZE: {                                      // window resized
+            ctx->last_resize_at = apex_now_seconds();             // mark the burst
 #ifdef _WIN32
             // win32: the paint callback fires synchronously
             bool already_done = (ctx->win_w == e->w &&
