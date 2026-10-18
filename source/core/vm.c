@@ -3668,7 +3668,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int needed = chunk->functions[func_idx].max_registers;  // get max_registers from function metadata
         if (arg_count > needed) needed = arg_count;
         
-        if (frame_cap[vm->current_frame] <= needed) {
+        int arrays_size = vm->current_task ? vm->current_task->frame_arrays_size : VM_MAX_FRAMES;
+        if (vm->current_frame >= arrays_size || frame_cap[vm->current_frame] <= needed) {
             if (!ensure_register_capacity(vm, vm->current_frame, needed)) {
                 vm->had_error = true;             // failed to allocate frame
                 vm->running = false;              // stop execution
@@ -3752,7 +3753,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         
         int needed = chunk->functions[func_idx].max_registers;  // get max_registers from function metadata
         
-        if (frame_cap[vm->current_frame] <= needed) {
+        int arrays_size = vm->current_task ? vm->current_task->frame_arrays_size : VM_MAX_FRAMES;
+        if (vm->current_frame >= arrays_size || frame_cap[vm->current_frame] <= needed) {
             if (!ensure_register_capacity(vm, vm->current_frame, needed)) {
                 vm->had_error = true;                // failed to allocate frame
                 vm->running = false;                 // stop execution
@@ -3803,7 +3805,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         
         int needed = chunk->functions[func_idx].max_registers;  // get max_registers from function metadata
         
-        if (frame_cap[vm->current_frame] <= needed) {
+        int arrays_size = vm->current_task ? vm->current_task->frame_arrays_size : VM_MAX_FRAMES;
+        if (vm->current_frame >= arrays_size || frame_cap[vm->current_frame] <= needed) {
             if (!ensure_register_capacity(vm, vm->current_frame, needed)) {
                 vm->had_error = true;  // failed to allocate frame
                 vm->running = false;   // stop execution
@@ -3861,7 +3864,8 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         
         int needed = chunk->functions[func_idx].max_registers;  // get max_registers from function metadata
         
-        if (frame_cap[vm->current_frame] <= needed) {
+        int arrays_size = vm->current_task ? vm->current_task->frame_arrays_size : VM_MAX_FRAMES;
+        if (vm->current_frame >= arrays_size || frame_cap[vm->current_frame] <= needed) {
             if (!ensure_register_capacity(vm, vm->current_frame, needed)) {
                 vm->had_error = true;                // failed to allocate frame
                 vm->running = false;                 // stop execution

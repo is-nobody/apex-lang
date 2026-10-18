@@ -10,6 +10,7 @@
 #include <string.h>
 #include <time.h>
 #include <errno.h>
+#include <limits.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -330,42 +331,34 @@ static Value os_read_sync(void* p) {
     FILE* f = fopen(a->path, "rb");                     // open file binary
     if (!f) return MAKE_NONE();                         // file not found
 
-    // fast path: only trust ftell when it reports a positive size AND the
-    // stream can be rewound to the start. anything else falls through.
-    long size = -1;
-    if (fseek(f, 0, SEEK_END) == 0) {
-        size = ftell(f);
-        if (size <= 0) size = -1;                       // zero and negative both mean "unknown"
-        if (fseek(f, 0, SEEK_SET) != 0) size = -1;      // rewind failed: fall back
-    }
-
-    char* buffer = NULL;                                // result buffer, owned below
+    size_t cap = 4096;                                  // initial capacity
     size_t len = 0;                                     // bytes actually read
+    char* buffer = (char*)malloc(cap + 1);
+    if (!buffer) { fclose(f); return MAKE_NONE(); }
 
-    if (size > 0) {
-        buffer = (char*)malloc((size_t)size + 1);       // +1 for null terminator
-        if (buffer) {
-            len = fread(buffer, 1, (size_t)size, f);    // reads 0..size bytes
-        }
-    }
-
-    if (!buffer) {
-        // fallback: rewind best-effort, then read in doubling chunks. this is
-        // the only path taken for pipes, /proc, empty files, and on OOM above.
-        fseek(f, 0, SEEK_SET);                          // idempotent if already at start
-        size_t cap = 4096;                              // initial capacity
-        buffer = (char*)malloc(cap + 1);
-        if (!buffer) { fclose(f); return MAKE_NONE(); }
-        size_t n;
-        while ((n = fread(buffer + len, 1, cap - len, f)) > 0) {
-            len += n;
-            if (len == cap) {                           // buffer full: grow
-                size_t new_cap = cap * 2;
-                char* nb = (char*)realloc(buffer, new_cap + 1);
-                if (!nb) { free(buffer); fclose(f); return MAKE_NONE(); }
-                buffer = nb;
-                cap = new_cap;
+    size_t n;
+    while ((n = fread(buffer + len, 1, cap - len, f)) > 0) {
+        // text check: abort if the chunk contains a null byte (binary marker)
+        for (size_t i = 0; i < n; i++) {
+            if (buffer[len + i] == '\0') {
+                free(buffer);
+                fclose(f);
+                return MAKE_NONE();                     // binary files are not readable text
             }
+        }
+
+        len += n;
+        if (len == cap) {                               // buffer full: grow
+            if (cap > (size_t)INT_MAX / 2) {            // prevent int overflow in string_create
+                free(buffer);
+                fclose(f);
+                return MAKE_NONE();                     // file too large for a string
+            }
+            size_t new_cap = cap * 2;
+            char* nb = (char*)realloc(buffer, new_cap + 1);
+            if (!nb) { free(buffer); fclose(f); return MAKE_NONE(); }
+            buffer = nb;
+            cap = new_cap;
         }
     }
 
