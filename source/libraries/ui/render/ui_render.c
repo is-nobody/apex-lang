@@ -280,12 +280,13 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 int inner_h = hh - pad_y * 2;
                 if (inner_h < lh) inner_h = lh;
 
-                // count lines up front
-                int line_count = 1;
-                const char* sb_buf = w->input_value.ptr;
-                int sb_len = w->input_value.len;
-                for (int i = 0; i < sb_len; i++)
-                    if (sb_buf[i] == '\n') line_count++;
+                WidgetState* s = ui_state_get(ctx, w->id);
+                const char* buf = w->input_value.ptr;
+                int len = w->input_value.len;
+                ta_line_cache_ensure(s, buf, len);
+                int line_count = s->line_count;
+                if (line_count < 1) line_count = 1;
+
                 int content_h = line_count * lh;
                 bool has_sb   = content_h > inner_h;
                 int  sb_w     = has_sb ? UI_SCROLL_W : 0;
@@ -301,9 +302,6 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
 
                 ui_painter_push_clip(x + 1, y + 1, ww - 2 - sb_w, hh - 2);
 
-                WidgetState* s = ui_state_get(ctx, w->id);
-                const char* buf = w->input_value.ptr;
-                int len = w->input_value.len;
                 int cur = s->cursor < 0 ? len : s->cursor;
                 if (cur > len) cur = len;
                 int anc = s->sel_anchor < 0 ? len : s->sel_anchor;
@@ -314,46 +312,58 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 int sel_end   = anc < cur ? cur : anc;
                 bool has_sel  = (sel_start < sel_end);
 
-                int line_start = 0;
-                int line_idx   = 0;
-                while (line_start <= len) {
-                    int line_end = line_start;
-                    while (line_end < len && buf[line_end] != '\n') line_end++;
+                int scroll_i = (int)scroll;
+                if (scroll_i < 0) scroll_i = 0;
 
-                    int ly = y + pad_y + line_idx * lh - (int)scroll;
-                    if (ly + lh > y && ly < y + hh) {
-                        if (has_sel) {
-                            int s0 = sel_start > line_start ? sel_start : line_start;
-                            int s1 = sel_end   < line_end   ? sel_end   : line_end;
-                            if (sel_end > line_end && sel_start <= line_end) s1 = line_end;
-                            if (s0 < s1) {
-                                float x0 = x + pad_x + ui_text_measure_cached(ctx, buf + line_start, s0 - line_start, fs);
-                                float x1 = x + pad_x + ui_text_measure_cached(ctx, buf + line_start, s1 - line_start, fs);
-                                ui_painter_fill_rect((int)x0, ly, (int)(x1 - x0), lh, UI_C_SEL_BG);
-                            }
-                        }
-                        if (line_end > line_start) {
-                            float base = ly + (lh + fs * 0.7f) * 0.5f;
-                            ui_draw_text_at(ctx, (float)(x + pad_x), base,
-                                            buf + line_start, line_end - line_start,
-                                            fs, UI_C_FG);
+                // locate first visible line via direct calculation (pixels / line-height)
+                int first_visible = scroll_i / lh;
+                if (first_visible < 0) first_visible = 0;
+                if (first_visible > s->line_count) first_visible = s->line_count;
+
+                int last_visible = first_visible + (inner_h / lh) + 2;
+                if (last_visible > s->line_count) last_visible = s->line_count;
+
+                // selection line range (only computed when a selection exists)
+                int sel_first_line = 0, sel_last_line = -1;
+                if (has_sel) {
+                    sel_first_line = ta_line_cache_find(s, sel_start);
+                    sel_last_line  = ta_line_cache_find(s, sel_end);
+                }
+
+                for (int li = first_visible; li < last_visible; li++) {
+                    int line_start = s->line_starts[li];
+                    int next_start = (li + 1 < s->line_count) ? s->line_starts[li + 1] : len;
+                    int line_end   = next_start;
+                    if (next_start > line_start && buf[next_start - 1] == '\n')
+                        line_end = next_start - 1;
+
+                    int ly = y + pad_y + li * lh - scroll_i;
+
+                    if (has_sel && li >= sel_first_line && li <= sel_last_line) {
+                        int s0 = sel_start > line_start ? sel_start : line_start;
+                        int s1 = sel_end   < line_end   ? sel_end   : line_end;
+                        if (s0 < s1) {
+                            float x0 = x + pad_x + ui_text_measure_cached(ctx, buf + line_start, s0 - line_start, fs);
+                            float x1 = x + pad_x + ui_text_measure_cached(ctx, buf + line_start, s1 - line_start, fs);
+                            ui_painter_fill_rect((int)x0, ly, (int)(x1 - x0), lh, UI_C_SEL_BG);
                         }
                     }
-                    line_idx++;
-                    if (line_end >= len) break;
-                    line_start = line_end + 1;
+
+                    if (line_end > line_start) {
+                        float base = ly + (lh + fs * 0.7f) * 0.5f;
+                        ui_draw_text_at(ctx, (float)(x + pad_x), base,
+                                        buf + line_start, line_end - line_start,
+                                        fs, UI_C_FG);
+                    }
                 }
 
                 if (w->focused && s->blink_phase < 0.5) {
-                    int cursor_line = 0;
-                    int cursor_line_start = 0;
-                    for (int i = 0; i < cur; i++) {
-                        if (buf[i] == '\n') { cursor_line++; cursor_line_start = i + 1; }
-                    }
+                    int cursor_line = ta_line_cache_find(s, cur);
+                    int cursor_line_start = s->line_starts[cursor_line];
                     float cx = x + pad_x +
                         ui_text_measure_cached(ctx, buf + cursor_line_start,
                                                cur - cursor_line_start, fs);
-                    int cy = y + pad_y + cursor_line * lh - (int)scroll;
+                    int cy = y + pad_y + cursor_line * lh - scroll_i;
                     if (cy + lh > y + 1 && cy < y + hh - 1)
                         ui_painter_fill_rect((int)cx, cy + 4, 1, lh - 6, UI_C_FG);
                 }

@@ -213,9 +213,10 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                         }
                     } else if (sc->kind == WK_TEXT_AREA) {
                         int hh = (int)floorf(sc->h + 0.5f);
-                        int line_count = 1;
-                        for (int j = 0; j < sc->input_value.len; j++)
-                            if (sc->input_value.ptr[j] == '\n') line_count++;
+                        WidgetState* ws = ui_state_get(ctx, sc->id);
+                        ta_line_cache_ensure(ws, sc->input_value.ptr, sc->input_value.len);
+                        int line_count = ws->line_count;
+                        if (line_count < 1) line_count = 1;
                         int content_h = line_count * UI_LINE_H;
                         int inner_h = hh - 12;
                         if (inner_h < UI_LINE_H) inner_h = UI_LINE_H;
@@ -451,9 +452,10 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                             break;
                         }
                     } else if (w->kind == WK_TEXT_AREA) {
-                        int line_count = 1;
-                        for (int j = 0; j < w->input_value.len; j++)
-                            if (w->input_value.ptr[j] == '\n') line_count++;
+                        WidgetState* ws = ui_state_get(ctx, w->id);
+                        ta_line_cache_ensure(ws, w->input_value.ptr, w->input_value.len);
+                        int line_count = ws->line_count;
+                        if (line_count < 1) line_count = 1;
                         int content_h = line_count * UI_LINE_H;
                         int inner_h = hh - 12;
                         if (inner_h < UI_LINE_H) inner_h = UI_LINE_H;
@@ -786,14 +788,14 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
             if (ctx->root) {
                 Widget* h = hit_test(ctx, e->x, e->y);
                 if (h && h->kind == WK_TEXT_AREA) {
-                    int line_count = 1;
-                    for (int i = 0; i < h->input_value.len; i++)
-                        if (h->input_value.ptr[i] == '\n') line_count++;
+                    WidgetState* s = ui_state_get(ctx, h->id);
+                    ta_line_cache_ensure(s, h->input_value.ptr, h->input_value.len);
+                    int line_count = s->line_count;
+                    if (line_count < 1) line_count = 1;
                     int content_h = line_count * UI_LINE_H;
                     int inner_h   = (int)h->h - 12;
                     int max_scroll = content_h - inner_h;
                     if (max_scroll > 0) {                     // only eat the wheel if it scrolls
-                        WidgetState* s = ui_state_get(ctx, h->id);
                         s->scroll_target += e->scroll_dy * UI_LINE_H;
                         if (s->scroll_target < 0)          s->scroll_target = 0;
                         if (s->scroll_target > max_scroll) s->scroll_target = max_scroll;

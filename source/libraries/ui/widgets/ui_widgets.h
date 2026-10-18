@@ -115,6 +115,12 @@ void tabs_handle_click(UiContext* ctx, Widget* w);
 // steps a number_input by the given amount
 void ui_number_step(UiContext* ctx, Widget* w, double step);
 
+// ensures the text_area line cache is valid; rebuilds if dirty. no-op otherwise.
+void ta_line_cache_ensure(WidgetState* s, const char* buf, int len);
+
+// returns the line index containing byte_pos via binary search (cache must be valid)
+int  ta_line_cache_find(const WidgetState* s, int byte_pos);
+
 // maps (local_x, local_y) inside a WK_TEXT_AREA to a byte offset in its text
 int  text_area_hit_offset(UiContext* ctx, Widget* w, float local_x, float local_y);
 

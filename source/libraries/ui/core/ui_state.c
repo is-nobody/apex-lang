@@ -95,6 +95,7 @@ void state_gc_sweep(UiContext* ctx) {
             free(s->input_buf);                           // release the owned text buffer
             free(s->tab_anim_x);                          // release the tab animation
             free(s->tab_anim_w);
+            free(s->line_starts);                         // release the line-start cache
         }
     }
     ctx->state.count = out;                               // truncate the tail

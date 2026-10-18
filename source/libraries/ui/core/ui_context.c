@@ -56,6 +56,7 @@ static void free_state_entry(WidgetState* s) {
     free(s->input_buf);
     free(s->tab_anim_x);
     free(s->tab_anim_w);
+    free(s->line_starts);
 }
 
 // tears down the ui context and clears the vm's back-pointer

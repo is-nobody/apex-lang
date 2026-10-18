@@ -212,6 +212,12 @@ typedef struct {
     float* tab_anim_w;
     int    tab_anim_n;
     bool   tab_anim_init;       // true while the animation is running
+
+    // wk_text_area line-start cache
+    int*      line_starts;      // byte offset of the start of each line
+    int       line_count;       // number of cached lines
+    int       line_cap;         // allocated capacity of line_starts
+    bool      line_cache_valid; // false -> rebuild from buffer on next access
 } WidgetState;                  // per-widget persistent state across frames
 
 typedef struct {
