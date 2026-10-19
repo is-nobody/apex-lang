@@ -310,6 +310,7 @@ static const BuiltinSig BUILTINS[] = {
     {"math.atan2",           2, 2, TYPE_NUMBER}, {"math.radians",     1, 1, TYPE_NUMBER},
     {"math.degrees",         1, 1, TYPE_NUMBER}, {"math.gcd",         2, 2, TYPE_NUMBER},
     {"math.hypotenuse",      2, 2, TYPE_NUMBER}, {"math.factorial",   1, 1, TYPE_NUMBER},
+    {"math.max_number",         0, 0, TYPE_ANY},
 
     {"string.length",  1, 1, TYPE_STRING}, {"string.lower",  1, 1, TYPE_STRING},
     {"string.upper",   1, 1, TYPE_STRING}, {"string.slice",  3, 3, TYPE_STRING},

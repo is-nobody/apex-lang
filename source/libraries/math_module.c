@@ -7,6 +7,7 @@
 #include "math_module.h"
 #include "vm.h"
 #include <math.h>
+#include <float.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -185,6 +186,11 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     
     if (strcmp(name, "math.inf") == 0) {                              // infinity constant
         *result = MAKE_NUMBER(INFINITY);                              // return infinity
+        return true;                                                  // builtin handled
+    }
+
+    if (strcmp(name, "math.max_number") == 0) {                       // largest finite double
+        *result = MAKE_NUMBER(DBL_MAX);                               // 1.7976931348623157e+308
         return true;                                                  // builtin handled
     }
     
