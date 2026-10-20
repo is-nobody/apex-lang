@@ -24,11 +24,6 @@
 
 ---
 
-- **Q**: How is the VM speed achieved?  
-- **A**: Many things, but the most important ones: computed gotos, nan-boxing, register locals, string interning, dual array/hash tables, compile-time specialized opcodes. The compiler also does a lot of the work before the VM ever runs: constant folding, dead-code elimination, peephole fusion, loop-invariant code motion, loop unswitching, loop unrolling, value numbering, function inlining, tail-call optimization, induction-variable strength reduction, and symbolic loop folding. That might have sounded unclear, but it’s a normal reaction!
-
----
-
 - **Q**: Why `output` in `os` library, not built-in?
 - **A**: This provides modularity and clarity: why is `output` built-in, but `args` is in `os`? So why there are three built-in functions: `type`, `number`, `string`? Because they provide fundamental handling of the language's types.
 
@@ -56,11 +51,6 @@
 
 - **Q**: Why no `truthy/falsy` values in comparisons?  
 - **A**: Good luck reading someone else's code at 3 AM! Implicit truthiness always raises questions — is `""` true? Is `[]` false?
-
----
-
-- **Q**: Will there be a code formatter?  
-- **A**: No, because the parser itself enforces correct code style. You cannot write valid and unreadable code in Apex.
 
 ---
 
