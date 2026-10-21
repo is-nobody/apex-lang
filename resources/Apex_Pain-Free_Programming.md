@@ -4689,7 +4689,7 @@ Why? Because built-in modules have canonical names that every Apex programmer kn
 User modules, on the other hand, are yours. You can name them whatever makes sense in your project, and you can alias them to whatever is convenient. So aliasing exists only for user modules.
 
 ### Built-in Modules Are Different
-We've been talking about importing files — files that live on disk, written by you or your teammates. But Apex also ships with a set of **built-in modules**: `os`, `sys`, `math`, `string`, `table`, `random`, `json`, `xml`, `csv`, `base`, `regex`, `crypto`, `zip`, `datetime`.
+We've been talking about importing files — files that live on disk, written by you or your teammates. But Apex also ships with a set of **built-in modules**: `os`, `sys`, `math`, `string`, `table`, `random`, `json`, `xml`, `csv`, `base`, `regex`, `crypto`, `zip`, `datetime`, `ui`.
 
 These are not files. They're part of the interpreter itself, written in C. They're always available. But — and this is the catch — they still require an `import` to use.
 
@@ -4803,7 +4803,7 @@ Even though `os`, `math`, and the rest are built into the interpreter, you still
 ## Conclusion
 And that's it — you now know the entire Apex language. Every keyword, every data type, every operator, every control structure, every way to define and use functions, every rule about async, every detail of imports. There is no hidden syntax waiting for you later. What you have learned is the complete language. Everything else from here on out is not new syntax — it's the standard library, which is just a very large collection of functions you already know how to call.
 
-The best next step is to open the **[Library Reference](resources/Library_Reference.md)**. It lists every built-in module — `os`, `sys`, `math`, `string`, `table`, `random`, `json`, `xml`, `csv`, `base`, `regex`, `crypto`, `zip`, `datetime` — and every function inside them, with short examples for each. You will recognize the pattern immediately: `import` the module at the top of your file, then call its functions with the module name as a prefix. Nothing new to learn — just a lot of useful tools to discover.
+The best next step is to open the **[Library Reference](resources/Library_Reference.md)**. It lists every built-in module — `os`, `sys`, `math`, `string`, `table`, `random`, `json`, `xml`, `csv`, `base`, `regex`, `crypto`, `zip`, `datetime`, `ui` — and every function inside them, with short examples for each. You will recognize the pattern immediately: `import` the module at the top of your file, then call its functions with the module name as a prefix. Nothing new to learn — just a lot of useful tools to discover.
 
 Don't try to memorize the Library Reference. Nobody does. Skim it once so you know what's available, then come back to it whenever you need something specific. "How do I read a file?" — check `os.read`. "How do I round a number?" — check `math.round`. "How do I sort a table?" — look in `table`. That's how everyone uses it, and that's how you should too.
 

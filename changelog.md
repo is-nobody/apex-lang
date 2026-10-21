@@ -46,7 +46,7 @@
 - **Operator precedence:** `()` > `*`/`/`/`%` > `+`/`-` > comparisons > `==`/`!=` > `and` > `or`
 
 ## Built-in Modules
-`os`, `sys`, `math`, `string`, `table`, `random`, `json`, `xml`, `csv`, `base`, `regex`, `crypto`, `zip`, `datetime`.
+`os`, `sys`, `math`, `string`, `table`, `random`, `json`, `xml`, `csv`, `base`, `regex`, `crypto`, `zip`, `datetime`, `ui`.
 
 - **`os`** — filesystem, processes, stdin/stdout, `os.args()`
 - **`sys`** — platform info, environment, disk, terminal detection
@@ -62,6 +62,7 @@
 - **`crypto`** — MD5, SHA-1, SHA-256, SHA-384, SHA-512, HMAC, PBKDF2, AES-128/192/256-CBC, secure random
 - **`zip`** — pack/unpack with CRC32 and DOS timestamps
 - **`datetime`** — now, local, timestamp, parse, format, add, diff
+- **`ui`** — windows, widgets, layout, dialogs, notifications, menu bar, context menu, file/folder pickers, clipboard, fullscreen
 
 ## Built-in Functions
 - `type(value)` — returns the type name as a string

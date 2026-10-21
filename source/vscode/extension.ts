@@ -20,7 +20,8 @@ const libDocs: Record<string, string> = {
     'regex': 'Regular expressions library.',
     'crypto': 'Cryptography library.',
     'zip': 'ZIP archive compression/decompression library.',
-    'datetime': 'Date and time library.'
+    'datetime': 'Date and time library.',
+    'ui': 'UI library.'
 };
 
 // extension activation entry point
@@ -211,6 +212,28 @@ export function activate(context: vscode.ExtensionContext): void {
                 'datetime.to_timestamp',          'datetime.parse',
                 'datetime.format',                  'datetime.add',
                 'datetime.diff',
+
+                'ui.init',          'ui.shutdown',
+                'ui.set_title',     'ui.window_size',
+                'ui.fullscreen',    'ui.tree',
+                'ui.render',        'ui.next_event',
+                'ui.run',           'ui.tabs',
+                'ui.open_file',     'ui.open_folder',
+                'ui.save_as',       'ui.key',
+                'ui.dialog',        'ui.notification',
+                'ui.menubar',       'ui.context_menu',
+                'ui.statusbar',     'ui.list',
+                'ui.vbox',          'ui.hbox',
+                'ui.panel',         'ui.scroll',
+                'ui.hscroll',       'ui.spacer',
+                'ui.text',          'ui.heading',
+                'ui.badge',         'ui.separator',
+                'ui.progress',      'ui.table',
+                'ui.button',        'ui.checkbox',
+                'ui.switch',        'ui.radio',
+                'ui.slider',        'ui.input',
+                'ui.number_input',  'ui.text_area',
+                'ui.combobox',
 
                 'number', 'string', 'type'
             ];
