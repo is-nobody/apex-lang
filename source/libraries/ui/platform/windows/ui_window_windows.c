@@ -465,9 +465,24 @@ void ui_window_begin_resize(UiWindow* w, const char* edge) {
     SendMessageW(w->hwnd, WM_NCLBUTTONDOWN, ht, 0);
 }
 
-// cursor feedback is provided by wm_nchittest; nothing to do here
+// swaps the cursor to the given edge's resize cursor
 void ui_window_set_resize_cursor(UiWindow* w, const char* edge) {
-    (void)w; (void)edge;
+    if (!w) return;
+    w->cursor_override = edge;
+    if (w->hwnd) {
+        LPWSTR cursor_name = IDC_ARROW;
+        if (edge) {
+            if (!strcmp(edge, "left") || !strcmp(edge, "right") || !strcmp(edge, "split-h"))
+                cursor_name = IDC_SIZEWE;
+            else if (!strcmp(edge, "top") || !strcmp(edge, "bottom") || !strcmp(edge, "split-v"))
+                cursor_name = IDC_SIZENS;
+            else if (!strcmp(edge, "top-left") || !strcmp(edge, "bottom-right"))
+                cursor_name = IDC_SIZENWSE;
+            else if (!strcmp(edge, "top-right") || !strcmp(edge, "bottom-left"))
+                cursor_name = IDC_SIZENESW;
+        }
+        SetCursor(LoadCursorW(NULL, cursor_name));
+    }
 }
 
 // creates a frameless, always-on-top popup window used for notifications

@@ -289,8 +289,22 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
 
         case WM_SETCURSOR:
-            if (LOWORD(lp) == HTCLIENT) {                // reset to the arrow inside the client area
-                SetCursor(LoadCursorW(NULL, IDC_ARROW));
+            if (LOWORD(lp) == HTCLIENT) {
+                if (w->cursor_override) {
+                    LPWSTR cursor_name = IDC_ARROW;
+                    const char* edge = w->cursor_override;
+                    if (!strcmp(edge, "left") || !strcmp(edge, "right") || !strcmp(edge, "split-h"))
+                        cursor_name = IDC_SIZEWE;
+                    else if (!strcmp(edge, "top") || !strcmp(edge, "bottom") || !strcmp(edge, "split-v"))
+                        cursor_name = IDC_SIZENS;
+                    else if (!strcmp(edge, "top-left") || !strcmp(edge, "bottom-right"))
+                        cursor_name = IDC_SIZENWSE;
+                    else if (!strcmp(edge, "top-right") || !strcmp(edge, "bottom-left"))
+                        cursor_name = IDC_SIZENESW;
+                    SetCursor(LoadCursorW(NULL, cursor_name));
+                } else {
+                    SetCursor(LoadCursorW(NULL, IDC_ARROW));
+                }
                 return TRUE;
             }
             return DefWindowProcW(hwnd, msg, wp, lp);

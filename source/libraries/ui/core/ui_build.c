@@ -515,6 +515,10 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
         if (table_get_str_view(t, ctx->key_cache[UK_TITLE], &ttv))
             w->text = arena_dup(ctx, ttv.ptr, ttv.len);
 
+        w->min_w = (float)table_get_num_key(t, ctx->key_cache[UK_MIN_WIDTH], 0);
+        w->max_w = (float)table_get_num_key(t, ctx->key_cache[UK_MAX_WIDTH], 0);
+        w->resizable = table_get_bool_key(t, ctx->key_cache[UK_RESIZABLE], (w->min_w > 0 || w->max_w > 0));
+
         WidgetState* st = ui_state_get(ctx, w->id);
         Value cv;
         if (table_get(t, ctx->key_cache[UK_COLLAPSED], &cv)) {

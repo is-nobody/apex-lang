@@ -211,8 +211,8 @@ void destroy_image(UiWindow* w) {
 void ui_window_destroy(UiWindow* w) {
     if (!w) return;                                      // null guard
     destroy_image(w);                                    // release the ximage and shm backing
-    for (int i = 0; i < 9; i++)                          // release cached resize cursors
-        if (w->resize_cursor[i]) XFreeCursor(w->dpy, w->resize_cursor[i]);
+        for (int i = 0; i < 12; i++)                         // release cached resize cursors
+            if (w->resize_cursor[i]) XFreeCursor(w->dpy, w->resize_cursor[i]);
     if (w->ic)  { XDestroyIC(w->ic);  w->ic = NULL; }    // release the input context
     if (w->im)  { XCloseIM(w->im);    w->im = NULL; }    // close the input method
     if (w->gc)  XFreeGC(w->dpy, w->gc);                  // free the graphics context
@@ -559,7 +559,7 @@ void ui_window_begin_resize(UiWindow* w, const char* edge) {
 
 // lazily creates a cached resize cursor for the given index
 static Cursor linux_resize_cursor(UiWindow* w, int idx) {
-    if (idx < 1 || idx > 8) return None;
+    if (idx < 1 || idx > 10) return None;
     if (w->resize_cursor[idx] == None) {
         unsigned shape = XC_left_ptr;
         switch (idx) {
@@ -571,6 +571,8 @@ static Cursor linux_resize_cursor(UiWindow* w, int idx) {
             case 6: shape = XC_top_right_corner;   break;  // top-right
             case 7: shape = XC_bottom_left_corner; break;  // bottom-left
             case 8: shape = XC_bottom_right_corner;break;  // bottom-right
+            case 9: shape = XC_sb_h_double_arrow;  break;  // split-h
+            case 10: shape = XC_sb_v_double_arrow; break;  // split-v
         }
         w->resize_cursor[idx] = XCreateFontCursor(w->dpy, shape);
     }
@@ -592,6 +594,8 @@ void ui_window_set_resize_cursor(UiWindow* w, const char* edge) {
         else if (!strcmp(edge, "top-right"))    idx = 6;
         else if (!strcmp(edge, "bottom-left"))  idx = 7;
         else if (!strcmp(edge, "bottom-right")) idx = 8;
+        else if (!strcmp(edge, "split-h"))      idx = 9;
+        else if (!strcmp(edge, "split-v"))      idx = 10;
     }
     Cursor c = (idx == 0) ? None : linux_resize_cursor(w, idx);
     XDefineCursor(w->dpy, w->win, c);

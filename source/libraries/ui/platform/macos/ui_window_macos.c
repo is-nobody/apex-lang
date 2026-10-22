@@ -477,7 +477,27 @@ void ui_window_begin_resize(UiWindow* w, const char* edge) {
 
 // the system cursor is set by appkit for decorated windows
 void ui_window_set_resize_cursor(UiWindow* w, const char* edge) {
-    if (w) w->cursor_edge = edge;                            // remember for future use
+    if (!w) return;
+    w->cursor_edge = edge;
+
+    id cursor = nil;
+    if (!edge) {
+        cursor = ((id (*)(id, SEL))objc_msgSend)(OBJC_CLS("NSCursor"), OBJC_SEL("arrowCursor"));
+    } else if (!strcmp(edge, "left") || !strcmp(edge, "right") || !strcmp(edge, "split-h")) {
+        cursor = ((id (*)(id, SEL))objc_msgSend)(OBJC_CLS("NSCursor"), OBJC_SEL("resizeLeftRightCursor"));
+    } else if (!strcmp(edge, "top") || !strcmp(edge, "bottom") || !strcmp(edge, "split-v")) {
+        cursor = ((id (*)(id, SEL))objc_msgSend)(OBJC_CLS("NSCursor"), OBJC_SEL("resizeUpDownCursor"));
+    } else if (!strcmp(edge, "top-left") || !strcmp(edge, "bottom-right")) {
+        cursor = ((id (*)(id, SEL))objc_msgSend)(OBJC_CLS("NSCursor"), OBJC_SEL("_windowResizeNorthWestSouthEastCursor"));
+    } else if (!strcmp(edge, "top-right") || !strcmp(edge, "bottom-left")) {
+        cursor = ((id (*)(id, SEL))objc_msgSend)(OBJC_CLS("NSCursor"), OBJC_SEL("_windowResizeNorthEastSouthWestCursor"));
+    } else {
+        cursor = ((id (*)(id, SEL))objc_msgSend)(OBJC_CLS("NSCursor"), OBJC_SEL("arrowCursor"));
+    }
+
+    if (cursor) {
+        ((void (*)(id, SEL))objc_msgSend)(cursor, OBJC_SEL("set"));
+    }
 }
 
 // creates a frameless, floating popup window used for notifications

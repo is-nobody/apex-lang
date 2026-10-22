@@ -210,10 +210,10 @@
 #define UI_C_TAB_DRAG_BG   0xFF3A3D41u  // tab being dragged
 
 // dock panel
-#define UI_DOCK_HEADER_H   28           // height of the panel's title header
-#define UI_C_DOCK_BG       0xFF252526u  // body background (matches panel)
-#define UI_C_DOCK_HEADER   0xFF2A2D2Eu  // header background
-#define UI_C_DOCK_HOV      0xFF3A3D41u  // header background on hover
+#define UI_DOCK_HEADER_H   24           // height of the panel's title header
+#define UI_C_DOCK_BG       0xFF1E1E1Eu  // body background
+#define UI_C_DOCK_HEADER   0xFF2D2D30u  // header background
+#define UI_C_DOCK_HOV      0xFF37373Du  // header background on hover
 
 // status bar
 #define UI_STATUSBAR_H     26           // status bar height in pixels

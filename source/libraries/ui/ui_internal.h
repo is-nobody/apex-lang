@@ -115,8 +115,9 @@ struct Widget {
     int    combo_selected;               // index of the selected option, -1 = none
     Str    combo_value;                  // display text (usually one of the options)
     bool   combo_open;                   // dropdown expanded this frame
-    bool   collapsed;                    // dock panel collapsed state
-    bool   gutter;                       // text_area line numbers
+    bool    collapsed;                   // dock panel collapsed state
+    bool    gutter;                      // text_area line numbers
+    bool    resizable;                   // dock panel resizable state
 
     Str    input_value;                  // non-owning view into WidgetState.input_buf for WK_INPUT
     int    cursor;                       // cursor byte offset into input_value
@@ -354,7 +355,7 @@ typedef enum {
     UK_COLUMNS, UK_ROWS, UK_STRIPE, UK_HEADER, UK_NODES, UK_SELECTED,
     UK_INDENT, UK_EXPANDED, UK_TABS, UK_CLOSEABLE, UK_ADD_BUTTON, UK_REORDER,
     UK_TOOLTIP, UK_TOOLTIP_DELAY, UK_LEFT, UK_RIGHT, UK_TEXT, UK_TITLE,
-    UK_COLLAPSED, UK_GUTTER, UK_COUNT
+    UK_COLLAPSED, UK_GUTTER, UK_RESIZABLE, UK_COUNT
 } UiKeyId;
 
 // modal dialog
@@ -514,6 +515,9 @@ typedef struct UiContext {
     uint64_t   scrollbar_drag_id;           // scroll container whose thumb is dragged, 0 = none
     int        scrollbar_drag_start_y;      // pointer y at press time
     double     scrollbar_drag_start_scroll; // scroll offset at press time
+
+    int        resize_panel_start_x;        // pointer x at panel resize press time
+    float      resize_panel_start_w;        // panel width at resize press time
 
     StateMap   state;           // persistent per-widget state across frames
     EventQueue queue;           // pending events awaiting the script

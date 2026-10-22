@@ -67,7 +67,7 @@ struct UiWindow {
     int      min_h;                  // minimum client height from wm hints
     int      last_root_x;            // last pointer position in root coords
     int      last_root_y;
-    Cursor   resize_cursor[9];       // cached resize cursors, index 0 = unused
+    Cursor   resize_cursor[12];      // cached resize cursors, index 0 = unused
     const char* last_cursor_edge;    // last edge passed to set_resize_cursor, null = arrow
 };
 

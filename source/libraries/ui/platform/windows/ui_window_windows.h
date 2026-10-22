@@ -50,6 +50,8 @@ struct UiWindow {
 
     UiPaintCallback paint_cb;          // host paint callback, or null
     void*           paint_user;        // opaque pointer passed to the callback
+
+    const char* cursor_override;       // active resize cursor name, null for default
 };
 
 // encodes one unicode codepoint as utf-8 into out, returns the byte count

@@ -162,15 +162,34 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
             }
 
             // resize edges and window buttons live on the window frame
+            const char* edge = NULL;
             if (ctx->custom_chrome) {
-                const char* edge = titlebar_resize_edge(ctx, e->x, e->y);
-                ui_window_set_resize_cursor(ctx->window, edge);
+                edge = titlebar_resize_edge(ctx, e->x, e->y);
                 int hot = titlebar_button_at(ctx, e->x, e->y);
                 if (hot != ctx->tb_hot) {
                     ctx->tb_hot = hot;
                     ctx->redraw_needed = true;
                 }
             }
+
+            // check for panel resize hover if no titlebar edge was hit
+            if (!edge) {
+                for (int i = 0; i < ctx->pool_used; i++) {
+                    Widget* w = &ctx->pool[i];
+                    if (w->kind == WK_PANEL && w->visible && w->resizable) {
+                        int rx = (int)floorf(w->x + 0.5f);
+                        int ry = (int)floorf(w->y + 0.5f);
+                        int rw = (int)floorf(w->w + 0.5f);
+                        int rh = (int)floorf(w->h + 0.5f);
+                        if (e->x >= rx + rw - 4 && e->x <= rx + rw + 4 &&
+                            e->y >= ry && e->y <= ry + rh) {
+                            edge = "split-h";
+                            break;
+                        }
+                    }
+                }
+            }
+            ui_window_set_resize_cursor(ctx->window, edge);
 
             // the menubar runs after the frame handlers
             if (ui_menubar_handle_mousemove(ctx, e->x, e->y))
@@ -260,6 +279,27 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                         dw = &ctx->pool[i];
                         break;
                     }
+
+                if (dw && dw->kind == WK_PANEL && dw->resizable) { // panel resize
+                    float new_w = ctx->resize_panel_start_w + (e->x - ctx->resize_panel_start_x);
+                    if (dw->min_w > 0 && new_w < dw->min_w) new_w = dw->min_w;
+                    if (dw->max_w > 0 && new_w > dw->max_w) new_w = dw->max_w;
+                    
+                    if ((int)new_w != (int)dw->w) {
+                        dw->req_w = new_w;
+                        ctx->geometry_dirty = true;
+                        ctx->redraw_needed = true;
+                        
+                        UiEvent ev; memset(&ev, 0, sizeof(ev));
+                        ev.kind = EV_CHANGE;
+                        ev.widget_id = dw->id;
+                        strncpy(ev.widget_type, "panel_resize", 15);
+                        if (dw->key_str) strncpy(ev.key_name, dw->key_str, 63);
+                        ev.num_value = new_w;
+                        ui_event_push(ctx, &ev);
+                    }
+                    break;
+                }
 
                 if (dw && dw->kind == WK_SLIDER) {                // slider: track pointer value
                     double range = dw->num_max - dw->num_min;
@@ -509,6 +549,30 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     break;
                 }
 
+                // check for panel resize hit
+                Widget* res_panel = NULL;
+                for (int i = 0; i < ctx->pool_used; i++) {
+                    Widget* w = &ctx->pool[i];
+                    if (w->kind == WK_PANEL && w->visible && w->resizable) {
+                        int rx = (int)floorf(w->x + 0.5f);
+                        int ry = (int)floorf(w->y + 0.5f);
+                        int rw = (int)floorf(w->w + 0.5f);
+                        int rh = (int)floorf(w->h + 0.5f);
+                        if (e->x >= rx + rw - 4 && e->x <= rx + rw + 4 &&
+                            e->y >= ry && e->y <= ry + rh) {
+                            res_panel = w;
+                            break;
+                        }
+                    }
+                }
+                if (res_panel) {
+                    ctx->drag_widget_id = res_panel->id;
+                    ctx->resize_panel_start_x = e->x;
+                    ctx->resize_panel_start_w = res_panel->w;
+                    ctx->input.lmb = true;
+                    break;
+                }
+
                 ctx->input.lmb = true;                        // record button as held
 
                 // an open combobox dropdown captures the click before anything else
@@ -560,25 +624,26 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                 if (ctx->root) {
                     Widget* h = hit_test(ctx, e->x, e->y);
                     
-                    // dock panel header click toggles collapse
+                    // dock panel header close button
                     if (h && h->kind == WK_PANEL && h->text.len > 0) {
                         int local_y = e->y - (int)h->y;
+                        int local_x = e->x - (int)h->x;
                         if (local_y >= 0 && local_y < UI_DOCK_HEADER_H) {
-                            h->collapsed = !h->collapsed;
-                            WidgetState* s = ui_state_get(ctx, h->id);
-                            s->collapsed = h->collapsed;
-                            
-                            UiEvent cev; memset(&cev, 0, sizeof(cev));
-                            cev.kind = EV_CHANGE;
-                            cev.widget_id = h->id;
-                            strncpy(cev.widget_type, "panel_collapse", 15);
-                            if (h->key_str) strncpy(cev.key_name, h->key_str, 63);
-                            cev.bool_value = h->collapsed;
-                            ui_event_push(ctx, &cev);
-                            
-                            ctx->geometry_dirty = true;
-                            ctx->redraw_needed = true;
-                            break; // consume the click
+                            if (local_x >= (int)h->w - 24) {
+                                h->visible = false;
+                                
+                                UiEvent cev; memset(&cev, 0, sizeof(cev));
+                                cev.kind = EV_CHANGE;
+                                cev.widget_id = h->id;
+                                strncpy(cev.widget_type, "panel_close", 15);
+                                if (h->key_str) strncpy(cev.key_name, h->key_str, 63);
+                                cev.bool_value = false;
+                                ui_event_push(ctx, &cev);
+                                
+                                ctx->geometry_dirty = true;
+                                ctx->redraw_needed = true;
+                                break; // consume the click
+                            }
                         }
                     }
 
@@ -755,6 +820,20 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                             if (tabs_handle_mouseup(ctx, tw, e->x, e->y))
                                 tab_drag_consumed = true;
                         }
+                    }
+                }
+
+                if (ctx->drag_widget_id) {
+                    bool is_panel = false;
+                    for (int i = 0; i < ctx->pool_used; i++) {
+                        if (ctx->pool[i].id == ctx->drag_widget_id && ctx->pool[i].kind == WK_PANEL) {
+                            is_panel = true;
+                            break;
+                        }
+                    }
+                    if (is_panel) {
+                        ctx->drag_widget_id = 0;
+                        break;
                     }
                 }
 
