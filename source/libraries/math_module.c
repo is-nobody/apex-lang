@@ -12,12 +12,25 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
+// MATH_NUM accepts a plain double or the VM's tagged NaN; lets results
+// like math.sqrt(-1) propagate as NaN through further math calls
+// instead of being rejected and collapsing to none.
+#define MATH_NUM(v) (IS_NUMBER(v) || IS_NAN(v))
+
+// fallbacks so M_PI / M_E resolve even if _USE_MATH_DEFINES is missed
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+#ifndef M_E
+#define M_E 2.71828182845904523536
+#endif
+
 // dispatcher for mathematical built-in functions
 bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     (void)vm;                                                     // vm unused
     
     if (strcmp(name, "math.abs") == 0) {                          // absolute value
-        if (arg_count >= 1 && IS_NUMBER(args[0])) {               // validate number argument
+        if (arg_count >= 1 && MATH_NUM(args[0])) {                // validate number argument
             *result = MAKE_NUMBER(fabs(AS_NUMBER(args[0])));      // return absolute value
             return true;                                          // builtin handled
         }
@@ -26,7 +39,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
     
     if (strcmp(name, "math.round_down") == 0) {                        // floor function
-        if (arg_count >= 1 && IS_NUMBER(args[0])) {               // validate number argument
+        if (arg_count >= 1 && MATH_NUM(args[0])) {                // validate number argument
             *result = MAKE_NUMBER(floor(AS_NUMBER(args[0])));     // return largest integer <= x
             return true;                                          // builtin handled
         }
@@ -35,7 +48,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
     
     if (strcmp(name, "math.round_up") == 0) {                         // ceiling function
-        if (arg_count >= 1 && IS_NUMBER(args[0])) {               // validate number argument
+        if (arg_count >= 1 && MATH_NUM(args[0])) {                // validate number argument
             *result = MAKE_NUMBER(ceil(AS_NUMBER(args[0])));      // return smallest integer >= x
             return true;                                          // builtin handled
         }
@@ -44,7 +57,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
     
     if (strcmp(name, "math.round") == 0) {                        // round to decimals
-        if (arg_count >= 1 && IS_NUMBER(args[0])) {               // validate number argument
+        if (arg_count >= 1 && MATH_NUM(args[0])) {                // validate number argument
             double num = AS_NUMBER(args[0]);                      // extract number
             int decimals = 0;                                     // default to 0 decimals
             if (arg_count >= 2 && IS_NUMBER(args[1])) {           // check if decimals provided
@@ -63,7 +76,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
     
     if (strcmp(name, "math.sqrt") == 0) {                         // square root
-        if (arg_count >= 1 && IS_NUMBER(args[0])) {               // validate number argument
+        if (arg_count >= 1 && MATH_NUM(args[0])) {                // validate number argument
             double val = AS_NUMBER(args[0]);                      // extract number
             *result = MAKE_NUMBER(sqrt(val));                     // compute square root
             return true;                                          // builtin handled
@@ -73,7 +86,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
     
     if (strcmp(name, "math.exponent") == 0) {                          // exponential e^x
-        if (arg_count >= 1 && IS_NUMBER(args[0])) {               // validate number argument
+        if (arg_count >= 1 && MATH_NUM(args[0])) {                // validate number argument
             *result = MAKE_NUMBER(exp(AS_NUMBER(args[0])));       // compute e^x
             return true;                                          // builtin handled
         }
@@ -82,7 +95,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
     
     if (strcmp(name, "math.log") == 0) {                          // logarithm
-        if (arg_count >= 1 && IS_NUMBER(args[0])) {               // validate number argument
+        if (arg_count >= 1 && MATH_NUM(args[0])) {                // validate number argument
             double x = AS_NUMBER(args[0]);                        // extract number
             double res;                                           // result storage
             
@@ -95,7 +108,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
                 return true;                                      // builtin handled
             }
             
-            if (arg_count >= 2 && IS_NUMBER(args[1])) {           // custom base provided
+            if (arg_count >= 2 && MATH_NUM(args[1])) {            // custom base provided
                 double base = AS_NUMBER(args[1]);                 // extract base
                 if (base <= 0 || base == 1.0) {                   // invalid base
                     *result = MAKE_NONE();                        // return none
@@ -113,7 +126,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
     
     if (strcmp(name, "math.sin") == 0) {                          // sine
-        if (arg_count >= 1 && IS_NUMBER(args[0])) {               // validate number argument
+        if (arg_count >= 1 && MATH_NUM(args[0])) {                // validate number argument
             *result = MAKE_NUMBER(sin(AS_NUMBER(args[0])));       // compute sine
             return true;                                          // builtin handled
         }
@@ -122,7 +135,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
     
     if (strcmp(name, "math.cos") == 0) {                          // cosine
-        if (arg_count >= 1 && IS_NUMBER(args[0])) {               // validate number argument
+        if (arg_count >= 1 && MATH_NUM(args[0])) {                // validate number argument
             *result = MAKE_NUMBER(cos(AS_NUMBER(args[0])));       // compute cosine
             return true;                                          // builtin handled
         }
@@ -131,7 +144,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
     
     if (strcmp(name, "math.tan") == 0) {                          // tangent
-        if (arg_count >= 1 && IS_NUMBER(args[0])) {               // validate number argument
+        if (arg_count >= 1 && MATH_NUM(args[0])) {                // validate number argument
             *result = MAKE_NUMBER(tan(AS_NUMBER(args[0])));       // compute tangent
             return true;                                          // builtin handled
         }
@@ -140,7 +153,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
     
     if (strcmp(name, "math.asin") == 0) {                             // arc sine
-        if (arg_count >= 1 && IS_NUMBER(args[0])) {                   // validate number argument
+        if (arg_count >= 1 && MATH_NUM(args[0])) {                    // validate number argument
             if (AS_NUMBER(args[0]) < -1 || AS_NUMBER(args[0]) > 1) {  // out of domain
                 *result = MAKE_NUMBER(NAN);                           // return nan
                 return true;                                          // builtin handled
@@ -153,7 +166,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
     
     if (strcmp(name, "math.acos") == 0) {                             // arc cosine
-        if (arg_count >= 1 && IS_NUMBER(args[0])) {                   // validate number argument
+        if (arg_count >= 1 && MATH_NUM(args[0])) {                    // validate number argument
             if (AS_NUMBER(args[0]) < -1 || AS_NUMBER(args[0]) > 1) {  // out of domain
                 *result = MAKE_NUMBER(NAN);                           // return nan
                 return true;                                          // builtin handled
@@ -166,7 +179,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
     
     if (strcmp(name, "math.atan") == 0) {                             // arc tangent
-        if (arg_count >= 1 && IS_NUMBER(args[0])) {                   // validate number argument
+        if (arg_count >= 1 && MATH_NUM(args[0])) {                    // validate number argument
             *result = MAKE_NUMBER(atan(AS_NUMBER(args[0])));          // compute arc tangent
             return true;                                              // builtin handled
         }
@@ -204,7 +217,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
     
     if (strcmp(name, "math.is_inf") == 0) {                            // check if infinity
-        if (arg_count >= 1 && IS_NUMBER(args[0])) {                   // validate number argument
+        if (arg_count >= 1 && MATH_NUM(args[0])) {                    // validate number argument
             *result = MAKE_BOOL(isinf(AS_NUMBER(args[0])));           // check for infinity
             return true;                                              // builtin handled
         }
@@ -213,7 +226,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
     
     if (strcmp(name, "math.drop_decimal") == 0) {                            // truncate to integer
-        if (arg_count >= 1 && IS_NUMBER(args[0])) {                   // validate number argument
+        if (arg_count >= 1 && MATH_NUM(args[0])) {                    // validate number argument
             *result = MAKE_NUMBER(trunc(AS_NUMBER(args[0])));         // truncate toward zero
             return true;                                              // builtin handled
         }
@@ -222,7 +235,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
     
     if (strcmp(name, "math.power") == 0) {                                   // power function
-        if (arg_count >= 2 && IS_NUMBER(args[0]) && IS_NUMBER(args[1])) {  // validate two numbers
+        if (arg_count >= 2 && MATH_NUM(args[0]) && MATH_NUM(args[1])) {  // validate two numbers
             if (AS_NUMBER(args[0]) == 0 && AS_NUMBER(args[1]) == 0) {      // 0^0 special case
                 *result = MAKE_NUMBER(1.0);                                // return 1
                 return true;                                               // builtin handled
@@ -235,7 +248,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
     
     if (strcmp(name, "math.atan2") == 0) {                                         // arc tangent of y/x
-        if (arg_count >= 2 && IS_NUMBER(args[0]) && IS_NUMBER(args[1])) {          // validate two numbers
+        if (arg_count >= 2 && MATH_NUM(args[0]) && MATH_NUM(args[1])) {          // validate two numbers
             *result = MAKE_NUMBER(atan2(AS_NUMBER(args[0]), AS_NUMBER(args[1])));  // compute atan2
             return true;                                                           // builtin handled
         }
@@ -244,7 +257,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
     
     if (strcmp(name, "math.radians") == 0) {                               // degrees to radians
-        if (arg_count >= 1 && IS_NUMBER(args[0])) {                        // validate number argument
+        if (arg_count >= 1 && MATH_NUM(args[0])) {                        // validate number argument
             *result = MAKE_NUMBER(AS_NUMBER(args[0]) * M_PI / 180.0);      // convert to radians
             return true;                                                   // builtin handled
         }
@@ -253,7 +266,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
     
     if (strcmp(name, "math.degrees") == 0) {                               // radians to degrees
-        if (arg_count >= 1 && IS_NUMBER(args[0])) {                        // validate number argument
+        if (arg_count >= 1 && MATH_NUM(args[0])) {                        // validate number argument
             *result = MAKE_NUMBER(AS_NUMBER(args[0]) * 180.0 / M_PI);      // convert to degrees
             return true;                                                   // builtin handled
         }
@@ -262,7 +275,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
     
     if (strcmp(name, "math.hypotenuse") == 0) {                                         // euclidean distance
-        if (arg_count >= 2 && IS_NUMBER(args[0]) && IS_NUMBER(args[1])) {          // validate two numbers
+        if (arg_count >= 2 && MATH_NUM(args[0]) && MATH_NUM(args[1])) {          // validate two numbers
             *result = MAKE_NUMBER(hypot(AS_NUMBER(args[0]), AS_NUMBER(args[1])));  // compute hypotenuse
             return true;                                                           // builtin handled
         }
@@ -271,7 +284,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
     
     if (strcmp(name, "math.gcd") == 0) {                                   // greatest common divisor
-        if (arg_count >= 2 && IS_NUMBER(args[0]) && IS_NUMBER(args[1])) {  // validate two numbers
+        if (arg_count >= 2 && MATH_NUM(args[0]) && MATH_NUM(args[1])) {  // validate two numbers
             double a_d = fabs(AS_NUMBER(args[0]));                         // absolute value first
             double b_d = fabs(AS_NUMBER(args[1]));                         // absolute value second
             if (!(a_d >= 0 && a_d <= 9007199254740992.0) ||
@@ -294,7 +307,7 @@ bool math_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Val
     }
     
     if (strcmp(name, "math.factorial") == 0) {                             // factorial
-        if (arg_count >= 1 && IS_NUMBER(args[0])) {                        // validate number argument
+        if (arg_count >= 1 && MATH_NUM(args[0])) {                        // validate number argument
             double n = AS_NUMBER(args[0]);                                 // extract number
             if (n < 0 || n != floor(n)) {                                  // negative or non-integer
                 *result = MAKE_NUMBER(NAN);                                // return nan
