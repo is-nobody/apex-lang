@@ -1,5 +1,5 @@
 // source/jit/x86-64/x86_64_emit_function.c
-// Function emitter for the x86-64 JIT backend
+// Function emitter driver for the x86-64 JIT backend
 // https://github.com/is-nobody/apex-lang
 // MIT license
 
@@ -8,73 +8,177 @@
 #include <stddef.h>
 #include <string.h>
 
-// callee-saved gprs usable as slot pockets on all supported abis
-#define X86_N_GPR_POCKETS 5
-
-static const int x86_gpr_pocket_regs[X86_N_GPR_POCKETS] = {
+// callee-saved gprs usable as slot pockets on all supported abis (exported for call handlers)
+const int x86_gpr_pocket_regs[X86_N_GPR_POCKETS] = {
     X86_RBX, X86_R12, X86_R13, X86_R14, X86_R15
 };
 
 // emits load r64, [rbp+disp32] for each assigned pocket gpr before leave; ret
 static void emit_gpr_pocket_restores(CodeBuf* cb, int pocket_slot_base,
                                      int n_pockets) {
-    for (int g = 0; g < n_pockets; g++) {                    // restore saved gprs
-        int gpr = x86_gpr_pocket_regs[g];
-        int disp = -8 * (pocket_slot_base + g + 1);
+    for (int g = 0; g < n_pockets; g++) {                            // restore saved gprs
+        int gpr = x86_gpr_pocket_regs[g];                            // pocket gpr number
+        int disp = -8 * (pocket_slot_base + g + 1);                  // matching save slot
         x86_emit_load_r64_rbp(cb, gpr, disp);
     }
+}
+
+// emit one body instruction through the category dispatcher
+static void x86_func_dispatch(X86FuncEmitState* st) {
+    switch (st->op) {
+        case OP_MOVE:                                                // reg-to-reg copy
+        case OP_LOAD_NUM_IMM:                                        // small int literal
+        case OP_LOAD_NUM:                                            // full double constant
+        case OP_LOAD_BOOL:                                           // boolean literal
+        case OP_LOAD_NONE:                                           // none literal
+            x86_func_emit_move(st);
+            break;
+
+        case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV:          // binary arithmetic
+        case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:           // immediate arithmetic
+        case OP_DIV_IMM: case OP_MOD_IMM: case OP_MOD:               // mod ops
+        case OP_NEG: case OP_INC: case OP_DEC:                       // unary / in-place
+            x86_func_emit_arith(st);
+            break;
+
+        case OP_CMP_EQ: case OP_CMP_EQ_NUM:                          // numeric compares
+        case OP_CMP_NEQ: case OP_CMP_NEQ_NUM:
+        case OP_CMP_LT: case OP_CMP_GT:
+        case OP_CMP_LTE: case OP_CMP_GTE:
+            x86_func_emit_cmp(st);
+            break;
+
+        case OP_JUMP:                                                // unconditional
+        case OP_JUMP_IF_FALSE:                                       // falsy test
+        case OP_JUMP_IF_EQ: case OP_JUMP_IF_NEQ:                     // reg-reg compare jumps
+        case OP_JUMP_IF_EQ_NUM: case OP_JUMP_IF_NEQ_NUM:
+        case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:
+        case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:
+        case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:             // imm-compare jumps
+        case OP_JUMP_IF_LT_IMM: case OP_JUMP_IF_GT_IMM:
+        case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
+        case OP_JUMP_IF_NONE: case OP_JUMP_IF_NOT_NONE:              // none-test jumps
+            x86_func_emit_jump(st);
+            break;
+
+        case OP_JUMP_MATCH_NUM: case OP_JUMP_MATCH_STR:              // match jumps
+        case OP_JUMP_MATCH_BOOL: case OP_JUMP_MATCH_NONE:
+        case OP_JUMP_TABLE:                                          // dense int dispatch
+        case OP_SWITCH_STR: case OP_SWITCH_NUM:                      // perfect-hash dispatch
+            x86_func_emit_match(st);
+            break;
+
+        case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:              // direct calls
+        case OP_RETURN: case OP_RETURN_NUM: case OP_RETURN_BOOL:     // returns
+        case OP_RETURN_NUM_IMM: case OP_RETURN_NONE:
+            x86_func_emit_call(st);
+            break;
+
+        default:
+            JIT_FATAL("unreachable opcode %d in pure function %d at pc=%d",
+                      st->op, st->func_idx, st->pc);
+    }
+}
+
+// fused CMP_* + JUMP_IF_FALSE: emit an inverted jcc and skip the branch when the
+// comparison dest is dead; returns true when handled and advances st->pc
+static bool try_emit_fused_cmp_jump(X86FuncEmitState* st) {
+    if (st->pc + 1 >= st->end) return false;                         // no successor
+    if (st->is_target[st->pc + 1 - st->start]) return false;         // pc+1 is a jump target
+    if (st->chunk->code[st->pc + 1].opcode != OP_JUMP_IF_FALSE) return false;
+    if (st->chunk->code[st->pc + 1].operands[1] != st->d) return false;  // branch not on our dest
+
+    uint8_t fused_jcc = 0;                                           // inverted jcc for "jump on false"
+    switch (st->op) {
+        case OP_CMP_EQ:  case OP_CMP_EQ_NUM:  fused_jcc = 0x85; break;  // jne
+        case OP_CMP_NEQ: case OP_CMP_NEQ_NUM: fused_jcc = 0x84; break;  // je
+        case OP_CMP_LT:  fused_jcc = 0x83; break;                    // jae
+        case OP_CMP_GT:  fused_jcc = 0x86; break;                    // jbe
+        case OP_CMP_LTE: fused_jcc = 0x87; break;                    // ja
+        case OP_CMP_GTE: fused_jcc = 0x82; break;                    // jb
+        default: return false;
+    }
+    int fuse_target = st->chunk->code[st->pc + 1].operands[0];       // branch target pc
+    bool d_dead = fuse_target >= 0 &&
+                  !slot_read_before_write(st->chunk, st->pc + 2, st->end, st->d) &&
+                  (fuse_target < st->pc + 2 ||
+                   !slot_read_before_write(st->chunk, fuse_target, st->end, st->d));
+    if (!d_dead) return false;                                       // dest not dead, no fusion
+
+    XmmCache* cache = st->cache;
+    CodeBuf* cb = st->cb;
+
+    int xa = x86_cache_load(cache, cb, st->a);                       // load left operand
+    if (xa < 0) JIT_FATAL("cache full: fused CMP a=%d (func=%d pc=%d)",
+                          st->a, st->func_idx, st->pc);
+    int xb = x86_cache_load_excl(cache, cb, st->b, xa, -1);          // load right, avoid xa
+    if (xb < 0) JIT_FATAL("cache full: fused CMP b=%d (func=%d pc=%d)",
+                          st->b, st->func_idx, st->pc);
+    x86_emit_ucomisd_rr(cb, xa, xb);                                 // ucomisd a, b
+
+    if (fuse_target >= st->start && fuse_target < st->end) {         // in-range target
+        if (st->needs_flush[fuse_target - st->start])                // multi-pred: flush
+            x86_cache_flush(cache, cb);
+        else if (st->use_snap[fuse_target - st->start])              // unique forward: snapshot
+            x86_cache_snap(&st->jump_snap[fuse_target - st->start], cache);
+    } else {
+        x86_cache_flush(cache, cb);                                  // out-of-range: safest
+    }
+    emit_u8(cb, 0x0F); emit_u8(cb, fused_jcc);                       // jcc rel32
+    x86_func_jump_fixup(st, cb->len, fuse_target);                   // record placeholder
+    emit_i32(cb, 0);                                                 // placeholder
+
+    st->pc++;                                                        // skip the JUMP_IF_FALSE
+    if (st->pc + 1 < st->end && st->needs_flush[st->pc + 1 - st->start])
+        x86_cache_flush(cache, cb);                                  // fall-through merge flush
+    st->did_flush = true;                                            // suppress main merge flush
+    return true;
 }
 
 // emits native x86-64 code for a single numeric-pure function
 bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                           int func_idx, void** out_fn) {
-    // local catch frame: on jit_fatal we come back here
-    int*          pred_count  = NULL;
-    uint8_t*      needs_flush = NULL;
-    uint8_t*      use_snap    = NULL;
-    JitCacheSnap* jump_snap   = NULL;
+    int*          pred_count  = NULL;                                // predecessor counts per label
+    uint8_t*      needs_flush = NULL;                                // labels needing empty cache
+    uint8_t*      use_snap    = NULL;                                // labels restoring from snapshot
+    JitCacheSnap* jump_snap   = NULL;                                // per-label cache snapshots
 
-    jmp_buf local_bail;
-    jmp_buf* prev_bail = jit_bail_jmp;
+    jmp_buf local_bail;                                              // local catch frame
+    jmp_buf* prev_bail = jit_bail_jmp;                               // previous outer frame
     jit_bail_jmp = &local_bail;
-    if (setjmp(local_bail) != 0) {
+    if (setjmp(local_bail) != 0) {                                   // on jit_fatal: unwind here
         jit_bail_jmp = prev_bail;
         free(pred_count);
         free(needs_flush);
         free(use_snap);
         free(jump_snap);
-        return false;                                            // caller skips this function
+        return false;
     }
 
-    BytecodeChunk* chunk = ctx->chunk;
-    int start = ctx->range_start[func_idx];                      // first bytecode pc
-    int end   = ctx->range_end[func_idx];                        // one past last pc
-    int arity = chunk->functions[func_idx].arity;                // parameter count
-    int nregs = chunk->functions[func_idx].max_registers;        // max register index + 1
-    if (nregs < arity) nregs = arity;                            // params need slots too
-    if (nregs < 1) nregs = 1;                                    // at least one slot
-    if (nregs > JIT_MAX_SLOTS) return false;                     // cache can't track this
+    BytecodeChunk* chunk = ctx->chunk;                               // bytecode being compiled
+    int start = ctx->range_start[func_idx];                          // first bytecode pc
+    int end   = ctx->range_end[func_idx];                            // one past the last pc
+    int arity = chunk->functions[func_idx].arity;                    // parameter count
+    int nregs = chunk->functions[func_idx].max_registers;            // frame slot count
+    if (nregs < arity) nregs = arity;                                // params need slots too
+    if (nregs < 1) nregs = 1;                                        // at least one slot
+    if (nregs > JIT_MAX_SLOTS) return false;                         // cache can't track this
 
-    int range_size = end - start;                                // number of bytecodes
-    if (range_size <= 0) return false;                           // empty body
+    int range_size = end - start;                                    // number of bytecodes
+    if (range_size <= 0) return false;                               // empty body
 
-    if (cb->len + (size_t)range_size * 256 + 512 > cb->cap)
-        JIT_FATAL("code buffer too small for function %d (need ~%llu, cap=%llu)",
-                func_idx,
-                (unsigned long long)(cb->len + (size_t)range_size * 256 + 512),
-                (unsigned long long)cb->cap);
+    if (cb->len + (size_t)range_size * 256 + 512 > cb->cap)          // capacity check
+        JIT_FATAL("code buffer too small for function %d", func_idx);
 
-    // precompute distinct immediates used in this function
-    int32_t func_imms[8];
-    int     func_n_imms = 0;
-    bool    func_imm_ok = true;
+    int32_t func_imms[8];                                            // distinct immediates
+    int     func_n_imms = 0;                                         // number collected so far
+    bool    func_imm_ok = true;                                      // all fit in the pool?
     for (int pc = start; pc < end; pc++) {
-        Instruction* inst = &chunk->code[pc];
-        int32_t imm;
+        Instruction* inst = &chunk->code[pc];                        // current instruction
+        int32_t imm;                                                 // immediate operand
         switch (inst->opcode) {
             case OP_LOAD_NUM_IMM:
-            case OP_RETURN_NUM_IMM:
-                imm = inst->operands[1]; break;
+            case OP_RETURN_NUM_IMM: imm = inst->operands[1]; break;
             case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:
             case OP_DIV_IMM: case OP_MOD_IMM:
             case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:
@@ -83,94 +187,78 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 imm = inst->operands[2]; break;
             default: continue;
         }
-        bool found = false;
+        bool found = false;                                          // already pooled?
         for (int i = 0; i < func_n_imms; i++)
             if (func_imms[i] == imm) { found = true; break; }
         if (found) continue;
-        if (func_n_imms >= 8) { func_imm_ok = false; break; }
+        if (func_n_imms >= 8) { func_imm_ok = false; break; }        // pool full
         func_imms[func_n_imms++] = imm;
     }
-    if (!func_imm_ok) func_n_imms = 0;
+    if (!func_imm_ok) func_n_imms = 0;                               // give up on pooling
 
-    // gpr pockets are disabled: on float-heavy bodies the xmm<->gpr round-trip costs more than it saves
-    int slot_pocket_gpr[JIT_MAX_SLOTS];                      // slot -> pocket gpr index, or -1
-    int slot_to_pocket[X86_N_GPR_POCKETS];                   // pocket gpr index -> slot, or -1
-    int n_pockets = 0;                                       // number of assigned pockets
-    for (int s = 0; s < nregs; s++) slot_pocket_gpr[s] = -1;
+    int slot_pocket_gpr[JIT_MAX_SLOTS];                              // slot -> pocket gpr index, or -1
+    int slot_to_pocket[X86_N_GPR_POCKETS];                           // pocket gpr index -> slot, or -1
+    int n_pockets = 0;                                               // number of assigned pockets
+    for (int s = 0; s < nregs; s++) slot_pocket_gpr[s] = -1;         // no pockets assigned
     for (int g = 0; g < X86_N_GPR_POCKETS; g++) slot_to_pocket[g] = -1;
 
-    bool* is_target     = ctx->scratch_is_target;                // shared jump-target marks
-    int32_t* label_off  = ctx->scratch_label_off;                // shared label offset array
-    JumpFixup* fixups   = ctx->scratch_fixups;                   // shared jump fixup array
-    if (!is_target || !label_off || !fixups) {
+    bool* is_target    = ctx->scratch_is_target;                     // shared jump-target marks
+    int32_t* label_off = ctx->scratch_label_off;                     // shared label offset array
+    JumpFixup* fixups  = ctx->scratch_fixups;                        // shared jump fixup array
+    if (!is_target || !label_off || !fixups)                         // scratch arrays must exist
         JIT_FATAL("scratch arrays missing for function %d", func_idx);
-    }
 
-    memset(is_target, 0, range_size * sizeof(bool));             // clear jump-target marks
+    memset(is_target, 0, range_size * sizeof(bool));                 // clear jump-target marks
 
-    pred_count  = (int*)         calloc(range_size, sizeof(int));
-    needs_flush = (uint8_t*)     calloc(range_size, 1);
-    use_snap    = (uint8_t*)     calloc(range_size, 1);
-    jump_snap   = (JitCacheSnap*)calloc(range_size, sizeof(JitCacheSnap));
-    if (!pred_count || !needs_flush || !use_snap || !jump_snap) {
-        JIT_FATAL("scratch allocation failed for function %d (range_size=%d)", func_idx, range_size);
-    }
-    for (int pc = start; pc < end; pc++) {                       // collect jump targets
+    pred_count  = (int*)         calloc(range_size, sizeof(int));    // per-label predecessor count
+    needs_flush = (uint8_t*)     calloc(range_size, 1);              // per-label flush flag
+    use_snap    = (uint8_t*)     calloc(range_size, 1);              // per-label snapshot flag
+    jump_snap   = (JitCacheSnap*)calloc(range_size, sizeof(JitCacheSnap));  // per-label snapshots
+    if (!pred_count || !needs_flush || !use_snap || !jump_snap)
+        JIT_FATAL("scratch allocation failed for function %d", func_idx);
+
+    for (int pc = start; pc < end; pc++) {                           // collect jump targets
         Opcode op = chunk->code[pc].opcode;
         if (op == OP_JUMP || op == OP_JUMP_IF_FALSE ||
-            op == OP_JUMP_IF_EQ || op == OP_JUMP_IF_NEQ ||
-            op == OP_JUMP_IF_EQ_NUM || op == OP_JUMP_IF_NEQ_NUM ||
-            op == OP_JUMP_IF_LT || op == OP_JUMP_IF_GT ||
-            op == OP_JUMP_IF_LTE || op == OP_JUMP_IF_GTE ||
-            op == OP_JUMP_IF_EQ_IMM || op == OP_JUMP_IF_NEQ_IMM ||
-            op == OP_JUMP_IF_LT_IMM || op == OP_JUMP_IF_GT_IMM ||
-            op == OP_JUMP_IF_LTE_IMM || op == OP_JUMP_IF_GTE_IMM ||
+            (op >= OP_JUMP_IF_EQ && op <= OP_JUMP_IF_GTE) ||
+            (op >= OP_JUMP_IF_EQ_IMM && op <= OP_JUMP_IF_GTE_IMM) ||
             op == OP_JUMP_MATCH_NUM || op == OP_JUMP_MATCH_STR ||
             op == OP_JUMP_MATCH_BOOL || op == OP_JUMP_MATCH_NONE) {
-            int t = chunk->code[pc].operands[0];                 // jump target
+            int t = chunk->code[pc].operands[0];                     // jump target
             if (t >= start && t < end) is_target[t - start] = true;  // mark as merge point
         }
     }
 
-    for (int pc = start + 1; pc < end; pc++) {                   // fall-through predecessors
+    for (int pc = start + 1; pc < end; pc++) {                       // fall-through predecessors
         if (op_is_terminator(chunk->code[pc - 1].opcode)) continue;
         pred_count[pc - start]++;
     }
-    for (int pc = start; pc < end; pc++) {                       // add jump predecessors
+    for (int pc = start; pc < end; pc++) {                           // add jump predecessors
         Opcode op = chunk->code[pc].opcode;
         if (op == OP_JUMP || op == OP_JUMP_IF_FALSE ||
-            op == OP_JUMP_IF_EQ || op == OP_JUMP_IF_NEQ ||
-            op == OP_JUMP_IF_EQ_NUM || op == OP_JUMP_IF_NEQ_NUM ||
-            op == OP_JUMP_IF_LT || op == OP_JUMP_IF_GT ||
-            op == OP_JUMP_IF_LTE || op == OP_JUMP_IF_GTE ||
-            op == OP_JUMP_IF_EQ_IMM || op == OP_JUMP_IF_NEQ_IMM ||
-            op == OP_JUMP_IF_LT_IMM || op == OP_JUMP_IF_GT_IMM ||
-            op == OP_JUMP_IF_LTE_IMM || op == OP_JUMP_IF_GTE_IMM ||
+            (op >= OP_JUMP_IF_EQ && op <= OP_JUMP_IF_GTE) ||
+            (op >= OP_JUMP_IF_EQ_IMM && op <= OP_JUMP_IF_GTE_IMM) ||
             op == OP_JUMP_MATCH_NUM || op == OP_JUMP_MATCH_STR ||
             op == OP_JUMP_MATCH_BOOL || op == OP_JUMP_MATCH_NONE) {
-            int t = chunk->code[pc].operands[0];                 // jump target
-            if (t < start || t >= end) continue;                 // out of range, ignore
-            is_target[t - start] = true;                         // mark as merge point
+            int t = chunk->code[pc].operands[0];                     // jump target
+            if (t < start || t >= end) continue;                     // out of range
+            is_target[t - start] = true;                             // mark as merge point
             pred_count[t - start]++;
         }
     }
 
-    // needs_flush: label must be entered with an empty cache (multi-pred or backward)
-    for (int i = 0; i < range_size; i++) {                       // classify every label
-        if (!is_target[i]) continue;                             // pc is not a label
-        int tgt = start + i;                                     // absolute target pc
+    for (int i = 0; i < range_size; i++) {                           // classify labels
+        if (!is_target[i]) continue;                                 // pc is not a label
+        int tgt = start + i;                                         // absolute target pc
         if (has_backward_jump(chunk, start, end, tgt) || pred_count[i] > 1)
-            needs_flush[i] = 1;                                  // multi-pred / backward: flush
+            needs_flush[i] = 1;                                      // multi-pred / backward: flush
         else
-            use_snap[i] = 1;                                     // unique forward jump: snapshot
+            use_snap[i] = 1;                                         // unique forward jump: snapshot
     }
 
-    for (int i = 0; i <= range_size; i++) label_off[i] = -1;     // incl. the pc==end sentinel
-    int fixup_count = 0;                                         // pending jumps count
+    for (int i = 0; i <= range_size; i++) label_off[i] = -1;         // incl. pc==end sentinel
 
-    // dead-store elimination below assumes straight-line code: disable it
-    // whenever the function contains any jump (forward OR backward)
-    bool func_has_backward_jump = false;
+    bool func_has_backward_jump = false;                             // dead-store elim gate
     for (int pc = start; pc < end; pc++) {
         Opcode op = chunk->code[pc].opcode;
         if (op == OP_JUMP ||
@@ -182,1186 +270,165 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         }
     }
 
-    size_t rip_fixup_at[256];                                    // rip-relative disp32 offsets
-    int    rip_fixup_imm[256];                                   // imm index per fixup
-    int    rip_fixup_count = 0;                                  // pending rip fixups
-
-    #define RIP_FIXUP_ADD(at_val, imm_val) do {                  \
-        if (rip_fixup_count >= 256)                              \
-            JIT_FATAL("rip fixup overflow in function %d", func_idx); \
-        rip_fixup_at[rip_fixup_count]  = (at_val);               \
-        rip_fixup_imm[rip_fixup_count] = (imm_val);              \
-        rip_fixup_count++;                                       \
-    } while (0)
-
-    size_t tab_fixup_at[256];                                    // inline dispatch tables: 8-byte slots
-    int    tab_fixup_pc[256];                                    // bytecode pc each slot must point at
-    int    tab_fixup_count = 0;                                  // number of pending table slots
-
-    // try the int-specialized body first: on success it lands before the general body
-    size_t int_off   = (size_t)-1;                               // int body offset, -1 if absent
-    int    int_max_n = 0;                                        // wrapper upper bound
-    if (matches_int_self_recursive(ctx, func_idx)) {
-        if (x86_64_emit_int_self_recursive(abi, ctx, cb, func_idx, &int_off)) {
-            int_max_n = 40;                                      // conservative: keeps results < 2^53
-        } else {
+    size_t int_off   = (size_t)-1;                                   // int-specialized body offset
+    int    int_max_n = 0;                                            // wrapper upper bound
+    if (matches_int_self_recursive(ctx, func_idx)) {                 // try int variant first
+        if (x86_64_emit_int_self_recursive(abi, ctx, cb, func_idx, &int_off))
+            int_max_n = 40;                                          // conservative: keeps results < 2^53
+        else
             int_off = (size_t)-1;
-        }
     }
 
-    size_t mark = cb->len;                                       // rollback point
+    size_t mark = cb->len;                                           // rollback point
 
-    XmmCache cache;                                              // register cache state
-    (void)jump_snap;                                             // read on labels, written at jumps
-    x86_cache_clear(&cache);                                     // start empty
+    XmmCache cache_local;                                            // register cache state
+    XmmCache* cache = &cache_local;
+    x86_cache_clear(cache);                                          // start empty
 
-    int pocket_slot_base = nregs;                                // first slot for gpr saves
-    int base_frame  = align16(8 * (nregs + n_pockets));          // incl. gpr save slots only
-    int frame_size  = base_frame + abi->frame_extra;             // plus abi extras
+    int pocket_slot_base = nregs;                                    // first slot for gpr saves
+    int base_frame  = align16(8 * (nregs + n_pockets));              // incl. gpr save slots only
+    int frame_size  = base_frame + abi->frame_extra;                 // plus abi extras
 
-    emit_prologue(cb, abi, frame_size, base_frame);
+    emit_prologue(cb, abi, frame_size, base_frame);                  // push rbp; mov rbp, rsp; sub rsp
 
-    for (int g = 0; g < n_pockets; g++) {                        // save callee-saved gprs
-        int gpr = x86_gpr_pocket_regs[g];
-        int disp = -8 * (pocket_slot_base + g + 1);
+    for (int g = 0; g < n_pockets; g++) {                            // save callee-saved gprs
+        int gpr = x86_gpr_pocket_regs[g];                            // gpr to save
+        int disp = -8 * (pocket_slot_base + g + 1);                  // matching stack slot
         x86_emit_store_r64_rbp(cb, gpr, disp);
     }
 
-    int cached_args = arity < XMM_CACHE_REGS ? arity : XMM_CACHE_REGS;  // args fit in cache
-    for (int i = 0; i < cached_args; i++) {                      // cache incoming args
-        x86_cache_put(&cache, i, i);                             // xmm<i> = slot i, dirty
-    }
-    for (int i = cached_args; i < arity; i++) {                  // spill extras
-        x86_emit_movsd_store(cb, i, x86_slot_disp(i));           // xmm<i> -> slot i
-    }
+    int cached_args = arity < XMM_CACHE_REGS ? arity : XMM_CACHE_REGS;  // args fitting in cache
+    for (int i = 0; i < cached_args; i++)                            // cache incoming args
+        x86_cache_put(cache, i, i);                                  // xmm<i> = slot i, dirty
+    for (int i = cached_args; i < arity; i++)                        // spill extras
+        x86_emit_movsd_store(cb, i, x86_slot_disp(i));               // xmm<i> -> slot i
 
-    for (int pc = start; pc < end; pc++) {                       // emit each bytecode
-        label_off[pc - start] = (int32_t)cb->len;                // record label address
+    X86FuncEmitState st;                                             // one state for the whole fn
+    memset(&st, 0, sizeof(st));
+    st.abi = abi;  st.ctx = ctx;  st.cb = cb;  st.chunk = chunk;
+    st.func_idx = func_idx;  st.start = start;  st.end = end;
+    st.arity = arity;  st.nregs = nregs;  st.range_size = range_size;  st.mark = mark;
+    st.is_target = is_target;  st.label_off = label_off;
+    st.fixups = fixups;  st.fixup_count = 0;
+    st.needs_flush = needs_flush;  st.use_snap = use_snap;  st.jump_snap = jump_snap;
+    st.func_n_imms = func_n_imms;
+    memcpy(st.func_imms, func_imms, sizeof(st.func_imms));
+    st.rip_fixup_count = 0;  st.tab_fixup_count = 0;
+    st.cache = cache;
+    st.slot_pocket_gpr = slot_pocket_gpr;  st.slot_to_pocket = slot_to_pocket;
+    st.n_pockets = n_pockets;
+    st.pocket_slot_base = pocket_slot_base;  st.base_frame = base_frame;
+    st.func_has_backward_jump = func_has_backward_jump;
 
-        if (use_snap[pc - start]) {                              // unique forward-jump label
-            x86_cache_restore(&cache, &jump_snap[pc - start]);   // restore snapshotted state
-        }
+    for (int pc = start; pc < end; pc++) {                           // emit every bytecode
+        label_off[pc - start] = (int32_t)cb->len;                    // record label address
 
-        Instruction* inst = &chunk->code[pc];
-        int d = inst->operands[0];                               // first operand
-        int a = inst->operands[1];                               // second operand
-        int b = inst->operands[2];                               // third operand
-        Opcode op = inst->opcode;                                // opcode shorthand
-        bool did_flush = false;                                  // cache flushed this step
+        if (use_snap[pc - start])                                    // unique forward-jump label
+            x86_cache_restore(cache, &jump_snap[pc - start]);        // restore snapshotted state
 
-        // dead xmm write: pure op writing to a slot never read before its next overwrite
-        if (!func_has_backward_jump &&
-            op_writes_dest(op) &&
-            (op == OP_MOVE || op == OP_LOAD_NUM_IMM || op == OP_LOAD_NUM ||
-             op == OP_LOAD_BOOL || op == OP_LOAD_NONE ||
-             op == OP_ADD || op == OP_SUB || op == OP_MUL || op == OP_DIV ||
-             op == OP_ADD_IMM || op == OP_SUB_IMM || op == OP_MUL_IMM ||
-             op == OP_DIV_IMM || op == OP_NEG || op == OP_INC || op == OP_DEC ||
-             op == OP_CMP_EQ || op == OP_CMP_NEQ ||
-             op == OP_CMP_EQ_NUM || op == OP_CMP_NEQ_NUM ||
-             op == OP_CMP_LT || op == OP_CMP_GT ||
-             op == OP_CMP_LTE || op == OP_CMP_GTE ||
-             op == OP_TABLE_GET || op == OP_TABLE_GET_INT || op == OP_TABLE_GET_NUM) &&
-            d >= 0 && d < JIT_MAX_SLOTS &&
-            !slot_read_before_write(chunk, pc + 1, end, d)) {
-            int xi = cache.slot_reg[d];
-            if (xi >= 0) {                                       // invalidate without spill
-                cache.reg_slot[xi] = -1;
-                cache.slot_reg[d]  = -1;
-                cache.slot_dirty[d] = false;
+        Instruction* inst = &chunk->code[pc];                        // current instruction
+        st.pc = pc;
+        st.inst = inst;
+        st.d = inst->operands[0];                                    // destination operand
+        st.a = inst->operands[1];                                    // first source operand
+        st.b = inst->operands[2];                                    // second source operand
+        st.op = inst->opcode;                                        // opcode shorthand
+        st.did_flush = false;                                        // no flush yet this step
+        st.prefer_xmm0 = false;                                      // default: no xmm0 hint
+
+        if (!func_has_backward_jump &&                               // dead-store elimination
+            op_writes_dest(st.op) &&
+            (st.op == OP_MOVE || st.op == OP_LOAD_NUM_IMM || st.op == OP_LOAD_NUM ||
+             st.op == OP_LOAD_BOOL || st.op == OP_LOAD_NONE ||
+             st.op == OP_ADD || st.op == OP_SUB || st.op == OP_MUL || st.op == OP_DIV ||
+             st.op == OP_ADD_IMM || st.op == OP_SUB_IMM || st.op == OP_MUL_IMM ||
+             st.op == OP_DIV_IMM || st.op == OP_NEG || st.op == OP_INC || st.op == OP_DEC ||
+             st.op == OP_CMP_EQ || st.op == OP_CMP_NEQ ||
+             st.op == OP_CMP_EQ_NUM || st.op == OP_CMP_NEQ_NUM ||
+             st.op == OP_CMP_LT || st.op == OP_CMP_GT ||
+             st.op == OP_CMP_LTE || st.op == OP_CMP_GTE) &&
+            st.d >= 0 && st.d < JIT_MAX_SLOTS &&
+            !slot_read_before_write(chunk, pc + 1, end, st.d)) {
+            int xi = cache->slot_reg[st.d];                          // cached register?
+            if (xi >= 0) {                                           // invalidate without spill
+                cache->reg_slot[xi] = -1;
+                cache->slot_reg[st.d]  = -1;
+                cache->slot_dirty[st.d] = false;
             }
-            continue;                                            // skip to next instruction
+            continue;                                                // skip dead instruction
         }
 
-        bool prefer_xmm0 = false;                                // next op returns this dest?
-        if (pc + 1 < end) {                                      // next instruction exists
+        if (pc + 1 < end) {                                          // prefer xmm0 for next RETURN?
             Instruction* nx = &chunk->code[pc + 1];
             if ((nx->opcode == OP_RETURN || nx->opcode == OP_RETURN_NUM ||
                  nx->opcode == OP_RETURN_BOOL) &&
-                nx->operands[0] == d) {                          // next returns our dest
-                prefer_xmm0 = true;                              // prefer xmm0 as result
+                nx->operands[0] == st.d) {
+                st.prefer_xmm0 = true;                               // next op returns our dest
             }
         }
 
-        // fused emit: CMP_* d,a,b directly followed by JUMP_IF_FALSE d
-        if (pc + 1 < end && !is_target[pc + 1 - start] &&
-            chunk->code[pc + 1].opcode == OP_JUMP_IF_FALSE &&
-            chunk->code[pc + 1].operands[1] == d) {
-            uint8_t fused_jcc = 0;                               // inverted jcc for "jump on false"
-            switch (op) {
-                case OP_CMP_EQ:  case OP_CMP_EQ_NUM:  fused_jcc = 0x85; break;  // jne
-                case OP_CMP_NEQ: case OP_CMP_NEQ_NUM: fused_jcc = 0x84; break;  // je
-                case OP_CMP_LT:  fused_jcc = 0x83; break;                       // jae
-                case OP_CMP_GT:  fused_jcc = 0x86; break;                       // jbe
-                case OP_CMP_LTE: fused_jcc = 0x87; break;                       // ja
-                case OP_CMP_GTE: fused_jcc = 0x82; break;                       // jb
-                default: break;
-            }
-            int fuse_target = fused_jcc ? chunk->code[pc + 1].operands[0] : -1;
-            bool d_dead = fused_jcc && fuse_target >= 0 &&
-                          !slot_read_before_write(chunk, pc + 2, end, d) &&
-                          (fuse_target < pc + 2 ||
-                           !slot_read_before_write(chunk, fuse_target, end, d));
-            if (d_dead) {
-                int xa = x86_cache_load(&cache, cb, a);          // load left operand
-                if (xa < 0) JIT_FATAL("cache full: fused CMP a=%d (func=%d pc=%d)", a, func_idx, pc);
-                int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load right, avoid xa
-                if (xb < 0) JIT_FATAL("cache full: fused CMP b=%d (func=%d pc=%d)", b, func_idx, pc);
-                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
-                if (fuse_target >= start && fuse_target < end) {
-                    if (needs_flush[fuse_target - start]) x86_cache_flush(&cache, cb);
-                    else if (use_snap[fuse_target - start]) x86_cache_snap(&jump_snap[fuse_target - start], &cache);
-                } else {
-                    x86_cache_flush(&cache, cb);
-                }
-                emit_u8(cb, 0x0F); emit_u8(cb, fused_jcc);       // jcc rel32
-                fixups[fixup_count].patch_at  = cb->len;         // record placeholder
-                fixups[fixup_count].target_pc = fuse_target;     // remember target pc
-                fixup_count++;                                   // one more pending fixup
-                emit_i32(cb, 0);                                 // placeholder
-                pc++;                                            // skip the JUMP_IF_FALSE
-                if (pc + 1 < end && needs_flush[pc + 1 - start]) {
-                    x86_cache_flush(&cache, cb);                 // fall-through merge flush
-                }
-                continue;                                        // skip the normal switch
-            }
+        if ((st.op == OP_CMP_EQ || st.op == OP_CMP_EQ_NUM ||         // try cmp+jump fusion
+             st.op == OP_CMP_NEQ || st.op == OP_CMP_NEQ_NUM ||
+             st.op == OP_CMP_LT || st.op == OP_CMP_GT ||
+             st.op == OP_CMP_LTE || st.op == OP_CMP_GTE) &&
+            try_emit_fused_cmp_jump(&st)) {
+            pc = st.pc;                                              // fusion advanced pc
+            continue;
         }
 
-        switch (op) {
-            case OP_MOVE: {                                      // reg-to-reg copy
-                int xa = x86_cache_load(&cache, cb, a);          // find xmm for source
-                if (xa < 0) JIT_FATAL("cache full: MOVE src=%d (func=%d pc=%d)", a, func_idx, pc);
-                x86_cache_put(&cache, xa, d);                    // relabel xmm as dest
-                break;
-            }
-            case OP_LOAD_NUM_IMM: {                              // small int literal
-                int x = x86_cache_alloc_excl(&cache, cb, -1, -1);  // pick a register
-                if (x < 0) JIT_FATAL("cache full: LOAD_NUM_IMM dst=%d (func=%d pc=%d)", d, func_idx, pc);
-                int imm_idx = -1;                                // index into the rip pool
-                for (int i = 0; i < func_n_imms; i++)
-                    if (func_imms[i] == a) { imm_idx = i; break; }
-                if (imm_idx >= 0) {
-                    size_t at = x86_emit_movsd_load_rip(cb, x);  // movsd xmm, [rip+disp32]
-                    RIP_FIXUP_ADD(at, imm_idx);
-                } else {
-                    x86_emit_load_double_imm(cb, x, a);
-                }
-                x86_cache_put(&cache, x, d);                     // cache dest
-                break;
-            }
-            case OP_LOAD_NUM: {                                  // full double constant
-                int x = x86_cache_alloc_excl(&cache, cb, -1, -1);  // pick a register
-                if (x < 0) JIT_FATAL("cache full: LOAD_NUM dst=%d (func=%d pc=%d)", d, func_idx, pc);
-                double v = chunk->constants[a].number_value;     // fetch constant
-                uint64_t bits; memcpy(&bits, &v, 8);             // reinterpret as u64
-                x86_emit_movabs_rax(cb, bits);                   // rax = bit pattern
-                x86_emit_movq_xmm_rax(cb, x);                    // xmmX = rax
-                x86_cache_put(&cache, x, d);                     // cache dest
-                break;
-            }
-            case OP_LOAD_BOOL: {                                 // boolean literal
-                int x = x86_cache_alloc_excl(&cache, cb, -1, -1);  // pick a register
-                if (x < 0) JIT_FATAL("cache full: LOAD_BOOL dst=%d (func=%d pc=%d)", d, func_idx, pc);
-                uint64_t bits = X86_BOOL_BITS | (a ? 1ULL : 0ULL);  // bit 0 carries the value
-                x86_emit_movabs_rax(cb, bits);                   // rax = nan-boxed bool
-                x86_emit_movq_xmm_rax(cb, x);                    // xmmX = rax
-                x86_cache_put(&cache, x, d);                     // cache dest
-                break;
-            }
-            case OP_LOAD_NONE: {                                 // none literal
-                int x = x86_cache_alloc_excl(&cache, cb, -1, -1);  // pick a register
-                if (x < 0) JIT_FATAL("cache full: LOAD_NONE dst=%d (func=%d pc=%d)", d, func_idx, pc);
-                x86_emit_movabs_rax(cb, X86_NONE_BITS);          // rax = NONE bit pattern
-                x86_emit_movq_xmm_rax(cb, x);                    // xmmX = rax
-                x86_cache_put(&cache, x, d);                     // cache dest
-                break;
-            }
-            case OP_ADD:
-            case OP_SUB:
-            case OP_MUL:
-            case OP_DIV: {                                       // binary arithmetic
-                int xa = x86_cache_load(&cache, cb, a);          // load left operand
-                if (xa < 0) JIT_FATAL("cache full: arith a=%d (func=%d pc=%d op=%d)", a, func_idx, pc, op);
-                int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load right, avoid xa
-                if (xb < 0) JIT_FATAL("cache full: arith b=%d (func=%d pc=%d op=%d)", b, func_idx, pc, op);
-                uint8_t arith_op;                                // sse opcode
-                switch (op) {
-                    case OP_ADD: arith_op = 0x58; break;         // addsd
-                    case OP_SUB: arith_op = 0x5C; break;         // subsd
-                    case OP_MUL: arith_op = 0x59; break;         // mulsd
-                    default:     arith_op = 0x5E; break;         // divsd
-                }
-                bool commutative = (op == OP_ADD || op == OP_MUL);  // swap-safe op?
-                if (prefer_xmm0 && commutative && xb == 0 && xa != 0) {
-                    // xmm0 (holding b) is overwritten with the result
-                    if (d != b && cache.slot_dirty[b] &&
-                        slot_read_before_write(chunk, pc + 1, end, b)) {
-                        x86_emit_movsd_store(cb, 0, x86_slot_disp(b));  // preserve b
-                        cache.slot_dirty[b] = false;
-                    }
-                    x86_emit_sse_arith_rr(cb, arith_op, 0, xa);  // xmm0 = xmm0 op xa
-                    x86_cache_put(&cache, 0, d);                 // relabel xmm0 as dest
-                } else {
-                    // xa (holding a) is overwritten with the result
-                    if (d != a && cache.slot_dirty[a] &&
-                        slot_read_before_write(chunk, pc + 1, end, a)) {
-                        x86_emit_movsd_store(cb, xa, x86_slot_disp(a));  // preserve a
-                        cache.slot_dirty[a] = false;
-                    }
-                    x86_emit_sse_arith_rr(cb, arith_op, xa, xb); // xa op= xb
-                    x86_cache_put(&cache, xa, d);                // relabel xa as dest
-                }
-                break;
-            }
-            case OP_ADD_IMM:
-            case OP_SUB_IMM:
-            case OP_MUL_IMM:
-            case OP_DIV_IMM: {                                   // binary arithmetic with immediate
-                int xa = x86_cache_load(&cache, cb, a);
-                if (xa < 0) JIT_FATAL("cache full: arith_imm a=%d (func=%d pc=%d op=%d)", a, func_idx, pc, op);
-                uint8_t arith_op;
-                switch (op) {
-                    case OP_ADD_IMM: arith_op = 0x58; break;
-                    case OP_SUB_IMM: arith_op = 0x5C; break;
-                    case OP_MUL_IMM: arith_op = 0x59; break;
-                    default:         arith_op = 0x5E; break;
-                }
-                int imm_idx = -1;                                // index into the rip pool
-                for (int i = 0; i < func_n_imms; i++)
-                    if (func_imms[i] == b) { imm_idx = i; break; }
-                bool preserve = (d != a) &&
-                    slot_read_before_write(chunk, pc + 1, end, a);
-                if (imm_idx >= 0) {
-                    if (preserve) {
-                        int xd = x86_cache_alloc_excl(&cache, cb, xa, -1);
-                        if (xd >= 0) {
-                            x86_emit_sse66_rr(cb, 0x28, xd, xa);
-                            size_t at = x86_emit_sse_arith_rip(cb, arith_op, xd);
-                            RIP_FIXUP_ADD(at, imm_idx);
-                            x86_cache_put(&cache, xd, d);
-                            break;
-                        }
-                    }
-                    size_t at = x86_emit_sse_arith_rip(cb, arith_op, xa);
-                    RIP_FIXUP_ADD(at, imm_idx);
-                    x86_cache_put(&cache, xa, d);
-                    break;
-                }
-                x86_emit_load_double_imm(cb, XMM_SCRATCH, b);
-                if (preserve) {
-                    int xd = x86_cache_alloc_excl(&cache, cb, xa, XMM_SCRATCH);
-                    if (xd >= 0) {
-                        x86_emit_sse66_rr(cb, 0x28, xd, xa);
-                        x86_emit_sse_arith_rr(cb, arith_op, xd, XMM_SCRATCH);
-                        x86_cache_put(&cache, xd, d);
-                        break;
-                    }
-                }
-                x86_emit_sse_arith_rr(cb, arith_op, xa, XMM_SCRATCH);
-                x86_cache_put(&cache, xa, d);
-                break;
-            }
-            case OP_MOD_IMM: {                                   // modulo with immediate: a - trunc(a/imm)*imm
-                int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) JIT_FATAL("cache full: MOD_IMM a=%d (func=%d pc=%d)", a, func_idx, pc);
-                x86_emit_load_double_imm(cb, XMM_SCRATCH, b);    // xmm7 = (double)b (cvtsi2sd)
-                int xt = x86_cache_alloc_excl(&cache, cb, xa, XMM_SCRATCH);  // temp for a/imm
-                if (xt < 0) JIT_FATAL("cache full: MOD_IMM temp (func=%d pc=%d)", func_idx, pc);
-                x86_emit_sse66_rr(cb, 0x28, xt, xa);             // xt = a
-                x86_emit_sse_arith_rr(cb, 0x5E, xt, XMM_SCRATCH);// xt = a / imm
-                emit_u8(cb, 0x66);                               // roundsd legacy prefix
-                x86_rex_rb(cb, xt, xt);                          // rex.r/rex.b for xmm8-xmm15
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x3A);
-                emit_u8(cb, 0x0B);                               // roundsd opcode
-                emit_u8(cb, 0xC0 | ((xt & 7) << 3) | (xt & 7));  // round xt, xt
-                emit_u8(cb, 0x03);                               // round mode: truncate
-                x86_emit_sse_arith_rr(cb, 0x59, xt, XMM_SCRATCH);// xt = trunc(a/imm) * imm
-                // dest != source: a must survive the in-place subtract
-                if (d != a && cache.slot_dirty[a] &&
-                    slot_read_before_write(chunk, pc + 1, end, a)) {
-                    x86_emit_movsd_store(cb, xa, x86_slot_disp(a));
-                    cache.slot_dirty[a] = false;
-                }
-                x86_emit_sse_arith_rr(cb, 0x5C, xa, xt);         // a = a - xt
-                x86_cache_put(&cache, xa, d);                    // relabel xa as dest
-                break;
-            }
-            case OP_MOD: {                                       // x - trunc(x/y)*y
-                int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) JIT_FATAL("cache full: MOD a=%d (func=%d pc=%d)", a, func_idx, pc);
-                int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) JIT_FATAL("cache full: MOD b=%d (func=%d pc=%d)", b, func_idx, pc);
-                x86_emit_sse66_rr(cb, 0x28, XMM_SCRATCH, xa);    // movapd scratch, a
-                x86_emit_sse_arith_rr(cb, 0x5E, XMM_SCRATCH, xb);  // divsd  scratch, b
-                emit_u8(cb, 0x66);                               // roundsd legacy prefix
-                x86_rex_rb(cb, XMM_SCRATCH, XMM_SCRATCH);        // rex.r/rex.b for xmm8-xmm15
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x3A);
-                emit_u8(cb, 0x0B);                               // roundsd opcode
-                emit_u8(cb, 0xC0 | ((XMM_SCRATCH & 7) << 3) | (XMM_SCRATCH & 7));  // modrm scratch, scratch
-                emit_u8(cb, 0x03);                               // round mode: truncate
-                x86_emit_sse_arith_rr(cb, 0x59, XMM_SCRATCH, xb);  // mulsd  scratch, b
-                // dest != source: a must survive the in-place subtract
-                if (d != a && cache.slot_dirty[a] &&
-                    slot_read_before_write(chunk, pc + 1, end, a)) {
-                    x86_emit_movsd_store(cb, xa, x86_slot_disp(a));
-                    cache.slot_dirty[a] = false;
-                }
-                x86_emit_sse_arith_rr(cb, 0x5C, xa, XMM_SCRATCH);  // subsd  a, scratch
-                x86_cache_put(&cache, xa, d);                    // relabel xa as dest
-                break;
-            }
-            case OP_NEG: {                                       // unary minus
-                int xa = x86_cache_load(&cache, cb, a);          // load operand
-                if (xa < 0) JIT_FATAL("cache full: NEG a=%d (func=%d pc=%d)", a, func_idx, pc);
-                x86_emit_sse66_rr(cb, 0x57, XMM_SCRATCH, XMM_SCRATCH);  // xorpd scratch, scratch
-                x86_emit_sse_arith_rr(cb, 0x5C, XMM_SCRATCH, xa);  // subsd scratch, a
-                // dest != source: a must survive the in-place movapd
-                if (d != a && cache.slot_dirty[a] &&
-                    slot_read_before_write(chunk, pc + 1, end, a)) {
-                    x86_emit_movsd_store(cb, xa, x86_slot_disp(a));
-                    cache.slot_dirty[a] = false;
-                }
-                x86_emit_sse66_rr(cb, 0x28, xa, XMM_SCRATCH);    // movapd a, scratch
-                x86_cache_put(&cache, xa, d);                    // relabel xa as dest
-                break;
-            }
-            case OP_INC:
-            case OP_DEC: {                                       // in-place +1 / -1
-                int xd = x86_cache_load(&cache, cb, d);          // load dest
-                if (xd < 0) JIT_FATAL("cache full: INC/DEC dst=%d (func=%d pc=%d op=%d)", d, func_idx, pc, op);
-                x86_emit_movabs_rax(cb, 0x3FF0000000000000ULL);  // rax = 1.0 bits
-                x86_emit_movq_xmm_rax(cb, XMM_SCRATCH);          // scratch = 1.0
-                uint8_t arith_op = (op == OP_INC) ? 0x58 : 0x5C; // addsd / subsd
-                x86_emit_sse_arith_rr(cb, arith_op, xd, XMM_SCRATCH);  // xd op= 1.0
-                x86_cache_put(&cache, xd, d);                    // mark dirty
-                break;
-            }
-            case OP_CMP_EQ:
-            case OP_CMP_EQ_NUM: {                                // d = (a == b)
-                int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) JIT_FATAL("cache full: CMP a=%d (func=%d pc=%d op=%d)", a, func_idx, pc, op);
-                int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) JIT_FATAL("cache full: CMP b=%d (func=%d pc=%d op=%d)", b, func_idx, pc, op);
-                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
-                int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
-                if (xd < 0) JIT_FATAL("cache full: CMP dst=%d (func=%d pc=%d op=%d)", d, func_idx, pc, op);
-                x86_emit_cmp_box_result(cb, xd, 0x94);           // sete al, boxed MAKE_BOOL
-                x86_cache_put(&cache, xd, d);                    // cache dest
-                break;
-            }
-            case OP_CMP_NEQ:
-            case OP_CMP_NEQ_NUM: {                               // d = (a != b)
-                int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) JIT_FATAL("cache full: CMP a=%d (func=%d pc=%d op=%d)", a, func_idx, pc, op);
-                int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) JIT_FATAL("cache full: CMP b=%d (func=%d pc=%d op=%d)", b, func_idx, pc, op);
-                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
-                int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
-                if (xd < 0) JIT_FATAL("cache full: CMP dst=%d (func=%d pc=%d op=%d)", d, func_idx, pc, op);
-                x86_emit_cmp_box_result(cb, xd, 0x95);           // setne al, boxed MAKE_BOOL
-                x86_cache_put(&cache, xd, d);                    // cache dest
-                break;
-            }
-            case OP_CMP_LT: {                                    // d = (a < b)
-                int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) JIT_FATAL("cache full: CMP a=%d (func=%d pc=%d op=%d)", a, func_idx, pc, op);
-                int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) JIT_FATAL("cache full: CMP b=%d (func=%d pc=%d op=%d)", b, func_idx, pc, op);
-                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
-                int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
-                if (xd < 0) JIT_FATAL("cache full: CMP dst=%d (func=%d pc=%d op=%d)", d, func_idx, pc, op);
-                x86_emit_cmp_box_result(cb, xd, 0x92);           // setb al, boxed MAKE_BOOL
-                x86_cache_put(&cache, xd, d);                    // cache dest
-                break;
-            }
-            case OP_CMP_GT: {                                    // d = (a > b)
-                int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) JIT_FATAL("cache full: CMP a=%d (func=%d pc=%d op=%d)", a, func_idx, pc, op);
-                int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) JIT_FATAL("cache full: CMP b=%d (func=%d pc=%d op=%d)", b, func_idx, pc, op);
-                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
-                int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
-                if (xd < 0) JIT_FATAL("cache full: CMP dst=%d (func=%d pc=%d op=%d)", d, func_idx, pc, op);
-                x86_emit_cmp_box_result(cb, xd, 0x97);           // seta al, boxed MAKE_BOOL
-                x86_cache_put(&cache, xd, d);                    // cache dest
-                break;
-            }
-            case OP_CMP_LTE: {                                   // d = (a <= b)
-                int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) JIT_FATAL("cache full: CMP a=%d (func=%d pc=%d op=%d)", a, func_idx, pc, op);
-                int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) JIT_FATAL("cache full: CMP b=%d (func=%d pc=%d op=%d)", b, func_idx, pc, op);
-                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
-                int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
-                if (xd < 0) JIT_FATAL("cache full: CMP dst=%d (func=%d pc=%d op=%d)", d, func_idx, pc, op);
-                x86_emit_cmp_box_result(cb, xd, 0x96);           // setbe al, boxed MAKE_BOOL
-                x86_cache_put(&cache, xd, d);                    // cache dest
-                break;
-            }
-            case OP_CMP_GTE: {                                   // d = (a >= b)
-                int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) JIT_FATAL("cache full: CMP a=%d (func=%d pc=%d op=%d)", a, func_idx, pc, op);
-                int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) JIT_FATAL("cache full: CMP b=%d (func=%d pc=%d op=%d)", b, func_idx, pc, op);
-                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
-                int xd = x86_cache_alloc_excl(&cache, cb, xa, xb);  // pick dest register
-                if (xd < 0) JIT_FATAL("cache full: CMP dst=%d (func=%d pc=%d op=%d)", d, func_idx, pc, op);
-                x86_emit_cmp_box_result(cb, xd, 0x93);           // setae al, boxed MAKE_BOOL
-                x86_cache_put(&cache, xd, d);                    // cache dest
-                break;
-            }
-            case OP_JUMP: {                                      // unconditional jump
-                if (d >= start && d < end) {                     // in-range target only
-                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
-                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
-                } else {
-                    x86_cache_flush(&cache, cb);                 // out of range: safest
-                }
-                emit_u8(cb, 0xE9);                               // jmp rel32 opcode
-                fixups[fixup_count].patch_at  = cb->len;         // record placeholder
-                fixups[fixup_count].target_pc = d;               // remember target pc
-                fixup_count++;                                   // one more pending fixup
-                emit_i32(cb, 0);                                 // placeholder
-                did_flush = true;                                // suppress merge flush
-                break;
-            }
-            case OP_JUMP_IF_FALSE: {                             // branch when cond is false
-                int xa = x86_cache_load(&cache, cb, a);          // load condition
-                if (xa < 0) JIT_FATAL("cache full: JUMP_IF_FALSE cond=%d (func=%d pc=%d)", a, func_idx, pc);
-                x86_emit_movq_rax_xmm(cb, xa);                   // rax = raw 64-bit slot
-                emit_u8(cb, 0xA8); emit_u8(cb, 0x01);            // test al, 1
-                if (d >= start && d < end) {
-                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
-                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
-                } else {
-                    x86_cache_flush(&cache, cb);
-                }
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x84);            // je rel32 (bit0 == 0 -> false)
-                fixups[fixup_count].patch_at  = cb->len;         // record placeholder
-                fixups[fixup_count].target_pc = d;               // remember target pc
-                fixup_count++;                                   // one more pending fixup
-                emit_i32(cb, 0);                                 // placeholder
-                did_flush = true;                                // suppress merge flush
-                break;
-            }
-            case OP_JUMP_IF_EQ:
-            case OP_JUMP_IF_EQ_NUM: {                            // branch if a == b
-                int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) JIT_FATAL("cache full: JUMP_IF_EQ a=%d (func=%d pc=%d)", a, func_idx, pc);
-                int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) JIT_FATAL("cache full: JUMP_IF_EQ b=%d (func=%d pc=%d)", b, func_idx, pc);
-                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
-                if (d >= start && d < end) {
-                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
-                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
-                } else {
-                    x86_cache_flush(&cache, cb);
-                }
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x84);            // je rel32
-                fixups[fixup_count].patch_at  = cb->len;         // record placeholder
-                fixups[fixup_count].target_pc = d;               // remember target pc
-                fixup_count++;                                   // one more pending fixup
-                emit_i32(cb, 0);                                 // placeholder
-                did_flush = true;                                // suppress merge flush
-                break;
-            }
-            case OP_JUMP_IF_NEQ:
-            case OP_JUMP_IF_NEQ_NUM: {                           // branch if a != b
-                int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) JIT_FATAL("cache full: JUMP_IF_NEQ a=%d (func=%d pc=%d)", a, func_idx, pc);
-                int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) JIT_FATAL("cache full: JUMP_IF_NEQ b=%d (func=%d pc=%d)", b, func_idx, pc);
-                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
-                if (d >= start && d < end) {
-                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
-                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
-                } else {
-                    x86_cache_flush(&cache, cb);
-                }
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x85);            // jne rel32
-                fixups[fixup_count].patch_at  = cb->len;         // record placeholder
-                fixups[fixup_count].target_pc = d;               // remember target pc
-                fixup_count++;                                   // one more pending fixup
-                emit_i32(cb, 0);                                 // placeholder
-                did_flush = true;                                // suppress merge flush
-                break;
-            }
-            case OP_JUMP_IF_LT: {                                // branch if a < b
-                int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) JIT_FATAL("cache full: JUMP_IF_LT a=%d (func=%d pc=%d)", a, func_idx, pc);
-                int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) JIT_FATAL("cache full: JUMP_IF_LT b=%d (func=%d pc=%d)", b, func_idx, pc);
-                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
-                if (d >= start && d < end) {
-                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
-                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
-                } else {
-                    x86_cache_flush(&cache, cb);
-                }
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x82);            // jb rel32
-                fixups[fixup_count].patch_at  = cb->len;         // record placeholder
-                fixups[fixup_count].target_pc = d;               // remember target pc
-                fixup_count++;                                   // one more pending fixup
-                emit_i32(cb, 0);                                 // placeholder
-                did_flush = true;                                // suppress merge flush
-                break;
-            }
-            case OP_JUMP_IF_GT: {                                // branch if a > b
-                int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) JIT_FATAL("cache full: JUMP_IF_GT a=%d (func=%d pc=%d)", a, func_idx, pc);
-                int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) JIT_FATAL("cache full: JUMP_IF_GT b=%d (func=%d pc=%d)", b, func_idx, pc);
-                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
-                if (d >= start && d < end) {
-                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
-                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
-                } else {
-                    x86_cache_flush(&cache, cb);
-                }
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x87);            // ja rel32
-                fixups[fixup_count].patch_at  = cb->len;         // record placeholder
-                fixups[fixup_count].target_pc = d;               // remember target pc
-                fixup_count++;                                   // one more pending fixup
-                emit_i32(cb, 0);                                 // placeholder
-                did_flush = true;                                // suppress merge flush
-                break;
-            }
-            case OP_JUMP_IF_LTE: {                               // branch if a <= b
-                int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) JIT_FATAL("cache full: JUMP_IF_LTE a=%d (func=%d pc=%d)", a, func_idx, pc);
-                int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) JIT_FATAL("cache full: JUMP_IF_LTE b=%d (func=%d pc=%d)", b, func_idx, pc);
-                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
-                if (d >= start && d < end) {
-                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
-                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
-                } else {
-                    x86_cache_flush(&cache, cb);
-                }
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x86);            // jbe rel32
-                fixups[fixup_count].patch_at  = cb->len;         // record placeholder
-                fixups[fixup_count].target_pc = d;               // remember target pc
-                fixup_count++;                                   // one more pending fixup
-                emit_i32(cb, 0);                                 // placeholder
-                did_flush = true;                                // suppress merge flush
-                break;
-            }
-            case OP_JUMP_IF_GTE: {                               // branch if a >= b
-                int xa = x86_cache_load(&cache, cb, a);          // load a
-                if (xa < 0) JIT_FATAL("cache full: JUMP_IF_GTE a=%d (func=%d pc=%d)", a, func_idx, pc);
-                int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);  // load b, avoid xa
-                if (xb < 0) JIT_FATAL("cache full: JUMP_IF_GTE b=%d (func=%d pc=%d)", b, func_idx, pc);
-                x86_emit_ucomisd_rr(cb, xa, xb);                 // ucomisd a, b
-                if (d >= start && d < end) {
-                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
-                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
-                } else {
-                    x86_cache_flush(&cache, cb);
-                }
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x83);            // jae rel32
-                fixups[fixup_count].patch_at  = cb->len;         // record placeholder
-                fixups[fixup_count].target_pc = d;               // remember target pc
-                fixup_count++;                                   // one more pending fixup
-                emit_i32(cb, 0);                                 // placeholder
-                did_flush = true;                                // suppress merge flush
-                break;
-            }
-            case OP_JUMP_IF_EQ_IMM:                              // branch if a == imm
-            case OP_JUMP_IF_NEQ_IMM:
-            case OP_JUMP_IF_LT_IMM:
-            case OP_JUMP_IF_GT_IMM:
-            case OP_JUMP_IF_LTE_IMM:
-            case OP_JUMP_IF_GTE_IMM: {                           // imm-jump variants share the pattern
-                int xa = x86_cache_load(&cache, cb, a);          // load left operand
-                if (xa < 0) JIT_FATAL("cache full: JUMP_IF_IMM a=%d (func=%d pc=%d op=%d)", a, func_idx, pc, op);
-                int imm_idx = -1;                                // index into the rip pool
-                for (int i = 0; i < func_n_imms; i++)
-                    if (func_imms[i] == b) { imm_idx = i; break; }
-                if (imm_idx >= 0) {
-                    size_t at = x86_emit_ucomisd_rip(cb, xa);    // ucomisd xa, [rip+disp32]
-                    RIP_FIXUP_ADD(at, imm_idx);
-                } else {
-                    x86_emit_load_double_imm(cb, XMM_SCRATCH, b);
-                    x86_emit_ucomisd_rr(cb, xa, XMM_SCRATCH);
-                }
-                if (d >= start && d < end) {
-                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
-                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
-                } else {
-                    x86_cache_flush(&cache, cb);
-                }
-                uint8_t jcc;
-                switch (op) {
-                    case OP_JUMP_IF_EQ_IMM:  jcc = 0x84; break;  // je
-                    case OP_JUMP_IF_NEQ_IMM: jcc = 0x85; break;  // jne
-                    case OP_JUMP_IF_LT_IMM:  jcc = 0x82; break;  // jb
-                    case OP_JUMP_IF_GT_IMM:  jcc = 0x87; break;  // ja
-                    case OP_JUMP_IF_LTE_IMM: jcc = 0x86; break;  // jbe
-                    default:                 jcc = 0x83; break;  // jae (gte)
-                }
-                emit_u8(cb, 0x0F); emit_u8(cb, jcc);             // conditional jump
-                fixups[fixup_count].patch_at  = cb->len;
-                fixups[fixup_count].target_pc = d;
-                fixup_count++;
-                emit_i32(cb, 0);
-                did_flush = true;
-                break;
-            }
-            case OP_JUMP_IF_NONE: {                              // jump if rax holds the none pattern
-                int xa = x86_cache_load(&cache, cb, a);
-                if (xa < 0) JIT_FATAL("cache full: JUMP_IF_NONE a=%d (pc=%d)", a, pc);
-                x86_emit_movq_rax_xmm(cb, xa);                   // rax = raw 64-bit value
-                x86_emit_movabs_r11(cb, X86_NONE_BITS);          // r11 = NONE bit pattern
-                x86_emit_cmp_rax_r11(cb);                        // cmp rax, r11
-                if (d >= start && d < end) {
-                    if (needs_flush[d - start])      x86_cache_flush(&cache, cb);
-                    else if (use_snap[d - start])    x86_cache_snap(&jump_snap[d - start], &cache);
-                } else {
-                    x86_cache_flush(&cache, cb);
-                }
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x84);            // je rel32
-                fixups[fixup_count].patch_at  = cb->len;
-                fixups[fixup_count].target_pc = d;
-                fixup_count++;
-                emit_i32(cb, 0);
-                did_flush = true;
-                break;
-            }
-            case OP_JUMP_IF_NOT_NONE: {                          // jump if rax does not hold none
-                int xa = x86_cache_load(&cache, cb, a);
-                if (xa < 0) JIT_FATAL("cache full: JUMP_IF_NOT_NONE a=%d (pc=%d)", a, pc);
-                x86_emit_movq_rax_xmm(cb, xa);                   // rax = raw 64-bit value
-                x86_emit_movabs_r11(cb, X86_NONE_BITS);          // r11 = NONE bit pattern
-                x86_emit_cmp_rax_r11(cb);                        // cmp rax, r11
-                if (d >= start && d < end) {
-                    if (needs_flush[d - start])      x86_cache_flush(&cache, cb);
-                    else if (use_snap[d - start])    x86_cache_snap(&jump_snap[d - start], &cache);
-                } else {
-                    x86_cache_flush(&cache, cb);
-                }
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x85);            // jne rel32
-                fixups[fixup_count].patch_at  = cb->len;
-                fixups[fixup_count].target_pc = d;
-                fixup_count++;
-                emit_i32(cb, 0);
-                did_flush = true;
-                break;
-            }
-            case OP_JUMP_MATCH_NUM: {                            // jump if R[a] is a number == const[b]
-                int xa = x86_cache_load(&cache, cb, a);          // load subject
-                if (xa < 0) JIT_FATAL("cache full: JUMP_MATCH_NUM subj=%d (func=%d pc=%d)", a, func_idx, pc);
-                double c = chunk->constants[b].number_value;     // fetch constant
-                uint64_t cbits; memcpy(&cbits, &c, 8);           // reinterpret as u64
-                x86_emit_movabs_rax(cb, cbits);                  // rax = constant bits
-                x86_emit_movq_xmm_rax(cb, XMM_SCRATCH);          // scratch = constant
-                x86_emit_ucomisd_rr(cb, xa, XMM_SCRATCH);        // ucomisd subj, const
-                if (d >= start && d < end) {
-                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
-                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
-                } else {
-                    x86_cache_flush(&cache, cb);
-                }
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x8A);            // jp skip (subj was NaN-tagged)
-                size_t skip_patch = cb->len;
-                emit_i32(cb, 0);
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x84);            // je target
-                fixups[fixup_count].patch_at  = cb->len;
-                fixups[fixup_count].target_pc = d;
-                fixup_count++;
-                emit_i32(cb, 0);
-                int32_t skip_rel = (int32_t)cb->len - (int32_t)(skip_patch + 4);
-                memcpy(cb->buf + skip_patch, &skip_rel, 4);      // patch skip
-                did_flush = true;
-                break;
-            }
-            case OP_JUMP_MATCH_STR: {                            // jump if R[a] is a string == const[b]
-                x86_cache_flush(&cache, cb);                     // call clobbers xmm
-#if defined(_WIN32) || defined(_WIN64)
-                x86_emit_load_r64_rbp(cb, X86_RCX, x86_slot_disp(a));  // win64: rcx = subject
-#else
-                x86_emit_load_r64_rbp(cb, X86_RDI, x86_slot_disp(a));  // sysv: rdi = subject
-#endif
-                uint64_t addr = (uint64_t)(uintptr_t)&chunk->constants[b].cached_str;
-                x86_emit_movabs_rax(cb, addr);                   // rax = &cached_str
-#if defined(_WIN32) || defined(_WIN64)
-                x86_emit_load_r64_base(cb, X86_RDX, X86_RAX, 0); // win64: rdx = cached_str
-#else
-                x86_emit_load_r64_base(cb, X86_RSI, X86_RAX, 0); // sysv: rsi = cached_str
-#endif
-                uint64_t helper = (uint64_t)(uintptr_t)&jit_match_str;
-                x86_emit_movabs_rax(cb, helper);                 // rax = helper
-                emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);            // call rax
-                emit_u8(cb, 0x85); emit_u8(cb, 0xC0);            // test eax, eax
-                x86_cache_clear(&cache);                         // callee clobbered xmm
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x85);            // jne target  (match → jump)
-                fixups[fixup_count].patch_at  = cb->len;
-                fixups[fixup_count].target_pc = d;
-                fixup_count++;
-                emit_i32(cb, 0);
-                did_flush = true;
-                break;
-            }
-            case OP_JUMP_MATCH_BOOL: {                           // jump if R[a] == MAKE_BOOL(b)
-                int xa = x86_cache_load(&cache, cb, a);
-                if (xa < 0) JIT_FATAL("cache full: JUMP_MATCH_BOOL subj=%d (func=%d pc=%d)", a, func_idx, pc);
-                x86_emit_movq_rax_xmm(cb, xa);                   // rax = subject bits
-                uint64_t expect = X86_BOOL_BITS | (b ? 1ULL : 0ULL);
-                x86_emit_movabs_r11(cb, expect);                 // r11 = expected bool bits
-                emit_u8(cb, 0x4C); emit_u8(cb, 0x39); emit_u8(cb, 0xD8);  // cmp rax, r11
-                if (d >= start && d < end) {
-                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
-                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
-                } else {
-                    x86_cache_flush(&cache, cb);
-                }
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x84);            // je target
-                fixups[fixup_count].patch_at  = cb->len;
-                fixups[fixup_count].target_pc = d;
-                fixup_count++;
-                emit_i32(cb, 0);
-                did_flush = true;
-                break;
-            }
-            case OP_JUMP_MATCH_NONE: {                           // jump if R[a] == MAKE_NONE()
-                int xa = x86_cache_load(&cache, cb, a);
-                if (xa < 0) JIT_FATAL("cache full: JUMP_MATCH_NONE subj=%d (func=%d pc=%d)", a, func_idx, pc);
-                x86_emit_movq_rax_xmm(cb, xa);                   // rax = subject bits
-                x86_emit_movabs_r11(cb, X86_NONE_BITS);          // r11 = NONE bits
-                emit_u8(cb, 0x4C); emit_u8(cb, 0x39); emit_u8(cb, 0xD8);  // cmp rax, r11
-                if (d >= start && d < end) {
-                    if (needs_flush[d - start]) x86_cache_flush(&cache, cb);
-                    else if (use_snap[d - start]) x86_cache_snap(&jump_snap[d - start], &cache);
-                } else {
-                    x86_cache_flush(&cache, cb);
-                }
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x84);            // je target
-                fixups[fixup_count].patch_at  = cb->len;
-                fixups[fixup_count].target_pc = d;
-                fixup_count++;
-                emit_i32(cb, 0);
-                did_flush = true;
-                break;
-            }
-            case OP_JUMP_TABLE: {                                // dense integer match dispatch
-                int subj_reg = inst->operands[0];
-                int min_val  = inst->operands[1];
-                int tbl_idx  = inst->operands[2];
-                Constant* tbl = &chunk->constants[tbl_idx];
-                if (tbl->type != CONST_JUMP_TABLE)
-                    JIT_FATAL("OP_JUMP_TABLE without CONST_JUMP_TABLE (func=%d pc=%d)", func_idx, pc);
-                int range = tbl->jump_table.count;
+        x86_func_dispatch(&st);                                      // fan out to category handler
 
-                int xa = x86_cache_load(&cache, cb, subj_reg);
-                if (xa < 0) JIT_FATAL("cache full: JUMP_TABLE subj=%d (func=%d pc=%d)", subj_reg, func_idx, pc);
-
-                // spill dirty slots to memory before any branch
-                x86_cache_flush(&cache, cb);
-
-                // verify the value was a whole number by round-tripping
-                x86_emit_cvttsd2si_eax(cb, xa);                  // eax = (int)subj
-                emit_u8(cb, 0xF2);                               // cvtsi2sd xmm15, eax
-                x86_rex_r(cb, XMM_SCRATCH);
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x2A);
-                emit_u8(cb, 0xC0 | ((XMM_SCRATCH & 7) << 3));
-                x86_emit_ucomisd_rr(cb, xa, XMM_SCRATCH);        // ucomisd subj, truncated
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x85);            // jne miss
-                size_t miss_patch = cb->len;
-                emit_i32(cb, 0);
-
-                if (min_val != 0) {                              // sub eax, min
-                    if (min_val >= -128 && min_val <= 127) {
-                        emit_u8(cb, 0x83); emit_u8(cb, 0xE8);
-                        emit_u8(cb, (uint8_t)min_val);
-                    } else {
-                        emit_u8(cb, 0x2D); emit_u32(cb, (uint32_t)min_val);
-                    }
-                }
-                if (range <= 127) {                              // cmp eax, range
-                    emit_u8(cb, 0x83); emit_u8(cb, 0xF8);
-                    emit_u8(cb, (uint8_t)range);
-                } else {
-                    emit_u8(cb, 0x3D); emit_u32(cb, (uint32_t)range);
-                }
-                emit_u8(cb, 0x0F); emit_u8(cb, 0x83);            // jae miss
-                size_t bounds_patch = cb->len;
-                emit_i32(cb, 0);
-
-                emit_u8(cb, 0x4C); emit_u8(cb, 0x8D);            // lea r11, [rip + table_disp]
-                emit_u8(cb, 0x1D);
-                size_t table_disp_at = cb->len;
-                emit_i32(cb, 0);
-                emit_u8(cb, 0x41); emit_u8(cb, 0xFF);            // jmp qword [r11 + rax*8]
-                emit_u8(cb, 0x24);
-                emit_u8(cb, 0xC3);                               // sib: scale=8, index=rax, base=r11
-
-                size_t table_start = cb->len;                    // inline absolute-address table
-                for (int i = 0; i < range; i++) {
-                    if (tab_fixup_count >= 256)
-                        JIT_FATAL("jump-table slot overflow in function %d", func_idx);
-                    tab_fixup_at[tab_fixup_count] = cb->len;
-                    tab_fixup_pc[tab_fixup_count] = tbl->jump_table.addresses[i];
-                    tab_fixup_count++;
-                    emit_u64(cb, 0);                             // absolute target, patched later
-                }
-                size_t after_table = cb->len;
-
-                int32_t tdisp = (int32_t)table_start - (int32_t)(table_disp_at + 4);
-                memcpy(cb->buf + table_disp_at, &tdisp, 4);
-                int32_t mrel = (int32_t)after_table - (int32_t)(miss_patch + 4);
-                memcpy(cb->buf + miss_patch, &mrel, 4);
-                int32_t brel = (int32_t)after_table - (int32_t)(bounds_patch + 4);
-                memcpy(cb->buf + bounds_patch, &brel, 4);
-
-                did_flush = true;                                // cache already flushed above
-                break;
-            }
-            case OP_SWITCH_STR: {                                // perfect-hash string dispatch
-                int subj_reg  = inst->operands[0];               // subject register
-                int table_idx = inst->operands[1];               // constant pool index
-                Constant* c = &chunk->constants[table_idx];
-                if (c->type != CONST_STR_SWITCH)
-                    JIT_FATAL("OP_SWITCH_STR without CONST_STR_SWITCH (func=%d pc=%d)",
-                              func_idx, pc);
-
-                // budget: one cmp+je (10 bytes) per unique target + one jmp + slack
-                size_t needed = (size_t)c->str_switch.count * 16 + 128;
-                if (cb->len + needed > cb->cap)
-                    JIT_FATAL("code buffer too small for SWITCH_STR (func=%d pc=%d)",
-                              func_idx, pc);
-                if (fixup_count + c->str_switch.count + 1 >
-                    (int)ctx->chunk->code_count)
-                    JIT_FATAL("fixup buffer too small for SWITCH_STR (func=%d pc=%d)",
-                              func_idx, pc);
-
-                x86_cache_flush(&cache, cb);                     // spill before the helper call
-
-                // arg0 = subject (sysv: rdi, win64: rcx)
-                x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(subj_reg));
-#if defined(_WIN32) || defined(_WIN64)
-                x86_emit_mov_r64_r64(cb, X86_RCX, X86_RAX);
-#else
-                x86_emit_mov_r64_r64(cb, X86_RDI, X86_RAX);
-#endif
-
-                // arg1 = chunk pointer (sysv: rsi, win64: rdx); arg2 = table_idx
-                x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)chunk);
-#if defined(_WIN32) || defined(_WIN64)
-                x86_emit_mov_r64_r64(cb, X86_RDX, X86_RAX);
-                emit_u8(cb, 0x41); emit_u8(cb, 0xB8);            // mov r8d, imm32
-                emit_u32(cb, (uint32_t)table_idx);
-#else
-                x86_emit_mov_r64_r64(cb, X86_RSI, X86_RAX);
-                emit_u8(cb, 0xBA);                                // mov edx, imm32
-                emit_u32(cb, (uint32_t)table_idx);
-#endif
-
-                // call the helper
-                x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_switch_str);
-                emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);            // call rax
-
-                x86_cache_clear(&cache);                         // callee clobbered all xmm
-
-                // rax = target pc (or -1 on miss); one cmp+je per unique target
-                int seen[256];
-                int n_seen = 0;
-                for (int i = 0; i <= c->str_switch.mask && n_seen < 256; i++) {
-                    int tgt = c->str_switch.entries[i].target;
-                    if (tgt < 0) continue;                       // empty slot
-                    if (tgt < start || tgt >= end)
-                        JIT_FATAL("SWITCH_STR target out of range (func=%d pc=%d tgt=%d)",
-                                  func_idx, pc, tgt);
-                    bool dup = false;                            // dedupe identical bodies
-                    for (int j = 0; j < n_seen; j++)
-                        if (seen[j] == tgt) { dup = true; break; }
-                    if (dup) continue;
-                    seen[n_seen++] = tgt;
-
-                    emit_u8(cb, 0x3D);                           // cmp eax, imm32
-                    emit_u32(cb, (uint32_t)tgt);
-                    emit_u8(cb, 0x0F); emit_u8(cb, 0x84);        // je rel32
-                    fixups[fixup_count].patch_at  = cb->len;
-                    fixups[fixup_count].target_pc = tgt;
-                    fixup_count++;
-                    emit_i32(cb, 0);                             // placeholder
-                }
-
-                int def = c->str_switch.default_pc;              // fallthrough: default arm
-                if (def < start || def > end)
-                    JIT_FATAL("SWITCH_STR default out of range (func=%d pc=%d def=%d)",
-                              func_idx, pc, def);
-                emit_u8(cb, 0xE9);                               // jmp rel32
-                fixups[fixup_count].patch_at  = cb->len;
-                fixups[fixup_count].target_pc = def;
-                fixup_count++;
-                emit_i32(cb, 0);                                 // placeholder
-
-                did_flush = true;                                // suppress merge flush
-                break;
-            }
-            case OP_SWITCH_NUM: {                                // perfect-hash numeric dispatch
-                int subj_reg  = inst->operands[0];
-                int table_idx = inst->operands[1];
-                Constant* c = &chunk->constants[table_idx];
-                if (c->type != CONST_NUM_SWITCH)
-                    JIT_FATAL("OP_SWITCH_NUM without CONST_NUM_SWITCH (func=%d pc=%d)",
-                              func_idx, pc);
-
-                size_t needed = (size_t)c->num_switch.count * 16 + 128;
-                if (cb->len + needed > cb->cap)
-                    JIT_FATAL("code buffer too small for SWITCH_NUM (func=%d pc=%d)",
-                              func_idx, pc);
-                if (fixup_count + c->num_switch.count + 1 >
-                    (int)ctx->chunk->code_count)
-                    JIT_FATAL("fixup buffer too small for SWITCH_NUM (func=%d pc=%d)",
-                              func_idx, pc);
-
-                x86_cache_flush(&cache, cb);
-
-                x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(subj_reg));
-#if defined(_WIN32) || defined(_WIN64)
-                x86_emit_mov_r64_r64(cb, X86_RCX, X86_RAX);
-#else
-                x86_emit_mov_r64_r64(cb, X86_RDI, X86_RAX);
-#endif
-
-                x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)chunk);
-#if defined(_WIN32) || defined(_WIN64)
-                x86_emit_mov_r64_r64(cb, X86_RDX, X86_RAX);
-                emit_u8(cb, 0x41); emit_u8(cb, 0xB8);
-                emit_u32(cb, (uint32_t)table_idx);
-#else
-                x86_emit_mov_r64_r64(cb, X86_RSI, X86_RAX);
-                emit_u8(cb, 0xBA);
-                emit_u32(cb, (uint32_t)table_idx);
-#endif
-
-                x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_switch_num);
-                emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);
-
-                x86_cache_clear(&cache);
-
-                int seen[256];
-                int n_seen = 0;
-                for (int i = 0; i <= c->num_switch.mask && n_seen < 256; i++) {
-                    int tgt = c->num_switch.entries[i].target;
-                    if (tgt < 0) continue;
-                    if (tgt < start || tgt >= end)
-                        JIT_FATAL("SWITCH_NUM target out of range (func=%d pc=%d tgt=%d)",
-                                  func_idx, pc, tgt);
-                    bool dup = false;
-                    for (int j = 0; j < n_seen; j++)
-                        if (seen[j] == tgt) { dup = true; break; }
-                    if (dup) continue;
-                    seen[n_seen++] = tgt;
-
-                    emit_u8(cb, 0x3D);                           // cmp eax, imm32
-                    emit_u32(cb, (uint32_t)tgt);
-                    emit_u8(cb, 0x0F); emit_u8(cb, 0x84);        // je rel32
-                    fixups[fixup_count].patch_at  = cb->len;
-                    fixups[fixup_count].target_pc = tgt;
-                    fixup_count++;
-                    emit_i32(cb, 0);
-                }
-
-                int def = c->num_switch.default_pc;
-                if (def < start || def > end)
-                    JIT_FATAL("SWITCH_NUM default out of range (func=%d pc=%d def=%d)",
-                              func_idx, pc, def);
-                emit_u8(cb, 0xE9);
-                fixups[fixup_count].patch_at  = cb->len;
-                fixups[fixup_count].target_pc = def;
-                fixup_count++;
-                emit_i32(cb, 0);
-
-                did_flush = true;
-                break;
-            }
-            case OP_CALL_0: {                                    // call with no args
-                x86_cache_flush(&cache, cb);                     // spill everything before call
-                emit_call_or_self(cb, ctx, a, func_idx, mark);   // direct self-call or via table
-                x86_cache_put(&cache, 0, d);                     // xmm0 = result
-                break;
-            }
-            case OP_CALL_1: {                                    // call with one arg
-                bool arg_live = slot_read_before_write(chunk, pc + 1, end, b);  // arg used after?
-                int arg_xmm = cache.slot_reg[b];                 // where arg lives now
-                for (int i = 0; i < XMM_CACHE_REGS; i++) {       // spill live dirty slots
-                    int s = cache.reg_slot[i];
-                    if (s < 0) continue;                         // empty slot, skip
-                    if (s == b && !arg_live) continue;           // dead arg — memory stays stale
-                    if (!cache.slot_dirty[s]) continue;          // clean slot, nothing to spill
-                    int g = (s < JIT_MAX_SLOTS) ? slot_pocket_gpr[s] : -1;
-                    if (g >= 0) x86_emit_movq_gpr_xmm(cb, x86_gpr_pocket_regs[g], i);
-                    else        x86_emit_movsd_store(cb, i, x86_slot_disp(s));
-                    cache.slot_dirty[s] = false;
-                }
-                if (arg_xmm >= 0 && arg_xmm != 0) {              // arg in cache, not xmm0
-                    x86_emit_sse66_rr(cb, 0x28, 0, arg_xmm);     // movapd xmm0, arg_xmm
-                } else if (arg_xmm < 0) {                        // arg not cached
-                    int g = (b >= 0 && b < JIT_MAX_SLOTS) ? slot_pocket_gpr[b] : -1;
-                    if (g >= 0) x86_emit_movq_xmm_gpr(cb, 0, x86_gpr_pocket_regs[g]);
-                    else        x86_emit_movsd_load(cb, 0, x86_slot_disp(b));
-                }                                                // else arg already in xmm0
-                x86_cache_clear(&cache);                         // xmm regs clobbered by callee
-                emit_call_or_self(cb, ctx, a, func_idx, mark);   // direct self-call or via table
-                x86_cache_put(&cache, 0, d);                     // xmm0 = result
-                for (int g = 0; g < n_pockets; g++) {            // restore pockets live after call
-                    int s = slot_to_pocket[g];
-                    if (s < 0 || s == d) continue;               // result already holds d
-                    if (!slot_read_before_write(chunk, pc + 1, end, s)) continue;
-                    int x = x86_cache_alloc_excl(&cache, cb, -1, -1);
-                    if (x < 0) continue;                         // register cache full
-                    x86_emit_movq_xmm_gpr(cb, x, x86_gpr_pocket_regs[g]);
-                    cache.reg_slot[x] = s;
-                    cache.slot_reg[s] = x;
-                    cache.slot_dirty[s] = false;
-                }
-                break;
-            }
-            case OP_CALL_2: {                                    // call with two args
-                bool arg0_live = slot_read_before_write(chunk, pc + 1, end, b);      // arg0 used after?
-                bool arg1_live = slot_read_before_write(chunk, pc + 1, end, b + 1);  // arg1 used after?
-                int arg0_xmm = cache.slot_reg[b];                // where arg0 lives
-                int arg1_xmm = cache.slot_reg[b + 1];            // where arg1 lives
-                for (int i = 0; i < XMM_CACHE_REGS; i++) {       // spill live dirty slots
-                    int s = cache.reg_slot[i];
-                    if (s < 0) continue;                         // empty, skip
-                    if (s == b     && !arg0_live) continue;      // dead arg0 — memory stays stale
-                    if (s == b + 1 && !arg1_live) continue;      // dead arg1 — memory stays stale
-                    if (!cache.slot_dirty[s]) continue;          // clean slot, nothing to spill
-                    int g = (s < JIT_MAX_SLOTS) ? slot_pocket_gpr[s] : -1;
-                    if (g >= 0) x86_emit_movq_gpr_xmm(cb, x86_gpr_pocket_regs[g], i);
-                    else        x86_emit_movsd_store(cb, i, x86_slot_disp(s));
-                    cache.slot_dirty[s] = false;
-                }
-                if (arg0_xmm >= 0) {                             // arg0 in cache
-                    x86_emit_sse66_rr(cb, 0x28, XMM_SCRATCH, arg0_xmm);
-                } else {                                         // arg0 not cached
-                    int g = (b >= 0 && b < JIT_MAX_SLOTS) ? slot_pocket_gpr[b] : -1;
-                    if (g >= 0) x86_emit_movq_xmm_gpr(cb, XMM_SCRATCH, x86_gpr_pocket_regs[g]);
-                    else        x86_emit_movsd_load(cb, XMM_SCRATCH, x86_slot_disp(b));
-                }
-                if (arg1_xmm >= 0 && arg1_xmm != 1) {            // arg1 in cache, not xmm1
-                    x86_emit_sse66_rr(cb, 0x28, 1, arg1_xmm);
-                } else if (arg1_xmm < 0) {                       // arg1 not cached
-                    int g = (b + 1 >= 0 && b + 1 < JIT_MAX_SLOTS) ? slot_pocket_gpr[b + 1] : -1;
-                    if (g >= 0) x86_emit_movq_xmm_gpr(cb, 1, x86_gpr_pocket_regs[g]);
-                    else        x86_emit_movsd_load(cb, 1, x86_slot_disp(b + 1));
-                }
-                x86_emit_sse66_rr(cb, 0x28, 0, XMM_SCRATCH);     // arg0 from scratch to xmm0
-                x86_cache_clear(&cache);                         // xmm regs clobbered
-                emit_call_or_self(cb, ctx, a, func_idx, mark);   // direct self-call or via table
-                x86_cache_put(&cache, 0, d);                     // xmm0 = result
-                for (int g = 0; g < n_pockets; g++) {            // restore pockets live after call
-                    int s = slot_to_pocket[g];
-                    if (s < 0 || s == d) continue;
-                    if (!slot_read_before_write(chunk, pc + 1, end, s)) continue;
-                    int x = x86_cache_alloc_excl(&cache, cb, -1, -1);
-                    if (x < 0) continue;
-                    x86_emit_movq_xmm_gpr(cb, x, x86_gpr_pocket_regs[g]);
-                    cache.reg_slot[x] = s;
-                    cache.slot_reg[s] = x;
-                    cache.slot_dirty[s] = false;
-                }
-                break;
-            }
-            case OP_RETURN:                                      // return slot value
-            case OP_RETURN_NUM:                                  // return number from register
-            case OP_RETURN_BOOL: {
-                int xa = x86_cache_load(&cache, cb, d);          // load return value
-                if (xa < 0) xa = 0;                              // fall back to xmm0
-                if (xa != 0) x86_emit_sse66_rr(cb, 0x28, 0, xa); // movapd xmm0, xa
-                emit_gpr_pocket_restores(cb, pocket_slot_base, n_pockets);
-                emit_leave_ret(cb, abi, base_frame);
-                x86_cache_clear(&cache);                         // clear state on exit
-                did_flush = true;                                // suppress merge flush
-                break;
-            }
-            case OP_RETURN_NUM_IMM: {                            // return number immediate
-                int imm_idx = -1;                                // index into the rip pool
-                for (int i = 0; i < func_n_imms; i++)
-                    if (func_imms[i] == a) { imm_idx = i; break; }
-                if (imm_idx >= 0) {
-                    size_t at = x86_emit_movsd_load_rip(cb, 0);  // movsd xmm0, [rip+disp32]
-                    RIP_FIXUP_ADD(at, imm_idx);
-                } else {
-                    x86_emit_load_double_imm(cb, 0, a);
-                }
-                emit_gpr_pocket_restores(cb, pocket_slot_base, n_pockets);
-                emit_leave_ret(cb, abi, base_frame);
-                x86_cache_clear(&cache);
-                did_flush = true;
-                break;
-            }
-            case OP_RETURN_NONE: {                               // return none, no value
-                emit_u8(cb, 0x66); emit_u8(cb, 0x0F);
-                emit_u8(cb, 0x57); emit_u8(cb, 0xC0);            // xorpd xmm0, xmm0
-                emit_gpr_pocket_restores(cb, pocket_slot_base, n_pockets);
-                emit_leave_ret(cb, abi, base_frame);
-                x86_cache_clear(&cache);                         // clear state on exit
-                did_flush = true;                                // suppress merge flush
-                break;
-            }
-            default:                                             // unreachable in pure fn
-                JIT_FATAL("unreachable opcode %d in pure function %d at pc=%d", op, func_idx, pc);
-        }
-
-        // flush if the next instruction is a merge point — the incoming cache must be empty
-        if (!did_flush && pc + 1 < end && needs_flush[pc + 1 - start]) {
-            x86_cache_flush(&cache, cb);
-        }
+        if (!st.did_flush && pc + 1 < end && needs_flush[pc + 1 - start])
+            x86_cache_flush(cache, cb);                              // merge-point flush
     }
 
-    label_off[range_size] = (int32_t)cb->len;                    // pc==end target (fall through past body)
+    label_off[range_size] = (int32_t)cb->len;                        // pc==end target (fall through)
 
-    emit_gpr_pocket_restores(cb, pocket_slot_base, n_pockets);   // restore before leaving
-    emit_return_zero(abi, cb, base_frame);                       // safety fallthrough
+    emit_gpr_pocket_restores(cb, pocket_slot_base, n_pockets);       // restore pockets before leaving
+    emit_return_zero(abi, cb, base_frame);                           // safety fallthrough
 
-    size_t pool_off = cb->len;                                   // constant pool starts here
-    for (int i = 0; i < func_n_imms; i++) {                      // append pool of double constants
+    size_t pool_off = cb->len;                                       // constant pool starts here
+    for (int i = 0; i < func_n_imms; i++) {                          // append double constants
         double dv = (double)func_imms[i];
         uint64_t bits; memcpy(&bits, &dv, 8);
         emit_u64(cb, bits);
     }
-    for (int i = 0; i < rip_fixup_count; i++) {                  // patch rip-relative displacements
-        size_t patch_at = rip_fixup_at[i];
-        size_t imm_at   = pool_off + 8 * (size_t)rip_fixup_imm[i];
+    for (int i = 0; i < st.rip_fixup_count; i++) {                   // patch rip-relative disp32s
+        size_t patch_at = st.rip_fixup_at[i];
+        size_t imm_at   = pool_off + 8 * (size_t)st.rip_fixup_imm[i];
         int32_t rel = (int32_t)imm_at - (int32_t)(patch_at + 4);
         memcpy(cb->buf + patch_at, &rel, 4);
     }
 
-    for (int i = 0; i < fixup_count; i++) {                      // patch every pending jump
+    for (int i = 0; i < st.fixup_count; i++) {                       // patch every pending jump
         JumpFixup* fx = &fixups[i];
-        int tidx = fx->target_pc - start;                        // index within range
-        if (tidx < 0 || tidx > range_size || label_off[tidx] < 0) {
-            JIT_FATAL("jump fixup out of range: func=%d target_pc=%d range=[%d,%d)",
-                    func_idx, fx->target_pc, start, end);
-        }
-        int32_t rel = (int32_t)label_off[tidx] - (int32_t)(fx->patch_at + 4);  // rel32 distance
-        memcpy(cb->buf + fx->patch_at, &rel, 4);                 // write rel32
+        int tidx = fx->target_pc - start;                            // index within range
+        if (tidx < 0 || tidx > range_size || label_off[tidx] < 0)
+            JIT_FATAL("jump fixup out of range: func=%d target_pc=%d",
+                      func_idx, fx->target_pc);
+        int32_t rel = (int32_t)label_off[tidx] - (int32_t)(fx->patch_at + 4);
+        memcpy(cb->buf + fx->patch_at, &rel, 4);
     }
 
-    for (int i = 0; i < tab_fixup_count; i++) {                  // patch every dispatch slot
-        int tidx = tab_fixup_pc[i] - start;
-        if (tidx < 0 || tidx > range_size || label_off[tidx] < 0) {
-            JIT_FATAL("jump-table slot out of range: func=%d target_pc=%d range=[%d,%d)",
-                    func_idx, tab_fixup_pc[i], start, end);
-        }
+    for (int i = 0; i < st.tab_fixup_count; i++) {                   // patch every dispatch slot
+        int tidx = st.tab_fixup_pc[i] - start;
+        if (tidx < 0 || tidx > range_size || label_off[tidx] < 0)
+            JIT_FATAL("jump-table slot out of range: func=%d target_pc=%d",
+                      func_idx, st.tab_fixup_pc[i]);
         uint64_t addr = (uint64_t)(uintptr_t)(cb->buf + label_off[tidx]);
-        memcpy(cb->buf + tab_fixup_at[i], &addr, 8);             // write 8-byte absolute
+        memcpy(cb->buf + st.tab_fixup_at[i], &addr, 8);
     }
 
     free(pred_count); free(needs_flush); free(use_snap); free(jump_snap);
 
-    if (int_off != (size_t)-1) {                                 // wrap with an int dispatcher
+    if (int_off != (size_t)-1) {                                     // wrap with an int dispatcher
         size_t wrapper_off = 0;
         emit_int_wrapper(cb, mark, int_off, int_max_n,
-                          chunk->functions[func_idx].arity, &wrapper_off,
-                          abi);
-        *out_fn = (void*)(cb->buf + wrapper_off);                // entry is the wrapper
+                         chunk->functions[func_idx].arity, &wrapper_off, abi);
+        *out_fn = (void*)(cb->buf + wrapper_off);                    // entry is the wrapper
     } else {
-        *out_fn = (void*)(cb->buf + mark);                       // publish general entry
+        *out_fn = (void*)(cb->buf + mark);                           // publish general entry
     }
-    jit_bail_jmp = prev_bail;                                    // leave the TLS as we found it
-    return true;                                                 // emission successful
+    jit_bail_jmp = prev_bail;                                        // leave the TLS as we found it
+    return true;
 }

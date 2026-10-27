@@ -187,6 +187,13 @@ if(APEX_JIT_AVAILABLE)
         source/jit/x86-64/x86_64_common.c
         source/jit/x86-64/x86_64_emit_common.c
         source/jit/x86-64/x86_64_emit_function.c
+        source/jit/x86-64/x86_64_emit_move.c
+        source/jit/x86-64/x86_64_emit_arith.c
+        source/jit/x86-64/x86_64_emit_cmp.c
+        source/jit/x86-64/x86_64_emit_jump.c
+        source/jit/x86-64/x86_64_emit_match.c
+        source/jit/x86-64/x86_64_emit_call.c
+        source/jit/x86-64/x86_64_emit_table.c
         source/jit/x86-64/x86_64_emit_int.c
         source/jit/x86-64/x86_64_emit_loop.c
         source/jit/x86-64/x86_64.c
