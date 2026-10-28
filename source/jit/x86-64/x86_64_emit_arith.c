@@ -180,8 +180,88 @@ static void func_emit_incdec(X86FuncEmitState* st) {
     x86_cache_put(cache, xd, st->d);                                 // mark dest dirty
 }
 
+// base-path emit for arithmetic when !is_pure: calls a runtime helper that
+// checks IS_NUMBER on every operand and yields NONE for non-numbers, matching
+// the interpreter's non-numeric fallback path exactly
+static void func_emit_arith_base(X86FuncEmitState* st) {
+    CodeBuf* cb = st->cb;                                            // destination code buffer
+    XmmCache* cache = st->cache;                                     // live register cache
+
+    uint64_t helper = 0;                                             // helper fn address
+    bool is_imm = false;                                             // immediate variant?
+    int32_t imm_val = 0;                                             // immediate operand value
+    bool is_one_arg = false;                                         // NEG/INC/DEC: one operand
+    int read_reg = st->a;                                            // register holding first operand
+
+    switch (st->op) {
+        case OP_ADD:     helper = (uint64_t)(uintptr_t)&jit_add_base; break;
+        case OP_SUB:     helper = (uint64_t)(uintptr_t)&jit_sub_base; break;
+        case OP_MUL:     helper = (uint64_t)(uintptr_t)&jit_mul_base; break;
+        case OP_DIV:     helper = (uint64_t)(uintptr_t)&jit_div_base; break;
+        case OP_MOD:     helper = (uint64_t)(uintptr_t)&jit_mod_base; break;
+        case OP_ADD_IMM: helper = (uint64_t)(uintptr_t)&jit_add_imm_base; is_imm = true; imm_val = st->b; break;
+        case OP_SUB_IMM: helper = (uint64_t)(uintptr_t)&jit_sub_imm_base; is_imm = true; imm_val = st->b; break;
+        case OP_MUL_IMM: helper = (uint64_t)(uintptr_t)&jit_mul_imm_base; is_imm = true; imm_val = st->b; break;
+        case OP_DIV_IMM: helper = (uint64_t)(uintptr_t)&jit_div_imm_base; is_imm = true; imm_val = st->b; break;
+        case OP_MOD_IMM: helper = (uint64_t)(uintptr_t)&jit_mod_imm_base; is_imm = true; imm_val = st->b; break;
+        case OP_NEG:     helper = (uint64_t)(uintptr_t)&jit_neg_base; is_one_arg = true; break;
+        case OP_INC:     helper = (uint64_t)(uintptr_t)&jit_inc_base; is_one_arg = true; read_reg = st->d; break;
+        case OP_DEC:     helper = (uint64_t)(uintptr_t)&jit_dec_base; is_one_arg = true; read_reg = st->d; break;
+        default:
+            JIT_FATAL("base arith: unexpected opcode %d (func=%d pc=%d)",
+                      st->op, st->func_idx, st->pc);
+    }
+
+    int xa = x86_cache_load(cache, cb, read_reg);                    // load first operand
+    if (xa < 0) JIT_FATAL("cache full: base arith load=%d (func=%d pc=%d op=%d)",
+                          read_reg, st->func_idx, st->pc, st->op);
+
+    if (is_one_arg) {                                                // NEG/INC/DEC: one arg
+#if defined(_WIN32) || defined(_WIN64)
+        x86_emit_movq_gpr_xmm(cb, X86_RCX, xa);                      // win64 arg0 = rcx
+#else
+        x86_emit_movq_gpr_xmm(cb, X86_RDI, xa);                      // sysv arg0 = rdi
+#endif
+    } else if (is_imm) {                                             // arithmetic with immediate
+#if defined(_WIN32) || defined(_WIN64)
+        x86_emit_movq_gpr_xmm(cb, X86_RCX, xa);                      // win64 arg0 = rcx
+        emit_u8(cb, 0x48); emit_u8(cb, 0xC7); emit_u8(cb, 0xC2);     // win64: mov rdx, imm32
+        emit_i32(cb, imm_val);                                       // sign-extended to 64-bit
+#else
+        x86_emit_movq_gpr_xmm(cb, X86_RDI, xa);                      // sysv arg0 = rdi
+        emit_u8(cb, 0x48); emit_u8(cb, 0xC7); emit_u8(cb, 0xC6);     // sysv: mov rsi, imm32
+        emit_i32(cb, imm_val);                                       // sign-extended to 64-bit
+#endif
+    } else {                                                         // two-operand arithmetic
+        int xb = x86_cache_load_excl(cache, cb, st->b, xa, -1);      // load second operand
+        if (xb < 0) JIT_FATAL("cache full: base arith load b=%d (func=%d pc=%d)",
+                              st->b, st->func_idx, st->pc);
+#if defined(_WIN32) || defined(_WIN64)
+        x86_emit_movq_gpr_xmm(cb, X86_RCX, xa);                      // win64 arg0 = rcx
+        x86_emit_movq_gpr_xmm(cb, X86_RDX, xb);                      // win64 arg1 = rdx
+#else
+        x86_emit_movq_gpr_xmm(cb, X86_RDI, xa);                      // sysv arg0 = rdi
+        x86_emit_movq_gpr_xmm(cb, X86_RSI, xb);                      // sysv arg1 = rsi
+#endif
+    }
+
+    x86_cache_flush(cache, cb);                                      // flush dirty slots before the call
+    x86_emit_movabs_rax(cb, helper);                                 // rax = helper address
+    emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                            // call rax (result in rax)
+
+    int xd = x86_cache_dest_reg(cache, cb, st->d, -1, -1);           // pick a destination xmm
+    if (xd < 0) JIT_FATAL("cache full: base arith dest=%d (func=%d pc=%d)",
+                          st->d, st->func_idx, st->pc);
+    x86_emit_movq_xmm_rax(cb, xd);                                   // xd = raw rax bits
+    x86_cache_put(cache, xd, st->d);                                 // xd now holds the result
+}
+
 // function body dispatch for the arithmetic category
 void x86_func_emit_arith(X86FuncEmitState* st) {
+    if (!st->is_pure) {                                              // non-strict-pure: checked base path
+        func_emit_arith_base(st);
+        return;
+    }
     switch (st->op) {
         case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV:
             func_emit_bin_arith(st); break;

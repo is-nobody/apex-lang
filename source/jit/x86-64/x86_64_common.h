@@ -33,6 +33,9 @@
 // nan-boxed NONE bit pattern (QNAN | TAG_NONE<<48)
 #define X86_NONE_BITS  0x7FF8000000000000ULL
 
+// nan-box QNAN mask; `(v & X86_QNAN_MASK) == X86_QNAN_MASK` means v is not a plain number
+#define X86_QNAN_MASK  0x7FF8000000000000ULL
+
 // nan-boxed MAKE_BOOL base pattern (QNAN | TAG_BOOL<<48); bit 0 carries the value
 #define X86_BOOL_BITS  0x7FFA000000000000ULL
 

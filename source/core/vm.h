@@ -412,6 +412,9 @@ int table_size(Table* table);
 // returns an array of all string keys in the table
 Value* table_keys(Table* table, int* out_count);
 
+// deep structural comparison with cycle detection; used by the JIT base path
+bool table_equal(Table* a, Table* b, int depth);
+
 // sets a value by integer index (uses array part if possible)
 bool table_set_int(Table* table, int index, Value value);
 

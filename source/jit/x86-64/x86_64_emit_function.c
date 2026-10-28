@@ -308,6 +308,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     st.abi = abi;  st.ctx = ctx;  st.cb = cb;  st.chunk = chunk;
     st.func_idx = func_idx;  st.start = start;  st.end = end;
     st.arity = arity;  st.nregs = nregs;  st.range_size = range_size;  st.mark = mark;
+    st.is_pure = ctx->strict_pure[func_idx];                         // pick optimized vs checked emit path
     st.is_target = is_target;  st.label_off = label_off;
     st.fixups = fixups;  st.fixup_count = 0;
     st.needs_flush = needs_flush;  st.use_snap = use_snap;  st.jump_snap = jump_snap;
@@ -367,7 +368,8 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             }
         }
 
-        if ((st.op == OP_CMP_EQ || st.op == OP_CMP_EQ_NUM ||         // try cmp+jump fusion
+        if (st.is_pure &&                                            // only fused in strict-pure bodies
+            (st.op == OP_CMP_EQ || st.op == OP_CMP_EQ_NUM ||         // try cmp+jump fusion
              st.op == OP_CMP_NEQ || st.op == OP_CMP_NEQ_NUM ||
              st.op == OP_CMP_LT || st.op == OP_CMP_GT ||
              st.op == OP_CMP_LTE || st.op == OP_CMP_GTE) &&

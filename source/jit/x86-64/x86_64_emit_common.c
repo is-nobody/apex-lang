@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
 
 // rounds n up to the next multiple of 16
 int align16(int n) { return (n + 15) & ~15; }
@@ -140,6 +141,105 @@ void jit_table_set_const(Table* t, StringObject* key, Value val) {
     if (!t || !key) return;
     Value k = MAKE_STRING(key);
     table_set(t, k, val);
+}
+
+// two-operand arithmetic base helpers (interpreter: numeric op, else NONE)
+Value jit_add_base(Value a, Value b) {
+    if (IS_NUMBER(a) && IS_NUMBER(b)) return MAKE_NUMBER(AS_NUMBER(a) + AS_NUMBER(b));
+    return MAKE_NONE();
+}
+Value jit_sub_base(Value a, Value b) {
+    if (IS_NUMBER(a) && IS_NUMBER(b)) return MAKE_NUMBER(AS_NUMBER(a) - AS_NUMBER(b));
+    return MAKE_NONE();
+}
+Value jit_mul_base(Value a, Value b) {
+    if (IS_NUMBER(a) && IS_NUMBER(b)) return MAKE_NUMBER(AS_NUMBER(a) * AS_NUMBER(b));
+    return MAKE_NONE();
+}
+Value jit_div_base(Value a, Value b) {
+    if (IS_NUMBER(a) && IS_NUMBER(b)) return MAKE_NUMBER(AS_NUMBER(a) / AS_NUMBER(b));
+    return MAKE_NONE();
+}
+Value jit_mod_base(Value a, Value b) {
+    if (IS_NUMBER(a) && IS_NUMBER(b)) return MAKE_NUMBER(fmod(AS_NUMBER(a), AS_NUMBER(b)));
+    return MAKE_NONE();
+}
+
+// immediate arithmetic base helpers
+Value jit_add_imm_base(Value a, int64_t imm) {
+    if (IS_NUMBER(a)) return MAKE_NUMBER(AS_NUMBER(a) + (double)imm);
+    return MAKE_NONE();
+}
+Value jit_sub_imm_base(Value a, int64_t imm) {
+    if (IS_NUMBER(a)) return MAKE_NUMBER(AS_NUMBER(a) - (double)imm);
+    return MAKE_NONE();
+}
+Value jit_mul_imm_base(Value a, int64_t imm) {
+    if (IS_NUMBER(a)) return MAKE_NUMBER(AS_NUMBER(a) * (double)imm);
+    return MAKE_NONE();
+}
+Value jit_div_imm_base(Value a, int64_t imm) {
+    if (IS_NUMBER(a)) return MAKE_NUMBER(AS_NUMBER(a) / (double)imm);
+    return MAKE_NONE();
+}
+Value jit_mod_imm_base(Value a, int64_t imm) {
+    if (IS_NUMBER(a)) return MAKE_NUMBER(fmod(AS_NUMBER(a), (double)imm));
+    return MAKE_NONE();
+}
+
+// one-operand arithmetic base helpers
+Value jit_neg_base(Value a) {
+    if (IS_NUMBER(a)) return MAKE_NUMBER(-AS_NUMBER(a));
+    return MAKE_NONE();
+}
+Value jit_inc_base(Value a) {
+    if (IS_NUMBER(a)) return MAKE_NUMBER(AS_NUMBER(a) + 1.0);
+    return MAKE_NONE();
+}
+Value jit_dec_base(Value a) {
+    if (IS_NUMBER(a)) return MAKE_NUMBER(AS_NUMBER(a) - 1.0);
+    return MAKE_NONE();
+}
+
+// type-dispatched equality matching the interpreter's CMP_EQ/CMP_NEQ semantics
+Value jit_cmp_eq_base(Value a, Value b) {
+    if (IS_NUMBER(a) && IS_NUMBER(b)) return MAKE_BOOL(AS_NUMBER(a) == AS_NUMBER(b));
+    if (IS_BOOL(a)   && IS_BOOL(b))   return MAKE_BOOL(AS_BOOL(a) == AS_BOOL(b));
+    if (IS_NONE(a)   && IS_NONE(b))   return MAKE_BOOL(1);
+    if (IS_STRING(a) && IS_STRING(b)) {
+        StringObject* sa = AS_STRING(a);
+        StringObject* sb = AS_STRING(b);
+        if (sa == sb) return MAKE_BOOL(1);                   // interned fast path
+        if (sa->length != sb->length) return MAKE_BOOL(0);
+        return MAKE_BOOL(memcmp(sa->chars, sb->chars, sa->length) == 0);
+    }
+    if (IS_TABLE(a) && IS_TABLE(b)) {
+        return MAKE_BOOL(table_equal(AS_TABLE(a), AS_TABLE(b), 0) ? 1 : 0);
+    }
+    return MAKE_BOOL(0);                                     // mixed types: not equal
+}
+Value jit_cmp_ne_base(Value a, Value b) {
+    Value eq = jit_cmp_eq_base(a, b);
+    return MAKE_BOOL(AS_BOOL(eq) ? 0 : 1);
+}
+
+// ordering comparisons: interpreter does raw bit-pattern compare as doubles
+static inline double raw_bits_to_double(Value v) {
+    double d;
+    memcpy(&d, &v, 8);
+    return d;
+}
+Value jit_cmp_lt_base(Value a, Value b) {
+    return MAKE_BOOL(raw_bits_to_double(a) <  raw_bits_to_double(b));
+}
+Value jit_cmp_gt_base(Value a, Value b) {
+    return MAKE_BOOL(raw_bits_to_double(a) >  raw_bits_to_double(b));
+}
+Value jit_cmp_lte_base(Value a, Value b) {
+    return MAKE_BOOL(raw_bits_to_double(a) <= raw_bits_to_double(b));
+}
+Value jit_cmp_gte_base(Value a, Value b) {
+    return MAKE_BOOL(raw_bits_to_double(a) >= raw_bits_to_double(b));
 }
 
 // two-digit lookup, eliminates one div per digit

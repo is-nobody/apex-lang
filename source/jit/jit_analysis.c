@@ -133,7 +133,7 @@ static bool switch_targets_in_range(BytecodeChunk* chunk, int table_idx,
     return false;                                                // wrong constant kind
 }
 
-// checks if a function contains only numeric ops and in-range jumps
+// checks if a function uses only the "JIT-able" op set (call graph validated separately)
 static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
     BytecodeChunk* chunk = ctx->chunk;
     int start = ctx->range_start[func_idx];                      // first pc of this fn
@@ -215,7 +215,7 @@ static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
             }
 
             case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:  // call targets validated
-                break;                                       // by the fixpoint pass                                    // by the fixpoint pass
+                break;                                       // by the fixpoint pass
 
             default:
                 return false;                                // any other op: reject
@@ -329,6 +329,122 @@ static bool infer_return_type(BytecodeChunk* chunk, int start, int end,
     *out = any_none ? JIT_RET_NONE
          : any_bool ? JIT_RET_BOOL
                     : JIT_RET_NUMBER;
+    return true;
+}
+
+// simple per-slot type for strict-purity analysis
+typedef enum {
+    SP_NUM = 0,   // provably a plain number
+    SP_BOOL,      // provably a bool (from LOAD_BOOL or CMP_*)
+    SP_NONE,      // provably none (from LOAD_NONE)
+    SP_UNK,       // unknown type (params before binding, call results, etc.)
+} SPType;
+
+// strict purity: verify every arithmetic operand is numeric (via simple flow)
+// so the optimized emit (which assumes numeric operands) is safe
+static bool function_is_strictly_pure(JITContext* ctx, int func_idx) {
+    BytecodeChunk* chunk = ctx->chunk;
+    int start = ctx->range_start[func_idx];
+    int end   = ctx->range_end[func_idx];
+    int arity = chunk->functions[func_idx].arity;
+    if (arity > JIT_MAX_SLOTS) return false;                  // too many params to track
+
+    SPType types[JIT_MAX_SLOTS];                              // per-slot type
+    for (int i = 0; i < JIT_MAX_SLOTS; i++) types[i] = SP_UNK;
+    for (int i = 0; i < arity; i++) types[i] = SP_NUM;         // assume numeric args
+
+    for (int pc = start; pc < end; pc++) {
+        Instruction* inst = &chunk->code[pc];
+        int d = inst->operands[0];
+        int a = inst->operands[1];
+        int b = inst->operands[2];
+        switch (inst->opcode) {
+            case OP_MOVE:
+                if (d < 0 || d >= JIT_MAX_SLOTS) return false;
+                if (a < 0 || a >= JIT_MAX_SLOTS) { types[d] = SP_UNK; break; }
+                types[d] = types[a];
+                break;
+            case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:
+                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_NUM;
+                break;
+            case OP_LOAD_BOOL:
+                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_BOOL;
+                break;
+            case OP_LOAD_NONE:
+                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_NONE;
+                break;
+            case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
+                if (a < 0 || a >= JIT_MAX_SLOTS) return false;
+                if (b < 0 || b >= JIT_MAX_SLOTS) return false;
+                if (types[a] != SP_NUM || types[b] != SP_NUM) return false;
+                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_NUM;
+                break;
+            case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:
+            case OP_DIV_IMM: case OP_MOD_IMM:
+                if (a < 0 || a >= JIT_MAX_SLOTS) return false;
+                if (types[a] != SP_NUM) return false;
+                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_NUM;
+                break;
+            case OP_NEG:
+                if (a < 0 || a >= JIT_MAX_SLOTS) return false;
+                if (types[a] != SP_NUM) return false;
+                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_NUM;
+                break;
+            case OP_INC: case OP_DEC:
+                if (d < 0 || d >= JIT_MAX_SLOTS) return false;
+                if (types[d] != SP_NUM) return false;
+                break;
+            case OP_CMP_EQ: case OP_CMP_NEQ:
+            case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
+            case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
+                // comparisons need numeric operands for the optimized emit
+                if (a < 0 || a >= JIT_MAX_SLOTS) return false;
+                if (b < 0 || b >= JIT_MAX_SLOTS) return false;
+                if (types[a] != SP_NUM || types[b] != SP_NUM) return false;
+                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_BOOL;
+                break;
+            case OP_JUMP_IF_EQ: case OP_JUMP_IF_NEQ:
+            case OP_JUMP_IF_EQ_NUM: case OP_JUMP_IF_NEQ_NUM:
+                // eq/neq jumps use dispatch in interpreter; pure emit needs numeric operands
+                if (a < 0 || a >= JIT_MAX_SLOTS) return false;
+                if (b < 0 || b >= JIT_MAX_SLOTS) return false;
+                if (types[a] != SP_NUM || types[b] != SP_NUM) return false;
+                break;
+            case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:
+            case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:
+            case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:
+            case OP_JUMP_IF_LT_IMM: case OP_JUMP_IF_GT_IMM:
+            case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
+            case OP_JUMP_IF_NONE: case OP_JUMP_IF_NOT_NONE:
+            case OP_JUMP_IF_FALSE: case OP_JUMP:
+                // other jumps: pure emit matches interpreter (bits comparison / falsy-bit test)
+                break;
+            case OP_RETURN: case OP_RETURN_NUM: case OP_RETURN_BOOL:
+            case OP_RETURN_NONE: case OP_RETURN_NUM_IMM:
+                // return type is decided by infer_return_type and jit_box_return
+                break;
+            case OP_CALL_0:
+                // no args; the call result type is unknown
+                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_UNK;
+                break;
+            case OP_CALL_1:
+                // arg must be provably numeric so a JIT->JIT call edge into a
+                // strict_pure callee (whose emitter uses addsd directly) stays safe
+                if (b < 0 || b >= JIT_MAX_SLOTS) return false;
+                if (types[b] != SP_NUM) return false;
+                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_UNK;
+                break;
+            case OP_CALL_2:
+                // both args must be provably numeric for the same reason
+                if (b < 0 || b >= JIT_MAX_SLOTS) return false;
+                if (b + 1 >= JIT_MAX_SLOTS) return false;
+                if (types[b] != SP_NUM || types[b + 1] != SP_NUM) return false;
+                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_UNK;
+                break;
+            default:
+                return false;                             // any op outside pure set: not strict
+        }
+    }
     return true;
 }
 
@@ -785,6 +901,12 @@ bool jit_analyze(JITContext* ctx) {
                                &ctx->return_type[i])) {
             ctx->pure[i] = false;                                // mixed return -> reject
         }
+    }
+
+    // strict purity: numeric-flow check; enables the optimized (unchecked) emit
+    for (int i = 0; i < n; i++) {
+        if (!ctx->pure[i]) { ctx->strict_pure[i] = false; continue; }
+        ctx->strict_pure[i] = function_is_strictly_pure(ctx, i);
     }
 
     for (int i = 0; i < n; i++) {                                // loop detection, incl. entry fn

@@ -1084,8 +1084,8 @@ static bool table_equal_rec(Table* a, Table* b, TablePair* stack, int depth) {
     return result;              // return comparison result
 }
 
-// public entry: seeds the recursion stack
-static bool table_equal(Table* a, Table* b, int depth) {
+// public entry: seeds the recursion stack; exposed for the JIT base-path helper
+bool table_equal(Table* a, Table* b, int depth) {
     (void)depth;                                       // depth arg kept for source compat with callers
     TablePair stack[TABLE_EQ_MAX_STACK];
     return table_equal_rec(a, b, stack, 0);

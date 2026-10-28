@@ -17,8 +17,57 @@ static uint8_t setcc_for_cmp(Opcode op) {
     }
 }
 
+// base-path emit for comparisons when !is_pure: dispatches through a runtime helper
+static void func_emit_cmp_base(X86FuncEmitState* st) {
+    CodeBuf* cb = st->cb;                                            // destination code buffer
+    XmmCache* cache = st->cache;                                     // live register cache
+
+    uint64_t helper = 0;                                             // helper fn address
+    switch (st->op) {
+        case OP_CMP_EQ:  helper = (uint64_t)(uintptr_t)&jit_cmp_eq_base;  break;
+        case OP_CMP_NEQ: helper = (uint64_t)(uintptr_t)&jit_cmp_ne_base;  break;
+        case OP_CMP_LT:  helper = (uint64_t)(uintptr_t)&jit_cmp_lt_base;  break;
+        case OP_CMP_GT:  helper = (uint64_t)(uintptr_t)&jit_cmp_gt_base;  break;
+        case OP_CMP_LTE: helper = (uint64_t)(uintptr_t)&jit_cmp_lte_base; break;
+        case OP_CMP_GTE: helper = (uint64_t)(uintptr_t)&jit_cmp_gte_base; break;
+        default:
+            JIT_FATAL("base cmp: unexpected opcode %d (func=%d pc=%d)",
+                      st->op, st->func_idx, st->pc);
+    }
+
+    int xa = x86_cache_load(cache, cb, st->a);                       // load left operand
+    if (xa < 0) JIT_FATAL("cache full: base cmp load a=%d (func=%d pc=%d)",
+                          st->a, st->func_idx, st->pc);
+    int xb = x86_cache_load_excl(cache, cb, st->b, xa, -1);          // load right, avoid xa
+    if (xb < 0) JIT_FATAL("cache full: base cmp load b=%d (func=%d pc=%d)",
+                          st->b, st->func_idx, st->pc);
+
+#if defined(_WIN32) || defined(_WIN64)
+    x86_emit_movq_gpr_xmm(cb, X86_RCX, xa);                          // win64 arg0 = rcx
+    x86_emit_movq_gpr_xmm(cb, X86_RDX, xb);                          // win64 arg1 = rdx
+#else
+    x86_emit_movq_gpr_xmm(cb, X86_RDI, xa);                          // sysv arg0 = rdi
+    x86_emit_movq_gpr_xmm(cb, X86_RSI, xb);                          // sysv arg1 = rsi
+#endif
+
+    x86_cache_flush(cache, cb);                                      // flush dirty slots before the call
+    x86_emit_movabs_rax(cb, helper);                                 // rax = helper address
+    emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                            // call rax (result in rax)
+
+    int xd = x86_cache_dest_reg(cache, cb, st->d, -1, -1);           // pick a destination xmm
+    if (xd < 0) JIT_FATAL("cache full: base cmp dest=%d (func=%d pc=%d)",
+                          st->d, st->func_idx, st->pc);
+    x86_emit_movq_xmm_rax(cb, xd);                                   // xd = raw rax bits (MAKE_BOOL)
+    x86_cache_put(cache, xd, st->d);                                 // xd now holds the result
+}
+
 // function body dispatch for the compare category
 void x86_func_emit_cmp(X86FuncEmitState* st) {
+    // non-strict-pure: use base path for all non-num comparisons
+    if (!st->is_pure && st->op != OP_CMP_EQ_NUM && st->op != OP_CMP_NEQ_NUM) {
+        func_emit_cmp_base(st);
+        return;
+    }
     CodeBuf* cb = st->cb;                                            // destination code buffer
     XmmCache* cache = st->cache;                                     // live register cache
     int xa = x86_cache_load(cache, cb, st->a);                       // load left operand

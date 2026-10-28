@@ -133,7 +133,8 @@ struct JITContext {
 
     const JitBackend* backend;        // owning backend, used to free the code page
 
-    bool*  pure;                      // per-function: numeric-pure?
+    bool*  pure;                      // per-function: can be JIT-compiled at all (op-set + call fixpoint)
+    bool*  strict_pure;               // per-function: strictly numeric-pure (verified via type flow)
     bool*  has_native;                // per-function: has native code emitted?
     JitReturnType* return_type;       // per-function: JIT_RET_NUMBER / BOOL / NONE
     int*   range_start;               // per-function: first bytecode pc

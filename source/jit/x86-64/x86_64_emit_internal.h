@@ -50,6 +50,28 @@ void  jit_table_set_const(Table* t, StringObject* key, Value val);   // tbl[cons
 Value jit_table_get_key_str(Table* t, StringObject* prefix, double num);     // tbl["prefix"..num]
 void  jit_table_set_key_str(Table* t, StringObject* prefix, double num, Value val);  // tbl["prefix"..num] = val
 
+// base-path runtime helpers (checked arithmetic that matches the interpreter's
+// non-numeric fallback to NONE) - used for functions that aren't strictly numeric-pure
+Value jit_add_base(Value a, Value b);                                // a + b or NONE
+Value jit_sub_base(Value a, Value b);                                // a - b or NONE
+Value jit_mul_base(Value a, Value b);                                // a * b or NONE
+Value jit_div_base(Value a, Value b);                                // a / b or NONE
+Value jit_mod_base(Value a, Value b);                                // a % b or NONE
+Value jit_add_imm_base(Value a, int64_t imm);                        // a + imm or NONE
+Value jit_sub_imm_base(Value a, int64_t imm);                        // a - imm or NONE
+Value jit_mul_imm_base(Value a, int64_t imm);                        // a * imm or NONE
+Value jit_div_imm_base(Value a, int64_t imm);                        // a / imm or NONE
+Value jit_mod_imm_base(Value a, int64_t imm);                        // a % imm or NONE
+Value jit_neg_base(Value a);                                         // -a or NONE
+Value jit_inc_base(Value a);                                         // a + 1 or NONE
+Value jit_dec_base(Value a);                                         // a - 1 or NONE
+Value jit_cmp_eq_base(Value a, Value b);                             // MAKE_BOOL(a == b) with type dispatch
+Value jit_cmp_ne_base(Value a, Value b);                             // MAKE_BOOL(a != b) with type dispatch
+Value jit_cmp_lt_base(Value a, Value b);                             // MAKE_BOOL(raw-double a <  b)
+Value jit_cmp_gt_base(Value a, Value b);                             // MAKE_BOOL(raw-double a >  b)
+Value jit_cmp_lte_base(Value a, Value b);                            // MAKE_BOOL(raw-double a <= b)
+Value jit_cmp_gte_base(Value a, Value b);                            // MAKE_BOOL(raw-double a >= b)
+
 // prologue / epilogue / helper-call emitters (defined in x86_64_emit_common.c)
 void emit_prologue(CodeBuf* cb, const X86_64Abi* abi, int frame_size, int base_frame);
 void emit_leave_ret(CodeBuf* cb, const X86_64Abi* abi, int base_frame);
@@ -89,6 +111,7 @@ typedef struct X86FuncEmitState {
     int              nregs;                                          // function frame size
     int              range_size;                                     // end - start
     size_t           mark;                                           // offset of the body entry (for self-call)
+    bool             is_pure;                                        // true: strictly numeric (optimized emit); false: use checked base path
 
     bool*            is_target;                                      // jump-target marks per bytecode pc
     int32_t*         label_off;                                      // emitted label offset per pc (+1 sentinel)

@@ -89,14 +89,16 @@ JITContext* jit_create(BytecodeChunk* chunk) {
 
     int n = ctx->func_count;                                     // shorthand
     ctx->pure         = (bool*)calloc(n, sizeof(bool));          // per-fn purity
+    ctx->strict_pure  = (bool*)calloc(n, sizeof(bool));          // per-fn strict numeric purity
     ctx->has_native   = (bool*)calloc(n, sizeof(bool));          // per-fn: code emitted?
     ctx->range_start  = (int*) calloc(n, sizeof(int));           // per-fn first pc
     ctx->range_end    = (int*) calloc(n, sizeof(int));           // per-fn one past last pc
     ctx->func_table   = (void**)calloc(n, sizeof(void*));        // per-fn runtime entry slot
     ctx->return_type  = (JitReturnType*)calloc(n, sizeof(JitReturnType));  // per-fn return kind
 
-    if (!ctx->pure || !ctx->has_native || !ctx->range_start ||   // verify allocations
-        !ctx->range_end || !ctx->func_table || !ctx->return_type) {
+    if (!ctx->pure || !ctx->strict_pure || !ctx->has_native ||   // verify allocations
+        !ctx->range_start || !ctx->range_end || !ctx->func_table ||
+        !ctx->return_type) {
         jit_destroy(ctx);                                        // cleanup on failure
         return NULL;
     }
@@ -145,9 +147,10 @@ JITContext* jit_create(BytecodeChunk* chunk) {
         if (jit_trace_enabled()) {
             char lbl[96];
             snprintf(lbl, sizeof(lbl),
-                     "; === function %d (arity=%d, regs=%d) ===",
+                     "; === function %d (arity=%d, regs=%d, strict_pure=%d) ===",
                      i, chunk->functions[i].arity,
-                     chunk->functions[i].max_registers);
+                     chunk->functions[i].max_registers,
+                     ctx->strict_pure[i] ? 1 : 0);
             jit_disasm_dump(lbl, ctx->code + before, cb.len - before);
         }
 #endif
@@ -263,6 +266,7 @@ void jit_destroy(JITContext* ctx) {
         ctx->backend->free_exec(ctx->code, ctx->code_size);
     }
     free(ctx->pure);                                             // free purity flags
+    free(ctx->strict_pure);                                      // free strict-purity flags
     free(ctx->has_native);                                       // free native flags
     free(ctx->range_start);                                      // free range starts
     free(ctx->range_end);                                        // free range ends
