@@ -64,6 +64,36 @@ void x86_func_emit_move(X86FuncEmitState* st) {
             x86_cache_put(cache, x, st->d);
             break;
         }
+        case OP_LOAD_CONST: {                                        // scalar constant from the pool
+            int x = x86_cache_alloc_excl(cache, cb, -1, -1);
+            if (x < 0) JIT_FATAL("cache full: LOAD_CONST dst=%d (func=%d pc=%d)",
+                                  st->d, st->func_idx, st->pc);
+            Constant* c = &st->chunk->constants[st->a];              // fetch constant entry
+            uint64_t bits;                                           // nan-boxed bit pattern
+            switch (c->type) {
+                case CONST_NUMBER: {                                 // numeric constant
+                    double v = c->number_value;
+                    memcpy(&bits, &v, 8);
+                    break;
+                }
+                case CONST_BOOL:                                     // bool constant
+                    bits = X86_BOOL_BITS | (c->bool_value ? 1ULL : 0ULL);
+                    break;
+                case CONST_NONE:                                     // none constant
+                    bits = X86_NONE_BITS;
+                    break;
+                case CONST_STRING:                                   // interned string pointer
+                    bits = MAKE_STRING((StringObject*)c->cached_str);
+                    break;
+                default:
+                    JIT_FATAL("LOAD_CONST with unsupported type %d (func=%d pc=%d)",
+                              c->type, st->func_idx, st->pc);
+            }
+            x86_emit_movabs_rax(cb, bits);                           // rax = nan-boxed payload
+            x86_emit_movq_xmm_rax(cb, x);                            // xmmX = rax
+            x86_cache_put(cache, x, st->d);
+            break;
+        }
         default:
             JIT_FATAL("move category: unexpected opcode %d (pc=%d)", st->op, st->pc);
     }

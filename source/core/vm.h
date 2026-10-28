@@ -460,4 +460,7 @@ void vm_push_completion(VM* vm, FutureObject* fut, Value result);
 // drains the completion queue, resolving each future (scheduler thread only)
 int vm_drain_completions(VM* vm);
 
+// dispatches a builtin call to the appropriate module handler
+bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result);
+
 #endif // VM_H

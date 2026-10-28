@@ -1783,7 +1783,7 @@ void vm_destroy(VM* vm) {
 }
 
 // dispatches built-in function calls to module-specific handlers
-static bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
+bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result) {
     if (vm->c_function_dispatch != NULL) {
         if (vm->c_function_dispatch(vm, name, arg_count, args, result)) {
             return true;

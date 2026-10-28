@@ -142,12 +142,72 @@ static void func_emit_return(X86FuncEmitState* st) {
     st->did_flush = true;                                            // suppress merge flush
 }
 
+// emits OP_PUSH_ARG for a non-strict-pure function body instruction
+static void func_emit_push_arg(X86FuncEmitState* st) {
+    CodeBuf* cb = st->cb;                                            // destination code buffer
+    x86_cache_flush(st->cache, cb);                                  // spill dirty slots before the call
+
+    // arg0 = vm* (loaded via ctx->vm so a NULL bake-time pointer is avoided)
+    x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&st->ctx->vm);      // rax = &ctx->vm
+    x86_emit_load_r64_base(cb, X86_RAX, X86_RAX, 0);                 // rax = *rax = ctx->vm
+#if defined(_WIN32) || defined(_WIN64)
+    x86_emit_mov_r64_r64(cb, X86_RCX, X86_RAX);                      // win64 arg0 = rcx
+    x86_emit_load_r64_rbp(cb, X86_RDX, x86_slot_disp(st->d));        // win64 arg1 = frame[d]
+#else
+    x86_emit_mov_r64_r64(cb, X86_RDI, X86_RAX);                      // sysv arg0 = rdi
+    x86_emit_load_r64_rbp(cb, X86_RSI, x86_slot_disp(st->d));        // sysv arg1 = frame[d]
+#endif
+
+    x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_push_arg_base);
+    emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                            // call rax
+}
+
+// emits OP_CALL_BUILTIN / OP_ASYNC_CALL_BUILTIN for a non-strict-pure function body instruction
+static void func_emit_builtin_call(X86FuncEmitState* st) {
+    CodeBuf* cb = st->cb;                                            // destination code buffer
+    bool async = (st->op == OP_ASYNC_CALL_BUILTIN);                  // async variant toggles builtin_async
+    x86_cache_flush(st->cache, cb);                                  // spill dirty slots before the call
+
+    // arg0 = vm* (loaded via ctx->vm)
+    x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&st->ctx->vm);      // rax = &ctx->vm
+    x86_emit_load_r64_base(cb, X86_RAX, X86_RAX, 0);                 // rax = ctx->vm
+#if defined(_WIN32) || defined(_WIN64)
+    x86_emit_mov_r64_r64(cb, X86_RCX, X86_RAX);                      // win64 arg0 = rcx
+    emit_u8(cb, 0xBA); emit_u32(cb, (uint32_t)st->a);                // win64 arg1 (edx) = name_idx
+    emit_u8(cb, 0x41); emit_u8(cb, 0xB8);                            // win64 arg2 (r8d) = arg_count
+    emit_u32(cb, (uint32_t)st->b);
+    x86_emit_lea_r64_base(cb, X86_R9, X86_RBP, x86_slot_disp(st->d));// win64 arg3 = &frame[d]
+#else
+    x86_emit_mov_r64_r64(cb, X86_RDI, X86_RAX);                      // sysv arg0 = rdi
+    emit_u8(cb, 0xBE); emit_u32(cb, (uint32_t)st->a);                // sysv arg1 (esi) = name_idx
+    emit_u8(cb, 0xBA); emit_u32(cb, (uint32_t)st->b);                // sysv arg2 (edx) = arg_count
+    x86_emit_lea_r64_base(cb, X86_RCX, X86_RBP, x86_slot_disp(st->d));// sysv arg3 = &frame[d]
+#endif
+
+    uint64_t helper = async
+        ? (uint64_t)(uintptr_t)&jit_async_call_builtin_store
+        : (uint64_t)(uintptr_t)&jit_call_builtin_store;
+    x86_emit_movabs_rax(cb, helper);
+    emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                            // call rax
+
+    // result now lives in frame[d]
+    int xd = x86_cache_alloc_excl(st->cache, cb, -1, -1);
+    if (xd >= 0) {
+        x86_emit_movsd_load(cb, xd, x86_slot_disp(st->d));           // xmm<xd> = frame[d]
+        x86_cache_put(st->cache, xd, st->d);                         // cache as dest
+    }
+}
+
 // function body dispatch for the call/return category
 void x86_func_emit_call(X86FuncEmitState* st) {
     switch (st->op) {
         case OP_CALL_0: func_emit_call_0(st); break;                 // zero-arg call
         case OP_CALL_1: func_emit_call_1(st); break;                 // one-arg call
         case OP_CALL_2: func_emit_call_2(st); break;                 // two-arg call
+        case OP_PUSH_ARG: func_emit_push_arg(st); break;             // push arg for builtin call
+        case OP_CALL_BUILTIN:                                        // builtin call
+        case OP_ASYNC_CALL_BUILTIN:                                  // async builtin call
+            func_emit_builtin_call(st); break;
         case OP_RETURN: case OP_RETURN_NUM: case OP_RETURN_BOOL:
         case OP_RETURN_NUM_IMM: case OP_RETURN_NONE:
             func_emit_return(st);                                    // shared return logic

@@ -49,6 +49,9 @@ Value jit_table_get_const(Table* t, StringObject* key);              // tbl[cons
 void  jit_table_set_const(Table* t, StringObject* key, Value val);   // tbl[const_str] = val
 Value jit_table_get_key_str(Table* t, StringObject* prefix, double num);     // tbl["prefix"..num]
 void  jit_table_set_key_str(Table* t, StringObject* prefix, double num, Value val);  // tbl["prefix"..num] = val
+void  jit_push_arg_base(VM* vm, Value src);                                  // push src onto vm args stack
+void  jit_call_builtin_store(VM* vm, int name_idx, int arg_count, Value* dst);
+void  jit_async_call_builtin_store(VM* vm, int name_idx, int arg_count, Value* dst);
 
 // base-path runtime helpers (checked arithmetic that matches the interpreter's
 // non-numeric fallback to NONE) - used for functions that aren't strictly numeric-pure

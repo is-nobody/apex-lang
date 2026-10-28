@@ -167,6 +167,17 @@ static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
                 break;
             }
 
+            case OP_LOAD_CONST: {                                // scalar constants incl. strings
+                int idx = inst->operands[1];                     // constant pool index
+                if (idx < 0 || idx >= chunk->const_count) return false;        // out of range
+                ConstantType t = chunk->constants[idx].type;     // which kind of scalar?
+                if (t != CONST_NUMBER && t != CONST_BOOL &&      // numeric / bool / none are
+                    t != CONST_NONE   && t != CONST_STRING) {    // fine; anything else (tables,
+                    return false;                                // functions) is rejected
+                }
+                break;
+            }
+
             case OP_JUMP:                                        // all jumps must stay
             case OP_JUMP_IF_FALSE:                               // within this function
             case OP_JUMP_IF_EQ:     case OP_JUMP_IF_NEQ:
@@ -216,6 +227,11 @@ static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
 
             case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:  // call targets validated
                 break;                                       // by the fixpoint pass
+
+            case OP_PUSH_ARG:                                // push arg onto vm args stack
+            case OP_CALL_BUILTIN:                            // dispatch to vm builtin handler
+            case OP_ASYNC_CALL_BUILTIN:                      // dispatch to async builtin handler
+                break;
 
             default:
                 return false;                                // any other op: reject
@@ -286,7 +302,28 @@ static bool infer_return_type(BytecodeChunk* chunk, int start, int end,
                 }
                 break;
 
+            case OP_LOAD_CONST: {                                // type is decided by the pool entry
+                if (d >= JIT_MAX_REGS_SCAN) break;
+                int idx = inst->operands[1];                     // constant pool index
+                if (idx < 0 || idx >= chunk->const_count) {      // out of range: unknown
+                    is_bool[d] = false; is_none[d] = false; is_num[d] = false;
+                    break;
+                }
+                switch (chunk->constants[idx].type) {
+                    case CONST_NUMBER:
+                        is_bool[d] = false; is_none[d] = false; is_num[d] = true;  break;
+                    case CONST_BOOL:
+                        is_bool[d] = true;  is_none[d] = false; is_num[d] = false; break;
+                    case CONST_NONE:
+                        is_bool[d] = false; is_none[d] = true;  is_num[d] = false; break;
+                    default:                                     // string / function: unknown
+                        is_bool[d] = false; is_none[d] = false; is_num[d] = false; break;
+                }
+                break;
+            }
+
             case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:      // callee return type unknown
+            case OP_CALL_BUILTIN: case OP_ASYNC_CALL_BUILTIN:    // builtin result type unknown
                 if (d < JIT_MAX_REGS_SCAN) {
                     is_bool[d] = false; is_none[d] = false; is_num[d] = false;
                 }
@@ -367,6 +404,18 @@ static bool function_is_strictly_pure(JITContext* ctx, int func_idx) {
             case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:
                 if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_NUM;
                 break;
+            case OP_LOAD_CONST: {                                // strict-pure: only scalar loads
+                if (d < 0 || d >= JIT_MAX_SLOTS) return false;
+                int idx = inst->operands[1];                     // constant pool index
+                if (idx < 0 || idx >= chunk->const_count) return false;
+                switch (chunk->constants[idx].type) {
+                    case CONST_NUMBER: types[d] = SP_NUM;  break;
+                    case CONST_BOOL:   types[d] = SP_BOOL; break;
+                    case CONST_NONE:   types[d] = SP_NONE; break;
+                    default:           types[d] = SP_UNK;  break;  // string -> unknown
+                }
+                break;
+            }
             case OP_LOAD_BOOL:
                 if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_BOOL;
                 break;

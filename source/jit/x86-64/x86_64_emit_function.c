@@ -31,6 +31,7 @@ static void x86_func_dispatch(X86FuncEmitState* st) {
         case OP_LOAD_NUM:                                            // full double constant
         case OP_LOAD_BOOL:                                           // boolean literal
         case OP_LOAD_NONE:                                           // none literal
+        case OP_LOAD_CONST:                                          // scalar constant incl. string
             x86_func_emit_move(st);
             break;
 
@@ -69,6 +70,9 @@ static void x86_func_dispatch(X86FuncEmitState* st) {
             break;
 
         case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:              // direct calls
+        case OP_PUSH_ARG:                                            // push arg onto vm args stack
+        case OP_CALL_BUILTIN:                                        // builtin call dispatch
+        case OP_ASYNC_CALL_BUILTIN:                                  // async builtin call dispatch
         case OP_RETURN: case OP_RETURN_NUM: case OP_RETURN_BOOL:     // returns
         case OP_RETURN_NUM_IMM: case OP_RETURN_NONE:
             x86_func_emit_call(st);

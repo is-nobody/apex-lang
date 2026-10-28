@@ -317,6 +317,63 @@ void jit_table_set_key_str(Table* t, StringObject* prefix, double num, Value val
     table_set_concat_key(t, prefix, nbuf, nlen, val);                 // insert/update, alloc only if new
 }
 
+// jit helper for OP_PUSH_ARG
+void jit_push_arg_base(VM* vm, Value src) {
+    if (!vm) return;
+    if (vm->args_top >= VM_MAX_ARGS_STACK) {                          // arg stack overflow
+        vm->had_error = true;                                         // mirror interpreter error flag
+        vm->running   = false;
+        return;
+    }
+    vm->args_stack[vm->args_top] = src;                               // store argument
+    value_incref(src);                                                // args stack holds a reference
+    vm->args_top++;                                                   // advance stack pointer
+}
+
+// jit helper for OP_CALL_BUILTIN
+void jit_call_builtin_store(VM* vm, int name_idx, int arg_count, Value* dst) {
+    if (!vm || !vm->chunk || !dst) { if (dst) *dst = MAKE_NONE(); return; }
+    BytecodeChunk* chunk = vm->chunk;                                 // current chunk
+    Value args[VM_MAX_ARGS_STACK];                                    // local args buffer
+    for (int i = 0; i < VM_MAX_ARGS_STACK; i++) args[i] = MAKE_NONE();
+    for (int i = 0; i < arg_count && i < VM_MAX_ARGS_STACK; i++) {
+        args[i] = vm->args_stack[vm->args_top - arg_count + i];       // copy args from stack
+    }
+    Value result;                                                     // builtin result
+    bool ok = vm_call_builtin(vm, chunk->constants[name_idx].string_value,
+                              arg_count, args, &result);              // dispatch
+    for (int i = 0; i < arg_count; i++) {
+        value_decref(vm->args_stack[vm->args_top - arg_count + i]);   // release args from stack
+    }
+    vm->args_top -= arg_count;                                        // pop args
+    Value old = *dst;                                                 // old dst value
+    if ((old & QNAN) == QNAN) value_decref(old);                      // release old dst
+    *dst = ok ? result : MAKE_NONE();                                 // publish result
+}
+
+// jit helper for OP_ASYNC_CALL_BUILTIN
+void jit_async_call_builtin_store(VM* vm, int name_idx, int arg_count, Value* dst) {
+    if (!vm || !vm->chunk || !dst) { if (dst) *dst = MAKE_NONE(); return; }
+    BytecodeChunk* chunk = vm->chunk;
+    Value args[VM_MAX_ARGS_STACK];
+    for (int i = 0; i < VM_MAX_ARGS_STACK; i++) args[i] = MAKE_NONE();
+    for (int i = 0; i < arg_count && i < VM_MAX_ARGS_STACK; i++) {
+        args[i] = vm->args_stack[vm->args_top - arg_count + i];
+    }
+    Value result;
+    vm->builtin_async = true;                                         // signal async intent
+    bool ok = vm_call_builtin(vm, chunk->constants[name_idx].string_value,
+                              arg_count, args, &result);
+    vm->builtin_async = false;                                        // clear signal
+    for (int i = 0; i < arg_count; i++) {
+        value_decref(vm->args_stack[vm->args_top - arg_count + i]);
+    }
+    vm->args_top -= arg_count;
+    Value old = *dst;
+    if ((old & QNAN) == QNAN) value_decref(old);
+    *dst = ok ? result : MAKE_NONE();
+}
+
 // emits the shared prologue then any abi-specific callee-saved register saves
 void emit_prologue(CodeBuf* cb, const X86_64Abi* abi,
                    int frame_size, int base_frame) {
@@ -444,6 +501,7 @@ bool slot_read_before_write(BytecodeChunk* chunk, int pc_after, int end, int s) 
             case OP_MOVE: case OP_NEG: case OP_INC: case OP_DEC:
             case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:
             case OP_LOAD_BOOL: case OP_LOAD_NONE:
+            case OP_LOAD_CONST:                                  // writes d
             case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
             case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:   // writes d
             case OP_DIV_IMM: case OP_MOD_IMM:
@@ -510,6 +568,7 @@ bool op_writes_dest(Opcode op) {
         case OP_MOVE: case OP_NEG: case OP_INC: case OP_DEC:
         case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:
         case OP_LOAD_BOOL: case OP_LOAD_NONE:
+        case OP_LOAD_CONST:
         case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
         case OP_CMP_EQ: case OP_CMP_NEQ:
         case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
