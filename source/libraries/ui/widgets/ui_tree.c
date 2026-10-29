@@ -96,24 +96,30 @@ void tree_build_nodes(UiContext* ctx, Widget* w, Table* arr) {
 
 // row index for a local y offset, or -1 when outside the row range
 static int tree_row_at(Widget* w, int local_y) {
-    if (local_y < 1) return -1;                            // top 1px is the border
-    int idx = (local_y - 1) / UI_TREE_ROW_H;
+    if (local_y < UI_TREE_PAD) return -1;              // above the first row
+    int idx = (local_y - UI_TREE_PAD) / UI_TREE_ROW_H;
     if (idx < 0 || idx >= w->tree_node_count) return -1;
     return idx;
 }
 
-// draws the small disclosure triangle at the row's indent slot
+// draws a sharp, pixel-perfect 1px chevron without anti-aliasing
 static void tree_draw_disclosure(int x, int y, bool expanded, uint32_t c) {
-    if (expanded) {                                    // ▼
-        ui_painter_fill_rect(x,     y - 1, 7, 1, c);
-        ui_painter_fill_rect(x + 1, y,     5, 1, c);
-        ui_painter_fill_rect(x + 2, y + 1, 3, 1, c);
-        ui_painter_fill_rect(x + 3, y + 2, 1, 1, c);
-    } else {                                           // ▶
-        ui_painter_fill_rect(x,     y - 3, 1, 7, c);
-        ui_painter_fill_rect(x + 1, y - 2, 1, 5, c);
-        ui_painter_fill_rect(x + 2, y - 1, 1, 3, c);
-        ui_painter_fill_rect(x + 3, y,     1, 1, c);
+    if (expanded) { // ▼
+        ui_painter_fill_rect(x - 3, y - 1, 1, 1, c);
+        ui_painter_fill_rect(x - 2, y,     1, 1, c);
+        ui_painter_fill_rect(x - 1, y + 1, 1, 1, c);
+        ui_painter_fill_rect(x,     y + 2, 1, 1, c);
+        ui_painter_fill_rect(x + 1, y + 1, 1, 1, c);
+        ui_painter_fill_rect(x + 2, y,     1, 1, c);
+        ui_painter_fill_rect(x + 3, y - 1, 1, 1, c);
+    } else {        // ▶
+        ui_painter_fill_rect(x - 2, y - 3, 1, 1, c);
+        ui_painter_fill_rect(x - 1, y - 2, 1, 1, c);
+        ui_painter_fill_rect(x,     y - 1, 1, 1, c);
+        ui_painter_fill_rect(x + 1, y,     1, 1, c);
+        ui_painter_fill_rect(x,     y + 1, 1, 1, c);
+        ui_painter_fill_rect(x - 1, y + 2, 1, 1, c);
+        ui_painter_fill_rect(x - 2, y + 3, 1, 1, c);
     }
 }
 
@@ -153,49 +159,73 @@ void tree_handle_press(UiContext* ctx, Widget* w, int button) {
 void tree_render(UiContext* ctx, Widget* w, int x, int y, int ww, int hh) {
     if (ww <= 0 || hh <= 0) return;
 
-    ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_PANEL);     // body
-    ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);  // outline
+    // panel background with a subtle border
+    ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_PANEL);
+    ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);
     if (w->tree_node_count == 0) return;                            // nothing to draw
 
-    // hover row is tracked in widget state by the mousemove handler
-    int hover_row = w->hovered ? w->hover_row : -1;
-    int press_row = w->pressed
-                  ? tree_row_at(w, ctx->input.y - y)
-                  : -1;
+    int pad     = UI_TREE_PAD;                                       // inner padding of the row area
+    int inner_x = x + pad;                                           // left edge of the row area
+    int inner_w = ww - pad * 2;                                      // row area width
+    int inner_y = y + pad;                                           // top edge of the first row
 
-    int rx = x + 1;                                                 // inside the 1px border
-    int rw = ww - 2;
+    int hover_row = w->hovered ? w->hover_row : -1;                  // hovered row, -1 for none
+    int press_row = w->pressed ? tree_row_at(w, ctx->input.y - y) : -1;  // pressed row, -1 for none
 
+    // guides pass: draw every indent guide first so row highlights paint over them
     for (int i = 0; i < w->tree_node_count; i++) {
         TreeNode* n = &w->tree_nodes[i];
-        int ry = y + 1 + i * UI_TREE_ROW_H;
+        int ry = inner_y + i * UI_TREE_ROW_H;
+        for (int d = 0; d < n->depth; d++) {                         // one guide per ancestor depth
+            int gx = inner_x + UI_TREE_INNER_PAD + d * w->tree_indent + 4;  // align with chevron center
+            int gy = ry;
+            int gh = UI_TREE_ROW_H;
+            // first child of a parent: extend the guide up to reach the parent's disclosure
+            if (i > 0 && w->tree_nodes[i-1].depth <= d) {
+                gy -= UI_TREE_ROW_H / 2;
+                gh += UI_TREE_ROW_H / 2;
+            }
+            ui_painter_fill_rect(gx, gy, 1, gh, UI_C_TREE_GUIDE);    // 1px vertical guide
+        }
+    }
 
-        // row highlight, in priority order: pressed, selected, hovered
+    // highlight + content pass
+    for (int i = 0; i < w->tree_node_count; i++) {
+        TreeNode* n = &w->tree_nodes[i];
+        int ry = inner_y + i * UI_TREE_ROW_H;
+
+        int indent_x = inner_x + UI_TREE_INNER_PAD + n->depth * w->tree_indent;
+
+        // rounded selection / hover / press highlight, inset from the row edges
         bool selected = (w->tree_selected.len > 0) &&
                         (n->key.len == w->tree_selected.len) &&
-                        (memcmp(n->key.ptr, w->tree_selected.ptr,
-                                (size_t)n->key.len) == 0);
+                        (memcmp(n->key.ptr, w->tree_selected.ptr, (size_t)n->key.len) == 0);
         uint32_t bg = 0;
-        if      (i == press_row) bg = UI_C_ACCENT_A;
-        else if (selected)       bg = UI_C_ACCENT;
-        else if (i == hover_row) bg = UI_C_PANEL_ALT;
-        if (bg) ui_painter_fill_rect(rx, ry, rw, UI_TREE_ROW_H, bg);
+        if      (i == press_row) bg = UI_C_TREE_PRESS_BG;            // pressed: strongest fill
+        else if (selected)       bg = UI_C_TREE_SEL_BG;              // selected: persistent highlight
+        else if (i == hover_row) bg = UI_C_TREE_HOVER_BG;            // hovered: subtle wash
 
-        // hairline between rows
-        if (i > 0)
-            ui_painter_fill_rect(rx, ry, rw, 1, UI_C_BORDER);
+        if (bg) {
+            // move the selection box further right for parents so it doesn't touch the arrow
+            int hl_x = indent_x + (n->has_children ? UI_TREE_DISC_W - 2 : 2);
+            int hl_w = inner_x + inner_w - 2 - hl_x;
+            if (hl_w > 0)
+                ui_painter_fill_round(hl_x, ry + 1, hl_w,
+                                      UI_TREE_ROW_H - 2, UI_TREE_SEL_RADIUS, bg);
+        }
 
-        // indentation, then the optional disclosure triangle
-        int indent_px = UI_TREE_INNER_PAD + n->depth * w->tree_indent;
+        // disclosure triangle at the row's indent slot
         if (n->has_children)
-            tree_draw_disclosure(rx + indent_px + 3, ry + UI_TREE_ROW_H / 2,
-                                 n->expanded, UI_C_FG_DIM);
+            tree_draw_disclosure(indent_x + 4, ry + UI_TREE_ROW_H / 2,
+                                 n->expanded, UI_C_TREE_CHEVRON);
 
-        // label, starting right of the disclosure slot
-        float lx   = (float)(rx + indent_px + UI_TREE_DISC_W);
+        // label starting right of the disclosure slot
+        float lx   = (float)(indent_x + UI_TREE_DISC_W);
         float base = ry + (UI_TREE_ROW_H + UI_FS_BODY * 0.7f) * 0.5f;
-        if (n->label.ptr && n->label.len > 0)
+        if (n->label.ptr && n->label.len > 0) {
+            uint32_t fg = selected ? UI_C_TREE_SEL_FG : UI_C_FG;      // brighter text when selected
             ui_draw_text_at(ctx, lx, base, n->label.ptr, n->label.len,
-                            UI_FS_BODY, UI_C_FG);
+                            UI_FS_BODY, fg);
+        }
     }
 }

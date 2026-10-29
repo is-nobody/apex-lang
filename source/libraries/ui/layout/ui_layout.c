@@ -304,7 +304,7 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
         }
         case WK_TREE: {                                      // flat row list, one row per visible node
             w->meas_w = 240;
-            w->meas_h = (float)w->tree_node_count * UI_TREE_ROW_H + 2;
+            w->meas_h = (float)w->tree_node_count * UI_TREE_ROW_H + UI_TREE_PAD * 2;
             break;
         }
         case WK_SWITCH: {                                    // pill track plus optional label

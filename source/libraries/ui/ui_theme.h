@@ -174,11 +174,21 @@
 #define UI_C_MENU_SEP          UI_C_BORDER      // separator line
 #define UI_C_MENU_ITEM_FG      UI_C_TB_FG       // dropdown item text, matches the tray
 
+// tree metrics (godot-inspired flat style)
+#define UI_TREE_ROW_H      28           // tree row height in pixels
+#define UI_TREE_INDENT     14           // default pixels per indentation level
+#define UI_TREE_INNER_PAD   6           // left inset of the first indent slot
+#define UI_TREE_DISC_W     12           // width of the disclosure triangle's click slot
+#define UI_TREE_PAD         4           // inner padding around the row area
+#define UI_TREE_SEL_RADIUS  4           // rounded selection highlight radius
+
 // tree colors
-#define UI_TREE_ROW_H      28   // tree row height in pixels
-#define UI_TREE_INDENT     16   // default pixels per indentation level
-#define UI_TREE_INNER_PAD   6   // left inset of the first indent slot
-#define UI_TREE_DISC_W     14   // width of the disclosure triangle's click slot
+#define UI_C_TREE_SEL_BG    0xFF3D4148u  // selection highlight (bluish dark gray)
+#define UI_C_TREE_SEL_FG    0xFFEAEAEAu  // selected label (brighter than default)
+#define UI_C_TREE_HOVER_BG  0xFF2E3134u  // hover highlight (subtle)
+#define UI_C_TREE_PRESS_BG  0xFF34383Cu  // pressed highlight (stronger)
+#define UI_C_TREE_GUIDE     0xFF323639u  // indent guide line
+#define UI_C_TREE_CHEVRON   0xFF969696u  // disclosure caret
 
 // tab strip metrics
 #define UI_TABS_H          35   // tab strip height

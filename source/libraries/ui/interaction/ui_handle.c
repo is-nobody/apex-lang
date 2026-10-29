@@ -391,7 +391,7 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
 
                 // wk_tree: track which row is under the pointer
                 if (h && h->kind == WK_TREE) {
-                    int local_y = e->y - (int)h->y - 1;       // skip the 1px top border
+                    int local_y = e->y - (int)h->y - UI_TREE_PAD;  // skip the inner top pad
                     int row = -1;
                     if (local_y >= 0 && h->tree_node_count > 0) {
                         row = local_y / UI_TREE_ROW_H;
