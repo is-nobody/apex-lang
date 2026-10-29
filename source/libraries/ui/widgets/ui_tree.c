@@ -222,10 +222,46 @@ void tree_render(UiContext* ctx, Widget* w, int x, int y, int ww, int hh) {
         // label starting right of the disclosure slot
         float lx   = (float)(indent_x + UI_TREE_DISC_W);
         float base = ry + (UI_TREE_ROW_H + UI_FS_BODY * 0.7f) * 0.5f;
-        if (n->label.ptr && n->label.len > 0) {
+        
+        if (n->label.ptr && n->label.len > 0 && ctx->font) {
             uint32_t fg = selected ? UI_C_TREE_SEL_FG : UI_C_FG;      // brighter text when selected
-            ui_draw_text_at(ctx, lx, base, n->label.ptr, n->label.len,
-                            UI_FS_BODY, fg);
+            int label_max_w = (inner_x + inner_w - 2) - (int)lx;     // available width before the right edge
+            
+            if (label_max_w > 0) {
+                float full_w = ui_text_measure_cached(ctx, n->label.ptr, n->label.len, UI_FS_BODY);
+                
+                if (full_w <= (float)label_max_w + 0.5f) {
+                    // whole label fits
+                    ui_draw_text_at(ctx, lx, base, n->label.ptr, n->label.len, UI_FS_BODY, fg);
+                } else {
+                    // truncate with "..." like Chrome
+                    const char ell[] = "...";
+                    float ell_w = ui_text_measure_cached(ctx, ell, 3, UI_FS_BODY);
+                    
+                    if ((float)label_max_w > ell_w) {
+                        float budget = (float)label_max_w - ell_w;   // space left for the prefix
+                        int cut = 0;                                 // byte length of the kept prefix
+                        float cut_w = 0.0f;                          // measured width of that prefix
+                        int j = 0;                                   // byte cursor
+                        
+                        while (j < n->label.len) {                   // grow the prefix one codepoint at a time
+                            int next = ui_utf8_next(n->label.ptr, j, n->label.len);
+                            float w2 = ui_text_measure_cached(ctx, n->label.ptr, next, UI_FS_BODY);
+                            if (w2 > budget) break;                  // this codepoint would overflow
+                            j = next;
+                            cut = j;
+                            cut_w = w2;
+                        }
+                        
+                        if (cut > 0) {                               // some prefix survived
+                            ui_draw_text_at(ctx, lx, base, n->label.ptr, cut, UI_FS_BODY, fg);
+                            ui_draw_text_at(ctx, lx + cut_w, base, ell, 3, UI_FS_BODY, fg);
+                        } else if ((float)label_max_w >= ell_w) {    // first char too wide, but ellipsis fits
+                            ui_draw_text_at(ctx, lx, base, ell, 3, UI_FS_BODY, fg);
+                        }
+                    }
+                }
+            }
         }
     }
 }
