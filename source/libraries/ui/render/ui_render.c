@@ -214,22 +214,34 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
             }
             case WK_NUMBER_INPUT: {
                 int bw = 24;
-                int gap = 4;
-                int fw = ww - bw * 2 - gap * 2;
+                int fw = ww - bw * 2;
                 if (fw < 10) fw = 10; // safety fallback
 
                 int cx = x;
-                // [-] button
-                ui_painter_fill_round(cx, y, bw, hh, UI_RADIUS, UI_C_PANEL_ALT);
-                ui_painter_stroke_round(cx, y, bw, hh, UI_RADIUS, UI_C_BORDER);
-                ui_painter_fill_rect(cx + 7, y + hh / 2, 10, 1, UI_C_FG_DIM); // minus line
 
-                cx += bw + gap;
+                // overall container
+                ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_PANEL_ALT);
 
-                // input field
-                ui_painter_fill_round(cx, y, fw, hh, UI_RADIUS, UI_C_INPUT_BG);
-                ui_painter_stroke_round(cx, y, fw, hh, UI_RADIUS, UI_C_BORDER);
-                
+                // fill the middle input area
+                ui_painter_fill_rect(x + bw, y + 1, fw, hh - 2, UI_C_INPUT_BG);
+
+                // draw the inner vertical separators
+                ui_painter_fill_rect(x + bw, y + 1, 1, hh - 2, UI_C_BORDER);
+                ui_painter_fill_rect(x + ww - bw - 1, y + 1, 1, hh - 2, UI_C_BORDER);
+
+                // draw the single outer outline
+                ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);
+
+                // [-] button graphic
+                ui_painter_fill_rect(x + 7, y + hh / 2, 10, 1, UI_C_FG_DIM); // minus line
+
+                // [+] button graphic
+                int rx = x + ww - bw;
+                ui_painter_fill_rect(rx + 7, y + hh / 2, 10, 1, UI_C_FG_DIM); // plus horizontal
+                ui_painter_fill_rect(rx + 12, y + hh / 2 - 5, 1, 10, UI_C_FG_DIM); // plus vertical
+
+                // input field text
+                cx += bw;
                 float fs = UI_FS_BODY;
                 float base = y + (hh + fs * 0.7f) * 0.5f;
 
@@ -259,14 +271,6 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                     if (ctx->font) tx += ui_text_measure_cached(ctx, w->input_value.ptr, cur_off, fs);
                     ui_painter_fill_rect((int)tx, y + 6, 1, hh - 12, UI_C_FG);
                 }
-
-                cx += fw + gap;
-
-                // [+] button
-                ui_painter_fill_round(cx, y, bw, hh, UI_RADIUS, UI_C_PANEL_ALT);
-                ui_painter_stroke_round(cx, y, bw, hh, UI_RADIUS, UI_C_BORDER);
-                ui_painter_fill_rect(cx + 7, y + hh / 2, 10, 1, UI_C_FG_DIM); // plus horizontal
-                ui_painter_fill_rect(cx + 12, y + hh / 2 - 5, 1, 10, UI_C_FG_DIM); // plus vertical
                 break;
             }
             case WK_TEXT_AREA: {
