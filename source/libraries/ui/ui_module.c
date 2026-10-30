@@ -157,10 +157,10 @@ static Value ctor_text_area(VM* vm, int argc, Value* argv) {
     return MAKE_TABLE(t);
 }
 
-// builds a combobox widget descriptor
-static Value ctor_combobox(VM* vm, int argc, Value* argv) {
+// builds a dropdown widget descriptor
+static Value ctor_dropdown(VM* vm, int argc, Value* argv) {
     Table* t = table_create(8);
-    tset(vm, t, "__t", intern(vm, "combobox"));
+    tset(vm, t, "__t", intern(vm, "dropdown"));
     if (argc >= 1) tset(vm, t, "value", argv[0]);
     if (argc >= 2) tset(vm, t, "options", argv[1]);
     if (argc >= 3 && IS_TABLE(argv[2])) {
@@ -501,7 +501,7 @@ bool ui_call_builtin(VM* vm, const char* name, int argc, Value* argv, Value* res
     if (strcmp(name, "ui.input") == 0){ *result = ctor_input(vm, argc, argv); return true; }                    // editable text field
     if (strcmp(name, "ui.number_input") == 0) { *result = ctor_number_input(vm, argc, argv); return true; }     // numeric input
     if (strcmp(name, "ui.text_area") == 0) { *result = ctor_text_area(vm, argc, argv); return true; }           // multi-line editor
-    if (strcmp(name, "ui.combobox") == 0) { *result = ctor_combobox(vm, argc, argv); return true; }             // dropdown selector
+    if (strcmp(name, "ui.dropdown") == 0) { *result = ctor_dropdown(vm, argc, argv); return true; }             // dropdown selector
     if (strcmp(name, "ui.table") == 0)    { *result = ctor_table(vm, argc, argv); return true; }                // columned table
     if (strcmp(name, "ui.tree") == 0)     { *result = ctor_tree(vm, argc, argv); return true; }                 // hierarchical tree
     if (strcmp(name, "ui.tabs") == 0)     { *result = ctor_tabs(vm, argc, argv); return true; }                 // tab strip

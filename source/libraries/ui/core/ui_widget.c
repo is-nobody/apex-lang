@@ -117,7 +117,7 @@ const char* widget_kind_name(WidgetKind k) {
         case WK_PROGRESS: return "progress";
         case WK_INPUT: return "input";
         case WK_BADGE: return "badge";
-        case WK_COMBOBOX: return "combobox";
+        case WK_DROPDOWN: return "dropdown";
         case WK_TABLE: return "table";
         case WK_TREE:   return "tree";
         case WK_TABS:   return "tabs";
@@ -139,7 +139,7 @@ const char* widget_kind_name(WidgetKind k) {
 // returns true if the widget kind participates in keyboard focus
 bool widget_focusable(WidgetKind k) {
     return k == WK_BUTTON || k == WK_CHECKBOX ||
-           k == WK_SLIDER || k == WK_INPUT || k == WK_NUMBER_INPUT || k == WK_COMBOBOX ||
+           k == WK_SLIDER || k == WK_INPUT || k == WK_NUMBER_INPUT || k == WK_DROPDOWN ||
            k == WK_TEXT_AREA;
 }
 

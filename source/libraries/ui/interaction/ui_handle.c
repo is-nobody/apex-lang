@@ -347,15 +347,15 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                 }
             }
 
-            // redraw open combobox dropdowns when the cursor moves over their list
+            // redraw open dropdown dropdowns when the cursor moves over their list
             for (int i = 0; i < ctx->pool_used; i++) {
                 Widget* w = &ctx->pool[i];
-                if (w->kind != WK_COMBOBOX || !w->combo_open || !w->visible) continue;
+                if (w->kind != WK_DROPDOWN || !w->drop_open || !w->visible) continue;
                 int bx = (int)floorf(w->x + 0.5f);
                 int by = (int)floorf(w->y + 0.5f);
                 int bw = (int)floorf(w->w + 0.5f);
                 int bh = (int)floorf(w->h + 0.5f);
-                int dh = w->combo_option_count * UI_INPUT_H;
+                int dh = w->drop_option_count * UI_INPUT_H;
                 if (e->x >= bx && e->x < bx + bw &&
                     e->y >= by + bh && e->y < by + bh + dh) {
                     ctx->redraw_needed = true;
@@ -575,40 +575,40 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
 
                 ctx->input.lmb = true;                        // record button as held
 
-                // an open combobox dropdown captures the click before anything else
-                Widget* open_combo = NULL;
+                // an open dropdown dropdown captures the click before anything else
+                Widget* open_drop = NULL;
                 for (int i = 0; i < ctx->pool_used; i++) {
                     Widget* w = &ctx->pool[i];
-                    if (w->kind != WK_COMBOBOX || !w->combo_open || !w->visible) continue;
+                    if (w->kind != WK_DROPDOWN || !w->drop_open || !w->visible) continue;
                     int bx = (int)floorf(w->x + 0.5f);
                     int by = (int)floorf(w->y + 0.5f);
                     int bw = (int)floorf(w->w + 0.5f);
                     int bh = (int)floorf(w->h + 0.5f);
-                    int dh = w->combo_option_count * UI_INPUT_H;
+                    int dh = w->drop_option_count * UI_INPUT_H;
                     if (e->x >= bx && e->x < bx + bw && e->y >= by + bh && e->y < by + bh + dh) {
-                        open_combo = w;
+                        open_drop = w;
                         break;
                     }
                 }
-                if (open_combo) {
-                    int by = (int)floorf(open_combo->y + 0.5f);
-                    int bh = (int)floorf(open_combo->h + 0.5f);
+                if (open_drop) {
+                    int by = (int)floorf(open_drop->y + 0.5f);
+                    int bh = (int)floorf(open_drop->h + 0.5f);
                     int idx = (e->y - by - bh) / UI_INPUT_H;
-                    if (idx >= 0 && idx < open_combo->combo_option_count) {
-                        Str* opt = &open_combo->combo_options[idx];
+                    if (idx >= 0 && idx < open_drop->drop_option_count) {
+                        Str* opt = &open_drop->drop_options[idx];
                         UiEvent cev; memset(&cev, 0, sizeof(cev));
                         cev.kind = EV_CHANGE;
-                        cev.widget_id = open_combo->id;
-                        strncpy(cev.widget_type, "combobox", 15);
-                        if (open_combo->key_str) strncpy(cev.key_name, open_combo->key_str, 63);
+                        cev.widget_id = open_drop->id;
+                        strncpy(cev.widget_type, "dropdown", 15);
+                        if (open_drop->key_str) strncpy(cev.key_name, open_drop->key_str, 63);
                         cev.str_value = (char*)malloc((size_t)opt->len + 1);
                         memcpy(cev.str_value, opt->ptr, (size_t)opt->len);
                         cev.str_value[opt->len] = 0;
                         ui_event_push(ctx, &cev);
                     }
-                    WidgetState* s = ui_state_get(ctx, open_combo->id);
-                    s->combo_open = false;
-                    open_combo->combo_open = false;
+                    WidgetState* s = ui_state_get(ctx, open_drop->id);
+                    s->drop_open = false;
+                    open_drop->drop_open = false;
                     ctx->redraw_needed = true;
                     ctx->geometry_dirty = true;
                     break;
@@ -647,22 +647,22 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                         }
                     }
 
-                    // a click outside any open combobox closes it
+                    // a click outside any open dropdown closes it
                     for (int i = 0; i < ctx->pool_used; i++) {
                         Widget* w = &ctx->pool[i];
-                        if (w->kind != WK_COMBOBOX || !w->combo_open) continue;
+                        if (w->kind != WK_DROPDOWN || !w->drop_open) continue;
                         if (h == w) continue;               // about to toggle this one: leave it
-                        w->combo_open = false;
+                        w->drop_open = false;
                         WidgetState* ws = ui_state_get(ctx, w->id);
-                        ws->combo_open = false;
+                        ws->drop_open = false;
                         ctx->geometry_dirty = true;
                         ctx->redraw_needed = true;
                     }
                     if (h) {
                         WidgetState* s = ui_state_get(ctx, h->id);
-                        if (h->kind == WK_COMBOBOX) {            // toggle the dropdown
-                            s->combo_open = !s->combo_open;
-                            h->combo_open = s->combo_open;
+                        if (h->kind == WK_DROPDOWN) {            // toggle the dropdown
+                            s->drop_open = !s->drop_open;
+                            h->drop_open = s->drop_open;
                             ctx->focused_id = h->id;
                             for (int i = 0; i < ctx->pool_used; i++)
                                 ctx->pool[i].focused = (ctx->pool[i].id == ctx->focused_id);
@@ -1236,10 +1236,10 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                 bool closed = false;
                 for (int i = 0; i < ctx->pool_used; i++) {
                     Widget* w = &ctx->pool[i];
-                    if (w->kind == WK_COMBOBOX && w->combo_open) {
-                        w->combo_open = false;
+                    if (w->kind == WK_DROPDOWN && w->drop_open) {
+                        w->drop_open = false;
                         WidgetState* s = ui_state_get(ctx, w->id);
-                        s->combo_open = false;
+                        s->drop_open = false;
                         closed = true;
                     }
                 }

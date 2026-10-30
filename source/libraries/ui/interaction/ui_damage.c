@@ -26,8 +26,8 @@ static void snapshot_walk(Widget* w, SnapshotTable* t) {
     e->y    = (int)floorf(w->y + 0.5f) - SNAP_MARGIN;                  // rounded screen y, padded
     e->w    = (int)floorf(w->w + 0.5f) + 2*SNAP_MARGIN;                // rounded screen width, padded
     int snap_h = (int)floorf(w->h + 0.5f) + 2*SNAP_MARGIN;             // rounded screen height, padded
-    if (w->kind == WK_COMBOBOX && w->combo_open && w->combo_option_count > 0)
-        snap_h += w->combo_option_count * UI_INPUT_H;                  // include the open dropdown
+    if (w->kind == WK_DROPDOWN && w->drop_open && w->drop_option_count > 0)
+        snap_h += w->drop_option_count * UI_INPUT_H;                  // include the open dropdown
     e->h = snap_h;
     e->hash = ui_visual_hash(w);                                       // visual-state digest
     for (int i = 0; i < w->child_count; i++) snapshot_walk(w->children[i], t);  // recurse into children

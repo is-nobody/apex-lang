@@ -25,7 +25,7 @@ typedef struct { char* ptr; int len; } Str;
 
 typedef enum {
     WK_TEXT, WK_HEADING, WK_BUTTON, WK_CHECKBOX,
-    WK_SLIDER, WK_PROGRESS, WK_INPUT, WK_BADGE, WK_COMBOBOX,
+    WK_SLIDER, WK_PROGRESS, WK_INPUT, WK_BADGE, WK_DROPDOWN,
     WK_SEPARATOR, WK_SPACER, WK_TABLE, WK_TREE,
     WK_TABS, WK_VBOX, WK_HBOX, WK_PANEL, WK_SCROLL, WK_HSCROLL,
     WK_NUMBER_INPUT, WK_TEXT_AREA, WK_STATUSBAR, WK_STATUS_ITEM
@@ -108,12 +108,12 @@ struct Widget {
     bool   checked;                      // checkbox state
     double num_value, num_min, num_max;  // slider / progress numeric state
 
-    // wk_combobox state
-    Str*   combo_options;                // arena-owned array of option labels
-    int    combo_option_count;           // number of options in the list
-    int    combo_selected;               // index of the selected option, -1 = none
-    Str    combo_value;                  // display text (usually one of the options)
-    bool   combo_open;                   // dropdown expanded this frame
+    // wk_dropdown state
+    Str*   drop_options;                // arena-owned array of option labels
+    int    drop_option_count;           // number of options in the list
+    int    drop_selected;               // index of the selected option, -1 = none
+    Str    drop_value;                  // display text (usually one of the options)
+    bool   drop_open;                   // dropdown expanded this frame
     bool    collapsed;                   // dock panel collapsed state
     bool    gutter;                      // text_area line numbers
     bool    resizable;                   // dock panel resizable state
@@ -188,7 +188,7 @@ typedef struct {
     double   scroll_target;     // offset the smooth scroll animation eases toward
     double   blink_phase;       // cursor blink animation phase
     double   tooltip_hover_start;// wall-clock when hovering started, 0 = idle
-    bool     combo_open;        // dropdown expanded state persisted across frames
+    bool     drop_open;         // dropdown expanded state persisted across frames
     bool     collapsed;         // dock panel collapsed state
 
     // owned text buffer for wk_input widgets

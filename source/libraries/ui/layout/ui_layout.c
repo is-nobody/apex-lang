@@ -264,16 +264,16 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
             w->meas_h = UI_INPUT_H;
             break;
         }
-        case WK_COMBOBOX: {                                  // button plus hidden dropdown
+        case WK_DROPDOWN: {                                  // button plus hidden dropdown
             float fs = UI_FS_BODY;
             float maxw = 0;
-            for (int i = 0; i < w->combo_option_count; i++) {
-                float ww = ctx->font ? ui_text_measure_cached(ctx, w->combo_options[i].ptr,
-                                                              w->combo_options[i].len, fs) : 0;
+            for (int i = 0; i < w->drop_option_count; i++) {
+                float ww = ctx->font ? ui_text_measure_cached(ctx, w->drop_options[i].ptr,
+                                                              w->drop_options[i].len, fs) : 0;
                 if (ww > maxw) maxw = ww;
             }
-            float vw = ctx->font ? ui_text_measure_cached(ctx, w->combo_value.ptr,
-                                                          w->combo_value.len, fs) : 0;
+            float vw = ctx->font ? ui_text_measure_cached(ctx, w->drop_value.ptr,
+                                                          w->drop_value.len, fs) : 0;
             if (vw > maxw) maxw = vw;
             w->meas_w = maxw + 32;                           // text + side padding + chevron
             if (w->meas_w < 120) w->meas_w = 120;
@@ -564,9 +564,9 @@ static void compute_subtree_bbox(Widget* w) {
         if (by1 > y1) y1 = by1;
     }
 
-    // an open combobox dropdown extends the drawn area below the button
-    if (w->kind == WK_COMBOBOX && w->combo_open && w->combo_option_count > 0) {
-        int dropdown_bottom = y1 + w->combo_option_count * UI_INPUT_H;
+    // an open dropdown extends the drawn area below the button
+    if (w->kind == WK_DROPDOWN && w->drop_open && w->drop_option_count > 0) {
+        int dropdown_bottom = y1 + w->drop_option_count * UI_INPUT_H;
         if (dropdown_bottom > y1) y1 = dropdown_bottom;
     }
 

@@ -396,7 +396,7 @@ static const BuiltinSig BUILTINS[] = {
     {"ui.switch",           2, 3, TYPE_ANY},      {"ui.radio",            3, 4, TYPE_ANY},
     {"ui.slider",           3, 4, TYPE_ANY},      {"ui.input",            1, 2, TYPE_ANY},
     {"ui.number_input",     1, 2, TYPE_ANY},      {"ui.text_area",        1, 2, TYPE_ANY},
-    {"ui.combobox",         2, 3, TYPE_ANY},
+    {"ui.dropdown",         2, 3, TYPE_ANY},
     // data views
     {"ui.table",            2, 3, TYPE_ANY},      {"ui.tree",             1, 2, TYPE_ANY},
     {"ui.list",             1, 2, TYPE_ANY},      {"ui.tabs",             1, 2, TYPE_ANY},

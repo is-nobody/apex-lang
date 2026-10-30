@@ -73,7 +73,7 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
     }
 
     if (draw_self && ww > 0 && hh > 0) {
-        if (w->focused && (w->kind == WK_INPUT || w->kind == WK_COMBOBOX)) {
+        if (w->focused && (w->kind == WK_INPUT || w->kind == WK_DROPDOWN)) {
             ui_painter_stroke_round(x-2, y-2, ww+4, hh+4, UI_RADIUS+2, UI_C_FOCUS);
         }
 
@@ -395,13 +395,13 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 }
                 break;
             }
-            case WK_COMBOBOX: {
+            case WK_DROPDOWN: {
                 ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_INPUT_BG);
                 ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);
                 float fs = UI_FS_BODY;
                 float base = y + (hh + fs * 0.7f) * 0.5f;
                 ui_draw_text_at(ctx, (float)(x + 8), base,
-                             w->combo_value.ptr, w->combo_value.len, fs, UI_C_FG);
+                             w->drop_value.ptr, w->drop_value.len, fs, UI_C_FG);
                 int cx = x + ww - 14;
                 int cy = y + hh / 2 - 2;
                 for (int i = 0; i < 4; i++) {
@@ -573,19 +573,19 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
     }
 }
 
-// paints open combobox dropdowns on top of the tree, in pool order
-static void draw_combobox_popups(UiContext* ctx, const DamageRect* d) {
+// paints open dropdowns on top of the tree, in pool order
+static void draw_dropdown_popups(UiContext* ctx, const DamageRect* d) {
     for (int i = 0; i < ctx->pool_used; i++) {
         Widget* w = &ctx->pool[i];
-        if (w->kind != WK_COMBOBOX || !w->combo_open || !w->visible) continue;
-        if (w->combo_option_count == 0) continue;
+        if (w->kind != WK_DROPDOWN || !w->drop_open || !w->visible) continue;
+        if (w->drop_option_count == 0) continue;
 
         int x  = (int)floorf(w->x + 0.5f);
         int y  = (int)floorf(w->y + 0.5f);
         int ww = (int)floorf(w->w + 0.5f);
         int hh = (int)floorf(w->h + 0.5f);
         int dy = y + hh;
-        int dh = w->combo_option_count * UI_INPUT_H;
+        int dh = w->drop_option_count * UI_INPUT_H;
 
         if (d) {
             if (x + ww <= d->x || x >= d->x + d->w ||
@@ -595,19 +595,19 @@ static void draw_combobox_popups(UiContext* ctx, const DamageRect* d) {
         ui_painter_fill_round(x, dy, ww, dh, UI_RADIUS_SM, UI_C_PANEL);
         ui_painter_stroke_round(x, dy, ww, dh, UI_RADIUS_SM, UI_C_BORDER);
 
-        for (int j = 0; j < w->combo_option_count; j++) {
+        for (int j = 0; j < w->drop_option_count; j++) {
             int oy = dy + j * UI_INPUT_H;
             bool hot = (ctx->input.x >= x && ctx->input.x < x + ww &&
                         ctx->input.y >= oy && ctx->input.y < oy + UI_INPUT_H);
             // flat full-width highlight, exactly like ui.list
-            if (j == w->combo_selected)
+            if (j == w->drop_selected)
                 ui_painter_fill_rect(x + 1, oy, ww - 2, UI_INPUT_H, UI_C_ACCENT);
             else if (hot)
                 ui_painter_fill_rect(x + 1, oy, ww - 2, UI_INPUT_H, UI_C_PANEL_ALT);
             float fs = UI_FS_BODY;
             float base = oy + (UI_INPUT_H + fs * 0.7f) * 0.5f;
             ui_draw_text_at(ctx, (float)(x + 8), base,
-                         w->combo_options[j].ptr, w->combo_options[j].len,
+                         w->drop_options[j].ptr, w->drop_options[j].len,
                          fs, UI_C_FG);
         }
     }
@@ -672,11 +672,11 @@ void ui_render_frame(UiContext* ctx) {
         if (top > 0) {                                          // keep the tree out of chrome
             ui_painter_push_clip(0, top, ctx->win_w, ctx->win_h - top);
             draw_widget(ctx, ctx->root, NULL);
-            draw_combobox_popups(ctx, NULL);
+            draw_dropdown_popups(ctx, NULL);
             ui_painter_pop_clip();
         } else {
             draw_widget(ctx, ctx->root, NULL);                  // full repaint, no damage mask
-            draw_combobox_popups(ctx, NULL);
+            draw_dropdown_popups(ctx, NULL);
         }
     }
 
@@ -726,11 +726,11 @@ void ui_render_frame_damage(UiContext* ctx, const DamageRect* rects, int n) {
                 ui_painter_push_clip(0, UI_TITLEBAR_H,
                                      ctx->win_w, ctx->win_h - UI_TITLEBAR_H);
                 draw_widget(ctx, ctx->root, d);
-                draw_combobox_popups(ctx, d);
+                draw_dropdown_popups(ctx, d);
                 ui_painter_pop_clip();
             } else {
                 draw_widget(ctx, ctx->root, d);                 // redraw widgets touching rect
-                draw_combobox_popups(ctx, d);
+                draw_dropdown_popups(ctx, d);
             }
         }
         ui_painter_pop_clip();                                  // restore previous clip

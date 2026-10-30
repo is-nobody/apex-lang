@@ -26,7 +26,7 @@ static WidgetKind kind_from_str_n(const char* s, int n) {
     if (STR_EQ(s,n,"progress"))  return WK_PROGRESS;
     if (STR_EQ(s,n,"input"))     return WK_INPUT;
     if (STR_EQ(s,n,"badge"))     return WK_BADGE;
-    if (STR_EQ(s,n,"combobox"))  return WK_COMBOBOX;
+    if (STR_EQ(s,n,"dropdown"))  return WK_DROPDOWN;
     if (STR_EQ(s,n,"table"))     return WK_TABLE;
     if (STR_EQ(s,n,"tree"))      return WK_TREE;
     if (STR_EQ(s,n,"tabs"))      return WK_TABS;
@@ -180,10 +180,10 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
 
     WidgetState* st = ui_state_get(ctx, w->id);             // pull persistent state
 
-    if (w->kind == WK_COMBOBOX) {                           // combobox reads a string value + option list
+    if (w->kind == WK_DROPDOWN) {                           // dropdown reads a string value + option list
         StrView vval;
         bool has_vval = table_get_str_view(t, ctx->key_cache[UK_VALUE], &vval);
-        if (has_vval) w->combo_value = arena_dup(ctx, vval.ptr, vval.len);
+        if (has_vval) w->drop_value = arena_dup(ctx, vval.ptr, vval.len);
 
         Value optv;
         if (table_get(t, ctx->key_cache[UK_OPTIONS], &optv)) {
@@ -203,15 +203,15 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
                     n_opts++;
                 }
 
-                w->combo_options = (Str*)ui_arena_alloc(ctx, sizeof(Str) * (size_t)(n_opts ? n_opts : 1));
-                w->combo_option_count = 0;
+                w->drop_options = (Str*)ui_arena_alloc(ctx, sizeof(Str) * (size_t)(n_opts ? n_opts : 1));
+                w->drop_option_count = 0;
 
                 for (int i = 0; i < n_arr; i++) {           // copy each option into the arena
                     Value ov = ot->array_part[i];
                     if (IS_NONE(ov)) break;
                     if (IS_STRING(ov)) {
                         StringObject* s = AS_STRING(ov);
-                        w->combo_options[w->combo_option_count++] = arena_dup(ctx, s->chars, s->length);
+                        w->drop_options[w->drop_option_count++] = arena_dup(ctx, s->chars, s->length);
                     }
                 }
                 for (int i = n_arr + 1; ; i++) {
@@ -219,7 +219,7 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
                     if (!table_get(ot, MAKE_NUMBER((double)i), &ov)) break;
                     if (IS_STRING(ov)) {
                         StringObject* s = AS_STRING(ov);
-                        w->combo_options[w->combo_option_count++] = arena_dup(ctx, s->chars, s->length);
+                        w->drop_options[w->drop_option_count++] = arena_dup(ctx, s->chars, s->length);
                     }
                     value_decref(ov);
                 }
@@ -227,17 +227,17 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
             value_decref(optv);
         }
 
-        w->combo_selected = -1;                             // resolve which option matches value
+        w->drop_selected = -1;                             // resolve which option matches value
         if (has_vval) {
-            for (int i = 0; i < w->combo_option_count; i++) {
-                if (w->combo_options[i].len == vval.len &&
-                    memcmp(w->combo_options[i].ptr, vval.ptr, (size_t)vval.len) == 0) {
-                    w->combo_selected = i;
+            for (int i = 0; i < w->drop_option_count; i++) {
+                if (w->drop_options[i].len == vval.len &&
+                    memcmp(w->drop_options[i].ptr, vval.ptr, (size_t)vval.len) == 0) {
+                    w->drop_selected = i;
                     break;
                 }
             }
         }
-        w->combo_open = st->combo_open;                     // restore persisted open state
+        w->drop_open = st->drop_open;                     // restore persisted open state
     }
 
     if (w->kind == WK_INPUT || w->kind == WK_NUMBER_INPUT || w->kind == WK_TEXT_AREA) {

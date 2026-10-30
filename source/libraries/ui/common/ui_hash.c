@@ -87,8 +87,8 @@ uint64_t ui_visual_hash(Widget* w) {
     fp ^= (uint64_t)(uint32_t)w->cursor     <<  3;
     fp ^= (uint64_t)(uint32_t)w->sel_anchor << 23;
     fp ^= (uint64_t)(uint32_t)w->blink_on   <<  4;
-    fp ^= (uint64_t)(uint32_t)w->combo_open     <<  5;
-    fp ^= (uint64_t)(uint32_t)w->combo_selected <<  6;
+    fp ^= (uint64_t)(uint32_t)w->drop_open     <<  5;
+    fp ^= (uint64_t)(uint32_t)w->drop_selected <<  6;
     fp ^= (uint64_t)(uint32_t)(w->tab_hover_idx + 1) <<  7;  // +1 so -1 doesn't collapse
     fp ^= (uint64_t)(uint32_t)w->tab_hover_close <<  8;
     fp ^= (uint64_t)(uint32_t)w->tab_add_hover   <<  9;
@@ -119,8 +119,8 @@ uint64_t ui_visual_hash(Widget* w) {
     h = hash_bytes64(h, &w->num_value,       sizeof(w->num_value));        // slider/progress value
     h = hash_bytes64(h, &w->scroll_y,        sizeof(w->scroll_y));         // scroll offset
     h = hash_bytes64(h, &w->content_h,       sizeof(w->content_h));        // scroll content height
-    h = hash_bytes64(h, &w->combo_open,      sizeof(w->combo_open));       // dropdown expanded
-    h = hash_bytes64(h, &w->combo_selected,  sizeof(w->combo_selected));   // selected option index
+    h = hash_bytes64(h, &w->drop_open,      sizeof(w->drop_open));       // dropdown expanded
+    h = hash_bytes64(h, &w->drop_selected,  sizeof(w->drop_selected));   // selected option index
     h = hash_bytes64(h, &w->tab_hover_idx,   sizeof(w->tab_hover_idx));    // hovered tab
     h = hash_bytes64(h, &w->tab_hover_close, sizeof(w->tab_hover_close));  // hover is on the hovered tab's close button
     h = hash_bytes64(h, &w->tab_add_hover,   sizeof(w->tab_add_hover));    // "+" button hovered
@@ -132,7 +132,7 @@ uint64_t ui_visual_hash(Widget* w) {
     // str fields carry a fresh heap copy each rebuild
     h = hash_str_sampled(h, w->text.ptr,        w->text.len);          // label/content
     h = hash_str_sampled(h, w->input_value.ptr, w->input_value.len);   // input text
-    h = hash_str_sampled(h, w->combo_value.ptr, w->combo_value.len);
+    h = hash_str_sampled(h, w->drop_value.ptr, w->drop_value.len);
 
     w->visual_hash_fp    = fp;                                         // publish the memo
     w->visual_hash_cache = h;
