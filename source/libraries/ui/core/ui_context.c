@@ -33,7 +33,7 @@ UiContext* ui_ensure(VM* vm) {
     static const char* const kKeyNames[UK_COUNT] = {
         "__t", "key", "align", "justify", "gap", "padding", "weight",
         "min_width", "max_width", "disabled", "visible", "on_top", "bare",
-        "width", "height", "content", "label", "checked", "group",
+        "width", "height", "content", "label", "checked",
         "value", "min", "max", "value_text", "children", "options",
         "columns", "rows", "stripe", "header",
         "nodes", "selected", "indent", "expanded",

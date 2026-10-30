@@ -101,26 +101,6 @@ static Value ctor_checkbox(VM* vm, int argc, Value* argv) {
     return MAKE_TABLE(t);
 }
 
-// builds a radio button widget descriptor
-static Value ctor_radio(VM* vm, int argc, Value* argv) {
-    Table* t = table_create(8);
-    tset(vm, t, "__t", intern(vm, "radio"));
-    if (argc >= 1) tset(vm, t, "content", argv[0]);  // radio label
-    if (argc >= 2) tset(vm, t, "value", argv[1]);    // value this radio represents
-    if (argc >= 3) tset(vm, t, "group", argv[2]);    // group name for exclusivity
-    if (argc >= 4 && IS_TABLE(argv[3])) {        // merge options fields
-        Table* opts = AS_TABLE(argv[3]);
-        int nk; Value* keys = table_keys(opts, &nk);
-        for (int i = 0; i < nk; i++) {
-            Value vv;
-            if (table_get(opts, keys[i], &vv)) { table_set(t, keys[i], vv); value_decref(vv); }
-            value_decref(keys[i]);
-        }
-        free(keys);
-    }
-    return MAKE_TABLE(t);
-}
-
 // builds a slider widget descriptor
 static Value ctor_slider(VM* vm, int argc, Value* argv) {
     Table* t = table_create(8);
@@ -516,7 +496,6 @@ bool ui_call_builtin(VM* vm, const char* name, int argc, Value* argv, Value* res
 
     if (strcmp(name, "ui.button") == 0)   { *result = ctor_button(vm, argc, argv); return true; }               // push button
     if (strcmp(name, "ui.checkbox") == 0) { *result = ctor_checkbox(vm, argc, argv); return true; }             // boolean toggle
-    if (strcmp(name, "ui.radio") == 0)    { *result = ctor_radio(vm, argc, argv); return true; }                // radio option
     if (strcmp(name, "ui.slider") == 0)   { *result = ctor_slider(vm, argc, argv); return true; }               // numeric slider
     if (strcmp(name, "ui.progress") == 0) { *result = ctor_progress(vm, argc, argv); return true; }             // progress bar
     if (strcmp(name, "ui.input") == 0){ *result = ctor_input(vm, argc, argv); return true; }                    // editable text field

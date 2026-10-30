@@ -132,7 +132,6 @@ uint64_t ui_visual_hash(Widget* w) {
     // str fields carry a fresh heap copy each rebuild
     h = hash_str_sampled(h, w->text.ptr,        w->text.len);          // label/content
     h = hash_str_sampled(h, w->input_value.ptr, w->input_value.len);   // input text
-    h = hash_str_sampled(h, w->group.ptr,       w->group.len);         // radio group name
     h = hash_str_sampled(h, w->combo_value.ptr, w->combo_value.len);
 
     w->visual_hash_fp    = fp;                                         // publish the memo

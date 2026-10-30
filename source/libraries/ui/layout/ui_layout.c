@@ -226,7 +226,7 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
             }
             break;
         }
-        case WK_CHECKBOX: case WK_RADIO: {                   // box plus label
+        case WK_CHECKBOX: {                                  // box plus label
             float fs = UI_FS_BODY;
             float tw = ctx->font ? ui_text_measure_cached(ctx, w->text.ptr, w->text.len, fs) : w->text.len*8.0f;
             w->meas_w = UI_CB_SIZE + 8 + tw;                 // box, gap, then label

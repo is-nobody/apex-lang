@@ -24,7 +24,7 @@ typedef struct UiMenuBar UiMenuBar;
 typedef struct { char* ptr; int len; } Str;
 
 typedef enum {
-    WK_TEXT, WK_HEADING, WK_BUTTON, WK_CHECKBOX, WK_RADIO,
+    WK_TEXT, WK_HEADING, WK_BUTTON, WK_CHECKBOX,
     WK_SLIDER, WK_PROGRESS, WK_INPUT, WK_BADGE, WK_COMBOBOX,
     WK_SEPARATOR, WK_SPACER, WK_TABLE, WK_TREE,
     WK_TABS, WK_VBOX, WK_HBOX, WK_PANEL, WK_SCROLL, WK_HSCROLL,
@@ -105,9 +105,8 @@ struct Widget {
 
     bool   hovered, pressed, focused;    // per-frame interaction flags
     int    hover_row;                    // wk_tree: hovered row index, -1 = none
-    bool   checked;                      // checkbox / radio state
+    bool   checked;                      // checkbox state
     double num_value, num_min, num_max;  // slider / progress numeric state
-    Str    group;                        // radio group name
 
     // wk_combobox state
     Str*   combo_options;                // arena-owned array of option labels
@@ -342,7 +341,7 @@ typedef struct UiContextMenu {
 typedef enum {
     UK_T, UK_KEY, UK_ALIGN, UK_JUSTIFY, UK_GAP, UK_PADDING, UK_WEIGHT,
     UK_MIN_WIDTH, UK_MAX_WIDTH, UK_DISABLED, UK_VISIBLE, UK_ON_TOP, UK_BARE,
-    UK_WIDTH, UK_HEIGHT, UK_CONTENT, UK_LABEL, UK_CHECKED, UK_GROUP,
+    UK_WIDTH, UK_HEIGHT, UK_CONTENT, UK_LABEL, UK_CHECKED,
     UK_VALUE, UK_MIN, UK_MAX, UK_VALUE_TEXT, UK_CHILDREN, UK_OPTIONS,
     UK_COLUMNS, UK_ROWS, UK_STRIPE, UK_HEADER, UK_NODES, UK_SELECTED,
     UK_INDENT, UK_EXPANDED, UK_TABS, UK_CLOSEABLE, UK_ADD_BUTTON, UK_REORDER,

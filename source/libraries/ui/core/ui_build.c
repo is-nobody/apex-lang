@@ -22,7 +22,6 @@ static WidgetKind kind_from_str_n(const char* s, int n) {
     if (STR_EQ(s,n,"heading"))   return WK_HEADING;
     if (STR_EQ(s,n,"button"))    return WK_BUTTON;
     if (STR_EQ(s,n,"checkbox"))  return WK_CHECKBOX;
-    if (STR_EQ(s,n,"radio"))     return WK_RADIO;
     if (STR_EQ(s,n,"slider"))    return WK_SLIDER;
     if (STR_EQ(s,n,"progress"))  return WK_PROGRESS;
     if (STR_EQ(s,n,"input"))     return WK_INPUT;
@@ -173,11 +172,7 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
     w->tooltip_delay = (float)table_get_num_key(t, ctx->key_cache[UK_TOOLTIP_DELAY],
                                                 UI_TOOLTIP_DELAY_DEFAULT);  // hover delay
 
-    w->checked = table_get_bool_key(t, ctx->key_cache[UK_CHECKED], false);  // checkbox/radio state
-
-    StrView grp;
-    if (table_get_str_view(t, ctx->key_cache[UK_GROUP], &grp))              // radio group name
-        w->group = arena_dup(ctx, grp.ptr, grp.len);
+    w->checked = table_get_bool_key(t, ctx->key_cache[UK_CHECKED], false);  // checkbox state
 
     w->num_value = table_get_num_key(t, ctx->key_cache[UK_VALUE], 0);       // slider/progress value
     w->num_min   = table_get_num_key(t, ctx->key_cache[UK_MIN], 0);         // slider/progress min

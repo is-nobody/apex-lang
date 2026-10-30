@@ -132,21 +132,6 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                              w->text.ptr, w->text.len, fs, UI_C_FG);  // label to the right of the box
                 break;
             }
-            case WK_RADIO: {
-                int sz = UI_CB_SIZE;                        // radio circle side
-                int bx = x, by = y + (hh - sz)/2;           // vertically centered circle
-
-                uint32_t fill = w->hovered ? UI_C_PANEL_ALT : UI_C_INPUT_BG;
-                ui_painter_fill_round(bx, by, sz, sz, sz/2, fill);              // outer circle
-                ui_painter_stroke_round(bx, by, sz, sz, sz/2, UI_C_BORDER);     // outline
-                if (w->checked)                                                 // filled dot when selected
-                    ui_painter_fill_round(bx+4, by+4, sz-8, sz-8, (sz-8)/2, UI_C_ACCENT);
-
-                float fs = UI_FS_BODY;
-                float base = y + (hh + fs * 0.7f) * 0.5f;  // center on the widget
-                ui_draw_text_at(ctx, (float)(bx + sz + 8), base, w->text.ptr, w->text.len, fs, UI_C_FG);
-                break;
-            }
             case WK_PROGRESS: {
                 ui_painter_fill_round(x, y, ww, hh, hh/2, UI_C_DIS_BG);         // empty track
                 double v = w->num_value;                    // current value, expected 0..1
