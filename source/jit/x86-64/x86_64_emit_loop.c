@@ -158,14 +158,15 @@ static void assign_table_caches(JITContext* ctx, JitLoopInfo* info) {
     }
 }
 
-// spill dirty slots at the back edge; slots dead-on-entry stay stale and are skipped
+// spill dirty loop-carried slots & optional outputs on the forced-flush path
 static void x86_cache_flush_back_edge(XmmCache* c, CodeBuf* cb,
                                       BytecodeChunk* chunk, int body_start,
-                                      int back_edge) {
+                                      int back_edge, uint64_t writeback_mask) {
     for (int i = 0; i < XMM_CACHE_REGS; i++) {
         int s = c->reg_slot[i];                                      // slot held in xmm<i>
         if (s < 0 || !c->slot_dirty[s]) continue;                    // empty or clean slot
-        if (!slot_read_before_write(chunk, body_start, back_edge, s)) continue;  // dead on entry
+        if (!slot_read_before_write(chunk, body_start, back_edge, s) &&
+            !(writeback_mask & (1ULL << s))) continue;              // not loop-carried or needed after the loop
         x86_emit_movsd_store(cb, i, x86_slot_disp(s));               // spill to frame
     }
     x86_cache_clear(c);                                              // empty cache at back edge
@@ -236,11 +237,11 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     }
 }
 
-// emits one iteration (entry test + body) and returns the fixup offset for the exit jump
+// emits one iteration (entry test + body) and snapshots cache state for the exit edge
 size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                            XmmCache* cache, JitLoopInfo* info, int const_slot,
                            int save_slot, bool iter_in_xmm, int step_sign,
-                           bool needs_helper) {
+                           bool needs_helper, XmmCache* out_exit_cache) {
     BytecodeChunk* chunk = ctx->chunk;                               // bytecode being compiled
     int entry = info->entry_pc;                                      // first body pc
     int back_edge = info->back_edge_pc;                              // jump back to entry
@@ -248,13 +249,15 @@ size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     size_t exit_patch;                                               // offset of the exit jump placeholder
     if (info->kind == JIT_LOOP_NUMERIC_FOR) {                        // counter-based for loop
         int var_reg = chunk->code[entry].operands[0];                // loop counter slot
-        int end_reg = info->for_end_reg;                             // end bound slot
-        int step_reg = info->for_step_reg;                           // step slot
+        int end_slot = info->for_end_cache_slot >= 0
+                     ? info->for_end_cache_slot : info->for_end_reg; // stable bound snapshot
+        int step_slot = info->for_step_cache_slot >= 0
+                      ? info->for_step_cache_slot : info->for_step_reg; // stable step snapshot
 
-        int xa = x86_cache_load(cache, cb, end_reg);                 // load end bound
-        if (xa < 0) JIT_FATAL("cache full: loop entry end_reg=%d (pc=%d)", end_reg, entry);
-        int xb = x86_cache_load_excl(cache, cb, step_reg, xa, -1);   // load step, avoid xa
-        if (xb < 0) JIT_FATAL("cache full: loop entry step_reg=%d (pc=%d)", step_reg, entry);
+        int xa = x86_cache_load(cache, cb, end_slot);                // load preserved end bound
+        if (xa < 0) JIT_FATAL("cache full: loop entry end slot=%d (pc=%d)", end_slot, entry);
+        int xb = x86_cache_load_excl(cache, cb, step_slot, xa, -1);  // load preserved step, avoid xa
+        if (xb < 0) JIT_FATAL("cache full: loop entry step slot=%d (pc=%d)", step_slot, entry);
         int xc = x86_cache_alloc_for(cache, cb, var_reg, xa, xb);    // allocate reg, no load
         if (xc < 0) JIT_FATAL("cache full: loop entry var_reg=%d (pc=%d)", var_reg, entry);
 
@@ -266,6 +269,7 @@ size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         emit_u8(cb, (step_sign > 0) ? 0x87 : 0x82);                  // ja exit / jb exit
         exit_patch = cb->len;                                        // record placeholder offset
         emit_i32(cb, 0);                                             // placeholder for rel32
+        if (out_exit_cache) *out_exit_cache = *cache;                // cache state on the branch-taken path
 
         x86_emit_sse66_rr(cb, 0x28, xc, XMM_SCRATCH);                // movapd xc, xmm15 (R[var] = c)
         x86_cache_put(cache, xc, var_reg);                           // var became dirty
@@ -289,6 +293,7 @@ size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         emit_u8(cb, 0x0F); emit_u8(cb, jcc);                         // conditional exit
         exit_patch = cb->len;                                        // record placeholder offset
         emit_i32(cb, 0);                                             // placeholder for rel32
+        if (out_exit_cache) *out_exit_cache = *cache;                // cache state on the branch-taken path
     } else {                                                         // condition-based loop (reg-reg)
         Instruction* entry_inst = &chunk->code[entry];
         int a = entry_inst->operands[1];                             // left operand slot
@@ -304,6 +309,7 @@ size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         emit_u8(cb, 0x0F); emit_u8(cb, jcc);                         // conditional exit
         exit_patch = cb->len;                                        // record placeholder offset
         emit_i32(cb, 0);                                             // placeholder for rel32
+        if (out_exit_cache) *out_exit_cache = *cache;                // cache state on the branch-taken path
     }
 
     for (int pc = entry + 1; pc < back_edge; pc++) {                 // body
@@ -336,14 +342,7 @@ bool loop_is_safe_to_emit(JITContext* ctx, JitLoopInfo* info) {
     if (info->table.used && info->table.slot >= 0 &&                 // table-pointer guard must hold
         (info->live_out & (1ULL << info->table.slot))) return false;
 
-    if (info->kind == JIT_LOOP_NUMERIC_FOR) {
-        for (int pc = entry + 1; pc < back_edge; pc++) {             // scan body for writes
-            Instruction* inst = &chunk->code[pc];
-            if (!op_writes_dest(inst->opcode)) continue;             // op does not produce a dest
-            int d = inst->operands[0];                               // destination slot
-            if (d == info->for_end_reg || d == info->for_step_reg) return false;
-        }
-    }
+    // numeric-for bounds and step are copied into private frame slots before the body runs
 
     for (int pc = entry + 1; pc < back_edge; pc++) {
         Instruction* inst = &chunk->code[pc];
@@ -424,6 +423,17 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
     int imm_base_slot = const_slot + 1;                              // first slot for precomputed immediates
     for (int i = 0; i < info->n_imms; i++) info->imms[i].slot = imm_base_slot + i;
 
+    int private_control_slots = 0;                                  // stable snapshots for FOR_NEXT control values
+    info->for_end_cache_slot  = -1;
+    info->for_step_cache_slot = -1;
+    if (info->kind == JIT_LOOP_NUMERIC_FOR) {
+        int control_base = imm_base_slot + info->n_imms;
+        info->for_end_cache_slot  = control_base;
+        info->for_step_cache_slot = control_base + 1;
+        if (info->for_step_cache_slot >= JIT_MAX_SLOTS) return false; // cache cannot address private slots
+        private_control_slots = 2;
+    }
+
     assign_table_caches(ctx, info);                                  // must run before frame_slots is sized
 
     info->for_var_gpr = -1;                                          // reset cached counter state
@@ -489,7 +499,7 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
     }
 
     int save_slot = -1;                                              // slot to stash frame_reg across calls
-    int frame_slots = const_slot + 1 + info->n_imms;                 // incl. constant slot + immediates
+    int frame_slots = const_slot + 1 + info->n_imms + private_control_slots; // constants, immediates, loop controls
     uint64_t writeback_mask = info->live_out & ~info->ref_writes;    // slots whose old value must be released
     if (needs_helper || writeback_mask != 0) {
         save_slot = frame_slots;                                     // reserve one more slot
@@ -569,7 +579,7 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
     for (int iter = 0; iter < 8; iter++) {                           // fixpoint loop
         XmmCache cache = cache_start;                                // scratch state per pass
         scratch.len = 0;                                             // reset scratch buffer
-        size_t patch = emit_loop_iteration(abi, ctx, &scratch, &cache, info, const_slot, save_slot, iter_in_xmm, step_sign, needs_helper);
+        size_t patch = emit_loop_iteration(abi, ctx, &scratch, &cache, info, const_slot, save_slot, iter_in_xmm, step_sign, needs_helper, NULL);
         if (patch == (size_t)-1)
             JIT_FATAL("loop emit failed in fixpoint: pc=%d", entry);
         if (flush_at_back_edge) x86_cache_clear(&cache);             // simulate the spill before the back edge
@@ -615,6 +625,13 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
     for (int i = 0; i < info->n_imms; i++) {                         // store precomputed immediates
         x86_emit_load_double_imm(cb, XMM_SCRATCH, info->imms[i].value);
         x86_emit_movsd_store(cb, XMM_SCRATCH, x86_slot_disp(info->imms[i].slot));
+    }
+
+    if (info->kind == JIT_LOOP_NUMERIC_FOR) {                        // preserve FOR_INIT values before body register reuse
+        x86_emit_movsd_load_base(cb, abi->frame_reg, XMM_SCRATCH, info->for_end_reg * 8);
+        x86_emit_movsd_store(cb, XMM_SCRATCH, x86_slot_disp(info->for_end_cache_slot));
+        x86_emit_movsd_load_base(cb, abi->frame_reg, XMM_SCRATCH, info->for_step_reg * 8);
+        x86_emit_movsd_store(cb, XMM_SCRATCH, x86_slot_disp(info->for_step_cache_slot));
     }
 
     uint64_t m = info->live_in | info->live_out;                     // seed live-in AND live-out slots
@@ -674,23 +691,24 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
 
     int loop_top = (int)cb->len;                                     // loop start address
     XmmCache cache = cache_start;                                    // live cache state
-    size_t entry_patch = emit_loop_iteration(abi, ctx, cb, &cache, info, const_slot, save_slot, iter_in_xmm, step_sign, needs_helper);
+    XmmCache exit_cache;                                              // cache state after the loop guard, before the body
+    size_t entry_patch = emit_loop_iteration(abi, ctx, cb, &cache, info, const_slot, save_slot, iter_in_xmm, step_sign, needs_helper, &exit_cache);
     if (entry_patch == (size_t)-1)
         JIT_FATAL("loop emit failed (real pass): pc=%d", entry);
 
     if (flush_at_back_edge) x86_cache_flush_back_edge(&cache, cb, ctx->chunk,
-                                                      entry + 1, back_edge);
+                                                      entry + 1, back_edge,
+                                                      info->live_out & ~info->ref_writes);
     emit_u8(cb, 0xE9);                                               // jmp loop_top
     size_t back_patch = cb->len;                                     // back-edge rel32 placeholder
     emit_i32(cb, 0);
     int32_t back_rel = loop_top - (int32_t)(back_patch + 4);
     memcpy(cb->buf + back_patch, &back_rel, 4);                      // patch back edge
 
-    int exit_label = (int)cb->len;                                   // exit target
-    int32_t exit_rel = exit_label - (int32_t)(entry_patch + 4);
-    memcpy(cb->buf + entry_patch, &exit_rel, 4);                     // patch exit jump
-
-    x86_cache_flush(&cache, cb);                                     // spill dirty slots to frame
+    size_t exit_stub = cb->len;                                     // branch target for the failed loop test
+    x86_cache_flush(&exit_cache, cb);                                // spill values still cached at the guard
+    int32_t exit_rel = (int32_t)exit_stub - (int32_t)(entry_patch + 4);
+    memcpy(cb->buf + entry_patch, &exit_rel, 4);                     // patch exit jump to its own flush stub
 
     m = info->live_out;                                              // copy written slots back to vm
     while (m) {
@@ -1188,7 +1206,7 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
     }
     label_off[back_edge - entry] = (int32_t)cb->len;                 // label for the back-edge pc
 
-    x86_cache_flush_back_edge(&cache, cb, chunk, entry, back_edge);
+    x86_cache_flush_back_edge(&cache, cb, chunk, entry, back_edge, 0);
 
     emit_u8(cb, 0xE9);                                               // jmp loop_top
     int32_t back_rel = loop_top - (int32_t)(cb->len + 4);

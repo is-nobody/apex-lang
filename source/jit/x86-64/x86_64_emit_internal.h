@@ -217,7 +217,7 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
 size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                            XmmCache* cache, JitLoopInfo* info, int const_slot,
                            int save_slot, bool iter_in_xmm, int step_sign,
-                           bool needs_helper);
+                           bool needs_helper, XmmCache* out_exit_cache);
 bool loop_is_safe_to_emit(JITContext* ctx, JitLoopInfo* info);
 bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                               JitLoopInfo* info, int step_sign, void** out_fn);

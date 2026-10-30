@@ -45,9 +45,10 @@ typedef enum {
 
 // how a live-in slot is validated before the native loop runs
 typedef enum {
-    JIT_SLOT_NUM = 0,   // must satisfy IS_NUMBER
-    JIT_SLOT_TABLE,     // must be a table with usable array part
-    JIT_SLOT_TABLE_ANY, // must be a table; used by *_KEY_STR helpers, accepts hash-only tables
+    JIT_SLOT_NUM = 0,       // must satisfy IS_NUMBER at loop entry
+    JIT_SLOT_TABLE,         // must be a table with usable array part
+    JIT_SLOT_TABLE_ANY,     // must be a table; used by *_KEY_STR helpers, accepts hash-only tables
+    JIT_SLOT_NUM_PROVEN,    // statically numeric and unchanged by the loop
 } JitSlotKind;
 
 // table usage detected inside a numeric loop body (baseline: at most one table per loop)
@@ -70,6 +71,8 @@ typedef struct {
     int  for_var_reg;   // FOR_NEXT: counter slot; -1 otherwise
     int  for_end_reg;   // FOR_NEXT: end bound slot; -1 otherwise
     int  for_step_reg;  // FOR_NEXT: step slot; -1 otherwise
+    int  for_end_cache_slot;   // private native-frame copy of the end bound
+    int  for_step_cache_slot;  // private native-frame copy of the step
     int  step_sign;     // FOR_NEXT: statically known step sign (-1/0/+1)
     int  for_step_value;    // FOR_NEXT: literal step value when known, 0 otherwise
     int  for_var_gpr;       // for_var integer counter in a callee-saved gpr, -1 if unused

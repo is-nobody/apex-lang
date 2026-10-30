@@ -13,15 +13,53 @@
 
 #if defined(APEX_JIT_TRACE_BUILD) && APEX_JIT_TRACE_BUILD
 #include "jit_disasm.h"
+#endif
 
 // lazy-cached env lookup: getenv is called once per process, not per loop entry
 static int jit_trace_env = -1;
 
-// returns true if APEX_JIT_TRACE is set; result is cached after first call
+// returns true if APEX_JIT_TRACE is set; this does not require a trace build
 static bool jit_trace_enabled(void) {
-    if (jit_trace_env < 0)
-        jit_trace_env = getenv("APEX_JIT_TRACE") ? 1 : 0;
+    if (jit_trace_env < 0) {
+        const char* value = getenv("APEX_JIT_TRACE");
+        jit_trace_env = (value && value[0] && strcmp(value, "0") != 0) ? 1 : 0;
+    }
     return jit_trace_env != 0;
+}
+
+// returns a readable loop kind for trace output
+static const char* jit_trace_loop_kind(JitLoopKind kind) {
+    switch (kind) {
+        case JIT_LOOP_NUMERIC_FOR: return "numeric-for";
+        case JIT_LOOP_CONDITION:   return "condition";
+        case JIT_LOOP_TABLE_ITER:  return "table-iter";
+        case JIT_LOOP_COND_ENTER:  return "cond-enter";
+        default:                  return "unknown";
+    }
+}
+
+// describes a conservative backend rejection without treating it as a runtime error
+static const char* jit_trace_loop_reject_reason(JitLoopInfo* info, char* buf, size_t cap) {
+    (void)info;
+    (void)buf;
+    (void)cap;
+    return "backend declined this loop shape";
+}
+
+// reports whether a loop variant was emitted or left to the interpreter
+static void jit_trace_loop_emit(int index, JitLoopInfo* info, bool emitted, int step_sign) {
+    if (!jit_trace_enabled()) return;
+
+    if (emitted) {
+        fprintf(stderr, "[jit] loop #%d pc=%d kind=%s compiled (step=%+d, live_in=0x%llx)\n",
+                index, info->entry_pc, jit_trace_loop_kind(info->kind), step_sign,
+                (unsigned long long)info->live_in);
+    } else {
+        char reason[96];
+        fprintf(stderr, "[jit] loop #%d pc=%d kind=%s not compiled: %s; using interpreter\n",
+                index, info->entry_pc, jit_trace_loop_kind(info->kind),
+                jit_trace_loop_reject_reason(info, reason, sizeof(reason)));
+    }
 }
 
 // dumps live-in slots on the first successful entry into a given loop
@@ -30,28 +68,20 @@ static void jit_trace_first_entry(JitLoopInfo* info, int pc, uint64_t* regs,
     if (!jit_trace_enabled() || info->trace_entered) return;
     info->trace_entered = true;                              // never print again for this loop
 
-    fprintf(stderr, "[loop pc=%d kind=%d live_in=%llx counter_write=%d]\n",
-            pc, info->kind, (unsigned long long)info->live_in, counter_write);
-    for (int s = 0; s < 32; s++) {
+    fprintf(stderr, "[jit] entered native loop pc=%d kind=%s live_in=0x%llx counter_write=%d\n",
+            pc, jit_trace_loop_kind(info->kind),
+            (unsigned long long)info->live_in, counter_write ? 1 : 0);
+    for (int s = 0; s < 64; s++) {
         if (info->live_in & (1ULL << s)) {
-            fprintf(stderr, "  slot %d = 0x%016llx type=%d table_p=%p count=%d\n",
-                    s, (unsigned long long)regs[s], (int)GET_TYPE(regs[s]),
-                    IS_TABLE(regs[s]) ? (void*)AS_TABLE(regs[s]) : NULL,
-                    IS_TABLE(regs[s]) ? AS_TABLE(regs[s])->array_count : -1);
+            fprintf(stderr, "[jit]   R%d type=%s check=%s\n", s,
+                    vm_value_type_name(regs[s]),
+                    info->live_in_kind[s] == JIT_SLOT_NUM_PROVEN ? "proven" :
+                    info->live_in_kind[s] == JIT_SLOT_NUM ? "number" :
+                    info->live_in_kind[s] == JIT_SLOT_TABLE ? "table" :
+                    info->live_in_kind[s] == JIT_SLOT_TABLE_ANY ? "table-any" : "none");
         }
     }
 }
-#else
-// release build: everything collapses to nothing
-static inline bool __attribute__((unused))
-jit_trace_enabled(void) { return false; }
-
-static inline void __attribute__((unused))
-jit_trace_first_entry(JitLoopInfo* info, int pc, uint64_t* regs,
-                                         bool counter_write) {
-    (void)info; (void)pc; (void)regs; (void)counter_write;
-}
-#endif
 
 // thread-local pointer to the innermost active jit_fatal catch frame
 __thread jmp_buf* jit_bail_jmp = NULL;
@@ -76,10 +106,18 @@ static JITContext* jit_fail(JITContext* ctx, jmp_buf* prev_bail) {
 
 // compiles all numeric-pure functions and returns a jit context (or null)
 JITContext* jit_create(BytecodeChunk* chunk) {
-    if (!chunk || chunk->func_count < 1) return NULL;            // nothing to compile
+    if (!chunk || chunk->func_count < 1) {
+        if (jit_trace_enabled())
+            fprintf(stderr, "[jit] no bytecode functions to compile\n");
+        return NULL;                                             // nothing to compile
+    }
 
     const JitBackend* be = jit_get_backend();                    // pick backend for this arch
-    if (!be) return NULL;                                        // no backend, no jit
+    if (!be) {
+        if (jit_trace_enabled())
+            fprintf(stderr, "[jit] no native backend for this architecture; using interpreter\n");
+        return NULL;                                             // no backend, no jit
+    }
 
     JITContext* ctx = (JITContext*)calloc(1, sizeof(JITContext));  // zero-initialised state
     if (!ctx) return NULL;                                         // allocation failed
@@ -103,7 +141,12 @@ JITContext* jit_create(BytecodeChunk* chunk) {
         return NULL;
     }
 
-    if (!jit_analyze(ctx)) { jit_destroy(ctx); return NULL; }    // purity + loops
+    if (!jit_analyze(ctx)) {
+        if (jit_trace_enabled())
+            fprintf(stderr, "[jit] analysis found no native compilation candidates; using interpreter\n");
+        jit_destroy(ctx);
+        return NULL;
+    }                                                               // purity + loops
 
     // install the outer jit_fatal catch frame
     jmp_buf bail;
@@ -175,7 +218,9 @@ JITContext* jit_create(BytecodeChunk* chunk) {
             (void)before;                                        // only read by trace build
             if (want_pos) {
                 before = cb.len;
-                if (be->emit_loop(ctx, &cb, info, +1, &fn_pos)) {
+                bool emitted = be->emit_loop(ctx, &cb, info, +1, &fn_pos);
+                jit_trace_loop_emit(i, info, emitted, +1);
+                if (emitted) {
                     info->native_fn = (void (*)(uint64_t*, uint64_t*))fn_pos;   // positive-step entry
                     any = true;
 #if defined(APEX_JIT_TRACE_BUILD) && APEX_JIT_TRACE_BUILD
@@ -191,7 +236,9 @@ JITContext* jit_create(BytecodeChunk* chunk) {
             }
             if (want_neg) {
                 before = cb.len;
-                if (be->emit_loop(ctx, &cb, info, -1, &fn_neg)) {
+                bool emitted = be->emit_loop(ctx, &cb, info, -1, &fn_neg);
+                jit_trace_loop_emit(i, info, emitted, -1);
+                if (emitted) {
                     info->native_fn_neg = (void (*)(uint64_t*, uint64_t*))fn_neg;  // negative-step entry
                     any = true;
 #if defined(APEX_JIT_TRACE_BUILD) && APEX_JIT_TRACE_BUILD
@@ -209,18 +256,17 @@ JITContext* jit_create(BytecodeChunk* chunk) {
             void* fn = NULL;
             size_t before = cb.len;
             (void)before;                                        // only read by trace build
-            if (be->emit_loop(ctx, &cb, info, 0, &fn)) {
+            bool emitted = be->emit_loop(ctx, &cb, info, 0, &fn);
+            jit_trace_loop_emit(i, info, emitted, 0);
+            if (emitted) {
                 info->native_fn = (void (*)(uint64_t*, uint64_t*))fn;       // single variant
                 any = true;
 #if defined(APEX_JIT_TRACE_BUILD) && APEX_JIT_TRACE_BUILD
                 if (jit_trace_enabled()) {
-                    const char* k = info->kind == JIT_LOOP_TABLE_ITER ? "table-iter"
-                                  : info->kind == JIT_LOOP_COND_ENTER ? "cond-enter"
-                                  : "condition";
                     char lbl[96];
                     snprintf(lbl, sizeof(lbl),
                              "; === loop %d @pc=%d kind=%s ===",
-                             i, info->entry_pc, k);
+                             i, info->entry_pc, jit_trace_loop_kind(info->kind));
                     jit_disasm_dump(lbl, ctx->code + before, cb.len - before);
                 }
 #endif
@@ -231,7 +277,20 @@ JITContext* jit_create(BytecodeChunk* chunk) {
         ctx->compiled_count++;                                   // count successful
     }
 
-    if (ctx->compiled_count == 0) { return jit_fail(ctx, prev_bail); }  // nothing usable
+    if (ctx->compiled_count == 0) {
+        if (jit_trace_enabled())
+            fprintf(stderr, "[jit] no native code emitted from %d loop candidate(s); using interpreter\n",
+                    ctx->loop_count);
+        return jit_fail(ctx, prev_bail);                            // nothing usable
+    }
+
+    if (jit_trace_enabled()) {
+        int native_loops = 0;
+        for (int i = 0; i < ctx->loop_count; i++)
+            if (ctx->loops[i].native_fn || ctx->loops[i].native_fn_neg) native_loops++;
+        fprintf(stderr, "[jit] ready: %d native function(s), %d native loop(s)\n",
+                ctx->compiled_count - native_loops, native_loops);
+    }
 
     // build the pc -> loop lookup used by jit_try_native_loop on each entry pc
     if (ctx->loop_count > 0) {
@@ -333,6 +392,9 @@ void jit_set_vm(JITContext* ctx, void* vm) { if (ctx) ctx->vm = vm; }
 
 // checks a single live-in slot against the loop's expected kind
 static bool live_in_slot_ok(Value v, JitSlotKind kind, JitTableUse* use) {
+    if (kind == JIT_SLOT_NUM_PROVEN) {
+        return true;                                       // static proof makes an entry guard redundant
+    }
     if (kind == JIT_SLOT_NUM) {
         return IS_NUMBER(v);                               // numeric slot: any unboxed double
     }
@@ -348,9 +410,25 @@ static bool live_in_slot_ok(Value v, JitSlotKind kind, JitTableUse* use) {
     return true;
 }
 
-// ensures t->array_part has capacity for `end` slots and array_count >= end;
-// uses table_set_int on the last slot so existing entries are preserved (the
-// slot at end-1 is only touched when it is already NONE / freshly grown)
+// checks numeric loop-control slots unless the live-in pass already proved them
+static bool numeric_control_slot_ok(JitLoopInfo* info, uint64_t* regs,
+                                    int frame_size, int slot) {
+    if (slot < 0 || slot >= frame_size) return false;
+    if (slot < 64 && (info->live_in & (1ULL << slot))) {
+        JitSlotKind kind = info->live_in_kind[slot];
+        if (kind == JIT_SLOT_NUM || kind == JIT_SLOT_NUM_PROVEN) return true;
+    }
+    return IS_NUMBER(regs[slot]);
+}
+
+// emits a trace-only note when a runtime guard selects the interpreter
+static void jit_trace_guard_reject(int pc, int slot, Value value) {
+    if (!jit_trace_enabled()) return;
+    fprintf(stderr, "[jit] loop pc=%d entry guard rejected R%d (type=%s); using interpreter\n",
+            pc, slot, vm_value_type_name(value));
+}
+
+// ensures t->array_part has capacity for `end` slots and array_count >= end
 static bool counter_write_prepare(Table* t, int end) {
     if (!t || end < 1) return false;
     if (end > t->array_count) {
@@ -386,6 +464,7 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs,
         if (s >= frame_size) return JIT_LOOP_NOT_APPLICABLE;        // slot beyond this frame
         if (counter_write && s == table_slot) continue;             // handled explicitly below
         if (!live_in_slot_ok(regs[s], info->live_in_kind[s], &info->table)) {
+            jit_trace_guard_reject(pc, s, regs[s]);                  // trace only; fallback is expected
             return JIT_LOOP_NOT_APPLICABLE;                         // wrong type or table shape
         }
     }
@@ -394,16 +473,27 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs,
     void (*chosen_fn)(uint64_t*, uint64_t*) = info->native_fn;
 
     if (info->kind == JIT_LOOP_NUMERIC_FOR) {
-        if (info->for_var_reg  >= frame_size ||
-            info->for_end_reg  >= frame_size ||
+        if (info->for_var_reg < 0 || info->for_end_reg < 0 || info->for_step_reg < 0 ||
+            info->for_var_reg >= frame_size ||
+            info->for_end_reg >= frame_size ||
             info->for_step_reg >= frame_size) {
+            return JIT_LOOP_NOT_APPLICABLE;
+        }
+        if (!numeric_control_slot_ok(info, regs, frame_size, info->for_var_reg)) {
+            jit_trace_guard_reject(pc, info->for_var_reg, regs[info->for_var_reg]);
+            return JIT_LOOP_NOT_APPLICABLE;
+        }
+        if (!numeric_control_slot_ok(info, regs, frame_size, info->for_end_reg)) {
+            jit_trace_guard_reject(pc, info->for_end_reg, regs[info->for_end_reg]);
+            return JIT_LOOP_NOT_APPLICABLE;
+        }
+        if (!numeric_control_slot_ok(info, regs, frame_size, info->for_step_reg)) {
+            jit_trace_guard_reject(pc, info->for_step_reg, regs[info->for_step_reg]);
             return JIT_LOOP_NOT_APPLICABLE;
         }
         Value vv = regs[info->for_var_reg];
         Value ve = regs[info->for_end_reg];
         Value vs = regs[info->for_step_reg];
-        if (!IS_NUMBER(vv) || !IS_NUMBER(ve) || !IS_NUMBER(vs))
-            return JIT_LOOP_NOT_APPLICABLE;                         // counter/end/step must be numeric
         double step = AS_NUMBER(vs);
         if (step == 0.0) return JIT_LOOP_NOT_APPLICABLE;            // interpreter exits immediately
 

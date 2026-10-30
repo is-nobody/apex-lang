@@ -388,7 +388,12 @@ static bool function_is_strictly_pure(JITContext* ctx, int func_idx) {
 
     SPType types[JIT_MAX_SLOTS];                              // per-slot type
     for (int i = 0; i < JIT_MAX_SLOTS; i++) types[i] = SP_UNK;
-    for (int i = 0; i < arity; i++) types[i] = SP_NUM;         // assume numeric args
+    for (int i = 0; i < arity; i++) types[i] = SP_NUM;         // native entry accepts only numeric args
+
+    // a self-recursive call can preserve the function's numeric result type
+    bool uses_numeric_self_call = false;
+    bool all_returns_numeric = true;
+    bool saw_return = false;
 
     for (int pc = start; pc < end; pc++) {
         Instruction* inst = &chunk->code[pc];
@@ -468,31 +473,234 @@ static bool function_is_strictly_pure(JITContext* ctx, int func_idx) {
             case OP_JUMP_IF_FALSE: case OP_JUMP:
                 // other jumps: pure emit matches interpreter (bits comparison / falsy-bit test)
                 break;
-            case OP_RETURN: case OP_RETURN_NUM: case OP_RETURN_BOOL:
-            case OP_RETURN_NONE: case OP_RETURN_NUM_IMM:
-                // return type is decided by infer_return_type and jit_box_return
+            case OP_RETURN: case OP_RETURN_NUM:
+                saw_return = true;
+                if (d < 0 || d >= JIT_MAX_SLOTS || types[d] != SP_NUM)
+                    all_returns_numeric = false;
+                break;
+            case OP_RETURN_NUM_IMM:
+                saw_return = true;                              // immediate return is numeric
+                break;
+            case OP_RETURN_BOOL: case OP_RETURN_NONE:
+                saw_return = true;
+                all_returns_numeric = false;
                 break;
             case OP_CALL_0:
                 // no args; the call result type is unknown
                 if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_UNK;
                 break;
             case OP_CALL_1:
-                // arg must be provably numeric so a JIT->JIT call edge into a
-                // strict_pure callee (whose emitter uses addsd directly) stays safe
                 if (b < 0 || b >= JIT_MAX_SLOTS) return false;
                 if (types[b] != SP_NUM) return false;
-                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_UNK;
+                if (d >= 0 && d < JIT_MAX_SLOTS) {
+                    if (a == func_idx) {
+                        types[d] = SP_NUM;
+                        uses_numeric_self_call = true;
+                    } else {
+                        types[d] = SP_UNK;
+                    }
+                }
                 break;
             case OP_CALL_2:
-                // both args must be provably numeric for the same reason
                 if (b < 0 || b >= JIT_MAX_SLOTS) return false;
                 if (b + 1 >= JIT_MAX_SLOTS) return false;
                 if (types[b] != SP_NUM || types[b + 1] != SP_NUM) return false;
-                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_UNK;
+                if (d >= 0 && d < JIT_MAX_SLOTS) {
+                    if (a == func_idx) {
+                        types[d] = SP_NUM;
+                        uses_numeric_self_call = true;
+                    } else {
+                        types[d] = SP_UNK;
+                    }
+                }
                 break;
             default:
                 return false;                             // any op outside pure set: not strict
         }
+    }
+
+    if (uses_numeric_self_call && (!saw_return || !all_returns_numeric))
+        return false;                                             // no numeric induction base / mixed return
+    return true;
+}
+
+// checks whether an instruction writes a value to operands[0]
+static bool loop_prefix_op_writes_dest(Opcode op) {
+    switch (op) {
+        case OP_MOVE:
+        case OP_LOAD_NUM_IMM: case OP_LOAD_NUM: case OP_LOAD_BOOL:
+        case OP_LOAD_NONE: case OP_LOAD_CONST: case OP_LOAD_GLOBAL:
+        case OP_LOAD_TABLE: case OP_NEW_TABLE:
+        case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
+        case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:
+        case OP_DIV_IMM: case OP_MOD_IMM:
+        case OP_NEG: case OP_INC: case OP_DEC:
+        case OP_CMP_EQ: case OP_CMP_NEQ:
+        case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
+        case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
+        case OP_CONCAT: case OP_AND: case OP_OR:
+        case OP_TABLE_GET: case OP_TABLE_GET_NUM: case OP_TABLE_GET_INT:
+        case OP_TABLE_GET_KEY_STR: case OP_TABLE_GET_CONST:
+        case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:
+        case OP_CALL_BUILTIN: case OP_ASYNC_CALL_BUILTIN:
+        case OP_ASYNC_CALL: case OP_AWAIT:
+        case OP_FOR_NEXT: case OP_FOR_NEXT_LOOP:
+            return true;                                         // destination is operands[0]
+        default:
+            return false;                                        // no frame destination
+    }
+}
+
+// infers register types along a prefix & across completed numeric loops
+static bool infer_loop_entry_types(JITContext* ctx, int function_start,
+                                   int function_end, int entry_pc,
+                                   int back_edge_pc, SPType* types) {
+    BytecodeChunk* chunk = ctx->chunk;
+    for (int i = 0; i < JIT_MAX_SLOTS; i++) types[i] = SP_UNK;
+
+    // a later branch must not enter the loop body while bypassing this prefix
+    for (int scan = back_edge_pc + 1; scan < function_end; scan++) {
+        Instruction* inst = &chunk->code[scan];
+        int target = -1;
+        switch (inst->opcode) {
+            case OP_JUMP:
+            case OP_JUMP_IF_FALSE:
+            case OP_JUMP_IF_EQ: case OP_JUMP_IF_NEQ:
+            case OP_JUMP_IF_EQ_NUM: case OP_JUMP_IF_NEQ_NUM:
+            case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:
+            case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:
+            case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:
+            case OP_JUMP_IF_LT_IMM: case OP_JUMP_IF_GT_IMM:
+            case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
+            case OP_JUMP_IF_NONE: case OP_JUMP_IF_NOT_NONE:
+                target = inst->operands[0];
+                break;
+            case OP_FOR_NEXT_LOOP:
+                target = inst->operands[1];
+                break;
+            case OP_JUMP_MATCH_NUM: case OP_JUMP_MATCH_STR:
+            case OP_JUMP_MATCH_BOOL: case OP_JUMP_MATCH_NONE:
+                return false;                               // switch targets need full control-flow analysis
+            default:
+                break;
+        }
+        if (target >= function_start && target <= back_edge_pc)
+            return false;                                   // external edge can bypass a proven assignment
+    }
+
+    int pc = function_start;
+    while (pc < entry_pc) {
+        Instruction* inst = &chunk->code[pc];
+        int d = inst->operands[0];
+        int a = inst->operands[1];
+
+        switch (inst->opcode) {
+            case OP_JUMP: {
+                int target = inst->operands[0];
+                if (target <= pc || target > entry_pc || target >= chunk->code_count)
+                    return false;                           // only follow a forward jump to this prefix
+                pc = target;
+                continue;
+            }
+
+            case OP_MOVE:
+                if (d < 0 || d >= JIT_MAX_SLOTS) return false;
+                types[d] = (a >= 0 && a < JIT_MAX_SLOTS) ? types[a] : SP_UNK;
+                break;
+
+            case OP_LOAD_NUM_IMM:
+                if (d < 0 || d >= JIT_MAX_SLOTS) return false;
+                types[d] = SP_NUM;
+                break;
+
+            case OP_LOAD_NUM: {
+                if (d < 0 || d >= JIT_MAX_SLOTS) return false;
+                int idx = inst->operands[1];
+                types[d] = (idx >= 0 && idx < chunk->const_count &&
+                            chunk->constants[idx].type == CONST_NUMBER &&
+                            !isnan(chunk->constants[idx].number_value)) ? SP_NUM : SP_UNK;
+                break;
+            }
+
+            case OP_LOAD_CONST: {
+                if (d < 0 || d >= JIT_MAX_SLOTS) return false;
+                int idx = inst->operands[1];
+                types[d] = (idx >= 0 && idx < chunk->const_count &&
+                            chunk->constants[idx].type == CONST_NUMBER &&
+                            !isnan(chunk->constants[idx].number_value)) ? SP_NUM : SP_UNK;
+                break;
+            }
+
+            case OP_LOAD_BOOL:
+                if (d < 0 || d >= JIT_MAX_SLOTS) return false;
+                types[d] = SP_BOOL;
+                break;
+
+            case OP_LOAD_NONE:
+                if (d < 0 || d >= JIT_MAX_SLOTS) return false;
+                types[d] = SP_NONE;
+                break;
+
+            case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
+            case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:
+            case OP_DIV_IMM: case OP_MOD_IMM: case OP_NEG:
+            case OP_INC: case OP_DEC:
+                if (d < 0 || d >= JIT_MAX_SLOTS) return false;
+                types[d] = SP_UNK;                              // arithmetic outputs are not trusted by this entry proof
+                break;
+
+            case OP_CMP_EQ: case OP_CMP_NEQ:
+            case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
+            case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
+                if (d < 0 || d >= JIT_MAX_SLOTS) return false;
+                types[d] = SP_BOOL;
+                break;
+
+            case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:
+            case OP_CALL_BUILTIN: case OP_ASYNC_CALL_BUILTIN:
+            case OP_ASYNC_CALL: case OP_AWAIT:
+                for (int i = 0; i < JIT_MAX_SLOTS; i++) types[i] = SP_UNK;
+                if (d < 0 || d >= JIT_MAX_SLOTS) return false;
+                types[d] = SP_UNK;                              // calls may return tagged values or mutate vm state
+                break;
+
+            case OP_FOR_NEXT:
+                if (d < 0 || d >= JIT_MAX_SLOTS) return false;
+                if (types[d] != SP_NUM) types[d] = SP_UNK;      // zero-iteration exit preserves the prior value
+                break;
+
+            case OP_FOR_NEXT_LOOP: {
+                int body_start = inst->operands[1];             // body target for this loop
+                if (d < 0 || d >= JIT_MAX_SLOTS ||
+                    body_start < function_start || body_start >= pc) return false;
+                for (int body_pc = body_start; body_pc < pc; body_pc++) {
+                    Instruction* body_inst = &chunk->code[body_pc];
+                    if (!loop_prefix_op_writes_dest(body_inst->opcode)) continue;
+                    int body_dest = body_inst->operands[0];
+                    if (body_dest < 0 || body_dest >= JIT_MAX_SLOTS) return false;
+                    types[body_dest] = SP_UNK;                  // zero or more iterations merge here
+                }
+                break;                                          // retain the counter type unless the body overwrote it
+            }
+
+            case OP_LOAD_GLOBAL: case OP_LOAD_TABLE: case OP_NEW_TABLE:
+            case OP_CONCAT: case OP_AND: case OP_OR:
+            case OP_TABLE_GET: case OP_TABLE_GET_NUM: case OP_TABLE_GET_INT:
+            case OP_TABLE_GET_KEY_STR: case OP_TABLE_GET_CONST:
+                if (d < 0 || d >= JIT_MAX_SLOTS) return false;
+                types[d] = SP_UNK;
+                break;
+
+            case OP_PUSH_ARG: case OP_FOR_INIT: case OP_STORE_GLOBAL:
+            case OP_POP_ITER: case OP_POP_TABLE_ITER: case OP_TABLE_ITER_INIT:
+            case OP_TABLE_APPEND: case OP_TABLE_SET: case OP_TABLE_SET_NUM:
+            case OP_TABLE_SET_INT: case OP_TABLE_SET_KEY_STR: case OP_TABLE_SET_CONST:
+                break;                                          // these instructions do not replace a register
+
+            default:
+                return false;                                   // branches or unsupported writes need runtime guards
+        }
+        pc++;
     }
     return true;
 }
@@ -505,7 +713,8 @@ static bool is_loop_entry_op(Opcode op) {
 }
 
 // walks the loop body, marks read and written slots, and collects table uses
-static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
+static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info,
+                              int function_start, int function_end) {
     BytecodeChunk* chunk = ctx->chunk;
     uint64_t live_in_mask = 0, written_mask = 0;                 // accumulated per-slot bitmasks
 
@@ -717,12 +926,34 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info) {
     }
     info->live_in  = live_in_mask;                               // slots read before first write
     info->live_out = written_mask;                               // slots produced inside the loop
+
+    SPType entry_types[JIT_MAX_SLOTS];                            // types before the loop starts
+    if (infer_loop_entry_types(ctx, function_start, function_end,
+                               info->entry_pc, info->back_edge_pc, entry_types)) {
+        uint64_t numeric_inputs = info->live_in;                  // values are checked at loop entry, before body writes
+        while (numeric_inputs) {
+            int slot = __builtin_ctzll(numeric_inputs);
+            numeric_inputs &= numeric_inputs - 1;
+            if (slot >= JIT_MAX_SLOTS) continue;
+            if (info->live_in_kind[slot] != JIT_SLOT_NUM) continue; // keep table guards intact
+            if (entry_types[slot] == SP_NUM) {
+                info->live_in_kind[slot] = JIT_SLOT_NUM_PROVEN;    // proven numeric entry value needs no guard
+            }
+        }
+    }
 }
 
 // registers a loop and runs the slot analysis on its body
-static void add_loop(JITContext* ctx, int entry, int back_edge, int exit_pc,
-                     JitLoopKind kind, int for_var_reg, int for_end_reg, int for_step_reg,
-                     int step_sign, int step_value, int nregs, int init_table_reg) {
+static void add_loop(JITContext* ctx, int function_start, int function_end,
+                     int entry, int back_edge,
+                     int exit_pc, JitLoopKind kind, int for_var_reg, int for_end_reg,
+                     int for_step_reg, int step_sign, int step_value, int nregs,
+                     int init_table_reg) {
+    for (int i = 0; i < ctx->loop_count; i++) {                   // one record per bytecode loop
+        if (ctx->loops[i].entry_pc == entry &&
+            ctx->loops[i].back_edge_pc == back_edge) return;
+    }
+
     if (ctx->loop_count >= ctx->loop_capacity) {                 // grow loop array if needed
         int new_cap = ctx->loop_capacity == 0 ? 8 : ctx->loop_capacity * 2;
         JitLoopInfo* new_arr = (JitLoopInfo*)realloc(ctx->loops, sizeof(JitLoopInfo) * new_cap);
@@ -739,6 +970,8 @@ static void add_loop(JITContext* ctx, int entry, int back_edge, int exit_pc,
     info->for_var_reg  = for_var_reg;                            // loop counter slot (-1 for non-for)
     info->for_end_reg  = for_end_reg;                            // end bound slot (-1 for non-for)
     info->for_step_reg = for_step_reg;                           // step slot (-1 for non-for)
+    info->for_end_cache_slot  = -1;                              // assigned by the numeric-loop emitter
+    info->for_step_cache_slot = -1;                              // assigned by the numeric-loop emitter
     info->step_sign        = step_sign;                          // static step sign, 0 if unknown
     info->for_step_value   = step_value;                         // exact literal step value
     info->for_var_gpr      = -1;                                 // no gpr-counter yet
@@ -746,7 +979,7 @@ static void add_loop(JITContext* ctx, int entry, int back_edge, int exit_pc,
     info->nregs        = nregs;                                  // function frame size
     info->table.slot   = (init_table_reg >= 0) ? init_table_reg : -1;
     info->table.used   = (init_table_reg >= 0);                  // mark as touched
-    analyze_loop_regs(ctx, info);                                // fill live_in/out and table use
+    analyze_loop_regs(ctx, info, function_start, function_end); // fill live_in/out and table use
 }
 
 // checks whether a table-iter body uses no table ops beyond the loop iterator
@@ -789,6 +1022,17 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
     if (nregs > JIT_MAX_SLOTS - 2) return;                       // too big for the slot cache
 
     for (int pc = start; pc < end; pc++) {                       // scan for back edges
+        if (func_idx == 0) {                                     // entry range also spans declared functions
+            bool inside_function = false;
+            for (int fi = 1; fi < ctx->func_count; fi++) {
+                if (pc >= ctx->range_start[fi] && pc < ctx->range_end[fi]) {
+                    inside_function = true;
+                    break;
+                }
+            }
+            if (inside_function) continue;                      // that function gets its own loop scan
+        }
+
         Opcode loop_op = chunk->code[pc].opcode;                 // candidate back-edge opcode
         int entry = -1;                                          // loop entry pc
         if (loop_op == OP_JUMP) {                                // classic JUMP back edge
@@ -906,7 +1150,7 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
             init_table_reg = chunk->code[fi].operands[0];        // iterated table's frame slot
         }
 
-        add_loop(ctx, entry, pc, exit_pc, kind,                  // register the loop
+        add_loop(ctx, start, end, entry, pc, exit_pc, kind,      // register the loop
                  for_var_reg, for_end_reg, for_step_reg, step_sign, step_value, nregs,
                  init_table_reg);
     }
@@ -962,6 +1206,47 @@ bool jit_analyze(JITContext* ctx) {
         if (ctx->pure[i]) continue;                              // pure fns are fully compiled
         detect_loops_in_function(ctx, i);
     }
+
+    // strict-pure callees consume raw doubles
+    bool strict_edge_changed;
+    do {
+        strict_edge_changed = false;
+        for (int target = 1; target < n; target++) {
+            if (!ctx->strict_pure[target]) continue;
+            bool unsafe_call_edge = false;
+
+            for (int caller = 1; caller < n && !unsafe_call_edge; caller++) {
+                if (caller == target || !ctx->pure[caller] || ctx->strict_pure[caller])
+                    continue;                                   // interpreter or numeric-proven caller is safe
+                for (int pc = ctx->range_start[caller]; pc < ctx->range_end[caller]; pc++) {
+                    Instruction* inst = &chunk->code[pc];
+                    if ((inst->opcode == OP_CALL_1 || inst->opcode == OP_CALL_2) &&
+                        inst->operands[1] == target) {
+                        unsafe_call_edge = true;
+                        break;
+                    }
+                }
+            }
+
+            // calls inside native loop bodies bypass the interpreter's is_number dispatch too
+            for (int li = 0; li < ctx->loop_count && !unsafe_call_edge; li++) {
+                JitLoopInfo* loop = &ctx->loops[li];
+                for (int pc = loop->entry_pc; pc <= loop->back_edge_pc; pc++) {
+                    Instruction* inst = &chunk->code[pc];
+                    if ((inst->opcode == OP_CALL_1 || inst->opcode == OP_CALL_2) &&
+                        inst->operands[1] == target) {
+                        unsafe_call_edge = true;
+                        break;
+                    }
+                }
+            }
+
+            if (unsafe_call_edge) {
+                ctx->strict_pure[target] = false;                // retain checked arithmetic for safety
+                strict_edge_changed = true;
+            }
+        }
+    } while (strict_edge_changed);                              // propagate non-strict callers to their callees
 
     int candidate_count = 0;                                     // anything to emit?
     for (int i = 0; i < n; i++) if (ctx->pure[i]) candidate_count++;
