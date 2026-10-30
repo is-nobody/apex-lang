@@ -51,7 +51,7 @@ void ui_painter_shutdown(void);
 void ui_draw_text_at(UiContext* ctx, float x, float baseline,
                      const char* s, int len, float size, uint32_t color);
 
-// draws the 9x6 checkmark at (ox, oy) -- shared with the renderer
+// draws the 12x8 checkmark at (ox, oy) -- shared with the renderer
 void blit_checkmark_shared(int ox, int oy, uint32_t c);
 
 // draws the 9x9 close glyph at (ox, oy) -- shared with renderers

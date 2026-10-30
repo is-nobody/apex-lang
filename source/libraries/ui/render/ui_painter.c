@@ -874,19 +874,21 @@ void ui_painter_stroke_round(int x, int y, int w, int h, int r, uint32_t c) {
     stroke_corners_atlas(x, y, w, h, r, c);                         // all four rounded corners
 }
 
-// 9x6 checkbox checkmark: symmetric V, 2px thick, no antialiasing
-static const uint8_t k_checkmark_9x6[6][9] = {
-    {255,   0,   0,   0,   0,   0,   0,   0, 255},
-    {255, 255,   0,   0,   0,   0,   0, 255, 255},
-    {  0, 255, 255,   0,   0,   0, 255, 255,   0},
-    {  0,   0, 255, 255,   0, 255, 255,   0,   0},
-    {  0,   0,   0, 255, 255, 255,   0,   0,   0},
-    {  0,   0,   0,   0, 255,   0,   0,   0,   0},
+// 12x8 checkbox checkmark: 1px sharp core, 50% antialiased edges
+static const uint8_t k_checkmark_12x8[8][12] = {
+    {  0,   0,   0,   0,   0,   0,   0,   0,   0, 128, 255,   0},
+    {  0,   0,   0,   0,   0,   0,   0,   0, 128, 255,   0,   0},
+    {  0,   0,   0,   0,   0,   0,   0, 128, 255,   0,   0,   0},
+    {  0, 255, 128,   0,   0,   0, 128, 255,   0,   0,   0,   0},
+    {  0,   0, 255, 128,   0, 128, 255,   0,   0,   0,   0,   0},
+    {  0,   0, 128, 255, 255, 255,   0,   0,   0,   0,   0,   0},
+    {  0,   0,   0, 128, 255,   0,   0,   0,   0,   0,   0,   0},
+    {  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0}
 };
 
-// draws the 9x6 checkmark at (ox, oy)
+// draws the 12x8 checkmark at (ox, oy)
 void blit_checkmark_shared(int ox, int oy, uint32_t c) {
-    int x0 = 0, y0 = 0, x1 = 9, y1 = 6;
+    int x0 = 0, y0 = 0, x1 = 12, y1 = 8;
     if (ox + x0 < g_clip_x0) x0 = g_clip_x0 - ox;
     if (oy + y0 < g_clip_y0) y0 = g_clip_y0 - oy;
     if (ox + x1 > g_clip_x1) x1 = g_clip_x1 - ox;
@@ -900,7 +902,7 @@ void blit_checkmark_shared(int ox, int oy, uint32_t c) {
     uint32_t sb =  c        & 0xFF;
 
     for (int yy = y0; yy < y1; yy++) {
-        const uint8_t* run = k_checkmark_9x6[yy] + x0;
+        const uint8_t* run = k_checkmark_12x8[yy] + x0;
         uint32_t* dst = g_pixels + (size_t)(oy + yy) * g_stride + (ox + x0);
         blend_cov_row(dst, run, x1 - x0, ca, sr, sg, sb);
     }

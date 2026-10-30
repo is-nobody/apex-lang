@@ -117,9 +117,8 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                     ui_painter_fill_round(bx, by, sz, sz, UI_RADIUS_SM, fill);
                     ui_painter_stroke_round(bx, by, sz, sz, UI_RADIUS_SM, UI_C_BORDER_S);
 
-                    // blit a precomputed 9x6 coverage blob
-                    int cx = bx + sz/2 - 1, cy = by + sz/2 - 2;
-                    blit_checkmark_shared(cx - 4, cy, UI_C_ACCENT_T);
+                    // blit a precomputed 12x8 coverage blob
+                    blit_checkmark_shared(bx + 2, by + 4, UI_C_ACCENT_T);
                 } else {                                    // unchecked: empty box
                     uint32_t fill = w->hovered ? UI_C_PANEL_ALT : UI_C_INPUT_BG;
                     ui_painter_fill_round(bx, by, sz, sz, UI_RADIUS_SM, fill);
