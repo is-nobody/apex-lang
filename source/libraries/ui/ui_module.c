@@ -101,27 +101,6 @@ static Value ctor_checkbox(VM* vm, int argc, Value* argv) {
     return MAKE_TABLE(t);
 }
 
-// builds an switch widget descriptor
-static Value ctor_switch(VM* vm, int argc, Value* argv) {
-    Table* t = table_create(8);
-    tset(vm, t, "__t", intern(vm, "switch"));
-    if (argc >= 1) tset(vm, t, "content", argv[0]);                    // label, may be ""
-    if (argc >= 2 && IS_BOOL(argv[1])) tset(vm, t, "checked", argv[1]); // explicit bool state
-    else if (argc >= 2 && IS_NUMBER(argv[1]))
-        tset(vm, t, "checked", MAKE_BOOL(AS_NUMBER(argv[1]) != 0));    // numeric truthiness
-    if (argc >= 3 && IS_TABLE(argv[2])) {                              // merge options fields
-        Table* opts = AS_TABLE(argv[2]);
-        int nk; Value* keys = table_keys(opts, &nk);
-        for (int i = 0; i < nk; i++) {
-            Value vv;
-            if (table_get(opts, keys[i], &vv)) { table_set(t, keys[i], vv); value_decref(vv); }
-            value_decref(keys[i]);
-        }
-        free(keys);
-    }
-    return MAKE_TABLE(t);
-}
-
 // builds a radio button widget descriptor
 static Value ctor_radio(VM* vm, int argc, Value* argv) {
     Table* t = table_create(8);
@@ -537,7 +516,6 @@ bool ui_call_builtin(VM* vm, const char* name, int argc, Value* argv, Value* res
 
     if (strcmp(name, "ui.button") == 0)   { *result = ctor_button(vm, argc, argv); return true; }               // push button
     if (strcmp(name, "ui.checkbox") == 0) { *result = ctor_checkbox(vm, argc, argv); return true; }             // boolean toggle
-    if (strcmp(name, "ui.switch") == 0)   { *result = ctor_switch(vm, argc, argv); return true; }               // ios-style toggle
     if (strcmp(name, "ui.radio") == 0)    { *result = ctor_radio(vm, argc, argv); return true; }                // radio option
     if (strcmp(name, "ui.slider") == 0)   { *result = ctor_slider(vm, argc, argv); return true; }               // numeric slider
     if (strcmp(name, "ui.progress") == 0) { *result = ctor_progress(vm, argc, argv); return true; }             // progress bar

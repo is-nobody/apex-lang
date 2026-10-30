@@ -495,60 +495,6 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 }
                 break;
             }
-            case WK_SWITCH: {
-                int sw_w = UI_SWITCH_W;                     // track width
-                int sw_h = UI_SWITCH_H;                     // track height
-                if (sw_w > ww) sw_w = ww;                   // never overflow the widget box
-                if (sw_h > hh) sw_h = hh;
-                int sx = x;                                 // track pinned to the left edge
-                int sy = y + (hh - sw_h) / 2;               // vertically centered
-
-                // label sits to the right of the track
-                if (w->text.len > 0) {
-                    float fs = UI_FS_BODY;
-                    float base = y + (hh + fs * 0.7f) * 0.5f;
-                    ui_draw_text_at(ctx, (float)(sx + sw_w + 8), base,
-                                    w->text.ptr, w->text.len, fs, UI_C_FG);
-                }
-
-                // animated knob position: 0 = off, 1 = on
-                float t = w->switch_knob;
-                if (t < 0.0f) t = 0.0f;
-                if (t > 1.0f) t = 1.0f;
-
-                // pill track: crossfades from the off color to the on color
-                uint32_t off_c = w->hovered ? UI_C_SWITCH_OFF_H : UI_C_SWITCH_OFF;
-                uint32_t on_c  = w->hovered ? UI_C_SWITCH_ON_H  : UI_C_SWITCH_ON;
-                uint32_t track;
-                if (w->disabled) {
-                    track = UI_C_DIS_BG;
-                } else if (t <= 0.0f) {
-                    track = off_c;
-                } else if (t >= 1.0f) {
-                    track = on_c;
-                } else {
-                    uint32_t ar = (off_c >> 16) & 0xFF, ag = (off_c >> 8) & 0xFF, ab = off_c & 0xFF;
-                    uint32_t br = (on_c  >> 16) & 0xFF, bg = (on_c  >> 8) & 0xFF, bb = on_c  & 0xFF;
-                    uint32_t r  = (uint32_t)(ar + (br - ar) * t + 0.5f);
-                    uint32_t g  = (uint32_t)(ag + (bg - ag) * t + 0.5f);
-                    uint32_t bl = (uint32_t)(ab + (bb - ab) * t + 0.5f);
-                    track = 0xFF000000u | (r << 16) | (g << 8) | bl;
-                }
-                ui_painter_fill_round(sx, sy, sw_w, sw_h, sw_h / 2, track);
-
-                // round knob, interpolated along the travel between the two ends
-                int knob_d = sw_h - 2 * UI_SWITCH_PAD;
-                if (knob_d < 2) knob_d = 2;
-                int travel = sw_w - 2 * UI_SWITCH_PAD - knob_d;
-                if (travel < 0) travel = 0;
-                int knob_x = sx + UI_SWITCH_PAD + (int)(t * travel + 0.5f);
-                int knob_y = sy + UI_SWITCH_PAD;
-                uint32_t knob_c = w->disabled ? UI_C_SWITCH_KNOB_D
-                                              : UI_C_SWITCH_KNOB;
-                ui_painter_fill_round(knob_x, knob_y, knob_d, knob_d,
-                                      knob_d / 2, knob_c);
-                break;
-            }
             case WK_TREE:
                 tree_render(ctx, w, x, y, ww, hh);
                 break;

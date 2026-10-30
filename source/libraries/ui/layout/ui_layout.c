@@ -298,21 +298,6 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
             w->meas_h = (float)w->tree_node_count * UI_TREE_ROW_H + UI_TREE_PAD * 2;
             break;
         }
-        case WK_SWITCH: {                                    // pill track plus optional label
-            float fs = UI_FS_BODY;
-            float tw = 0;
-            float gap = 0;
-            if (w->text.len > 0) {
-                tw = ctx->font ? ui_text_measure_cached(ctx, w->text.ptr,
-                                                        w->text.len, fs)
-                               : w->text.len * 8.0f;
-                gap = 8.0f;                                  // gap between track and label
-            }
-            w->meas_w = UI_SWITCH_W + gap + tw;              // track first, then label
-            w->meas_h = UI_SWITCH_H;
-            if (w->meas_h < fs + 4) w->meas_h = fs + 4;      // at least tall enough for the label
-            break;
-        }
         case WK_STATUSBAR: {
             float h = UI_STATUSBAR_H;
             float pad = w->padding;

@@ -124,8 +124,6 @@ bool ui_animating(UiContext* ctx) {
     for (int i = 0; i < ctx->state.count; i++) {
         WidgetState* s = &ctx->state.entries[i];
         if (s->scroll_y != s->scroll_target) return true;  // still moving
-        if (s->switch_init && s->switch_anim_t < UI_SWITCH_ANIM_SEC)
-            return true;                                   // knob is mid-flight
         if (s->tab_anim_init) return true;                 // tab strip easing
         if (!ctx->tooltip_shown_id &&
             s->id == ctx->hovered_id && s->tooltip_hover_start > 0)
@@ -244,38 +242,6 @@ void ui_tick(UiContext* ctx, double dt) {
         if (s->blink_phase >= 1.0) s->blink_phase -= 1.0;// wrap at one second
         if ((old_phase < 0.5) != (s->blink_phase < 0.5)) // crossed the visibility edge
             ctx->redraw_needed = true;                   // schedule a repaint
-    }
-
-    // switch knobs run a fixed-duration ease-out toward the checked state
-    {
-        bool switch_moved = false;
-        for (int i = 0; i < ctx->pool_used; i++) {
-            Widget* w = &ctx->pool[i];
-            if (w->kind != WK_SWITCH) continue;
-            WidgetState* s = ui_state_get(ctx, w->id);
-            float target = w->checked ? 1.0f : 0.0f;
-
-            if (s->switch_to != target) {                // checked flipped: restart the ease
-                s->switch_from   = s->switch_knob;       // start from wherever we are
-                s->switch_to     = target;
-                s->switch_anim_t = 0.0f;
-            }
-
-            if (s->switch_anim_t < UI_SWITCH_ANIM_SEC) {
-                s->switch_anim_t += (float)dt;           // advance the animation clock
-                float t = s->switch_anim_t / UI_SWITCH_ANIM_SEC;
-                if (t > 1.0f) t = 1.0f;
-                float u = 1.0f - t;
-                float eased = 1.0f - u * u * u;          // ease-out cubic
-                s->switch_knob = s->switch_from
-                               + (s->switch_to - s->switch_from) * eased;
-                switch_moved = true;
-            } else {
-                s->switch_knob = target;                 // settled: no per-frame churn
-            }
-            w->switch_knob = s->switch_knob;             // publish for hash, damage, render
-        }
-        if (switch_moved) ctx->redraw_needed = true;
     }
 
     // wk_tabs drag animation

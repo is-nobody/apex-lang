@@ -1196,7 +1196,7 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                         fire_click(ctx, w);
                         break;
                     }
-                    if ((w->kind == WK_CHECKBOX || w->kind == WK_SWITCH) &&
+                    if (w->kind == WK_CHECKBOX &&
                         (e->key == UI_KEY_SPACE || e->key == UI_KEY_ENTER)) {   // space or enter toggles
                         fire_click(ctx, w);
                         break;
