@@ -29,7 +29,6 @@ static WidgetKind kind_from_str_n(const char* s, int n) {
     if (STR_EQ(s,n,"badge"))     return WK_BADGE;
     if (STR_EQ(s,n,"combobox"))  return WK_COMBOBOX;
     if (STR_EQ(s,n,"table"))     return WK_TABLE;
-    if (STR_EQ(s,n,"list_item")) return WK_LIST_ITEM;
     if (STR_EQ(s,n,"switch"))    return WK_SWITCH;
     if (STR_EQ(s,n,"tree"))      return WK_TREE;
     if (STR_EQ(s,n,"tabs"))      return WK_TABS;

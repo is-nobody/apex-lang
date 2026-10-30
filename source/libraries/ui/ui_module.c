@@ -456,65 +456,6 @@ static Value ctor_context_menu(VM* vm, int argc, Value* argv) {
     return MAKE_NONE();                                                     // builders return no value
 }
 
-// ui.list(items, opts) — a plain vertical list of clickable text rows
-static Value ctor_list(VM* vm, int argc, Value* argv) {
-    if (argc < 1 || !IS_TABLE(argv[0])) return MAKE_NONE();   // items array required
-    Table* items = AS_TABLE(argv[0]);
-
-    // optional selected label from opts
-    char* sel = NULL;
-    if (argc >= 2 && IS_TABLE(argv[1])) {
-        sel = table_get_str_dup(vm, AS_TABLE(argv[1]), "selected");
-    }
-
-    // vbox holding every row, zero gap so the rows sit flush
-    Table* vbox_t = table_create(4);
-    tset(vm, vbox_t, "__t", intern(vm, "vbox"));
-    tset(vm, vbox_t, "gap", MAKE_NUMBER(0.0));
-    tset(vm, vbox_t, "padding", MAKE_NUMBER(0.0));
-
-    Table* vbox_children = table_create(4);
-    int n_arr = items->array_part ? items->array_count : 0;
-    for (int i = 0; i < n_arr; i++) {
-        Value it = items->array_part[i];
-        if (IS_NONE(it)) break;
-        if (!IS_STRING(it)) continue;                         // strings only
-
-        Table* row_t = table_create(4);
-        tset(vm, row_t, "__t", intern(vm, "list_item"));
-        tset(vm, row_t, "content", it);                       // label
-        tset(vm, row_t, "key", it);                           // the label doubles as the key
-
-        if (sel) {                                            // mark the chosen row
-            StringObject* s = AS_STRING(it);
-            int n = s->length;
-            if ((int)strlen(sel) == n && memcmp(s->chars, sel, (size_t)n) == 0) {
-                tset(vm, row_t, "checked", MAKE_BOOL(true));
-            }
-        }
-
-        Value row_v = MAKE_TABLE(row_t);
-        Value kidx  = MAKE_NUMBER((double)(i + 1));           // 1-based array slot
-        table_set(vbox_children, kidx, row_v);
-        value_decref(kidx);
-        value_decref(row_v);
-    }
-    { Value cv = MAKE_TABLE(vbox_children);
-      tset(vm, vbox_t, "children", cv); value_decref(cv); }
-
-    // panel wrapping the vbox, giving the rounded outer border
-    Table* panel_t = table_create(4);
-    tset(vm, panel_t, "__t", intern(vm, "panel"));
-    tset(vm, panel_t, "padding", MAKE_NUMBER(1.0));           // keep the 1px border visible
-    tset(vm, panel_t, "justify", intern(vm, "center"));       // split the panel's extra
-                                                              // frame evenly top and bottom
-    { Value cv = MAKE_TABLE(vbox_t);
-      tset(vm, panel_t, "children", cv); value_decref(cv); }
-      
-    free(sel);                                                // release the optional selection copy
-    return MAKE_TABLE(panel_t);
-}
-
 // builds a number input widget descriptor
 static Value ctor_number_input(VM* vm, int argc, Value* argv) {
     Table* t = table_create(8);
@@ -588,7 +529,6 @@ bool ui_call_builtin(VM* vm, const char* name, int argc, Value* argv, Value* res
     if (strcmp(name, "ui.menubar") == 0)       { *result = ctor_menubar(vm, argc, argv); return true; }         // window menu bar
     if (strcmp(name, "ui.context_menu") == 0)  { *result = ctor_context_menu(vm, argc, argv); return true; }    // right-click menu
     if (strcmp(name, "ui.statusbar") == 0)     { *result = ui_ctor_statusbar(vm, argc, argv); return true; }    // bottom status bar
-    if (strcmp(name, "ui.list") == 0)          { *result = ctor_list(vm, argc, argv); return true; }            // compositional list
 
     if (strcmp(name, "ui.text") == 0)     { *result = make_leaf(vm, "text", argc, argv); return true; }         // plain text block
     if (strcmp(name, "ui.heading") == 0)  { *result = make_leaf(vm, "heading", argc, argv); return true; }      // section heading

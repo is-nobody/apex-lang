@@ -67,9 +67,6 @@
 #define UI_SCROLL_W     10             // scrollbar width in pixels
 #define UI_FOCUS_W      2              // focus ring width in pixels
 
-#define UI_LIST_ITEM_H    32           // list row height in pixels
-#define UI_LIST_ITEM_PAD  12           // horizontal padding inside a list row
-
 #define UI_SWITCH_W       40           // switch track width in pixels
 #define UI_SWITCH_H       22           // switch track height in pixels
 #define UI_SWITCH_PAD     3            // gap between the knob and the track edge

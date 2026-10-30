@@ -496,31 +496,6 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 }
                 break;
             }
-            case WK_LIST_ITEM: {
-                if (w->pressed)                             // pressed: strongest wash
-                    ui_painter_fill_rect(x, y, ww, hh, UI_C_ACCENT_A);
-                else if (w->checked)                        // selected: persistent accent
-                    ui_painter_fill_rect(x, y, ww, hh, UI_C_ACCENT);
-                else if (w->hovered)                        // hovered: lighter wash
-                    ui_painter_fill_rect(x, y, ww, hh, UI_C_PANEL_ALT);
-
-                // divider between rows
-                if (w->parent) {
-                    for (int i = 0; i < w->parent->child_count; i++) {
-                        if (w->parent->children[i] == w) {
-                            if (i > 0)
-                                ui_painter_fill_rect(x, y, ww, 1, UI_C_BORDER);
-                            break;
-                        }
-                    }
-                }
-
-                float fs = UI_FS_BODY;
-                float base = y + (hh + fs * 0.7f) * 0.5f;   // vertically centered text
-                float tx = x + UI_LIST_ITEM_PAD;
-                ui_draw_text_at(ctx, tx, base, w->text.ptr, w->text.len, fs, UI_C_FG);
-                break;
-            }
             case WK_SWITCH: {
                 int sw_w = UI_SWITCH_W;                     // track width
                 int sw_h = UI_SWITCH_H;                     // track height

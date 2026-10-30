@@ -293,15 +293,6 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
             w->meas_h = (float)rows_drawn * UI_TABLE_ROW_H + 2;
             break;
         }
-        case WK_LIST_ITEM: {                                 // single-line row
-            float fs = UI_FS_BODY;
-            float lw = ctx->font ? ui_text_measure_cached(ctx, w->text.ptr,
-                                                          w->text.len, fs)
-                                 : w->text.len * 8.0f;
-            w->meas_w = lw + UI_LIST_ITEM_PAD * 2;
-            w->meas_h = UI_LIST_ITEM_H;
-            break;
-        }
         case WK_TREE: {                                      // flat row list, one row per visible node
             w->meas_w = 240;
             w->meas_h = (float)w->tree_node_count * UI_TREE_ROW_H + UI_TREE_PAD * 2;
