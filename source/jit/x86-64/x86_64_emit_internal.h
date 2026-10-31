@@ -149,6 +149,7 @@ typedef struct X86LoopBodyState {
     XmmCache*        cache;                                          // live xmm register cache
     JitLoopInfo*     info;                                           // loop being emitted
     BytecodeChunk*   chunk;                                          // bytecode being compiled
+    bool             is_pure;                                        // true: fast double arith; false: base helpers
     int              pc;                                             // bytecode pc of the current instruction
     int              const_slot;                                     // reserved frame slot holding 1.0
     int              save_slot;                                      // reserved frame slot for frame_reg spilling
@@ -200,14 +201,16 @@ void x86_loop_emit_table(X86LoopBodyState* st);                      // OP_TABLE
 // loop entry / dispatch helpers (defined in x86_64_emit_loop.c)
 void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                           XmmCache* cache, int pc, int const_slot, int save_slot,
-                          JitLoopInfo* info);
+                          JitLoopInfo* info, bool is_pure);
 size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                            XmmCache* cache, JitLoopInfo* info, int const_slot,
                            int save_slot, bool iter_in_xmm, int step_sign,
-                           bool needs_helper, XmmCache* out_exit_cache);
+                           bool needs_helper, bool is_pure, XmmCache* out_exit_cache);
 bool loop_is_safe_to_emit(JITContext* ctx, JitLoopInfo* info);
 bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
-                              JitLoopInfo* info, int step_sign, void** out_fn);
+                              JitLoopInfo* info, int step_sign, bool is_pure, void** out_fn);
+bool x86_64_emit_loop_slow(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
+                           JitLoopInfo* info, int step_sign, void** out_fn);
 bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                                  JitLoopInfo* info, void** out_fn);
 bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,

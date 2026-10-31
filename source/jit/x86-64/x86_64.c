@@ -33,6 +33,12 @@ static bool backend_emit_loop(JITContext* ctx, CodeBuf* cb, JitLoopInfo* info,
     return x86_64_emit_loop(APEX_X86_64_ABI, ctx, cb, info, step_sign, out_fn);
 }
 
+// adapter: forwards to the abi-parameterised slow-loop emitter
+static bool backend_emit_loop_slow(JITContext* ctx, CodeBuf* cb, JitLoopInfo* info,
+                                   int step_sign, void** out_fn) {
+    return x86_64_emit_loop_slow(APEX_X86_64_ABI, ctx, cb, info, step_sign, out_fn);
+}
+
 // adapter: allocates executable memory through the active abi
 static void* backend_alloc_exec(size_t size) {
     return APEX_X86_64_ABI->os_alloc_exec(size);
@@ -50,11 +56,12 @@ static bool backend_make_exec(void* p, size_t size) {
 
 // x86-64 backend dispatch table
 const JitBackend jit_backend_x86_64 = {
-    .name = "x86-64",                             // human-readable identifier
-    .bytes_per_instruction = 256,                 // upper bound used for buffer sizing
-    .emit_function = backend_emit_function,       // pure-function emitter
-    .emit_loop = backend_emit_loop,               // numeric-loop emitter
-    .alloc_exec = backend_alloc_exec,             // os rw allocation (mmap / VirtualAlloc)
-    .free_exec = backend_free_exec,               // os release counterpart
-    .make_exec = backend_make_exec,               // rw -> rx transition
+    .name = "x86-64",
+    .bytes_per_instruction = 256,
+    .emit_function = backend_emit_function,
+    .emit_loop = backend_emit_loop,
+    .emit_loop_slow = backend_emit_loop_slow,
+    .alloc_exec = backend_alloc_exec,
+    .free_exec = backend_free_exec,
+    .make_exec = backend_make_exec,
 };

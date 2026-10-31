@@ -325,6 +325,14 @@ static inline void x86_emit_cvttsd2si_edx(CodeBuf* b, int xmm) {
     emit_u8(b, 0xC0 | (2 << 3) | (xmm & 7));                // modrm: reg=edx(010), rm=xmm
 }
 
+// mov r64, sign-extended imm32
+static inline void x86_emit_mov_r64_imm32(CodeBuf* b, int dst, uint64_t v) {
+    uint8_t rex = 0x48 | ((dst >= 8) ? 0x01 : 0);           // rex.w + rex.b
+    emit_u8(b, rex); emit_u8(b, 0xC7);
+    emit_u8(b, 0xC0 | (dst & 7));
+    emit_u32(b, (uint32_t)v);
+}
+
 // emits the shortest sequence that loads (double)imm into xmm<N>
 static inline void x86_emit_load_double_imm(CodeBuf* b, int xmm, int32_t imm) {
     if (imm >= 0 && imm <= 255) {

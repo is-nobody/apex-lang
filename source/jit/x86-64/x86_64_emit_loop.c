@@ -175,7 +175,7 @@ static void x86_cache_flush_back_edge(XmmCache* c, CodeBuf* cb,
 // dispatch one loop body instruction through the category handlers
 void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                           XmmCache* cache, int pc, int const_slot, int save_slot,
-                          JitLoopInfo* info) {
+                          JitLoopInfo* info, bool is_pure) {
     for (int i = 0; i < info->n_derived_caches; i++) {               // derived invariants?
         if (pc == info->derived_producer_pc[i]) return;              // producer handled by prologue
     }
@@ -185,6 +185,7 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     memset(&st, 0, sizeof(st));
     st.abi = abi;  st.ctx = ctx;  st.cb = cb;  st.cache = cache;
     st.info = info;  st.chunk = ctx->chunk;  st.pc = pc;
+    st.is_pure = is_pure;
     st.const_slot = const_slot;  st.save_slot = save_slot;
     st.inst = inst;
     st.d = inst->operands[0];                                        // destination operand
@@ -241,7 +242,7 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
 size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                            XmmCache* cache, JitLoopInfo* info, int const_slot,
                            int save_slot, bool iter_in_xmm, int step_sign,
-                           bool needs_helper, XmmCache* out_exit_cache) {
+                           bool needs_helper, bool is_pure, XmmCache* out_exit_cache) {
     BytecodeChunk* chunk = ctx->chunk;                               // bytecode being compiled
     int entry = info->entry_pc;                                      // first body pc
     int back_edge = info->back_edge_pc;                              // jump back to entry
@@ -313,7 +314,7 @@ size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     }
 
     for (int pc = entry + 1; pc < back_edge; pc++) {                 // body
-        emit_loop_body_instr(abi, ctx, cb, cache, pc, const_slot, save_slot, info);
+        emit_loop_body_instr(abi, ctx, cb, cache, pc, const_slot, save_slot, info, is_pure);
     }
 
     if (info->kind == JIT_LOOP_NUMERIC_FOR && info->for_var_gpr >= 0) {  // advance integer counter
@@ -363,7 +364,8 @@ bool loop_is_safe_to_emit(JITContext* ctx, JitLoopInfo* info) {
 
 // emits native code for a numeric loop (with optional table access)
 bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
-                               JitLoopInfo* info, int step_sign, void** out_fn) {
+                               JitLoopInfo* info, int step_sign, bool is_pure,
+                               void** out_fn) {
     int entry = info->entry_pc;                                      // first body pc
     int back_edge = info->back_edge_pc;                              // jump back to entry
     int nregs = info->nregs;                                         // function frame size
@@ -373,6 +375,23 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
     bool needs_helper = false;                                       // does the body call a runtime helper?
     for (int pc = entry + 1; pc < back_edge; pc++) {
         Instruction* inst = &ctx->chunk->code[pc];
+        // slow path: every arithmetic / comparison op is a helper call that clobbers the frame register
+        if (!is_pure) {
+            switch (inst->opcode) {
+                case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
+                case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:
+                case OP_DIV_IMM: case OP_MOD_IMM:
+                case OP_NEG: case OP_INC: case OP_DEC:
+                case OP_CMP_EQ: case OP_CMP_NEQ:
+                case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
+                case OP_CMP_LT: case OP_CMP_GT:
+                case OP_CMP_LTE: case OP_CMP_GTE:
+                    needs_helper = true;
+                    break;
+                default: break;
+            }
+            if (needs_helper) break;
+        }
         switch (inst->opcode) {
             case OP_TABLE_GET_KEY_STR:                               // fused string-key op: helper
             case OP_TABLE_SET_KEY_STR:
@@ -537,7 +556,7 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
     if (!loop_is_safe_to_emit(ctx, info)) return false;              // needs runtime checks we lack
 
     bool iter_in_xmm = false;                                        // can iterator stay in xmm15?
-    if (info->kind == JIT_LOOP_NUMERIC_FOR) {
+    if (is_pure && info->kind == JIT_LOOP_NUMERIC_FOR) {
         bool clobbers = false;                                       // any op clobber xmm15?
         for (int pc = entry + 1; pc < back_edge; pc++) {
             Opcode op = ctx->chunk->code[pc].opcode;
@@ -576,10 +595,13 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
     x86_cache_clear(&cache_start);                                   // start from empty cache
     bool converged = false;                                          // fixed point reached?
     bool flush_at_back_edge = false;                                 // fallback policy when fixpoint oscillates
-    for (int iter = 0; iter < 8; iter++) {                           // fixpoint loop
+    if (!is_pure) {
+        converged = true;                                            // no fixpoint needed for base path
+    }
+    for (int iter = 0; is_pure && iter < 8; iter++) {                // fixpoint loop
         XmmCache cache = cache_start;                                // scratch state per pass
         scratch.len = 0;                                             // reset scratch buffer
-        size_t patch = emit_loop_iteration(abi, ctx, &scratch, &cache, info, const_slot, save_slot, iter_in_xmm, step_sign, needs_helper, NULL);
+        size_t patch = emit_loop_iteration(abi, ctx, &scratch, &cache, info, const_slot, save_slot, iter_in_xmm, step_sign, needs_helper, is_pure, NULL);
         if (patch == (size_t)-1)
             JIT_FATAL("loop emit failed in fixpoint: pc=%d", entry);
         if (flush_at_back_edge) x86_cache_clear(&cache);             // simulate the spill before the back edge
@@ -692,7 +714,28 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
     int loop_top = (int)cb->len;                                     // loop start address
     XmmCache cache = cache_start;                                    // live cache state
     XmmCache exit_cache;                                              // cache state after the loop guard, before the body
-    size_t entry_patch = emit_loop_iteration(abi, ctx, cb, &cache, info, const_slot, save_slot, iter_in_xmm, step_sign, needs_helper, &exit_cache);
+
+    // slow path: control slots (var, end, step) may be non-numeric in the failure case
+    size_t slow_exit_patches[3];                                     // placeholder offsets, patched below
+    int    n_slow_exit_patches = 0;
+    if (!is_pure && info->kind == JIT_LOOP_NUMERIC_FOR) {
+        int control_slots[3] = { info->for_var_reg, info->for_end_reg, info->for_step_reg };
+        for (int ci = 0; ci < 3; ci++) {
+            int s = control_slots[ci];
+            if (s < 0 || s >= JIT_MAX_SLOTS)
+                JIT_FATAL("slow numeric-for: invalid control slot %d (pc=%d)", s, entry);
+            x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(s));   // rax = raw control value
+            x86_emit_movabs_r11(cb, X86_QNAN_MASK);                  // r11 = tag mask
+            x86_emit_mov_r64_r64(cb, X86_RDX, X86_RAX);              // rdx = raw value
+            emit_u8(cb, 0x4C); emit_u8(cb, 0x21); emit_u8(cb, 0xDA); // and rdx, r11
+            x86_emit_cmp_r64(cb, X86_RDX, X86_R11);                  // (v & QNAN) == QNAN?
+            emit_u8(cb, 0x0F); emit_u8(cb, 0x84);                    // je .exit
+            slow_exit_patches[n_slow_exit_patches++] = cb->len;
+            emit_i32(cb, 0);
+        }
+    }
+
+    size_t entry_patch = emit_loop_iteration(abi, ctx, cb, &cache, info, const_slot, save_slot, iter_in_xmm, step_sign, needs_helper, is_pure, &exit_cache);
     if (entry_patch == (size_t)-1)
         JIT_FATAL("loop emit failed (real pass): pc=%d", entry);
 
@@ -706,6 +749,10 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
     memcpy(cb->buf + back_patch, &back_rel, 4);                      // patch back edge
 
     size_t exit_stub = cb->len;                                     // branch target for the failed loop test
+    for (int i = 0; i < n_slow_exit_patches; i++) {                  // patch all control-slot bails
+        int32_t rel = (int32_t)exit_stub - (int32_t)(slow_exit_patches[i] + 4);
+        memcpy(cb->buf + slow_exit_patches[i], &rel, 4);
+    }
     x86_cache_flush(&exit_cache, cb);                                // spill values still cached at the guard
     int32_t exit_rel = (int32_t)exit_stub - (int32_t)(entry_patch + 4);
     memcpy(cb->buf + entry_patch, &exit_rel, 4);                     // patch exit jump to its own flush stub
@@ -852,7 +899,7 @@ bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
     x86_cache_put(&cache, xv, var_reg);                              // cache var_reg in xv
 
     for (int pc = entry + 1; pc < back_edge; pc++) {                 // emit body
-        emit_loop_body_instr(abi, ctx, cb, &cache, pc, const_slot, save_slot, info);
+        emit_loop_body_instr(abi, ctx, cb, &cache, pc, const_slot, save_slot, info, true);
     }
 
     x86_cache_flush(&cache, cb);                                     // spill dirty slots to frame
@@ -1201,7 +1248,7 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
             nfix++;
             emit_i32(cb, 0);
         } else {                                                     // non-jump body instruction
-            emit_loop_body_instr(abi, ctx, cb, &cache, pc, const_slot, save_slot, info);
+            emit_loop_body_instr(abi, ctx, cb, &cache, pc, const_slot, save_slot, info, true);
         }
     }
     label_off[back_edge - entry] = (int32_t)cb->len;                 // label for the back-edge pc
@@ -1290,5 +1337,13 @@ bool x86_64_emit_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     if (info->kind == JIT_LOOP_COND_ENTER) {                         // condition-entry loop
         return x86_64_emit_cond_enter_loop(abi, ctx, cb, info, out_fn);
     }
-    return x86_64_emit_numeric_loop(abi, ctx, cb, info, step_sign, out_fn);  // numeric or condition loop
+    return x86_64_emit_numeric_loop(abi, ctx, cb, info, step_sign, /*is_pure=*/true, out_fn);
+}
+
+// slow-path numeric-loop emitter (base arithmetic); used when the fast guard fails
+bool x86_64_emit_loop_slow(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
+                            JitLoopInfo* info, int step_sign, void** out_fn) {
+    if (info->kind != JIT_LOOP_NUMERIC_FOR && info->kind != JIT_LOOP_CONDITION)
+        return false;                                                // slow variant only for numeric loops
+    return x86_64_emit_numeric_loop(abi, ctx, cb, info, step_sign, /*is_pure=*/false, out_fn);
 }

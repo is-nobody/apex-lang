@@ -203,8 +203,10 @@ JITContext* jit_create(BytecodeChunk* chunk) {
 
     for (int i = 0; i < ctx->loop_count; i++) {                  // emit each loop body
         JitLoopInfo* info = &ctx->loops[i];
-        info->native_fn     = NULL;                              // clear before attempting
-        info->native_fn_neg = NULL;                              // clear before attempting
+        info->native_fn          = NULL;                         // clear before attempting
+        info->native_fn_neg      = NULL;                         // clear before attempting
+        info->native_fn_slow     = NULL;                         // clear slow-path entries too
+        info->native_fn_slow_neg = NULL;
 
         bool any = false;                                        // did any variant succeed?
 
@@ -270,6 +272,26 @@ JITContext* jit_create(BytecodeChunk* chunk) {
                     jit_disasm_dump(lbl, ctx->code + before, cb.len - before);
                 }
 #endif
+            }
+        }
+
+        // also emit the slow-path variant if the backend supports it
+        if (be->emit_loop_slow && info->kind != JIT_LOOP_TABLE_ITER) {
+            bool slow_want_pos = (info->kind != JIT_LOOP_NUMERIC_FOR) || info->step_sign >= 0;
+            bool slow_want_neg = info->kind == JIT_LOOP_NUMERIC_FOR && info->step_sign <= 0;
+            void* slow_pos = NULL;
+            void* slow_neg = NULL;
+            if (slow_want_pos && be->emit_loop_slow(ctx, &cb, info, +1, &slow_pos)) {
+                info->native_fn_slow = (void (*)(uint64_t*, uint64_t*))slow_pos;
+                if (jit_trace_enabled())
+                    fprintf(stderr, "[jit] loop #%d pc=%d slow variant compiled (step=%+d)\n",
+                            i, info->entry_pc, +1);
+            }
+            if (slow_want_neg && be->emit_loop_slow(ctx, &cb, info, -1, &slow_neg)) {
+                info->native_fn_slow_neg = (void (*)(uint64_t*, uint64_t*))slow_neg;
+                if (jit_trace_enabled())
+                    fprintf(stderr, "[jit] loop #%d pc=%d slow variant compiled (step=%+d)\n",
+                            i, info->entry_pc, -1);
             }
         }
 
@@ -414,9 +436,10 @@ static bool live_in_slot_ok(Value v, JitSlotKind kind, JitTableUse* use) {
 static bool numeric_control_slot_ok(JitLoopInfo* info, uint64_t* regs,
                                     int frame_size, int slot) {
     if (slot < 0 || slot >= frame_size) return false;
-    if (slot < 64 && (info->live_in & (1ULL << slot))) {
-        JitSlotKind kind = info->live_in_kind[slot];
-        if (kind == JIT_SLOT_NUM || kind == JIT_SLOT_NUM_PROVEN) return true;
+    // only a static proof lets us skip the runtime check
+    if (slot < 64 && (info->live_in & (1ULL << slot)) &&
+        info->live_in_kind[slot] == JIT_SLOT_NUM_PROVEN) {
+        return true;
     }
     return IS_NUMBER(regs[slot]);
 }
@@ -424,7 +447,7 @@ static bool numeric_control_slot_ok(JitLoopInfo* info, uint64_t* regs,
 // emits a trace-only note when a runtime guard selects the interpreter
 static void jit_trace_guard_reject(int pc, int slot, Value value) {
     if (!jit_trace_enabled()) return;
-    fprintf(stderr, "[jit] loop pc=%d entry guard rejected R%d (type=%s); using interpreter\n",
+    fprintf(stderr, "[jit] loop pc=%d entry guard rejected R%d (type=%s); using slow variant\n",
             pc, slot, vm_value_type_name(value));
 }
 
@@ -446,31 +469,43 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs,
     int li = ctx->pc_to_loop[pc];
     if (li < 0) return JIT_LOOP_NOT_APPLICABLE;                     // pc is not a loop entry
     JitLoopInfo* info = &ctx->loops[li];
-    if (!info->native_fn && !info->native_fn_neg) return JIT_LOOP_NOT_APPLICABLE;  // emit failed, no native code
-    if (info->uses_globals && !ctx->vm) return JIT_LOOP_NOT_APPLICABLE;            // globals need the vm base pointer
+    if (!info->native_fn && !info->native_fn_neg &&
+        !info->native_fn_slow && !info->native_fn_slow_neg)
+        return JIT_LOOP_NOT_APPLICABLE;                              // emit failed entirely
+    if (info->uses_globals && !ctx->vm) return JIT_LOOP_NOT_APPLICABLE;  // globals need the vm base pointer
 
-    // counter-indexed writes grow the array themselves; the table slot's
-    // live_in check would otherwise reject fresh / undersized arrays
+    // counter-indexed writes grow the array themselves
     bool counter_write =
         info->kind == JIT_LOOP_NUMERIC_FOR &&
         info->table.written && info->table.indexed_by_counter;
     int table_slot = info->table.used ? info->table.slot : -1;
 
-    uint64_t m = info->live_in;
-    while (m) {                                                     // validate every live-in slot
+    // control slots for a numeric-for are handled by the loop's own entry test
+    uint64_t control_mask = 0;
+    if (info->kind == JIT_LOOP_NUMERIC_FOR) {
+        if (info->for_var_reg  >= 0 && info->for_var_reg  < 64) control_mask |= 1ULL << info->for_var_reg;
+        if (info->for_end_reg  >= 0 && info->for_end_reg  < 64) control_mask |= 1ULL << info->for_end_reg;
+        if (info->for_step_reg >= 0 && info->for_step_reg < 64) control_mask |= 1ULL << info->for_step_reg;
+    }
+
+    bool fast_guard_ok = true;                                      // does every body live-in still pass?
+    uint64_t m = info->live_in & ~control_mask;
+    while (m) {                                                     // validate every body live-in slot
         int s = __builtin_ctzll(m);
         m &= m - 1;
-        if (s >= 64) return JIT_LOOP_NOT_APPLICABLE;                // slot beyond tracking range
-        if (s >= frame_size) return JIT_LOOP_NOT_APPLICABLE;        // slot beyond this frame
+        if (s >= 64) { fast_guard_ok = false; break; }              // slot beyond tracking range
+        if (s >= frame_size) { fast_guard_ok = false; break; }      // slot beyond this frame
         if (counter_write && s == table_slot) continue;             // handled explicitly below
         if (!live_in_slot_ok(regs[s], info->live_in_kind[s], &info->table)) {
-            jit_trace_guard_reject(pc, s, regs[s]);                  // trace only; fallback is expected
-            return JIT_LOOP_NOT_APPLICABLE;                         // wrong type or table shape
+            jit_trace_guard_reject(pc, s, regs[s]);                 // trace only; slow path handles it
+            fast_guard_ok = false;                                  // wrong type or table shape
+            break;
         }
     }
 
     // resolve which native entry to call: numeric-for picks by runtime step sign
     void (*chosen_fn)(uint64_t*, uint64_t*) = info->native_fn;
+    bool slow_selected = !fast_guard_ok;                            // fast guard failed → go slow
 
     if (info->kind == JIT_LOOP_NUMERIC_FOR) {
         if (info->for_var_reg < 0 || info->for_end_reg < 0 || info->for_step_reg < 0 ||
@@ -479,29 +514,36 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs,
             info->for_step_reg >= frame_size) {
             return JIT_LOOP_NOT_APPLICABLE;
         }
-        if (!numeric_control_slot_ok(info, regs, frame_size, info->for_var_reg)) {
-            jit_trace_guard_reject(pc, info->for_var_reg, regs[info->for_var_reg]);
-            return JIT_LOOP_NOT_APPLICABLE;
-        }
-        if (!numeric_control_slot_ok(info, regs, frame_size, info->for_end_reg)) {
-            jit_trace_guard_reject(pc, info->for_end_reg, regs[info->for_end_reg]);
-            return JIT_LOOP_NOT_APPLICABLE;
-        }
-        if (!numeric_control_slot_ok(info, regs, frame_size, info->for_step_reg)) {
-            jit_trace_guard_reject(pc, info->for_step_reg, regs[info->for_step_reg]);
-            return JIT_LOOP_NOT_APPLICABLE;
-        }
-        Value vv = regs[info->for_var_reg];
-        Value ve = regs[info->for_end_reg];
-        Value vs = regs[info->for_step_reg];
-        double step = AS_NUMBER(vs);
-        if (step == 0.0) return JIT_LOOP_NOT_APPLICABLE;            // interpreter exits immediately
+        // fast path: all three control slots must be numbers
+        bool fast_control_ok =
+            numeric_control_slot_ok(info, regs, frame_size, info->for_var_reg) &&
+            numeric_control_slot_ok(info, regs, frame_size, info->for_end_reg) &&
+            numeric_control_slot_ok(info, regs, frame_size, info->for_step_reg);
+        if (!fast_control_ok) slow_selected = true;                 // slow variant will exit
 
-        if (step > 0) chosen_fn = info->native_fn;                  // positive step entry
-        else          chosen_fn = info->native_fn_neg;              // negative step entry
+        Value vs = regs[info->for_step_reg];
+        // step sign is needed to pick the right variant even for the slow path
+        int step_sign = 0;
+        if (fast_control_ok) {
+            double step = AS_NUMBER(vs);
+            if (step == 0.0) return JIT_LOOP_NOT_APPLICABLE;        // interpreter exits immediately
+            step_sign = (step > 0) ? +1 : -1;
+        } else {
+            step_sign = (info->step_sign != 0) ? info->step_sign : +1;  // slow path re-checks
+        }
+
+        if (slow_selected) {
+            chosen_fn = (step_sign > 0) ? info->native_fn_slow : info->native_fn_slow_neg;
+        } else {
+            chosen_fn = (step_sign > 0) ? info->native_fn : info->native_fn_neg;
+        }
         if (!chosen_fn) return JIT_LOOP_NOT_APPLICABLE;             // variant not emitted
 
-        if (info->table.indexed_by_counter) {
+        if (!slow_selected && info->table.indexed_by_counter) {
+            Value vv = regs[info->for_var_reg];                     // counter value (start)
+            Value ve = regs[info->for_end_reg];                     // bound value (end)
+            Value vs = regs[info->for_step_reg];                    // step value
+            double step = AS_NUMBER(vs);
             if (step <= 0) return JIT_LOOP_NOT_APPLICABLE;          // array keys grow upward only
             double start = AS_NUMBER(vv);
             double end   = AS_NUMBER(ve);
@@ -528,6 +570,9 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs,
             }
         }
     }
+
+    if (slow_selected && info->kind != JIT_LOOP_NUMERIC_FOR)
+        return JIT_LOOP_NOT_APPLICABLE;                              // no slow variant for this kind
 
     if (info->kind == JIT_LOOP_TABLE_ITER) {
         if (info->table.slot < 0 || info->table.slot >= frame_size)

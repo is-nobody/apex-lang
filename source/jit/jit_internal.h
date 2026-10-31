@@ -113,6 +113,8 @@ typedef struct {
 
     void (*native_fn)(uint64_t*, uint64_t*);      // compiled entry for positive (or unknown) step
     void (*native_fn_neg)(uint64_t*, uint64_t*);  // compiled entry for negative step, NULL if not emitted
+    void (*native_fn_slow)(uint64_t*, uint64_t*); // slow-path entry (base arith), NULL if not emitted
+    void (*native_fn_slow_neg)(uint64_t*, uint64_t*); // slow-path entry for negative step
 } JitLoopInfo;
 
 // backend interface, declared before JITContext so the context can hold a pointer back to it
@@ -123,6 +125,8 @@ typedef struct JitBackend {
     bool (*emit_function)(JITContext* ctx, CodeBuf* cb, int func_idx, void** out_fn);  // emits native code for a pure function
     bool (*emit_loop)(JITContext* ctx, CodeBuf* cb, JitLoopInfo* info,
                       int step_sign, void** out_fn);                                    // emits native code for a numeric or table loop
+    bool (*emit_loop_slow)(JITContext* ctx, CodeBuf* cb, JitLoopInfo* info,
+                           int step_sign, void** out_fn);                               // optional slow-path loop emitter (NULL if unsupported)
 
     void* (*alloc_exec)(size_t size);          // os executable-memory allocation (mmap / VirtualAlloc)
     void  (*free_exec)(void* p, size_t size);  // release a region returned by alloc_exec

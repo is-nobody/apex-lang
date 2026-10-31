@@ -84,8 +84,45 @@ void x86_func_emit_cmp(X86FuncEmitState* st) {
     x86_cache_put(cache, xd, st->d);
 }
 
+// base-path emit for a loop body comparison
+static void loop_emit_cmp_base(X86LoopBodyState* st) {
+    CodeBuf* cb = st->cb;                                            // destination code buffer
+    x86_cache_flush(st->cache, cb);                                  // spill dirty slots before the call
+
+    uint64_t helper = 0;                                             // helper fn address
+    switch (st->op) {
+        case OP_CMP_EQ:  helper = (uint64_t)(uintptr_t)&jit_cmp_eq_base;  break;
+        case OP_CMP_NEQ: helper = (uint64_t)(uintptr_t)&jit_cmp_ne_base;  break;
+        case OP_CMP_LT:  helper = (uint64_t)(uintptr_t)&jit_cmp_lt_base;  break;
+        case OP_CMP_GT:  helper = (uint64_t)(uintptr_t)&jit_cmp_gt_base;  break;
+        case OP_CMP_LTE: helper = (uint64_t)(uintptr_t)&jit_cmp_lte_base; break;
+        case OP_CMP_GTE: helper = (uint64_t)(uintptr_t)&jit_cmp_gte_base; break;
+        case OP_CMP_EQ_NUM:  helper = (uint64_t)(uintptr_t)&jit_cmp_eq_base;  break;
+        case OP_CMP_NEQ_NUM: helper = (uint64_t)(uintptr_t)&jit_cmp_ne_base;  break;
+        default:
+            JIT_FATAL("loop base cmp: unexpected opcode %d (pc=%d)", st->op, st->pc);
+    }
+
+    x86_emit_store_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));  // save frame_reg
+#if defined(_WIN32) || defined(_WIN64)
+    x86_emit_load_r64_rbp(cb, X86_RCX, x86_slot_disp(st->a));
+    x86_emit_load_r64_rbp(cb, X86_RDX, x86_slot_disp(st->b));
+#else
+    x86_emit_load_r64_rbp(cb, X86_RDI, x86_slot_disp(st->a));
+    x86_emit_load_r64_rbp(cb, X86_RSI, x86_slot_disp(st->b));
+#endif
+    x86_emit_movabs_rax(cb, helper);
+    emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                            // call rax
+    x86_emit_load_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));
+    x86_emit_store_r64_rbp(cb, X86_RAX, x86_slot_disp(st->d));       // frame[d] = boxed bool
+}
+
 // loop body dispatch for the compare category
 void x86_loop_emit_cmp(X86LoopBodyState* st) {
+    if (!st->is_pure) {                                              // base path (checked comparison)
+        loop_emit_cmp_base(st);
+        return;
+    }
     CodeBuf* cb = st->cb;                                            // destination code buffer
     XmmCache* cache = st->cache;                                     // live register cache
     int xa = x86_cache_load(cache, cb, st->a);                       // load left operand

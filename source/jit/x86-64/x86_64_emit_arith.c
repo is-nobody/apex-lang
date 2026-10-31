@@ -480,8 +480,74 @@ static void loop_emit_incdec(X86LoopBodyState* st) {
     st->touched_nan_check = true;
 }
 
+// base-path emit for a loop body arithmetic instruction
+static void loop_emit_arith_base(X86LoopBodyState* st) {
+    CodeBuf* cb = st->cb;                                            // destination code buffer
+    x86_cache_flush(st->cache, cb);                                  // spill dirty slots before the call
+
+    uint64_t helper = 0;                                             // helper fn address
+    bool is_imm = false;                                             // immediate variant?
+    bool is_one_arg = false;                                         // NEG/INC/DEC
+    int32_t imm_val = 0;                                             // immediate operand value
+    int read_reg = st->a;                                            // register holding first operand
+
+    switch (st->op) {
+        case OP_ADD:     helper = (uint64_t)(uintptr_t)&jit_add_base; break;
+        case OP_SUB:     helper = (uint64_t)(uintptr_t)&jit_sub_base; break;
+        case OP_MUL:     helper = (uint64_t)(uintptr_t)&jit_mul_base; break;
+        case OP_DIV:     helper = (uint64_t)(uintptr_t)&jit_div_base; break;
+        case OP_MOD:     helper = (uint64_t)(uintptr_t)&jit_mod_base; break;
+        case OP_ADD_IMM: helper = (uint64_t)(uintptr_t)&jit_add_imm_base; is_imm = true; imm_val = st->b; break;
+        case OP_SUB_IMM: helper = (uint64_t)(uintptr_t)&jit_sub_imm_base; is_imm = true; imm_val = st->b; break;
+        case OP_MUL_IMM: helper = (uint64_t)(uintptr_t)&jit_mul_imm_base; is_imm = true; imm_val = st->b; break;
+        case OP_DIV_IMM: helper = (uint64_t)(uintptr_t)&jit_div_imm_base; is_imm = true; imm_val = st->b; break;
+        case OP_MOD_IMM: helper = (uint64_t)(uintptr_t)&jit_mod_imm_base; is_imm = true; imm_val = st->b; break;
+        case OP_NEG:     helper = (uint64_t)(uintptr_t)&jit_neg_base; is_one_arg = true; break;
+        case OP_INC:     helper = (uint64_t)(uintptr_t)&jit_inc_base; is_one_arg = true; read_reg = st->d; break;
+        case OP_DEC:     helper = (uint64_t)(uintptr_t)&jit_dec_base; is_one_arg = true; read_reg = st->d; break;
+        default:
+            JIT_FATAL("loop base arith: unexpected opcode %d (pc=%d)", st->op, st->pc);
+    }
+
+    x86_emit_store_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));  // save frame_reg
+
+    if (is_one_arg) {
+#if defined(_WIN32) || defined(_WIN64)
+        x86_emit_load_r64_rbp(cb, X86_RCX, x86_slot_disp(read_reg));
+#else
+        x86_emit_load_r64_rbp(cb, X86_RDI, x86_slot_disp(read_reg));
+#endif
+    } else if (is_imm) {
+#if defined(_WIN32) || defined(_WIN64)
+        x86_emit_load_r64_rbp(cb, X86_RCX, x86_slot_disp(read_reg));
+        x86_emit_mov_r64_imm32(cb, X86_RDX, (uint64_t)(int64_t)imm_val);
+#else
+        x86_emit_load_r64_rbp(cb, X86_RDI, x86_slot_disp(read_reg));
+        x86_emit_mov_r64_imm32(cb, X86_RSI, (uint64_t)(int64_t)imm_val);
+#endif
+    } else {
+#if defined(_WIN32) || defined(_WIN64)
+        x86_emit_load_r64_rbp(cb, X86_RCX, x86_slot_disp(st->a));
+        x86_emit_load_r64_rbp(cb, X86_RDX, x86_slot_disp(st->b));
+#else
+        x86_emit_load_r64_rbp(cb, X86_RDI, x86_slot_disp(st->a));
+        x86_emit_load_r64_rbp(cb, X86_RSI, x86_slot_disp(st->b));
+#endif
+    }
+
+    x86_emit_movabs_rax(cb, helper);                                 // rax = helper address
+    emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                            // call rax (result in rax)
+    x86_emit_load_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));  // restore frame_reg
+    x86_emit_store_r64_rbp(cb, X86_RAX, x86_slot_disp(st->d));       // frame[d] = raw result
+    st->touched_nan_check = false;                                   // base helpers already yield NONE for non-numerics
+}
+
 // loop body dispatch for the arithmetic category
 void x86_loop_emit_arith(X86LoopBodyState* st) {
+    if (!st->is_pure) {                                              // base path (checked arithmetic)
+        loop_emit_arith_base(st);
+        return;
+    }
     switch (st->op) {
         case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV:
             loop_emit_bin_arith(st); break;
