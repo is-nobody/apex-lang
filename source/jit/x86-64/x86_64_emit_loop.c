@@ -258,7 +258,7 @@ size_t emit_loop_iteration(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         if (xa < 0) JIT_FATAL("cache full: loop entry end slot=%d (pc=%d)", end_slot, entry);
         int xb = x86_cache_load_excl(cache, cb, step_slot, xa, -1);  // load preserved step, avoid xa
         if (xb < 0) JIT_FATAL("cache full: loop entry step slot=%d (pc=%d)", step_slot, entry);
-        int xc = x86_cache_alloc_for(cache, cb, var_reg, xa, xb);    // allocate reg, no load
+        int xc = x86_cache_dest_reg(cache, cb, var_reg, xa, xb);     // reuse var's existing home, no load
         if (xc < 0) JIT_FATAL("cache full: loop entry var_reg=%d (pc=%d)", var_reg, entry);
 
         if (!iter_in_xmm) {                                          // iterator lives in memory?
@@ -1289,9 +1289,6 @@ bool x86_64_emit_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     }
     if (info->kind == JIT_LOOP_COND_ENTER) {                         // condition-entry loop
         return x86_64_emit_cond_enter_loop(abi, ctx, cb, info, out_fn);
-    }
-    if (matches_int_accum_loop(abi, ctx, info)) {                    // int64-specializable loop
-        return x86_64_emit_int_loop(abi, ctx, cb, info, step_sign, out_fn);
     }
     return x86_64_emit_numeric_loop(abi, ctx, cb, info, step_sign, out_fn);  // numeric or condition loop
 }

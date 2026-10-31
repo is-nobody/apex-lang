@@ -541,27 +541,6 @@ void emit_nan_check(CodeBuf* cb, int xmm_d) {
     memcpy(cb->buf + patch_at, &rel, 4);
 }
 
-// returns true if an opcode can execute in int64 GPR mode without losing semantics
-bool op_is_int_safe(Opcode op) {
-    switch (op) {
-        case OP_MOVE:
-        case OP_LOAD_NUM_IMM:
-        case OP_ADD:  case OP_SUB:  case OP_MUL:
-        case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:
-        case OP_INC:  case OP_DEC:
-        case OP_JUMP:
-        case OP_JUMP_IF_EQ:  case OP_JUMP_IF_NEQ:
-        case OP_JUMP_IF_LT:  case OP_JUMP_IF_GT:
-        case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:
-        case OP_JUMP_IF_EQ_IMM:  case OP_JUMP_IF_NEQ_IMM:
-        case OP_JUMP_IF_LT_IMM:  case OP_JUMP_IF_GT_IMM:
-        case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
-            return true;
-        default:
-            return false;
-    }
-}
-
 // checks whether an opcode writes to its operands[0] destination
 bool op_writes_dest(Opcode op) {
     switch (op) {

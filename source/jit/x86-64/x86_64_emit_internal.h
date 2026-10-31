@@ -85,21 +85,8 @@ uint8_t jcc_for_entry_op(Opcode op);                                 // jcc opco
 bool slot_read_before_write(BytecodeChunk* chunk, int pc_after, int end, int s);
 bool slot_live_in_loop(BytecodeChunk* chunk, int entry, int back_edge, int pc, int s);
 void emit_nan_check(CodeBuf* cb, int xmm_d);                         // NaN -> NONE bits rewrite
-bool op_is_int_safe(Opcode op);                                      // can run in int64 GPR mode
 bool op_writes_dest(Opcode op);                                      // does the op write operands[0]?
 bool entry_op_is_imm(Opcode op);                                     // is this an imm-compare jump?
-
-// int-specialized function and loop emitters (defined in x86_64_emit_int.c)
-bool matches_int_self_recursive(JITContext* ctx, int func_idx);
-bool x86_64_emit_int_self_recursive(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
-                                    int func_idx, size_t* out_int_off);
-void emit_int_wrapper(CodeBuf* cb, size_t general_off, size_t int_off, int max_n, int arity,
-                      size_t* out_wrapper_off, const X86_64Abi* abi);
-int  assign_int_loop_gprs(JITContext* ctx, JitLoopInfo* info, int slot_gpr[JIT_MAX_SLOTS], int frame_reg);
-bool matches_int_accum_loop(const X86_64Abi* abi, JITContext* ctx, JitLoopInfo* info);
-void emit_int_loop_body(CodeBuf* cb, BytecodeChunk* chunk, int pc, const int* slot_gpr);
-bool x86_64_emit_int_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
-                          JitLoopInfo* info, int step_sign, void** out_fn);
 
 // per-function emit state, threaded through every category handler
 typedef struct X86FuncEmitState {

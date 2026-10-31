@@ -274,15 +274,6 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         }
     }
 
-    size_t int_off   = (size_t)-1;                                   // int-specialized body offset
-    int    int_max_n = 0;                                            // wrapper upper bound
-    if (matches_int_self_recursive(ctx, func_idx)) {                 // try int variant first
-        if (x86_64_emit_int_self_recursive(abi, ctx, cb, func_idx, &int_off))
-            int_max_n = 40;                                          // conservative: keeps results < 2^53
-        else
-            int_off = (size_t)-1;
-    }
-
     size_t mark = cb->len;                                           // rollback point
 
     XmmCache cache_local;                                            // register cache state
@@ -427,14 +418,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
 
     free(pred_count); free(needs_flush); free(use_snap); free(jump_snap);
 
-    if (int_off != (size_t)-1) {                                     // wrap with an int dispatcher
-        size_t wrapper_off = 0;
-        emit_int_wrapper(cb, mark, int_off, int_max_n,
-                         chunk->functions[func_idx].arity, &wrapper_off, abi);
-        *out_fn = (void*)(cb->buf + wrapper_off);                    // entry is the wrapper
-    } else {
-        *out_fn = (void*)(cb->buf + mark);                           // publish general entry
-    }
+    *out_fn = (void*)(cb->buf + mark);                               // publish general entry
     jit_bail_jmp = prev_bail;                                        // leave the TLS as we found it
     return true;
 }

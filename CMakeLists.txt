@@ -194,7 +194,6 @@ if(APEX_JIT_AVAILABLE)
         source/jit/x86-64/x86_64_emit_match.c
         source/jit/x86-64/x86_64_emit_call.c
         source/jit/x86-64/x86_64_emit_table.c
-        source/jit/x86-64/x86_64_emit_int.c
         source/jit/x86-64/x86_64_emit_loop.c
         source/jit/x86-64/x86_64.c
     )
