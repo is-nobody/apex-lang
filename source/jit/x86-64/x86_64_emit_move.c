@@ -156,6 +156,34 @@ void x86_loop_emit_move(X86LoopBodyState* st) {
             x86_cache_put(cache, x, st->d);
             break;
         }
+        case OP_LOAD_CONST: {                                        // scalar constant (num/bool/none/str)
+            int x = x86_cache_dest_reg(cache, cb, st->d, -1, -1);
+            if (x < 0) JIT_FATAL("cache full: LOAD_CONST dst=%d (pc=%d)", st->d, st->pc);
+            Constant* c = &chunk->constants[st->a];
+            uint64_t bits;
+            switch (c->type) {
+                case CONST_NUMBER: {
+                    double v = c->number_value;
+                    memcpy(&bits, &v, 8);
+                    break;
+                }
+                case CONST_BOOL:
+                    bits = X86_BOOL_BITS | (c->bool_value ? 1ULL : 0ULL);
+                    break;
+                case CONST_NONE:
+                    bits = X86_NONE_BITS;
+                    break;
+                case CONST_STRING:
+                    bits = MAKE_STRING((StringObject*)c->cached_str);
+                    break;
+                default:
+                    JIT_FATAL("LOAD_CONST unsupported type %d (pc=%d)", c->type, st->pc);
+            }
+            x86_emit_movabs_rax(cb, bits);
+            x86_emit_movq_xmm_rax(cb, x);
+            x86_cache_put(cache, x, st->d);
+            break;
+        }
         case OP_LOAD_GLOBAL: {                                       // read vm->globals[idx]
             int idx = st->a;                                         // global index
             int x = x86_cache_dest_reg(cache, cb, st->d, -1, -1);    // prefer d's existing home

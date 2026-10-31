@@ -539,34 +539,41 @@ JitLoopResult jit_try_native_loop(JITContext* ctx, int pc, uint64_t* regs,
         }
         if (!chosen_fn) return JIT_LOOP_NOT_APPLICABLE;             // variant not emitted
 
-        if (!slow_selected && info->table.indexed_by_counter) {
-            Value vv = regs[info->for_var_reg];                     // counter value (start)
-            Value ve = regs[info->for_end_reg];                     // bound value (end)
-            Value vs = regs[info->for_step_reg];                    // step value
-            double step = AS_NUMBER(vs);
-            if (step <= 0) return JIT_LOOP_NOT_APPLICABLE;          // array keys grow upward only
-            double start = AS_NUMBER(vv);
-            double end   = AS_NUMBER(ve);
-            if (start != (double)(long long)start) return JIT_LOOP_NOT_APPLICABLE;  // start must be integer
-            if (end   != (double)(long long)end)   return JIT_LOOP_NOT_APPLICABLE;  // end must be integer
-            if (start < 1) return JIT_LOOP_NOT_APPLICABLE;                          // keys are 1-based
-            if (start > end) return JIT_LOOP_NOT_APPLICABLE;                        // zero-iteration loop
-            if (end > 2147483647.0) return JIT_LOOP_NOT_APPLICABLE;                 // array index range
+        // the fast-path table store to info->table.slot's array_part is unconditionally emitted in BOTH variants
+        if (info->table.indexed_by_counter) {
+            bool controls_numeric =
+                info->for_var_reg  >= 0 && info->for_var_reg  < frame_size &&
+                info->for_end_reg  >= 0 && info->for_end_reg  < frame_size &&
+                info->for_step_reg >= 0 && info->for_step_reg < frame_size &&
+                IS_NUMBER(regs[info->for_var_reg]) &&
+                IS_NUMBER(regs[info->for_end_reg]) &&
+                IS_NUMBER(regs[info->for_step_reg]);
+            if (controls_numeric) {
+                Value vv = regs[info->for_var_reg];                 // counter value (start)
+                Value ve = regs[info->for_end_reg];                 // bound value (end)
+                Value vs = regs[info->for_step_reg];                // step value
+                double step = AS_NUMBER(vs);
+                if (step <= 0) return JIT_LOOP_NOT_APPLICABLE;      // array keys grow upward only
+                double start = AS_NUMBER(vv);
+                double end   = AS_NUMBER(ve);
+                if (start != (double)(long long)start) return JIT_LOOP_NOT_APPLICABLE;
+                if (end   != (double)(long long)end)   return JIT_LOOP_NOT_APPLICABLE;
+                if (start < 1) return JIT_LOOP_NOT_APPLICABLE;
+                if (start > end) return JIT_LOOP_NOT_APPLICABLE;    // zero-iteration loop
+                if (end > 2147483647.0) return JIT_LOOP_NOT_APPLICABLE;
 
-            if (info->table.slot < 0 || info->table.slot >= frame_size)
-                return JIT_LOOP_NOT_APPLICABLE;
-            Value tv = regs[info->table.slot];
-            if (!IS_TABLE(tv)) return JIT_LOOP_NOT_APPLICABLE;
-            Table* t = AS_TABLE(tv);
+                if (info->table.slot < 0 || info->table.slot >= frame_size)
+                    return JIT_LOOP_NOT_APPLICABLE;
+                Value tv = regs[info->table.slot];
+                if (!IS_TABLE(tv)) return JIT_LOOP_NOT_APPLICABLE;
+                Table* t = AS_TABLE(tv);
 
-            if (info->table.written) {
-                // grow + bump count up-front so the native loop can write directly
-                // into array_part without realloc and later reads see the entries
-                if (!counter_write_prepare(t, (int)end)) return JIT_LOOP_NOT_APPLICABLE;
-            } else {
-                // counter-indexed read: every read must land on a populated slot
-                if (t->array_part == NULL) return JIT_LOOP_NOT_APPLICABLE;
-                if (end > (double)t->array_count) return JIT_LOOP_NOT_APPLICABLE;
+                if (info->table.written) {
+                    if (!counter_write_prepare(t, (int)end)) return JIT_LOOP_NOT_APPLICABLE;
+                } else {
+                    if (t->array_part == NULL) return JIT_LOOP_NOT_APPLICABLE;
+                    if (end > (double)t->array_count) return JIT_LOOP_NOT_APPLICABLE;
+                }
             }
         }
     }

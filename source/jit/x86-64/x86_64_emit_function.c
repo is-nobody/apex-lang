@@ -39,6 +39,7 @@ static void x86_func_dispatch(X86FuncEmitState* st) {
         case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:           // immediate arithmetic
         case OP_DIV_IMM: case OP_MOD_IMM: case OP_MOD:               // mod ops
         case OP_NEG: case OP_INC: case OP_DEC:                       // unary / in-place
+        case OP_AND: case OP_OR:                                     // logical ops
             x86_func_emit_arith(st);
             break;
 

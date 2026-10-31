@@ -256,8 +256,69 @@ static void func_emit_arith_base(X86FuncEmitState* st) {
     x86_cache_put(cache, xd, st->d);                                 // xd now holds the result
 }
 
+// emits OP_AND/OP_OR: MAKE_BOOL((bool)a && (bool)b) / MAKE_BOOL((bool)a || (bool)b)
+static void func_emit_logical(X86FuncEmitState* st) {
+    CodeBuf* cb = st->cb;
+    XmmCache* cache = st->cache;
+    int xa = x86_cache_load(cache, cb, st->a);
+    if (xa < 0) JIT_FATAL("cache full: logical a=%d (func=%d pc=%d op=%d)",
+                          st->a, st->func_idx, st->pc, st->op);
+    int xb = x86_cache_load_excl(cache, cb, st->b, xa, -1);
+    if (xb < 0) JIT_FATAL("cache full: logical b=%d (func=%d pc=%d op=%d)",
+                          st->b, st->func_idx, st->pc, st->op);
+
+    x86_emit_movq_rax_xmm(cb, xa);                          // rax = raw bits of a
+    x86_emit_movq_gpr_xmm(cb, X86_R11, xb);                 // r11 = raw bits of b
+    emit_u8(cb, 0x83); emit_u8(cb, 0xE0); emit_u8(cb, 0x01);                // and eax, 1
+    emit_u8(cb, 0x41); emit_u8(cb, 0x83); emit_u8(cb, 0xE3); emit_u8(cb, 0x01); // and r11d, 1
+    if (st->op == OP_AND) {
+        emit_u8(cb, 0x44); emit_u8(cb, 0x21); emit_u8(cb, 0xD8);            // and eax, r11d
+    } else {
+        emit_u8(cb, 0x44); emit_u8(cb, 0x09); emit_u8(cb, 0xD8);            // or  eax, r11d
+    }
+    x86_emit_movabs_r11(cb, X86_BOOL_BITS);                 // r11 = QNAN|TAG_BOOL
+    emit_u8(cb, 0x4C); emit_u8(cb, 0x09); emit_u8(cb, 0xD8);                // or rax, r11
+
+    int xd = x86_cache_dest_reg(cache, cb, st->d, xa, xb);
+    if (xd < 0) JIT_FATAL("cache full: logical dst=%d (func=%d pc=%d op=%d)",
+                          st->d, st->func_idx, st->pc, st->op);
+    x86_emit_movq_xmm_rax(cb, xd);
+    x86_cache_put(cache, xd, st->d);
+}
+
+// loop-body counterpart of func_emit_logical
+static void loop_emit_logical(X86LoopBodyState* st) {
+    CodeBuf* cb = st->cb;
+    XmmCache* cache = st->cache;
+    int xa = x86_cache_load(cache, cb, st->a);
+    if (xa < 0) JIT_FATAL("cache full: logical a=%d (pc=%d op=%d)", st->a, st->pc, st->op);
+    int xb = x86_cache_load_excl(cache, cb, st->b, xa, -1);
+    if (xb < 0) JIT_FATAL("cache full: logical b=%d (pc=%d op=%d)", st->b, st->pc, st->op);
+
+    x86_emit_movq_rax_xmm(cb, xa);
+    x86_emit_movq_gpr_xmm(cb, X86_R11, xb);
+    emit_u8(cb, 0x83); emit_u8(cb, 0xE0); emit_u8(cb, 0x01);                // and eax, 1
+    emit_u8(cb, 0x41); emit_u8(cb, 0x83); emit_u8(cb, 0xE3); emit_u8(cb, 0x01); // and r11d, 1
+    if (st->op == OP_AND) {
+        emit_u8(cb, 0x44); emit_u8(cb, 0x21); emit_u8(cb, 0xD8);
+    } else {
+        emit_u8(cb, 0x44); emit_u8(cb, 0x09); emit_u8(cb, 0xD8);
+    }
+    x86_emit_movabs_r11(cb, X86_BOOL_BITS);
+    emit_u8(cb, 0x4C); emit_u8(cb, 0x09); emit_u8(cb, 0xD8);
+
+    int xd = x86_cache_dest_reg(cache, cb, st->d, xa, xb);
+    if (xd < 0) JIT_FATAL("cache full: logical dst=%d (pc=%d op=%d)", st->d, st->pc, st->op);
+    x86_emit_movq_xmm_rax(cb, xd);
+    x86_cache_put(cache, xd, st->d);
+}
+
 // function body dispatch for the arithmetic category
 void x86_func_emit_arith(X86FuncEmitState* st) {
+    if (st->op == OP_AND || st->op == OP_OR) {                       // bit-0 ops: no type check needed
+        func_emit_logical(st);
+        return;
+    }
     if (!st->is_pure) {                                              // non-strict-pure: checked base path
         func_emit_arith_base(st);
         return;
@@ -544,6 +605,10 @@ static void loop_emit_arith_base(X86LoopBodyState* st) {
 
 // loop body dispatch for the arithmetic category
 void x86_loop_emit_arith(X86LoopBodyState* st) {
+    if (st->op == OP_AND || st->op == OP_OR) {                       // bit-0 ops: no type check needed
+        loop_emit_logical(st);
+        return;
+    }
     if (!st->is_pure) {                                              // base path (checked arithmetic)
         loop_emit_arith_base(st);
         return;

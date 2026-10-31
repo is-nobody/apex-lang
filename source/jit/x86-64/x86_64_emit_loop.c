@@ -195,6 +195,7 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
 
     switch (st.op) {
         case OP_MOVE:                                                // reg-to-reg copy
+        case OP_LOAD_CONST:                                          // scalar constant
         case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:                      // numeric literals
         case OP_LOAD_BOOL: case OP_LOAD_NONE:                        // bool / none literals
         case OP_LOAD_GLOBAL: case OP_STORE_GLOBAL:                   // global access
@@ -205,6 +206,7 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
         case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:           // immediate arithmetic
         case OP_DIV_IMM: case OP_MOD_IMM: case OP_MOD:               // mod ops
         case OP_NEG: case OP_INC: case OP_DEC:                       // unary / in-place
+        case OP_AND: case OP_OR:                                     // logical ops
             x86_loop_emit_arith(&st);
             break;
 
@@ -216,6 +218,8 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             break;
 
         case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:              // direct calls
+        case OP_PUSH_ARG:                                            // vm helper calls
+        case OP_CALL_BUILTIN: case OP_ASYNC_CALL_BUILTIN:
             x86_loop_emit_call(&st);
             break;
 
@@ -398,6 +402,8 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
             case OP_TABLE_GET_CONST:                                 // const-key op: helper on slow path
             case OP_TABLE_SET_CONST:
             case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:          // user calls clobber frame_reg
+            case OP_PUSH_ARG:                                        // vm helper needs frame_reg spill
+            case OP_CALL_BUILTIN: case OP_ASYNC_CALL_BUILTIN:
                 needs_helper = true;
                 break;
             case OP_TABLE_GET: case OP_TABLE_SET:
@@ -1009,6 +1015,8 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
             case OP_TABLE_GET_KEY_STR:
             case OP_TABLE_SET_KEY_STR:
             case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:
+            case OP_PUSH_ARG:
+            case OP_CALL_BUILTIN: case OP_ASYNC_CALL_BUILTIN:
                 needs_helper = true;
                 break;
             case OP_TABLE_GET: case OP_TABLE_SET:

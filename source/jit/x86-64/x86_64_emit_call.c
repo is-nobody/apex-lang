@@ -223,14 +223,62 @@ void x86_loop_emit_call(X86LoopBodyState* st) {
     if (st->save_slot < 0)                                           // helper needs a spill slot
         JIT_FATAL("no save slot for CALL (pc=%d op=%d)", st->pc, st->op);
     CodeBuf* cb = st->cb;                                            // destination code buffer
-    x86_cache_flush(st->cache, cb);                                  // spill dirty slots to frame
+
+    // OP_PUSH_ARG — mirror func_emit_push_arg but spill/restore the loop frame
+    if (st->op == OP_PUSH_ARG) {
+        x86_cache_flush(st->cache, cb);
+        x86_emit_store_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));
+        x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&st->ctx->vm);
+        x86_emit_load_r64_base(cb, X86_RAX, X86_RAX, 0);             // rax = ctx->vm
+    #if defined(_WIN32) || defined(_WIN64)
+        x86_emit_mov_r64_r64(cb, X86_RCX, X86_RAX);
+        x86_emit_load_r64_rbp(cb, X86_RDX, x86_slot_disp(st->d));
+    #else
+        x86_emit_mov_r64_r64(cb, X86_RDI, X86_RAX);
+        x86_emit_load_r64_rbp(cb, X86_RSI, x86_slot_disp(st->d));
+    #endif
+        x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_push_arg_base);
+        emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);
+        x86_emit_load_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));
+        return;
+    }
+
+    // OP_CALL_BUILTIN / OP_ASYNC_CALL_BUILTIN — mirror func_emit_builtin_call
+    if (st->op == OP_CALL_BUILTIN || st->op == OP_ASYNC_CALL_BUILTIN) {
+        bool async = (st->op == OP_ASYNC_CALL_BUILTIN);
+        x86_cache_flush(st->cache, cb);
+        x86_emit_store_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));
+        x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&st->ctx->vm);
+        x86_emit_load_r64_base(cb, X86_RAX, X86_RAX, 0);             // rax = ctx->vm
+    #if defined(_WIN32) || defined(_WIN64)
+        x86_emit_mov_r64_r64(cb, X86_RCX, X86_RAX);
+        emit_u8(cb, 0xBA); emit_u32(cb, (uint32_t)st->a);            // edx = name_idx
+        emit_u8(cb, 0x41); emit_u8(cb, 0xB8); emit_u32(cb, (uint32_t)st->b);  // r8d = arg_count
+        x86_emit_lea_r64_base(cb, X86_R9, X86_RBP, x86_slot_disp(st->d));
+    #else
+        x86_emit_mov_r64_r64(cb, X86_RDI, X86_RAX);
+        emit_u8(cb, 0xBE); emit_u32(cb, (uint32_t)st->a);            // esi = name_idx
+        emit_u8(cb, 0xBA); emit_u32(cb, (uint32_t)st->b);            // edx = arg_count
+        x86_emit_lea_r64_base(cb, X86_RCX, X86_RBP, x86_slot_disp(st->d));
+    #endif
+        x86_emit_movabs_rax(cb, async
+            ? (uint64_t)(uintptr_t)&jit_async_call_builtin_store
+            : (uint64_t)(uintptr_t)&jit_call_builtin_store);
+        emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);
+        x86_emit_load_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));
+        x86_cache_clear(st->cache);
+        return;
+    }
+
+    // OP_CALL_0/1/2 — numeric args in xmm0/xmm1, result in xmm0
+    x86_cache_flush(st->cache, cb);
     if (st->op == OP_CALL_1 || st->op == OP_CALL_2)
-        x86_emit_movsd_load(cb, 0, x86_slot_disp(st->b));            // xmm0 = arg0
+        x86_emit_movsd_load(cb, 0, x86_slot_disp(st->b));
     if (st->op == OP_CALL_2)
-        x86_emit_movsd_load(cb, 1, x86_slot_disp(st->b + 1));        // xmm1 = arg1
-    x86_emit_store_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));  // save frame_reg
-    emit_call_func(cb, st->ctx, st->a);                              // indirect call through func_table
-    x86_emit_load_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));   // restore frame_reg
-    x86_cache_clear(st->cache);                                      // callee clobbered all xmm regs
-    x86_cache_put(st->cache, 0, st->d);                              // xmm0 holds the result
+        x86_emit_movsd_load(cb, 1, x86_slot_disp(st->b + 1));
+    x86_emit_store_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));
+    emit_call_func(cb, st->ctx, st->a);
+    x86_emit_load_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));
+    x86_cache_clear(st->cache);
+    x86_cache_put(st->cache, 0, st->d);
 }

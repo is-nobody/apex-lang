@@ -41,6 +41,7 @@ static bool is_pure_loop_instr(JITContext* ctx, int pc) {
         case OP_LOAD_NUM_IMM:                                // small int literal
         case OP_LOAD_BOOL:                                   // boolean literal
         case OP_LOAD_NONE:                                   // none literal
+        case OP_AND: case OP_OR:                             // logical ops (bool-producing)
         case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
         case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:   // arithmetic with immediate
         case OP_DIV_IMM: case OP_MOD_IMM:                    // arithmetic with immediate
@@ -88,6 +89,17 @@ static bool is_pure_loop_instr(JITContext* ctx, int pc) {
             return idx >= 0 && idx < chunk->const_count &&
                    chunk->constants[idx].type == CONST_NUMBER;
         }
+        case OP_LOAD_CONST: {                                // scalar constants (no tables)
+            int idx = inst->operands[1];
+            if (idx < 0 || idx >= chunk->const_count) return false;
+            ConstantType t = chunk->constants[idx].type;
+            return t == CONST_NUMBER || t == CONST_BOOL ||
+                   t == CONST_NONE   || t == CONST_STRING;
+        }
+        case OP_PUSH_ARG:                                    // vm args stack push
+        case OP_CALL_BUILTIN:                                // vm builtin dispatch
+        case OP_ASYNC_CALL_BUILTIN:
+            return true;
         default:
             return false;                                    // anything else: reject
     }
@@ -147,6 +159,7 @@ static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
             case OP_LOAD_NUM_IMM:                                // small int literals
             case OP_LOAD_BOOL:                                   // boolean literals
             case OP_LOAD_NONE:                                   // none literal
+            case OP_AND: case OP_OR:                             // logical ops
             case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
             case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:   // arithmetic with immediate
             case OP_DIV_IMM: case OP_MOD_IMM:                    // arithmetic with immediate
@@ -267,6 +280,7 @@ static bool infer_return_type(BytecodeChunk* chunk, int start, int end,
             case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:             // a bool
             case OP_CMP_LT: case OP_CMP_GT:
             case OP_CMP_LTE: case OP_CMP_GTE:
+            case OP_AND: case OP_OR:                             // logical ops produce bool
                 if (d < JIT_MAX_REGS_SCAN) {
                     is_bool[d] = true;  is_none[d] = false; is_num[d] = false;
                 }
@@ -464,6 +478,11 @@ static bool function_is_strictly_pure(JITContext* ctx, int func_idx) {
                 if (b < 0 || b >= JIT_MAX_SLOTS) return false;
                 if (types[a] != SP_NUM || types[b] != SP_NUM) return false;
                 break;
+            case OP_AND: case OP_OR:                       // bit-0 test, works on any type
+                if (a < 0 || a >= JIT_MAX_SLOTS) return false;
+                if (b < 0 || b >= JIT_MAX_SLOTS) return false;
+                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_BOOL;
+                break;
             case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:
             case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:
             case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:
@@ -538,7 +557,8 @@ static bool loop_prefix_op_writes_dest(Opcode op) {
         case OP_CMP_EQ: case OP_CMP_NEQ:
         case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
         case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
-        case OP_CONCAT: case OP_AND: case OP_OR:
+        case OP_AND: case OP_OR:
+        case OP_CONCAT:
         case OP_TABLE_GET: case OP_TABLE_GET_NUM: case OP_TABLE_GET_INT:
         case OP_TABLE_GET_KEY_STR: case OP_TABLE_GET_CONST:
         case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:
@@ -652,6 +672,7 @@ static bool infer_loop_entry_types(JITContext* ctx, int function_start,
             case OP_CMP_EQ: case OP_CMP_NEQ:
             case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
             case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
+            case OP_AND: case OP_OR:
                 if (d < 0 || d >= JIT_MAX_SLOTS) return false;
                 types[d] = SP_BOOL;
                 break;
@@ -684,7 +705,7 @@ static bool infer_loop_entry_types(JITContext* ctx, int function_start,
             }
 
             case OP_LOAD_GLOBAL: case OP_LOAD_TABLE: case OP_NEW_TABLE:
-            case OP_CONCAT: case OP_AND: case OP_OR:
+            case OP_CONCAT:
             case OP_TABLE_GET: case OP_TABLE_GET_NUM: case OP_TABLE_GET_INT:
             case OP_TABLE_GET_KEY_STR: case OP_TABLE_GET_CONST:
                 if (d < 0 || d >= JIT_MAX_SLOTS) return false;
@@ -755,6 +776,20 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info,
             case OP_DIV_IMM: case OP_MOD_IMM:                     // only a is a register
                 if (a >= 0 && a < 64) pc_reads  |= 1ULL << a;    // left operand (a)
                 if (d >= 0 && d < 64) pc_writes |= 1ULL << d;    // result (d)
+                break;
+            case OP_AND: case OP_OR:                              // logical ops read a,b
+                if (a >= 0 && a < 64) pc_reads  |= 1ULL << a;
+                if (b >= 0 && b < 64) pc_reads  |= 1ULL << b;
+                if (d >= 0 && d < 64) pc_writes |= 1ULL << d;
+                break;
+            case OP_LOAD_CONST:                                   // writes d only
+                if (d >= 0 && d < 64) pc_writes |= 1ULL << d;
+                break;
+            case OP_PUSH_ARG:                                     // reads d (source value)
+                if (d >= 0 && d < 64) pc_reads |= 1ULL << d;
+                break;
+            case OP_CALL_BUILTIN: case OP_ASYNC_CALL_BUILTIN:     // writes d (result)
+                if (d >= 0 && d < 64) pc_writes |= 1ULL << d;
                 break;
             case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:              // writes d only
             case OP_LOAD_BOOL: case OP_LOAD_NONE:                // writes d only
