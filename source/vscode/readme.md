@@ -42,7 +42,3 @@ Execute your current Apex file directly from VS Code:
    - Ensure the `apex` command is available in your system's PATH.
 2. Install this extension from the VS Code Marketplace or by installing the `.vsix` file.
 3. Open any file with the `.apex` extension.
-
-## Release Notes
-### 26.10 (October 31, 2026)
-- Initial Release of Apex language
