@@ -163,7 +163,7 @@ int menu_measure_panel(UiContext* ctx, UiMenuItem* items, int count, int* out_w)
 
 // stamps a right-pointing arrow for submenu rows
 void menu_draw_arrow_right(int cx, int cy, uint32_t c) {
-    for (int k = 0; k < 3; k++) {
+    for (int k = 0; k < 4; k++) {
         ui_painter_fill_rect(cx + k, cy - 3 + k, 1, 1, c);
         ui_painter_fill_rect(cx + k, cy + 3 - k, 1, 1, c);
     }
