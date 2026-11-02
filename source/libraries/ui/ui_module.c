@@ -101,26 +101,6 @@ static Value ctor_checkbox(VM* vm, int argc, Value* argv) {
     return MAKE_TABLE(t);
 }
 
-// builds a slider widget descriptor
-static Value ctor_slider(VM* vm, int argc, Value* argv) {
-    Table* t = table_create(8);
-    tset(vm, t, "__t", intern(vm, "slider"));
-    if (argc >= 1) tset(vm, t, "min", argv[0]);      // range minimum
-    if (argc >= 2) tset(vm, t, "max", argv[1]);      // range maximum
-    if (argc >= 3) tset(vm, t, "value", argv[2]);    // starting value
-    if (argc >= 4 && IS_TABLE(argv[3])) {        // merge options fields
-        Table* opts = AS_TABLE(argv[3]);
-        int nk; Value* keys = table_keys(opts, &nk);
-        for (int i = 0; i < nk; i++) {
-            Value vv;
-            if (table_get(opts, keys[i], &vv)) { table_set(t, keys[i], vv); value_decref(vv); }
-            value_decref(keys[i]);
-        }
-        free(keys);
-    }
-    return MAKE_TABLE(t);
-}
-
 // builds a single-line text input widget descriptor
 static Value ctor_input(VM* vm, int argc, Value* argv) {
     Table* t = table_create(8);
@@ -303,24 +283,6 @@ static Value ctor_tabs(VM* vm, int argc, Value* argv) {
     return MAKE_TABLE(t);                                        // caller owns the descriptor
 }
 
-// builds a progress bar widget descriptor
-static Value ctor_progress(VM* vm, int argc, Value* argv) {
-    Table* t = table_create(8);
-    tset(vm, t, "__t", intern(vm, "progress"));
-    if (argc >= 1) tset(vm, t, "value", argv[0]);    // current progress value
-    if (argc >= 2 && IS_TABLE(argv[1])) {        // merge options fields
-        Table* opts = AS_TABLE(argv[1]);
-        int nk; Value* keys = table_keys(opts, &nk);
-        for (int i = 0; i < nk; i++) {
-            Value vv;
-            if (table_get(opts, keys[i], &vv)) { table_set(t, keys[i], vv); value_decref(vv); }
-            value_decref(keys[i]);
-        }
-        free(keys);
-    }
-    return MAKE_TABLE(t);
-}
-
 // builds a statusbar widget descriptor
 Value ui_ctor_statusbar(VM* vm, int argc, Value* argv) {
     Table* t = table_create(8);
@@ -496,8 +458,6 @@ bool ui_call_builtin(VM* vm, const char* name, int argc, Value* argv, Value* res
 
     if (strcmp(name, "ui.button") == 0)   { *result = ctor_button(vm, argc, argv); return true; }               // push button
     if (strcmp(name, "ui.checkbox") == 0) { *result = ctor_checkbox(vm, argc, argv); return true; }             // boolean toggle
-    if (strcmp(name, "ui.slider") == 0)   { *result = ctor_slider(vm, argc, argv); return true; }               // numeric slider
-    if (strcmp(name, "ui.progress") == 0) { *result = ctor_progress(vm, argc, argv); return true; }             // progress bar
     if (strcmp(name, "ui.input") == 0){ *result = ctor_input(vm, argc, argv); return true; }                    // editable text field
     if (strcmp(name, "ui.number_input") == 0) { *result = ctor_number_input(vm, argc, argv); return true; }     // numeric input
     if (strcmp(name, "ui.text_area") == 0) { *result = ctor_text_area(vm, argc, argv); return true; }           // multi-line editor

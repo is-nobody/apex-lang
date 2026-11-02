@@ -301,30 +301,8 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     break;
                 }
 
-                if (dw && dw->kind == WK_SLIDER) {                // slider: track pointer value
-                    double range = dw->num_max - dw->num_min;
-                    int thumb_w = 16;
-                    int track_w = (int)dw->w - thumb_w;
-                    if (track_w < 1) track_w = 1;
-                    int local = e->x - (int)dw->x - thumb_w / 2;
-                    if (local < 0) local = 0;
-                    if (local > track_w) local = track_w;
-                    double t = (double)local / (double)track_w;
-                    double v = dw->num_min + t * range;
-
-                    dw->num_value = v;
-
-                    UiEvent cev; memset(&cev, 0, sizeof(cev));
-                    cev.kind = EV_CHANGE;
-                    cev.widget_id = dw->id;
-                    strncpy(cev.widget_type, "slider", 15);
-                    if (dw->key_str) strncpy(cev.key_name, dw->key_str, 63);
-                    cev.num_value = v;
-                    ui_event_push(ctx, &cev);
-
-                    ctx->redraw_needed = true;
-                } else if (dw && (dw->kind == WK_INPUT || dw->kind == WK_NUMBER_INPUT ||
-                                  dw->kind == WK_TEXT_AREA)) {         // input: extend selection
+                if (dw && (dw->kind == WK_INPUT || dw->kind == WK_NUMBER_INPUT ||
+                           dw->kind == WK_TEXT_AREA)) {         // input: extend selection
                     WidgetState* s = ui_state_get(ctx, dw->id);
                     if (s->sel_anchor < 0) s->sel_anchor = s->cursor;  // first drag: seed anchor
                     int offset_x = (dw->kind == WK_NUMBER_INPUT) ? 28 : 0;
@@ -731,28 +709,6 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                                 s->sel_anchor = off;
                             }
                             ctx->drag_widget_id = h->id;          // begin drag-selection
-                        }
-
-                        if (h->kind == WK_SLIDER && !h->disabled) {  // begin slider drag
-                            ctx->drag_widget_id = h->id;
-                            double range = h->num_max - h->num_min;
-                            int thumb_w = 16;
-                            int track_w = (int)h->w - thumb_w;
-                            if (track_w < 1) track_w = 1;
-                            int local = e->x - (int)h->x - thumb_w / 2;
-                            if (local < 0) local = 0;
-                            if (local > track_w) local = track_w;
-                            double t = (double)local / (double)track_w;
-                            double v = h->num_min + t * range;
-                            h->num_value = v;                     // jump to pointer position
-
-                            UiEvent cev; memset(&cev, 0, sizeof(cev));  // emit change on down
-                            cev.kind = EV_CHANGE;
-                            cev.widget_id = h->id;
-                            strncpy(cev.widget_type, "slider", 15);
-                            if (h->key_str) strncpy(cev.key_name, h->key_str, 63);
-                            cev.num_value = v;
-                            ui_event_push(ctx, &cev);
                         }
 
                         if (h->kind == WK_TABS) {                 // record which tab was pressed

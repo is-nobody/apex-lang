@@ -67,9 +67,7 @@ Value ui_event_to_table(VM* vm, const UiEvent* ev) {
     table_set(t, k, v); value_decref(k); value_decref(v);
 
     k = ui_intern(vm, "value");                              // "value" = event payload, type varies
-    if (strcmp(ev->widget_type, "slider")       == 0 ||
-        strcmp(ev->widget_type, "progress")     == 0 ||
-        strcmp(ev->widget_type, "number_input") == 0 ||
+    if (strcmp(ev->widget_type, "number_input") == 0 ||
         strcmp(ev->widget_type, "tab_move")     == 0 ||
         ev->kind == EV_SCROLL) {
         v = MAKE_NUMBER(ev->num_value);                   // numeric widget: value is a number

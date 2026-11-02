@@ -369,7 +369,7 @@ static const BuiltinSig BUILTINS[] = {
     {"datetime.format",         2, 2, TYPE_TABLE}, {"datetime.add",            3, 3, TYPE_TABLE},
     {"datetime.diff",           3, 3, TYPE_TABLE},
 
-    // lifecycle / window management
+// lifecycle / window management
     {"ui.init",             0, 1, TYPE_ANY},      {"ui.shutdown",         0, 0, TYPE_ANY},
     {"ui.set_title",        1, 1, TYPE_STRING},   {"ui.window_size",      0, 0, TYPE_ANY},
     {"ui.fullscreen",       0, 1, TYPE_ANY},
@@ -382,7 +382,7 @@ static const BuiltinSig BUILTINS[] = {
     // overlays / menus / chrome
     {"ui.dialog",           1, 1, TYPE_ANY},      {"ui.notification",     1, 1, TYPE_ANY},
     {"ui.menubar",          0, 1, TYPE_ANY},      {"ui.context_menu",     0, 3, TYPE_ANY},
-    {"ui.statusbar",        1, 1, TYPE_ANY},
+    {"ui.statusbar",        0, 1, TYPE_ANY},
     // layout containers
     {"ui.vbox",             1, 2, TYPE_ANY},      {"ui.hbox",             1, 2, TYPE_ANY},
     {"ui.panel",            1, 2, TYPE_ANY},      {"ui.scroll",           1, 2, TYPE_ANY},
@@ -390,16 +390,13 @@ static const BuiltinSig BUILTINS[] = {
     // static display widgets
     {"ui.text",             1, 2, TYPE_ANY},      {"ui.heading",          1, 2, TYPE_ANY},
     {"ui.badge",            1, 2, TYPE_ANY},      {"ui.separator",        0, 1, TYPE_ANY},
-    {"ui.progress",         1, 2, TYPE_ANY},
     // input / form controls
     {"ui.button",           1, 2, TYPE_ANY},      {"ui.checkbox",         2, 3, TYPE_ANY},
-    {"ui.switch",           2, 3, TYPE_ANY},      {"ui.radio",            3, 4, TYPE_ANY},
-    {"ui.slider",           3, 4, TYPE_ANY},      {"ui.input",            1, 2, TYPE_ANY},
-    {"ui.number_input",     1, 2, TYPE_ANY},      {"ui.text_area",        1, 2, TYPE_ANY},
-    {"ui.dropdown",         2, 3, TYPE_ANY},
+    {"ui.input",            1, 2, TYPE_ANY},      {"ui.number_input",     1, 2, TYPE_ANY},
+    {"ui.text_area",        1, 2, TYPE_ANY},      {"ui.dropdown",         2, 3, TYPE_ANY},
     // data views
     {"ui.table",            2, 3, TYPE_ANY},      {"ui.tree",             1, 2, TYPE_ANY},
-    {"ui.list",             1, 2, TYPE_ANY},      {"ui.tabs",             1, 2, TYPE_ANY},
+    {"ui.tabs",             1, 2, TYPE_ANY},
     // constants
     {"ui.key",              0, 0, TYPE_ANY},
 

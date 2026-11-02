@@ -233,14 +233,6 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
             w->meas_h = UI_CB_SIZE;                          // height driven by the box
             break;
         }
-        case WK_SLIDER: {                                    // fixed-size track
-            w->meas_w = 200; w->meas_h = 24;
-            break;
-        }
-        case WK_PROGRESS: {                                  // fixed-size bar
-            w->meas_w = 200; w->meas_h = 10;
-            break;
-        }
         case WK_TEXT_AREA: {                                 // multi-line editor
             int rows = w->text_area_rows > 0 ? w->text_area_rows : 6;
             w->meas_w = 300;                                 // fixed default width

@@ -25,7 +25,7 @@ typedef struct { char* ptr; int len; } Str;
 
 typedef enum {
     WK_TEXT, WK_HEADING, WK_BUTTON, WK_CHECKBOX,
-    WK_SLIDER, WK_PROGRESS, WK_INPUT, WK_BADGE, WK_DROPDOWN,
+    WK_INPUT, WK_BADGE, WK_DROPDOWN,
     WK_SEPARATOR, WK_SPACER, WK_TABLE, WK_TREE,
     WK_TABS, WK_VBOX, WK_HBOX, WK_PANEL, WK_SCROLL, WK_HSCROLL,
     WK_NUMBER_INPUT, WK_TEXT_AREA, WK_STATUSBAR, WK_STATUS_ITEM
@@ -106,7 +106,7 @@ struct Widget {
     bool   hovered, pressed, focused;    // per-frame interaction flags
     int    hover_row;                    // wk_tree: hovered row index, -1 = none
     bool   checked;                      // checkbox state
-    double num_value, num_min, num_max;  // slider / progress numeric state
+    double num_min, num_max;             // number_input bounds
 
     // wk_dropdown state
     Str*   drop_options;                // arena-owned array of option labels

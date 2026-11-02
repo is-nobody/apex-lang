@@ -73,8 +73,7 @@ uint32_t state_hash(uint64_t id) {
 
 // digest of every field that affects how a widget renders
 uint64_t ui_visual_hash(Widget* w) {
-    uint64_t nv_bits, sy_bits, ch_bits;
-    memcpy(&nv_bits, &w->num_value, sizeof(nv_bits));   // bit-exact, no aliasing UB
+    uint64_t sy_bits, ch_bits;
     memcpy(&sy_bits, &w->scroll_y,  sizeof(sy_bits));
     memcpy(&ch_bits, &w->content_h, sizeof(ch_bits));
 
@@ -96,7 +95,6 @@ uint64_t ui_visual_hash(Widget* w) {
     fp ^= (uint64_t)(uint32_t)w->tab_press_close << 24;
     fp ^= (uint64_t)(uint32_t)(w->tab_drag_idx + 1)   << 25;  // +1 so -1 doesn't collapse
     fp ^= (uint64_t)(uint32_t)(w->tab_drag_target + 1) << 27;
-    fp ^= nv_bits;
     fp ^= sy_bits;
     fp ^= ch_bits;
     fp ^= (uint64_t)(uintptr_t)w->input_value.ptr;
@@ -116,7 +114,6 @@ uint64_t ui_visual_hash(Widget* w) {
     h = hash_bytes64(h, &w->cursor,          sizeof(w->cursor));           // input caret position
     h = hash_bytes64(h, &w->sel_anchor,      sizeof(w->sel_anchor));       // input selection anchor
     h = hash_bytes64(h, &w->blink_on,        sizeof(w->blink_on));         // input caret blink
-    h = hash_bytes64(h, &w->num_value,       sizeof(w->num_value));        // slider/progress value
     h = hash_bytes64(h, &w->scroll_y,        sizeof(w->scroll_y));         // scroll offset
     h = hash_bytes64(h, &w->content_h,       sizeof(w->content_h));        // scroll content height
     h = hash_bytes64(h, &w->drop_open,      sizeof(w->drop_open));       // dropdown expanded

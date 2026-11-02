@@ -22,8 +22,6 @@ static WidgetKind kind_from_str_n(const char* s, int n) {
     if (STR_EQ(s,n,"heading"))   return WK_HEADING;
     if (STR_EQ(s,n,"button"))    return WK_BUTTON;
     if (STR_EQ(s,n,"checkbox"))  return WK_CHECKBOX;
-    if (STR_EQ(s,n,"slider"))    return WK_SLIDER;
-    if (STR_EQ(s,n,"progress"))  return WK_PROGRESS;
     if (STR_EQ(s,n,"input"))     return WK_INPUT;
     if (STR_EQ(s,n,"badge"))     return WK_BADGE;
     if (STR_EQ(s,n,"dropdown"))  return WK_DROPDOWN;
@@ -173,10 +171,6 @@ Widget* ui_build_tree(UiContext* ctx, Value descr, Widget* parent, int idx) {
                                                 UI_TOOLTIP_DELAY_DEFAULT);  // hover delay
 
     w->checked = table_get_bool_key(t, ctx->key_cache[UK_CHECKED], false);  // checkbox state
-
-    w->num_value = table_get_num_key(t, ctx->key_cache[UK_VALUE], 0);       // slider/progress value
-    w->num_min   = table_get_num_key(t, ctx->key_cache[UK_MIN], 0);         // slider/progress min
-    w->num_max   = table_get_num_key(t, ctx->key_cache[UK_MAX], 100);       // slider/progress max
 
     WidgetState* st = ui_state_get(ctx, w->id);             // pull persistent state
 

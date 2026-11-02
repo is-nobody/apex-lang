@@ -132,30 +132,6 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                              w->text.ptr, w->text.len, fs, UI_C_FG);  // label to the right of the box
                 break;
             }
-            case WK_PROGRESS: {
-                ui_painter_fill_round(x, y, ww, hh, hh/2, UI_C_DIS_BG);         // empty track
-                double v = w->num_value;                    // current value, expected 0..1
-                if (v < 0) v = 0;
-                if (v > 1) v = 1;
-                int fw = (int)(ww * v);                     // filled width in pixels
-                if (fw > 0) ui_painter_fill_round(x, y, fw, hh, hh/2, UI_C_ACCENT);
-                break;
-            }
-            case WK_SLIDER: {
-                int track_y = y + hh/2 - 2;                 // center the track vertically
-                ui_painter_fill_round(x, track_y, ww, 4, 2, UI_C_DIS_BG);       // track
-                double range = w->num_max - w->num_min;
-                double t = range > 0 ? (w->num_value - w->num_min) / range : 0;  // normalized value
-                if (t < 0) t = 0;
-                if (t > 1) t = 1;
-                int thumb_x = x + (int)(t * (ww - 16));     // thumb position along the track
-                uint32_t tc = w->pressed ? UI_C_ACCENT_A
-                            : w->hovered ? UI_C_ACCENT_H
-                            : UI_C_ACCENT;                  // thumb color state
-                ui_painter_fill_round(thumb_x, y + hh/2 - 8, 16, 16, 8, tc);    // round thumb
-                ui_painter_stroke_round(thumb_x, y + hh/2 - 8, 16, 16, 8, UI_C_BORDER_S);
-                break;
-            }
             case WK_INPUT: {
                 ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_INPUT_BG);  // input background
                 ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);  // outline
