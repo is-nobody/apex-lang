@@ -1,4 +1,4 @@
-# Apex Embedding in C/C++ (26.10)
+# Apex Embedding in C/C++ (26.11)
 This manual is minimalistic. Each section builds on the previous ones. For the best experience, follow the order.
 
 ## Table of Contents
