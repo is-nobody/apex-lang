@@ -114,7 +114,6 @@ const char* widget_kind_name(WidgetKind k) {
         case WK_BUTTON: return "button";
         case WK_CHECKBOX: return "checkbox";
         case WK_INPUT: return "input";
-        case WK_BADGE: return "badge";
         case WK_DROPDOWN: return "dropdown";
         case WK_TABLE: return "table";
         case WK_TREE:   return "tree";

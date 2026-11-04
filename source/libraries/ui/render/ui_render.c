@@ -99,15 +99,6 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 ui_draw_text_at(ctx, tx, base, w->text.ptr, w->text.len, fs, tc);
                 break;
             }
-            case WK_BADGE: {
-                ui_painter_fill_round(x, y, ww, hh, UI_RADIUS_SM, UI_C_ACCENT);  // pill background
-                float fs = UI_FS_SMALL;
-                float tw = ctx->font ? ui_text_measure_cached(ctx, w->text.ptr, w->text.len, fs) : 0;
-                float tx = x + (ww - tw) * 0.5f;            // center horizontally
-                float base = y + hh - 5;                    // baseline near the bottom
-                ui_draw_text_at(ctx, tx, base, w->text.ptr, w->text.len, fs, UI_C_ACCENT_T);
-                break;
-            }
             case WK_CHECKBOX: {
                 int sz = UI_CB_SIZE;                        // box side length
                 int bx = x, by = y + (hh - sz)/2;           // vertically centered box

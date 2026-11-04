@@ -226,11 +226,11 @@ export function activate(context: vscode.ExtensionContext): void {
                 'ui.hbox',          'ui.panel',
                 'ui.scroll',        'ui.hscroll',
                 'ui.spacer',        'ui.text',
-                'ui.heading',       'ui.badge',
+                'ui.heading',       'ui.dropdown',
                 'ui.separator',     'ui.table',
                 'ui.button',        'ui.checkbox',
                 'ui.input',         'ui.number_input',
-                'ui.text_area',     'ui.dropdown',
+                'ui.text_area',
 
                 'number', 'string', 'type'
             ];

@@ -389,7 +389,7 @@ static const BuiltinSig BUILTINS[] = {
     {"ui.hscroll",          1, 2, TYPE_ANY},      {"ui.spacer",           0, 2, TYPE_ANY},
     // static display widgets
     {"ui.text",             1, 2, TYPE_ANY},      {"ui.heading",          1, 2, TYPE_ANY},
-    {"ui.badge",            1, 2, TYPE_ANY},      {"ui.separator",        0, 1, TYPE_ANY},
+    {"ui.separator",        0, 1, TYPE_ANY},
     // input / form controls
     {"ui.button",           1, 2, TYPE_ANY},      {"ui.checkbox",         2, 3, TYPE_ANY},
     {"ui.input",            1, 2, TYPE_ANY},      {"ui.number_input",     1, 2, TYPE_ANY},

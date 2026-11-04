@@ -216,14 +216,10 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
             w->meas_h = lines * text_line_h(w->kind);        // lines times line height
             break;
         }
-        case WK_BUTTON: case WK_BADGE: {                     // single-line labelled widgets
-            float fs = (w->kind == WK_BADGE) ? UI_FS_SMALL : UI_FS_BODY;  // badges render smaller
+        case WK_BUTTON: {                                    // single-line labelled widget
+            float fs = UI_FS_BODY;
             float tw = ctx->font ? ui_text_measure_cached(ctx, w->text.ptr, w->text.len, fs) : w->text.len * 8.0f;
-            if (w->kind == WK_BUTTON) {
-                w->meas_w = tw + 24; w->meas_h = UI_BTN_H;   // buttons have fixed height and side padding
-            } else {
-                w->meas_w = tw + 12; w->meas_h = fs + 8;     // badges are compact pills
-            }
+            w->meas_w = tw + 24; w->meas_h = UI_BTN_H;       // fixed height and side padding
             break;
         }
         case WK_CHECKBOX: {                                  // box plus label
