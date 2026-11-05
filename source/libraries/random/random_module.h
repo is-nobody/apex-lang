@@ -1,0 +1,14 @@
+// source/libraries/random/random_module.h
+// Implementation of Random Module for Apex language
+// https://github.com/is-nobody/apex-lang
+// MIT license
+
+#ifndef RANDOM_MODULE_H
+#define RANDOM_MODULE_H
+
+#include "vm.h"
+
+// dispatcher for random module built-in functions
+bool random_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value* result);
+
+#endif

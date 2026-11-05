@@ -149,20 +149,20 @@ set(SOURCES
     source/compiler/opt_for_fold.c
     source/compiler/opt_recursion.c
 
-    source/libraries/os_module.c
-    source/libraries/sys_module.c
-    source/libraries/math_module.c
-    source/libraries/string_module.c
-    source/libraries/table_module.c
-    source/libraries/random_module.c
-    source/libraries/json_module.c
-    source/libraries/xml_module.c
-    source/libraries/csv_module.c
-    source/libraries/base_module.c
-    source/libraries/regex_module.c
-    source/libraries/crypto_module.c
-    source/libraries/zip_module.c
-    source/libraries/datetime_module.c
+    source/libraries/os/os_module.c
+    source/libraries/sys/sys_module.c
+    source/libraries/math/math_module.c
+    source/libraries/string/string_module.c
+    source/libraries/table/table_module.c
+    source/libraries/random/random_module.c
+    source/libraries/json/json_module.c
+    source/libraries/xml/xml_module.c
+    source/libraries/csv/csv_module.c
+    source/libraries/base/base_module.c
+    source/libraries/regex/regex_module.c
+    source/libraries/crypto/crypto_module.c
+    source/libraries/zip/zip_module.c
+    source/libraries/datetime/datetime_module.c
 
     source/utils/execute.c
     source/utils/error.c
@@ -219,6 +219,20 @@ target_include_directories(apex PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/source/core
     ${CMAKE_CURRENT_SOURCE_DIR}/source/compiler
     ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/os
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/sys
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/math
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/string
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/table
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/random
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/json
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/xml
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/csv
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/base
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/regex
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/crypto
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/zip
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/datetime
     ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui
     ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui/common
     ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui/core
