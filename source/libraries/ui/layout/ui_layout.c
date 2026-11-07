@@ -410,56 +410,44 @@ static void arrange(UiContext* ctx, Widget* w, float x, float y, float width, fl
 
     int n = w->child_count;
 
-    int nvis = 0; float fixed = 0, tw = 0;               // visible count, fixed size, total weight
+    int nvis = 0;                                        // visible child count
+    float total = 0, fixed = 0, tw = 0;                  // content total, non-flex size, total weight
     for (int i = 0; i < n; i++) {
         Widget* c = w->children[i];
         if (!c->visible) continue;                       // skip invisible children
         nvis++;
-        if (vert) fixed += c->meas_h; else fixed += c->meas_w;  // accumulate along main axis
-        tw += c->weight;                                 // accumulate flex weight
+        float cs = vert ? c->meas_h : c->meas_w;         // this child's size along the main axis
+        total += cs;                                     // accumulate for the scroll extent
+        bool has_fixed = vert ? (c->req_h >= 0) : (c->req_w >= 0);  // explicit size on the main axis
+        if (c->weight > 0 && !has_fixed) tw += c->weight;  // flexible: absorbs the free space
+        else                             fixed += cs;    // rigid: takes its measured size
     }
     float gaps = nvis > 1 ? w->gap * (nvis - 1) : 0;     // total gap space
     float main_size = vert ? ih : iw;                    // main axis size
-    float free_main = main_size - fixed - gaps;          // space left to distribute
+    float free_main = main_size - fixed - gaps;          // space left for flexible children
+    if (free_main < 0) free_main = 0;                    // rigid children overflow: clamp to 0
 
     if (w->kind == WK_SCROLL) {
-        w->content_h = fixed + gaps + pad*2;             // scroll extent = content plus padding
+        w->content_h = total + gaps + pad*2;             // scroll extent = content plus padding
     }
 
     if (free_main > 0 && tw > 0) {                       // distribute leftover to weighted children
-        // integer accumulation (Bresenham-style)
+        // integer accumulation
         int free_int = (int)floorf(free_main + 0.5f);
         int given = 0;
         float accum = 0.0f;
         for (int i = 0; i < n; i++) {
             Widget* c = w->children[i];
-            if (!c->visible) continue;
+            if (!c->visible || c->weight <= 0) continue;
+            bool has_fixed = vert ? (c->req_h >= 0) : (c->req_w >= 0);
+            if (has_fixed) continue;                     // rigid: skip
             accum += free_int * (c->weight / tw);
             int upto = (int)floorf(accum + 0.5f);
             int share = upto - given;
-            if (vert) c->meas_h += share; else c->meas_w += share;
+            if (vert) c->meas_h = (float)share; else c->meas_w = (float)share;  // assigned, not added
             given = upto;
         }
         free_main = 0;                                   // consumed all free space
-    } else if (free_main < 0 && tw > 0) {
-        int deficit_int = (int)floorf(-free_main + 0.5f);
-        int taken = 0;
-        float accum = 0.0f;
-        for (int i = 0; i < n; i++) {
-            Widget* c = w->children[i];
-            if (!c->visible || c->weight <= 0) continue;
-            accum += deficit_int * (c->weight / tw);
-            int upto = (int)floorf(accum + 0.5f);
-            int share = upto - taken;
-            if (vert) {
-                c->meas_h -= share;
-                if (c->meas_h < 1.f) c->meas_h = 1.f;
-            } else {
-                c->meas_w -= share;
-                if (c->meas_w < 1.f) c->meas_w = 1.f;
-            }
-            taken = upto;
-        }
     }
 
     float lead = 0, between = w->gap;                    // leading offset and inter-child gap
