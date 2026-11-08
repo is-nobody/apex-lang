@@ -471,18 +471,22 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                 ui_painter_fill_rect(x, y, ww, 1, UI_C_BORDER);  // 1px horizontal rule
                 break;
             case WK_PANEL: {
-                ui_painter_fill_rect(x, y, ww, hh, UI_C_DOCK_BG);
-                ui_painter_stroke_rect(x, y, ww, hh, UI_C_BORDER);
-                
+                // rounded body: all four corners, same radius as WK_BUTTON
+                ui_painter_fill_round(x, y, ww, hh, UI_RADIUS, UI_C_DOCK_BG);
+
                 if (w->text.len > 0) {
                     // header background (highlight on hover)
                     int local_y = ctx->input.y - y;
                     bool header_hover = w->hovered && (local_y >= 0 && local_y < UI_DOCK_HEADER_H);
                     uint32_t hbg = header_hover ? UI_C_DOCK_HOV : UI_C_DOCK_HEADER;
-                    
-                    ui_painter_fill_rect(x, y, ww, UI_DOCK_HEADER_H, hbg);
+
+                    // round only the top two corners of the header
+                    ui_painter_push_clip(x, y, ww, UI_DOCK_HEADER_H);
+                    ui_painter_fill_round(x, y, ww, UI_DOCK_HEADER_H + UI_RADIUS, UI_RADIUS, hbg);
+                    ui_painter_pop_clip();
+
                     ui_painter_fill_rect(x, y + UI_DOCK_HEADER_H - 1, ww, 1, UI_C_BORDER);
-                    
+
                     // title text (small caps style)
                     char upper_buf[128];
                     int upper_len = w->text.len < 127 ? w->text.len : 127;
@@ -492,16 +496,19 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
                         upper_buf[i] = c;
                     }
                     upper_buf[upper_len] = 0;
-                    
+
                     float base = y + (UI_DOCK_HEADER_H + UI_FS_SMALL * 0.7f) * 0.5f;
                     ui_draw_text_at(ctx, (float)x + 12, base, upper_buf, upper_len, UI_FS_SMALL, UI_C_FG);
-                    
+
                     // close button (X)
                     int cx = x + ww - 18;
                     int cy = y + UI_DOCK_HEADER_H / 2 - 4;
                     uint32_t col = header_hover ? UI_C_FG : UI_C_FG_DIM;
                     blit_close_x_shared(cx, cy, col);
                 }
+
+                // border drawn last so it sits on top of both the header arc and the body arc
+                ui_painter_stroke_round(x, y, ww, hh, UI_RADIUS, UI_C_BORDER);
                 break;
             }
             case WK_SPACER:
