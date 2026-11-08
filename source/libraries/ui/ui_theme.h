@@ -29,12 +29,12 @@
 
 #define UI_C_BORDER     0xFF3C3C3Cu    // default border
 #define UI_C_BORDER_S   0xFF454545u    // strong border
-#define UI_C_FOCUS      0xFF6E6E6Eu    // keyboard focus ring
+#define UI_C_FOCUS      0xFF4A4A4Au    // keyboard focus ring
 
 #define UI_C_DIS_BG     0xFF2A2D2Eu    // disabled background
 #define UI_C_DIS_FG     0xFF6E6E6Eu    // disabled foreground
 #define UI_C_INPUT_BG   0xFF252526u    // input field background
-#define UI_C_SEL_BG     0xFF3E3E42u    // text selection background
+#define UI_C_SEL_BG     0xFF454545u    // text selection background
 
 #define UI_C_SCROLL_T   0x00000000u    // scrollbar track (transparent)
 #define UI_C_SCROLL_H   0x66797979u    // scrollbar thumb

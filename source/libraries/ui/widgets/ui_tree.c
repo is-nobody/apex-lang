@@ -177,13 +177,14 @@ void tree_render(UiContext* ctx, Widget* w, int x, int y, int ww, int hh) {
         TreeNode* n = &w->tree_nodes[i];
         int ry = inner_y + i * UI_TREE_ROW_H;
         for (int d = 0; d < n->depth; d++) {                         // one guide per ancestor depth
-            int gx = inner_x + UI_TREE_INNER_PAD + d * w->tree_indent + 4;  // align with chevron center
+            int gx = inner_x + UI_TREE_INNER_PAD + d * w->tree_indent + 4;  // align with chevron center (old place)
             int gy = ry;
             int gh = UI_TREE_ROW_H;
             // first child of a parent: extend the guide up to reach the parent's disclosure
             if (i > 0 && w->tree_nodes[i-1].depth <= d) {
-                gy -= UI_TREE_ROW_H / 2;
-                gh += UI_TREE_ROW_H / 2;
+                int gap = 10;
+                gy -= (UI_TREE_ROW_H / 2 - gap);
+                gh += (UI_TREE_ROW_H / 2 - gap);
             }
             ui_painter_fill_rect(gx, gy, 1, gh, UI_C_TREE_GUIDE);    // 1px vertical guide
         }
@@ -220,7 +221,8 @@ void tree_render(UiContext* ctx, Widget* w, int x, int y, int ww, int hh) {
                                  n->expanded, UI_C_TREE_CHEVRON);
 
         // label starting right of the disclosure slot
-        float lx   = (float)(indent_x + UI_TREE_DISC_W);
+        int text_offset = UI_TREE_DISC_W + (n->has_children ? (UI_TREE_DISC_W - 4) : 0);
+        float lx   = (float)(indent_x + text_offset);
         float base = ry + (UI_TREE_ROW_H + UI_FS_BODY * 0.7f) * 0.5f;
         
         if (n->label.ptr && n->label.len > 0 && ctx->font) {
