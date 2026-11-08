@@ -385,7 +385,7 @@ static const BuiltinSig BUILTINS[] = {
     {"ui.statusbar",        0, 1, TYPE_ANY},
     // layout containers
     {"ui.vbox",             1, 2, TYPE_ANY},      {"ui.hbox",             1, 2, TYPE_ANY},
-    {"ui.panel",            1, 2, TYPE_ANY},      {"ui.scroll",           1, 2, TYPE_ANY},
+    {"ui.panel",            1, 2, TYPE_ANY},      {"ui.vscroll",          1, 2, TYPE_ANY},
     {"ui.hscroll",          1, 2, TYPE_ANY},      {"ui.spacer",           0, 2, TYPE_ANY},
     // static display widgets
     {"ui.text",             1, 2, TYPE_ANY},      {"ui.heading",          1, 2, TYPE_ANY},

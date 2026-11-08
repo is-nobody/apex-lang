@@ -32,7 +32,7 @@ static WidgetKind kind_from_str_n(const char* s, int n) {
     if (STR_EQ(s,n,"vbox"))      return WK_VBOX;
     if (STR_EQ(s,n,"hbox"))      return WK_HBOX;
     if (STR_EQ(s,n,"panel"))     return WK_PANEL;
-    if (STR_EQ(s,n,"scroll"))    return WK_SCROLL;
+    if (STR_EQ(s,n,"vscroll"))   return WK_VSCROLL;
     if (STR_EQ(s,n,"hscroll"))   return WK_HSCROLL;
     if (STR_EQ(s,n,"number_input")) return WK_NUMBER_INPUT;
     if (STR_EQ(s,n,"text_area"))    return WK_TEXT_AREA;

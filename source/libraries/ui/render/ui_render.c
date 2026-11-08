@@ -64,7 +64,7 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
 
     // a scroll always clips its children to its viewport
     bool clip_pushed = false;
-    if (w->kind == WK_SCROLL && ww > 0 && hh > 0) {
+    if (w->kind == WK_VSCROLL && ww > 0 && hh > 0) {
         int has_sb = w->content_h > (float)hh;
         int content_w = has_sb ? ww - UI_SCROLL_W : ww;
         if (content_w < 1) content_w = 1;
@@ -513,7 +513,7 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
             }
             case WK_SPACER:
                 break;                                      // spacers draw nothing
-            case WK_SCROLL:
+            case WK_VSCROLL:
                 break;                                      // clip already pushed above
             case WK_HSCROLL:
             case WK_VBOX:
@@ -532,7 +532,7 @@ static void draw_widget(UiContext* ctx, Widget* w, const DamageRect* d) {
 
     if (clip_pushed) ui_painter_pop_clip();                 // restore the clip after scroll children
 
-    if (draw_self && w->kind == WK_SCROLL) {
+    if (draw_self && w->kind == WK_VSCROLL) {
         if (w->content_h > (float)hh) {                     // scrollbar drawn last, above children
             int sb_x = x + ww - UI_SCROLL_W;
             ui_painter_fill_rect(sb_x, y, UI_SCROLL_W, hh, UI_C_SCROLL_T);   // track

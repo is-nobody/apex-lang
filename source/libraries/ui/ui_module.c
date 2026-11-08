@@ -466,11 +466,11 @@ bool ui_call_builtin(VM* vm, const char* name, int argc, Value* argv, Value* res
     if (strcmp(name, "ui.tabs") == 0)     { *result = ctor_tabs(vm, argc, argv); return true; }                 // tab strip
     if (strcmp(name, "ui.spacer") == 0)   { *result = ctor_spacer(vm, argc, argv); return true; }               // flexible gap
 
-    if (strcmp(name, "ui.vbox") == 0)   { *result = ui_ctor_container(vm, argc, argv, "vbox"); return true; }    // vertical stack
-    if (strcmp(name, "ui.hbox") == 0)   { *result = ui_ctor_container(vm, argc, argv, "hbox"); return true; }    // horizontal row
-    if (strcmp(name, "ui.panel") == 0)  { *result = ui_ctor_container(vm, argc, argv, "panel"); return true; }   // framed panel
-    if (strcmp(name, "ui.scroll") == 0) { *result = ui_ctor_container(vm, argc, argv, "scroll"); return true; }  // vertical scroller
-    if (strcmp(name, "ui.hscroll") == 0){ *result = ui_ctor_container(vm, argc, argv, "hscroll"); return true; } // horizontal scroller
+    if (strcmp(name, "ui.vbox") == 0)    { *result = ui_ctor_container(vm, argc, argv, "vbox");    return true; }  // vertical stack
+    if (strcmp(name, "ui.hbox") == 0)    { *result = ui_ctor_container(vm, argc, argv, "hbox");    return true; }  // horizontal row
+    if (strcmp(name, "ui.panel") == 0)   { *result = ui_ctor_container(vm, argc, argv, "panel");   return true; }  // framed panel
+    if (strcmp(name, "ui.vscroll") == 0) { *result = ui_ctor_container(vm, argc, argv, "vscroll"); return true; }  // vertical scroller
+    if (strcmp(name, "ui.hscroll") == 0) { *result = ui_ctor_container(vm, argc, argv, "hscroll"); return true; }  // horizontal scroller
 
     return false;                                // not a ui builtin, let other modules try
 }

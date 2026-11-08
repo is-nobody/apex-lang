@@ -205,7 +205,7 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                 }
 
                 if (sc) {
-                    if (sc->kind == WK_SCROLL) {
+                    if (sc->kind == WK_VSCROLL) {
                         int hh = (int)floorf(sc->h + 0.5f);
                         double maxs = sc->content_h - hh;
                         if (maxs > 0) {
@@ -458,7 +458,7 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     int ww = (int)floorf(w->w + 0.5f);
                     int hh = (int)floorf(w->h + 0.5f);
 
-                    if (w->kind == WK_SCROLL && w->content_h > (float)hh) {
+                    if (w->kind == WK_VSCROLL && w->content_h > (float)hh) {
                         int sb_x = wx + ww - UI_SCROLL_W;
                         double maxs = w->content_h - hh;
                         double t = maxs > 0 ? w->scroll_y / maxs : 0;
@@ -859,9 +859,9 @@ void handle_win_event(UiContext* ctx, const UiWinEvent* e) {
                     break;
                 }
                 Widget* sc = h;
-                while (sc && sc->kind != WK_SCROLL && sc->kind != WK_HSCROLL)
+                while (sc && sc->kind != WK_VSCROLL && sc->kind != WK_HSCROLL)
                     sc = sc->parent;                              // find enclosing scroll container
-                if (sc && sc->kind == WK_SCROLL) {                // vertical scroll container
+                if (sc && sc->kind == WK_VSCROLL) {                // vertical scroll container
                     WidgetState* s = ui_state_get(ctx, sc->id);
                     s->scroll_target += e->scroll_dy * 40.0;      // push the target, not scroll_y
                     double max = sc->content_h - sc->h;           // max scrollable offset

@@ -224,7 +224,7 @@ export function activate(context: vscode.ExtensionContext): void {
                 'ui.menubar',       'ui.context_menu',
                 'ui.statusbar',     'ui.vbox',
                 'ui.hbox',          'ui.panel',
-                'ui.scroll',        'ui.hscroll',
+                'ui.vscroll',       'ui.hscroll',
                 'ui.spacer',        'ui.text',
                 'ui.heading',       'ui.dropdown',
                 'ui.separator',     'ui.table',

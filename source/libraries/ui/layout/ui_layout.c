@@ -326,7 +326,7 @@ static void measure(UiContext* ctx, Widget* w, float avail_w) {
             w->meas_w = 0; w->meas_h = 0;
             break;
         case WK_VBOX: case WK_HBOX: case WK_PANEL:
-        case WK_SCROLL: case WK_HSCROLL: {                   // container kinds
+        case WK_VSCROLL: case WK_HSCROLL: {                  // container kinds
             bool vert = (w->kind != WK_HBOX && w->kind != WK_HSCROLL);  // orientation
             float pad = w->padding;
             float inner_w = avail_w - pad*2;                 // available width inside padding
@@ -390,7 +390,7 @@ static void arrange(UiContext* ctx, Widget* w, float x, float y, float width, fl
     if (!w->visible) return;                             // nothing more to do
 
     bool vert = (w->kind == WK_VBOX || w->kind == WK_PANEL ||
-                 w->kind == WK_SCROLL);                      // vertical container kinds
+                w->kind == WK_VSCROLL);                     // vertical container kinds
     bool horiz = (w->kind == WK_HBOX || w->kind == WK_HSCROLL ||
                   w->kind == WK_STATUSBAR);                  // horizontal container kinds
     if (!vert && !horiz) return;                         // leaf widgets have no children to place
@@ -427,7 +427,7 @@ static void arrange(UiContext* ctx, Widget* w, float x, float y, float width, fl
     float free_main = main_size - fixed - gaps;          // space left for flexible children
     if (free_main < 0) free_main = 0;                    // rigid children overflow: clamp to 0
 
-    if (w->kind == WK_SCROLL) {
+    if (w->kind == WK_VSCROLL) {
         w->content_h = total + gaps + pad*2;             // scroll extent = content plus padding
     }
 
@@ -485,7 +485,7 @@ static void arrange(UiContext* ctx, Widget* w, float x, float y, float width, fl
             else if (c->align == AL_CENTER) cx = ix + (iw - cw) * 0.5f;  // centered cross
             else if (c->align == AL_END)   cx = ix + (iw - cw);          // end-aligned cross
             else                            cx = ix;                     // start-aligned cross
-            if (w->kind == WK_SCROLL) cy -= (float)w->scroll_y;          // apply scroll offset
+            if (w->kind == WK_VSCROLL) cy -= (float)w->scroll_y;         // apply scroll offset
             pen += ch + between;
         } else {                                         // horizontal main axis
             cx = pen;
@@ -498,7 +498,7 @@ static void arrange(UiContext* ctx, Widget* w, float x, float y, float width, fl
         if (c->req_w >= 0) cw = c->req_w;                // explicit size requests win
         if (c->req_h >= 0) ch = c->req_h;
         float sy = cy;
-        if (w->kind == WK_SCROLL) sy = cy;               // scroll offset already applied above
+        if (w->kind == WK_VSCROLL) sy = cy;               // scroll offset already applied above
         arrange(ctx, c, cx, sy, cw, ch);                 // recurse into the child
     }
 }
@@ -515,9 +515,9 @@ static void compute_subtree_bbox(Widget* w) {
     int x1 = x0 + (int)floorf(w->w + 0.5f);
     int y1 = y0 + (int)floorf(w->h + 0.5f);
 
-    bool clips = (w->kind == WK_SCROLL || w->kind == WK_HSCROLL);
+    bool clips = (w->kind == WK_VSCROLL || w->kind == WK_HSCROLL);
     int cx1 = x1;
-    if (w->kind == WK_SCROLL) {
+    if (w->kind == WK_VSCROLL) {
         int has_sb = w->content_h > (float)w->h;         // scrollbar steals width
         cx1 = x0 + (has_sb ? (int)w->w - UI_SCROLL_W : (int)w->w);
     }

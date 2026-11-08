@@ -123,7 +123,7 @@ const char* widget_kind_name(WidgetKind k) {
         case WK_VBOX: return "vbox";
         case WK_HBOX: return "hbox";
         case WK_PANEL: return "panel";
-        case WK_SCROLL: return "scroll";
+        case WK_VSCROLL: return "vscroll";
         case WK_HSCROLL: return "hscroll";
         case WK_NUMBER_INPUT: return "number_input";
         case WK_TEXT_AREA:    return "text_area";

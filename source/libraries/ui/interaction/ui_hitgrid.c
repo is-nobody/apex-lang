@@ -42,7 +42,7 @@ static void hit_grid_count(Widget* w, int cx0, int cy0, int cx1, int cy1,
             for (int c = c0; c <= c1; c++)
                 counts[r * cols + c]++;
 
-        if (w->kind == WK_SCROLL) {                       // tighten clip for the subtree
+        if (w->kind == WK_VSCROLL) {                       // tighten clip for the subtree
             if (wx0 > ncx0) ncx0 = wx0;
             if (wy0 > ncy0) ncy0 = wy0;
             if (wx1 < ncx1) ncx1 = wx1;
@@ -84,7 +84,7 @@ static void hit_grid_fill(Widget* w, int cx0, int cy0, int cx1, int cy1,
                 items[cell_cursor[cell]++] = w;
             }
 
-        if (w->kind == WK_SCROLL) {
+        if (w->kind == WK_VSCROLL) {
             if (wx0 > ncx0) ncx0 = wx0;
             if (wy0 > ncy0) ncy0 = wy0;
             if (wx1 < ncx1) ncx1 = wx1;
