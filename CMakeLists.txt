@@ -17,6 +17,22 @@ option(APEX_JIT_ENABLED "Enable the JIT compiler" ON)
 # enables debug tracing of the jit
 option(APEX_JIT_TRACE "Enable JIT debug tracing" OFF)
 
+# path to a local checkout of the Apex UI project; leave empty to fetch it
+set(APEX_UI_DIR "" CACHE PATH "Path to a local Apex UI checkout")
+
+# apex ui dependency
+if(APEX_UI_DIR)
+    add_subdirectory(${APEX_UI_DIR} ${CMAKE_BINARY_DIR}/apex-ui EXCLUDE_FROM_ALL)
+else()
+    include(FetchContent)
+    FetchContent_Declare(apexui
+        GIT_REPOSITORY https://github.com/is-nobody/apex-ui.git
+        GIT_TAG        main)
+    set(APEXUI_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(apexui)
+    set_property(DIRECTORY ${apexui_SOURCE_DIR} PROPERTY EXCLUDE_FROM_ALL TRUE)
+endif()
+
 # normalizes the target cpu name into a short arch tag
 string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" APEX_PROC_LOWER)
 if(APEX_PROC_LOWER MATCHES "^(x86_64|amd64)")
@@ -36,86 +52,6 @@ if(APEX_JIT_ENABLED AND APEX_HOST_ARCH STREQUAL "x86-64" AND
 else()
     set(APEX_JIT_AVAILABLE FALSE)
 endif()
-
-# platform window backend + libs
-set(APEX_UI_WINDOW_SOURCES)
-set(APEX_UI_PLATFORM_LIBS)
-
-if(WIN32)
-    list(APPEND APEX_UI_WINDOW_SOURCES
-        source/libraries/ui/platform/windows/ui_window_windows.c
-        source/libraries/ui/platform/windows/ui_window_windows_event.c
-        source/libraries/ui/platform/windows/ui_window_windows_clipboard.c
-        source/libraries/ui/platform/windows/ui_window_windows_filedialog.c)
-    list(APPEND APEX_UI_PLATFORM_LIBS shlwapi ws2_32 ole32 shell32)
-elseif(APPLE)
-    list(APPEND APEX_UI_WINDOW_SOURCES
-        source/libraries/ui/platform/macos/ui_window_macos.c
-        source/libraries/ui/platform/macos/ui_window_macos_event.c
-        source/libraries/ui/platform/macos/ui_window_macos_clipboard.c
-        source/libraries/ui/platform/macos/ui_window_macos_filedialog.c)
-    list(APPEND APEX_UI_PLATFORM_LIBS
-        "-framework AppKit"
-        "-framework Cocoa"
-        "-framework CoreGraphics"
-        "-framework CoreText"
-        "-framework CoreFoundation")
-else()
-    list(APPEND APEX_UI_WINDOW_SOURCES
-        source/libraries/ui/platform/linux/ui_window_linux.c
-        source/libraries/ui/platform/linux/ui_window_linux_event.c
-        source/libraries/ui/platform/linux/ui_window_linux_clipboard.c
-        source/libraries/ui/platform/linux/ui_window_linux_filedialog.c)
-    find_package(X11 REQUIRED)
-    find_package(Fontconfig REQUIRED)
-    list(APPEND APEX_UI_PLATFORM_LIBS
-        m z dl
-        X11::X11
-        X11::Xext
-        Fontconfig::Fontconfig)
-endif()
-
-# ui library portable sources
-set(APEX_UI_SOURCES
-    source/libraries/ui/ui_module.c
-
-    source/libraries/ui/common/ui_hash.c
-    source/libraries/ui/common/ui_arena.c
-    source/libraries/ui/common/ui_table.c
-
-    source/libraries/ui/core/ui_context.c
-    source/libraries/ui/core/ui_state.c
-    source/libraries/ui/core/ui_events.c
-    source/libraries/ui/core/ui_widget.c
-    source/libraries/ui/core/ui_build.c
-    source/libraries/ui/core/ui_runtime.c
-
-    source/libraries/ui/widgets/ui_input.c
-    source/libraries/ui/widgets/ui_dialog.c
-    source/libraries/ui/widgets/ui_notif.c
-    source/libraries/ui/widgets/ui_menu.c
-    source/libraries/ui/widgets/ui_menubar.c
-    source/libraries/ui/widgets/ui_context_menu.c
-    source/libraries/ui/widgets/ui_table.c
-    source/libraries/ui/widgets/ui_tree.c
-    source/libraries/ui/widgets/ui_tabs.c
-    source/libraries/ui/widgets/ui_number_input.c
-
-    source/libraries/ui/interaction/ui_hitgrid.c
-    source/libraries/ui/interaction/ui_damage.c
-    source/libraries/ui/interaction/ui_handle.c
-
-    source/libraries/ui/layout/ui_layout.c
-
-    source/libraries/ui/render/ui_painter.c
-    source/libraries/ui/render/ui_render.c
-    source/libraries/ui/render/ui_render_dialog.c
-    source/libraries/ui/render/ui_render_notif.c
-    source/libraries/ui/render/ui_titlebar.c
-    source/libraries/ui/render/ui_text.c
-    source/libraries/ui/render/ui_font.c
-    source/libraries/ui/render/ui_font_system.c
-)
 
 # sources
 set(SOURCES
@@ -163,6 +99,7 @@ set(SOURCES
     source/libraries/crypto/crypto_module.c
     source/libraries/zip/zip_module.c
     source/libraries/datetime/datetime_module.c
+    source/libraries/ui/ui_module.c
 
     source/utils/execute.c
     source/utils/error.c
@@ -176,10 +113,7 @@ set(SOURCES
     source/utils/apex_api.c
 )
 
-# ui library (portable + platform backend)
-list(APPEND SOURCES ${APEX_UI_SOURCES})
-list(APPEND SOURCES ${APEX_UI_WINDOW_SOURCES})
-
+# the jit sources stay on the language side
 if(APEX_JIT_AVAILABLE)
     list(APPEND SOURCES
         source/jit/jit.c
@@ -234,15 +168,6 @@ target_include_directories(apex PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/zip
     ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/datetime
     ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui/common
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui/core
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui/widgets
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui/interaction
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui/layout
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui/render
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui/platform/linux
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui/platform/windows
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui/platform/macos
     ${CMAKE_CURRENT_SOURCE_DIR}/source/utils
     ${CMAKE_CURRENT_SOURCE_DIR}/source/jit
     ${CMAKE_CURRENT_SOURCE_DIR}/source/jit/x86-64
@@ -291,8 +216,8 @@ endif()
 find_package(Threads REQUIRED)
 target_link_libraries(apex PRIVATE Threads::Threads)
 
-# platform-specific libraries
-target_link_libraries(apex PRIVATE ${APEX_UI_PLATFORM_LIBS})
+# the ui backend
+target_link_libraries(apex PRIVATE apexui)
 
 # strips debug symbols in release builds
 if(CMAKE_BUILD_TYPE STREQUAL "Release")

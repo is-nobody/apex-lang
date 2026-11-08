@@ -1,5 +1,5 @@
 // source/libraries/ui/ui_module.h
-// Public declarations for Apex ui module
+// Implementation of UI builtin module for Apex language
 // https://github.com/is-nobody/apex-lang
 // MIT license
 
