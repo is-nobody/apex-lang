@@ -391,7 +391,7 @@ Value ui_impl_render(VM* vm, int argc, Value* argv) {
     struct UiContext* ctx = ui_ensure(vm);
     if (!ctx) return MAKE_NONE();
     apexui_value tree = argc >= 1 ? v2u(argv[0], 0) : apexui_make_none();
-    apexui_render((ApexUiContext*)ctx, tree);         // impl retains its own copy
+    apexui_render_value((ApexUiContext*)ctx, tree);  // impl retains its own copy
     apexui_value_release(tree);                       // drop our bridge copy
     return MAKE_NONE();
 }
