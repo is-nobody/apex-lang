@@ -139,8 +139,11 @@ static void canonicalize_module_path(const char* in, char* out, size_t out_size)
 #else
     if (realpath(in, out) != NULL) return;
 #endif
-    strncpy(out, in, out_size - 1);
     out[out_size - 1] = '\0';
+    size_t in_len = strlen(in);
+    if (in_len >= out_size) in_len = out_size - 1;
+    memcpy(out, in, in_len);
+    out[in_len] = '\0';
 }
 
 // frees a module cache and every entry inside it
@@ -571,9 +574,12 @@ static void parser_set_source_dir(Parser* parser, const char* filename) {
         return;
     }
     
-    strncpy(parser->source_dir, filename, PATH_MAX - 1);  // copy filename
     parser->source_dir[PATH_MAX - 1] = '\0';       // ensure null termination
-    
+    size_t fn_len = strlen(filename);
+    if (fn_len >= PATH_MAX) fn_len = PATH_MAX - 1;
+    memcpy(parser->source_dir, filename, fn_len);
+    parser->source_dir[fn_len] = '\0';
+
     char* last_sep = strrchr(parser->source_dir, '/');  // unix path separator
     char* last_sep_win = strrchr(parser->source_dir, '\\');  // windows path separator
     
