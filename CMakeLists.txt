@@ -217,7 +217,7 @@ find_package(Threads REQUIRED)
 target_link_libraries(apex PRIVATE Threads::Threads)
 
 # the ui backend
-target_link_libraries(apex PRIVATE apexui)
+target_link_libraries(apex PRIVATE apex-ui)
 
 # strips debug symbols in release builds
 if(CMAKE_BUILD_TYPE STREQUAL "Release")

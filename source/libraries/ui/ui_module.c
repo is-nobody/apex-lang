@@ -15,83 +15,83 @@
 // lazily creates the ui context on first use, attached to the vm
 static struct UiContext* ui_ensure(VM* vm) {
     if (vm->ui) return vm->ui;                    // already created
-    vm->ui = (struct UiContext*)apexui_context_create();
+    vm->ui = (struct UiContext*)apex_ui_context_create();
     return vm->ui;
 }
 
 // releases every ui-owned allocation; same entry the vm teardown already calls
 void ui_context_destroy(struct UiContext* ctx) {
-    apexui_context_destroy((ApexUiContext*)ctx);
+    apex_ui_context_destroy((ApexUIContext*)ctx);
 }
 
 // converts a vm value into a fresh apex ui value
-static apexui_value v2u(Value v, int depth) {
-    if (depth > UI_BRIDGE_MAX_DEPTH) return apexui_make_none();
+static apex_ui_value v2u(Value v, int depth) {
+    if (depth > UI_BRIDGE_MAX_DEPTH) return apex_ui_make_none();
     if (IS_STRING(v)) {
         StringObject* s = AS_STRING(v);
-        return apexui_make_string(s->chars, s->length);
+        return apex_ui_make_string(s->chars, s->length);
     }
     if (IS_TABLE(v)) {
         Table* t = AS_TABLE(v);
-        apexui_value out = apexui_make_table(t->capacity > 8 ? t->capacity : 8);
-        if (!apexui_is_table(out)) return out;    // allocation failed: none
+        apex_ui_value out = apex_ui_make_table(t->capacity > 8 ? t->capacity : 8);
+        if (!apex_ui_is_table(out)) return out;    // allocation failed: none
 
         if (t->array_part) {                      // array part first, 1-based
             for (int i = 0; i < t->array_count; i++) {
                 if (IS_NONE(t->array_part[i])) continue;
-                apexui_value item = v2u(t->array_part[i], depth + 1);
-                apexui_table_set(out, apexui_make_number((double)(i + 1)), item);
-                apexui_value_release(item);
+                apex_ui_value item = v2u(t->array_part[i], depth + 1);
+                apex_ui_table_set(out, apex_ui_make_number((double)(i + 1)), item);
+                apex_ui_value_release(item);
             }
         }
         if (t->entries) {                         // then the hash part
             for (int b = 0; b < t->capacity; b++) {
                 for (TableEntry* e = t->entries[b]; e; e = e->next) {
-                    apexui_value k = v2u(e->key, depth + 1);
-                    apexui_value val = v2u(e->value, depth + 1);
-                    apexui_table_set(out, k, val);
-                    apexui_value_release(k);
-                    apexui_value_release(val);
+                    apex_ui_value k = v2u(e->key, depth + 1);
+                    apex_ui_value val = v2u(e->value, depth + 1);
+                    apex_ui_table_set(out, k, val);
+                    apex_ui_value_release(k);
+                    apex_ui_value_release(val);
                 }
             }
         }
         return out;
     }
-    if (IS_BOOL(v))   return apexui_make_bool(AS_BOOL(v));
-    if (IS_NUMBER(v)) return apexui_make_number(AS_NUMBER(v));
-    return apexui_make_none();
+    if (IS_BOOL(v))   return apex_ui_make_bool(AS_BOOL(v));
+    if (IS_NUMBER(v)) return apex_ui_make_number(AS_NUMBER(v));
+    return apex_ui_make_none();
 }
 
 // converts an apex ui value into a fresh vm value
-static Value u2v(VM* vm, apexui_value v, int depth) {
+static Value u2v(VM* vm, apex_ui_value v, int depth) {
     if (depth > UI_BRIDGE_MAX_DEPTH) return MAKE_NONE();
-    if (apexui_is_string(v)) {
-        StringObject* s = string_create(apexui_get_string_ptr(v),
-                                        apexui_get_string_len(v));
+    if (apex_ui_is_string(v)) {
+        StringObject* s = string_create(apex_ui_get_string_ptr(v),
+                                        apex_ui_get_string_len(v));
         return s ? MAKE_STRING(s) : MAKE_NONE();
     }
-    if (apexui_is_table(v)) {
+    if (apex_ui_is_table(v)) {
         Table* t = table_create(8);
         if (!t) return MAKE_NONE();
         int n = 0;
-        apexui_value* keys = apexui_table_keys(v, &n);
+        apex_ui_value* keys = apex_ui_table_keys(v, &n);
         for (int i = 0; i < n; i++) {
-            apexui_value item;
-            if (apexui_table_get(v, keys[i], &item)) {
+            apex_ui_value item;
+            if (apex_ui_table_get(v, keys[i], &item)) {
                 Value k = u2v(vm, keys[i], depth + 1);
                 Value val = u2v(vm, item, depth + 1);
                 table_set(t, k, val);
                 value_decref(k);
                 value_decref(val);
-                apexui_value_release(item);
+                apex_ui_value_release(item);
             }
-            apexui_value_release(keys[i]);
+            apex_ui_value_release(keys[i]);
         }
         free(keys);
         return MAKE_TABLE(t);
     }
-    if (apexui_is_bool(v))   return MAKE_BOOL(apexui_get_bool(v));
-    if (apexui_is_number(v)) return MAKE_NUMBER(apexui_get_number(v));
+    if (apex_ui_is_bool(v))   return MAKE_BOOL(apex_ui_get_bool(v));
+    if (apex_ui_is_number(v)) return MAKE_NUMBER(apex_ui_get_number(v));
     return MAKE_NONE();
 }
 
@@ -363,7 +363,7 @@ typedef struct {
 } RunBridge;
 
 // trampoline: converts the apex ui event table into vm values
-static apexui_value run_trampoline(void* user, apexui_value event) {
+static apex_ui_value run_trampoline(void* user, apex_ui_value event) {
     RunBridge* rb = (RunBridge*)user;
     VM* vm = rb->vm;
 
@@ -371,7 +371,7 @@ static apexui_value run_trampoline(void* user, apexui_value event) {
     Value result = apex_call_function(vm, rb->fn, 1, &ev_tbl);
     value_decref(ev_tbl);
 
-    apexui_value tree = v2u(result, 0);               // bridge the staged tree
+    apex_ui_value tree = v2u(result, 0);               // bridge the staged tree
     value_decref(result);
     return tree;                                      // ownership -> apex ui
 }
@@ -380,9 +380,9 @@ static apexui_value run_trampoline(void* user, apexui_value event) {
 Value ui_impl_init(VM* vm, int argc, Value* argv) {
     struct UiContext* ctx = ui_ensure(vm);            // ensure the context exists
     if (!ctx) return MAKE_BOOL(false);
-    apexui_value opts = argc >= 1 ? v2u(argv[0], 0) : apexui_make_none();
-    Value out = MAKE_BOOL(apexui_get_bool(apexui_init((ApexUiContext*)ctx, opts)));
-    apexui_value_release(opts);
+    apex_ui_value opts = argc >= 1 ? v2u(argv[0], 0) : apex_ui_make_none();
+    Value out = MAKE_BOOL(apex_ui_get_bool(apex_ui_init((ApexUIContext*)ctx, opts)));
+    apex_ui_value_release(opts);
     return out;
 }
 
@@ -390,9 +390,9 @@ Value ui_impl_init(VM* vm, int argc, Value* argv) {
 Value ui_impl_render(VM* vm, int argc, Value* argv) {
     struct UiContext* ctx = ui_ensure(vm);
     if (!ctx) return MAKE_NONE();
-    apexui_value tree = argc >= 1 ? v2u(argv[0], 0) : apexui_make_none();
-    apexui_render_value((ApexUiContext*)ctx, tree);  // impl retains its own copy
-    apexui_value_release(tree);                       // drop our bridge copy
+    apex_ui_value tree = argc >= 1 ? v2u(argv[0], 0) : apex_ui_make_none();
+    apex_ui_render_value((ApexUIContext*)ctx, tree); // impl retains its own copy
+    apex_ui_value_release(tree);                      // drop our bridge copy
     return MAKE_NONE();
 }
 
@@ -401,10 +401,10 @@ Value ui_impl_next_event(VM* vm, int argc, Value* argv) {
     (void)argc; (void)argv;
     struct UiContext* ctx = ui_ensure(vm);
     if (!ctx) return MAKE_NONE();
-    apexui_value ev = apexui_next_event((ApexUiContext*)ctx);
-    if (apexui_is_none(ev)) return MAKE_NONE();
+    apex_ui_value ev = apex_ui_next_event((ApexUIContext*)ctx);
+    if (apex_ui_is_none(ev)) return MAKE_NONE();
     Value out = u2v(vm, ev, 0);                       // convert for the script
-    apexui_value_release(ev);
+    apex_ui_value_release(ev);
     return out;
 }
 
@@ -419,7 +419,7 @@ Value ui_impl_run(VM* vm, int argc, Value* argv) {
     rb.fn = argv[0];
     value_incref(rb.fn);                              // keep alive across the loop
 
-    apexui_run((ApexUiContext*)ctx, run_trampoline, &rb);
+    apex_ui_run((ApexUIContext*)ctx, run_trampoline, &rb);
 
     value_decref(rb.fn);
     return MAKE_NONE();
@@ -430,7 +430,7 @@ Value ui_impl_shutdown(VM* vm, int argc, Value* argv) {
     (void)argc; (void)argv;
     struct UiContext* ctx = ui_ensure(vm);
     if (!ctx) return MAKE_NONE();
-    apexui_shutdown((ApexUiContext*)ctx);
+    apex_ui_shutdown((ApexUIContext*)ctx);
     return MAKE_NONE();
 }
 
@@ -439,7 +439,7 @@ Value ui_impl_set_title(VM* vm, int argc, Value* argv) {
     struct UiContext* ctx = ui_ensure(vm);
     if (!ctx) return MAKE_NONE();
     if (argc >= 1 && IS_STRING(argv[0]))
-        apexui_set_title((ApexUiContext*)ctx, AS_STRING(argv[0])->chars);
+        apex_ui_set_title((ApexUIContext*)ctx, AS_STRING(argv[0])->chars);
     return MAKE_NONE();
 }
 
@@ -448,16 +448,16 @@ Value ui_impl_window_size(VM* vm, int argc, Value* argv) {
     (void)argc; (void)argv;
     struct UiContext* ctx = ui_ensure(vm);
     if (!ctx) return MAKE_NONE();
-    apexui_value sz = apexui_window_size((ApexUiContext*)ctx);
+    apex_ui_value sz = apex_ui_window_size((ApexUIContext*)ctx);
     Value out = u2v(vm, sz, 0);
-    apexui_value_release(sz);
+    apex_ui_value_release(sz);
     return out;
 }
 
 // parses the optional options table shared by the pickers into an apex ui options value
-static apexui_value bridge_picker_opts(VM* vm, int argc, Value* argv) {
+static apex_ui_value bridge_picker_opts(VM* vm, int argc, Value* argv) {
     (void)vm;                                    // the options table shape matches one to one
-    if (argc < 1 || !IS_TABLE(argv[0])) return apexui_make_none();
+    if (argc < 1 || !IS_TABLE(argv[0])) return apex_ui_make_none();
 
     // the descriptor shape matches one to one: title / default / filters
     return v2u(argv[0], 0);
@@ -467,13 +467,13 @@ static apexui_value bridge_picker_opts(VM* vm, int argc, Value* argv) {
 Value ui_impl_open_file(VM* vm, int argc, Value* argv) {
     struct UiContext* ctx = ui_ensure(vm);
     if (!ctx) return MAKE_NONE();
-    apexui_value opts = bridge_picker_opts(vm, argc, argv);
-    apexui_value picked = apexui_open_file((ApexUiContext*)ctx, opts);
-    apexui_value_release(opts);
-    if (apexui_is_none(picked)) return MAKE_NONE();
-    StringObject* s = string_create(apexui_get_string_ptr(picked),
-                                    apexui_get_string_len(picked));
-    apexui_value_release(picked);
+    apex_ui_value opts = bridge_picker_opts(vm, argc, argv);
+    apex_ui_value picked = apex_ui_open_file((ApexUIContext*)ctx, opts);
+    apex_ui_value_release(opts);
+    if (apex_ui_is_none(picked)) return MAKE_NONE();
+    StringObject* s = string_create(apex_ui_get_string_ptr(picked),
+                                    apex_ui_get_string_len(picked));
+    apex_ui_value_release(picked);
     return s ? MAKE_STRING(s) : MAKE_NONE();
 }
 
@@ -481,13 +481,13 @@ Value ui_impl_open_file(VM* vm, int argc, Value* argv) {
 Value ui_impl_open_folder(VM* vm, int argc, Value* argv) {
     struct UiContext* ctx = ui_ensure(vm);
     if (!ctx) return MAKE_NONE();
-    apexui_value opts = bridge_picker_opts(vm, argc, argv);
-    apexui_value picked = apexui_open_folder((ApexUiContext*)ctx, opts);
-    apexui_value_release(opts);
-    if (apexui_is_none(picked)) return MAKE_NONE();
-    StringObject* s = string_create(apexui_get_string_ptr(picked),
-                                    apexui_get_string_len(picked));
-    apexui_value_release(picked);
+    apex_ui_value opts = bridge_picker_opts(vm, argc, argv);
+    apex_ui_value picked = apex_ui_open_folder((ApexUIContext*)ctx, opts);
+    apex_ui_value_release(opts);
+    if (apex_ui_is_none(picked)) return MAKE_NONE();
+    StringObject* s = string_create(apex_ui_get_string_ptr(picked),
+                                    apex_ui_get_string_len(picked));
+    apex_ui_value_release(picked);
     return s ? MAKE_STRING(s) : MAKE_NONE();
 }
 
@@ -498,15 +498,15 @@ Value ui_impl_save_as(VM* vm, int argc, Value* argv) {
     if (argc < 1 || !IS_STRING(argv[0])) return MAKE_NONE();
     StringObject* content = AS_STRING(argv[0]);
 
-    apexui_value opts = argc >= 2 ? bridge_picker_opts(vm, 1, argv + 1)
-                                  : apexui_make_none();
-    apexui_value picked = apexui_save_as((ApexUiContext*)ctx, content->chars,
-                                         content->length, opts);
-    apexui_value_release(opts);
-    if (apexui_is_none(picked)) return MAKE_NONE();
-    StringObject* s = string_create(apexui_get_string_ptr(picked),
-                                    apexui_get_string_len(picked));
-    apexui_value_release(picked);
+    apex_ui_value opts = argc >= 2 ? bridge_picker_opts(vm, 1, argv + 1)
+                                   : apex_ui_make_none();
+    apex_ui_value picked = apex_ui_save_as((ApexUIContext*)ctx, content->chars,
+                                           content->length, opts);
+    apex_ui_value_release(opts);
+    if (apex_ui_is_none(picked)) return MAKE_NONE();
+    StringObject* s = string_create(apex_ui_get_string_ptr(picked),
+                                    apex_ui_get_string_len(picked));
+    apex_ui_value_release(picked);
     return s ? MAKE_STRING(s) : MAKE_NONE();
 }
 
@@ -515,8 +515,8 @@ Value ui_impl_fullscreen(VM* vm, int argc, Value* argv) {
     struct UiContext* ctx = ui_ensure(vm);
     if (!ctx) return MAKE_BOOL(false);
     bool state = (argc >= 1 && IS_BOOL(argv[0]))
-                     ? apexui_set_fullscreen((ApexUiContext*)ctx, AS_BOOL(argv[0]))
-                     : apexui_toggle_fullscreen((ApexUiContext*)ctx);
+                     ? apex_ui_set_fullscreen((ApexUIContext*)ctx, AS_BOOL(argv[0]))
+                     : apex_ui_toggle_fullscreen((ApexUIContext*)ctx);
     return MAKE_BOOL(state);
 }
 
@@ -524,9 +524,9 @@ Value ui_impl_fullscreen(VM* vm, int argc, Value* argv) {
 static Value ctor_dialog(VM* vm, int argc, Value* argv) {
     struct UiContext* ctx = ui_ensure(vm);
     if (!ctx) return MAKE_NONE();
-    apexui_value descr = argc >= 1 ? v2u(argv[0], 0) : apexui_make_none();
-    apexui_dialog((ApexUiContext*)ctx, descr);
-    apexui_value_release(descr);
+    apex_ui_value descr = argc >= 1 ? v2u(argv[0], 0) : apex_ui_make_none();
+    apex_ui_dialog((ApexUIContext*)ctx, descr);
+    apex_ui_value_release(descr);
     return MAKE_NONE();
 }
 
@@ -534,9 +534,9 @@ static Value ctor_dialog(VM* vm, int argc, Value* argv) {
 static Value ctor_notification(VM* vm, int argc, Value* argv) {
     struct UiContext* ctx = ui_ensure(vm);
     if (!ctx) return MAKE_NONE();
-    apexui_value descr = argc >= 1 ? v2u(argv[0], 0) : apexui_make_none();
-    apexui_notification((ApexUiContext*)ctx, descr);
-    apexui_value_release(descr);
+    apex_ui_value descr = argc >= 1 ? v2u(argv[0], 0) : apex_ui_make_none();
+    apex_ui_notification((ApexUIContext*)ctx, descr);
+    apex_ui_value_release(descr);
     return MAKE_NONE();
 }
 
@@ -544,11 +544,11 @@ static Value ctor_notification(VM* vm, int argc, Value* argv) {
 static Value ctor_menubar(VM* vm, int argc, Value* argv) {
     struct UiContext* ctx = ui_ensure(vm);
     if (!ctx) return MAKE_NONE();
-    apexui_value descr = (argc >= 1 && IS_TABLE(argv[0]))
+    apex_ui_value descr = (argc >= 1 && IS_TABLE(argv[0]))
                              ? v2u(argv[0], 0)
-                             : apexui_make_none();
-    apexui_menubar((ApexUiContext*)ctx, descr);
-    apexui_value_release(descr);
+                             : apex_ui_make_none();
+    apex_ui_menubar((ApexUIContext*)ctx, descr);
+    apex_ui_value_release(descr);
     return MAKE_NONE();
 }
 
@@ -556,19 +556,19 @@ static Value ctor_menubar(VM* vm, int argc, Value* argv) {
 static Value ctor_context_menu(VM* vm, int argc, Value* argv) {
     struct UiContext* ctx = ui_ensure(vm);
     if (!ctx) return MAKE_NONE();
-    ApexUiContext* ui = (ApexUiContext*)ctx;
+    ApexUIContext* ui = (ApexUIContext*)ctx;
     if (argc < 1 || !IS_TABLE(argv[0])) {
-        apexui_context_menu_close(ui);                // none or non-table: close
+        apex_ui_context_menu_close(ui);               // none or non-table: close
         return MAKE_NONE();
     }
-    apexui_value items = v2u(argv[0], 0);             // bridge the item descriptors
+    apex_ui_value items = v2u(argv[0], 0);            // bridge the item descriptors
     if (argc >= 3 && IS_NUMBER(argv[1]) && IS_NUMBER(argv[2])) {
-        apexui_context_menu_open_at(ui, items,       // explicit position wins
-                                    (int)AS_NUMBER(argv[1]), (int)AS_NUMBER(argv[2]));
+        apex_ui_context_menu_open_at(ui, items,       // explicit position wins
+                                     (int)AS_NUMBER(argv[1]), (int)AS_NUMBER(argv[2]));
     } else {
-        apexui_context_menu_open(ui, items);          // default: cursor position
+        apex_ui_context_menu_open(ui, items);         // default: cursor position
     }
-    apexui_value_release(items);
+    apex_ui_value_release(items);
     return MAKE_NONE();
 }
 
