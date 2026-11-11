@@ -53,125 +53,59 @@ else()
     set(APEX_JIT_AVAILABLE FALSE)
 endif()
 
-# sources
-set(SOURCES
-    main.c
-    source/core/tokenizer.c
-    source/core/parser.c
-    source/core/ast.c
-    source/core/bytecode.c
-    source/core/vm.c
+# auto-discovery
+file(GLOB_RECURSE APEX_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/source/*.c")
+list(APPEND APEX_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/main.c")
 
-    source/compiler/codegen.c
-    source/compiler/codegen_expr.c
-    source/compiler/codegen_stmt.c
-    source/compiler/codegen_if.c
-    source/compiler/codegen_for.c
-    source/compiler/codegen_match.c
-    source/compiler/codegen_fn.c
-    source/compiler/codegen_scope.c
-    source/compiler/codegen_modules.c
-    source/compiler/opt_const_fold.c
-    source/compiler/opt_const_cache.c
-    source/compiler/opt_lvn.c
-    source/compiler/opt_peephole.c
-    source/compiler/opt_inline.c
-    source/compiler/opt_licm.c
-    source/compiler/opt_dce.c
-    source/compiler/opt_branch_merge.c
-    source/compiler/opt_jump_targets.c
-    source/compiler/opt_linear_scan.c
-    source/compiler/opt_bc_dce.c
-    source/compiler/opt_for_fold.c
-    source/compiler/opt_recursion.c
-
-    source/libraries/os/os_module.c
-    source/libraries/sys/sys_module.c
-    source/libraries/math/math_module.c
-    source/libraries/string/string_module.c
-    source/libraries/table/table_module.c
-    source/libraries/random/random_module.c
-    source/libraries/json/json_module.c
-    source/libraries/xml/xml_module.c
-    source/libraries/csv/csv_module.c
-    source/libraries/base/base_module.c
-    source/libraries/regex/regex_module.c
-    source/libraries/crypto/crypto_module.c
-    source/libraries/zip/zip_module.c
-    source/libraries/datetime/datetime_module.c
-    source/libraries/ui/ui_module.c
-
-    source/utils/execute.c
-    source/utils/error.c
-    source/utils/emit.c
-    source/utils/platform.c
-    source/utils/repl.c
-    source/utils/commands.c
-    source/utils/build.c
-    source/utils/compile.c
-    source/utils/loader.c
-    source/utils/apex_api.c
-)
-
-# the jit sources stay on the language side
-if(APEX_JIT_AVAILABLE)
-    list(APPEND SOURCES
-        source/jit/jit.c
-        source/jit/jit_analysis.c
-        source/jit/x86-64/x86_64_common.c
-        source/jit/x86-64/x86_64_emit_common.c
-        source/jit/x86-64/x86_64_emit_function.c
-        source/jit/x86-64/x86_64_emit_move.c
-        source/jit/x86-64/x86_64_emit_arith.c
-        source/jit/x86-64/x86_64_emit_cmp.c
-        source/jit/x86-64/x86_64_emit_jump.c
-        source/jit/x86-64/x86_64_emit_match.c
-        source/jit/x86-64/x86_64_emit_call.c
-        source/jit/x86-64/x86_64_emit_table.c
-        source/jit/x86-64/x86_64_emit_loop.c
-        source/jit/x86-64/x86_64.c
-    )
-
-    if(APEX_JIT_TRACE)
-        list(APPEND SOURCES source/jit/jit_disasm.c)
+# jit sources are only compiled when the backend is available
+set(APEX_JIT_SOURCES "")
+foreach(src IN LISTS APEX_SOURCES)
+    if(src MATCHES "/source/jit/")
+        list(APPEND APEX_JIT_SOURCES "${src}")
     endif()
-
-    if(WIN32)
-        list(APPEND SOURCES source/jit/x86-64/x86_64_windows.c)
-    elseif(APPLE)
-        list(APPEND SOURCES source/jit/x86-64/x86_64_macos.c)
-    else()
-        list(APPEND SOURCES source/jit/x86-64/x86_64_linux.c)
-    endif()
+endforeach()
+if(APEX_JIT_SOURCES)
+    list(REMOVE_ITEM APEX_SOURCES ${APEX_JIT_SOURCES})
 endif()
 
-add_executable(apex ${SOURCES})
+if(APEX_JIT_AVAILABLE)
+    # only the backend for the current os
+    list(FILTER APEX_JIT_SOURCES EXCLUDE
+        REGEX "/x86-64/x86_64_(linux|macos|windows)\\.c$")
 
-# header search paths for include from any directory
-target_include_directories(apex PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/core
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/compiler
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/os
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/sys
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/math
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/string
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/table
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/random
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/json
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/xml
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/csv
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/base
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/regex
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/crypto
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/zip
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/datetime
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/libraries/ui
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/utils
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/jit
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/jit/x86-64
-)
+    if(WIN32)
+        list(APPEND APEX_JIT_SOURCES
+            "${CMAKE_CURRENT_SOURCE_DIR}/source/jit/x86-64/x86_64_windows.c")
+    elseif(APPLE)
+        list(APPEND APEX_JIT_SOURCES
+            "${CMAKE_CURRENT_SOURCE_DIR}/source/jit/x86-64/x86_64_macos.c")
+    else()
+        list(APPEND APEX_JIT_SOURCES
+            "${CMAKE_CURRENT_SOURCE_DIR}/source/jit/x86-64/x86_64_linux.c")
+    endif()
+
+    if(NOT APEX_JIT_TRACE)
+        list(FILTER APEX_JIT_SOURCES EXCLUDE REGEX "/jit_disasm\\.c$")
+    endif()
+
+    list(APPEND APEX_SOURCES ${APEX_JIT_SOURCES})
+endif()
+
+add_executable(apex ${APEX_SOURCES})
+
+# auto-discovery
+file(GLOB_RECURSE APEX_HEADERS CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/*.h")
+
+set(APEX_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}")
+foreach(header IN LISTS APEX_HEADERS)
+    get_filename_component(dir "${header}" DIRECTORY)
+    list(APPEND APEX_INCLUDE_DIRS "${dir}")
+endforeach()
+list(REMOVE_DUPLICATES APEX_INCLUDE_DIRS)
+
+target_include_directories(apex PRIVATE ${APEX_INCLUDE_DIRS})
 
 # propagates the jit toggle into c preprocessor
 if(APEX_JIT_AVAILABLE)
