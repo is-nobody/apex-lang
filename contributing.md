@@ -75,7 +75,6 @@ Before making changes, check these places:
 
 - **Issues** - Look for issues
 - **Discussions** - Ask questions or suggest ideas
-- **Roadmap** - Check `resources/roadmap.md` for planned features
 
 ## Code Style Rules
 ### Apex Code Style
@@ -211,7 +210,6 @@ Once approved, your changes will be merged
 2. Search existing issues and discussions
 3. Look at similar code in the project
 4. Read the [Apex Express Course for Developers](resources/EC_fDevelopers.md)
-5. Check the [Roadmap](resources/roadmap.md)
 
 ### When You Need Help
 1. **Ask in Discussions** - For general questions
