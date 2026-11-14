@@ -1123,7 +1123,7 @@ calc.print_result(result)
 
 # Conclusion
 ## What's Next?
-Now you know the basics of Apex! The best next step is to explore the built-in libraries—check out the **Library Reference**.
+Now you know the basics of Apex! The best next step is to explore the built-in libraries—check out the **Library Reference** and **UI Library Reference**.
 
 **Remember:**
 
