@@ -196,12 +196,12 @@ static SymF sv_cumsum_incl(SymF delta, double a_val) {
     return r;
 }
 
-// value form of ACC_MUL: v(i) = v0 * c^(i - a_val), valid for i >= a_val - 1
+// value form of ACC_MUL: v(i) = v0 * c^(i - a_val + 1), valid for i >= a_val - 1
 static SymF sv_geo_val(double v0, double c, double a_val) {
     if (c == 0.0) return sv_fail();                            // y becomes zero after first iter
     SymF r = sv_zero();
     r.has_geo = true;
-    r.geo[0] = v0 / pow(c, a_val);                             // v0 * c^(-a_val)
+    r.geo[0] = v0 / pow(c, a_val - 1);                         // v0 * c^(-(a_val-1))
     r.r = c;
     return r;
 }
@@ -238,7 +238,8 @@ static int find_unique_assign(ASTNode* body, const char* name) {
 
 // classify a single body assignment as SIMPLE, ACC_PLUS, or ACC_MUL
 static VarKind classify_assign(CodeGenerator* cg, ASTNode* stmt,
-                               const char* name, ASTNode** out_rhs, double* out_c) {
+                               const char* name, ASTNode** out_rhs, double* out_c,
+                               const char* loop_var) {
     if (!stmt) return VK_UNKNOWN;
     if (stmt->type == AST_VAR_DECL) {                          // fresh binding: always SIMPLE
         *out_rhs = stmt->var_assign.value;
@@ -259,15 +260,20 @@ static VarKind classify_assign(CodeGenerator* cg, ASTNode* stmt,
         }
     }
 
-    if (rhs->type == AST_BINARY && rhs->binary.op == TOKEN_STAR) {     // v = v * const
+    if (rhs->type == AST_BINARY && rhs->binary.op == TOKEN_STAR) {     // v = v * expr
         ASTNode* L = rhs->binary.left;
         ASTNode* R = rhs->binary.right;
         bool l_self = L->type == AST_IDENTIFIER && strcmp(L->identifier.name, name) == 0;
         bool r_self = R->type == AST_IDENTIFIER && strcmp(R->identifier.name, name) == 0;
+        bool r_uses_var = loop_var && ast_references_local(R, loop_var);
+        bool l_uses_var = loop_var && ast_references_local(L, loop_var);
         double c;
-        if (l_self && !r_self && try_fold_number(cg, R, &c)) { *out_c = c; return VK_ACC_MUL; }
-        if (r_self && !l_self && try_fold_number(cg, L, &c)) { *out_c = c; return VK_ACC_MUL; }
+        if (l_self && !r_self && !r_uses_var && try_fold_number(cg, R, &c)) { *out_c = c; return VK_ACC_MUL; }
+        if (r_self && !l_self && !l_uses_var && try_fold_number(cg, L, &c)) { *out_c = c; return VK_ACC_MUL; }
     }
+
+    // the rhs still reads `name` in a way we cannot express symbolically
+    if (ast_references_local(rhs, name)) return VK_UNKNOWN;
 
     *out_rhs = rhs;
     return VK_SIMPLE;
@@ -620,7 +626,7 @@ bool try_emit_symbolic_loop(CodeGenerator* cg, ASTNode* node) {
         if (ai < 0) return false;
         ASTNode* stmt = body->block.statements->nodes[ai];
         double c = 0.0; ASTNode* rhs = NULL;
-        VarKind k = classify_assign(cg, stmt, names[i], &rhs, &c);
+        VarKind k = classify_assign(cg, stmt, names[i], &rhs, &c, var);
         if (k == VK_UNKNOWN) return false;
         vars[i].kind = k;
         vars[i].rhs = rhs;
