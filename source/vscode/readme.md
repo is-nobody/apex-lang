@@ -1,7 +1,7 @@
 # Apex for Visual Studio Code
 A Visual Studio Code extension providing syntax highlighting, code snippets, IntelliSense, and execution support for the **Apex** programming language.
 
-![Version](https://img.shields.io/badge/Version-26.11-blue)
+![Version](https://img.shields.io/badge/Version-27.03-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ## About Apex
@@ -23,7 +23,7 @@ Full syntax highlighting for:
 Smart suggestions for:
 
 - **Keywords**: Control flow and logical operators.
-- **14 Standard Libraries**: `os`, `sys`, `math`, `string`, `table`, `random`, `json`, `xml`, `csv`, `base`, `regex`, `crypto`, `zip`, `datetime`, `ui`.
+- **15 Standard Libraries**: `os`, `sys`, `math`, `string`, `table`, `random`, `json`, `xml`, `csv`, `base`, `regex`, `crypto`, `zip`, `datetime`, `ui`.
 - **Library Functions**: Auto-complete for hundreds of functions like `os.read()`, `sys.platform`, `random.integer()`, `json.encode()`, etc.
 
 ### Run Code

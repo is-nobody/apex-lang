@@ -1,4 +1,4 @@
-# Apex: Pain-Free Programming (26.11)
+# Apex: Pain-Free Programming (27.03)
 ## Table of Contents
 ### Introduction
 - [Preface](#preface)
@@ -340,7 +340,7 @@ apex version
 If everything is set up correctly, you should see output like:
 
 ```
-Apex 26.11 [GCC 15.2.0] on Linux x86-64
+Apex 27.03 [GCC 15.2.0] on Linux x86-64
 ```
 
 The exact details will vary depending on your system, but if you see "Apex" followed by a version number, you're good to go.
