@@ -962,6 +962,105 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
         for (int i = prev_break_count; i < cg->loop_stack.break_count; i++) {       // patch all breaks
             PATCH_JUMP(cg, cg->loop_stack.break_jumps[i], exit_addr);
         }
+    } else if (node->for_stmt.var_expr) {                                           // expression loop variable (e.g., table["key"])
+        int saved_locals_count = cg->locals.count;                                  // capture for-scope boundary
+        int saved_next_register = cg->next_register;
+        cg->for_scope_depth++;                                                      // enter for-scope
+
+        // evaluate start value and store into var_expr target
+        int start_val_reg = codegen_expression(cg, node->for_stmt.start);
+        ASTNode* expr = node->for_stmt.var_expr;
+        if (expr->type == AST_INDEX_ACCESS) {
+            int obj_reg = codegen_expression(cg, expr->access.object);
+            int key_reg = codegen_expression(cg, expr->access.member);
+            emit(cg, INST(OP_TABLE_SET, obj_reg, key_reg, start_val_reg), node->line);
+            free_register(cg, key_reg);
+            free_register(cg, obj_reg);
+        }
+        free_register(cg, start_val_reg);
+
+        // set up end value register
+        int end_reg = alloc_register(cg);
+        codegen_expression_into(cg, node->for_stmt.end, end_reg);
+        
+        // set up step value register
+        int step_reg = alloc_register(cg);
+        if (node->for_stmt.step) {
+            codegen_expression_into(cg, node->for_stmt.step, step_reg);
+        } else {
+            emit(cg, INST(OP_LOAD_NUM_IMM, step_reg, 1, 0), node->line);
+        }
+
+        // loop start label
+        int loop_start = bytecode_current_offset(cg->chunk);
+        cg->loop_stack.continue_addr = loop_start;
+        
+        // load current counter value: temp_cur = var_expr
+        int cur_val_reg = alloc_register(cg);
+        if (expr->type == AST_INDEX_ACCESS) {
+            int obj_reg = codegen_expression(cg, expr->access.object);
+            int key_reg = codegen_expression(cg, expr->access.member);
+            emit(cg, INST(OP_TABLE_GET, cur_val_reg, obj_reg, key_reg), node->line);
+            free_register(cg, key_reg);
+            free_register(cg, obj_reg);
+        }
+        
+        // compare: if cur_val <= end, continue. else jump to exit.
+        int cmp_reg = alloc_register(cg);
+        emit(cg, INST(OP_CMP_LTE, cmp_reg, cur_val_reg, end_reg), node->line);
+        int jump_to_exit = emit(cg, INST(OP_JUMP_IF_FALSE, 0, cmp_reg, 0), node->line);
+        free_register(cg, cmp_reg);
+        free_register(cg, cur_val_reg);
+        
+        // body
+        codegen_block(cg, node->for_stmt.body);
+        
+        // increment: var_expr = var_expr + step
+        int inc_cur_reg = alloc_register(cg);
+        if (expr->type == AST_INDEX_ACCESS) {
+            int obj_reg = codegen_expression(cg, expr->access.object);
+            int key_reg = codegen_expression(cg, expr->access.member);
+            emit(cg, INST(OP_TABLE_GET, inc_cur_reg, obj_reg, key_reg), node->line);
+            free_register(cg, key_reg);
+            free_register(cg, obj_reg);
+        }
+        
+        int new_val_reg = alloc_register(cg);
+        emit(cg, INST(OP_ADD, new_val_reg, inc_cur_reg, step_reg), node->line);
+        free_register(cg, inc_cur_reg);
+        
+        // store back
+        if (expr->type == AST_INDEX_ACCESS) {
+            int obj_reg = codegen_expression(cg, expr->access.object);
+            int key_reg = codegen_expression(cg, expr->access.member);
+            emit(cg, INST(OP_TABLE_SET, obj_reg, key_reg, new_val_reg), node->line);
+            free_register(cg, key_reg);
+            free_register(cg, obj_reg);
+        }
+        free_register(cg, new_val_reg);
+        
+        // jump back to start
+        emit(cg, INST(OP_JUMP, loop_start, 0, 0), node->line);
+        
+        // patch exit jump
+        int exit_addr = bytecode_current_offset(cg->chunk);
+        PATCH_JUMP(cg, jump_to_exit, exit_addr);
+        
+        // cleanup
+        free_register(cg, step_reg);
+        free_register(cg, end_reg);
+        
+        cg->for_scope_depth--;
+        for (int i = saved_locals_count; i < cg->locals.count; i++) {
+            free(cg->locals.names[i]);
+        }
+        cg->locals.count = saved_locals_count;
+        cg->next_register = saved_next_register;
+        
+        int final_exit_addr = bytecode_current_offset(cg->chunk);
+        for (int i = prev_break_count; i < cg->loop_stack.break_count; i++) {
+            PATCH_JUMP(cg, cg->loop_stack.break_jumps[i], final_exit_addr);
+        }
     } else {                                                                        // no variable, condition loop
         // constant false condition: the body never runs, drop the whole loop
         if (node->for_stmt.condition) {

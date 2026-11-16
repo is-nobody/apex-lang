@@ -130,9 +130,10 @@ ASTNode* ast_create_if(ASTNode* condition, ASTNode* then_branch,
 }
 
 // for loop with optional variable name, condition, start/end/step for numeric range, and body
-ASTNode* ast_create_for(const char* var_name, ASTNode* condition, ASTNode* start, ASTNode* end, ASTNode* step, ASTNode* body, int line, int column) {
+ASTNode* ast_create_for(const char* var_name, ASTNode* var_expr, ASTNode* condition, ASTNode* start, ASTNode* end, ASTNode* step, ASTNode* body, int line, int column) {
     ASTNode* node = ast_create_node(AST_FOR_STMT, line, column);   // create for node with source location
     node->for_stmt.var_name = var_name ? strdup(var_name) : NULL;  // duplicate loop variable name if provided
+    node->for_stmt.var_expr = var_expr;                            // store loop variable expression
     node->for_stmt.condition = condition;                          // store condition expression (for generic for)
     node->for_stmt.start = start;                                  // store start value (for numeric for)
     node->for_stmt.end = end;                                      // store end value (for numeric for)
@@ -318,6 +319,7 @@ void ast_free_node(ASTNode* node) {
             break;
         case AST_FOR_STMT:                                               // for loop node
             free(node->for_stmt.var_name);                               // free loop variable name
+            if (node->for_stmt.var_expr) ast_free_node(node->for_stmt.var_expr);    // free loop variable expression
             if (node->for_stmt.condition) ast_free_node(node->for_stmt.condition);  // free condition if present
             if (node->for_stmt.start) ast_free_node(node->for_stmt.start);          // free start if present
             if (node->for_stmt.end) ast_free_node(node->for_stmt.end);              // free end if present

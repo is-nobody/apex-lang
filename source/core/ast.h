@@ -135,7 +135,8 @@ struct ASTNode {
         
         // for loop with optional variable, condition, range bounds, and step
         struct {
-            char* var_name;           // loop variable name (NULL for conditional loops)
+            char* var_name;           // loop variable name (NULL for conditional loops or var_expr)
+            ASTNode* var_expr;        // loop variable expression (e.g., table["key"])
             ASTNode* condition;       // loop condition (NULL for range loops)
             ASTNode* start;           // start value for numeric range loops
             ASTNode* end;             // end value for numeric range loops
@@ -259,7 +260,7 @@ ASTNode* ast_create_if(ASTNode* condition, ASTNode* then_branch,
                        ASTNode* elif_chain, ASTNode* else_branch);
 
 // for loop with optional variable name, condition, start/end/step for numeric range, and body
-ASTNode* ast_create_for(const char* var_name, ASTNode* condition, ASTNode* start, 
+ASTNode* ast_create_for(const char* var_name, ASTNode* var_expr, ASTNode* condition, ASTNode* start,
                         ASTNode* end, ASTNode* step, ASTNode* body, int line, int column);
 
 // import statement stores the module path as a duplicated string

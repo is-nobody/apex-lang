@@ -2953,8 +2953,9 @@ static ASTNode* parse_for_statement(Parser* parser) {
     int var_line = for_kw->line;
     int var_col = for_kw->column;
     bool is_table_iter = false;
+    ASTNode* var_expr = NULL;
 
-    if (!check(parser, TOKEN_IDENTIFIER)) {        // not an identifier
+    if (!check(parser, TOKEN_IDENTIFIER) && !check(parser, TOKEN_LBRACKET)) {        // not an identifier or bracket
         Token* bad_token = current_token(parser);
         int len = bad_token->value ? (int)utf8_char_len(bad_token->value) : 1;
         if (bad_token->type == TOKEN_STRING) {
@@ -2976,49 +2977,77 @@ static ASTNode* parse_for_statement(Parser* parser) {
         return NULL;
     }
 
-    bool is_range_loop = check_next(parser, TOKEN_EQUAL);  // check if '=' follows
-    bool is_table_loop = check_next(parser, TOKEN_IN);     // check if 'in' follows
-
-    if (is_range_loop || is_table_loop) {
+    bool is_range_loop = false;
+    bool is_table_loop = false;
+    if (check_next(parser, TOKEN_EQUAL)) {
+        is_range_loop = true;
         Token* id_tok = advance(parser);            // consume variable name
         var_line = id_tok->line;
         var_col = id_tok->column;
         var_name = strdup(id_tok->value);
-
+        advance(parser);                            // consume '='
+    } else if (check_next(parser, TOKEN_IN)) {
+        is_table_loop = true;
+        Token* id_tok = advance(parser);            // consume variable name
+        var_line = id_tok->line;
+        var_col = id_tok->column;
+        var_name = strdup(id_tok->value);
+        advance(parser);                            // consume 'in'
+    } else if (check_next(parser, TOKEN_LBRACKET)) {
+        int saved_pos = parser->current;
+        ASTNode* target = parse_prefix(parser);
+        while (check(parser, TOKEN_LBRACKET)) {
+            target = parse_index_access(parser, target);
+        }
+        if (check(parser, TOKEN_EQUAL)) {
+            is_range_loop = true;
+            var_expr = target;
+            var_line = target->line;
+            var_col = target->column;
+            advance(parser); // consume '='
+        } else if (check(parser, TOKEN_IN)) {
+            is_table_loop = true;
+            var_expr = target;
+            var_line = target->line;
+            var_col = target->column;
+            advance(parser); // consume 'in'
+        } else {
+            parser->current = saved_pos;
+            if (target) ast_free_node(target);
+        }
+    }
+    if (is_range_loop || is_table_loop) {
         if (is_table_loop) {
-            advance(parser);                        // consume 'in'
             start = parse_expression(parser);       // parse table expression
             is_table_iter = true;                   // table iteration
             if (start && parser->semantic_checks) {
                 ValueType start_type = infer_expression_type(parser, start);
                 if (start_type != TYPE_TABLE && start_type != TYPE_ANY && start_type != TYPE_UNKNOWN) {
                     parser_error_at(parser, start->line, start->column, get_node_len(start),
-                                  "For loop table must be a table, got %s", type_name(start_type));  // error
+                                "For loop table must be a table, got %s", type_name(start_type));  // error
                 }
             }
         } else {
-            advance(parser);                        // consume '='
             start = parse_expression(parser);       // parse start value
             if (start) {
                 parser_check_number_expr(parser, start, "For loop start");  // validate number
             }
-            
             if (check(parser, TOKEN_COMMA)) {
                 Token* comma_token = advance(parser);    // consume comma
-                
                 if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF) || 
                     check(parser, TOKEN_INDENT)) {
                     parser_error_at(parser, comma_token->line, comma_token->column + 2, 1,
                                 "Expected end value after ','");  // error
-                    free(var_name);
+                    if (var_name) free(var_name);
+                    if (var_expr) ast_free_node(var_expr);
                     var_name = NULL;
+                    var_expr = NULL;
                 } else {
                     end = parse_expression(parser);     // parse end value
                     if (end) {
                         parser_check_number_expr(parser, end, "For loop end");  // validate number
                     }
-
-                    if (var_name && match(parser, TOKEN_COMMA)) {  // optional step
+                    if ((var_name || var_expr) && match(parser, TOKEN_COMMA)) {  // optional step
                         Token* comma2_token = &parser->tokens[parser->current - 1];
                         if (check(parser, TOKEN_NEWLINE) || check(parser, TOKEN_EOF) || 
                             check(parser, TOKEN_INDENT)) {
@@ -3039,8 +3068,10 @@ static ASTNode* parse_for_statement(Parser* parser) {
             } else {
                 parser_error_at(parser, start->line, start->column + get_node_len(start), 1,
                                 "Expected comma after start value");  // error
-                free(var_name);
+                if (var_name) free(var_name);
+                if (var_expr) ast_free_node(var_expr);
                 var_name = NULL;
+                var_expr = NULL;
             }
         }
     } else {
@@ -3062,8 +3093,8 @@ static ASTNode* parse_for_statement(Parser* parser) {
     parser_exit_scope(parser);                     // exit loop scope
     parser->loop_depth--;                           // exit loop
 
-    ASTNode* result = ast_create_for(var_name, condition, start, end, step, body, for_kw->line, for_kw->column);
-    free(var_name);                                 // free variable name
+    ASTNode* result = ast_create_for(var_name, var_expr, condition, start, end, step, body, for_kw->line, for_kw->column);
+    if (var_name) free(var_name);                   // free variable name
     return result;
 }
 
