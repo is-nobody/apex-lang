@@ -119,6 +119,7 @@ typedef struct {
     int for_scope_depth;           // nesting depth of for-scopes; used to decide local vs global
     int unswitch_depth;            // recursion depth of loop unswitching; caps body duplication
     int unroll_depth;              // recursion depth of loop unrolling; caps code bloat
+    int rotate_depth;              // recursion depth of do-while rotation; caps nested reentry
     int loop_depth;                // nesting depth of active for-loops (used to gate copy propagation)
     uint8_t* jump_targets;         // jump_targets[pc] == 1 when some jump in the chunk targets pc
     int      jump_targets_cap;     // allocated size of jump_targets

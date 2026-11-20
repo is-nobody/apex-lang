@@ -9,14 +9,19 @@
 
 // emits an incref of the raw value in src when it is heap-tagged
 static void emit_arg_incref(CodeBuf* cb, int src) {
-    x86_emit_mov_r64_r64(cb, X86_RCX, src);                        // rcx = raw value
+#if defined(_WIN32) || defined(_WIN64)
+    int arg0 = X86_RCX;                                             // win64 first integer parameter
+#else
+    int arg0 = X86_RDI;                                             // sysv first integer parameter
+#endif
+    x86_emit_mov_r64_r64(cb, X86_RDX, src);                        // rdx = raw value (scratch)
     x86_emit_movabs_r11(cb, X86_QNAN_MASK);                        // r11 = tag mask
-    emit_u8(cb, 0x4C); emit_u8(cb, 0x21); emit_u8(cb, 0xD9);       // and rcx, r11
-    x86_emit_cmp_r64(cb, X86_RCX, X86_R11);                        // (v & qnan) == qnan?
+    emit_u8(cb, 0x4C); emit_u8(cb, 0x21); emit_u8(cb, 0xDA);       // and rdx, r11
+    x86_emit_cmp_r64(cb, X86_RDX, X86_R11);                        // (v & qnan) == qnan?
     emit_u8(cb, 0x0F); emit_u8(cb, 0x85);                          // jne skip (untagged)
     size_t skip_patch = cb->len;                                   // skip jump placeholder
     emit_i32(cb, 0);
-    x86_emit_mov_r64_r64(cb, X86_RDI, src);                        // arg0 = raw value
+    x86_emit_mov_r64_r64(cb, arg0, src);                           // arg0 = raw value
     x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_incref_value);
     emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                          // call rax
     int32_t skip_rel = (int32_t)cb->len - (int32_t)(skip_patch + 4);
@@ -375,6 +380,9 @@ void x86_loop_emit_call(X86LoopBodyState* st) {
 
     // OP_CALL_0/1/2 — args in xmm0/xmm1, result in xmm0
     x86_cache_flush(st->cache, cb);
+
+    // spill the frame register first
+    x86_emit_store_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));
     if (st->op == OP_CALL_1 || st->op == OP_CALL_2)
         x86_emit_movsd_load(cb, 0, x86_slot_disp(st->b));
     if (st->op == OP_CALL_2)
@@ -389,7 +397,6 @@ void x86_loop_emit_call(X86LoopBodyState* st) {
         x86_emit_movq_rax_xmm(cb, 1);
         emit_arg_incref(cb, X86_RAX);
     }
-    x86_emit_store_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));
     emit_call_func(cb, st->ctx, st->a);
     x86_emit_load_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));
     x86_cache_clear(st->cache);

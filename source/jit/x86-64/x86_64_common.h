@@ -457,6 +457,14 @@ static inline void x86_emit_cmp_r64(CodeBuf* b, int a, int bb) {
     emit_u8(b, 0xC0 | ((bb & 7) << 3) | (a & 7));
 }
 
+// and dst, src (dst &= src) — 21 /r: rm=dst, reg=src (same shape as cmp)
+static inline void x86_emit_and_r64(CodeBuf* b, int dst, int src) {
+    uint8_t rex = 0x48 | ((src >= 8) ? 0x04 : 0) | ((dst >= 8) ? 0x01 : 0);
+    emit_u8(b, rex);
+    emit_u8(b, 0x21);
+    emit_u8(b, 0xC0 | ((src & 7) << 3) | (dst & 7));
+}
+
 // movzx r32, byte [base + disp32]
 static inline void x86_emit_movzx_r32_m8(CodeBuf* b, int dst, int base, int32_t disp) {
     uint8_t rex = 0x40 | ((dst >= 8) ? 0x04 : 0) | ((base >= 8) ? 0x01 : 0);
@@ -536,5 +544,8 @@ void x86_cache_put(XmmCache* c, int x, int s);
 
 // writes back all dirty slots to memory and clears the cache
 void x86_cache_flush(XmmCache* c, CodeBuf* cb);
+
+// merge-point flush: spills and evicts only the dirty (divergent) slots
+void x86_cache_flush_dirty_evict(XmmCache* c, CodeBuf* cb);
 
 #endif // APEX_JIT_X86_64_COMMON_H

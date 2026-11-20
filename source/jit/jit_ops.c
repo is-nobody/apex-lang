@@ -31,20 +31,29 @@ void jit_op_move(Value* dst, Value src) {
     store_owned(dst, src);                                         // decref old, incref new
 }
 
+// fast signed decimal itoa for the whole-number range; returns digits written
+static int jit_itoa(char* buf, long long n) {
+    char tmp[20];                                                  // reversed scratch
+    int i = 0;                                                     // scratch index
+    unsigned long long u;                                          // magnitude
+    int len = 0;                                                   // digits written
+    if (n < 0) {                                                   // negative: sign + magnitude
+        buf[len++] = '-';
+        u = (unsigned long long)(-(n + 1)) + 1ULL;                 // negate without overflow
+    } else {
+        u = (unsigned long long)n;                                // non-negative magnitude
+    }
+    do { tmp[i++] = (char)('0' + (u % 10)); u /= 10; } while (u);  // reversed digits
+    while (i) buf[len++] = tmp[--i];                              // unreversed into buf
+    return len;                                                    // total length
+}
+
 // formats a whole number when it fits the fast path, mirroring the interpreter
 static int format_num_tail(char* buf, size_t cap, double n) {
     long long inum = (long long)n;                                 // truncate to integer
     if ((double)inum == n && inum > -1000000000000000LL &&
         inum < 1000000000000000LL) {
-        int len = 0;                                               // digits written
-        char tmp[24];                                              // reversed scratch
-        unsigned long long u;                                      // magnitude
-        if (inum < 0) { buf[len++] = '-'; u = (unsigned long long)(-(inum + 1)) + 1ULL; }
-        else u = (unsigned long long)inum;                         // non-negative magnitude
-        int i = 0;                                                 // scratch index
-        do { tmp[i++] = (char)('0' + (u % 10)); u /= 10; } while (u);  // reversed digits
-        while (i) { buf[len++] = tmp[--i]; }                       // unreversed into buf
-        return len;                                                // total length
+        return jit_itoa(buf, inum);                               // exact integer: no snprintf
     }
     return snprintf(buf, cap, "%.15g", n);                         // fractional or huge
 }
@@ -100,7 +109,7 @@ void jit_op_concat(Value* dst, Value* l, Value* r) {
         double num = AS_NUMBER(*r);                                 // unwrap right number
         int numlen;                                                // formatted number length
         if (fabs(num) >= 1e6 || fabs(num - (long long)num) < 1e-9)
-            numlen = snprintf(numbuf, sizeof(numbuf), "%.0f", num); // large or integer
+            numlen = format_num_tail(numbuf, sizeof(numbuf), num); // integer: itoa fast path
         else
             numlen = snprintf(numbuf, sizeof(numbuf), "%.15g", num); // general format
         Value out = make_string(a->chars, a->length, numbuf, numlen);
@@ -114,7 +123,7 @@ void jit_op_concat(Value* dst, Value* l, Value* r) {
         double num = AS_NUMBER(*l);                                 // unwrap left number
         int numlen;                                                // formatted number length
         if (fabs(num) >= 1e6 || fabs(num - (long long)num) < 1e-9)
-            numlen = snprintf(numbuf, sizeof(numbuf), "%.0f", num); // large or integer
+            numlen = format_num_tail(numbuf, sizeof(numbuf), num); // integer: itoa fast path
         else
             numlen = snprintf(numbuf, sizeof(numbuf), "%.15g", num); // general format
         Value out = make_string(numbuf, numlen, b->chars, b->length);

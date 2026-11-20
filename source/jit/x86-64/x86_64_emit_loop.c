@@ -1249,15 +1249,33 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
     bool* eq_merge = ctx->scratch_is_target;                         // helper-jump merge marks
     if (eq_merge)
         for (int pc = entry; pc <= back_edge; pc++) eq_merge[pc] = false;  // clear this loop's range
+
+    // branch-join marks are kept separately from helper merges
+    int join_span = back_edge - entry + 1;                           // pcs [entry, back_edge]
+    bool* join_merge = (bool*)calloc(join_span ? join_span : 1, sizeof(bool));
+    if (!join_merge) return false;
     int nfix = 0;
 
     int loop_top = (int)cb->len;                                     // loop start address
 
+    // pre-mark join points: every conditional jump that skips forward inside
+    // the body (if/else arms, short-circuit) merges two cache states
+    for (int pc = entry; pc < back_edge; pc++) {
+        Opcode op = chunk->code[pc].opcode;
+        bool is_cond = (op == OP_JUMP_IF_FALSE) ||
+                       (op >= OP_JUMP_IF_EQ && op <= OP_JUMP_IF_NOT_NONE);
+        if (!is_cond && op != OP_JUMP) continue;                     // plain op: no branch
+        int tgt = chunk->code[pc].operands[0];                       // internal forward target?
+        if (tgt > pc && tgt < back_edge) join_merge[tgt - entry] = true;  // join merges paths
+    }
+
     for (int pc = entry; pc < back_edge; pc++) {
         if (eq_merge && eq_merge[pc]) {                              // helper-jump lands here:
-            x86_cache_flush(&cache, cb);                             // fall-through spills to memory,
-            x86_cache_clear(&cache);                                 // both paths reload from memory
-        }
+            x86_cache_flush(&cache, cb);                             // the call clobbered all xmms,
+        }                                                             // spill dirty + full clear
+        if (join_merge[pc - entry]) {                                // plain branch joins here:
+            x86_cache_flush_dirty_evict(&cache, cb);                 // spill+evict only the dirty
+        }                                                             // slots; clean ones agree
         label_off[pc - entry] = (int32_t)cb->len;
         Instruction* inst = &chunk->code[pc];
 
@@ -1273,6 +1291,13 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
                 case OP_CMP_LTE: fused_jcc = 0x87; break;                       // ja
                 case OP_CMP_GTE: fused_jcc = 0x82; break;                       // jb
                 default: break;
+            }
+            // string slots compare unordered under ucomisd
+            if (fused_jcc &&
+                ((inst->opcode == OP_CMP_EQ || inst->opcode == OP_CMP_NEQ)) &&
+                (((info->str_slots >> inst->operands[1]) & 1ULL) ||
+                 ((info->str_slots >> inst->operands[2]) & 1ULL))) {
+                fused_jcc = 0;
             }
             bool pc1_is_target = false;                              // is pc+1 already a jump target?
             if (fused_jcc) {
@@ -1339,7 +1364,15 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
                                chunk->code[pc + 1].opcode == OP_CMP_GT ||
                                chunk->code[pc + 1].opcode == OP_CMP_LTE ||
                                chunk->code[pc + 1].opcode == OP_CMP_GTE);
+            // and-chain: pc+2 retests the same cond reg the skipped CMP rewrote
+            if (local_skip &&
+                pc + 2 < back_edge &&
+                chunk->code[pc + 2].opcode == OP_JUMP_IF_FALSE &&
+                chunk->code[pc + 2].operands[1] == cond_reg) {
+                tgt = chunk->code[pc + 2].operands[0];               // skip to the retest's target
+            }
             if (!local_skip) x86_cache_flush(&cache, cb);            // flush before branch
+            else x86_cache_flush_dirty_evict(&cache, cb);            // spill the divergent set only
             emit_u8(cb, 0x0F); emit_u8(cb, 0x84);                    // je rel32 (bit0 == 0 -> false)
             if (nfix >= range_size)
                 JIT_FATAL("fixup overflow in cond-enter loop at pc=%d", entry);
@@ -1348,9 +1381,7 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
             nfix++;
             emit_i32(cb, 0);
         } else if (inst->opcode == OP_JUMP_IF_EQ || inst->opcode == OP_JUMP_IF_NEQ) {
-            // type-dispatched equality: the interpreter compares numbers,
-            // strings, bools, none and tables by kind, so the raw-bit float
-            // compare is wrong for tagged operands; route through the helper
+            // type-dispatched equality
             int tgt = inst->operands[0];
             int a   = inst->operands[1];
             int b   = inst->operands[2];
@@ -1358,7 +1389,57 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
             if (xa < 0) JIT_FATAL("cache full: cond-enter eq a=%d (pc=%d)", a, pc);
             int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);
             if (xb < 0) JIT_FATAL("cache full: cond-enter eq b=%d (pc=%d)", b, pc);
-            x86_cache_flush(&cache, cb);                          // spill before the call
+
+            x86_emit_movq_gpr_xmm(cb, X86_RAX, xa);                // rax = left bits
+            x86_emit_movq_gpr_xmm(cb, X86_RDX, xb);                // rdx = right bits
+            x86_emit_mov_r64_r64(cb, X86_R8, X86_RAX);              // r8 = left copy
+            x86_emit_mov_r64_r64(cb, X86_R9, X86_RDX);              // r9 = right copy
+            x86_emit_movabs_r11(cb, X86_QNAN_MASK);                 // r11 = qnan mask
+
+            x86_emit_cmp_r64(cb, X86_RAX, X86_RDX);                // bits fully equal?
+            emit_u8(cb, 0x0F); emit_u8(cb, 0x84);                  // je EQUAL (rel32)
+            size_t p_bits_eq = cb->len;
+            emit_i32(cb, 0);
+
+            // and r8, r11 / and r9, r11 via helper (correct direction)
+            x86_emit_and_r64(cb, X86_R8, X86_R11);                  // r8 &= tag mask
+            x86_emit_and_r64(cb, X86_R9, X86_R11);                  // r9 &= tag mask
+            x86_emit_cmp_r64(cb, X86_R8, X86_R11);                  // left tagged?
+            emit_u8(cb, 0x0F); emit_u8(cb, 0x85);                  // jne NUM (rel32)
+            size_t p_l_num = cb->len;
+            emit_i32(cb, 0);
+            x86_emit_cmp_r64(cb, X86_R9, X86_R11);                  // right tagged?
+            emit_u8(cb, 0x0F); emit_u8(cb, 0x85);                  // jne NUM (rel32)
+            size_t p_r_num = cb->len;
+            emit_i32(cb, 0);
+            x86_emit_cmp_r64(cb, X86_R8, X86_R9);                  // same tag?
+            emit_u8(cb, 0x0F); emit_u8(cb, 0x85);                  // jne NEQ (rel32)
+            size_t p_tag_neq = cb->len;
+            emit_i32(cb, 0);
+            emit_u8(cb, 0xE9);                                     // jmp HELPER (rel32)
+            size_t p_helper = cb->len;
+            emit_i32(cb, 0);
+
+            size_t num_lbl = cb->len;                               // both plain numbers
+            x86_emit_ucomisd_rr(cb, xa, xb);                        // ucomisd left, right
+            emit_u8(cb, 0x0F); emit_u8(cb, 0x8A);                   // jp NEQ (unordered)
+            size_t p_num_p = cb->len;
+            emit_i32(cb, 0);
+            emit_u8(cb, 0x0F); emit_u8(cb, 0x84);                   // je EQUAL
+            size_t p_num_e = cb->len;
+            emit_i32(cb, 0);
+
+            size_t equal_lbl = cb->len;                             // equal: al = 1
+            emit_u8(cb, 0xB0); emit_u8(cb, 0x01);                   // mov al, 1
+            emit_u8(cb, 0xE9);                                     // jmp DONE (rel32)
+            size_t p_eq_done = cb->len;
+            emit_i32(cb, 0);
+
+            size_t neq_lbl = cb->len;                               // not equal: al = 0
+            emit_u8(cb, 0xB0); emit_u8(cb, 0x00);                   // mov al, 0
+
+            size_t helper_lbl = cb->len;                            // slow path entry
+            x86_cache_flush(&cache, cb);                            // spill before the call
             if (save_slot < 0)
                 JIT_FATAL("no save slot for eq helper (pc=%d)", pc);
             x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // save frame_reg
@@ -1373,8 +1454,10 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
             emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                  // call rax (al = equal?)
             x86_emit_load_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // restore frame_reg
             x86_cache_clear(&cache);                               // call clobbered all xmm
+
+            size_t done_lbl = cb->len;                              // decision point
             emit_u8(cb, 0xA8); emit_u8(cb, 0x01);                  // test al, 1
-            emit_u8(cb, 0x0F);                                     // jcc rel32
+            emit_u8(cb, 0x0F);                                      // jcc rel32
             emit_u8(cb, (inst->opcode == OP_JUMP_IF_EQ) ? 0x85 : 0x84);  // jne / je
             if (nfix >= range_size)
                 JIT_FATAL("fixup overflow in cond-enter loop at pc=%d", entry);
@@ -1384,6 +1467,24 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
             emit_i32(cb, 0);
             if (eq_merge && tgt > pc && tgt <= back_edge)           // helper call killed the xmms,
                 eq_merge[tgt] = true;                               // target must reset the cache
+
+            // single patch pass: every placeholder gets its target now
+            int32_t rel = (int32_t)equal_lbl - (int32_t)(p_bits_eq + 4);
+            memcpy(cb->buf + p_bits_eq, &rel, 4);                  // bits equal -> EQUAL
+            rel = (int32_t)num_lbl - (int32_t)(p_l_num + 4);
+            memcpy(cb->buf + p_l_num, &rel, 4);                   // left untagged -> NUM
+            rel = (int32_t)num_lbl - (int32_t)(p_r_num + 4);
+            memcpy(cb->buf + p_r_num, &rel, 4);                    // right untagged -> NUM
+            rel = (int32_t)neq_lbl - (int32_t)(p_tag_neq + 4);
+            memcpy(cb->buf + p_tag_neq, &rel, 4);                  // different tags -> NEQ
+            rel = (int32_t)helper_lbl - (int32_t)(p_helper + 4);
+            memcpy(cb->buf + p_helper, &rel, 4);                   // string/table -> HELPER
+            rel = (int32_t)neq_lbl - (int32_t)(p_num_p + 4);
+            memcpy(cb->buf + p_num_p, &rel, 4);                    // unordered -> NEQ
+            rel = (int32_t)equal_lbl - (int32_t)(p_num_e + 4);
+            memcpy(cb->buf + p_num_e, &rel, 4);                    // equal numbers -> EQUAL
+            rel = (int32_t)done_lbl - (int32_t)(p_eq_done + 4);
+            memcpy(cb->buf + p_eq_done, &rel, 4);                  // EQUAL -> DONE
         } else if (inst->opcode == OP_JUMP_IF_NONE ||
                    inst->opcode == OP_JUMP_IF_NOT_NONE) {            // none-test jumps
             int tgt = inst->operands[0];
@@ -1427,6 +1528,16 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
             x86_cache_flush(&cache, cb);
             uint8_t jcc = jcc_for_entry_op(inst->opcode);
             emit_u8(cb, 0x0F); emit_u8(cb, jcc);
+            if (nfix >= range_size)
+                JIT_FATAL("fixup overflow in cond-enter loop at pc=%d", entry);
+            fixups[nfix].patch_at  = cb->len;
+            fixups[nfix].target_pc = tgt;
+            nfix++;
+            emit_i32(cb, 0);
+        } else if (inst->opcode == OP_JUMP) {                       // internal unconditional branch
+            int tgt = inst->operands[0];                            // target pc
+            x86_cache_flush(&cache, cb);                            // join point: spill both paths
+            emit_u8(cb, 0xE9);                                     // jmp rel32
             if (nfix >= range_size)
                 JIT_FATAL("fixup overflow in cond-enter loop at pc=%d", entry);
             fixups[nfix].patch_at  = cb->len;
@@ -1540,12 +1651,12 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
 
     emit_leave_ret(cb, abi, base_frame);                             // leave; ret
 
+    free(join_merge);                                               // scratch join marks done
     *out_fn = (void*)(cb->buf + mark);                               // publish entry pointer
     return true;                                                     // emission successful
 }
 
-// resets the per-emission bail bookkeeping; every variant starts from scratch
-// so a later variant never re-patches an earlier one's already-resolved offsets
+// resets the per-emission bail bookkeeping
 static void loop_bail_reset(JITContext* ctx, JitLoopInfo* info) {
     info->n_bail_patches = 0;                                     // fresh fixups for this variant
     info->bail_patch_at = ctx->scratch_bail;                      // shared, one entry per pc

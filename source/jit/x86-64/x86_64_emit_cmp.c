@@ -123,6 +123,13 @@ void x86_loop_emit_cmp(X86LoopBodyState* st) {
         loop_emit_cmp_base(st);
         return;
     }
+    // equality on a slot that may hold a string must use the type-dispatched helper
+    if ((st->op == OP_CMP_EQ || st->op == OP_CMP_NEQ) && st->info &&
+        (((st->info->str_slots >> st->a) & 1ULL) ||
+         ((st->info->str_slots >> st->b) & 1ULL))) {
+        loop_emit_cmp_base(st);
+        return;
+    }
     CodeBuf* cb = st->cb;                                            // destination code buffer
     XmmCache* cache = st->cache;                                     // live register cache
     int xa = x86_cache_load(cache, cb, st->a);                       // load left operand

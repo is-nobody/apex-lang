@@ -112,3 +112,16 @@ void x86_cache_flush(XmmCache* c, CodeBuf* cb) {
     }
     x86_cache_clear(c);
 }
+
+// merge-point flush: spills the fall-through's dirty slots to memory and evicts only those
+void x86_cache_flush_dirty_evict(XmmCache* c, CodeBuf* cb) {
+    for (int i = 0; i < XMM_CACHE_REGS; i++) {
+        int s = c->reg_slot[i];
+        if (s < 0) continue;
+        if (!c->slot_dirty[s]) continue;                            // clean: stays valid
+        x86_emit_movsd_store(cb, i, x86_slot_disp(s));              // spill divergent slot
+        c->slot_reg[s] = -1;                                        // evict it: reload at use
+        c->reg_slot[i] = -1;
+        c->slot_dirty[s] = false;
+    }
+}

@@ -210,9 +210,116 @@ static int body_stmt_count(ASTNode* body) {
     return body->block.statements->count;
 }
 
+// true when the body contains control flow the while-shaped lowering compiles into internal conditional jumps
+static bool body_has_internal_branches(ASTNode* node) {
+    if (!node) return false;
+    switch (node->type) {
+        case AST_IF_STMT:                                      // if/else-if chains
+        case AST_MATCH_STMT:                                   // match dispatch
+        case AST_TERNARY:                                      // ternary expressions
+            return true;
+        case AST_BINARY:
+            if (node->binary.op == TOKEN_AND || node->binary.op == TOKEN_OR)
+                return true;                                   // short-circuit evaluation
+            return body_has_internal_branches(node->binary.left) ||
+                   body_has_internal_branches(node->binary.right);
+        case AST_EXPR_STMT:
+            return body_has_internal_branches(node->expr_stmt.expression);
+        case AST_VAR_DECL:
+        case AST_ASSIGN:
+            return body_has_internal_branches(node->var_assign.value) ||
+                   body_has_internal_branches(node->var_assign.access_path);
+        case AST_RETURN_STMT:
+            return body_has_internal_branches(node->return_stmt.value);
+        case AST_UNARY:
+            return body_has_internal_branches(node->unary.operand);
+        case AST_INDEX_ACCESS:
+            return body_has_internal_branches(node->access.object) ||
+                   body_has_internal_branches(node->access.member);
+        case AST_STRING_INTERP:
+            for (int i = 0; i < node->string_interp.parts->count; i++)
+                if (body_has_internal_branches(node->string_interp.parts->nodes[i])) return true;
+            return false;
+        case AST_CALL:
+            for (int i = 0; i < node->call.arguments->count; i++)
+                if (body_has_internal_branches(node->call.arguments->nodes[i])) return true;
+            return body_has_internal_branches(node->call.callee);
+        case AST_BLOCK:
+        case AST_PROGRAM:
+            for (int i = 0; i < node->block.statements->count; i++)
+                if (body_has_internal_branches(node->block.statements->nodes[i])) return true;
+            return false;
+        case AST_CASE:
+            return body_has_internal_branches(node->case_stmt.body);
+        case AST_FOR_STMT:                                      // nested loops own their shape
+            return false;
+        default:
+            return false;
+    }
+}
+
+// names every local the condition may read (idents only, conservative for calls)
+static void cond_collect_reads(ASTNode* cond, const char** names, int* count, int cap);
+
+// helper for cond_collect_reads: appends a name unless already present
+static void cond_add_read(const char* name, const char** names, int* count, int cap) {
+    if (!name || *count >= cap) return;                         // null or full
+    for (int i = 0; i < *count; i++)
+        if (strcmp(names[i], name) == 0) return;               // dedupe
+    names[(*count)++] = name;
+}
+
+// collects identifier names read by the condition (cap-limited, conservative)
+static void cond_collect_reads(ASTNode* cond, const char** names, int* count, int cap) {
+    if (!cond) return;
+    switch (cond->type) {
+        case AST_IDENTIFIER:
+            cond_add_read(cond->identifier.name, names, count, cap);
+            return;
+        case AST_BINARY:
+            cond_collect_reads(cond->binary.left, names, count, cap);
+            cond_collect_reads(cond->binary.right, names, count, cap);
+            return;
+        case AST_UNARY:
+            cond_collect_reads(cond->unary.operand, names, count, cap);
+            return;
+        case AST_TERNARY:
+            cond_collect_reads(cond->ternary.condition, names, count, cap);
+            cond_collect_reads(cond->ternary.true_expr, names, count, cap);
+            cond_collect_reads(cond->ternary.false_expr, names, count, cap);
+            return;
+        case AST_INDEX_ACCESS:
+            cond_collect_reads(cond->access.object, names, count, cap);
+            cond_collect_reads(cond->access.member, names, count, cap);
+            return;
+        case AST_STRING_INTERP:
+            for (int i = 0; i < cond->string_interp.parts->count; i++)
+                cond_collect_reads(cond->string_interp.parts->nodes[i], names, count, cap);
+            return;
+        case AST_CALL:
+            cond_collect_reads(cond->call.callee, names, count, cap);
+            for (int i = 0; i < cond->call.arguments->count; i++)
+                cond_collect_reads(cond->call.arguments->nodes[i], names, count, cap);
+            return;
+        default:
+            return;                                             // literals, awaits: nothing
+    }
+}
+
+// true when the loop condition reads any name the body assigns
+static bool cond_reads_body_assigned(CodeGenerator* cg, ASTNode* cond, ASTNode* body) {
+    (void)cg;                                                   // parity with sibling passes
+    const char* names[16];
+    int count = 0;
+    cond_collect_reads(cond, names, &count, 16);
+    if (count == 0) return false;                               // reads nothing local
+    for (int i = 0; i < count; i++)
+        if (body_assigns_name(body, names[i])) return true;    // body mutates a read
+    return false;
+}
+
 // returns the trip count when the loop bound is a small foldable constant
-// range, or -1 when the loop cannot be unrolled; writes start / step into
-// out_start / out_step for the caller
+// range, or -1 when the loop cannot be unrolled
 static int unrollable_trip_count(CodeGenerator* cg, ASTNode* node,
                                   double* out_start, double* out_step) {
     if (!node->for_stmt.var_name) return -1;                 // table iteration
@@ -577,6 +684,92 @@ static void collect_hoistable_exprs(ASTNode* node, ASTNode* body, const char* lo
         default:
             break;
     }
+}
+
+// emits a condition loop rotated into do-while form
+static void emit_condition_loop_rotated(CodeGenerator* cg, ASTNode* node) {
+    ASTNode* condition = node->for_stmt.condition;
+    ASTNode* body      = node->for_stmt.body;
+
+    int saved_locals_count  = cg->locals.count;                 // capture for-scope boundary
+    int saved_next_register = cg->next_register;
+    cg->for_scope_depth++;                                      // enter for-scope
+
+    LocalNumSnap cond_entry = snap_numbers(cg);                 // snapshot before condition
+
+    int guard_jump = -1;
+    bool cv;
+    if (!try_fold_bool(cg, condition, &cv)) {                   // unknown at compile time:
+        guard_jump = codegen_optimized_condition(cg, condition, node->line);  // fused compare+jump
+        if (guard_jump < 0) {                                   // not a comparison: plain eval
+            int cond_reg = codegen_expression(cg, condition);
+            guard_jump = emit(cg, INST(OP_JUMP_IF_FALSE, 0, cond_reg, 0), node->line);
+            free_register(cg, cond_reg);
+        }
+    } else if (cv) {
+        guard_jump = -1;                                        // provably true: guard folded away
+    } else {
+        free_snap(cond_entry);                                  // provably false: no code at all
+        cg->for_scope_depth--;                                  // exit for-scope
+        cg->imm_lvn.count = 0;                                  // merge point hygiene
+        return;
+    }
+
+    int body_start = bytecode_current_offset(cg->chunk);         // rotated body entry
+    mark_jump_target(cg, body_start);                            // jump target bookkeeping
+
+    cg->loop_stack.continue_addr = -2;                           // continue: patch to the exit test
+    int prev_continue_jump_count = cg->loop_stack.continue_jump_count;
+    int prev_floor = cg->register_floor;
+
+    cg->imm_lvn.count = 0;                                       // body: back-edge merge point
+    int saved_num_cache = cg->num_cache.count;
+    int saved_str_cache = cg->str_cache.count;
+    LocalNumSnap loop_entry = snap_numbers(cg);                  // snapshot before body
+
+    codegen_block(cg, body);                                     // emit body once
+
+    cg->for_scope_depth--;                                       // exit for-scope
+    for (int i = saved_locals_count; i < cg->locals.count; i++) // drop body locals
+        free(cg->locals.names[i]);
+    cg->locals.count = saved_locals_count;
+    cg->next_register = saved_next_register;
+
+    int exit_test = bytecode_current_offset(cg->chunk);          // continue lands here
+    for (int i = prev_continue_jump_count; i < cg->loop_stack.continue_jump_count; i++)
+        PATCH_JUMP(cg, cg->loop_stack.continue_jumps[i], exit_test);   // continue -> re-test
+    cg->loop_stack.continue_jump_count = prev_continue_jump_count;      // scope pop
+
+    LocalNumSnap loop_exit = snap_numbers(cg);                   // snapshot after body
+    int merge_n = loop_entry.count < loop_exit.count ? loop_entry.count : loop_exit.count;
+    for (int i = 0; i < merge_n; i++)                            // intersect entry and exit
+        cg->locals.is_number[i] = loop_entry.flags[i] && loop_exit.flags[i];
+    free_snap(loop_entry);
+    free_snap(loop_exit);
+
+    int exit_jump = codegen_optimized_condition(cg, condition, node->line);  // fused exit test
+    if (exit_jump < 0) {                                          // not a comparison: plain eval
+        int cond_reg = codegen_expression(cg, condition);
+        exit_jump = emit(cg, INST(OP_JUMP_IF_FALSE, 0, cond_reg, 0), node->line);
+        free_register(cg, cond_reg);
+    }
+
+    emit(cg, INST(OP_JUMP, body_start, 0, 0), node->line);      // unconditional back edge
+
+    cg->register_floor = prev_floor;                             // restore floor
+    num_cache_truncate(cg, saved_num_cache);                     // loop may not have run
+    str_cache_truncate(cg, saved_str_cache);
+    free_snap(cond_entry);
+
+    int end_addr = bytecode_current_offset(cg->chunk);           // exit landing
+    if (guard_jump >= 0)
+        PATCH_JUMP(cg, guard_jump, end_addr);                    // zero-trip guard
+    PATCH_JUMP(cg, exit_jump, end_addr);                         // exit test
+
+    for (int i = 0; i < cg->loop_stack.break_count; i++)         // patch breaks
+        PATCH_JUMP(cg, cg->loop_stack.break_jumps[i], end_addr);
+
+    cg->imm_lvn.count = 0;                                       // loop exit is a merge point
 }
 
 // emits for loops, supporting both range loops and table iteration
@@ -1085,6 +1278,27 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             bool cv;
             if (try_fold_bool(cg, node->for_stmt.condition, &cv) && !cv) return;
         }
+
+        // do-while rotation
+        if (cg->rotate_depth == 0 &&
+            node->for_stmt.condition && node->for_stmt.body &&
+            body_has_internal_branches(node->for_stmt.body) &&
+            !body_unsafe_for_licm(node->for_stmt.body) &&
+            !body_has_break_or_continue(node->for_stmt.body) &&
+            cond_reads_body_assigned(cg, node->for_stmt.condition, node->for_stmt.body)) {
+            cg->rotate_depth++;                                  // recursion guard
+            emit_condition_loop_rotated(cg, node);
+            cg->rotate_depth--;                                  // restore
+
+            cg->loop_stack.break_count = prev_break_count;       // restore loop state
+            cg->loop_stack.continue_addr = prev_continue_addr;
+            cg->loop_stack.is_fast = prev_is_fast;
+            cg->loop_stack.is_table_iter = prev_is_table_iter;
+            cg->loop_depth--;                                   // re-enable copy propagation
+            cg->imm_lvn.count = 0;                              // loop exit is a merge point
+            return;
+        }
+
         int saved_locals_count = cg->locals.count;                                  // capture for-scope boundary
         int saved_next_register = cg->next_register;
         cg->for_scope_depth++;                                                      // enter for-scope

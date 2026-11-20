@@ -90,6 +90,7 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
     cg->for_scope_depth = 0;                                               // not inside any for
     cg->unswitch_depth = 0;                                                // no unswitch in flight
     cg->unroll_depth = 0;                                                  // no unroll in flight
+    cg->rotate_depth = 0;                                                  // no rotation in flight
     cg->jump_targets     = NULL;
     cg->jump_targets_cap = 0;
     cg->hoist.active   = false;

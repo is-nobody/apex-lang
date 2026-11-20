@@ -1314,6 +1314,25 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
         } else if (is_loop_entry_op(entry_op)) {                 // classic condition-entry
             exit_pc = chunk->code[entry].operands[0];            // exit address in op1
             kind = JIT_LOOP_CONDITION;
+            if (exit_pc != pc + 1 &&                             // entry jump exits elsewhere:
+                loop_op == OP_JUMP &&                            // rotated body with a
+                exit_pc >= entry && exit_pc <= pc) {             // guard skipping inside the body
+                int found_exit = -1;                            // fall-in guard: the first
+                for (int i = entry + 1; i <= pc; i++) {          // conditional jump inside the
+                    Opcode op = chunk->code[i].opcode;           // body that targets pc+1 is
+                    bool is_cond = (op == OP_JUMP_IF_FALSE) ||   // the real exit test
+                                   (op >= OP_JUMP_IF_EQ && op <= OP_JUMP_IF_GTE_IMM);
+                    if (!is_cond) continue;
+                    int tgt = chunk->code[i].operands[0];
+                    if (tgt <= pc) continue;                     // internal skip
+                    if (found_exit < 0) found_exit = tgt;
+                    else if (found_exit != tgt) { found_exit = -2; break; }
+                }
+                if (found_exit == pc + 1) {                       // body is do-while shaped
+                    exit_pc = pc + 1;                            // entry jump is an internal skip
+                    kind = JIT_LOOP_COND_ENTER;
+                }
+            }
         } else if (loop_op == OP_JUMP && entry_op != OP_JUMP_IF_FALSE) {
             int found_exit = -1;
             for (int i = entry + 1; i <= pc; i++) {
@@ -1409,11 +1428,20 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
                 if (tgt == exit_pc) continue;                    // loop exit
                 ok = false; break;
             }
-            if (op == OP_JUMP || op == OP_FOR_NEXT ||            // unconditional or nested for
+            if (op == OP_JUMP) {                                 // unconditional internal branch
+                if (kind == JIT_LOOP_COND_ENTER) {               // if/else join, ternary skip
+                    int jt = chunk->code[i].operands[0];
+                    if (jt >= entry && jt <= pc) continue;       // forward join inside the body
+                    if (jt == exit_pc) continue;                 // direct exit (break-style)
+                }
+                ok = false;                                      // backward: nested loop
+                continue;
+            }
+            if (op == OP_FOR_NEXT ||                             // nested numeric for
                 op == OP_TABLE_ITER_NEXT ||                      // nested table iter
                 op == OP_JUMP_MATCH_NUM || op == OP_JUMP_MATCH_STR ||
                 op == OP_JUMP_MATCH_BOOL || op == OP_JUMP_MATCH_NONE) {
-                ok = false;                                      // nested loop or internal branch
+                ok = false;                                      // nested loop or match dispatch
             }
         }
         if (!ok) continue;

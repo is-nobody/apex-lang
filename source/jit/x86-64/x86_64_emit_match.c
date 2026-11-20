@@ -47,11 +47,60 @@ static void match_num(X86FuncEmitState* st) {
     memcpy(cb->buf + skip_patch, &skip_rel, 4);                      // patch skip
 }
 
-// OP_JUMP_MATCH_STR: call helper, branch on non-zero result
+// OP_JUMP_MATCH_STR: inline fast path, helper fallback
 static void match_str(X86FuncEmitState* st) {
     CodeBuf* cb = st->cb;                                            // destination code buffer
     XmmCache* cache = st->cache;                                     // live register cache
-    x86_cache_flush(cache, cb);                                      // call clobbers xmm
+    x86_cache_flush(cache, cb);                                      // branchy: empty the cache
+
+    x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(st->a));        // rax = subject bits
+    x86_emit_mov_r64_r64(cb, X86_RCX, X86_RAX);                      // mov rcx, rax
+    x86_emit_movabs_r11(cb, 0x7FFB000000000000ULL);                 // r11 = string tag bits
+    emit_u8(cb, 0x4C); emit_u8(cb, 0x21); emit_u8(cb, 0xD9);         // and rcx, r11
+    x86_emit_cmp_r64(cb, X86_RCX, X86_R11);                          // tag == TAG_STRING?
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x85);                            // jne helper (not a string)
+    size_t notag_patch = cb->len;                                   // placeholder offset
+    emit_i32(cb, 0);
+
+    emit_u8(cb, 0x48); emit_u8(cb, 0xC1); emit_u8(cb, 0xE0); emit_u8(cb, 0x10);  // shl rax, 16
+    emit_u8(cb, 0x48); emit_u8(cb, 0xC1); emit_u8(cb, 0xE8); emit_u8(cb, 0x10);  // shr rax, 16
+
+    uint64_t case_ptr = (uint64_t)(uintptr_t)st->chunk->constants[st->b].cached_str;
+    x86_emit_movabs_r11(cb, case_ptr);                               // r11 = interned case string
+    emit_u8(cb, 0x4C); emit_u8(cb, 0x39); emit_u8(cb, 0xD8);         // cmp rax, r11
+    prepare_match_target(st);                                       // flush/snap before branch
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x84);                            // je: identity match
+    x86_func_jump_fixup(st, cb->len, st->d);                         // record fixup site
+    emit_i32(cb, 0);
+
+    emit_u8(cb, 0x44); emit_u8(cb, 0x8B); emit_u8(cb, 0x40); emit_u8(cb, 0x08);  // mov r8d, [rax+8]
+    emit_u8(cb, 0x45); emit_u8(cb, 0x8B); emit_u8(cb, 0x53); emit_u8(cb, 0x08);  // mov r10d, [r11+8]
+    emit_u8(cb, 0x45); emit_u8(cb, 0x39); emit_u8(cb, 0xD0);         // cmp r10d, r8d
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x85);                            // jne helper (length differs)
+    size_t len_patch = cb->len;                                     // placeholder offset
+    emit_i32(cb, 0);
+
+    emit_u8(cb, 0x48); emit_u8(cb, 0x31); emit_u8(cb, 0xFF);         // xor rdi, rdi
+    size_t loop_top = cb->len;                                       // byte loop head
+    emit_u8(cb, 0x44); emit_u8(cb, 0x0F); emit_u8(cb, 0xB6);         // movzx r9d, byte [rax+rdi+16]
+    emit_u8(cb, 0x0C); emit_u8(cb, 0x07); emit_u8(cb, 0x10);         // modrm01 + sib(rax+rdi) + disp8
+    emit_u8(cb, 0x45); emit_u8(cb, 0x0F); emit_u8(cb, 0xB6);         // movzx r10d, byte [r11+rdi+16]
+    emit_u8(cb, 0x14); emit_u8(cb, 0x1F); emit_u8(cb, 0x10);         // modrm01 + sib(r11+rdi) + disp8
+    emit_u8(cb, 0x45); emit_u8(cb, 0x39); emit_u8(cb, 0xD1);         // cmp r10d, r9d
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x85);                            // jne helper (bytes differ)
+    size_t byte_patch = cb->len;                                     // placeholder offset
+    emit_i32(cb, 0);
+    emit_u8(cb, 0x48); emit_u8(cb, 0xFF); emit_u8(cb, 0xC7);         // inc rdi
+    emit_u8(cb, 0x4C); emit_u8(cb, 0x39); emit_u8(cb, 0xC7);         // cmp rdi, r8
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x82);                            // jb loop_top
+    emit_i32(cb, (int32_t)loop_top - (int32_t)(cb->len + 4));        // back edge rel32
+
+    prepare_match_target(st);                                       // flush/snap before branch
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x84);                            // je: content match
+    x86_func_jump_fixup(st, cb->len, st->d);                         // record fixup site
+    emit_i32(cb, 0);
+
+    size_t helper_entry = cb->len;                                   // slow path entry
 #if defined(_WIN32) || defined(_WIN64)
     x86_emit_load_r64_rbp(cb, X86_RCX, x86_slot_disp(st->a));        // win64: rcx = subject
 #else
@@ -70,6 +119,14 @@ static void match_str(X86FuncEmitState* st) {
     emit_u8(cb, 0x85); emit_u8(cb, 0xC0);                            // test eax, eax
     x86_cache_clear(cache);                                          // callee clobbered xmm
     emit_match_jcc(st, 0x85);                                        // jne target (match)
+
+    int32_t rel = (int32_t)helper_entry - (int32_t)(notag_patch + 4); // misses jump to the helper
+    memcpy(cb->buf + notag_patch, &rel, 4);                          // non-string -> helper
+    rel = (int32_t)helper_entry - (int32_t)(len_patch + 4);
+    memcpy(cb->buf + len_patch, &rel, 4);                            // length miss -> helper
+    rel = (int32_t)helper_entry - (int32_t)(byte_patch + 4);
+    memcpy(cb->buf + byte_patch, &rel, 4);                           // byte miss -> helper
+    st->did_flush = true;                                            // cache flushed up front
 }
 
 // OP_JUMP_MATCH_BOOL: bit-exact compare against MAKE_BOOL(b)
