@@ -370,6 +370,12 @@ void vm_tls_restore(VM* prev);
 // returns a human-readable type name for a value
 const char* vm_value_type_name(Value value);
 
+// converts a value into its c-string representation
+const char* vm_value_to_cstr(Value v, char* buf, int buf_size);
+
+// materializes a compile-time table literal into a fresh table
+Table* vm_materialize_const_table(BytecodeChunk* chunk, Constant* c);
+
 // prints a value to stdout
 void vm_print_value(Value value);
 

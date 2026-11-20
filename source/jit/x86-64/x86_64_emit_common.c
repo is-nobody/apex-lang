@@ -481,6 +481,47 @@ bool slot_read_before_write(BytecodeChunk* chunk, int pc_after, int end, int s) 
             case OP_SWITCH_STR: case OP_SWITCH_NUM:              // reads subject in operands[0]
                 reads = (d == s);
                 break;
+            case OP_CONCAT:                                      // reads both operands
+                reads = (a == s || b == s);
+                break;
+            case OP_TABLE_GET: case OP_TABLE_GET_NUM:            // table and key registers
+            case OP_TABLE_SET: case OP_TABLE_SET_NUM:            // table, key, and value
+                reads = (a == s || b == s || d == s);
+                break;
+            case OP_TABLE_GET_INT:                               // table register
+            case OP_TABLE_SET_INT: case OP_TABLE_SET_CONST:      // table and value registers
+            case OP_TABLE_GET_CONST:                             // table register
+                reads = (a == s || b == s || d == s);
+                break;
+            case OP_TABLE_GET_KEY_STR: {                         // table and packed number reg
+                int num_reg = b & 0xFFFF;                        // packed number register
+                reads = (a == s || num_reg == s);
+                break;
+            }
+            case OP_TABLE_SET_KEY_STR: {                         // table, value, packed number
+                int num_reg = b & 0xFFFF;                        // packed number register
+                reads = (d == s || a == s || num_reg == s);
+                break;
+            }
+            case OP_TABLE_APPEND:                                // table and value registers
+                reads = (d == s || a == s);
+                break;
+            case OP_FOR_INIT:                                    // start, end, step registers
+                reads = (d == s || a == s || b == s);
+                break;
+            case OP_FOR_NEXT: case OP_FOR_NEXT_LOOP:             // counter slot is rewritten
+            case OP_TABLE_ITER_NEXT:                             // old var value is released
+                reads = (d == s);
+                break;
+            case OP_STORE_GLOBAL:                                // source value register
+                reads = (d == s);
+                break;
+            case OP_PUSH_ARG:                                      // argument source register
+                reads = (d == s);
+                break;
+            case OP_TABLE_ITER_INIT:                               // iterated table register
+                reads = (d == s);
+                break;
             case OP_RETURN: case OP_RETURN_NUM:                  // reads d
             case OP_RETURN_BOOL:                                 // incl. boolean
                 reads = (d == s);

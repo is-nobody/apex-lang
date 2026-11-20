@@ -85,6 +85,9 @@ void x86_func_emit_move(X86FuncEmitState* st) {
                 case CONST_STRING:                                   // interned string pointer
                     bits = MAKE_STRING((StringObject*)c->cached_str);
                     break;
+                case CONST_FUNCTION:                                 // function index constant
+                    bits = MAKE_FUNCTION(c->function_index);
+                    break;
                 default:
                     JIT_FATAL("LOAD_CONST with unsupported type %d (func=%d pc=%d)",
                               c->type, st->func_idx, st->pc);
@@ -104,6 +107,16 @@ void x86_loop_emit_move(X86LoopBodyState* st) {
     CodeBuf* cb = st->cb;                                            // destination code buffer
     XmmCache* cache = st->cache;                                     // live register cache
     BytecodeChunk* chunk = st->chunk;                                // bytecode being compiled
+
+    if (st->op == OP_MOVE && st->info->has_basic_ops) {              // owned slots need accounting
+        x86_loop_emit_basic(st);                                     // refcount-aware helper move
+        return;
+    }
+    if ((st->op == OP_LOAD_GLOBAL || st->op == OP_STORE_GLOBAL) &&
+        st->info->globals_via_helper) {                              // rbx is reserved for a table
+        x86_loop_emit_basic(st);                                     // helper-based global access
+        return;
+    }
 
     switch (st->op) {
         case OP_MOVE: {                                              // reg-to-reg copy
@@ -175,6 +188,9 @@ void x86_loop_emit_move(X86LoopBodyState* st) {
                     break;
                 case CONST_STRING:
                     bits = MAKE_STRING((StringObject*)c->cached_str);
+                    break;
+                case CONST_FUNCTION:                                 // function index constant
+                    bits = MAKE_FUNCTION(c->function_index);
                     break;
                 default:
                     JIT_FATAL("LOAD_CONST unsupported type %d (pc=%d)", c->type, st->pc);

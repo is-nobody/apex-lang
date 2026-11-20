@@ -4,6 +4,7 @@
 // MIT license
 
 #include "jit_internal.h"
+#include "jit_ops.h"
 #include "vm.h"
 #include <stdint.h>
 #include <stdbool.h>
@@ -78,7 +79,7 @@ static void jit_trace_first_entry(JitLoopInfo* info, int pc, uint64_t* regs,
                     info->live_in_kind[s] == JIT_SLOT_NUM_PROVEN ? "proven" :
                     info->live_in_kind[s] == JIT_SLOT_NUM ? "number" :
                     info->live_in_kind[s] == JIT_SLOT_TABLE ? "table" :
-                    info->live_in_kind[s] == JIT_SLOT_TABLE_ANY ? "table-any" : "none");
+                    info->live_in_kind[s] == JIT_SLOT_TABLE_ANY ? "table-any" : "any");
         }
     }
 }
@@ -126,17 +127,20 @@ JITContext* jit_create(BytecodeChunk* chunk) {
     ctx->backend = be;                                             // backend owns the code page
 
     int n = ctx->func_count;                                     // shorthand
-    ctx->pure         = (bool*)calloc(n, sizeof(bool));          // per-fn purity
+    ctx->pure         = (bool*)calloc(n, sizeof(bool));          // per-fn fast-tier flag
+    ctx->basic        = (bool*)calloc(n, sizeof(bool));          // per-fn basic-tier flag
     ctx->strict_pure  = (bool*)calloc(n, sizeof(bool));          // per-fn strict numeric purity
     ctx->has_native   = (bool*)calloc(n, sizeof(bool));          // per-fn: code emitted?
     ctx->range_start  = (int*) calloc(n, sizeof(int));           // per-fn first pc
     ctx->range_end    = (int*) calloc(n, sizeof(int));           // per-fn one past last pc
     ctx->func_table   = (void**)calloc(n, sizeof(void*));        // per-fn runtime entry slot
+    ctx->many_table   = (void**)calloc(n, sizeof(void*));        // per-fn many-arg entry slot
     ctx->return_type  = (JitReturnType*)calloc(n, sizeof(JitReturnType));  // per-fn return kind
 
-    if (!ctx->pure || !ctx->strict_pure || !ctx->has_native ||   // verify allocations
+    if (!ctx->pure || !ctx->basic || !ctx->strict_pure ||        // verify allocations
+        !ctx->has_native ||
         !ctx->range_start || !ctx->range_end || !ctx->func_table ||
-        !ctx->return_type) {
+        !ctx->many_table || !ctx->return_type) {
         jit_destroy(ctx);                                        // cleanup on failure
         return NULL;
     }
@@ -168,18 +172,21 @@ JITContext* jit_create(BytecodeChunk* chunk) {
     int code_count = chunk->code_count;
     ctx->scratch_is_target = (bool*)calloc(code_count, sizeof(bool));
     ctx->scratch_label_off = (int32_t*)malloc(sizeof(int32_t) * (code_count + 1));
+    ctx->scratch_bail      = (size_t*)malloc(sizeof(size_t) * code_count);   // one bail-out per pc suffices
+    ctx->scratch_ret       = (size_t*)malloc(sizeof(size_t) * code_count);   // one return jump per pc suffices
     ctx->scratch_fixups    = (JumpFixup*)malloc(sizeof(JumpFixup) * code_count);
     ctx->scratch_code_buf_cap = (size_t)code_count * be->bytes_per_instruction + 1024;
     ctx->scratch_code_buf  = (uint8_t*)malloc(ctx->scratch_code_buf_cap);
     if (!ctx->scratch_is_target || !ctx->scratch_label_off ||    // verify scratch allocations
+        !ctx->scratch_bail || !ctx->scratch_ret ||
         !ctx->scratch_fixups || !ctx->scratch_code_buf) {
         return jit_fail(ctx, prev_bail);                         // cleanup on failure
     }
 
     CodeBuf cb = { ctx->code, 0, cap };                          // code emission state
 
-    for (int i = 0; i < n; i++) {                                // emit each pure function
-        if (!ctx->pure[i]) continue;                             // skip non-pure
+    for (int i = 0; i < n; i++) {                                // emit each compilable function
+        if (!ctx->pure[i] && !ctx->basic[i]) continue;           // skip uncompiled fns
         size_t before = cb.len;
         (void)before;                                            // only read by trace build
         if (!be->emit_function(ctx, &cb, i, &ctx->func_table[i])) {
@@ -190,10 +197,11 @@ JITContext* jit_create(BytecodeChunk* chunk) {
         if (jit_trace_enabled()) {
             char lbl[96];
             snprintf(lbl, sizeof(lbl),
-                     "; === function %d (arity=%d, regs=%d, strict_pure=%d) ===",
+                     "; === function %d (arity=%d, regs=%d, tier=%s) ===",
                      i, chunk->functions[i].arity,
                      chunk->functions[i].max_registers,
-                     ctx->strict_pure[i] ? 1 : 0);
+                     ctx->strict_pure[i] ? "strict" :
+                     ctx->pure[i]      ? "pure" : "basic");
             jit_disasm_dump(lbl, ctx->code + before, cb.len - before);
         }
 #endif
@@ -346,17 +354,21 @@ void jit_destroy(JITContext* ctx) {
     if (ctx->code && ctx->backend) {
         ctx->backend->free_exec(ctx->code, ctx->code_size);
     }
-    free(ctx->pure);                                             // free purity flags
+    free(ctx->pure);                                             // free fast-tier flags
+    free(ctx->basic);                                            // free basic-tier flags
     free(ctx->strict_pure);                                      // free strict-purity flags
     free(ctx->has_native);                                       // free native flags
     free(ctx->range_start);                                      // free range starts
     free(ctx->range_end);                                        // free range ends
     free(ctx->func_table);                                       // free runtime slots
+    free(ctx->many_table);                                       // free many-arg entry slots
     free(ctx->return_type);                                      // free return-kind table
     free(ctx->loops);                                            // free loop info array
     free(ctx->pc_to_loop);                                       // free pc->loop lookup
     free(ctx->scratch_is_target);                                // free shared jump-target marks
     free(ctx->scratch_label_off);                                // free shared label offsets
+    free(ctx->scratch_bail);                                     // free shared bail offsets
+    free(ctx->scratch_ret);                                      // free shared return-jump offsets
     free(ctx->scratch_fixups);                                   // free shared jump fixups
     free(ctx->scratch_code_buf);                                 // free shared scratch emitter
     free(ctx);                                                   // free context itself
@@ -380,7 +392,7 @@ double jit_call_0(JITContext* ctx, int func_idx) {
     void* p = ctx->func_table[func_idx];                         // fetch native entry pointer
     if (!p) return 0.0;                                          // function was not compiled
     double (*fn)(void);                                          // declare fn-ptr type
-    memcpy(&fn, &p, sizeof(void*));                              // avoid fn-ptr cast UB
+    memcpy(&fn, &p, sizeof(void*));                              // avoid fn-ptr cast ub
     return fn();                                                 // call native code
 }
 
@@ -390,7 +402,7 @@ double jit_call_1(JITContext* ctx, int func_idx, double a) {
     void* p = ctx->func_table[func_idx];                         // fetch native entry pointer
     if (!p) return 0.0;                                          // function was not compiled
     double (*fn)(double);                                        // declare fn-ptr type
-    memcpy(&fn, &p, sizeof(void*));                              // avoid fn-ptr cast UB
+    memcpy(&fn, &p, sizeof(void*));                              // avoid fn-ptr cast ub
     return fn(a);                                                // call native code with arg
 }
 
@@ -400,8 +412,63 @@ double jit_call_2(JITContext* ctx, int func_idx, double a, double b) {
     void* p = ctx->func_table[func_idx];                         // fetch native entry pointer
     if (!p) return 0.0;                                          // function was not compiled
     double (*fn)(double, double);                                // declare fn-ptr type
-    memcpy(&fn, &p, sizeof(void*));                              // avoid fn-ptr cast UB
+    memcpy(&fn, &p, sizeof(void*));                              // avoid fn-ptr cast ub
     return fn(a, b);                                             // call native code with args
+}
+
+// invokes a compiled function through its many-arg entry
+double jit_call_many(JITContext* ctx, int func_idx, uint64_t* args, int argc) {
+    if (!ctx || !args || func_idx < 0 || func_idx >= ctx->func_count) return 0.0;  // validate args
+    void* p = ctx->many_table[func_idx];                         // fetch many-arg entry stub
+    if (!p) return 0.0;                                          // stub was not emitted
+    double (*fn)(uint64_t*);                                     // one pointer parameter
+    memcpy(&fn, &p, sizeof(void*));                              // avoid fn-ptr cast ub
+    (void)argc;                                                  // arity is baked into the stub
+    return fn(args);                                             // stub tail-jumps into the body
+}
+
+// true when the compiled entry consumes raw doubles only (unchecked arithmetic)
+bool jit_strict_pure(JITContext* ctx, int func_idx) {
+    if (!ctx || func_idx < 0 || func_idx >= ctx->func_count) return false;  // validate args
+    return ctx->strict_pure[func_idx] && ctx->has_native[func_idx];  // emitted and unchecked
+}
+
+// re-tags a raw jit return value according to the callee's proven return kind
+Value jit_box_value(JITContext* jit, int func_idx, double r) {
+    switch (jit_return_type(jit, func_idx)) {
+        case JIT_RET_BOOL: {
+            // jit booleans are nan-boxed (MAKE_BOOL bits in xmm0); AS_BOOL tests bit 0
+            uint64_t bits;
+            memcpy(&bits, &r, 8);
+            return MAKE_BOOL((bits & 1) != 0);
+        }
+        case JIT_RET_NONE: return MAKE_NONE();                   // none tag, r ignored
+        case JIT_RET_ANY: {
+            // return type wasn't provable at compile time
+            uint64_t bits;
+            memcpy(&bits, &r, 8);
+
+            // plain number
+            if ((bits & QNAN) != QNAN) {
+                return bits;
+            }
+
+            // qnan-tagged. look at the tag field (bits 48-50).
+            uint64_t tag = (bits >> TAG_SHIFT) & TAG_MASK;
+            if (tag != 0) {
+                return bits;
+            }
+
+            // tag == 0
+            if (bits == MAKE_QNAN(TAG_NONE)) {
+                return bits;                                     // it's none
+            }
+
+            // real nan
+            return MAKE_QNAN(TAG_NAN) | (bits >> 63);
+        }
+        default:           return MAKE_NUMBER(r);                // plain number
+    }
 }
 
 // returns the number of functions that were successfully JIT-compiled
@@ -416,6 +483,9 @@ void jit_set_vm(JITContext* ctx, void* vm) { if (ctx) ctx->vm = vm; }
 static bool live_in_slot_ok(Value v, JitSlotKind kind, JitTableUse* use) {
     if (kind == JIT_SLOT_NUM_PROVEN) {
         return true;                                       // static proof makes an entry guard redundant
+    }
+    if (kind == JIT_SLOT_ANY) {
+        return true;                                       // helper-lowered reads check at runtime
     }
     if (kind == JIT_SLOT_NUM) {
         return IS_NUMBER(v);                               // numeric slot: any unboxed double

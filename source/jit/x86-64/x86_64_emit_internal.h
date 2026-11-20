@@ -102,6 +102,12 @@ typedef struct X86FuncEmitState {
     int              range_size;                                     // end - start
     size_t           mark;                                           // offset of the body entry (for self-call)
     bool             is_pure;                                        // true: strictly numeric (optimized emit); false: use checked base path
+    bool             basic_mode;                                     // true: standard-opcode tier (refcounted slot stores)
+    bool             needs_cleanup;                                  // slots can hold mortal refs at exits
+    int              ret_slot;                                       // frame slot staging the return value
+    int              pair_slot;                                      // frame slot pair for fused set args
+    int              iter_depth_slot;                                // saved vm->iterator_depth
+    int              titer_depth_slot;                               // saved vm->table_iter_depth
 
     bool*            is_target;                                      // jump-target marks per bytecode pc
     int32_t*         label_off;                                      // emitted label offset per pc (+1 sentinel)
@@ -121,6 +127,12 @@ typedef struct X86FuncEmitState {
     size_t           tab_fixup_at[256];                              // inline jump-table slots awaiting patch
     int              tab_fixup_pc[256];                              // bytecode pc each slot must point at
     int              tab_fixup_count;                                // pending jump-table slots
+
+    size_t*          bail_fixup_at;                                // vm->running bail-outs awaiting patch (shared scratch)
+    int              n_bail_fixups;                                  // pending bail fixups
+
+    size_t*          ret_fixup_at;                                   // return jumps to the cleanup entry (shared scratch)
+    int              n_ret_fixups;                                   // pending return jumps
 
     XmmCache*        cache;                                          // live xmm register cache
 
@@ -190,6 +202,10 @@ void x86_func_emit_cmp  (X86FuncEmitState* st);                      // OP_CMP_*
 void x86_func_emit_jump (X86FuncEmitState* st);                      // OP_JUMP*, OP_JUMP_IF_*
 void x86_func_emit_match(X86FuncEmitState* st);                      // OP_JUMP_MATCH_*, OP_SWITCH_*
 void x86_func_emit_call (X86FuncEmitState* st);                      // OP_CALL_*, OP_RETURN*
+void x86_func_emit_basic(X86FuncEmitState* st);                      // standard-opcode tier helpers
+void x86_func_emit_pre_decref(X86FuncEmitState* st);                 // release dest before a raw store
+bool x86_func_call_needs_check(X86FuncEmitState* st);                // strict/interpreted callee?
+void x86_func_emit_call_checked(X86FuncEmitState* st, int argc);     // checked args-stack call
 
 // loop body category entry points
 void x86_loop_emit_move (X86LoopBodyState* st);                      // OP_MOVE, OP_LOAD_*, OP_LOAD/STORE_GLOBAL
@@ -197,6 +213,7 @@ void x86_loop_emit_arith(X86LoopBodyState* st);                      // OP_ADD..
 void x86_loop_emit_cmp  (X86LoopBodyState* st);                      // OP_CMP_*
 void x86_loop_emit_call (X86LoopBodyState* st);                      // OP_CALL_*
 void x86_loop_emit_table(X86LoopBodyState* st);                      // OP_TABLE_*
+void x86_loop_emit_basic(X86LoopBodyState* st);                      // standard-opcode tier helpers
 
 // loop entry / dispatch helpers (defined in x86_64_emit_loop.c)
 void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,

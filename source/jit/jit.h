@@ -10,6 +10,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+// highest arity a native entry can accept (args arrive in xmm0..xmm7)
+#define JIT_MAX_CALL_ARITY 8
+
 // opaque JIT context holding all per-chunk JIT state
 typedef struct JITContext JITContext;
 
@@ -49,6 +52,12 @@ double jit_call_1(JITContext* ctx, int func_idx, double a);
 
 // invokes a compiled function taking two double arguments
 double jit_call_2(JITContext* ctx, int func_idx, double a, double b);
+
+// invokes a compiled function whose arity matches argc (3..8)
+double jit_call_many(JITContext* ctx, int func_idx, uint64_t* args, int argc);
+
+// true when the compiled entry consumes raw doubles only (unchecked arithmetic)
+bool jit_strict_pure(JITContext* ctx, int func_idx);
 
 // returns the number of functions that were successfully JIT-compiled
 int jit_compiled_count(JITContext* ctx);

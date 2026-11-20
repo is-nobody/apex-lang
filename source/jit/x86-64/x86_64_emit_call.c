@@ -4,6 +4,24 @@
 // MIT license
 
 #include "x86_64_emit_internal.h"
+#include "jit_ops.h"
+#include <stddef.h>
+
+// emits an incref of the raw value in src when it is heap-tagged
+static void emit_arg_incref(CodeBuf* cb, int src) {
+    x86_emit_mov_r64_r64(cb, X86_RCX, src);                        // rcx = raw value
+    x86_emit_movabs_r11(cb, X86_QNAN_MASK);                        // r11 = tag mask
+    emit_u8(cb, 0x4C); emit_u8(cb, 0x21); emit_u8(cb, 0xD9);       // and rcx, r11
+    x86_emit_cmp_r64(cb, X86_RCX, X86_R11);                        // (v & qnan) == qnan?
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x85);                          // jne skip (untagged)
+    size_t skip_patch = cb->len;                                   // skip jump placeholder
+    emit_i32(cb, 0);
+    x86_emit_mov_r64_r64(cb, X86_RDI, src);                        // arg0 = raw value
+    x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_incref_value);
+    emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                          // call rax
+    int32_t skip_rel = (int32_t)cb->len - (int32_t)(skip_patch + 4);
+    memcpy(cb->buf + skip_patch, &skip_rel, 4);                    // patch skip jump
+}
 
 // spills every live dirty slot before an impending call
 static void spill_dirty_for_call(X86FuncEmitState* st, int live_a, int live_b) {
@@ -37,6 +55,8 @@ static void func_emit_call_1(X86FuncEmitState* st) {
         else        x86_emit_movsd_load(cb, 0, x86_slot_disp(st->b));
     }
     x86_cache_clear(cache);                                          // xmm regs clobbered by callee
+    x86_emit_movq_rax_xmm(cb, 0);                                   // rax = raw arg bits
+    emit_arg_incref(cb, X86_RAX);                                   // callee owns its arg copy
     emit_call_or_self(cb, st->ctx, st->a, st->func_idx, st->mark);   // direct self-call or via table
     x86_cache_put(cache, 0, st->d);                                  // xmm0 = result
 
@@ -79,6 +99,10 @@ static void func_emit_call_2(X86FuncEmitState* st) {
     }
     x86_emit_sse66_rr(cb, 0x28, 0, XMM_SCRATCH);                     // arg0 from scratch to xmm0
     x86_cache_clear(cache);                                          // xmm regs clobbered
+    x86_emit_movq_rax_xmm(cb, 0);                                   // rax = raw arg0 bits
+    emit_arg_incref(cb, X86_RAX);                                   // callee owns its arg0 copy
+    x86_emit_movq_rax_xmm(cb, 1);                                   // rax = raw arg1 bits
+    emit_arg_incref(cb, X86_RAX);                                   // callee owns its arg1 copy
     emit_call_or_self(cb, st->ctx, st->a, st->func_idx, st->mark);   // direct self-call or via table
     x86_cache_put(cache, 0, st->d);                                  // xmm0 = result
 
@@ -110,6 +134,47 @@ static void func_emit_call_0(X86FuncEmitState* st) {
 static void func_emit_return(X86FuncEmitState* st) {
     CodeBuf* cb = st->cb;                                            // destination code buffer
     XmmCache* cache = st->cache;                                     // live register cache
+
+    if (st->needs_cleanup) {                                         // stage value, jump to cleanup
+        x86_cache_flush(cache, cb);                                  // frame must hold the value
+        switch (st->op) {
+            case OP_RETURN:                                          // return slot value
+            case OP_RETURN_NUM:                                      // return number from register
+            case OP_RETURN_BOOL: {                                   // return bool from register
+                x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(st->d)); // rax = frame[d]
+                if (st->op == OP_RETURN) {                           // any type may be tagged
+                    x86_emit_mov_r64_r64(cb, X86_RDI, X86_RAX);      // arg0 = value
+                    x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_incref_value);
+                    emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);            // call rax (no-op for numbers)
+                    x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(st->d)); // reload after call
+                }
+                x86_emit_store_r64_rbp(cb, X86_RAX, x86_slot_disp(st->ret_slot)); // stage
+                break;
+            }
+            case OP_RETURN_NUM_IMM: {                                // return number immediate
+                double dv = (double)(int64_t)st->a;                  // immediate as double
+                uint64_t bits; memcpy(&bits, &dv, 8);                // raw bits
+                x86_emit_movabs_rax(cb, bits);                       // rax = bits
+                x86_emit_store_r64_rbp(cb, X86_RAX, x86_slot_disp(st->ret_slot));
+                break;
+            }
+            case OP_RETURN_NONE: {                                   // return none, no value
+                x86_emit_movabs_rax(cb, X86_NONE_BITS);              // rax = none bits
+                x86_emit_store_r64_rbp(cb, X86_RAX, x86_slot_disp(st->ret_slot));
+                break;
+            }
+            default: break;
+        }
+        x86_cache_clear(cache);                                      // no state survives the jump
+        emit_u8(cb, 0xE9);                                           // jmp cleanup
+        if (st->n_ret_fixups >= st->range_size)                    // one per pc is the hard bound
+            JIT_FATAL("return fixup overflow in function %d", st->func_idx);
+        st->ret_fixup_at[st->n_ret_fixups++] = cb->len;              // patch once cleanup exists
+        emit_i32(cb, 0);                                             // rel32 placeholder
+        st->did_flush = true;                                        // suppress merge flush
+        return;
+    }
+
     switch (st->op) {
         case OP_RETURN:                                              // return slot value
         case OP_RETURN_NUM:                                          // return number from register
@@ -132,8 +197,8 @@ static void func_emit_return(X86FuncEmitState* st) {
             break;
         }
         case OP_RETURN_NONE: {                                       // return none, no value
-            emit_u8(cb, 0x66); emit_u8(cb, 0x0F);
-            emit_u8(cb, 0x57); emit_u8(cb, 0xC0);                    // xorpd xmm0, xmm0
+            x86_emit_movabs_rax(cb, X86_NONE_BITS);                  // rax = none bit pattern
+            x86_emit_movq_xmm_rax(cb, 0);                            // raw bits survive compiled callers
             break;
         }
         default: break;
@@ -198,20 +263,58 @@ static void func_emit_builtin_call(X86FuncEmitState* st) {
     }
 }
 
+// loads the vm pointer into rax through the ctx->vm indirection
+static void emit_load_vm_for_check(CodeBuf* cb, JITContext* ctx) {
+    x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&ctx->vm);         // rax = &ctx->vm
+    x86_emit_load_r64_base(cb, X86_RAX, X86_RAX, 0);                // rax = ctx->vm
+}
+
+// emits a vm->running check after a call inside a basic-tier function
+static void func_emit_post_call_check(X86FuncEmitState* st) {
+    if (!st->basic_mode) return;                                    // pure tier keeps its shape
+    CodeBuf* cb = st->cb;
+    emit_load_vm_for_check(cb, st->ctx);
+    emit_u8(cb, 0x80); emit_u8(cb, 0xB8);                           // cmp byte [rax+disp32], 0
+    emit_i32(cb, (int32_t)offsetof(VM, running));                   // offset of the running flag
+    emit_u8(cb, 0x00);                                              // compare against zero
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x84);                           // je rel32 (bail)
+    if (st->n_bail_fixups >= st->range_size)                       // one per pc is the hard bound
+        JIT_FATAL("bail fixup overflow in function %d", st->func_idx);
+    st->bail_fixup_at[st->n_bail_fixups++] = cb->len;               // patched at cleanup emission
+    emit_i32(cb, 0);                                                // rel32 placeholder
+}
+
 // function body dispatch for the call/return category
 void x86_func_emit_call(X86FuncEmitState* st) {
     switch (st->op) {
-        case OP_CALL_0: func_emit_call_0(st); break;                 // zero-arg call
-        case OP_CALL_1: func_emit_call_1(st); break;                 // one-arg call
-        case OP_CALL_2: func_emit_call_2(st); break;                 // two-arg call
+        case OP_CALL_0:                                             // zero-arg call
+            if (st->basic_mode && x86_func_call_needs_check(st)) {  // no native entry?
+                x86_func_emit_call_checked(st, 0);                  // checked coroutine path
+                break;
+            }
+            func_emit_call_0(st); func_emit_post_call_check(st); break;
+        case OP_CALL_1:                                             // one-arg call
+            if (st->basic_mode && x86_func_call_needs_check(st)) {  // strict or interpreted callee
+                x86_func_emit_call_checked(st, 1);                  // runtime-checked args
+                break;
+            }
+            func_emit_call_1(st); func_emit_post_call_check(st); break;
+        case OP_CALL_2:                                             // two-arg call
+            if (st->basic_mode && x86_func_call_needs_check(st)) {  // strict or interpreted callee
+                x86_func_emit_call_checked(st, 2);                  // runtime-checked args
+                break;
+            }
+            func_emit_call_2(st); func_emit_post_call_check(st); break;
         case OP_PUSH_ARG: func_emit_push_arg(st); break;             // push arg for builtin call
         case OP_CALL_BUILTIN:                                        // builtin call
         case OP_ASYNC_CALL_BUILTIN:                                  // async builtin call
-            func_emit_builtin_call(st); break;
+            func_emit_builtin_call(st);
+            func_emit_post_call_check(st); break;                    // os.exit stops the vm
         case OP_RETURN: case OP_RETURN_NUM: case OP_RETURN_BOOL:
         case OP_RETURN_NUM_IMM: case OP_RETURN_NONE:
             func_emit_return(st);                                    // shared return logic
-            emit_leave_ret(st->cb, st->abi, st->base_frame);         // leave; ret
+            if (!st->needs_cleanup)                                 // cleanup path owns the epilogue
+                emit_leave_ret(st->cb, st->abi, st->base_frame);     // leave; ret
             break;
         default:
             JIT_FATAL("call category: unexpected opcode %d (pc=%d)", st->op, st->pc);
@@ -270,12 +373,22 @@ void x86_loop_emit_call(X86LoopBodyState* st) {
         return;
     }
 
-    // OP_CALL_0/1/2 — numeric args in xmm0/xmm1, result in xmm0
+    // OP_CALL_0/1/2 — args in xmm0/xmm1, result in xmm0
     x86_cache_flush(st->cache, cb);
     if (st->op == OP_CALL_1 || st->op == OP_CALL_2)
         x86_emit_movsd_load(cb, 0, x86_slot_disp(st->b));
     if (st->op == OP_CALL_2)
         x86_emit_movsd_load(cb, 1, x86_slot_disp(st->b + 1));
+    if (st->op == OP_CALL_1) {                                      // callee walks its frame,
+        x86_emit_movq_rax_xmm(cb, 0);                               // so tagged args need a
+        emit_arg_incref(cb, X86_RAX);                               // reference of their own
+    }
+    if (st->op == OP_CALL_2) {
+        x86_emit_movq_rax_xmm(cb, 0);                               // same for both args of
+        emit_arg_incref(cb, X86_RAX);                               // a two-argument call
+        x86_emit_movq_rax_xmm(cb, 1);
+        emit_arg_incref(cb, X86_RAX);
+    }
     x86_emit_store_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));
     emit_call_func(cb, st->ctx, st->a);
     x86_emit_load_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));

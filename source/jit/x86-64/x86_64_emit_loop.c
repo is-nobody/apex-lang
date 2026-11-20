@@ -4,6 +4,7 @@
 // MIT license
 
 #include "x86_64_emit_internal.h"
+#include "jit_ops.h"
 #include "vm.h"
 #include <stddef.h>
 #include <string.h>
@@ -15,7 +16,8 @@ static void assign_table_caches(JITContext* ctx, JitLoopInfo* info) {
     info->n_derived_caches = 0;                                      // no derived caches yet
 
     uint64_t invariant = info->live_in & ~info->live_out;            // slots written nowhere in body
-    if (info->table.slot >= 0) invariant |= 1ULL << info->table.slot;  // primary lives in rbx
+    if (info->table.slot >= 0 && !info->table.volatile_slot)
+        invariant |= 1ULL << info->table.slot;                        // primary lives in rbx
 
     uint64_t candidates = info->live_in & ~info->live_out;           // loop-invariant table slots
     for (int s = 0; s < JIT_MAX_SLOTS && (info->n_cached_tables + info->n_derived_caches) < 4; s++) {
@@ -232,11 +234,23 @@ void emit_loop_body_instr(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
             x86_loop_emit_table(&st);
             break;
 
+        case OP_CONCAT:                                              // string concatenation
+        case OP_NEW_TABLE: case OP_LOAD_TABLE:                       // table construction
+        case OP_TABLE_APPEND:                                        // positional append
+        case OP_CALL: case OP_ASYNC_CALL:                            // coroutine-driven calls
+            x86_loop_emit_basic(&st);                                // standard-opcode helpers
+            break;
+
         default:
             JIT_FATAL("unreachable opcode %d in loop body at pc=%d", st.op, pc);
     }
 
-    if (st.touched_nan_check && info->touches_tables) {              // NaN propagation matches interpreter
+    // NaN propagation matches the interpreter: arithmetic on tagged values
+    // must yield none, which the fast paths achieve by rewriting NaN results.
+    // this matters whenever a slot can hold a non-number at runtime: table
+    // reads, helper results, or string constants flowing through the body
+    if (st.touched_nan_check &&
+        (info->touches_tables || info->has_basic_ops || info->str_slots)) {
         int xd = cache->slot_reg[st.d];                              // dest slot still in cache?
         if (xd >= 0) emit_nan_check(cb, xd);                         // rewrite NaN to NONE bits
     }
@@ -342,10 +356,20 @@ bool loop_is_safe_to_emit(JITContext* ctx, JitLoopInfo* info) {
     int entry     = info->entry_pc;                                  // first body pc
     int back_edge = info->back_edge_pc;                              // jump back to entry
 
-    if (info->table.used && info->uses_globals) return false;        // rbx conflict
+    if (info->table.used && info->uses_globals &&
+        !info->globals_via_helper) return false;                    // rbx conflict
 
-    if (info->table.used && info->table.slot >= 0 &&                 // table-pointer guard must hold
+    if (info->table.used && !info->table.volatile_slot &&
+        info->table.slot >= 0 &&                 // table-pointer guard must hold
         (info->live_out & (1ULL << info->table.slot))) return false;
+
+    if (info->table.volatile_slot) {                                // primary table recreated per iteration:
+        for (int pc = entry + 1; pc < back_edge; pc++) {            // rbx would hold a stale array_part
+            Opcode op = chunk->code[pc].opcode;
+            if (op == OP_TABLE_GET_INT || op == OP_TABLE_SET_INT)
+                return false;                                       // no helper lowering for these yet
+        }
+    }
 
     // numeric-for bounds and step are copied into private frame slots before the body runs
 
@@ -404,7 +428,17 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
             case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:          // user calls clobber frame_reg
             case OP_PUSH_ARG:                                        // vm helper needs frame_reg spill
             case OP_CALL_BUILTIN: case OP_ASYNC_CALL_BUILTIN:
+            case OP_CONCAT:                                          // basic tier: helper-lowered ops
+            case OP_NEW_TABLE: case OP_LOAD_TABLE:
+            case OP_TABLE_APPEND:
+            case OP_CALL: case OP_ASYNC_CALL:                        // coroutine-driven calls
                 needs_helper = true;
+                break;
+            case OP_MOVE:                                            // owned-slot moves go via helper
+                if (info->has_basic_ops) needs_helper = true;
+                break;
+            case OP_LOAD_GLOBAL: case OP_STORE_GLOBAL:               // helper globals when rbx is taken
+                if (info->globals_via_helper) needs_helper = true;
                 break;
             case OP_TABLE_GET: case OP_TABLE_SET:
             case OP_TABLE_GET_NUM: case OP_TABLE_SET_NUM: {
@@ -416,6 +450,7 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
                                   ((info->str_slots >> key_reg) & 1ULL);
                 bool is_fast = (key_reg == info->for_var_reg) &&
                                (tbl_reg == info->table.slot) &&
+                               !info->table.volatile_slot &&      // recreated table has no pinned base
                                !key_is_str;
                 if (!is_fast) needs_helper = true;
                 break;
@@ -531,7 +566,8 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
         frame_slots++;
     }
 
-    bool need_rbx_save = (info->table.used && info->table.slot >= 0) ||
+    bool need_rbx_save = (info->table.used && info->table.slot >= 0 &&
+                          !info->table.volatile_slot) ||
                          info->uses_globals;
     int rbx_save_slot = -1;                                          // stack slot for caller's rbx
     if (need_rbx_save) {
@@ -582,6 +618,10 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
                 op == OP_TABLE_SET ||                                // general path calls table_set_int
                 op == OP_TABLE_SET_NUM ||                            // general path calls table_set_int
                 op == OP_NEW_TABLE ||                                // helper call clobbers xmm
+                op == OP_LOAD_TABLE ||                               // helper call clobbers xmm
+                op == OP_CONCAT ||                                   // helper call clobbers xmm
+                op == OP_TABLE_APPEND ||                             // helper call clobbers xmm
+                op == OP_CALL || op == OP_ASYNC_CALL ||              // coroutine calls clobber xmm
                 op == OP_CALL_0 || op == OP_CALL_1 ||                // calls clobber all xmm regs
                 op == OP_CALL_2) {
                 clobbers = true;
@@ -627,7 +667,8 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
 
     emit_prologue(cb, abi, frame_size, base_frame);                  // push rbp; mov rbp, rsp; sub rsp
 
-    if (info->table.used && info->table.slot >= 0) {                 // preload primary table array_part
+    if (info->table.used && info->table.slot >= 0 &&
+        !info->table.volatile_slot) {                                // preload primary table array_part
         x86_emit_store_r64_rbp(cb, X86_RBX, x86_slot_disp(rbx_save_slot));  // save caller's rbx
         x86_emit_load_r64_base(cb, X86_RAX, abi->frame_reg, info->table.slot * 8);  // rax = regs[slot]
         x86_emit_clear_high16_rax(cb);                               // strip nan-box tag
@@ -669,6 +710,13 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
         if (s >= 64) break;                                          // beyond tracked range
         x86_emit_movsd_load_base(cb, abi->frame_reg, 0, s * 8);      // xmm0 = regs[s]
         x86_emit_movsd_store(cb, 0, x86_slot_disp(s));               // frame[s] = xmm0
+        if (info->owned_writes & (1ULL << s)) {                      // slot will hold owned refs
+            x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // save frame_reg
+            x86_emit_movq_gpr_xmm(cb, X86_RDI, 0);                    // arg0 = seeded value
+            x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_incref_value);
+            emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                    // call rax: take a frame ref
+            x86_emit_load_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // restore frame_reg
+        }
     }
 
     for (int i = 0; i < info->n_derived_caches; i++) {               // compute derived invariants
@@ -734,7 +782,7 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
             x86_emit_movabs_r11(cb, X86_QNAN_MASK);                  // r11 = tag mask
             x86_emit_mov_r64_r64(cb, X86_RDX, X86_RAX);              // rdx = raw value
             emit_u8(cb, 0x4C); emit_u8(cb, 0x21); emit_u8(cb, 0xDA); // and rdx, r11
-            x86_emit_cmp_r64(cb, X86_RDX, X86_R11);                  // (v & QNAN) == QNAN?
+            x86_emit_cmp_r64(cb, X86_RDX, X86_R11);                  // (v & qnan) == qnan?
             emit_u8(cb, 0x0F); emit_u8(cb, 0x84);                    // je .exit
             slow_exit_patches[n_slow_exit_patches++] = cb->len;
             emit_i32(cb, 0);
@@ -759,6 +807,10 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
         int32_t rel = (int32_t)exit_stub - (int32_t)(slow_exit_patches[i] + 4);
         memcpy(cb->buf + slow_exit_patches[i], &rel, 4);
     }
+    for (int i = 0; i < info->n_bail_patches; i++) {                 // patch vm->running bail-outs
+        int32_t rel = (int32_t)exit_stub - (int32_t)(info->bail_patch_at[i] + 4);
+        memcpy(cb->buf + info->bail_patch_at[i], &rel, 4);
+    }
     x86_cache_flush(&exit_cache, cb);                                // spill values still cached at the guard
     int32_t exit_rel = (int32_t)exit_stub - (int32_t)(entry_patch + 4);
     memcpy(cb->buf + entry_patch, &exit_rel, 4);                     // patch exit jump to its own flush stub
@@ -769,6 +821,29 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
         m &= m - 1;
         if (s >= 64) break;                                          // beyond tracked range
         if (info->ref_writes & (1ULL << s)) continue;                // refcounted value — keep vm's copy
+
+        if (info->owned_writes & (1ULL << s)) {                      // frame owns this reference
+            x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // save frame_reg
+            if (s != 0) {                                            // arg0: &pool[s]
+                emit_u8(cb, 0x48); emit_u8(cb, 0x81);
+#if defined(_WIN32) || defined(_WIN64)
+                emit_u8(cb, 0xC1);                                   // win64: add rcx, imm32
+#else
+                emit_u8(cb, 0xC7);                                   // sysv: add rdi, imm32
+#endif
+                emit_i32(cb, s * 8);
+            }
+            x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(s));    // arg1: frame[s]
+#if defined(_WIN32) || defined(_WIN64)
+            emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC2); // win64: rdx = value
+#else
+            emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC6); // sysv: rsi = value
+#endif
+            x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_writeback_owned);
+            emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                    // call rax: transfer ownership
+            x86_emit_load_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // restore frame_reg
+            continue;                                                // next written slot
+        }
 
         if (save_slot >= 0) {
             x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // save frame_reg
@@ -879,6 +954,13 @@ bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
         if (s == var_reg)    continue;                               // written each iteration
         x86_emit_movsd_load_base(cb, abi->frame_reg, 0, s * 8);      // xmm0 = regs[s]
         x86_emit_movsd_store(cb, 0, x86_slot_disp(s));               // frame[s] = xmm0
+        if (info->owned_writes & (1ULL << s)) {                      // slot will hold owned refs
+            x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // save frame_reg
+            x86_emit_movq_gpr_xmm(cb, X86_RDI, 0);                    // arg0 = seeded value
+            x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_incref_value);
+            emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                    // call rax: take a frame ref
+            x86_emit_load_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // restore frame_reg
+        }
     }
 
     int loop_top = (int)cb->len;                                     // loop start address
@@ -925,6 +1007,10 @@ bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
     int exit_label = (int)cb->len;                                   // exit target
     int32_t exit_rel = exit_label - (int32_t)(exit_patch + 4);
     memcpy(cb->buf + exit_patch, &exit_rel, 4);
+    for (int i = 0; i < info->n_bail_patches; i++) {                 // patch vm->running bail-outs
+        int32_t brel = exit_label - (int32_t)(info->bail_patch_at[i] + 4);
+        memcpy(cb->buf + info->bail_patch_at[i], &brel, 4);
+    }
 
     m = info->live_out;                                              // write back live_out slots
     while (m) {
@@ -933,6 +1019,27 @@ bool x86_64_emit_table_iter_loop(const X86_64Abi* abi, JITContext* ctx,
         if (s >= 64) break;
         if (s == var_reg) continue;                                  // loop var already written per-iter
         if (info->ref_writes & (1ULL << s)) continue;                // refcounted — keep vm's copy
+
+        if (info->owned_writes & (1ULL << s)) {                      // frame owns this reference
+            if (s != 0) {                                            // arg0: &pool[s]
+                emit_u8(cb, 0x48); emit_u8(cb, 0x81);
+#if defined(_WIN32) || defined(_WIN64)
+                emit_u8(cb, 0xC1);                                   // win64: add rcx, imm32
+#else
+                emit_u8(cb, 0xC7);                                   // sysv: add rdi, imm32
+#endif
+                emit_i32(cb, s * 8);
+            }
+            x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(s));    // arg1: frame[s]
+#if defined(_WIN32) || defined(_WIN64)
+            emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC2); // win64: rdx = value
+#else
+            emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC6); // sysv: rsi = value
+#endif
+            x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_writeback_owned);
+            emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                    // call rax: transfer ownership
+            continue;                                                // next written slot
+        }
 
         x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // save frame_reg
 
@@ -1012,6 +1119,9 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
     for (int pc = entry; pc < back_edge; pc++) {
         Instruction* inst = &chunk->code[pc];
         switch (inst->opcode) {
+            case OP_JUMP_IF_EQ: case OP_JUMP_IF_NEQ:                 // type-dispatched equality
+                needs_helper = true;                                 // helper call needs save slot
+                break;
             case OP_TABLE_GET_KEY_STR:
             case OP_TABLE_SET_KEY_STR:
             case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:
@@ -1045,7 +1155,8 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
         frame_slots++;
     }
 
-    bool need_rbx_save = (info->table.used && info->table.slot >= 0) ||
+    bool need_rbx_save = (info->table.used && info->table.slot >= 0 &&
+                          !info->table.volatile_slot) ||
                          info->uses_globals;
     int rbx_save_slot = -1;                                          // stack slot for caller's rbx
     if (need_rbx_save) {
@@ -1070,7 +1181,8 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
 
     emit_prologue(cb, abi, frame_size, base_frame);                  // push rbp; mov rbp, rsp; sub rsp
 
-    if (info->table.used && info->table.slot >= 0) {                 // preload primary table array_part
+    if (info->table.used && info->table.slot >= 0 &&
+        !info->table.volatile_slot) {                                // preload primary table array_part
         x86_emit_store_r64_rbp(cb, X86_RBX, x86_slot_disp(rbx_save_slot));  // save caller's rbx
         x86_emit_load_r64_base(cb, X86_RAX, abi->frame_reg, info->table.slot * 8);  // rax = regs[slot]
         x86_emit_clear_high16_rax(cb);                               // strip nan-box tag
@@ -1104,6 +1216,13 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
         if (s >= 64) break;
         x86_emit_movsd_load_base(cb, abi->frame_reg, 0, s * 8);
         x86_emit_movsd_store(cb, 0, x86_slot_disp(s));
+        if (info->owned_writes & (1ULL << s)) {                      // slot will hold owned refs
+            x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // save frame_reg
+            x86_emit_movq_gpr_xmm(cb, X86_RDI, 0);                    // arg0 = seeded value
+            x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_incref_value);
+            emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                    // call rax: take a frame ref
+            x86_emit_load_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // restore frame_reg
+        }
     }
 
     for (int i = 0; i < info->n_derived_caches; i++) {               // compute derived invariants
@@ -1127,11 +1246,18 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
     if (!label_off || !fixups)
         JIT_FATAL("scratch arrays missing for cond-enter loop at pc=%d", entry);
     for (int i = 0; i <= range_size; i++) label_off[i] = -1;
+    bool* eq_merge = ctx->scratch_is_target;                         // helper-jump merge marks
+    if (eq_merge)
+        for (int pc = entry; pc <= back_edge; pc++) eq_merge[pc] = false;  // clear this loop's range
     int nfix = 0;
 
     int loop_top = (int)cb->len;                                     // loop start address
 
     for (int pc = entry; pc < back_edge; pc++) {
+        if (eq_merge && eq_merge[pc]) {                              // helper-jump lands here:
+            x86_cache_flush(&cache, cb);                             // fall-through spills to memory,
+            x86_cache_clear(&cache);                                 // both paths reload from memory
+        }
         label_off[pc - entry] = (int32_t)cb->len;
         Instruction* inst = &chunk->code[pc];
 
@@ -1151,8 +1277,23 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
             bool pc1_is_target = false;                              // is pc+1 already a jump target?
             if (fused_jcc) {
                 for (int q = entry; q < pc + 1; q++) {
-                    if (chunk->code[q].opcode == OP_JUMP_IF_FALSE &&
-                        chunk->code[q].operands[0] == pc + 1) { pc1_is_target = true; break; }
+                    Opcode qop = chunk->code[q].opcode;              // potential branch source
+                    int qt = -1;                                     // its target, if any
+                    switch (qop) {
+                        case OP_JUMP: case OP_JUMP_IF_FALSE:         // plain branches
+                        case OP_JUMP_IF_EQ: case OP_JUMP_IF_NEQ:
+                        case OP_JUMP_IF_EQ_NUM: case OP_JUMP_IF_NEQ_NUM:
+                        case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:
+                        case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:
+                        case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:
+                        case OP_JUMP_IF_LT_IMM: case OP_JUMP_IF_GT_IMM:
+                        case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
+                        case OP_JUMP_IF_NONE: case OP_JUMP_IF_NOT_NONE:
+                            qt = chunk->code[q].operands[0];         // target lives in op1
+                            break;
+                        default: break;                              // not a branch
+                    }
+                    if (qt == pc + 1) { pc1_is_target = true; break; }  // short-circuit lands here
                 }
             }
             int fuse_target = fused_jcc ? chunk->code[pc + 1].operands[0] : -1;
@@ -1206,6 +1347,43 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
             fixups[nfix].target_pc = tgt;                            // exit vs internal decided at patch time
             nfix++;
             emit_i32(cb, 0);
+        } else if (inst->opcode == OP_JUMP_IF_EQ || inst->opcode == OP_JUMP_IF_NEQ) {
+            // type-dispatched equality: the interpreter compares numbers,
+            // strings, bools, none and tables by kind, so the raw-bit float
+            // compare is wrong for tagged operands; route through the helper
+            int tgt = inst->operands[0];
+            int a   = inst->operands[1];
+            int b   = inst->operands[2];
+            int xa = x86_cache_load(&cache, cb, a);
+            if (xa < 0) JIT_FATAL("cache full: cond-enter eq a=%d (pc=%d)", a, pc);
+            int xb = x86_cache_load_excl(&cache, cb, b, xa, -1);
+            if (xb < 0) JIT_FATAL("cache full: cond-enter eq b=%d (pc=%d)", b, pc);
+            x86_cache_flush(&cache, cb);                          // spill before the call
+            if (save_slot < 0)
+                JIT_FATAL("no save slot for eq helper (pc=%d)", pc);
+            x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // save frame_reg
+#if defined(_WIN32) || defined(_WIN64)
+            x86_emit_movq_gpr_xmm(cb, X86_RCX, xa);                // win64 arg0 = left
+            x86_emit_movq_gpr_xmm(cb, X86_RDX, xb);                // win64 arg1 = right
+#else
+            x86_emit_movq_gpr_xmm(cb, X86_RDI, xa);                // sysv arg0 = left
+            x86_emit_movq_gpr_xmm(cb, X86_RSI, xb);                // sysv arg1 = right
+#endif
+            x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_op_values_equal);
+            emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                  // call rax (al = equal?)
+            x86_emit_load_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // restore frame_reg
+            x86_cache_clear(&cache);                               // call clobbered all xmm
+            emit_u8(cb, 0xA8); emit_u8(cb, 0x01);                  // test al, 1
+            emit_u8(cb, 0x0F);                                     // jcc rel32
+            emit_u8(cb, (inst->opcode == OP_JUMP_IF_EQ) ? 0x85 : 0x84);  // jne / je
+            if (nfix >= range_size)
+                JIT_FATAL("fixup overflow in cond-enter loop at pc=%d", entry);
+            fixups[nfix].patch_at  = cb->len;                      // record placeholder
+            fixups[nfix].target_pc = tgt;                          // remember target pc
+            nfix++;
+            emit_i32(cb, 0);
+            if (eq_merge && tgt > pc && tgt <= back_edge)           // helper call killed the xmms,
+                eq_merge[tgt] = true;                               // target must reset the cache
         } else if (inst->opcode == OP_JUMP_IF_NONE ||
                    inst->opcode == OP_JUMP_IF_NOT_NONE) {            // none-test jumps
             int tgt = inst->operands[0];
@@ -1269,6 +1447,11 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
 
     int exit_label = (int)cb->len;                                   // exit target
 
+    for (int i = 0; i < info->n_bail_patches; i++) {                 // patch vm->running bail-outs
+        int32_t brel = exit_label - (int32_t)(info->bail_patch_at[i] + 4);
+        memcpy(cb->buf + info->bail_patch_at[i], &brel, 4);
+    }
+
     for (int i = 0; i < nfix; i++) {                                 // patch every recorded jump
         int tgt = fixups[i].target_pc;
         int32_t rel;
@@ -1289,6 +1472,31 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
         m &= m - 1;
         if (s >= 64) break;
         if (info->ref_writes & (1ULL << s)) continue;                // refcounted value — keep vm's copy
+
+        if (info->owned_writes & (1ULL << s)) {                      // frame owns this reference
+            if (save_slot < 0)
+                JIT_FATAL("no save slot for owned writeback (pc=%d)", entry);
+            x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // save frame_reg
+            if (s != 0) {                                            // arg0: &pool[s]
+                emit_u8(cb, 0x48); emit_u8(cb, 0x81);
+#if defined(_WIN32) || defined(_WIN64)
+                emit_u8(cb, 0xC1);                                   // win64: add rcx, imm32
+#else
+                emit_u8(cb, 0xC7);                                   // sysv: add rdi, imm32
+#endif
+                emit_i32(cb, s * 8);
+            }
+            x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(s));    // arg1: frame[s]
+#if defined(_WIN32) || defined(_WIN64)
+            emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC2); // win64: rdx = value
+#else
+            emit_u8(cb, 0x48); emit_u8(cb, 0x89); emit_u8(cb, 0xC6); // sysv: rsi = value
+#endif
+            x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_writeback_owned);
+            emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                    // call rax: transfer ownership
+            x86_emit_load_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // restore frame_reg
+            continue;                                                // next written slot
+        }
 
         if (save_slot >= 0) {
             x86_emit_store_r64_rbp(cb, abi->frame_reg, x86_slot_disp(save_slot));  // save frame_reg
@@ -1336,9 +1544,17 @@ bool x86_64_emit_cond_enter_loop(const X86_64Abi* abi, JITContext* ctx,
     return true;                                                     // emission successful
 }
 
+// resets the per-emission bail bookkeeping; every variant starts from scratch
+// so a later variant never re-patches an earlier one's already-resolved offsets
+static void loop_bail_reset(JITContext* ctx, JitLoopInfo* info) {
+    info->n_bail_patches = 0;                                     // fresh fixups for this variant
+    info->bail_patch_at = ctx->scratch_bail;                      // shared, one entry per pc
+}
+
 // emits native code for a single native loop, dispatching by kind
 bool x86_64_emit_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                       JitLoopInfo* info, int step_sign, void** out_fn) {
+    loop_bail_reset(ctx, info);                                      // fresh state per variant
     if (info->kind == JIT_LOOP_TABLE_ITER) {                         // table iteration loop
         return x86_64_emit_table_iter_loop(abi, ctx, cb, info, out_fn);
     }
@@ -1353,5 +1569,6 @@ bool x86_64_emit_loop_slow(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                             JitLoopInfo* info, int step_sign, void** out_fn) {
     if (info->kind != JIT_LOOP_NUMERIC_FOR && info->kind != JIT_LOOP_CONDITION)
         return false;                                                // slow variant only for numeric loops
+    loop_bail_reset(ctx, info);                                      // fresh state per variant
     return x86_64_emit_numeric_loop(abi, ctx, cb, info, step_sign, /*is_pure=*/false, out_fn);
 }

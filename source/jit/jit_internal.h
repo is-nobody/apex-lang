@@ -49,6 +49,7 @@ typedef enum {
     JIT_SLOT_TABLE,         // must be a table with usable array part
     JIT_SLOT_TABLE_ANY,     // must be a table; used by *_KEY_STR helpers, accepts hash-only tables
     JIT_SLOT_NUM_PROVEN,    // statically numeric and unchanged by the loop
+    JIT_SLOT_ANY,           // any type; only read by basic helpers that check at runtime
 } JitSlotKind;
 
 // table usage detected inside a numeric loop body (baseline: at most one table per loop)
@@ -59,6 +60,7 @@ typedef struct {
     int  max_idx;            // for SET_INT: required array_capacity
     bool written;            // has OP_TABLE_SET_INT
     bool indexed_by_counter; // has OP_TABLE_GET with key == for_var_reg
+    bool volatile_slot;      // primary table slot is rewritten inside the body
 } JitTableUse;
 
 // one numeric loop detected inside a function
@@ -109,6 +111,14 @@ typedef struct {
 
     uint64_t str_slots;     // bitmask of slots the loop body writes string Values into
 
+    bool     has_basic_ops;   // body uses standard-opcode helpers (refcounted stores)
+    uint64_t owned_writes;    // slots whose in-loop writes hold owned (increfed) references
+    bool     globals_via_helper;  // globals accessed through helpers, rbx stays free
+
+    // transient emit state
+    size_t*  bail_patch_at;   // offset of each pending bail rel32 field
+    int      n_bail_patches;  // number of pending bail jumps
+
     bool trace_entered;  // APEX_JIT_TRACE_BUILD: first-entry dump already printed?
 
     void (*native_fn)(uint64_t*, uint64_t*);      // compiled entry for positive (or unknown) step
@@ -140,7 +150,8 @@ struct JITContext {
 
     const JitBackend* backend;        // owning backend, used to free the code page
 
-    bool*  pure;                      // per-function: can be JIT-compiled at all (op-set + call fixpoint)
+    bool*  pure;                      // per-function: fast op-set + call fixpoint (optimized tier)
+    bool*  basic;                     // per-function: standard-opcode tier (helpers, always correct)
     bool*  strict_pure;               // per-function: strictly numeric-pure (verified via type flow)
     bool*  has_native;                // per-function: has native code emitted?
     JitReturnType* return_type;       // per-function: JIT_RET_NUMBER / BOOL / NONE
@@ -148,6 +159,7 @@ struct JITContext {
     int*   range_end;                 // per-function: one past last bytecode pc
 
     void**   func_table;              // runtime slots for each compiled function
+    void**   many_table;              // runtime slots for many-arg entries (arity 3+)
     uint8_t* code;                    // executable code buffer
     size_t   code_size;               // size of that buffer
 
@@ -162,6 +174,8 @@ struct JITContext {
 
     bool*      scratch_is_target;     // reusable: jump-target marks, one per bytecode pc
     int32_t*   scratch_label_off;     // reusable: emitted label offset per bytecode pc
+    size_t*    scratch_bail;          // reusable: bail rel32 offsets, one per bytecode pc
+    size_t*    scratch_ret;           // reusable: return-jump rel32 offsets, one per bytecode pc
     JumpFixup* scratch_fixups;        // reusable: pending jump fixups, one per bytecode pc
     uint8_t*   scratch_code_buf;      // reusable: scratch emitter buffer for the loop fixpoint pass
     size_t     scratch_code_buf_cap;  // capacity of scratch_code_buf in bytes

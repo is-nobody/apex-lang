@@ -80,9 +80,17 @@ static bool is_pure_loop_instr(JITContext* ctx, int pc) {
         case OP_LOAD_GLOBAL:                                 // reads vm->globals[idx]
         case OP_STORE_GLOBAL:                                // writes vm->globals[idx]
             return true;
-        case OP_CALL_0: case OP_CALL_1: case OP_CALL_2: {    // calls allowed only to pure fns
+        case OP_CONCAT:                                      // string building via helper
+        case OP_NEW_TABLE:                                   // fresh table via helper
+        case OP_LOAD_TABLE:                                  // table literal via helper
+        case OP_TABLE_APPEND:                                // positional append via helper
+        case OP_CALL:                                        // many-arg call via coroutine
+        case OP_ASYNC_CALL:                                  // pending future capture
+            return true;                                    // basic tier: helper lowering exists
+        case OP_CALL_0: case OP_CALL_1: case OP_CALL_2: {    // calls allowed to compiled fns
             int target = inst->operands[1];                  // callee function index
-            return target >= 0 && target < ctx->func_count && ctx->pure[target];
+            return target >= 0 && target < ctx->func_count &&
+                   (ctx->pure[target] || ctx->basic[target]); // callee has a native entry
         }
         case OP_LOAD_NUM: {                                  // only numeric constants
             int idx = inst->operands[1];
@@ -151,6 +159,7 @@ static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
     int start = ctx->range_start[func_idx];                      // first pc of this fn
     int end   = ctx->range_end[func_idx];                        // one past last pc
     if (start >= end) return false;                              // empty range
+    if (chunk->functions[func_idx].arity > JIT_MAX_CALL_ARITY) return false;  // no caller can reach the entry
 
     for (int pc = start; pc < end; pc++) {                       // scan every instruction
         Instruction* inst = &chunk->code[pc];
@@ -253,11 +262,113 @@ static bool function_is_initially_pure(JITContext* ctx, int func_idx) {
     return true;
 }
 
-// infers how a function returns its value; returns false on mixed kinds
+// true when the opcode has no structural tie to the interpreter loop
+static bool op_is_basic_lowerable(Opcode op) {
+    switch (op) {
+        case OP_MOVE: case OP_LOAD_CONST: case OP_LOAD_NUM_IMM:    // data movement
+        case OP_LOAD_NUM: case OP_LOAD_BOOL: case OP_LOAD_NONE:
+        case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
+        case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:          // arithmetic
+        case OP_DIV_IMM: case OP_MOD_IMM:
+        case OP_NEG: case OP_INC: case OP_DEC:
+        case OP_AND: case OP_OR:
+        case OP_CMP_EQ: case OP_CMP_NEQ:                            // comparisons
+        case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
+        case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
+        case OP_CONCAT:                                             // strings
+        case OP_TABLE_GET: case OP_TABLE_GET_CONST:                 // tables
+        case OP_TABLE_GET_INT: case OP_TABLE_GET_NUM:
+        case OP_TABLE_GET_KEY_STR:
+        case OP_TABLE_SET: case OP_TABLE_SET_CONST:
+        case OP_TABLE_SET_INT: case OP_TABLE_SET_NUM:
+        case OP_TABLE_SET_KEY_STR: case OP_TABLE_APPEND:
+        case OP_NEW_TABLE: case OP_LOAD_TABLE:
+        case OP_FOR_INIT: case OP_FOR_NEXT: case OP_FOR_NEXT_LOOP:  // loops via helpers
+        case OP_TABLE_ITER_INIT: case OP_TABLE_ITER_NEXT:
+        case OP_POP_ITER: case OP_POP_TABLE_ITER:
+        case OP_LOAD_GLOBAL: case OP_STORE_GLOBAL:                  // globals
+        case OP_PUSH_ARG: case OP_CALL_BUILTIN:                     // builtins
+        case OP_ASYNC_CALL_BUILTIN:
+        case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:             // direct calls (fixpoint-checked)
+        case OP_CALL:                                               // many-arg call via coroutines
+        case OP_ASYNC_CALL:                                         // pending future capture
+        case OP_RETURN: case OP_RETURN_NUM: case OP_RETURN_NUM_IMM:  // returns
+        case OP_RETURN_BOOL: case OP_RETURN_NONE:
+        case OP_JUMP: case OP_JUMP_IF_FALSE:                        // branches
+        case OP_JUMP_IF_EQ: case OP_JUMP_IF_NEQ:
+        case OP_JUMP_IF_EQ_NUM: case OP_JUMP_IF_NEQ_NUM:
+        case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:
+        case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:
+        case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:
+        case OP_JUMP_IF_LT_IMM: case OP_JUMP_IF_GT_IMM:
+        case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
+        case OP_JUMP_IF_NONE: case OP_JUMP_IF_NOT_NONE:
+        case OP_JUMP_MATCH_NUM: case OP_JUMP_MATCH_STR:              // match dispatch
+        case OP_JUMP_MATCH_BOOL: case OP_JUMP_MATCH_NONE:
+        case OP_JUMP_TABLE: case OP_SWITCH_STR: case OP_SWITCH_NUM:
+            return true;                                            // everything above lowers
+        default:
+            return false;                                           // call/await/async/halt/match stay out
+    }
+}
+
+// returns the branch target of an opcode, or -1 when it is not a branch
+static int branch_target_of(Instruction* inst) {
+    switch (inst->opcode) {
+        case OP_JUMP: case OP_JUMP_IF_FALSE:                        // plain branches
+        case OP_JUMP_IF_EQ: case OP_JUMP_IF_NEQ:
+        case OP_JUMP_IF_EQ_NUM: case OP_JUMP_IF_NEQ_NUM:
+        case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:
+        case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:
+        case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:
+        case OP_JUMP_IF_LT_IMM: case OP_JUMP_IF_GT_IMM:
+        case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
+        case OP_JUMP_IF_NONE: case OP_JUMP_IF_NOT_NONE:
+        case OP_JUMP_MATCH_NUM: case OP_JUMP_MATCH_STR:
+        case OP_JUMP_MATCH_BOOL: case OP_JUMP_MATCH_NONE:
+            return inst->operands[0];                               // target in op1
+        case OP_FOR_NEXT:                                           // exit address in op2
+            return inst->operands[1];
+        case OP_FOR_NEXT_LOOP:                                      // body target in op2
+            return inst->operands[1];
+        case OP_TABLE_ITER_NEXT:                                    // exit address in op3
+            return inst->operands[2];
+        default:
+            return -1;                                              // not a branch
+    }
+}
+
+// checks if a function can be compiled with the standard-opcode (basic) tier
+static bool function_is_basic_compilable(JITContext* ctx, int func_idx) {
+    BytecodeChunk* chunk = ctx->chunk;
+    int start = ctx->range_start[func_idx];                        // first pc of this fn
+    int end   = ctx->range_end[func_idx];                          // one past last pc
+    if (func_idx == 0) return false;                               // entry fn runs via loops only
+    if (start >= end) return false;                                // empty range
+    if (chunk->functions[func_idx].arity > JIT_MAX_CALL_ARITY) return false;  // stub covers 3..8; above stays interpreted
+    if (chunk->functions[func_idx].is_async) return false;         // coroutines run via the scheduler
+    if (chunk->functions[func_idx].max_registers > JIT_MAX_SLOTS) return false;  // frame too big
+
+    for (int pc = start; pc < end; pc++) {                         // scan every instruction
+        Instruction* inst = &chunk->code[pc];
+        if (!op_is_basic_lowerable(inst->opcode)) return false;    // structural opcode: reject
+
+        int target = branch_target_of(inst);                       // branch target pc
+        if (target >= 0) {                                         // this is a branch
+            if (target < start || target > end) return false;      // must stay inside the body
+            if (inst->opcode == OP_FOR_NEXT_LOOP && target == end) return false;  // back edge needs a body
+        }
+    }
+    return true;                                                   // every op has a lowering
+}
+
+// scan bound for the per-register type flags below
 #define JIT_MAX_REGS_SCAN 512
 
-static bool infer_return_type(BytecodeChunk* chunk, int start, int end,
-                              JitReturnType* out) {
+// infers how a function returns its value
+static bool infer_return_type_ex(BytecodeChunk* chunk, int start, int end,
+                                 int arity, bool params_numeric,
+                                 JitReturnType* out) {
     bool is_bool[JIT_MAX_REGS_SCAN];                             // bool-flag per register
     bool is_none[JIT_MAX_REGS_SCAN];                             // none-flag per register
     bool is_num [JIT_MAX_REGS_SCAN];                             // numeric-flag per register
@@ -348,6 +459,7 @@ static bool infer_return_type(BytecodeChunk* chunk, int start, int end,
                 if      (is_none[d]) any_none = true;
                 else if (is_bool[d]) any_bool = true;
                 else if (is_num [d]) any_num  = true;
+                else if (params_numeric && d < arity) any_num = true;  // param arrives numeric
                 else                 any_any  = true;            // can't prove -> runtime check
                 break;
 
@@ -381,6 +493,12 @@ static bool infer_return_type(BytecodeChunk* chunk, int start, int end,
          : any_bool ? JIT_RET_BOOL
                     : JIT_RET_NUMBER;
     return true;
+}
+
+// infers how a function returns its value; returns false on mixed kinds
+static bool infer_return_type(BytecodeChunk* chunk, int start, int end,
+                              JitReturnType* out) {
+    return infer_return_type_ex(chunk, start, end, 0, false, out);  // params unproven
 }
 
 // simple per-slot type for strict-purity analysis
@@ -738,6 +856,7 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info,
                               int function_start, int function_end) {
     BytecodeChunk* chunk = ctx->chunk;
     uint64_t live_in_mask = 0, written_mask = 0;                 // accumulated per-slot bitmasks
+    uint64_t helper_live_reads = 0, fast_live_reads = 0;         // live-in reads split by path
 
     info->table.used               = false;                      // no table op seen yet
     info->table.slot               = -1;                         // table register (unknown yet)
@@ -748,6 +867,9 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info,
     info->ref_writes               = 0;                          // slots whose value is refcounted
     info->touches_tables           = false;                      // any table op at all
     info->str_slots                = 0;                          // slots that receive string Values
+    info->has_basic_ops            = false;                      // no helper-lowered op yet
+    info->owned_writes             = 0;                          // no owned-ref writers yet
+    info->globals_via_helper       = false;                      // globals stay on the fast path
     memset(info->live_in_kind, 0, sizeof(info->live_in_kind));   // all slots default to NUM
 
     for (int pc = info->entry_pc; pc <= info->back_edge_pc; pc++) {
@@ -756,6 +878,7 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info,
         int a = inst->operands[1];                               // first source register
         int b = inst->operands[2];                               // second source register
         uint64_t pc_reads = 0, pc_writes = 0;                    // this instruction's masks
+        bool pc_helper_reads = false;                            // reads go through a helper
         switch (inst->opcode) {
             case OP_MOVE: case OP_NEG:                           // reads a, writes d
                 if (a >= 0 && a < 64) pc_reads  |= 1ULL << a;
@@ -782,9 +905,14 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info,
                 if (b >= 0 && b < 64) pc_reads  |= 1ULL << b;
                 if (d >= 0 && d < 64) pc_writes |= 1ULL << d;
                 break;
-            case OP_LOAD_CONST:                                   // writes d only
+            case OP_LOAD_CONST: {                                 // writes d only
                 if (d >= 0 && d < 64) pc_writes |= 1ULL << d;
+                int idx = inst->operands[1];                     // constant pool index
+                if (d >= 0 && d < 64 && idx >= 0 && idx < chunk->const_count &&
+                    chunk->constants[idx].type == CONST_STRING)  // string literal
+                    info->str_slots |= 1ULL << d;                // string value in d
                 break;
+            }
             case OP_PUSH_ARG:                                     // reads d (source value)
                 if (d >= 0 && d < 64) pc_reads |= 1ULL << d;
                 break;
@@ -953,14 +1081,65 @@ static void analyze_loop_regs(JITContext* ctx, JitLoopInfo* info,
                 break;
             case OP_JUMP:
                 break;                                           // no slots touched
+            case OP_CONCAT:                                      // d = a .. b via helper
+                if (a >= 0 && a < 64) pc_reads  |= 1ULL << a;    // left operand
+                if (b >= 0 && b < 64) pc_reads  |= 1ULL << b;    // right operand
+                if (d >= 0 && d < 64) pc_writes |= 1ULL << d;    // fresh string lands in d
+                if (d >= 0 && d < 64) info->str_slots |= 1ULL << d;  // string value in d
+                info->has_basic_ops = true;                      // helper-lowered op present
+                if (d >= 0 && d < 64) info->owned_writes |= 1ULL << d;  // slot owns the new ref
+                pc_helper_reads = true;                          // operands checked at runtime
+                break;
+            case OP_NEW_TABLE:                                   // d = {} via helper
+                if (d >= 0 && d < 64) pc_writes |= 1ULL << d;    // fresh table lands in d
+                info->has_basic_ops = true;                      // helper-lowered op present
+                if (d >= 0 && d < 64) info->owned_writes |= 1ULL << d;  // slot owns the new ref
+                break;
+            case OP_LOAD_TABLE:                                  // d = literal via helper
+                if (d >= 0 && d < 64) pc_writes |= 1ULL << d;    // fresh table lands in d
+                info->has_basic_ops = true;                      // helper-lowered op present
+                if (d >= 0 && d < 64) info->owned_writes |= 1ULL << d;  // slot owns the new ref
+                break;
+            case OP_TABLE_APPEND:                                // tbl[d] += a via helper
+                if (d >= 0 && d < 64) pc_reads  |= 1ULL << d;    // table slot read
+                if (a >= 0 && a < 64) pc_reads  |= 1ULL << a;    // value slot read
+                info->has_basic_ops = true;                      // helper-lowered op present
+                pc_helper_reads = true;                          // operands checked at runtime
+                break;
+            case OP_CALL:                                        // dst = fn(args) via coroutine
+            case OP_ASYNC_CALL:                                  // dst = pending future
+                if (d >= 0 && d < 64) pc_writes |= 1ULL << d;    // result lands in d
+                info->has_basic_ops = true;                      // helper-lowered op present
+                if (d >= 0 && d < 64) info->owned_writes |= 1ULL << d;  // result transfers its ref
+                break;
             default:
                 break;
         }
         live_in_mask |= pc_reads & ~written_mask;                // read before first write → live-in
+        if (pc_helper_reads) helper_live_reads |= pc_reads & ~written_mask;  // helper-checked read
+        else                 fast_live_reads   |= pc_reads & ~written_mask;  // fast-path read
         written_mask |= pc_writes;                               // slot has been produced
     }
     info->live_in  = live_in_mask;                               // slots read before first write
     info->live_out = written_mask;                               // slots produced inside the loop
+    info->table.volatile_slot =                                   // primary table recreated per
+        info->table.used && info->table.slot >= 0 &&              // iteration: pointer caches must
+        (written_mask & (1ULL << info->table.slot)) != 0;         // not pin its array_part
+
+    // when rbx is reserved for a table's array_part, globals must go through
+    // helpers instead of the inline rbx-relative fast path
+    info->globals_via_helper = info->uses_globals &&
+                               (info->table.used || info->has_basic_ops);
+
+    // slots only ever read by helper-lowered ops need no numeric entry guard:
+    // the helpers perform the interpreter's own type dispatch at runtime
+    uint64_t any_mask = helper_live_reads & ~fast_live_reads;     // helper-only live-in reads
+    while (any_mask) {                                           // downgrade pure-helper reads
+        int s = __builtin_ctzll(any_mask);
+        any_mask &= any_mask - 1;
+        if (s < 64 && info->live_in_kind[s] == JIT_SLOT_NUM)
+            info->live_in_kind[s] = JIT_SLOT_ANY;                // any type is acceptable
+    }
 
     SPType entry_types[JIT_MAX_SLOTS];                            // types before the loop starts
     if (infer_loop_entry_types(ctx, function_start, function_end,
@@ -1022,22 +1201,57 @@ static bool table_iter_body_is_clean(BytecodeChunk* chunk, int entry, int back_e
     for (int pc = entry + 1; pc < back_edge; pc++) {               // skip entry instr itself
         Opcode op = chunk->code[pc].opcode;
         switch (op) {
-            // rejects — need a base the emitter is not carrying
-            case OP_TABLE_GET_INT: case OP_TABLE_SET_INT:          // use rbx as array_part of another table
-            case OP_LOAD_GLOBAL: case OP_STORE_GLOBAL:             // use rbx as globals base
-            // rejects — no lowering exists in emit_loop_body_instr
-            case OP_TABLE_GET_CONST: case OP_TABLE_SET_CONST:
-            case OP_TABLE_APPEND: case OP_NEW_TABLE:
-            // rejects — nested iteration
+            // rejects — rbx holds the iterated table's array_part for fast paths
+            case OP_TABLE_GET_INT: case OP_TABLE_SET_INT:          // rbx would hold another table
+            // rejects — nested iteration needs internal branches
             case OP_TABLE_ITER_NEXT: case OP_TABLE_ITER_INIT:
-            // rejects — helper clobbers rdx (the counter mirror) or r8 (NONE bits)
-            case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:
                 return false;
             default:
-                break;
+                break;                                             // helpers keep rbx/r12/r14/r15 intact
         }
     }
     return true;
+}
+
+// validates refcount bookkeeping for a loop with helper-lowered ops
+static bool basic_loop_is_consistent(JITContext* ctx, JitLoopInfo* info) {
+    if (!info->has_basic_ops) return true;                         // nothing to validate
+    BytecodeChunk* chunk = ctx->chunk;
+
+    for (int pc = info->entry_pc; pc <= info->back_edge_pc; pc++) { // move dests join the owned set
+        Instruction* inst = &chunk->code[pc];
+        if (inst->opcode != OP_MOVE) continue;                     // only MOVE propagates ownership
+        int d = inst->operands[0];
+        if (d >= 0 && d < 64) info->owned_writes |= 1ULL << d;    // helper does refcounted stores
+    }
+
+    for (int pc = info->entry_pc; pc <= info->back_edge_pc; pc++) { // check every writer
+        Instruction* inst = &chunk->code[pc];
+        if (branch_target_of(inst) >= 0) continue;                 // control flow: operands are pcs
+        int d = inst->operands[0];
+        if (d < 0 || d >= 64) continue;                            // no frame destination
+        if (!(info->owned_writes & (1ULL << d))) continue;         // not an owned slot
+
+        switch (inst->opcode) {                                    // who writes this slot?
+            case OP_MOVE:                                          // refcount-aware helper
+            case OP_CONCAT: case OP_NEW_TABLE: case OP_LOAD_TABLE: // owned-producing helpers
+            case OP_CALL: case OP_ASYNC_CALL:                      // results transfer ownership
+                continue;                                          // these writers are fine
+            case OP_TABLE_SET: case OP_TABLE_SET_INT:              // table register is only read;
+            case OP_TABLE_SET_NUM: case OP_TABLE_SET_CONST:        // mutation happens inside the
+            case OP_TABLE_SET_KEY_STR: case OP_TABLE_APPEND:      // table object itself
+            case OP_STORE_GLOBAL: case OP_TABLE_ITER_INIT:         // source / table registers
+            case OP_PUSH_ARG: case OP_FOR_INIT:                    // are reads, not slot writes
+            case OP_FOR_NEXT: case OP_FOR_NEXT_LOOP:               // counter slots stay numeric
+            case OP_SWITCH_STR: case OP_SWITCH_NUM:                // dispatch subject is a read
+                continue;                                          // not a writer of the slot
+            default:
+                return false;                                      // raw store would leak the owned ref
+        }
+    }
+
+    if (info->owned_writes & info->ref_writes) return false;       // owned and borrowed views clash
+    return true;                                                   // bookkeeping is consistent
 }
 
 // checks whether a numeric-for body uses only numeric table access (no string keys)
@@ -1126,8 +1340,61 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
             Opcode e1 = chunk->code[entry + 1].opcode;
             if (e1 >= OP_JUMP_IF_EQ && e1 <= OP_JUMP_IF_GTE_IMM &&
                 chunk->code[entry + 1].operands[0] == exit_pc) {
-                entry += 1;
-                kind  = JIT_LOOP_CONDITION;
+                // the skipped op only runs on the fall-in edge
+                bool invariant = true;                          // verdict for the skip
+                Instruction* skip = &chunk->code[entry];
+                int reads[3];                                  // slots the skipped op reads
+                int n_reads = 0;                               // count of valid entries
+                switch (skip->opcode) {
+                    case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:    // pure producers: no reads
+                    case OP_LOAD_BOOL: case OP_LOAD_NONE:
+                    case OP_LOAD_CONST:
+                        break;
+                    case OP_INC: case OP_DEC:                  // read-modify-write dest
+                        reads[n_reads++] = skip->operands[0];
+                        break;
+                    case OP_MOVE: case OP_NEG:                 // single-register reads
+                        reads[n_reads++] = skip->operands[1];
+                        break;
+                    default:                                    // conservative: every operand
+                        reads[n_reads++] = skip->operands[0];
+                        reads[n_reads++] = skip->operands[1];
+                        reads[n_reads++] = skip->operands[2];
+                        break;
+                }
+                for (int i = entry + 1; i <= pc && invariant; i++) {   // body write scan
+                    Opcode wop = chunk->code[i].opcode;
+                    int dw = -1;                               // slot this op writes, if any
+                    switch (wop) {
+                        case OP_MOVE: case OP_NEG: case OP_INC: case OP_DEC:
+                        case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:
+                        case OP_LOAD_BOOL: case OP_LOAD_NONE: case OP_LOAD_CONST:
+                        case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
+                        case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:
+                        case OP_DIV_IMM: case OP_MOD_IMM:
+                        case OP_CMP_EQ: case OP_CMP_NEQ: case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
+                        case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
+                        case OP_AND: case OP_OR:
+                        case OP_CONCAT: case OP_NEW_TABLE: case OP_LOAD_TABLE:
+                        case OP_TABLE_GET: case OP_TABLE_GET_INT: case OP_TABLE_GET_NUM:
+                        case OP_TABLE_GET_CONST: case OP_TABLE_GET_KEY_STR:
+                        case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:
+                        case OP_CALL: case OP_ASYNC_CALL:
+                        case OP_CALL_BUILTIN: case OP_ASYNC_CALL_BUILTIN:
+                        case OP_LOAD_GLOBAL:
+                            dw = chunk->code[i].operands[0];    // dest register slot
+                            break;
+                        default:
+                            break;                              // jumps and reads: no dest
+                    }
+                    if (dw < 0) continue;                       // not a slot writer
+                    for (int k = 0; k < n_reads && invariant; k++)
+                        if (reads[k] == dw) invariant = false; // body rewrites an input
+                }
+                if (invariant) {
+                    entry += 1;
+                    kind  = JIT_LOOP_CONDITION;
+                }
             }
         }
 
@@ -1188,7 +1455,21 @@ static void detect_loops_in_function(JITContext* ctx, int func_idx) {
         add_loop(ctx, start, end, entry, pc, exit_pc, kind,      // register the loop
                  for_var_reg, for_end_reg, for_step_reg, step_sign, step_value, nregs,
                  init_table_reg);
+        if (!basic_loop_is_consistent(ctx, &ctx->loops[ctx->loop_count - 1]))
+            ctx->loop_count--;                                   // refcount clash: leave to interpreter
     }
+}
+
+// true when at least one detected native loop starts inside the function's range;
+// a specialized native loop always beats the helper-per-opcode body, so such
+// functions stay with the interpreter, which enters those loops directly
+static bool function_has_native_loop(JITContext* ctx, int func_idx) {
+    int start = ctx->range_start[func_idx];                          // first pc of this fn
+    int end   = ctx->range_end[func_idx];                            // one past last pc
+    for (int li = 0; li < ctx->loop_count; li++)                     // scan detected loops
+        if (ctx->loops[li].entry_pc >= start && ctx->loops[li].entry_pc < end)
+            return true;                                             // loop belongs to this fn
+    return false;                                                    // no native loop inside
 }
 
 // runs the full analysis pipeline; returns false if there is nothing to compile
@@ -1199,9 +1480,11 @@ bool jit_analyze(JITContext* ctx) {
     for (int i = 0; i < n; i++)                                  // ranges for every function
         compute_function_range(chunk, i, &ctx->range_start[i], &ctx->range_end[i]);
 
-    for (int i = 1; i < n; i++)                                  // initial purity
-        ctx->pure[i] = function_is_initially_pure(ctx, i);       // fn 0 never JITted
+    for (int i = 1; i < n; i++)                                  // fast tier, unchanged shape
+        ctx->pure[i] = function_is_initially_pure(ctx, i);       // numeric op set (optimized tier)
 
+    // purity fixpoint: a pure caller can only call pure callees, because the
+    // fast tier emits direct native calls without runtime checks
     bool changed = true;                                         // purity fixpoint
     while (changed) {
         changed = false;
@@ -1214,7 +1497,7 @@ bool jit_analyze(JITContext* ctx) {
                     inst->opcode == OP_CALL_2) {
                     int target = inst->operands[1];              // callee function index
                     if (target < 0 || target >= n || !ctx->pure[target]) {
-                        ctx->pure[i] = false;                    // callee not pure
+                        ctx->pure[i] = false;                    // callee has no native code
                         changed = true;                          // need another pass
                         break;
                     }
@@ -1237,9 +1520,52 @@ bool jit_analyze(JITContext* ctx) {
         ctx->strict_pure[i] = function_is_strictly_pure(ctx, i);
     }
 
+    // basic tier eligibility, computed before loop detection
+    for (int i = 1; i < n; i++)
+        ctx->basic[i] = function_is_basic_compilable(ctx, i);     // standard helpers (basic tier)
+
     for (int i = 0; i < n; i++) {                                // loop detection, incl. entry fn
-        if (ctx->pure[i]) continue;                              // pure fns are fully compiled
+        if (ctx->pure[i]) continue;                              // pure fns compile their own loops
         detect_loops_in_function(ctx, i);
+    }
+
+    // a function that owns a native loop keeps the interpreter driving it
+    for (int i = 1; i < n; i++) {
+        if (ctx->pure[i]) { ctx->basic[i] = false; continue; }    // fast tier owns this fn
+        if (ctx->basic[i] && function_has_native_loop(ctx, i))
+            ctx->basic[i] = false;                                // interpreter + native loop wins
+    }
+
+    // return types for basic fns: mixed returns box at runtime
+    for (int i = 1; i < n; i++) {
+        if (!ctx->basic[i]) continue;                             // only basic tier here
+        if (!infer_return_type(chunk, ctx->range_start[i], ctx->range_end[i],
+                               &ctx->return_type[i])) {
+            ctx->return_type[i] = JIT_RET_ANY;                   // boxes in jit_op_call
+        }
+    }
+
+    // loop bodies emit unchecked direct calls, so a loop whose callee lost its native entry
+    for (int li = 0; li < ctx->loop_count; li++) {
+        JitLoopInfo* loop = &ctx->loops[li];                      // loop to validate
+        bool keep = true;                                         // verdict for this loop
+        for (int pc = loop->entry_pc; pc <= loop->back_edge_pc && keep; pc++) {
+            Instruction* inst = &chunk->code[pc];
+            if (inst->opcode == OP_CALL_0 ||                      // direct call inside the body
+                inst->opcode == OP_CALL_1 ||
+                inst->opcode == OP_CALL_2) {
+                int target = inst->operands[1];                   // callee function index
+                if (target < 0 || target >= n ||
+                    (!ctx->pure[target] && !ctx->basic[target]))
+                    keep = false;                                 // no native entry remains
+            }
+        }
+        if (!keep) {                                              // remove the loop record
+            memmove(&ctx->loops[li], &ctx->loops[li + 1],
+                    sizeof(JitLoopInfo) * (ctx->loop_count - li - 1));
+            ctx->loop_count--;                                    // shrink the array
+            li--;                                                 // re-check this index
+        }
     }
 
     // strict-pure callees consume raw doubles
@@ -1251,8 +1577,10 @@ bool jit_analyze(JITContext* ctx) {
             bool unsafe_call_edge = false;
 
             for (int caller = 1; caller < n && !unsafe_call_edge; caller++) {
-                if (caller == target || !ctx->pure[caller] || ctx->strict_pure[caller])
-                    continue;                                   // interpreter or numeric-proven caller is safe
+                if (caller == target || ctx->strict_pure[caller])
+                    continue;                                   // strict callers prove numeric args
+                if (!ctx->pure[caller])
+                    continue;                                   // basic/interpreter callers check at runtime
                 for (int pc = ctx->range_start[caller]; pc < ctx->range_end[caller]; pc++) {
                     Instruction* inst = &chunk->code[pc];
                     if ((inst->opcode == OP_CALL_1 || inst->opcode == OP_CALL_2) &&
@@ -1283,7 +1611,16 @@ bool jit_analyze(JITContext* ctx) {
         }
     } while (strict_edge_changed);                              // propagate non-strict callers to their callees
 
+    // strict functions receive numeric arguments by convention
+    for (int i = 1; i < n; i++) {
+        if (!ctx->strict_pure[i] || ctx->return_type[i] != JIT_RET_ANY) continue;
+        JitReturnType t;
+        if (infer_return_type_ex(chunk, ctx->range_start[i], ctx->range_end[i],
+                                 chunk->functions[i].arity, true, &t))
+            ctx->return_type[i] = t;                               // numeric return proven
+    }
+
     int candidate_count = 0;                                     // anything to emit?
-    for (int i = 0; i < n; i++) if (ctx->pure[i]) candidate_count++;
+    for (int i = 0; i < n; i++) if (ctx->pure[i] || ctx->basic[i]) candidate_count++;
     return candidate_count > 0 || ctx->loop_count > 0;
 }

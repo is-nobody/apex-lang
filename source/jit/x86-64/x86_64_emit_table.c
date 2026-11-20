@@ -4,6 +4,7 @@
 // MIT license
 
 #include "x86_64_emit_internal.h"
+#include "jit_ops.h"
 #include <stddef.h>
 
 #define APEX_SO_HASH_COMPUTED ((int32_t)offsetof(StringObject, hash_computed))
@@ -14,6 +15,20 @@
 #define APEX_TE_KEY           ((int32_t)offsetof(TableEntry, key))
 #define APEX_TE_VALUE         ((int32_t)offsetof(TableEntry, value))
 #define APEX_TE_NEXT          ((int32_t)offsetof(TableEntry, next))
+
+// loads the vm pointer into an argument register (sysv flavour)
+static void emit_load_vm_sysv(CodeBuf* cb, JITContext* ctx) {
+    x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&ctx->vm);         // rax = &ctx->vm
+    x86_emit_load_r64_base(cb, X86_RDI, X86_RAX, 0);                // rdi = ctx->vm
+}
+
+#if defined(_WIN32) || defined(_WIN64)                              // only win64 call sites use this
+// loads the vm pointer into an argument register (win64 flavour)
+static void emit_load_vm_win(CodeBuf* cb, JITContext* ctx) {
+    x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&ctx->vm);         // rax = &ctx->vm
+    x86_emit_load_r64_base(cb, X86_RCX, X86_RAX, 0);                // rcx = ctx->vm
+}
+#endif
 
 // emit jcc rel32 with a placeholder; returns the offset of the rel32 field
 static size_t emit_jcc32_placeholder(CodeBuf* cb, uint8_t op2) {
@@ -187,6 +202,26 @@ static void loop_table_get(X86LoopBodyState* st) {
         xk = x86_cache_load(cache, cb, key_reg);
         if (xk < 0) JIT_FATAL("cache full: TABLE_GET key=%d (pc=%d)", key_reg, st->pc);
     }
+    if (!st->is_pure) {                                              // slow variant: keys may be
+        x86_cache_flush(cache, cb);                                  // tagged; use the generic helper
+        if (st->save_slot < 0)
+            JIT_FATAL("no save slot for TABLE_GET (pc=%d)", st->pc);
+        x86_emit_store_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));  // save frame_reg
+#if defined(_WIN32) || defined(_WIN64)
+        x86_emit_lea_r64_base(cb, X86_RCX, X86_RBP, x86_slot_disp(st->d));  // rcx = &frame[d]
+        x86_emit_load_r64_rbp(cb, X86_RDX, x86_slot_disp(table_reg)); // rdx = table value
+        x86_emit_load_r64_rbp(cb, X86_R8, x86_slot_disp(key_reg));   // r8 = key value
+#else
+        x86_emit_lea_r64_base(cb, X86_RDI, X86_RBP, x86_slot_disp(st->d));  // rdi = &frame[d]
+        x86_emit_load_r64_rbp(cb, X86_RSI, x86_slot_disp(table_reg)); // rsi = table value
+        x86_emit_load_r64_rbp(cb, X86_RDX, x86_slot_disp(key_reg));  // rdx = key value
+#endif
+        x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_table_get_view);
+        emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                        // call rax
+        x86_emit_load_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));  // restore frame_reg
+        x86_cache_clear(cache);                                      // callee clobbered all xmm
+        return;                                                      // frame[d] holds the view
+    }
     int xt = cache->slot_reg[table_reg];                             // table still in an xmm?
     if (xt >= 0) x86_emit_movq_rax_xmm(cb, xt);                      // rax = table bits
     else         x86_emit_load_r64_rbp(cb, X86_RAX, x86_slot_disp(table_reg));
@@ -304,17 +339,8 @@ static void loop_table_get_const(X86LoopBodyState* st) {
     patch_rel32(cb, jmp_store_from_slow, store_off);
     patch_rel32(cb, jmp_store_from_none, store_off);
 
-    x86_emit_store_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));
-#if defined(_WIN32) || defined(_WIN64)
-    x86_emit_lea_r64_base(cb, X86_RCX, X86_RBP, x86_slot_disp(d));   // win64: rcx = &dst
-    x86_emit_mov_r64_r64(cb, X86_RDX, X86_RAX);                      // win64: rdx = value
-#else
-    x86_emit_lea_r64_base(cb, X86_RDI, X86_RBP, x86_slot_disp(d));   // sysv: rdi = &dst
-    x86_emit_mov_r64_r64(cb, X86_RSI, X86_RAX);                      // sysv: rsi = value
-#endif
-    x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_store_slot);
-    emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                            // call rax
-    x86_emit_load_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));
+    // borrowed view: ref_writes slots are seeded without a reference and skipped by the writeback
+    x86_emit_store_r64_rbp(cb, X86_RAX, x86_slot_disp(d));           // frame[d] = value
 
     {                                                                // drop any stale xmm entry
         int dx = cache->slot_reg[d];
@@ -357,6 +383,26 @@ static void loop_table_set(X86LoopBodyState* st) {
 
     if (st->save_slot < 0)                                           // helper needs a spill slot
         JIT_FATAL("no save slot for TABLE_SET (pc=%d)", st->pc);
+    if (!st->is_pure) {                                              // slow variant: keys may be
+        x86_cache_flush(cache, cb);                                  // tagged; use the generic helper
+        x86_emit_store_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));  // save frame_reg
+#if defined(_WIN32) || defined(_WIN64)
+        emit_load_vm_win(cb, st->ctx);                               // rcx = vm
+        x86_emit_load_r64_rbp(cb, X86_RDX, x86_slot_disp(table_reg)); // rdx = table value
+        x86_emit_load_r64_rbp(cb, X86_R8, x86_slot_disp(key_reg));   // r8 = key value
+        x86_emit_load_r64_rbp(cb, X86_R9, x86_slot_disp(val_reg));   // r9 = value
+#else
+        emit_load_vm_sysv(cb, st->ctx);                              // rdi = vm
+        x86_emit_load_r64_rbp(cb, X86_RSI, x86_slot_disp(table_reg)); // rsi = table value
+        x86_emit_load_r64_rbp(cb, X86_RDX, x86_slot_disp(key_reg));  // rdx = key value
+        x86_emit_load_r64_rbp(cb, X86_RCX, x86_slot_disp(val_reg));  // rcx = value
+#endif
+        x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_op_table_set);
+        emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                        // call rax
+        x86_emit_load_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));  // restore frame_reg
+        x86_cache_clear(cache);                                      // callee clobbered all xmm
+        return;                                                      // store is complete
+    }
     int xk = cache->slot_reg[key_reg];                               // key already in cache?
     if (xk < 0) {
         xk = x86_cache_load(cache, cb, key_reg);

@@ -6,6 +6,7 @@
 #include "vm.h"
 #if APEX_JIT_ENABLED
 #include "jit.h"
+#include "jit_ops.h"
 #endif
 #include "os_module.h"
 #include "sys_module.h"
@@ -365,6 +366,19 @@ const char* vm_value_type_name(Value value) {
     if (IS_FUTURE(value)) return "future";                   // future object pointer
     if (IS_LIGHTUSERDATA(value)) return "userdata";          // tagged raw c pointer
     return "unknown";                                        // fallback for unhandled types
+}
+
+// converts a value into its c-string representation; public wrapper for the jit
+const char* vm_value_to_cstr(Value v, char* buf, int buf_size) {
+    return value_to_cstr(v, buf, buf_size);                   // forward to the static helper
+}
+
+// forward decl for the recursive table-literal materializer
+static Table* const_table_materialize(BytecodeChunk* chunk, Constant* c);
+
+// materializes a compile-time table literal; public wrapper for the jit
+Table* vm_materialize_const_table(BytecodeChunk* chunk, Constant* c) {
+    return const_table_materialize(chunk, c);                 // forward to the static helper
 }
 
 // returns current wall-clock time in seconds
@@ -1871,40 +1885,7 @@ bool vm_call_builtin(VM* vm, const char* name, int arg_count, Value* args, Value
 #if APEX_JIT_ENABLED
 // wraps a raw jit return value into a tagged vm value based on the function's return kind
 static inline Value jit_box_return(JITContext* jit, int func_idx, double r) {
-    switch (jit_return_type(jit, func_idx)) {
-        case JIT_RET_BOOL: {
-            // jit booleans are nan-boxed (MAKE_BOOL bits in xmm0); AS_BOOL tests bit 0
-            uint64_t bits;
-            memcpy(&bits, &r, 8);
-            return MAKE_BOOL((bits & 1) != 0);
-        }
-        case JIT_RET_NONE: return MAKE_NONE();                   // none tag, r ignored
-        case JIT_RET_ANY: {
-            // return type wasn't provable at compile time
-            uint64_t bits;
-            memcpy(&bits, &r, 8);
-
-            // plain number
-            if ((bits & QNAN) != QNAN) {
-                return bits;
-            }
-
-            // qnan-tagged. look at the tag field (bits 48-50).
-            uint64_t tag = (bits >> TAG_SHIFT) & TAG_MASK;
-            if (tag != 0) {
-                return bits;
-            }
-
-            // tag == 0
-            if (bits == MAKE_QNAN(TAG_NONE)) {
-                return bits;                                     // it's none
-            }
-
-            // real nan
-            return MAKE_QNAN(TAG_NAN) | (bits >> 63);
-        }
-        default:           return MAKE_NUMBER(r);                // plain number
-    }
+    return jit_box_value(jit, func_idx, r);                     // shared with the basic-tier helpers
 }
 #endif
 
@@ -2128,15 +2109,18 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
                     JitLoopResult _r = jit_try_native_loop(vm->jit, _cur, (uint64_t*)regs, \
                                                         frame_cap[vm->current_frame], &_exit); \
                     if (_r == JIT_LOOP_RAN_NORMAL) { \
+                        if (unlikely(!vm->running)) goto OP_HALT_LABEL; \
                         ip = &vm->code[_exit]; \
                         goto *dispatch_table[ip->opcode]; \
                     } \
                     if (_r == JIT_LOOP_RAN_FOR_NEXT) { \
+                        if (unlikely(!vm->running)) goto OP_HALT_LABEL; \
                         vm->iterator_depth--; \
                         ip = &vm->code[_exit]; \
                         goto *dispatch_table[ip->opcode]; \
                     } \
                     if (_r == JIT_LOOP_RAN_TABLE_ITER) { \
+                        if (unlikely(!vm->running)) goto OP_HALT_LABEL; \
                         vm->table_iter_depth--; \
                         ip = &vm->code[_exit]; \
                         goto *dispatch_table[ip->opcode]; \
@@ -3656,6 +3640,31 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
         int func_idx = ip->operands[1];           // function index in chunk->functions[]
         int arg_count = ip->operands[2];          // number of arguments
         int dest_reg  = ip->operands[0];          // dest register for return value
+#if APEX_JIT_ENABLED
+        if (vm->jit && arg_count <= JIT_MAX_CALL_ARITY &&    // stub covers up to eight args
+            jit_has_native(vm->jit, func_idx) &&
+            chunk->functions[func_idx].arity == arg_count) { // convention needs exact arity
+            bool args_ok = true;                                   // checked paths accept any value
+            if (jit_strict_pure(vm->jit, func_idx)) {              // strict callee wants raw doubles
+                for (int i = 0; i < arg_count; i++) {              // scan every pushed argument
+                    if (!IS_NUMBER(vm->args_stack[vm->args_top - arg_count + i])) {
+                        args_ok = false;                           // tagged arg: use the interpreter path
+                        break;
+                    }
+                }
+            }
+            if (args_ok) {
+                double r = jit_call_many(vm->jit, func_idx,      // args transfer their references
+                                         (uint64_t*)&vm->args_stack[vm->args_top - arg_count],
+                                         arg_count);
+                vm->args_top -= arg_count;            // callee cleanup walk owns the arg refs
+                value_decref(regs[dest_reg]);         // release old dest value
+                regs[dest_reg] = jit_box_return(vm->jit, func_idx, r);
+                if (unlikely(!vm->running)) goto OP_HALT_LABEL;  // native callee stopped the vm
+                ip++; goto *dispatch_table[ip->opcode];
+            }
+        }
+#endif
         vm->call_stack[vm->call_depth].return_address = (ip + 1) - vm->code;      // save return address
         vm->call_stack[vm->call_depth].dest_reg       = dest_reg;                 // save dest register
         vm->call_stack[vm->call_depth].frame_index    = vm->current_frame;        // save current frame index
@@ -3739,6 +3748,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
             double r = jit_call_0(vm->jit, func_idx);
             value_decref(regs[dest_reg]);
             regs[dest_reg] = jit_box_return(vm->jit, func_idx, r);
+            if (unlikely(!vm->running)) goto OP_HALT_LABEL;  // native callee stopped the vm
             ip++; goto *dispatch_table[ip->opcode];
         }
 #endif
@@ -3787,6 +3797,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
                 double r = jit_call_1(vm->jit, func_idx, AS_NUMBER(av));
                 value_decref(regs[dest_reg]);
                 regs[dest_reg] = jit_box_return(vm->jit, func_idx, r);
+                if (unlikely(!vm->running)) goto OP_HALT_LABEL;  // native callee stopped the vm
                 ip++; goto *dispatch_table[ip->opcode];
             }
         }
@@ -3845,6 +3856,7 @@ bool vm_execute(VM* vm, BytecodeChunk* chunk) {
                                     AS_NUMBER(a1), AS_NUMBER(a2));
                 value_decref(regs[dest_reg]);
                 regs[dest_reg] = jit_box_return(vm->jit, func_idx, r);
+                if (unlikely(!vm->running)) goto OP_HALT_LABEL;  // native callee stopped the vm
                 ip++; goto *dispatch_table[ip->opcode];
             }
         }
