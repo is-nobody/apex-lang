@@ -979,6 +979,12 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
         }
         free_register(cg, start_val_reg);
 
+        // fold the step when possible: negative steps iterate while cur >= end
+        double step_const;
+        bool step_is_const = node->for_stmt.step &&
+                             try_fold_number(cg, node->for_stmt.step, &step_const);
+        if (step_is_const && step_const == 0.0) return;          // zero step: loop never runs
+
         // set up end value register
         int end_reg = alloc_register(cg);
         codegen_expression_into(cg, node->for_stmt.end, end_reg);
@@ -991,9 +997,14 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             emit(cg, INST(OP_LOAD_NUM_IMM, step_reg, 1, 0), node->line);
         }
 
+        // end_reg/step_reg are re-read every iteration
+        int prev_var_expr_floor = cg->register_floor;
+        if (step_reg + 1 > cg->register_floor) cg->register_floor = step_reg + 1;
+
         // loop start label
         int loop_start = bytecode_current_offset(cg->chunk);
-        cg->loop_stack.continue_addr = loop_start;
+        cg->loop_stack.continue_addr = -2;                       // continue must reach the increment
+        int prev_continue_jump_count = cg->loop_stack.continue_jump_count;
         
         // load current counter value: temp_cur = var_expr
         int cur_val_reg = alloc_register(cg);
@@ -1005,17 +1016,23 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
             free_register(cg, obj_reg);
         }
         
-        // compare: if cur_val <= end, continue. else jump to exit.
+        // compare: forward loops continue while cur <= end, backward while cur >= end
         int cmp_reg = alloc_register(cg);
-        emit(cg, INST(OP_CMP_LTE, cmp_reg, cur_val_reg, end_reg), node->line);
+        Opcode cmp_op = (step_is_const && step_const < 0.0) ? OP_CMP_GTE : OP_CMP_LTE;
+        emit(cg, INST(cmp_op, cmp_reg, cur_val_reg, end_reg), node->line);
         int jump_to_exit = emit(cg, INST(OP_JUMP_IF_FALSE, 0, cmp_reg, 0), node->line);
         free_register(cg, cmp_reg);
         free_register(cg, cur_val_reg);
         
         // body
         codegen_block(cg, node->for_stmt.body);
-        
-        // increment: var_expr = var_expr + step
+
+        // increment: var_expr = var_expr + step (continue targets this)
+        int inc_addr = bytecode_current_offset(cg->chunk);
+        for (int i = prev_continue_jump_count; i < cg->loop_stack.continue_jump_count; i++) {
+            PATCH_JUMP(cg, cg->loop_stack.continue_jumps[i], inc_addr);           // continue -> increment
+        }
+        cg->loop_stack.continue_jump_count = prev_continue_jump_count;           // scope pop
         int inc_cur_reg = alloc_register(cg);
         if (expr->type == AST_INDEX_ACCESS) {
             int obj_reg = codegen_expression(cg, expr->access.object);
@@ -1049,7 +1066,8 @@ void codegen_for_statement(CodeGenerator* cg, ASTNode* node) {
         // cleanup
         free_register(cg, step_reg);
         free_register(cg, end_reg);
-        
+        cg->register_floor = prev_var_expr_floor;                                       // restore pinned floor
+
         cg->for_scope_depth--;
         for (int i = saved_locals_count; i < cg->locals.count; i++) {
             free(cg->locals.names[i]);

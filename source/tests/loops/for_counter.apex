@@ -1165,7 +1165,7 @@ function counter_fn_nested()
     for i = 1, 3
         for j = 1, 3
             total = total + counter_sq(i * j)
-    assert_equal(total, 101, "sum squares of products")
+    assert_equal(total, 196, "sum squares of products")
 
 // test: loop over function results
 function counter_fn_results()

@@ -34,6 +34,30 @@ void free_register(CodeGenerator* cg, int reg) {
             return;                               // keep LVN-cached value alive
         }
     }
+    if (cg->iv_reduce.loop_var) {                 // iv strength reduction active?
+        for (int i = 0; i < cg->iv_reduce.count; i++) {
+            if (cg->iv_reduce.entries[i].reg == reg) {
+                return;                           // accumulator must survive the whole body
+            }
+        }
+    }
+    if (cg->hoist.active) {                       // licm scope active inside a loop?
+        for (int i = 0; i < cg->hoist.count; i++) {
+            if (cg->hoist.regs[i] == reg) {
+                return;                           // hoisted constant register stays live
+            }
+        }
+        for (int i = 0; i < cg->hoist.get_count; i++) {
+            if (cg->hoist.get_regs[i] == reg) {
+                return;                           // hoisted t[CONST]/global register stays live
+            }
+        }
+        for (int i = 0; i < cg->hoist.expr_count; i++) {
+            if (cg->hoist.expr_regs[i] == reg) {
+                return;                           // hoisted pure expression register stays live
+            }
+        }
+    }
     if (reg == cg->next_register - 1) {           // only free last temp
         cg->next_register--;                      // decrement register count
     }

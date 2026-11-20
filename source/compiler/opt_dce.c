@@ -136,6 +136,7 @@ bool stmt_references_local(ASTNode* node, const char* name) {
 // true if `name` is never referenced (read or written) in any statement after the current position
 bool is_local_dead_after_current_stmt(CodeGenerator* cg, const char* name) {
     if (!name || cg->loop_depth > 0) return false;
+    if (cg->unroll_depth > 0) return false;          // later unrolled copies read names: unsound
     int limit = cg->block_depth < 32 ? cg->block_depth : 32;
     for (int d = limit - 1; d >= 0; d--) {
         ASTNodeList* stmts = cg->block_stack[d].stmts;

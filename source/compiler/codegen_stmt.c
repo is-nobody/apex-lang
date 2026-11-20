@@ -514,6 +514,20 @@ static void codegen_break(CodeGenerator* cg, ASTNode* node) {
 
 // emits a continue statement jumping to the loop's continue address
 static void codegen_continue(CodeGenerator* cg, ASTNode* node) {
+    if (cg->loop_stack.continue_addr == -2) {                    // patch-pending loop (var_expr)
+        if (cg->loop_stack.continue_jumps == NULL) {              // first pending continue
+            cg->loop_stack.continue_jumps = (int*)malloc(sizeof(int) * cg->loop_stack.break_capacity);
+        } else if (cg->loop_stack.continue_jump_count >= cg->loop_stack.break_capacity) {
+            cg->loop_stack.break_capacity *= 2;                   // grow shared jump capacity
+            cg->loop_stack.break_jumps = (int*)realloc(cg->loop_stack.break_jumps,
+                                        sizeof(int) * cg->loop_stack.break_capacity);
+            cg->loop_stack.continue_jumps = (int*)realloc(cg->loop_stack.continue_jumps,
+                                          sizeof(int) * cg->loop_stack.break_capacity);
+        }
+        cg->loop_stack.continue_jumps[cg->loop_stack.continue_jump_count++] =
+            emit(cg, INST(OP_JUMP, 0, 0, 0), node->line);         // patched to the increment later
+        return;
+    }
     emit(cg, INST(OP_JUMP, cg->loop_stack.continue_addr, 0, 0), node->line);  // jump to continue
 }
 
@@ -642,7 +656,7 @@ void codegen_block(CodeGenerator* cg, ASTNode* node) {
     }
     cg->block_depth--;
     // bytecode-level local dce: only runs when control cannot fall through
-    if (cg->loop_depth == 0) {                                               // loops need liveness
+    if (cg->loop_depth == 0 && cg->unroll_depth == 0) {                      // loops need liveness
         dce_local_range(cg, start_pc, cg->chunk->code_count);                // kill dead stores
     }
 }

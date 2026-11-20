@@ -75,9 +75,15 @@ static SymF sv_mul(SymF a, SymF b) {
 // binding table: name -> SymF for locals defined earlier in the body
 typedef struct { const char* name; SymF sv; } SymBind;
 
-// fold an ast expression to a SymF in `var`, using env for prior body locals
+static SymF sv_poly_shift(SymF f, double shift);               // defined below
+
+// fold an ast expression to a SymF in `var`, using env for prior body locals.
+// stmt_idx is the body index of the statement containing this expression;
+// loop_inc_idx is the body index of the loop var increment in bare condition
+// loops (-1 for range loops), so reads placed after the increment see i+1.
 static SymF sym_from_ast(CodeGenerator* cg, ASTNode* n, const char* var,
-                         SymBind* env, int env_n, ASTNode* body) {
+                         SymBind* env, int env_n, ASTNode* body,
+                         int stmt_idx, int loop_inc_idx) {
     if (!n) return sv_fail();
     switch (n->type) {
         case AST_LITERAL_NUMBER:
@@ -86,7 +92,11 @@ static SymF sym_from_ast(CodeGenerator* cg, ASTNode* n, const char* var,
             const char* nm = n->identifier.name;
             for (int k = 0; k < env_n; k++)
                 if (strcmp(env[k].name, nm) == 0) return env[k].sv;
-            if (var && strcmp(nm, var) == 0) return sv_loop();
+            if (var && strcmp(nm, var) == 0) {
+                if (loop_inc_idx >= 0 && stmt_idx > loop_inc_idx)
+                    return sv_poly_shift(sv_loop(), 1.0);       // read after the increment
+                return sv_loop();
+            }
             if (body && body_assigns_name(body, nm)) return sv_fail();
             double v;
             if (try_fold_number(cg, n, &v)) return sv_const(v);
@@ -94,11 +104,14 @@ static SymF sym_from_ast(CodeGenerator* cg, ASTNode* n, const char* var,
         }
         case AST_UNARY:
             if (n->unary.op == TOKEN_MINUS)
-                return sv_neg(sym_from_ast(cg, n->unary.operand, var, env, env_n, body));
+                return sv_neg(sym_from_ast(cg, n->unary.operand, var, env, env_n, body,
+                                            stmt_idx, loop_inc_idx));
             return sv_fail();
         case AST_BINARY: {
-            SymF a = sym_from_ast(cg, n->binary.left,  var, env, env_n, body);
-            SymF b = sym_from_ast(cg, n->binary.right, var, env, env_n, body);
+            SymF a = sym_from_ast(cg, n->binary.left,  var, env, env_n, body,
+                                  stmt_idx, loop_inc_idx);
+            SymF b = sym_from_ast(cg, n->binary.right, var, env, env_n, body,
+                                  stmt_idx, loop_inc_idx);
             if (!a.ok || !b.ok) return sv_fail();
             switch (n->binary.op) {
                 case TOKEN_PLUS:  return sv_add(a, b);
@@ -196,14 +209,81 @@ static SymF sv_cumsum_incl(SymF delta, double a_val) {
     return r;
 }
 
-// value form of ACC_MUL: v(i) = v0 * c^(i - a_val + 1), valid for i >= a_val - 1
-static SymF sv_geo_val(double v0, double c, double a_val) {
+// expand a poly-only SymF as P(i + shift); geo terms are not supported here
+static SymF sv_poly_shift(SymF f, double shift) {
+    if (!f.ok || f.has_geo) return sv_fail();
+    SymF r = sv_zero();
+    for (int k = 0; k <= SV_MAX_DEG; k++) {                     // incoming degree
+        double ck = f.poly[k];
+        if (ck == 0.0) continue;
+        double binom = 1.0;                                     // C(k, j) walking j = k..0
+        double pw = 1.0;                                        // shift^(k - j)
+        for (int j = k; j >= 0; j--) {                          // (i + shift)^k = sum_j C(k,j) i^j shift^(k-j)
+            r.poly[j] += ck * binom * pw;
+            pw *= shift;
+            binom = binom * j / (k - j + 1.0);
+        }
+    }
+    return r;
+}
+
+// value form of ACC_MUL with explicit shift:
+//   shift 0: v(i) = v0 * c^(i - a_val)        (value before iteration i's update)
+//   shift 1: v(i) = v0 * c^(i - a_val + 1)    (value after  iteration i's update)
+static SymF sv_geo_val(double v0, double c, double a_val, int shift) {
     if (c == 0.0) return sv_fail();                            // y becomes zero after first iter
     SymF r = sv_zero();
     r.has_geo = true;
-    r.geo[0] = v0 / pow(c, a_val - 1);                         // v0 * c^(-(a_val-1))
+    r.geo[0] = v0 / pow(c, a_val - shift);                     // v0 * c^(-(a_val - shift))
     r.r = c;
     return r;
+}
+
+// exact integer evaluation of v0 + sum_{i=a}^{last} delta(i) when everything is
+// integral: matches the unfolded loop bit-for-bit (no closed-form rounding)
+#define EXACT_MAX_TRIPS 250000
+static bool exact_plus_final(SymF delta, double v0, double a_val, double last_val,
+                             double* out) {
+    if (!delta.ok || delta.has_geo) return false;
+    for (int k = 0; k <= SV_MAX_DEG; k++) {
+        double ck = delta.poly[k];
+        if (ck != floor(ck)) return false;                     // fractional coefficient
+        if (fabs(ck) > 1e15) return false;                     // coefficient too large
+    }
+    if (v0 != floor(v0) || fabs(v0) > 1e15) return false;       // v0 must be whole
+    if (a_val != floor(a_val) || last_val != floor(last_val)) return false;
+    long long n = (long long)(last_val - a_val + 1.0);
+    if (n < 0 || n > EXACT_MAX_TRIPS) return false;             // trip count bounds compile time
+    long long acc = (long long)v0;
+    long long ia = (long long)a_val;
+    long long coef[SV_MAX_DEG + 1];
+    for (int k = 0; k <= SV_MAX_DEG; k++) coef[k] = (long long)delta.poly[k];
+    for (long long m = 0; m < n; m++) {
+        long long i = ia + m;
+        long long v = 0;                                        // horner in int64
+        for (int k = SV_MAX_DEG; k >= 0; k--) {
+            if (__builtin_mul_overflow(v, i, &v)) return false;
+            if (__builtin_add_overflow(v, coef[k], &v)) return false;
+        }
+        if (__builtin_add_overflow(acc, v, &acc)) return false;
+    }
+    if (acc > (1LL << 53) || acc < -(1LL << 53)) return false;  // must stay double-exact
+    *out = (double)acc;
+    return true;
+}
+
+// exact integer evaluation of v0 * c^N when v0, c and the result are whole
+static bool exact_mul_final(double v0, double c, double N, double* out) {
+    if (v0 != floor(v0) || c != floor(c) || N != floor(N)) return false;
+    if (N < 0.0 || N > 62.0) return false;
+    long long p = (long long)v0;
+    long long base = (long long)c;
+    for (long long m = 0; m < (long long)N; m++) {
+        if (__builtin_mul_overflow(p, base, &p)) return false;
+    }
+    if (p > (1LL << 53) || p < -(1LL << 53)) return false;      // must stay double-exact
+    *out = (double)p;
+    return true;
 }
 
 // one body variable: how it was classified and its resolved form
@@ -218,6 +298,11 @@ typedef struct {
     SymF        form;
     bool        form_ready;
     double      final_val;
+    int         upd_idx;       // body index of the unique assignment
+    bool        read_before;   // some other statement reads it before its update
+    bool        read_after;    // some other statement reads it after its update
+    SymF        delta;         // resolved delta for ACC_PLUS (post-update semantics)
+    bool        delta_ok;
 } VarInfo;
 
 // index of the unique `name = ...` in body (AST_ASSIGN or AST_VAR_DECL)
@@ -279,9 +364,43 @@ static VarKind classify_assign(CodeGenerator* cg, ASTNode* stmt,
     return VK_SIMPLE;
 }
 
-// best-effort: resolve value forms for as many vars as possible
+// true when the statement reads `name` in its value expression (target writes don't count)
+static bool stmt_rhs_reads_name(ASTNode* stmt, const char* name) {
+    if (!stmt) return false;
+    switch (stmt->type) {
+        case AST_ASSIGN:
+        case AST_VAR_DECL:
+            return stmt->var_assign.value &&
+                   ast_references_local(stmt->var_assign.value, name);
+        case AST_EXPR_STMT:
+            return ast_references_local(stmt->expr_stmt.expression, name);
+        case AST_RETURN_STMT:
+            return stmt->return_stmt.value &&
+                   ast_references_local(stmt->return_stmt.value, name);
+        default:
+            return true;                                       // unsupported shape: conservative
+    }
+}
+
+// scans read positions of `name` across the body, skipping its own update statement
+static void scan_read_positions(ASTNode* body, const char* name, int upd_idx,
+                                 bool* out_before, bool* out_after) {
+    *out_before = false;
+    *out_after = false;
+    for (int i = 0; i < body->block.statements->count; i++) {
+        if (i == upd_idx) continue;                            // self-read is inherently pre-update
+        if (stmt_rhs_reads_name(body->block.statements->nodes[i], name)) {
+            if (i < upd_idx) *out_before = true;
+            else             *out_after = true;
+        }
+    }
+}
+
+// best-effort: resolve value forms for as many vars as possible.
+// `form` always carries the value seen at this var's read sites (post-update form
+// when reads happen after the update, pre-update form when they happen before).
 static void resolve_forms(CodeGenerator* cg, ASTNode* body, const char* var,
-                          VarInfo* vars, int nv, double a_val) {
+                          VarInfo* vars, int nv, double a_val, int loop_inc_idx) {
     for (int pass = 0; pass < nv + 1; pass++) {
         bool progress = false;
         for (int i = 0; i < nv; i++) {
@@ -295,15 +414,28 @@ static void resolve_forms(CodeGenerator* cg, ASTNode* body, const char* var,
             }
             SymF sv = sv_fail();
             if (vars[i].kind == VK_SIMPLE) {
-                sv = sym_from_ast(cg, vars[i].rhs, var, env, en, body);
+                sv = sym_from_ast(cg, vars[i].rhs, var, env, en, body,
+                                  vars[i].upd_idx, loop_inc_idx);
             } else if (vars[i].kind == VK_ACC_PLUS) {
-                SymF d = sym_from_ast(cg, vars[i].rhs, var, env, en, body);
+                SymF d = sym_from_ast(cg, vars[i].rhs, var, env, en, body,
+                                      vars[i].upd_idx, loop_inc_idx);
+                if (d.ok && !vars[i].delta_ok) {
+                    vars[i].delta = d;                          // cache post-update delta
+                    vars[i].delta_ok = true;
+                }
                 if (d.ok) {
                     SymF cs = sv_cumsum_incl(d, a_val);
-                    if (cs.ok) sv = sv_add(sv_const(vars[i].v0), cs);
+                    if (cs.ok) {
+                        SymF post = sv_add(sv_const(vars[i].v0), cs);
+                        if (vars[i].read_before && !vars[i].read_after)
+                            sv = sv_poly_shift(post, -1.0);    // consumers see pre-update value
+                        else
+                            sv = post;                         // consumers read after the update
+                    }
                 }
             } else if (vars[i].kind == VK_ACC_MUL) {
-                sv = sv_geo_val(vars[i].v0, vars[i].c, a_val);
+                int shift = (vars[i].read_after && !vars[i].read_before) ? 1 : 0;
+                sv = sv_geo_val(vars[i].v0, vars[i].c, a_val, shift);
             }
             if (sv.ok) {
                 vars[i].form = sv;
@@ -554,8 +686,8 @@ bool try_emit_symbolic_loop(CodeGenerator* cg, ASTNode* node) {
         }
         if (vc != 1) return false;
     }
-
     const char* names[16]; int nv = 0;
+    int loop_inc_idx = -1;                                       // bare loops: `var = var + 1` site
     for (int i = 0; i < body->block.statements->count; i++) {
         ASTNode* s = body->block.statements->nodes[i];
         if (!s) return false;
@@ -599,6 +731,7 @@ bool try_emit_symbolic_loop(CodeGenerator* cg, ASTNode* node) {
             if (!l_self && !r_self) return false;
             double step;
             if (!try_fold_number(cg, l_self ? R : L, &step) || step != 1.0) return false;
+            loop_inc_idx = i;                                  // reads after this see i+1
             continue;
         }
 
@@ -618,6 +751,11 @@ bool try_emit_symbolic_loop(CodeGenerator* cg, ASTNode* node) {
         vars[i].rhs = NULL;
         vars[i].c = 0.0;
         vars[i].v0 = 0.0;
+        vars[i].upd_idx = -1;
+        vars[i].read_before = false;
+        vars[i].read_after = false;
+        vars[i].delta_ok = false;
+        memset(&vars[i].delta, 0, sizeof(SymF));
 
         int slot = find_local_slot(cg, names[i]);
         if (slot < 0) return false;
@@ -631,6 +769,7 @@ bool try_emit_symbolic_loop(CodeGenerator* cg, ASTNode* node) {
         vars[i].kind = k;
         vars[i].rhs = rhs;
         vars[i].c = c;
+        vars[i].upd_idx = ai;
 
         if (k != VK_SIMPLE) {                                   // accumulators need const initial value
             if (!cg->locals.const_known[slot]) return false;
@@ -638,36 +777,40 @@ bool try_emit_symbolic_loop(CodeGenerator* cg, ASTNode* node) {
         }
     }
 
-    resolve_forms(cg, body, var, vars, nv, a_val);
+    // read-position analysis: every read of a var must fall on one side of its
+    // update, otherwise one symbolic form per name cannot represent both views
+    for (int i = 0; i < nv; i++) {
+        scan_read_positions(body, vars[i].name, vars[i].upd_idx,
+                            &vars[i].read_before, &vars[i].read_after);
+        if (vars[i].read_before && vars[i].read_after) return false;   // mixed: give up
+        if (vars[i].read_before && vars[i].kind == VK_SIMPLE) return false; // prev-iter value needed
+    }
+
+    resolve_forms(cg, body, var, vars, nv, a_val, loop_inc_idx);
 
     for (int i = 0; i < nv; i++) {                              // compute final value of each variable
-        if (vars[i].form_ready) {
-            vars[i].final_val = sv_eval(vars[i].form, last_val);
+        if (vars[i].kind == VK_ACC_PLUS) {                      // final = v0 + sum of all deltas
+            if (!vars[i].delta_ok) return false;                // delta never resolved: cannot fold
+            double exact;
+            if (exact_plus_final(vars[i].delta, vars[i].v0, a_val, last_val, &exact)) {
+                vars[i].final_val = exact;                      // integer-exact closed sum
+            } else {
+                vars[i].final_val = vars[i].v0 + sv_sum(vars[i].delta, a_val, last_val);
+            }
             continue;
         }
-        bool needed = false;                                    // form not resolved: allow only if unused
-        for (int k = 0; k < nv; k++) {
-            if (k == i || !vars[k].rhs) continue;
-            if (ast_references_local(vars[k].rhs, vars[i].name)) { needed = true; break; }
-        }
-        if (needed) return false;
-        if (vars[i].kind == VK_ACC_PLUS) {                      // evaluate delta numerically
-            SymBind env[16]; int en = 0;
-            for (int k = 0; k < nv; k++) {
-                if (k == i || !vars[k].form_ready) continue;
-                env[en].name = vars[k].name;
-                env[en].sv = vars[k].form;
-                en++;
-            }
-            SymF d = sym_from_ast(cg, vars[i].rhs, var, env, en, body);
-            if (!d.ok) return false;
-            vars[i].final_val = vars[i].v0 + sv_sum(d, a_val, last_val);
-        } else if (vars[i].kind == VK_ACC_MUL) {
+        if (vars[i].kind == VK_ACC_MUL) {                       // final = v0 * c^N (post-update)
             double N = last_val - a_val + 1.0;
-            vars[i].final_val = vars[i].v0 * pow(vars[i].c, N);
-        } else {
-            return false;                                       // SIMPLE without form: cannot evaluate
+            double exact;
+            if (exact_mul_final(vars[i].v0, vars[i].c, N, &exact)) {
+                vars[i].final_val = exact;                      // integer-exact power
+            } else {
+                vars[i].final_val = vars[i].v0 * pow(vars[i].c, N);
+            }
+            continue;
         }
+        if (!vars[i].form_ready) return false;                  // SIMPLE without form: cannot evaluate
+        vars[i].final_val = sv_eval(vars[i].form, last_val);    // value of last iteration's assignment
     }
 
     for (int i = 0; i < nv; i++) {                              // emit one load per variable

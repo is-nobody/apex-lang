@@ -64,6 +64,7 @@ CodeGenerator* codegen_create(BytecodeChunk* chunk) {
 
     cg->loop_stack.break_capacity = 16;                                    // initial break capacity
     cg->loop_stack.break_jumps = (int*)malloc(sizeof(int) * cg->loop_stack.break_capacity);  // allocate breaks
+    cg->loop_stack.continue_jump_count = 0;                                // no pending continue jumps
     cg->loop_stack.is_table_iter = false;                                  // outermost scope: not a table loop
 
     cg->current_module = NULL;                                             // no current module
@@ -165,6 +166,7 @@ void codegen_destroy(CodeGenerator* cg) {
     free(cg->str_cache.regs);
 
     free(cg->loop_stack.break_jumps);                                      // free break jumps
+    free(cg->loop_stack.continue_jumps);                                  // free continue jumps
     free(cg->jump_targets);
 
     for (int i = 0; i < cg->module_count; i++) {                           // free imported modules

@@ -13,6 +13,21 @@ static bool is_arithmetic_op(ApexTokenType op) {
            op == TOKEN_SLASH || op == TOKEN_PERCENT;
 }
 
+// compile-time division semantics
+double apex_fold_divide(double l, double r) {
+    if (r == 0.0) return l / r;                       // IEEE handles inf/nan at runtime/fold
+    double q = l / r;                                 // IEEE 754 quotient
+    if (isnan(q) || isinf(q) || q == 0.0) return q;   // specials pass through
+    double aq = fabs(q);
+    if (aq < 1e-300 || aq >= 1e15) return q;           // extreme magnitude: keep IEEE
+    if (q == floor(q) && aq < 1e15) return q;         // whole quotient: exact, no rounding
+    int exp10 = (int)floor(log10(aq));                 // decimal exponent
+    double scale = pow(10.0, 5 - exp10);               // keeps 6 significant digits
+    double scaled = q * scale;
+    if (!isfinite(scaled)) return q;                   // overflow guard
+    return round(scaled) / scale;
+}
+
 // tries to fold an expression into a compile-time numeric constant
 bool try_fold_number(CodeGenerator* cg, ASTNode* node, double* out) {
     if (!node || !out) return false;                                   // null guard
@@ -45,7 +60,7 @@ bool try_fold_number(CodeGenerator* cg, ASTNode* node, double* out) {
                 case TOKEN_STAR:    *out = l * r;      return true;
                 case TOKEN_SLASH:                                          // division by zero
                     if (r == 0.0) return false;                        // falls back to runtime
-                    *out = l / r;                      return true;
+                    *out = apex_fold_divide(l, r);     return true;
                 case TOKEN_PERCENT:                                        // modulo by zero
                     if (r == 0.0) return false;                        // falls back to runtime
                     *out = fmod(l, r);                 return true;

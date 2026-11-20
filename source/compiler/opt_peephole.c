@@ -233,7 +233,7 @@ int try_peephole_fuse(CodeGenerator* cg, Instruction* inst) {
             case OP_ADD_IMM: r = (double)k + (double)m; break;
             case OP_SUB_IMM: r = (double)k - (double)m; break;
             case OP_MUL_IMM: r = (double)k * (double)m; break;
-            case OP_DIV_IMM: if (m == 0) ok = false; else r = (double)k / (double)m; break;
+            case OP_DIV_IMM: if (m == 0) ok = false; else r = apex_fold_divide((double)k, (double)m); break;
             case OP_MOD_IMM: if (m == 0) ok = false; else r = fmod((double)k, (double)m); break;
             default: ok = false; break;
         }

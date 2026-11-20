@@ -79,6 +79,7 @@ bool try_fold_bool(CodeGenerator* cg, ASTNode* node, bool* out);
 bool is_number_expression(CodeGenerator* cg, ASTNode* node);
 bool is_integer_expression(CodeGenerator* cg, ASTNode* node);
 bool ast_same_expr(ASTNode* a, ASTNode* b);
+double apex_fold_divide(double l, double r);   // division semantics for compile-time folds
 
 // opt_const_cache.c
 int  num_cache_lookup(CodeGenerator* cg, double value);
