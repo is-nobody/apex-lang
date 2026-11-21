@@ -647,6 +647,7 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
     for (int iter = 0; is_pure && iter < 8; iter++) {                // fixpoint loop
         XmmCache cache = cache_start;                                // scratch state per pass
         scratch.len = 0;                                             // reset scratch buffer
+        info->n_bail_patches = 0;                                    // scratch bail-outs are discarded
         size_t patch = emit_loop_iteration(abi, ctx, &scratch, &cache, info, const_slot, save_slot, iter_in_xmm, step_sign, needs_helper, is_pure, NULL);
         if (patch == (size_t)-1)
             JIT_FATAL("loop emit failed in fixpoint: pc=%d", entry);
@@ -789,6 +790,7 @@ bool x86_64_emit_numeric_loop(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb
         }
     }
 
+    info->n_bail_patches = 0;                                        // only the real pass records bail-outs
     size_t entry_patch = emit_loop_iteration(abi, ctx, cb, &cache, info, const_slot, save_slot, iter_in_xmm, step_sign, needs_helper, is_pure, &exit_cache);
     if (entry_patch == (size_t)-1)
         JIT_FATAL("loop emit failed (real pass): pc=%d", entry);

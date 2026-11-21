@@ -7,6 +7,9 @@
 #include "jit_ops.h"
 #include <stddef.h>
 
+// shared checked-call bail-out body, defined further below
+static void func_emit_post_call_check_forced(X86FuncEmitState* st);
+
 // emits an incref of the raw value in src when it is heap-tagged
 static void emit_arg_incref(CodeBuf* cb, int src) {
 #if defined(_WIN32) || defined(_WIN64)
@@ -44,6 +47,72 @@ static void spill_dirty_for_call(X86FuncEmitState* st, int live_a, int live_b) {
     }
 }
 
+// true when this call site must runtime-check its raw args for a strict callee
+static bool call_targets_strict(X86FuncEmitState* st, int callee) {
+    JITContext* ctx = st->ctx;                                       // jit context with tiers
+    if (st->is_pure) return false;                                  // strict caller proves numeric args
+    if (callee < 0 || callee >= ctx->func_count) return false;      // unknown callee: raw path handles it
+    return ctx->strict_pure[callee];                                // callee consumes raw doubles only
+}
+
+// emits an is_number test on the raw bits in rax; je jumps to the slow path when tagged
+static size_t emit_plain_number_test(CodeBuf* cb) {
+    x86_emit_movabs_r11(cb, X86_QNAN_MASK);                          // r11 = qnan mask
+    x86_emit_mov_r64_r64(cb, X86_RDX, X86_RAX);                      // rdx = raw bits
+    emit_u8(cb, 0x48); emit_u8(cb, 0x21); emit_u8(cb, 0xDA);         // and rdx, r11
+    x86_emit_cmp_r64(cb, X86_RDX, X86_R11);                          // (v & qnan) == qnan?
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x84);                            // je rel32 (tagged -> checked)
+    size_t at = cb->len;                                             // placeholder offset
+    emit_i32(cb, 0);
+    return at;
+}
+
+// patches a rel32 jump placeholder to the current code position
+static void patch_jump_here(CodeBuf* cb, size_t at) {
+    int32_t rel = (int32_t)cb->len - (int32_t)(at + 4);              // distance to here
+    memcpy(cb->buf + at, &rel, 4);                                   // write the rel32
+}
+
+// pushes one raw value (in a volatile gpr) onto the vm args stack
+static void emit_push_raw_arg(CodeBuf* cb, JITContext* ctx, int value_reg) {
+#if defined(_WIN32) || defined(_WIN64)
+    x86_emit_mov_r64_r64(cb, X86_RDX, value_reg);                    // win64 arg1 = rdx
+    int arg0 = X86_RCX;                                              // win64 arg0 = rcx
+#else
+    x86_emit_mov_r64_r64(cb, X86_RSI, value_reg);                    // sysv arg1 = rsi
+    int arg0 = X86_RDI;                                              // sysv arg0 = rdi
+#endif
+    x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&ctx->vm);          // rax = &ctx->vm
+    x86_emit_load_r64_base(cb, X86_RAX, X86_RAX, 0);                 // rax = ctx->vm
+    x86_emit_mov_r64_r64(cb, arg0, X86_RAX);                         // arg0 = vm
+    x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_push_arg_base);// rax = push helper
+    emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                            // call rax
+}
+
+// drives the checked dispatch: jit_op_call(vm, &frame[d], func_idx, argc)
+static void emit_checked_dispatch(CodeBuf* cb, JITContext* ctx,
+                                  int func_idx, int argc, int dest_slot) {
+#if defined(_WIN32) || defined(_WIN64)
+    int arg0 = X86_RCX;                                              // win64 arg0 = rcx
+    int arg1 = X86_RDX;                                              // win64 arg1 = rdx
+    int arg2 = X86_R8;                                               // win64 arg2 = r8
+    int arg3 = X86_R9;                                               // win64 arg3 = r9
+#else
+    int arg0 = X86_RDI;                                              // sysv arg0 = rdi
+    int arg1 = X86_RSI;                                              // sysv arg1 = rsi
+    int arg2 = X86_RDX;                                              // sysv arg2 = rdx
+    int arg3 = X86_RCX;                                              // sysv arg3 = rcx
+#endif
+    x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&ctx->vm);          // rax = &ctx->vm
+    x86_emit_load_r64_base(cb, X86_RAX, X86_RAX, 0);                 // rax = ctx->vm
+    x86_emit_mov_r64_r64(cb, arg0, X86_RAX);                         // arg0 = vm
+    x86_emit_lea_r64_base(cb, arg1, X86_RBP, x86_slot_disp(dest_slot));  // arg1 = &frame[d]
+    x86_emit_mov_r64_imm32(cb, arg2, (uint64_t)(int64_t)func_idx);   // arg2 = func idx
+    x86_emit_mov_r64_imm32(cb, arg3, (uint64_t)(int64_t)argc);       // arg3 = arg count
+    x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_op_call);      // rax = checked dispatch
+    emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                            // call rax
+}
+
 // emits OP_CALL_1 for a function body instruction
 static void func_emit_call_1(X86FuncEmitState* st) {
     CodeBuf* cb = st->cb;                                            // destination code buffer
@@ -61,8 +130,23 @@ static void func_emit_call_1(X86FuncEmitState* st) {
     }
     x86_cache_clear(cache);                                          // xmm regs clobbered by callee
     x86_emit_movq_rax_xmm(cb, 0);                                   // rax = raw arg bits
-    emit_arg_incref(cb, X86_RAX);                                   // callee owns its arg copy
-    emit_call_or_self(cb, st->ctx, st->a, st->func_idx, st->mark);   // direct self-call or via table
+
+    if (call_targets_strict(st, st->a)) {                            // strict callee wants plain doubles
+        size_t slow_patch = emit_plain_number_test(cb);              // tagged arg -> checked dispatch
+        emit_call_or_self(cb, st->ctx, st->a, st->func_idx, st->mark);   // plain number: raw call, no incref
+        emit_u8(cb, 0xE9);                                           // jmp done
+        size_t done_patch = cb->len;                                 // done jump placeholder
+        emit_i32(cb, 0);
+        patch_jump_here(cb, slow_patch);                             // slow path starts here
+        emit_push_raw_arg(cb, st->ctx, X86_RAX);                     // push the tagged value (increfs)
+        emit_checked_dispatch(cb, st->ctx, st->a, 1, st->d);         // checked call, result in frame[d]
+        x86_emit_movsd_load(cb, 0, x86_slot_disp(st->d));            // xmm0 = boxed result bits
+        func_emit_post_call_check_forced(st);                        // callee errors bail to cleanup
+        patch_jump_here(cb, done_patch);                             // both paths converge
+    } else {
+        emit_arg_incref(cb, X86_RAX);                                // callee owns its arg copy
+        emit_call_or_self(cb, st->ctx, st->a, st->func_idx, st->mark);   // direct self-call or via table
+    }
     x86_cache_put(cache, 0, st->d);                                  // xmm0 = result
 
     for (int g = 0; g < st->n_pockets; g++) {                        // restore pockets live after call
@@ -104,11 +188,35 @@ static void func_emit_call_2(X86FuncEmitState* st) {
     }
     x86_emit_sse66_rr(cb, 0x28, 0, XMM_SCRATCH);                     // arg0 from scratch to xmm0
     x86_cache_clear(cache);                                          // xmm regs clobbered
-    x86_emit_movq_rax_xmm(cb, 0);                                   // rax = raw arg0 bits
-    emit_arg_incref(cb, X86_RAX);                                   // callee owns its arg0 copy
-    x86_emit_movq_rax_xmm(cb, 1);                                   // rax = raw arg1 bits
-    emit_arg_incref(cb, X86_RAX);                                   // callee owns its arg1 copy
-    emit_call_or_self(cb, st->ctx, st->a, st->func_idx, st->mark);   // direct self-call or via table
+
+    if (call_targets_strict(st, st->a)) {                            // strict callee wants plain doubles
+        size_t slow_patch;                                           // first failing test lands here
+        x86_emit_movq_rax_xmm(cb, 0);                                // rax = raw arg0 bits
+        slow_patch = emit_plain_number_test(cb);                     // tagged arg0 -> checked dispatch
+        size_t slow_patch2;                                          // second test placeholder
+        x86_emit_movq_rax_xmm(cb, 1);                                // rax = raw arg1 bits
+        slow_patch2 = emit_plain_number_test(cb);                    // tagged arg1 -> checked dispatch
+        emit_call_or_self(cb, st->ctx, st->a, st->func_idx, st->mark);   // plain numbers: raw call
+        emit_u8(cb, 0xE9);                                           // jmp done
+        size_t done_patch = cb->len;                                 // done jump placeholder
+        emit_i32(cb, 0);
+        patch_jump_here(cb, slow_patch);                             // arg0-tagged path starts here
+        patch_jump_here(cb, slow_patch2);                            // arg1-tagged path joins it
+        x86_emit_movq_rax_xmm(cb, 0);                                // rax = raw arg0 bits
+        emit_push_raw_arg(cb, st->ctx, X86_RAX);                     // push arg0 (increfs when tagged)
+        x86_emit_movq_rax_xmm(cb, 1);                                // rax = raw arg1 bits
+        emit_push_raw_arg(cb, st->ctx, X86_RAX);                     // push arg1 (increfs when tagged)
+        emit_checked_dispatch(cb, st->ctx, st->a, 2, st->d);         // checked call, result in frame[d]
+        x86_emit_movsd_load(cb, 0, x86_slot_disp(st->d));            // xmm0 = boxed result bits
+        func_emit_post_call_check_forced(st);                        // callee errors bail to cleanup
+        patch_jump_here(cb, done_patch);                             // both paths converge
+    } else {
+        x86_emit_movq_rax_xmm(cb, 0);                                // rax = raw arg0 bits
+        emit_arg_incref(cb, X86_RAX);                                // callee owns its arg0 copy
+        x86_emit_movq_rax_xmm(cb, 1);                                // rax = raw arg1 bits
+        emit_arg_incref(cb, X86_RAX);                                // callee owns its arg1 copy
+        emit_call_or_self(cb, st->ctx, st->a, st->func_idx, st->mark);   // direct self-call or via table
+    }
     x86_cache_put(cache, 0, st->d);                                  // xmm0 = result
 
     (void)arg0_live;                                                 // checked in spill helper
@@ -277,6 +385,11 @@ static void emit_load_vm_for_check(CodeBuf* cb, JITContext* ctx) {
 // emits a vm->running check after a call inside a basic-tier function
 static void func_emit_post_call_check(X86FuncEmitState* st) {
     if (!st->basic_mode) return;                                    // pure tier keeps its shape
+    func_emit_post_call_check_forced(st);                           // shared checked body
+}
+
+// emits a vm->running check regardless of tier; bail-outs need the cleanup epilogue
+static void func_emit_post_call_check_forced(X86FuncEmitState* st) {
     CodeBuf* cb = st->cb;
     emit_load_vm_for_check(cb, st->ctx);
     emit_u8(cb, 0x80); emit_u8(cb, 0xB8);                           // cmp byte [rax+disp32], 0
@@ -324,6 +437,38 @@ void x86_func_emit_call(X86FuncEmitState* st) {
         default:
             JIT_FATAL("call category: unexpected opcode %d (pc=%d)", st->op, st->pc);
     }
+}
+
+// pushes one loop-frame slot value onto the vm args stack
+static void emit_push_frame_arg(X86LoopBodyState* st, int slot) {
+    CodeBuf* cb = st->cb;
+#if defined(_WIN32) || defined(_WIN64)
+    x86_emit_load_r64_rbp(cb, X86_RDX, x86_slot_disp(slot));        // win64 arg1 = rdx
+    int arg0 = X86_RCX;                                             // win64 arg0 = rcx
+#else
+    x86_emit_load_r64_rbp(cb, X86_RSI, x86_slot_disp(slot));        // sysv arg1 = rsi
+    int arg0 = X86_RDI;                                             // sysv arg0 = rdi
+#endif
+    x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&st->ctx->vm);     // rax = &ctx->vm
+    x86_emit_load_r64_base(cb, X86_RAX, X86_RAX, 0);                // rax = ctx->vm
+    x86_emit_mov_r64_r64(cb, arg0, X86_RAX);                        // arg0 = vm
+    x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&jit_push_arg_base);  // rax = push helper
+    emit_u8(cb, 0xFF); emit_u8(cb, 0xD0);                           // call rax
+}
+
+// records a vm->running bail-out to the loop's exit stub
+static void loop_call_running_check(X86LoopBodyState* st) {
+    CodeBuf* cb = st->cb;
+    x86_emit_movabs_rax(cb, (uint64_t)(uintptr_t)&st->ctx->vm);     // rax = &ctx->vm
+    x86_emit_load_r64_base(cb, X86_RAX, X86_RAX, 0);                // rax = ctx->vm
+    emit_u8(cb, 0x80); emit_u8(cb, 0xB8);                           // cmp byte [rax+disp32], 0
+    emit_i32(cb, (int32_t)offsetof(VM, running));                   // offset of the running flag
+    emit_u8(cb, 0x00);                                              // compare against zero
+    emit_u8(cb, 0x0F); emit_u8(cb, 0x84);                           // je rel32 (bail)
+    if (st->info->n_bail_patches >= st->ctx->chunk->code_count)     // one per pc is the hard bound
+        JIT_FATAL("bail fixup overflow in loop at pc=%d", st->pc);
+    st->info->bail_patch_at[st->info->n_bail_patches++] = cb->len;  // patched once the exit is known
+    emit_i32(cb, 0);                                                // rel32 placeholder
 }
 
 // loop body dispatch for call opcodes
@@ -383,6 +528,57 @@ void x86_loop_emit_call(X86LoopBodyState* st) {
 
     // spill the frame register first
     x86_emit_store_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));
+
+    // strict callee: loop slots are not proven numeric, so test each raw arg once at runtime
+    bool strict_callee = (st->op == OP_CALL_1 || st->op == OP_CALL_2) &&
+                         st->a >= 0 && st->a < st->ctx->func_count &&
+                         st->ctx->strict_pure[st->a];
+    if (strict_callee && st->op == OP_CALL_1) {
+        x86_emit_movsd_load(cb, 0, x86_slot_disp(st->b));            // xmm0 = raw arg bits
+        x86_emit_movq_rax_xmm(cb, 0);                                // rax = raw arg bits
+        size_t slow_patch = emit_plain_number_test(cb);              // tagged arg -> checked
+        emit_call_func(cb, st->ctx, st->a);                          // plain number: raw call
+        x86_emit_load_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));
+        emit_u8(cb, 0xE9);                                           // jmp done
+        size_t done_patch = cb->len;                                 // done jump placeholder
+        emit_i32(cb, 0);
+        patch_jump_here(cb, slow_patch);                             // slow path starts here
+        emit_push_frame_arg(st, st->b);                              // push the tagged value (increfs)
+        emit_checked_dispatch(cb, st->ctx, st->a, 1, st->d);         // checked call, result in frame[d]
+        x86_emit_load_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));
+        loop_call_running_check(st);                                 // callee errors bail to the exit
+        x86_emit_movsd_load(cb, 0, x86_slot_disp(st->d));            // xmm0 = boxed result bits
+        patch_jump_here(cb, done_patch);                             // both paths converge
+        x86_cache_clear(st->cache);
+        x86_cache_put(st->cache, 0, st->d);
+        return;
+    }
+    if (strict_callee && st->op == OP_CALL_2) {
+        x86_emit_movsd_load(cb, 0, x86_slot_disp(st->b));            // xmm0 = raw arg0 bits
+        x86_emit_movsd_load(cb, 1, x86_slot_disp(st->b + 1));        // xmm1 = raw arg1 bits
+        x86_emit_movq_rax_xmm(cb, 0);                                // rax = raw arg0 bits
+        size_t slow_patch = emit_plain_number_test(cb);              // tagged arg0 -> checked
+        x86_emit_movq_rax_xmm(cb, 1);                                // rax = raw arg1 bits
+        size_t slow_patch2 = emit_plain_number_test(cb);             // tagged arg1 -> checked
+        emit_call_func(cb, st->ctx, st->a);                          // plain numbers: raw call
+        x86_emit_load_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));
+        emit_u8(cb, 0xE9);                                           // jmp done
+        size_t done_patch = cb->len;                                 // done jump placeholder
+        emit_i32(cb, 0);
+        patch_jump_here(cb, slow_patch);                             // arg0-tagged path starts here
+        patch_jump_here(cb, slow_patch2);                            // arg1-tagged path joins it
+        emit_push_frame_arg(st, st->b);                              // push arg0 (increfs when tagged)
+        emit_push_frame_arg(st, st->b + 1);                          // push arg1 (increfs when tagged)
+        emit_checked_dispatch(cb, st->ctx, st->a, 2, st->d);         // checked call, result in frame[d]
+        x86_emit_load_r64_rbp(cb, st->abi->frame_reg, x86_slot_disp(st->save_slot));
+        loop_call_running_check(st);                                 // callee errors bail to the exit
+        x86_emit_movsd_load(cb, 0, x86_slot_disp(st->d));            // xmm0 = boxed result bits
+        patch_jump_here(cb, done_patch);                             // both paths converge
+        x86_cache_clear(st->cache);
+        x86_cache_put(st->cache, 0, st->d);
+        return;
+    }
+
     if (st->op == OP_CALL_1 || st->op == OP_CALL_2)
         x86_emit_movsd_load(cb, 0, x86_slot_disp(st->b));
     if (st->op == OP_CALL_2)

@@ -246,13 +246,16 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
                 if (target >= 0 && target < ctx->func_count &&
                     ctx->return_type[target] == JIT_RET_ANY)
                     needs_cleanup = true;                            // callee may return a mortal ref
+                if ((op == OP_CALL_1 || op == OP_CALL_2) &&
+                    target >= 0 && target < ctx->func_count &&
+                    !ctx->strict_pure[func_idx] && ctx->strict_pure[target])
+                    needs_cleanup = true;                            // strict callee: checked slow path bails
             } else if (op == OP_CALL_BUILTIN || op == OP_ASYNC_CALL_BUILTIN) {
                 needs_cleanup = true;                                // builtin results may be mortal
             }
         }
     }
-    // the walk releases every slot, so it must never observe stale stack
-    // data: functions with a walk always initialize their slots first
+    // the walk releases every slot, so it must never observe stale stack data
     bool needs_init = !ctx->strict_pure[func_idx] || needs_cleanup;   // uninit slots must read as none
 
     if (cb->len + (size_t)range_size * 256 + 512 + 256 > cb->cap)     // capacity incl. many-arg stub
@@ -612,9 +615,7 @@ bool x86_64_emit_function(const X86_64Abi* abi, JITContext* ctx, CodeBuf* cb,
     free(pred_count); free(needs_flush); free(use_snap); free(jump_snap);
 
     // many-arg entry stub: rdi (sysv) / rcx (win64) points at an array of raw
-    // value bits whose references transfer to the callee; loads them into
-    // xmm0..arity-1 and tail-jumps to the main body so the C caller of
-    // jit_call_many receives the result as an ordinary double return
+    // value bits whose references transfer to the callee
     if (arity <= JIT_MAX_CALL_ARITY) {                                 // stub only needed up to the cap
         size_t stub = cb->len;                                        // stub entry offset
 #if defined(_WIN32) || defined(_WIN64)

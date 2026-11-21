@@ -362,305 +362,6 @@ static bool function_is_basic_compilable(JITContext* ctx, int func_idx) {
     return true;                                                   // every op has a lowering
 }
 
-// scan bound for the per-register type flags below
-#define JIT_MAX_REGS_SCAN 512
-
-// infers how a function returns its value
-static bool infer_return_type_ex(BytecodeChunk* chunk, int start, int end,
-                                 int arity, bool params_numeric,
-                                 JitReturnType* out) {
-    bool is_bool[JIT_MAX_REGS_SCAN];                             // bool-flag per register
-    bool is_none[JIT_MAX_REGS_SCAN];                             // none-flag per register
-    bool is_num [JIT_MAX_REGS_SCAN];                             // numeric-flag per register
-    memset(is_bool, 0, sizeof(is_bool));                         // no regs are bool initially
-    memset(is_none, 0, sizeof(is_none));                         // no regs are none initially
-    memset(is_num,  0, sizeof(is_num));                          // no regs are number initially
-
-    bool any_bool = false;                                       // saw a provably-bool RETURN
-    bool any_num  = false;                                       // saw a provably-number RETURN
-    bool any_none = false;                                       // saw a RETURN_NONE
-    bool any_any  = false;                                       // saw a RETURN with unprovable type
-
-    for (int pc = start; pc < end; pc++) {                       // walk the function body
-        Instruction* inst = &chunk->code[pc];
-        int d = inst->operands[0];                               // destination register
-        int a = inst->operands[1];                               // first source register
-
-        switch (inst->opcode) {
-            case OP_CMP_EQ:     case OP_CMP_NEQ:                 // all comparisons produce
-            case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:             // a bool
-            case OP_CMP_LT: case OP_CMP_GT:
-            case OP_CMP_LTE: case OP_CMP_GTE:
-            case OP_AND: case OP_OR:                             // logical ops produce bool
-                if (d < JIT_MAX_REGS_SCAN) {
-                    is_bool[d] = true;  is_none[d] = false; is_num[d] = false;
-                }
-                break;
-
-            case OP_MOVE:                                        // move preserves all three flags
-                if (d < JIT_MAX_REGS_SCAN) {
-                    is_bool[d] = (a < JIT_MAX_REGS_SCAN) ? is_bool[a] : false;
-                    is_none[d] = (a < JIT_MAX_REGS_SCAN) ? is_none[a] : false;
-                    is_num [d] = (a < JIT_MAX_REGS_SCAN) ? is_num [a] : false;
-                }
-                break;
-
-            case OP_LOAD_BOOL:
-                if (d < JIT_MAX_REGS_SCAN) {
-                    is_bool[d] = true;  is_none[d] = false; is_num[d] = false;
-                }
-                break;
-
-            case OP_LOAD_NONE:
-                if (d < JIT_MAX_REGS_SCAN) {
-                    is_bool[d] = false; is_none[d] = true;  is_num[d] = false;
-                }
-                break;
-
-            case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:              // provably numeric producers
-            case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
-            case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:
-            case OP_DIV_IMM: case OP_MOD_IMM:
-            case OP_NEG: case OP_INC: case OP_DEC:
-                if (d < JIT_MAX_REGS_SCAN) {
-                    is_bool[d] = false; is_none[d] = false; is_num[d] = true;
-                }
-                break;
-
-            case OP_LOAD_CONST: {                                // type is decided by the pool entry
-                if (d >= JIT_MAX_REGS_SCAN) break;
-                int idx = inst->operands[1];                     // constant pool index
-                if (idx < 0 || idx >= chunk->const_count) {      // out of range: unknown
-                    is_bool[d] = false; is_none[d] = false; is_num[d] = false;
-                    break;
-                }
-                switch (chunk->constants[idx].type) {
-                    case CONST_NUMBER:
-                        is_bool[d] = false; is_none[d] = false; is_num[d] = true;  break;
-                    case CONST_BOOL:
-                        is_bool[d] = true;  is_none[d] = false; is_num[d] = false; break;
-                    case CONST_NONE:
-                        is_bool[d] = false; is_none[d] = true;  is_num[d] = false; break;
-                    default:                                     // string / function: unknown
-                        is_bool[d] = false; is_none[d] = false; is_num[d] = false; break;
-                }
-                break;
-            }
-
-            case OP_CALL_0: case OP_CALL_1: case OP_CALL_2:      // callee return type unknown
-            case OP_CALL_BUILTIN: case OP_ASYNC_CALL_BUILTIN:    // builtin result type unknown
-                if (d < JIT_MAX_REGS_SCAN) {
-                    is_bool[d] = false; is_none[d] = false; is_num[d] = false;
-                }
-                break;
-
-            case OP_RETURN:                                      // return kind depends on reg
-                if (d >= JIT_MAX_REGS_SCAN) { any_any = true; break; }
-                if      (is_none[d]) any_none = true;
-                else if (is_bool[d]) any_bool = true;
-                else if (is_num [d]) any_num  = true;
-                else if (params_numeric && d < arity) any_num = true;  // param arrives numeric
-                else                 any_any  = true;            // can't prove -> runtime check
-                break;
-
-            case OP_RETURN_NUM:                                  // explicitly numeric
-            case OP_RETURN_NUM_IMM:                              // numeric immediate
-                any_num = true;
-                break;
-
-            case OP_RETURN_BOOL:                                 // explicitly boolean
-                any_bool = true;
-                break;
-
-            case OP_RETURN_NONE:                                 // explicitly none
-                any_none = true;
-                break;
-
-            default: break;                                      // other ops don't matter
-        }
-    }
-
-    // if any return came from a register whose type isn't provable, fall back to jit_ret_any
-    if (any_any) {
-        *out = JIT_RET_ANY;
-        return true;
-    }
-
-    int kinds = (any_bool ? 1 : 0) + (any_num ? 1 : 0) + (any_none ? 1 : 0);
-    if (kinds != 1) return false;                                // mixed return -> reject
-
-    *out = any_none ? JIT_RET_NONE
-         : any_bool ? JIT_RET_BOOL
-                    : JIT_RET_NUMBER;
-    return true;
-}
-
-// infers how a function returns its value; returns false on mixed kinds
-static bool infer_return_type(BytecodeChunk* chunk, int start, int end,
-                              JitReturnType* out) {
-    return infer_return_type_ex(chunk, start, end, 0, false, out);  // params unproven
-}
-
-// simple per-slot type for strict-purity analysis
-typedef enum {
-    SP_NUM = 0,   // provably a plain number
-    SP_BOOL,      // provably a bool (from LOAD_BOOL or CMP_*)
-    SP_NONE,      // provably none (from LOAD_NONE)
-    SP_UNK,       // unknown type (params before binding, call results, etc.)
-} SPType;
-
-// strict purity: verify every arithmetic operand is numeric (via simple flow)
-// so the optimized emit (which assumes numeric operands) is safe
-static bool function_is_strictly_pure(JITContext* ctx, int func_idx) {
-    BytecodeChunk* chunk = ctx->chunk;
-    int start = ctx->range_start[func_idx];
-    int end   = ctx->range_end[func_idx];
-    int arity = chunk->functions[func_idx].arity;
-    if (arity > JIT_MAX_SLOTS) return false;                  // too many params to track
-
-    SPType types[JIT_MAX_SLOTS];                              // per-slot type
-    for (int i = 0; i < JIT_MAX_SLOTS; i++) types[i] = SP_UNK;
-    for (int i = 0; i < arity; i++) types[i] = SP_NUM;         // native entry accepts only numeric args
-
-    // a self-recursive call can preserve the function's numeric result type
-    bool uses_numeric_self_call = false;
-    bool all_returns_numeric = true;
-    bool saw_return = false;
-
-    for (int pc = start; pc < end; pc++) {
-        Instruction* inst = &chunk->code[pc];
-        int d = inst->operands[0];
-        int a = inst->operands[1];
-        int b = inst->operands[2];
-        switch (inst->opcode) {
-            case OP_MOVE:
-                if (d < 0 || d >= JIT_MAX_SLOTS) return false;
-                if (a < 0 || a >= JIT_MAX_SLOTS) { types[d] = SP_UNK; break; }
-                types[d] = types[a];
-                break;
-            case OP_LOAD_NUM_IMM: case OP_LOAD_NUM:
-                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_NUM;
-                break;
-            case OP_LOAD_CONST: {                                // strict-pure: only scalar loads
-                if (d < 0 || d >= JIT_MAX_SLOTS) return false;
-                int idx = inst->operands[1];                     // constant pool index
-                if (idx < 0 || idx >= chunk->const_count) return false;
-                switch (chunk->constants[idx].type) {
-                    case CONST_NUMBER: types[d] = SP_NUM;  break;
-                    case CONST_BOOL:   types[d] = SP_BOOL; break;
-                    case CONST_NONE:   types[d] = SP_NONE; break;
-                    default:           types[d] = SP_UNK;  break;  // string -> unknown
-                }
-                break;
-            }
-            case OP_LOAD_BOOL:
-                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_BOOL;
-                break;
-            case OP_LOAD_NONE:
-                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_NONE;
-                break;
-            case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
-                if (a < 0 || a >= JIT_MAX_SLOTS) return false;
-                if (b < 0 || b >= JIT_MAX_SLOTS) return false;
-                if (types[a] != SP_NUM || types[b] != SP_NUM) return false;
-                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_NUM;
-                break;
-            case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:
-            case OP_DIV_IMM: case OP_MOD_IMM:
-                if (a < 0 || a >= JIT_MAX_SLOTS) return false;
-                if (types[a] != SP_NUM) return false;
-                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_NUM;
-                break;
-            case OP_NEG:
-                if (a < 0 || a >= JIT_MAX_SLOTS) return false;
-                if (types[a] != SP_NUM) return false;
-                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_NUM;
-                break;
-            case OP_INC: case OP_DEC:
-                if (d < 0 || d >= JIT_MAX_SLOTS) return false;
-                if (types[d] != SP_NUM) return false;
-                break;
-            case OP_CMP_EQ: case OP_CMP_NEQ:
-            case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
-            case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
-                // comparisons need numeric operands for the optimized emit
-                if (a < 0 || a >= JIT_MAX_SLOTS) return false;
-                if (b < 0 || b >= JIT_MAX_SLOTS) return false;
-                if (types[a] != SP_NUM || types[b] != SP_NUM) return false;
-                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_BOOL;
-                break;
-            case OP_JUMP_IF_EQ: case OP_JUMP_IF_NEQ:
-            case OP_JUMP_IF_EQ_NUM: case OP_JUMP_IF_NEQ_NUM:
-                // eq/neq jumps use dispatch in interpreter; pure emit needs numeric operands
-                if (a < 0 || a >= JIT_MAX_SLOTS) return false;
-                if (b < 0 || b >= JIT_MAX_SLOTS) return false;
-                if (types[a] != SP_NUM || types[b] != SP_NUM) return false;
-                break;
-            case OP_AND: case OP_OR:                       // bit-0 test, works on any type
-                if (a < 0 || a >= JIT_MAX_SLOTS) return false;
-                if (b < 0 || b >= JIT_MAX_SLOTS) return false;
-                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_BOOL;
-                break;
-            case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:
-            case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:
-            case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:
-            case OP_JUMP_IF_LT_IMM: case OP_JUMP_IF_GT_IMM:
-            case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
-            case OP_JUMP_IF_NONE: case OP_JUMP_IF_NOT_NONE:
-            case OP_JUMP_IF_FALSE: case OP_JUMP:
-                // other jumps: pure emit matches interpreter (bits comparison / falsy-bit test)
-                break;
-            case OP_RETURN: case OP_RETURN_NUM:
-                saw_return = true;
-                if (d < 0 || d >= JIT_MAX_SLOTS || types[d] != SP_NUM)
-                    all_returns_numeric = false;
-                break;
-            case OP_RETURN_NUM_IMM:
-                saw_return = true;                              // immediate return is numeric
-                break;
-            case OP_RETURN_BOOL: case OP_RETURN_NONE:
-                saw_return = true;
-                all_returns_numeric = false;
-                break;
-            case OP_CALL_0:
-                // no args; the call result type is unknown
-                if (d >= 0 && d < JIT_MAX_SLOTS) types[d] = SP_UNK;
-                break;
-            case OP_CALL_1:
-                if (b < 0 || b >= JIT_MAX_SLOTS) return false;
-                if (types[b] != SP_NUM) return false;
-                if (d >= 0 && d < JIT_MAX_SLOTS) {
-                    if (a == func_idx) {
-                        types[d] = SP_NUM;
-                        uses_numeric_self_call = true;
-                    } else {
-                        types[d] = SP_UNK;
-                    }
-                }
-                break;
-            case OP_CALL_2:
-                if (b < 0 || b >= JIT_MAX_SLOTS) return false;
-                if (b + 1 >= JIT_MAX_SLOTS) return false;
-                if (types[b] != SP_NUM || types[b + 1] != SP_NUM) return false;
-                if (d >= 0 && d < JIT_MAX_SLOTS) {
-                    if (a == func_idx) {
-                        types[d] = SP_NUM;
-                        uses_numeric_self_call = true;
-                    } else {
-                        types[d] = SP_UNK;
-                    }
-                }
-                break;
-            default:
-                return false;                             // any op outside pure set: not strict
-        }
-    }
-
-    if (uses_numeric_self_call && (!saw_return || !all_returns_numeric))
-        return false;                                             // no numeric induction base / mixed return
-    return true;
-}
-
 // checks whether an instruction writes a value to operands[0]
 static bool loop_prefix_op_writes_dest(Opcode op) {
     switch (op) {
@@ -687,6 +388,397 @@ static bool loop_prefix_op_writes_dest(Opcode op) {
         default:
             return false;                                        // no frame destination
     }
+}
+
+// simple per-slot type for the cfg type-flow below
+typedef enum {
+    SP_NUM = 0,   // provably a plain number
+    SP_BOOL,      // provably a bool (from loads, cmp, logical ops)
+    SP_NONE,      // provably none (from loads)
+    SP_STR,       // provably a string (from loads or concat)
+    SP_UNK,       // unknown / mixed / tagged
+} SPType;
+
+// return-kind bits observed while flowing through a function
+#define TF_RET_NUM   0x1   // a provably-numeric return
+#define TF_RET_BOOL  0x2   // a provably-bool return
+#define TF_RET_NONE  0x4   // a provably-none return
+#define TF_RET_OTHER 0x8   // strings, tables, or unprovable slots
+
+// outcome of one type-flow run over a function
+typedef struct {
+    bool ok;          // no strict-unsafe instruction on any reachable path
+    bool saw_return;  // at least one return opcode was reached
+    int  ret_kinds;   // OR of the TF_RET_* bits above
+} TypeFlowResult;
+
+// meets two slot types at a control-flow join
+static SPType sp_meet(SPType a, SPType b) {
+    return a == b ? a : SP_UNK;                               // agreeing types survive, mixes collapse
+}
+
+// reads a slot's type, treating out-of-range slots as unknown
+static SPType tf_get(SPType* s, int slot) {
+    return (slot >= 0 && slot < JIT_MAX_SLOTS) ? s[slot] : SP_UNK;   // untracked slots stay unknown
+}
+
+// writes a slot's type when it is trackable
+static void tf_set(SPType* s, int slot, SPType t) {
+    if (slot >= 0 && slot < JIT_MAX_SLOTS) s[slot] = t;              // untracked slots stay unknown
+}
+
+// interpreter result type of arithmetic: numbers stay numbers, surely-tagged operands yield none
+static SPType tf_arith_type(SPType x, SPType y) {
+    if (x == SP_NUM && y == SP_NUM) return SP_NUM;              // plain arithmetic
+    if (x == SP_UNK || y == SP_UNK) return SP_UNK;              // maybe numeric at runtime
+    return SP_NONE;                                             // tagged operand: interpreter yields none
+}
+
+// true when an opcode unconditionally transfers control away (no fallthrough edge)
+static bool tf_is_terminator(Opcode op) {
+    switch (op) {
+        case OP_JUMP:                                           // sole edge is its target
+        case OP_RETURN: case OP_RETURN_NUM: case OP_RETURN_NUM_IMM:   // leaves the function
+        case OP_RETURN_BOOL: case OP_RETURN_NONE:
+        case OP_HALT:
+        case OP_SWITCH_STR: case OP_SWITCH_NUM:                 // dispatch ends in an unconditional default jump
+            return true;
+        default:
+            return false;
+    }
+}
+
+// adds one cfg edge: meets the out-state into the target's in-state
+static void tf_edge(BytecodeChunk* chunk, int start, int end, int target,
+                    SPType* in, bool* reached, bool* in_wl,
+                    int* wl, int* wl_top, SPType* out) {
+    if (target < start || target >= end) return;               // exit or out of range: ignore
+    int t = target - start;                                    // row index of the target
+    if (!reached[t]) {                                         // first arrival seeds the row
+        memcpy(in + (size_t)t * JIT_MAX_SLOTS, out, JIT_MAX_SLOTS * sizeof(SPType));
+        reached[t] = true;                                     // row now holds the out-state
+        if (!in_wl[t]) { in_wl[t] = true; wl[(*wl_top)++] = t; }  // visit it later
+        return;
+    }
+    SPType* row = in + (size_t)t * JIT_MAX_SLOTS;              // target's current in-state
+    bool weakened = false;                                     // did any slot get weaker?
+    for (int s = 0; s < JIT_MAX_SLOTS; s++)
+        if (row[s] != out[s] && sp_meet(row[s], out[s]) != row[s]) {   // meet weakened some slot
+            row[s] = sp_meet(row[s], out[s]);                   // keep the weaker type
+            weakened = true;                                    // one revisit covers all slots
+        }
+    if (weakened && !in_wl[t]) {                               // state changed: revisit once
+        in_wl[t] = true;
+        wl[(*wl_top)++] = t;
+    }
+}
+
+// runs the per-slot type dataflow over one function's cfg
+static void type_flow_analyze(JITContext* ctx, int func_idx, bool params_numeric,
+                              const bool* callee_numret, TypeFlowResult* res) {
+    BytecodeChunk* chunk = ctx->chunk;
+    int start = ctx->range_start[func_idx];                     // first pc of this fn
+    int end   = ctx->range_end[func_idx];                       // one past last pc
+    int arity = chunk->functions[func_idx].arity;               // parameter count
+    int n     = end - start;                                    // pcs in the body
+
+    memset(res, 0, sizeof(*res));                               // start from a clean verdict
+    res->ok = true;                                             // rejects only accumulate below
+    if (n <= 0 || arity > JIT_MAX_SLOTS) {                      // empty body or too many params
+        res->ok = false;
+        return;
+    }
+
+    SPType* in = (SPType*)malloc((size_t)n * JIT_MAX_SLOTS * sizeof(SPType));  // per-pc in-states
+    bool*  reached = (bool*)calloc(n, 1);                       // reachability per pc
+    bool*  in_wl   = (bool*)calloc(n, 1);                       // pending-in-worklist marks
+    int*   wl = (int*)malloc(sizeof(int) * (size_t)n);          // worklist (deduped by in_wl)
+    SPType cur[JIT_MAX_SLOTS];                                  // scratch out-state
+    if (!in || !reached || !in_wl || !wl) {                     // allocation failed
+        free(in); free(reached); free(in_wl); free(wl);
+        res->ok = false;
+        return;
+    }
+
+    int wl_top = 0;                                             // worklist is empty
+    for (int s = 0; s < JIT_MAX_SLOTS; s++)
+        cur[s] = (params_numeric && s < arity) ? SP_NUM : SP_UNK;   // entry state: params per contract
+    memcpy(in, cur, JIT_MAX_SLOTS * sizeof(SPType));            // seed pc 0 (function entry)
+    reached[0] = true;
+    in_wl[0] = true;
+    wl[wl_top++] = 0;
+
+    while (wl_top > 0) {                                        // classic worklist dataflow
+        int pi = wl[--wl_top];                                  // pop one pc
+        in_wl[pi] = false;                                      // no longer pending
+        int pc = start + pi;                                    // absolute pc
+        memcpy(cur, in + (size_t)pi * JIT_MAX_SLOTS, JIT_MAX_SLOTS * sizeof(SPType));  // load in-state
+
+        Instruction* inst = &chunk->code[pc];                   // current instruction
+        int d = inst->operands[0];                              // destination operand
+        int a = inst->operands[1];                              // first source operand
+        int b = inst->operands[2];                              // second source operand
+
+        switch (inst->opcode) {
+            case OP_MOVE:                                       // reg-to-reg copy keeps the type
+                tf_set(cur, d, tf_get(cur, a));
+                break;
+
+            case OP_LOAD_NUM_IMM:                               // small int literal
+                tf_set(cur, d, SP_NUM);
+                break;
+
+            case OP_LOAD_NUM: {                                 // numeric constant
+                bool plain = a >= 0 && a < chunk->const_count &&
+                             chunk->constants[a].type == CONST_NUMBER &&
+                             !isnan(chunk->constants[a].number_value);  // nan constants arrive nan-tagged
+                tf_set(cur, d, plain ? SP_NUM : SP_UNK);
+                break;
+            }
+
+            case OP_LOAD_CONST: {                               // scalar constants by pool type
+                if (a < 0 || a >= chunk->const_count) {         // out of range: unknown
+                    tf_set(cur, d, SP_UNK);
+                    break;
+                }
+                switch (chunk->constants[a].type) {
+                    case CONST_NUMBER:                           // nan numbers arrive nan-tagged
+                        tf_set(cur, d, !isnan(chunk->constants[a].number_value) ? SP_NUM : SP_UNK);
+                        break;
+                    case CONST_BOOL:   tf_set(cur, d, SP_BOOL); break;
+                    case CONST_NONE:   tf_set(cur, d, SP_NONE); break;
+                    case CONST_STRING: tf_set(cur, d, SP_STR);  break;
+                    default:           tf_set(cur, d, SP_UNK);  break;   // tables, functions
+                }
+                break;
+            }
+
+            case OP_LOAD_BOOL:
+                tf_set(cur, d, SP_BOOL);
+                break;
+
+            case OP_LOAD_NONE:
+                tf_set(cur, d, SP_NONE);
+                break;
+
+            case OP_ADD: case OP_SUB: case OP_MUL: case OP_DIV: case OP_MOD:
+                if (tf_get(cur, a) != SP_NUM || tf_get(cur, b) != SP_NUM)
+                    res->ok = false;                            // unchecked emit needs numeric operands
+                tf_set(cur, d, tf_arith_type(tf_get(cur, a), tf_get(cur, b)));
+                break;
+
+            case OP_ADD_IMM: case OP_SUB_IMM: case OP_MUL_IMM:
+            case OP_DIV_IMM: case OP_MOD_IMM:
+            case OP_NEG: {
+                SPType x = tf_get(cur, a);                      // the single value operand
+                if (x != SP_NUM) res->ok = false;               // unchecked emit needs numeric operands
+                tf_set(cur, d, tf_arith_type(x, SP_NUM));
+                break;
+            }
+
+            case OP_INC: case OP_DEC: {
+                SPType x = tf_get(cur, d);                      // in-place: dest is also the source
+                if (x != SP_NUM) res->ok = false;               // unchecked emit needs numeric operands
+                tf_set(cur, d, tf_arith_type(x, SP_NUM));
+                break;
+            }
+
+            case OP_CMP_EQ: case OP_CMP_NEQ:                    // all comparisons
+            case OP_CMP_EQ_NUM: case OP_CMP_NEQ_NUM:
+            case OP_CMP_LT: case OP_CMP_GT: case OP_CMP_LTE: case OP_CMP_GTE:
+                if (tf_get(cur, a) != SP_NUM || tf_get(cur, b) != SP_NUM)
+                    res->ok = false;                            // ucomisd emit needs numeric operands
+                tf_set(cur, d, SP_BOOL);
+                break;
+
+            case OP_AND: case OP_OR:                             // bit-0 test works on any known type
+                if (tf_get(cur, a) == SP_UNK || tf_get(cur, b) == SP_UNK)
+                    res->ok = false;                            // never-assigned bits are garbage
+                tf_set(cur, d, SP_BOOL);
+                break;
+
+            case OP_JUMP:                                           // unconditional branch
+            case OP_HALT:                                           // interpreter stop
+                break;                                              // no operands to observe
+
+            case OP_JUMP_IF_FALSE:                               // falsy-bit test
+                if (tf_get(cur, a) == SP_UNK) res->ok = false;  // never-assigned bits are garbage
+                break;
+
+            case OP_JUMP_IF_EQ: case OP_JUMP_IF_NEQ:            // ucomisd-based branches
+            case OP_JUMP_IF_EQ_NUM: case OP_JUMP_IF_NEQ_NUM:
+                if (tf_get(cur, a) != SP_NUM || tf_get(cur, b) != SP_NUM)
+                    res->ok = false;                            // raw equality needs numeric operands
+                break;
+
+            case OP_JUMP_IF_LT: case OP_JUMP_IF_GT:             // raw double compares
+            case OP_JUMP_IF_LTE: case OP_JUMP_IF_GTE:
+                if (tf_get(cur, a) == SP_UNK || tf_get(cur, b) == SP_UNK)
+                    res->ok = false;                            // never-assigned bits are garbage
+                break;
+
+            case OP_JUMP_IF_EQ_IMM: case OP_JUMP_IF_NEQ_IMM:    // immediate compares
+            case OP_JUMP_IF_LT_IMM: case OP_JUMP_IF_GT_IMM:
+            case OP_JUMP_IF_LTE_IMM: case OP_JUMP_IF_GTE_IMM:
+            case OP_JUMP_IF_NONE: case OP_JUMP_IF_NOT_NONE:     // none-bit compares
+                if (tf_get(cur, a) == SP_UNK) res->ok = false;  // never-assigned bits are garbage
+                break;
+
+            case OP_JUMP_MATCH_NUM: case OP_JUMP_MATCH_STR:     // match dispatch
+            case OP_JUMP_MATCH_BOOL: case OP_JUMP_MATCH_NONE:
+                if (tf_get(cur, a) == SP_UNK) res->ok = false;  // never-assigned bits are garbage
+                break;
+
+            case OP_JUMP_TABLE:                                 // dense integer dispatch
+                if (tf_get(cur, d) == SP_UNK) res->ok = false;  // subject is operands[0] here
+                break;
+
+            case OP_SWITCH_STR: case OP_SWITCH_NUM:             // perfect-hash dispatch
+                if (tf_get(cur, d) == SP_UNK) res->ok = false;  // subject is operands[0] here
+                break;
+
+            case OP_CALL_0:                                     // calls
+                tf_set(cur, d, (callee_numret && a >= 0 && a < ctx->func_count &&
+                                callee_numret[a]) ? SP_NUM : SP_UNK);   // numeric callee contract
+                break;
+
+            case OP_CALL_1:
+                if (tf_get(cur, b) != SP_NUM) res->ok = false;   // raw arg must be a plain number
+                tf_set(cur, d, (callee_numret && a >= 0 && a < ctx->func_count &&
+                                callee_numret[a]) ? SP_NUM : SP_UNK);   // numeric callee contract
+                break;
+
+            case OP_CALL_2:
+                if (tf_get(cur, b) != SP_NUM || tf_get(cur, b + 1) != SP_NUM)
+                    res->ok = false;                            // raw args must be plain numbers
+                tf_set(cur, d, (callee_numret && a >= 0 && a < ctx->func_count &&
+                                callee_numret[a]) ? SP_NUM : SP_UNK);   // numeric callee contract
+                break;
+
+            case OP_CONCAT:                                     // string building
+                tf_set(cur, d, SP_STR);
+                res->ok = false;                                // helper-lowered: not strict
+                break;
+
+            case OP_RETURN: {                                   // returns the slot's value
+                res->saw_return = true;
+                switch (tf_get(cur, d)) {
+                    case SP_NUM:  res->ret_kinds |= TF_RET_NUM;  break;
+                    case SP_BOOL: res->ret_kinds |= TF_RET_BOOL; break;
+                    case SP_NONE: res->ret_kinds |= TF_RET_NONE; break;
+                    default:      res->ret_kinds |= TF_RET_OTHER; break;   // strings or unprovable
+                }
+                break;
+            }
+
+            case OP_RETURN_NUM: case OP_RETURN_NUM_IMM:         // compiler-proven numeric return
+                res->saw_return = true;
+                res->ret_kinds |= TF_RET_NUM;
+                break;
+
+            case OP_RETURN_BOOL:                                 // compiler-proven bool return
+                res->saw_return = true;
+                res->ret_kinds |= TF_RET_BOOL;
+                break;
+
+            case OP_RETURN_NONE:                                 // compiler-proven none return
+                res->saw_return = true;
+                res->ret_kinds |= TF_RET_NONE;
+                break;
+
+            default: {                                          // helper-lowered ops stay checked
+                if (loop_prefix_op_writes_dest(inst->opcode))   // only writers change a slot
+                    tf_set(cur, d, SP_UNK);                      // helper results are unprovable
+                if (inst->opcode != OP_PUSH_ARG &&              // arg pushes read, never write
+                    inst->opcode != OP_STORE_GLOBAL &&          // global writes read the value slot
+                    inst->opcode != OP_TABLE_SET &&
+                    inst->opcode != OP_TABLE_SET_NUM &&
+                    inst->opcode != OP_TABLE_SET_INT &&
+                    inst->opcode != OP_TABLE_SET_KEY_STR &&
+                    inst->opcode != OP_TABLE_SET_CONST &&
+                    inst->opcode != OP_TABLE_APPEND &&
+                    inst->opcode != OP_POP_ITER &&
+                    inst->opcode != OP_POP_TABLE_ITER &&
+                    inst->opcode != OP_FOR_INIT &&
+                    inst->opcode != OP_TABLE_ITER_INIT)
+                    res->ok = false;                            // anything else: strict tier rejects
+                break;
+            }
+        }
+
+        // cfg edges out of this pc
+        int target = branch_target_of(inst);                    // classic branch targets
+        if (target >= 0) {                                      // this is a branch
+            tf_edge(chunk, start, end, target, in, reached, in_wl, wl, &wl_top, cur);
+            if (!tf_is_terminator(inst->opcode))                // conditional: fallthrough too
+                tf_edge(chunk, start, end, pc + 1, in, reached, in_wl, wl, &wl_top, cur);
+        } else if (inst->opcode == OP_JUMP_MATCH_NUM ||         // match jumps: target + fallthrough
+                   inst->opcode == OP_JUMP_MATCH_STR ||
+                   inst->opcode == OP_JUMP_MATCH_BOOL ||
+                   inst->opcode == OP_JUMP_MATCH_NONE) {
+            tf_edge(chunk, start, end, d, in, reached, in_wl, wl, &wl_top, cur);
+            tf_edge(chunk, start, end, pc + 1, in, reached, in_wl, wl, &wl_top, cur);
+        } else if (inst->opcode == OP_JUMP_TABLE) {             // dense dispatch: all targets + miss
+            int idx = inst->operands[2];                        // constant pool index
+            if (idx >= 0 && idx < chunk->const_count &&
+                chunk->constants[idx].type == CONST_JUMP_TABLE) {
+                for (int i = 0; i < chunk->constants[idx].jump_table.count; i++)
+                    tf_edge(chunk, start, end, chunk->constants[idx].jump_table.addresses[i],
+                            in, reached, in_wl, wl, &wl_top, cur);     // one edge per case
+            }
+            tf_edge(chunk, start, end, pc + 1, in, reached, in_wl, wl, &wl_top, cur);  // miss falls through
+        } else if (inst->opcode == OP_SWITCH_STR) {             // hash dispatch: cases + default
+            int idx = inst->operands[1];
+            if (idx >= 0 && idx < chunk->const_count &&
+                chunk->constants[idx].type == CONST_STR_SWITCH) {
+                for (int i = 0; i <= chunk->constants[idx].str_switch.mask; i++) {
+                    int tgt = chunk->constants[idx].str_switch.entries[i].target;
+                    if (tgt >= 0)                               // empty slot: skip
+                        tf_edge(chunk, start, end, tgt, in, reached, in_wl, wl, &wl_top, cur);
+                }
+                tf_edge(chunk, start, end, chunk->constants[idx].str_switch.default_pc,
+                        in, reached, in_wl, wl, &wl_top, cur);         // default arm
+            }
+        } else if (inst->opcode == OP_SWITCH_NUM) {
+            int idx = inst->operands[1];
+            if (idx >= 0 && idx < chunk->const_count &&
+                chunk->constants[idx].type == CONST_NUM_SWITCH) {
+                for (int i = 0; i <= chunk->constants[idx].num_switch.mask; i++) {
+                    int tgt = chunk->constants[idx].num_switch.entries[i].target;
+                    if (tgt >= 0)
+                        tf_edge(chunk, start, end, tgt, in, reached, in_wl, wl, &wl_top, cur);
+                }
+                tf_edge(chunk, start, end, chunk->constants[idx].num_switch.default_pc,
+                        in, reached, in_wl, wl, &wl_top, cur);
+            }
+        } else if (!tf_is_terminator(inst->opcode)) {           // plain fallthrough
+            tf_edge(chunk, start, end, pc + 1, in, reached, in_wl, wl, &wl_top, cur);
+        }
+    }
+
+    free(in);                                                   // flow buffers are per-run
+    free(reached);
+    free(in_wl);
+    free(wl);
+}
+
+// infers how a function returns its value; false on mixed or missing kinds
+static bool infer_return_type(JITContext* ctx, int func_idx, JitReturnType* out) {
+    TypeFlowResult res;
+    type_flow_analyze(ctx, func_idx, false, NULL, &res);        // params unproven, callees unknown
+    if (!res.saw_return) return false;                          // no return reached at all
+    if (res.ret_kinds & TF_RET_OTHER) {                         // unprovable value: runtime check
+        *out = JIT_RET_ANY;
+        return true;
+    }
+    int kinds = ((res.ret_kinds & TF_RET_NUM)  ? 1 : 0) +       // count distinct known kinds
+                ((res.ret_kinds & TF_RET_BOOL) ? 1 : 0) +
+                ((res.ret_kinds & TF_RET_NONE) ? 1 : 0);
+    if (kinds != 1) return false;                               // mixed return -> reject
+    *out = (res.ret_kinds & TF_RET_NUM)  ? JIT_RET_NUMBER :     // single kind wins
+           (res.ret_kinds & TF_RET_BOOL) ? JIT_RET_BOOL
+                                         : JIT_RET_NONE;
+    return true;
 }
 
 // infers register types along a prefix & across completed numeric loops
@@ -1536,17 +1628,42 @@ bool jit_analyze(JITContext* ctx) {
 
     for (int i = 1; i < n; i++) {                                // return-type detection
         if (!ctx->pure[i]) continue;                             // skip non-pure
-        if (!infer_return_type(chunk, ctx->range_start[i], ctx->range_end[i],
-                               &ctx->return_type[i])) {
+        if (!infer_return_type(ctx, i, &ctx->return_type[i])) {
             ctx->pure[i] = false;                                // mixed return -> reject
         }
     }
 
-    // strict purity: numeric-flow check; enables the optimized (unchecked) emit
+    // strict purity: cfg type-flow proves every unchecked operand numeric
+    bool* numret = NULL;                                           // callee returns numbers under the contract
+    if (n > 0) numret = (bool*)calloc((size_t)n, sizeof(bool));     // positive count keeps the range tight
+    if (!numret) return false;                                      // allocation failed
+    for (int i = 0; i < n; i++) numret[i] = ctx->pure[i];         // optimistic start: every pure fn qualifies
+    bool numret_changed = true;                                  // fixpoint driver
+    while (numret_changed) {
+        numret_changed = false;
+        for (int i = 1; i < n; i++) {
+            if (!ctx->pure[i]) continue;                         // only pure fns hold the contract
+            TypeFlowResult res;
+            type_flow_analyze(ctx, i, true, numret, &res);       // numeric-args contract
+            bool now = res.saw_return && res.ret_kinds == TF_RET_NUM;   // every return is numeric
+            if (now != numret[i]) {
+                numret[i] = now;                                 // contract verdict changed
+                numret_changed = true;
+            }
+        }
+    }
     for (int i = 0; i < n; i++) {
         if (!ctx->pure[i]) { ctx->strict_pure[i] = false; continue; }
-        ctx->strict_pure[i] = function_is_strictly_pure(ctx, i);
+        TypeFlowResult res;
+        type_flow_analyze(ctx, i, true, numret, &res);           // final verdict with stable callees
+        ctx->strict_pure[i] = res.ok;
+        if (ctx->strict_pure[i] && ctx->return_type[i] == JIT_RET_ANY) {
+            if      (res.ret_kinds == TF_RET_NUM)  ctx->return_type[i] = JIT_RET_NUMBER;  // numeric return proven
+            else if (res.ret_kinds == TF_RET_BOOL) ctx->return_type[i] = JIT_RET_BOOL;   // bool return proven
+            else if (res.ret_kinds == TF_RET_NONE) ctx->return_type[i] = JIT_RET_NONE;   // none return proven
+        }
     }
+    free(numret);                                                 // contract scratch is done
 
     // basic tier eligibility, computed before loop detection
     for (int i = 1; i < n; i++)
@@ -1567,8 +1684,7 @@ bool jit_analyze(JITContext* ctx) {
     // return types for basic fns: mixed returns box at runtime
     for (int i = 1; i < n; i++) {
         if (!ctx->basic[i]) continue;                             // only basic tier here
-        if (!infer_return_type(chunk, ctx->range_start[i], ctx->range_end[i],
-                               &ctx->return_type[i])) {
+        if (!infer_return_type(ctx, i, &ctx->return_type[i])) {
             ctx->return_type[i] = JIT_RET_ANY;                   // boxes in jit_op_call
         }
     }
@@ -1595,59 +1711,6 @@ bool jit_analyze(JITContext* ctx) {
             li--;                                                 // re-check this index
         }
     }
-
-    // strict-pure callees consume raw doubles
-    bool strict_edge_changed;
-    do {
-        strict_edge_changed = false;
-        for (int target = 1; target < n; target++) {
-            if (!ctx->strict_pure[target]) continue;
-            bool unsafe_call_edge = false;
-
-            for (int caller = 1; caller < n && !unsafe_call_edge; caller++) {
-                if (caller == target || ctx->strict_pure[caller])
-                    continue;                                   // strict callers prove numeric args
-                if (!ctx->pure[caller])
-                    continue;                                   // basic/interpreter callers check at runtime
-                for (int pc = ctx->range_start[caller]; pc < ctx->range_end[caller]; pc++) {
-                    Instruction* inst = &chunk->code[pc];
-                    if ((inst->opcode == OP_CALL_1 || inst->opcode == OP_CALL_2) &&
-                        inst->operands[1] == target) {
-                        unsafe_call_edge = true;
-                        break;
-                    }
-                }
-            }
-
-            // calls inside native loop bodies bypass the interpreter's is_number dispatch too
-            for (int li = 0; li < ctx->loop_count && !unsafe_call_edge; li++) {
-                JitLoopInfo* loop = &ctx->loops[li];
-                for (int pc = loop->entry_pc; pc <= loop->back_edge_pc; pc++) {
-                    Instruction* inst = &chunk->code[pc];
-                    if ((inst->opcode == OP_CALL_1 || inst->opcode == OP_CALL_2) &&
-                        inst->operands[1] == target) {
-                        unsafe_call_edge = true;
-                        break;
-                    }
-                }
-            }
-
-            if (unsafe_call_edge) {
-                ctx->strict_pure[target] = false;                // retain checked arithmetic for safety
-                strict_edge_changed = true;
-            }
-        }
-    } while (strict_edge_changed);                              // propagate non-strict callers to their callees
-
-    // strict functions receive numeric arguments by convention
-    for (int i = 1; i < n; i++) {
-        if (!ctx->strict_pure[i] || ctx->return_type[i] != JIT_RET_ANY) continue;
-        JitReturnType t;
-        if (infer_return_type_ex(chunk, ctx->range_start[i], ctx->range_end[i],
-                                 chunk->functions[i].arity, true, &t))
-            ctx->return_type[i] = t;                               // numeric return proven
-    }
-
     int candidate_count = 0;                                     // anything to emit?
     for (int i = 0; i < n; i++) if (ctx->pure[i] || ctx->basic[i]) candidate_count++;
     return candidate_count > 0 || ctx->loop_count > 0;
